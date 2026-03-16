@@ -1,0 +1,58 @@
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthProvider, useAuth } from "./hooks/useAuth";
+import { LanguageProvider } from "./hooks/useLanguage";
+import Layout from "./components/Layout";
+import LoginPage from "./pages/LoginPage";
+import RegisterPage from "./pages/RegisterPage";
+import DashboardPage from "./pages/DashboardPage";
+import SalesPage from "./pages/SalesPage";
+import ExpensesPage from "./pages/ExpensesPage";
+import InventoryPage from "./pages/InventoryPage";
+import StaffingPage from "./pages/StaffingPage";
+import WastePage from "./pages/WastePage";
+import WeeklyReportPage from "./pages/WeeklyReportPage";
+import VatReportPage from "./pages/VatReportPage";
+
+function ProtectedRoute({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="p-8 text-center text-gray-500">Loading...</div>;
+  if (!user) return <Navigate to="/login" />;
+  return children;
+}
+
+function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
+      <Route
+        element={
+          <ProtectedRoute>
+            <Layout />
+          </ProtectedRoute>
+        }
+      >
+        <Route path="/" element={<DashboardPage />} />
+        <Route path="/sales" element={<SalesPage />} />
+        <Route path="/expenses" element={<ExpensesPage />} />
+        <Route path="/inventory" element={<InventoryPage />} />
+        <Route path="/staffing" element={<StaffingPage />} />
+        <Route path="/waste" element={<WastePage />} />
+        <Route path="/weekly-report" element={<WeeklyReportPage />} />
+        <Route path="/vat-report" element={<VatReportPage />} />
+      </Route>
+    </Routes>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <LanguageProvider>
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
+      </LanguageProvider>
+    </BrowserRouter>
+  );
+}

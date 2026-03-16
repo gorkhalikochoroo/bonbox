@@ -1,0 +1,28 @@
+import uuid
+from datetime import datetime
+
+from sqlalchemy import String, DateTime, Numeric
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.database import Base, GUID
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    business_name: Mapped[str] = mapped_column(String(255))
+    business_type: Mapped[str] = mapped_column(String(50), default="restaurant")
+    currency: Mapped[str] = mapped_column(String(3), default="DKK")
+    daily_goal: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    sales: Mapped[list["Sale"]] = relationship(back_populates="user")
+    expense_categories: Mapped[list["ExpenseCategory"]] = relationship(back_populates="user")
+    expenses: Mapped[list["Expense"]] = relationship(back_populates="user")
+    inventory_items: Mapped[list["InventoryItem"]] = relationship(back_populates="user")

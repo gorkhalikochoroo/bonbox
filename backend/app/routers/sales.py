@@ -1,0 +1,255 @@
+import csv
+import io
+from datetime import date, timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from sqlalchemy.orm import Session
+
+from fastapi.responses import FileResponse
+from sqlalchemy import func
+
+from app.database import get_db
+from app.models.user import User
+from app.models.sale import Sale
+from app.schemas.sale import SaleCreate, SaleResponse
+from app.services.auth import get_current_user
+from app.services.receipt_ocr import extract_amount_from_image, save_receipt_photo
+
+router = APIRouter()
+
+
+@router.get("", response_model=list[SaleResponse])
+def list_sales(
+    from_date: date = Query(None, alias="from"),
+    to_date: date = Query(None, alias="to"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    query = db.query(Sale).filter(Sale.user_id == user.id)
+    if from_date:
+        query = query.filter(Sale.date >= from_date)
+    if to_date:
+        query = query.filter(Sale.date <= to_date)
+    return query.order_by(Sale.date.desc()).all()
+
+
+@router.post("", response_model=SaleResponse, status_code=201)
+def create_sale(
+    data: SaleCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    sale = Sale(user_id=user.id, **data.model_dump())
+    db.add(sale)
+    db.commit()
+    db.refresh(sale)
+    return sale
+
+
+@router.post("/repeat-yesterday", response_model=SaleResponse, status_code=201)
+def repeat_yesterday(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Copy yesterday's sale as today's entry — one tap."""
+    yesterday = date.today() - timedelta(days=1)
+    last_sale = (
+        db.query(Sale)
+        .filter(Sale.user_id == user.id, Sale.date == yesterday)
+        .order_by(Sale.created_at.desc())
+        .first()
+    )
+    if not last_sale:
+        raise HTTPException(status_code=404, detail="No sale found for yesterday")
+
+    sale = Sale(
+        user_id=user.id,
+        date=date.today(),
+        amount=last_sale.amount,
+        payment_method=last_sale.payment_method,
+        notes="Repeated from yesterday",
+    )
+    db.add(sale)
+    db.commit()
+    db.refresh(sale)
+    return sale
+
+
+@router.post("/import-csv")
+async def import_csv(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Import sales from CSV. Expects columns: date, amount, payment_method (optional)."""
+    content = await file.read()
+    text = content.decode("utf-8-sig")  # handles BOM from Excel
+    reader = csv.DictReader(io.StringIO(text))
+
+    # Normalize column names (lowercase, strip whitespace)
+    imported = 0
+    errors = []
+    for i, row in enumerate(reader, start=2):
+        row = {k.strip().lower(): v.strip() for k, v in row.items() if k}
+        try:
+            sale_date = row.get("date", "")
+            amount = row.get("amount", "") or row.get("revenue", "") or row.get("total", "")
+            method = row.get("payment_method", "") or row.get("payment", "") or "mixed"
+
+            if not sale_date or not amount:
+                errors.append(f"Row {i}: missing date or amount")
+                continue
+
+            sale = Sale(
+                user_id=user.id,
+                date=date.fromisoformat(sale_date),
+                amount=float(amount.replace(",", "")),
+                payment_method=method if method in ("cash", "card", "mobilepay", "mixed", "dankort", "kontant") else "mixed",
+                notes="CSV import",
+            )
+            db.add(sale)
+            imported += 1
+        except Exception as e:
+            errors.append(f"Row {i}: {str(e)}")
+
+    db.commit()
+    return {"imported": imported, "errors": errors}
+
+
+@router.post("/upload-receipt")
+async def upload_receipt(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Upload a receipt photo. OCR extracts the total amount for confirmation."""
+    content = await file.read()
+    filepath = save_receipt_photo(content, file.filename, str(user.id))
+    result = extract_amount_from_image(filepath)
+    return {
+        "filepath": filepath,
+        "suggested_amount": result["suggested_amount"],
+        "all_amounts_found": result["all_amounts_found"],
+        "ocr_available": result["ocr_available"],
+    }
+
+
+@router.post("/from-receipt", response_model=SaleResponse, status_code=201)
+def create_sale_from_receipt(
+    amount: float = Query(...),
+    receipt_path: str = Query(...),
+    payment_method: str = Query("mixed"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Create a sale from a confirmed receipt upload."""
+    sale = Sale(
+        user_id=user.id,
+        date=date.today(),
+        amount=amount,
+        payment_method=payment_method,
+        receipt_photo=receipt_path,
+        notes="From receipt photo",
+    )
+    db.add(sale)
+    db.commit()
+    db.refresh(sale)
+    return sale
+
+
+@router.get("/weekly-report")
+def weekly_report(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Instant weekly summary — ready to screenshot or share."""
+    today = date.today()
+    week_start = today - timedelta(days=today.weekday())  # Monday
+    week_end = week_start + timedelta(days=6)  # Sunday
+
+    # Previous week for comparison
+    prev_start = week_start - timedelta(days=7)
+    prev_end = week_start - timedelta(days=1)
+
+    # This week's daily breakdown
+    daily = (
+        db.query(Sale.date, func.sum(Sale.amount).label("total"))
+        .filter(Sale.user_id == user.id, Sale.date.between(week_start, week_end))
+        .group_by(Sale.date)
+        .order_by(Sale.date)
+        .all()
+    )
+
+    week_total = sum(float(t) for _, t in daily)
+
+    prev_total = float(
+        db.query(func.coalesce(func.sum(Sale.amount), 0))
+        .filter(Sale.user_id == user.id, Sale.date.between(prev_start, prev_end))
+        .scalar()
+    )
+
+    change_pct = 0.0
+    if prev_total > 0:
+        change_pct = round(((week_total - prev_total) / prev_total) * 100, 1)
+
+    best = max(daily, key=lambda r: float(r.total), default=None)
+    worst = min(daily, key=lambda r: float(r.total), default=None)
+
+    day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+    return {
+        "week_start": str(week_start),
+        "week_end": str(week_end),
+        "total_revenue": week_total,
+        "prev_week_total": prev_total,
+        "change_pct": change_pct,
+        "daily_avg": round(week_total / max(len(daily), 1), 2),
+        "days_recorded": len(daily),
+        "best_day": {"date": str(best.date), "day": day_names[best.date.weekday()], "amount": float(best.total)} if best else None,
+        "worst_day": {"date": str(worst.date), "day": day_names[worst.date.weekday()], "amount": float(worst.total)} if worst else None,
+        "daily_breakdown": [
+            {"date": str(d), "day": day_names[d.weekday()], "amount": float(t)}
+            for d, t in daily
+        ],
+        "business_name": user.business_name,
+        "currency": user.currency,
+    }
+
+
+@router.get("/latest", response_model=SaleResponse | None)
+def get_latest_sale(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Get the most recent sale for showing in quick-entry."""
+    return (
+        db.query(Sale)
+        .filter(Sale.user_id == user.id)
+        .order_by(Sale.date.desc(), Sale.created_at.desc())
+        .first()
+    )
+
+
+@router.get("/receipts")
+def list_receipt_sales(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """List recent sales that have receipt photos attached."""
+    sales = (
+        db.query(Sale)
+        .filter(Sale.user_id == user.id, Sale.receipt_photo.isnot(None))
+        .order_by(Sale.date.desc(), Sale.created_at.desc())
+        .limit(20)
+        .all()
+    )
+    return [
+        {
+            "id": str(s.id),
+            "date": str(s.date),
+            "amount": float(s.amount),
+            "payment_method": s.payment_method,
+            "receipt_photo": s.receipt_photo,
+        }
+        for s in sales
+    ]

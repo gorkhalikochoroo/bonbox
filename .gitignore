@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.env
+*.db
+
+# Node
+node_modules/
+dist/
+
+# Uploads
+uploads/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+.claude/
