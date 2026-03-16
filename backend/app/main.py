@@ -18,9 +18,15 @@ app = FastAPI(
 
 from app.config import settings
 
+origins = [
+    settings.FRONTEND_URL,
+    "http://localhost:5173",
+    "https://bonbox.vercel.app",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL, "http://localhost:5173"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
