@@ -54,6 +54,15 @@ def _google_vision_ocr(image_path: str) -> str:
                 return text
     except Exception as e:
         print(f"[OCR] Google Vision error: {e}")
+        # Try to read the error response body for details
+        if hasattr(e, 'read'):
+            try:
+                error_body = e.read().decode("utf-8")
+                print(f"[OCR] Error details: {error_body[:500]}")
+            except Exception:
+                pass
+        if hasattr(e, 'headers'):
+            print(f"[OCR] Error headers: {dict(e.headers)}")
 
     return ""
 
