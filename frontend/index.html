@@ -3,11 +3,35 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#2563EB" />
+    <meta name="description" content="BonBox — Smart business analytics dashboard for Danish small businesses. Track sales, expenses, inventory & waste." />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="BonBox" />
+    <link rel="manifest" href="/manifest.json" />
+
+    <!-- Open Graph for Facebook sharing -->
+    <meta property="og:title" content="BonBox — Din digitale bonkasse" />
+    <meta property="og:description" content="Free smart dashboard for small businesses in Denmark. Track sales, expenses, inventory, waste & staff. Danish VAT/moms ready." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://bonbox.dk" />
+    <meta property="og:image" content="https://bonbox.dk/icon-512.png" />
+    <meta property="og:locale" content="da_DK" />
+
     <title>BonBox — Din digitale bonkasse</title>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <script>
+      // Register service worker for PWA
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("/sw.js").catch(() => {});
+        });
+      }
+    </script>
   </body>
 </html>
