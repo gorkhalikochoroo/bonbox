@@ -1,6 +1,6 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -31,11 +31,35 @@ def create_category(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    # Prevent duplicates
+    existing = db.query(ExpenseCategory).filter(
+        ExpenseCategory.user_id == user.id,
+        ExpenseCategory.name == data.name,
+    ).first()
+    if existing:
+        return existing
+
     category = ExpenseCategory(user_id=user.id, **data.model_dump())
     db.add(category)
     db.commit()
     db.refresh(category)
     return category
+
+
+@router.delete("/categories/{category_id}", status_code=204)
+def delete_category(
+    category_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    cat = db.query(ExpenseCategory).filter(
+        ExpenseCategory.id == category_id,
+        ExpenseCategory.user_id == user.id,
+    ).first()
+    if not cat:
+        raise HTTPException(status_code=404, detail="Category not found")
+    db.delete(cat)
+    db.commit()
 
 
 # --- Expenses ---

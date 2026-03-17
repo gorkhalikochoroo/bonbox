@@ -242,11 +242,20 @@ export default function DashboardPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
             {receipts.map((r) => (
               <div key={r.id} className="group relative">
-                <img
-                  src={r.receipt_photo?.startsWith('http') ? r.receipt_photo : `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:8000'}/${r.receipt_photo}`}
-                  alt={`Receipt ${r.date}`}
-                  className="w-full h-28 object-cover rounded-lg border border-gray-200 dark:border-gray-600"
-                />
+                {r.receipt_photo?.startsWith('http') ? (
+                  <img
+                    src={r.receipt_photo}
+                    alt={`Receipt ${r.date}`}
+                    className="w-full h-28 object-cover rounded-lg border border-gray-200 dark:border-gray-600"
+                    onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
+                  />
+                ) : null}
+                <div
+                  className="w-full h-28 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 flex items-center justify-center"
+                  style={{ display: r.receipt_photo?.startsWith('http') ? 'none' : 'flex' }}
+                >
+                  <span className="text-3xl">🧾</span>
+                </div>
                 <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs px-2 py-1 rounded-b-lg">
                   <p className="font-semibold">{r.amount.toLocaleString()} DKK</p>
                   <p className="text-gray-300">{r.date}</p>
