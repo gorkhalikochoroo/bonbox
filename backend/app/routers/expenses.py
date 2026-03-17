@@ -58,6 +58,23 @@ def delete_category(
     ).first()
     if not cat:
         raise HTTPException(status_code=404, detail="Category not found")
+
+    # Find another category with same name to reassign expenses
+    other = db.query(ExpenseCategory).filter(
+        ExpenseCategory.user_id == user.id,
+        ExpenseCategory.name == cat.name,
+        ExpenseCategory.id != cat.id,
+    ).first()
+
+    if other:
+        # Move expenses to the other category
+        db.query(Expense).filter(Expense.category_id == cat.id).update(
+            {"category_id": other.id}
+        )
+    else:
+        # No other category — just delete the expenses too
+        db.query(Expense).filter(Expense.category_id == cat.id).delete()
+
     db.delete(cat)
     db.commit()
 
