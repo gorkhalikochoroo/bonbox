@@ -632,7 +632,7 @@ def vat_export(
 
     expenses_total = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
-        .filter(Expense.user_id == user.id, Expense.date >= start, Sale.date < end)
+        .filter(Expense.user_id == user.id, Expense.date >= start, Expense.date < end)
         .scalar()
     )
 
