@@ -43,12 +43,20 @@ def _ensure_jpeg(image_path: str) -> str:
 
 
 def _image_to_base64_jpeg(image_path: str) -> str:
-    """Read any image file and return base64-encoded JPEG data."""
+    """Read any image file and return base64-encoded JPEG data.
+    Resizes large images for faster OCR processing."""
     try:
         img = Image.open(image_path)
         img = img.convert("RGB")
+        # Resize if too large (keeps quality but speeds up OCR)
+        max_dim = 2000
+        if max(img.size) > max_dim:
+            ratio = max_dim / max(img.size)
+            new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
+            img = img.resize(new_size, Image.LANCZOS)
+            print(f"[OCR] Resized image to {new_size}")
         buffer = io.BytesIO()
-        img.save(buffer, format="JPEG", quality=85)
+        img.save(buffer, format="JPEG", quality=90)
         return base64.b64encode(buffer.getvalue()).decode("utf-8")
     except Exception as e:
         print(f"[OCR] Failed to convert image to JPEG base64: {e}")
@@ -122,40 +130,44 @@ def _ocrspace_ocr(image_path: str) -> str:
     # Convert to JPEG base64 (handles HEIC, PNG, etc.)
     image_data = _image_to_base64_jpeg(image_path)
 
-    # Build form data — always send as JPEG since we converted
+    # Try OCR Engine 2 first (better for receipts), fall back to Engine 1
     import urllib.parse
-    data = urllib.parse.urlencode({
-        "base64Image": f"data:image/jpeg;base64,{image_data}",
-        "language": "dan",
-        "isOverlayRequired": "false",
-        "detectOrientation": "true",
-        "scale": "true",
-        "OCREngine": "2",
-    }).encode("utf-8")
 
-    req = Request(
-        "https://api.ocr.space/parse/image",
-        data=data,
-        headers={
-            "apikey": api_key,
-            "Content-Type": "application/x-www-form-urlencoded",
-        },
-        method="POST",
-    )
+    for engine in ["2", "1"]:
+        data = urllib.parse.urlencode({
+            "base64Image": f"data:image/jpeg;base64,{image_data}",
+            "language": "eng",
+            "isOverlayRequired": "false",
+            "detectOrientation": "true",
+            "scale": "true",
+            "isTable": "true",
+            "OCREngine": engine,
+        }).encode("utf-8")
 
-    try:
-        with urlopen(req, timeout=30) as resp:
-            result = json.loads(resp.read().decode("utf-8"))
-            if result.get("IsErroredOnProcessing"):
-                print(f"[OCR] OCR.space error: {result.get('ErrorMessage', 'unknown')}")
-                return ""
-            parsed = result.get("ParsedResults", [])
-            if parsed:
-                text = parsed[0].get("ParsedText", "")
-                print(f"[OCR] OCR.space found text ({len(text)} chars)")
-                return text
-    except Exception as e:
-        print(f"[OCR] OCR.space error: {e}")
+        req = Request(
+            "https://api.ocr.space/parse/image",
+            data=data,
+            headers={
+                "apikey": api_key,
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            method="POST",
+        )
+
+        try:
+            with urlopen(req, timeout=30) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+                if result.get("IsErroredOnProcessing"):
+                    print(f"[OCR] OCR.space engine {engine} error: {result.get('ErrorMessage', 'unknown')}")
+                    continue
+                parsed = result.get("ParsedResults", [])
+                if parsed:
+                    text = parsed[0].get("ParsedText", "")
+                    if text.strip():
+                        print(f"[OCR] OCR.space engine {engine} found text ({len(text)} chars)")
+                        return text
+        except Exception as e:
+            print(f"[OCR] OCR.space engine {engine} error: {e}")
 
     return ""
 
@@ -227,17 +239,17 @@ def _extract_amounts_from_text(text: str) -> dict:
 def extract_amount_from_image(image_path: str) -> dict:
     """Extract total amount from a receipt photo.
 
-    Tries Google Cloud Vision API first (best accuracy, free 1,000/month).
-    Falls back to OCR.space (free 25,000/month).
+    Tries OCR.space first (fast, reliable, free 25,000/month).
+    Falls back to Google Cloud Vision API (free 1,000/month).
     Returns manual entry mode if nothing works.
     """
-    # Try Google Cloud Vision API first
-    text = _google_vision_ocr(image_path)
+    # Try OCR.space first (faster and more reliable currently)
+    text = _ocrspace_ocr(image_path)
     if text:
         return _extract_amounts_from_text(text)
 
-    # Fallback: Try OCR.space
-    text = _ocrspace_ocr(image_path)
+    # Fallback: Try Google Cloud Vision API
+    text = _google_vision_ocr(image_path)
     if text:
         return _extract_amounts_from_text(text)
 
