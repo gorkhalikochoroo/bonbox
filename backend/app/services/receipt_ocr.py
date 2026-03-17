@@ -1,5 +1,6 @@
 import re
 import os
+import io
 import base64
 import json
 from pathlib import Path
@@ -8,8 +9,52 @@ from urllib.error import HTTPError
 
 from PIL import Image
 
+# Register HEIF/HEIC support
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+    print("[OCR] HEIC/HEIF support loaded")
+except ImportError:
+    print("[OCR] pillow-heif not available, HEIC files won't be supported")
+
 UPLOAD_DIR = Path("uploads/receipts")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _ensure_jpeg(image_path: str) -> str:
+    """Convert any image (including HEIC) to JPEG for OCR compatibility.
+    Returns path to a JPEG file (may be the original if already JPEG/PNG)."""
+    ext = Path(image_path).suffix.lower()
+
+    if ext in (".jpg", ".jpeg", ".png", ".bmp", ".tiff"):
+        return image_path  # Already compatible
+
+    # Convert HEIC/HEIF/other formats to JPEG
+    try:
+        img = Image.open(image_path)
+        jpeg_path = str(Path(image_path).with_suffix(".jpg"))
+        img = img.convert("RGB")
+        img.save(jpeg_path, "JPEG", quality=85)
+        print(f"[OCR] Converted {ext} to JPEG")
+        return jpeg_path
+    except Exception as e:
+        print(f"[OCR] Failed to convert {ext}: {e}")
+        return image_path
+
+
+def _image_to_base64_jpeg(image_path: str) -> str:
+    """Read any image file and return base64-encoded JPEG data."""
+    try:
+        img = Image.open(image_path)
+        img = img.convert("RGB")
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=85)
+        return base64.b64encode(buffer.getvalue()).decode("utf-8")
+    except Exception as e:
+        print(f"[OCR] Failed to convert image to JPEG base64: {e}")
+        # Fallback: just read raw bytes
+        with open(image_path, "rb") as f:
+            return base64.b64encode(f.read()).decode("utf-8")
 
 
 def _google_vision_ocr(image_path: str) -> str:
@@ -19,9 +64,8 @@ def _google_vision_ocr(image_path: str) -> str:
         print("[OCR] No Google Vision API key set")
         return ""
 
-    # Read and base64 encode the image
-    with open(image_path, "rb") as f:
-        image_data = base64.b64encode(f.read()).decode("utf-8")
+    # Convert to JPEG base64 (handles HEIC, PNG, etc.)
+    image_data = _image_to_base64_jpeg(image_path)
 
     # Call Google Cloud Vision API
     url = f"https://vision.googleapis.com/v1/images:annotate?key={api_key}"
@@ -42,7 +86,7 @@ def _google_vision_ocr(image_path: str) -> str:
     )
 
     try:
-        with urlopen(req, timeout=15) as resp:
+        with urlopen(req, timeout=30) as resp:
             result = json.loads(resp.read().decode("utf-8"))
             responses = result.get("responses", [{}])
             if responses and "error" in responses[0]:
@@ -75,20 +119,13 @@ def _ocrspace_ocr(image_path: str) -> str:
 
     print("[OCR] Trying OCR.space fallback...")
 
-    # Read image and base64 encode
-    with open(image_path, "rb") as f:
-        image_data = base64.b64encode(f.read()).decode("utf-8")
+    # Convert to JPEG base64 (handles HEIC, PNG, etc.)
+    image_data = _image_to_base64_jpeg(image_path)
 
-    # Detect file type
-    ext = Path(image_path).suffix.lower()
-    filetype = ext.replace(".", "") if ext else "jpg"
-    if filetype == "jpeg":
-        filetype = "jpg"
-
-    # Build multipart form data manually
+    # Build form data — always send as JPEG since we converted
     import urllib.parse
     data = urllib.parse.urlencode({
-        "base64Image": f"data:image/{filetype};base64,{image_data}",
+        "base64Image": f"data:image/jpeg;base64,{image_data}",
         "language": "dan",
         "isOverlayRequired": "false",
         "detectOrientation": "true",
@@ -192,7 +229,6 @@ def extract_amount_from_image(image_path: str) -> dict:
 
     Tries Google Cloud Vision API first (best accuracy, free 1,000/month).
     Falls back to OCR.space (free 25,000/month).
-    Falls back to Tesseract if available locally.
     Returns manual entry mode if nothing works.
     """
     # Try Google Cloud Vision API first
@@ -204,21 +240,6 @@ def extract_amount_from_image(image_path: str) -> dict:
     text = _ocrspace_ocr(image_path)
     if text:
         return _extract_amounts_from_text(text)
-
-    # Fallback: Try Tesseract if installed locally
-    try:
-        import pytesseract
-        img = Image.open(image_path)
-        img = img.convert("L")
-        try:
-            text = pytesseract.image_to_string(img, lang="dan+eng")
-        except Exception:
-            text = pytesseract.image_to_string(img)
-
-        if text.strip():
-            return _extract_amounts_from_text(text)
-    except (ImportError, Exception):
-        pass
 
     # No OCR available — user enters amount manually
     return {
