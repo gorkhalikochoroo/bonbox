@@ -26,6 +26,12 @@ class UserResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class UserUpdate(BaseModel):
+    business_name: str | None = None
+    business_type: str | None = None
+    currency: str | None = None
+
+
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"

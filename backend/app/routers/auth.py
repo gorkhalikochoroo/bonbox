@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
-from app.schemas.auth import UserRegister, UserLogin, Token, UserResponse
+from app.schemas.auth import UserRegister, UserLogin, Token, UserResponse, UserUpdate
 from app.services.auth import hash_password, verify_password, create_access_token, get_current_user
 
 router = APIRouter()
@@ -48,6 +48,23 @@ def login(data: UserLogin, db: Session = Depends(get_db)):
 
 @router.get("/me", response_model=UserResponse)
 def get_me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+
+@router.patch("/profile", response_model=UserResponse)
+def update_profile(
+    data: UserUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if data.business_name is not None:
+        current_user.business_name = data.business_name
+    if data.business_type is not None:
+        current_user.business_type = data.business_type
+    if data.currency is not None:
+        current_user.currency = data.currency
+    db.commit()
+    db.refresh(current_user)
     return current_user
 
 
