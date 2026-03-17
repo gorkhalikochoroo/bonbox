@@ -22,6 +22,8 @@ origins = [
     settings.FRONTEND_URL,
     "http://localhost:5173",
     "https://bonbox.vercel.app",
+    "https://bonbox.dk",
+    "https://www.bonbox.dk",
 ]
 
 app.add_middleware(
