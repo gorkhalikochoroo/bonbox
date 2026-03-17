@@ -6,6 +6,7 @@ import ReceiptCapture from "../components/ReceiptCapture";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
+  BarChart, Bar,
 } from "recharts";
 
 const COLORS = ["#3B82F6", "#EF4444", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899"];
@@ -18,6 +19,7 @@ export default function DashboardPage() {
   const [lastSale, setLastSale] = useState(null);
   const [receipts, setReceipts] = useState([]);
   const [quickMsg, setQuickMsg] = useState("");
+  const [forecast, setForecast] = useState(null);
 
   const fetchAll = () => {
     api.get("/dashboard/summary").then((res) => setSummary(res.data));
@@ -27,6 +29,7 @@ export default function DashboardPage() {
       .then((res) => setMonthlyData(res.data));
     api.get("/sales/latest").then((res) => setLastSale(res.data)).catch(() => {});
     api.get("/sales/receipts").then((res) => setReceipts(res.data)).catch(() => {});
+    api.get("/reports/forecast", { params: { days: 7 } }).then((res) => setForecast(res.data)).catch(() => {});
   };
 
   useEffect(() => { fetchAll(); }, []);
@@ -178,6 +181,59 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* Revenue Forecast */}
+      {forecast && forecast.forecast?.length > 0 && (
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200">
+                {t("revenueForecastTitle")}
+              </h2>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {t("nextDays")} &bull; {t("forecastConfidence")}: {forecast.confidence}%
+                &bull; {forecast.trend_direction === "up" ? "📈" : forecast.trend_direction === "down" ? "📉" : "📊"}{" "}
+                {forecast.trend_direction === "up" ? t("trendUp") : forecast.trend_direction === "down" ? t("trendDown") : t("trendStable")}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-sm text-gray-500">{t("predictedTotal")}</p>
+              <p className="text-xl font-bold text-blue-600">{forecast.total_predicted?.toLocaleString()} DKK</p>
+              <p className="text-xs text-gray-400">{t("avgDaily")}: {forecast.avg_daily_predicted?.toLocaleString()} DKK</p>
+            </div>
+          </div>
+
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={forecast.forecast}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="day" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => v.toLocaleString()} />
+              <Tooltip
+                formatter={(v) => [`${v.toLocaleString()} DKK`, t("predicted")]}
+                labelFormatter={(label) => label}
+              />
+              <Bar dataKey="predicted_revenue" radius={[6, 6, 0, 0]}>
+                {forecast.forecast.map((entry, i) => (
+                  <Cell
+                    key={i}
+                    fill={entry.trend === "up" ? "#22c55e" : entry.trend === "down" ? "#ef4444" : "#3b82f6"}
+                  />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+
+          <div className="grid grid-cols-7 gap-1 mt-3">
+            {forecast.forecast.map((f, i) => (
+              <div key={i} className="text-center">
+                <p className="text-xs font-medium text-gray-600 dark:text-gray-300">{f.day.slice(0, 3)}</p>
+                <p className="text-sm font-bold text-gray-800 dark:text-white">{f.predicted_revenue.toLocaleString()}</p>
+                <p className="text-xs text-gray-400">{f.confidence}%</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Receipt History */}
       {receipts.length > 0 && (

@@ -89,6 +89,12 @@ const translations = {
     category: "Category", addCategoriesFirst: "Add categories in Expenses page first",
     whatForExpense: "What was it for? (e.g. Tomatoes)",
     saleLogged: "Sale logged!", expenseAdded: "Expense added!",
+    // Forecast
+    revenueForecastTitle: "Revenue Forecast", nextDays: "Next 7 Days",
+    predictedTotal: "Predicted Total", avgDaily: "Avg/Day",
+    trendUp: "Trending Up", trendDown: "Trending Down", trendStable: "Stable",
+    forecastConfidence: "Confidence", noForecastData: "Need more sales data for predictions",
+    predicted: "Predicted", actual: "Actual",
   },
   da: {
     dashboard: "Oversigt", sales: "Salg", expenses: "Udgifter", inventory: "Lager",
@@ -175,6 +181,12 @@ const translations = {
     category: "Kategori", addCategoriesFirst: "Tilføj kategorier på udgiftssiden først",
     whatForExpense: "Hvad var det til? (f.eks. Tomater)",
     saleLogged: "Salg registreret!", expenseAdded: "Udgift tilføjet!",
+    // Forecast
+    revenueForecastTitle: "Omsætningsprognose", nextDays: "Næste 7 dage",
+    predictedTotal: "Forventet total", avgDaily: "Gns./dag",
+    trendUp: "Stigende", trendDown: "Faldende", trendStable: "Stabil",
+    forecastConfidence: "Sikkerhed", noForecastData: "Flere salgsdata nødvendige for prognoser",
+    predicted: "Forventet", actual: "Faktisk",
   },
 };
 
