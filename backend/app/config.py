@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
     FRONTEND_URL: str = "http://localhost:5173"
+    GOOGLE_VISION_API_KEY: str = ""
 
     class Config:
         env_file = ".env"
