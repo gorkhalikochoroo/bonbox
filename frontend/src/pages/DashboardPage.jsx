@@ -187,7 +187,7 @@ export default function DashboardPage() {
             {receipts.map((r) => (
               <div key={r.id} className="group relative">
                 <img
-                  src={`${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:8000'}/${r.receipt_photo}`}
+                  src={r.receipt_photo?.startsWith('http') ? r.receipt_photo : `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:8000'}/${r.receipt_photo}`}
                   alt={`Receipt ${r.date}`}
                   className="w-full h-28 object-cover rounded-lg border border-gray-200 dark:border-gray-600"
                 />

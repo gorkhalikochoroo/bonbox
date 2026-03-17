@@ -1,5 +1,6 @@
 import csv
 import io
+import os
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
@@ -124,10 +125,17 @@ async def upload_receipt(
 ):
     """Upload a receipt photo. OCR extracts the total amount for confirmation."""
     content = await file.read()
-    filepath = save_receipt_photo(content, file.filename, str(user.id))
-    result = extract_amount_from_image(filepath)
+    # save_receipt_photo saves locally + uploads to Supabase, returns URL or local path
+    stored_path = save_receipt_photo(content, file.filename, str(user.id))
+
+    # OCR needs local file — find it in uploads dir
+    import glob
+    local_files = sorted(glob.glob(f"uploads/receipts/{user.id}_*"), key=os.path.getmtime, reverse=True)
+    local_path = local_files[0] if local_files else stored_path
+
+    result = extract_amount_from_image(local_path)
     return {
-        "filepath": filepath,
+        "filepath": stored_path,
         "suggested_amount": result["suggested_amount"],
         "all_amounts_found": result["all_amounts_found"],
         "ocr_available": result["ocr_available"],

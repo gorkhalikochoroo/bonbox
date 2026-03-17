@@ -262,10 +262,67 @@ def extract_amount_from_image(image_path: str) -> dict:
     }
 
 
+def _upload_to_supabase(file_bytes: bytes, safe_name: str) -> str | None:
+    """Upload image to Supabase Storage and return public URL."""
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    supabase_key = os.environ.get("SUPABASE_ANON_KEY", "")
+
+    if not supabase_url or not supabase_key:
+        print("[Storage] No Supabase credentials set")
+        return None
+
+    upload_url = f"{supabase_url}/storage/v1/object/receipts/{safe_name}"
+    req = Request(
+        upload_url,
+        data=file_bytes,
+        headers={
+            "Authorization": f"Bearer {supabase_key}",
+            "apikey": supabase_key,
+            "Content-Type": "image/jpeg",
+            "x-upsert": "true",
+        },
+        method="POST",
+    )
+
+    try:
+        with urlopen(req, timeout=30) as resp:
+            resp.read()
+            public_url = f"{supabase_url}/storage/v1/object/public/receipts/{safe_name}"
+            print(f"[Storage] Uploaded to Supabase: {safe_name}")
+            return public_url
+    except Exception as e:
+        print(f"[Storage] Supabase upload error: {e}")
+        if hasattr(e, 'read'):
+            try:
+                print(f"[Storage] Error details: {e.read().decode()[:300]}")
+            except Exception:
+                pass
+        return None
+
+
 def save_receipt_photo(file_bytes: bytes, filename: str, user_id: str) -> str:
-    """Save uploaded receipt photo and return the file path."""
-    ext = Path(filename).suffix or ".jpg"
-    safe_name = f"{user_id}_{int(__import__('time').time())}{ext}"
+    """Save uploaded receipt photo. Uploads to Supabase Storage for persistence,
+    falls back to local disk for OCR processing."""
+    import time
+
+    # Convert to JPEG for compatibility
+    safe_name = f"{user_id}_{int(time.time())}.jpg"
+
+    # Always save locally first (needed for OCR processing)
     filepath = UPLOAD_DIR / safe_name
-    filepath.write_bytes(file_bytes)
+    try:
+        img = Image.open(io.BytesIO(file_bytes))
+        img = img.convert("RGB")
+        img.save(filepath, "JPEG", quality=85)
+        jpeg_bytes = filepath.read_bytes()
+    except Exception:
+        filepath.write_bytes(file_bytes)
+        jpeg_bytes = file_bytes
+
+    # Upload to Supabase Storage for persistent display
+    public_url = _upload_to_supabase(jpeg_bytes, safe_name)
+    if public_url:
+        return public_url
+
+    # Fallback: return local path
     return str(filepath)
