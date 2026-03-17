@@ -14,6 +14,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 def _google_vision_ocr(image_path: str) -> str:
     """Use Google Cloud Vision API for OCR (free 1,000 images/month)."""
     api_key = os.environ.get("GOOGLE_VISION_API_KEY", "")
+    print(f"[OCR] API key present: {bool(api_key)}, length: {len(api_key)}")
     if not api_key:
         return ""
 
@@ -42,11 +43,17 @@ def _google_vision_ocr(image_path: str) -> str:
     try:
         with urlopen(req, timeout=15) as resp:
             result = json.loads(resp.read().decode("utf-8"))
-            annotations = result.get("responses", [{}])[0].get("textAnnotations", [])
+            print(f"[OCR] Google Vision response keys: {list(result.keys())}")
+            responses = result.get("responses", [{}])
+            if responses and "error" in responses[0]:
+                print(f"[OCR] API error: {responses[0]['error']}")
+            annotations = responses[0].get("textAnnotations", [])
             if annotations:
-                return annotations[0].get("description", "")
+                text = annotations[0].get("description", "")
+                print(f"[OCR] Found text: {text[:100]}...")
+                return text
     except Exception as e:
-        print(f"Google Vision OCR error: {e}")
+        print(f"[OCR] Google Vision error: {e}")
 
     return ""
 
