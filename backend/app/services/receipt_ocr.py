@@ -4,6 +4,7 @@ import base64
 import json
 from pathlib import Path
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 from PIL import Image
 
@@ -14,8 +15,8 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 def _google_vision_ocr(image_path: str) -> str:
     """Use Google Cloud Vision API for OCR (free 1,000 images/month)."""
     api_key = os.environ.get("GOOGLE_VISION_API_KEY", "")
-    print(f"[OCR] API key present: {bool(api_key)}, length: {len(api_key)}")
     if not api_key:
+        print("[OCR] No Google Vision API key set")
         return ""
 
     # Read and base64 encode the image
@@ -43,26 +44,81 @@ def _google_vision_ocr(image_path: str) -> str:
     try:
         with urlopen(req, timeout=15) as resp:
             result = json.loads(resp.read().decode("utf-8"))
-            print(f"[OCR] Google Vision response keys: {list(result.keys())}")
             responses = result.get("responses", [{}])
             if responses and "error" in responses[0]:
-                print(f"[OCR] API error: {responses[0]['error']}")
+                print(f"[OCR] Google Vision API error: {responses[0]['error']}")
+                return ""
             annotations = responses[0].get("textAnnotations", [])
             if annotations:
                 text = annotations[0].get("description", "")
-                print(f"[OCR] Found text: {text[:100]}...")
+                print(f"[OCR] Google Vision found text ({len(text)} chars)")
                 return text
+    except HTTPError as e:
+        error_body = ""
+        try:
+            error_body = e.read().decode("utf-8")
+        except Exception:
+            pass
+        print(f"[OCR] Google Vision HTTP {e.code}: {error_body[:500]}")
     except Exception as e:
         print(f"[OCR] Google Vision error: {e}")
-        # Try to read the error response body for details
-        if hasattr(e, 'read'):
-            try:
-                error_body = e.read().decode("utf-8")
-                print(f"[OCR] Error details: {error_body[:500]}")
-            except Exception:
-                pass
-        if hasattr(e, 'headers'):
-            print(f"[OCR] Error headers: {dict(e.headers)}")
+
+    return ""
+
+
+def _ocrspace_ocr(image_path: str) -> str:
+    """Use OCR.space free API as fallback (25,000 requests/month free)."""
+    api_key = os.environ.get("OCRSPACE_API_KEY", "")
+    if not api_key:
+        print("[OCR] No OCR.space API key set")
+        return ""
+
+    print("[OCR] Trying OCR.space fallback...")
+
+    # Read image and base64 encode
+    with open(image_path, "rb") as f:
+        image_data = base64.b64encode(f.read()).decode("utf-8")
+
+    # Detect file type
+    ext = Path(image_path).suffix.lower()
+    filetype = ext.replace(".", "") if ext else "jpg"
+    if filetype == "jpeg":
+        filetype = "jpg"
+
+    # Build multipart form data manually
+    import urllib.parse
+    data = urllib.parse.urlencode({
+        "base64Image": f"data:image/{filetype};base64,{image_data}",
+        "language": "dan",
+        "isOverlayRequired": "false",
+        "detectOrientation": "true",
+        "scale": "true",
+        "OCREngine": "2",
+    }).encode("utf-8")
+
+    req = Request(
+        "https://api.ocr.space/parse/image",
+        data=data,
+        headers={
+            "apikey": api_key,
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+        method="POST",
+    )
+
+    try:
+        with urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+            if result.get("IsErroredOnProcessing"):
+                print(f"[OCR] OCR.space error: {result.get('ErrorMessage', 'unknown')}")
+                return ""
+            parsed = result.get("ParsedResults", [])
+            if parsed:
+                text = parsed[0].get("ParsedText", "")
+                print(f"[OCR] OCR.space found text ({len(text)} chars)")
+                return text
+    except Exception as e:
+        print(f"[OCR] OCR.space error: {e}")
 
     return ""
 
@@ -135,11 +191,17 @@ def extract_amount_from_image(image_path: str) -> dict:
     """Extract total amount from a receipt photo.
 
     Tries Google Cloud Vision API first (best accuracy, free 1,000/month).
-    Falls back to Tesseract if available.
-    Returns manual entry mode if neither works.
+    Falls back to OCR.space (free 25,000/month).
+    Falls back to Tesseract if available locally.
+    Returns manual entry mode if nothing works.
     """
     # Try Google Cloud Vision API first
     text = _google_vision_ocr(image_path)
+    if text:
+        return _extract_amounts_from_text(text)
+
+    # Fallback: Try OCR.space
+    text = _ocrspace_ocr(image_path)
     if text:
         return _extract_amounts_from_text(text)
 
