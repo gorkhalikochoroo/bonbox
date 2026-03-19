@@ -72,7 +72,7 @@ export default function StaffingPage() {
     day: r.day.slice(0, 3),
     revenue: r.predicted_revenue,
     staff: r.recommended_staff,
-    fill: LEVEL_BAR_COLORS[r.business_level] || LEVEL_BAR_COLORS[r.business_level?.charAt(0).toUpperCase() + r.business_level?.slice(1).toLowerCase()] || "#3b82f6",
+    fill: Object.entries(LEVEL_BAR_COLORS).find(([k]) => r.business_level?.toLowerCase().includes(k.toLowerCase()))?.[1] || "#3b82f6",
   }));
 
   const dowData = patterns
@@ -114,9 +114,9 @@ export default function StaffingPage() {
       ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <SummaryCard title={t("slowDaysAhead")} value={recs.filter((r) => r.business_level?.toLowerCase() === "slow").length} subtitle={t("reduceStaff")} color="text-green-600" />
-            <SummaryCard title={t("normalDays")} value={recs.filter((r) => r.business_level?.toLowerCase() === "normal").length} subtitle={t("standardStaffing")} color="text-blue-600" />
-            <SummaryCard title={t("busyDaysAhead")} value={recs.filter((r) => r.business_level?.toLowerCase() === "busy").length} subtitle={t("extraStaff")} color="text-orange-600" />
+            <SummaryCard title={t("slowDaysAhead")} value={recs.filter((r) => r.business_level?.toLowerCase().includes("slow")).length} subtitle={t("reduceStaff")} color="text-green-600" />
+            <SummaryCard title={t("normalDays")} value={recs.filter((r) => r.business_level?.toLowerCase().includes("normal")).length} subtitle={t("standardStaffing")} color="text-blue-600" />
+            <SummaryCard title={t("busyDaysAhead")} value={recs.filter((r) => r.business_level?.toLowerCase().includes("busy")).length} subtitle={t("extraStaff")} color="text-orange-600" />
           </div>
 
           {/* Total staff summary */}
@@ -185,7 +185,7 @@ export default function StaffingPage() {
                     <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{r.day}</td>
                     <td className="px-6 py-4 text-sm font-medium text-gray-800 dark:text-white">{r.predicted_revenue.toLocaleString()} DKK</td>
                     <td className="px-6 py-4">
-                      <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${LEVEL_COLORS[r.business_level] || ""}`}>
+                      <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${Object.entries(LEVEL_COLORS).find(([k]) => r.business_level?.toLowerCase().includes(k.toLowerCase()))?.[1] || ""}`}>
                         {r.business_level}
                       </span>
                     </td>
