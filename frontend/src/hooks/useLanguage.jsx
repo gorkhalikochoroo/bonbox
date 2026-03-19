@@ -98,6 +98,13 @@ const translations = {
     trendUp: "Trending Up", trendDown: "Trending Down", trendStable: "Stable",
     forecastConfidence: "Confidence", noForecastData: "Need more sales data for predictions",
     predicted: "Predicted", actual: "Actual",
+    // Feedback
+    feedback: "Feedback", sendFeedback: "Send Feedback", yourFeedback: "Your Feedback",
+    feedbackSent: "Thank you for your feedback!", rateExperience: "Rate your experience",
+    feedbackMessage: "Tell us what you think...", bugReport: "Bug Report",
+    featureRequest: "Feature Request", generalFeedback: "General Feedback",
+    complaint: "Complaint", praise: "Praise", noFeedbackYet: "No feedback submitted yet",
+    stars: "stars",
   },
   da: {
     dashboard: "Oversigt", sales: "Salg", expenses: "Udgifter", inventory: "Lager",
@@ -193,6 +200,13 @@ const translations = {
     trendUp: "Stigende", trendDown: "Faldende", trendStable: "Stabil",
     forecastConfidence: "Sikkerhed", noForecastData: "Flere salgsdata nødvendige for prognoser",
     predicted: "Forventet", actual: "Faktisk",
+    // Feedback
+    feedback: "Tilbagemelding", sendFeedback: "Send tilbagemelding", yourFeedback: "Din tilbagemelding",
+    feedbackSent: "Tak for din tilbagemelding!", rateExperience: "Bedøm din oplevelse",
+    feedbackMessage: "Fortæl os hvad du synes...", bugReport: "Fejlrapport",
+    featureRequest: "Funktionsønske", generalFeedback: "Generel tilbagemelding",
+    complaint: "Klage", praise: "Ros", noFeedbackYet: "Ingen tilbagemelding endnu",
+    stars: "stjerner",
   },
 };
 

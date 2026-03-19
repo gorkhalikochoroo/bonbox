@@ -4,5 +4,6 @@ from app.models.expense import ExpenseCategory, Expense
 from app.models.inventory import InventoryItem, InventoryLog
 from app.models.staffing import StaffingRule
 from app.models.waste import WasteLog
+from app.models.feedback import Feedback
 
-__all__ = ["User", "Sale", "ExpenseCategory", "Expense", "InventoryItem", "InventoryLog", "StaffingRule", "WasteLog"]
+__all__ = ["User", "Sale", "ExpenseCategory", "Expense", "InventoryItem", "InventoryLog", "StaffingRule", "WasteLog", "Feedback"]
