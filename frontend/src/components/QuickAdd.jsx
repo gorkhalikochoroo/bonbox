@@ -9,6 +9,7 @@ export default function QuickAdd() {
   const [tab, setTab] = useState("sale");
   const [categories, setCategories] = useState([]);
   const [success, setSuccess] = useState("");
+  const [error, setError] = useState("");
 
   const [saleAmount, setSaleAmount] = useState("");
   const [saleMethod, setSaleMethod] = useState("mixed");
@@ -22,38 +23,54 @@ export default function QuickAdd() {
 
   useEffect(() => {
     if (open) {
-      api.get("/expenses/categories").then((res) => setCategories(res.data));
+      api.get("/expenses/categories").then((res) => setCategories(res.data)).catch(() => {});
     }
   }, [open]);
 
   const showSuccess = (msg) => {
+    setError("");
     setSuccess(msg);
     setTimeout(() => setSuccess(""), 2000);
   };
 
+  const showError = (msg) => {
+    setSuccess("");
+    setError(msg);
+    setTimeout(() => setError(""), 3000);
+  };
+
   const submitSale = async () => {
     if (!saleAmount) return;
-    await api.post("/sales", {
-      date: new Date().toISOString().split("T")[0],
-      amount: parseFloat(saleAmount),
-      payment_method: saleMethod,
-    });
-    setSaleAmount("");
-    showSuccess(t("saleLogged"));
+    try {
+      await api.post("/sales", {
+        date: new Date().toISOString().split("T")[0],
+        amount: parseFloat(saleAmount),
+        payment_method: saleMethod,
+      });
+      setSaleAmount("");
+      showSuccess(t("saleLogged"));
+    } catch (err) {
+      showError(err.response?.data?.detail || "Failed to log sale");
+    }
   };
 
   const submitExpense = async () => {
     if (!expAmount || !expCatId || !expDesc) return;
-    await api.post("/expenses", {
-      category_id: expCatId,
-      date: new Date().toISOString().split("T")[0],
-      amount: parseFloat(expAmount),
-      description: expDesc,
-      is_recurring: false,
-    });
-    setExpAmount("");
-    setExpDesc("");
-    showSuccess(t("expenseAdded"));
+    try {
+      await api.post("/expenses", {
+        category_id: expCatId,
+        date: new Date().toISOString().split("T")[0],
+        amount: parseFloat(expAmount),
+        description: expDesc,
+        is_recurring: false,
+      });
+      setExpAmount("");
+      setExpDesc("");
+      setExpCatId("");
+      showSuccess(t("expenseAdded"));
+    } catch (err) {
+      showError(err.response?.data?.detail || "Failed to add expense");
+    }
   };
 
   return (
@@ -67,16 +84,21 @@ export default function QuickAdd() {
 
       <Modal open={open} onClose={() => setOpen(false)} title={t("quickEntry")}>
         {success && (
-          <div className="bg-green-50 text-green-700 px-4 py-2.5 rounded-lg mb-4 text-sm font-medium text-center">
+          <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-4 py-2.5 rounded-lg mb-4 text-sm font-medium text-center">
             {success}
           </div>
         )}
+        {error && (
+          <div className="bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 px-4 py-2.5 rounded-lg mb-4 text-sm font-medium text-center">
+            {error}
+          </div>
+        )}
 
-        <div className="flex bg-gray-100 rounded-lg p-1 mb-5">
+        <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1 mb-5">
           <button
             onClick={() => setTab("sale")}
             className={`flex-1 py-2.5 rounded-md text-sm font-medium transition ${
-              tab === "sale" ? "bg-white shadow text-blue-700" : "text-gray-500"
+              tab === "sale" ? "bg-white dark:bg-gray-600 shadow text-blue-700 dark:text-blue-400" : "text-gray-500 dark:text-gray-400"
             }`}
           >
             {t("logSaleTab")}
@@ -84,7 +106,7 @@ export default function QuickAdd() {
           <button
             onClick={() => setTab("expense")}
             className={`flex-1 py-2.5 rounded-md text-sm font-medium transition ${
-              tab === "expense" ? "bg-white shadow text-blue-700" : "text-gray-500"
+              tab === "expense" ? "bg-white dark:bg-gray-600 shadow text-blue-700 dark:text-blue-400" : "text-gray-500 dark:text-gray-400"
             }`}
           >
             {t("addExpenseTab")}
@@ -94,7 +116,7 @@ export default function QuickAdd() {
         {tab === "sale" ? (
           <div className="space-y-4">
             <div>
-              <p className="text-xs text-gray-500 mb-2">{t("quickAmount")}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{t("quickAmount")}</p>
               <div className="flex flex-wrap gap-2">
                 {salePresets.map((amt) => (
                   <button
@@ -102,8 +124,8 @@ export default function QuickAdd() {
                     onClick={() => setSaleAmount(String(amt))}
                     className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition ${
                       saleAmount === String(amt)
-                        ? "bg-blue-50 border-blue-300 text-blue-700"
-                        : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                        ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-400"
+                        : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                     }`}
                   >
                     {amt.toLocaleString()}
@@ -117,19 +139,19 @@ export default function QuickAdd() {
               value={saleAmount}
               onChange={(e) => setSaleAmount(e.target.value)}
               placeholder={t("orTypeAmount")}
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
               autoFocus
             />
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {["cash", "card", "mobilepay", "mixed", "dankort", "kontant"].map((m) => (
                 <button
                   key={m}
                   onClick={() => setSaleMethod(m)}
-                  className={`flex-1 py-2.5 rounded-lg text-xs font-medium capitalize border transition ${
+                  className={`flex-1 min-w-[4.5rem] py-2.5 rounded-lg text-xs font-medium capitalize border transition ${
                     saleMethod === m
-                      ? "bg-blue-50 border-blue-300 text-blue-700"
-                      : "border-gray-200 text-gray-500 hover:bg-gray-50"
+                      ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-400"
+                      : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
                   }`}
                 >
                   {m}
@@ -140,7 +162,7 @@ export default function QuickAdd() {
             <button
               onClick={submitSale}
               disabled={!saleAmount}
-              className="w-full bg-blue-600 text-white py-3.5 rounded-xl hover:bg-blue-700 transition font-semibold text-base disabled:opacity-40"
+              className="w-full bg-blue-600 text-white py-3.5 rounded-xl hover:bg-blue-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
             >
               {t("logSale")}
             </button>
@@ -148,7 +170,7 @@ export default function QuickAdd() {
         ) : (
           <div className="space-y-4">
             <div>
-              <p className="text-xs text-gray-500 mb-2">{t("category")}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{t("category")}</p>
               <div className="flex flex-wrap gap-2">
                 {categories.map((c) => (
                   <button
@@ -156,21 +178,21 @@ export default function QuickAdd() {
                     onClick={() => setExpCatId(c.id)}
                     className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition ${
                       expCatId === c.id
-                        ? "bg-blue-50 border-blue-300 text-blue-700"
-                        : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                        ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-400"
+                        : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                     }`}
                   >
                     {c.name}
                   </button>
                 ))}
                 {categories.length === 0 && (
-                  <p className="text-sm text-gray-400">{t("addCategoriesFirst")}</p>
+                  <p className="text-sm text-gray-400 dark:text-gray-500">{t("addCategoriesFirst")}</p>
                 )}
               </div>
             </div>
 
             <div>
-              <p className="text-xs text-gray-500 mb-2">{t("quickAmount")}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{t("quickAmount")}</p>
               <div className="flex flex-wrap gap-2">
                 {expPresets.map((amt) => (
                   <button
@@ -178,8 +200,8 @@ export default function QuickAdd() {
                     onClick={() => setExpAmount(String(amt))}
                     className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition ${
                       expAmount === String(amt)
-                        ? "bg-blue-50 border-blue-300 text-blue-700"
-                        : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                        ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-400"
+                        : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                     }`}
                   >
                     {amt.toLocaleString()}
@@ -193,7 +215,7 @@ export default function QuickAdd() {
               value={expAmount}
               onChange={(e) => setExpAmount(e.target.value)}
               placeholder={t("orTypeAmount")}
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
 
             <input
@@ -201,13 +223,13 @@ export default function QuickAdd() {
               value={expDesc}
               onChange={(e) => setExpDesc(e.target.value)}
               placeholder={t("whatForExpense")}
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
 
             <button
               onClick={submitExpense}
               disabled={!expAmount || !expCatId || !expDesc}
-              className="w-full bg-blue-600 text-white py-3.5 rounded-xl hover:bg-blue-700 transition font-semibold text-base disabled:opacity-40"
+              className="w-full bg-blue-600 text-white py-3.5 rounded-xl hover:bg-blue-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
             >
               {t("addExpense")}
             </button>

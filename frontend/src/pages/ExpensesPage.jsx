@@ -17,21 +17,29 @@ export default function ExpensesPage() {
   const [showSetup, setShowSetup] = useState(false);
 
   const fetchData = () => {
-    api.get("/expenses").then((res) => setExpenses(res.data));
-    api.get("/expenses/categories").then((res) => {
-      setCategories(res.data);
-      if (res.data.length === 0) setShowSetup(true);
-    });
+    api.get("/expenses")
+      .then((res) => setExpenses(res.data))
+      .catch((err) => setError(err.response?.data?.detail || "Failed to load expenses"));
+    api.get("/expenses/categories")
+      .then((res) => {
+        setCategories(res.data);
+        if (res.data.length === 0) setShowSetup(true);
+      })
+      .catch((err) => setError(err.response?.data?.detail || "Failed to load categories"));
   };
 
   useEffect(() => { fetchData(); }, []);
 
   const quickSetup = async () => {
-    for (const name of DEFAULT_CATEGORIES) {
-      await api.post("/expenses/categories", { name });
+    try {
+      for (const name of DEFAULT_CATEGORIES) {
+        await api.post("/expenses/categories", { name });
+      }
+      setShowSetup(false);
+      fetchData();
+    } catch (err) {
+      setError(err.response?.data?.detail || "Failed to set up categories");
     }
-    setShowSetup(false);
-    fetchData();
   };
 
   const submit = async (quickAmt) => {
@@ -58,15 +66,15 @@ export default function ExpensesPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800">{t("expenseTracker")}</h1>
+      <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("expenseTracker")}</h1>
 
-      {success && <div className="bg-green-50 text-green-700 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
-      {error && <div className="bg-red-50 text-red-600 px-4 py-3 rounded-xl text-sm">{error}</div>}
+      {success && <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
+      {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-300 px-4 py-3 rounded-xl text-sm">{error}</div>}
 
       {showSetup && (
-        <div className="bg-blue-50 border border-blue-200 p-5 rounded-xl">
-          <p className="text-blue-800 font-medium mb-2">{t("firstTimeSetup")}</p>
-          <p className="text-blue-600 text-sm mb-3">{DEFAULT_CATEGORIES.join(", ")}</p>
+        <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 p-5 rounded-xl">
+          <p className="text-blue-800 dark:text-blue-300 font-medium mb-2">{t("firstTimeSetup")}</p>
+          <p className="text-blue-600 dark:text-blue-400 text-sm mb-3">{DEFAULT_CATEGORIES.join(", ")}</p>
           <button onClick={quickSetup}
             className="bg-blue-600 text-white px-5 py-2.5 rounded-lg hover:bg-blue-700 transition font-medium text-sm">
             {t("setupCategories")}
@@ -74,9 +82,9 @@ export default function ExpensesPage() {
         </div>
       )}
 
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-        <h2 className="text-lg font-semibold text-gray-700 mb-1">{t("addExpense")}</h2>
-        <p className="text-sm text-gray-400 mb-4">{t("pickCategory")}</p>
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-1">{t("addExpense")}</h2>
+        <p className="text-sm text-gray-400 dark:text-gray-400 mb-4">{t("pickCategory")}</p>
 
         <div className="flex flex-wrap gap-2 mb-4">
           {categories.map((c) => (
@@ -85,8 +93,8 @@ export default function ExpensesPage() {
               onClick={() => setCatId(c.id)}
               className={`px-4 py-2.5 rounded-xl text-sm font-medium border transition ${
                 catId === c.id
-                  ? "bg-blue-50 border-blue-300 text-blue-700"
-                  : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                  ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300"
+                  : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50"
               }`}
             >
               {c.name}
@@ -99,7 +107,7 @@ export default function ExpensesPage() {
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
           placeholder={t("whatWasIt")}
-          className="w-full px-4 py-3 border border-gray-200 rounded-xl mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
         />
 
         <div className="flex flex-wrap gap-2 mb-4">
@@ -108,7 +116,7 @@ export default function ExpensesPage() {
               key={amt}
               onClick={() => submit(amt)}
               disabled={!catId || !desc}
-              className="px-5 py-3 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 transition disabled:opacity-30"
+              className="px-5 py-3 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-700 dark:hover:text-blue-300 transition disabled:opacity-30"
             >
               {amt.toLocaleString()} DKK
             </button>
@@ -121,7 +129,7 @@ export default function ExpensesPage() {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder={t("customAmount")}
-            className="flex-1 px-4 py-3 border border-gray-200 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
           <button
@@ -134,28 +142,28 @@ export default function ExpensesPage() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100">
-          <h2 className="text-base font-semibold text-gray-700">{t("recentExpenses")}</h2>
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
+          <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">{t("recentExpenses")}</h2>
         </div>
         <table className="w-full text-left">
-          <thead className="bg-gray-50">
+          <thead className="bg-gray-50 dark:bg-gray-700/50">
             <tr>
-              <th className="px-6 py-3 text-sm font-medium text-gray-500">{t("date")}</th>
-              <th className="px-6 py-3 text-sm font-medium text-gray-500">{t("description")}</th>
-              <th className="px-6 py-3 text-sm font-medium text-gray-500">{t("amount")}</th>
+              <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("date")}</th>
+              <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("description")}</th>
+              <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("amount")}</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
             {expenses.slice(0, 20).map((exp) => (
               <tr key={exp.id}>
-                <td className="px-6 py-4 text-sm text-gray-700">{exp.date}</td>
-                <td className="px-6 py-4 text-sm text-gray-700">{exp.description}</td>
-                <td className="px-6 py-4 text-sm font-semibold text-gray-800">{parseFloat(exp.amount).toLocaleString()} DKK</td>
+                <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{exp.date}</td>
+                <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{exp.description}</td>
+                <td className="px-6 py-4 text-sm font-semibold text-gray-800 dark:text-white">{parseFloat(exp.amount).toLocaleString()} DKK</td>
               </tr>
             ))}
             {expenses.length === 0 && (
-              <tr><td colSpan={3} className="px-6 py-8 text-center text-gray-400">{t("noExpensesYet")}</td></tr>
+              <tr><td colSpan={3} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noExpensesYet")}</td></tr>
             )}
           </tbody>
         </table>

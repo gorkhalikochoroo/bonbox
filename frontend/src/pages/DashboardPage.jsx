@@ -22,11 +22,11 @@ export default function DashboardPage() {
   const [forecast, setForecast] = useState(null);
 
   const fetchAll = () => {
-    api.get("/dashboard/summary").then((res) => setSummary(res.data));
+    api.get("/dashboard/summary").then((res) => setSummary(res.data)).catch(() => {});
     const now = new Date();
     api
       .get("/reports/monthly", { params: { month: now.getMonth() + 1, year: now.getFullYear() } })
-      .then((res) => setMonthlyData(res.data));
+      .then((res) => setMonthlyData(res.data)).catch(() => {});
     api.get("/sales/latest").then((res) => setLastSale(res.data)).catch(() => {});
     api.get("/sales/receipts").then((res) => setReceipts(res.data)).catch(() => {});
     api.get("/reports/forecast", { params: { days: 7 } }).then((res) => setForecast(res.data)).catch(() => {});
@@ -35,17 +35,22 @@ export default function DashboardPage() {
   useEffect(() => { fetchAll(); }, []);
 
   const downloadPdf = async () => {
-    const now = new Date();
-    const res = await api.get("/reports/monthly/pdf", {
-      params: { month: now.getMonth() + 1, year: now.getFullYear() },
-      responseType: "blob",
-    });
-    const url = window.URL.createObjectURL(new Blob([res.data]));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `report_${now.getFullYear()}_${now.getMonth() + 1}.pdf`;
-    a.click();
-    window.URL.revokeObjectURL(url);
+    try {
+      const now = new Date();
+      const res = await api.get("/reports/monthly/pdf", {
+        params: { month: now.getMonth() + 1, year: now.getFullYear() },
+        responseType: "blob",
+      });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `report_${now.getFullYear()}_${now.getMonth() + 1}.pdf`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      setQuickMsg(t("downloadPdf") + " failed");
+      setTimeout(() => setQuickMsg(""), 3000);
+    }
   };
 
   const repeatYesterday = async () => {
@@ -61,7 +66,7 @@ export default function DashboardPage() {
   };
 
   if (!summary) {
-    return <div className="p-8 text-center text-gray-500">{t("loadingDashboard")}</div>;
+    return <div className="p-8 text-center text-gray-500 dark:text-gray-400">{t("loadingDashboard")}</div>;
   }
 
   return (
@@ -69,11 +74,11 @@ export default function DashboardPage() {
       {/* Header + Quick Actions */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">
+          <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100">
             {t("welcome")}, {user?.business_name}
           </h1>
-          <p className="text-sm text-gray-500 mt-1">
-            {new Date().toLocaleDateString("en-DK", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
           </p>
         </div>
 
@@ -100,7 +105,7 @@ export default function DashboardPage() {
 
       {/* Quick message toast */}
       {quickMsg && (
-        <div className="bg-blue-50 text-blue-700 px-4 py-2.5 rounded-lg text-sm font-medium">
+        <div className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-4 py-2.5 rounded-lg text-sm font-medium">
           {quickMsg}
         </div>
       )}
@@ -136,8 +141,8 @@ export default function DashboardPage() {
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Revenue Trend */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <h2 className="text-lg font-semibold text-gray-700 mb-4">{t("revenueTrend")}</h2>
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+          <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">{t("revenueTrend")}</h2>
           {monthlyData?.daily_revenue?.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={monthlyData.daily_revenue}>
@@ -149,13 +154,13 @@ export default function DashboardPage() {
               </LineChart>
             </ResponsiveContainer>
           ) : (
-            <p className="text-gray-400 text-center py-12">{t("noRevenueData")}</p>
+            <p className="text-gray-400 dark:text-gray-500 text-center py-12">{t("noRevenueData")}</p>
           )}
         </div>
 
         {/* Expense Breakdown */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <h2 className="text-lg font-semibold text-gray-700 mb-4">{t("expenseBreakdown")}</h2>
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+          <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">{t("expenseBreakdown")}</h2>
           {monthlyData?.expense_breakdown?.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
@@ -177,7 +182,7 @@ export default function DashboardPage() {
               </PieChart>
             </ResponsiveContainer>
           ) : (
-            <p className="text-gray-400 text-center py-12">{t("noExpenseData")}</p>
+            <p className="text-gray-400 dark:text-gray-500 text-center py-12">{t("noExpenseData")}</p>
           )}
         </div>
       </div>
@@ -282,9 +287,13 @@ function DailyGoal({ revenue }) {
   const saveGoal = async () => {
     const val = parseFloat(inputVal);
     if (!val || val <= 0) return;
-    await api.patch("/auth/daily-goal", null, { params: { goal: val } });
-    setGoal(val);
-    setEditing(false);
+    try {
+      await api.patch("/auth/daily-goal", null, { params: { goal: val } });
+      setGoal(val);
+      setEditing(false);
+    } catch {
+      // silently handle save failure
+    }
   };
 
   if (goal <= 0 && !editing) {
@@ -322,7 +331,7 @@ function DailyGoal({ revenue }) {
               value={inputVal}
               onChange={(e) => setInputVal(e.target.value)}
               placeholder={String(goal)}
-              className="w-28 px-3 py-1.5 border border-gray-200 rounded-lg text-sm"
+              className="w-28 px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
               autoFocus
               onKeyDown={(e) => e.key === "Enter" && saveGoal()}
             />
@@ -347,15 +356,15 @@ function DailyGoal({ revenue }) {
 
 function KpiCard({ title, value, change, changeLabel, subtitle, alert }) {
   return (
-    <div className={`bg-white p-5 rounded-xl shadow-sm border ${alert ? "border-red-300" : "border-gray-100"}`}>
-      <p className="text-sm text-gray-500">{title}</p>
-      <p className="text-2xl font-bold text-gray-800 mt-1">{value}</p>
+    <div className={`bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border ${alert ? "border-red-300 dark:border-red-600" : "border-gray-100 dark:border-gray-700"}`}>
+      <p className="text-sm text-gray-500 dark:text-gray-400">{title}</p>
+      <p className="text-2xl font-bold text-gray-800 dark:text-gray-100 mt-1">{value}</p>
       {change !== undefined && (
-        <p className={`text-sm mt-1 ${change >= 0 ? "text-green-600" : "text-red-600"}`}>
+        <p className={`text-sm mt-1 ${change >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
           {change >= 0 ? "+" : ""}{change}% {changeLabel}
         </p>
       )}
-      {subtitle && <p className="text-sm text-gray-500 mt-1">{subtitle}</p>}
+      {subtitle && <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{subtitle}</p>}
     </div>
   );
 }

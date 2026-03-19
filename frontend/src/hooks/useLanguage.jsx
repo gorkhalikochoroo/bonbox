@@ -53,6 +53,9 @@ const translations = {
     staffingRulesDesc: "Define how many staff you need at different revenue levels.",
     addRule: "Add Rule", remove: "Remove", staff: "staff",
     next7days: "Next 7 days", next14days: "Next 14 days", next30days: "Next 30 days",
+    totalStaffNeeded: "Total Staff Needed", basedOnPatterns: "Based on predicted revenue patterns",
+    minRevenue: "Min revenue", maxRevenue: "Max revenue",
+    slow: "Slow", normal: "Normal", busy: "Busy",
     // Waste
     logWaste: "Log Waste", trackWaste: "Track what gets thrown out",
     wasteLogged: "Waste logged!", monthlyWasteCost: "Monthly Waste Cost",
@@ -146,6 +149,9 @@ const translations = {
     staffingRulesDesc: "Definer hvor mange ansatte du har brug for ved forskellige omsætningsniveauer.",
     addRule: "Tilføj regel", remove: "Fjern", staff: "personale",
     next7days: "Næste 7 dage", next14days: "Næste 14 dage", next30days: "Næste 30 dage",
+    totalStaffNeeded: "Samlet personale nødvendigt", basedOnPatterns: "Baseret på forventede omsætningsmønstre",
+    minRevenue: "Min. omsætning", maxRevenue: "Maks. omsætning",
+    slow: "Rolig", normal: "Normal", busy: "Travl",
     // Waste
     logWaste: "Registrer spild", trackWaste: "Hold styr på hvad der smides ud",
     wasteLogged: "Spild registreret!", monthlyWasteCost: "Månedlig spildudgift",
