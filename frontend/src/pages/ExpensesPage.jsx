@@ -18,6 +18,9 @@ export default function ExpensesPage() {
   const [showSetup, setShowSetup] = useState(false);
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
+  const [editId, setEditId] = useState(null);
+  const [editData, setEditData] = useState({});
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   const fetchData = (from, to) => {
     const params = {};
@@ -70,6 +73,46 @@ export default function ExpensesPage() {
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to add expense");
     }
+  };
+
+  const startEdit = (exp) => {
+    setEditId(exp.id);
+    setEditData({
+      date: exp.date,
+      amount: parseFloat(exp.amount),
+      description: exp.description,
+      category_id: exp.category_id,
+    });
+  };
+
+  const saveEdit = async () => {
+    try {
+      await api.put(`/expenses/${editId}`, editData);
+      setEditId(null);
+      setEditData({});
+      fetchData(filterFrom, filterTo);
+      setSuccess("Expense updated!");
+      setTimeout(() => setSuccess(""), 2500);
+    } catch (err) {
+      setError(err.response?.data?.detail || "Failed to update expense");
+    }
+  };
+
+  const deleteExpense = async (id) => {
+    try {
+      await api.delete(`/expenses/${id}`);
+      setDeleteConfirm(null);
+      fetchData(filterFrom, filterTo);
+      setSuccess("Expense deleted");
+      setTimeout(() => setSuccess(""), 2500);
+    } catch (err) {
+      setError(err.response?.data?.detail || "Failed to delete expense");
+    }
+  };
+
+  const getCatName = (catId) => {
+    const cat = categories.find((c) => c.id === catId);
+    return cat ? cat.name : "";
   };
 
   return (
@@ -197,19 +240,79 @@ export default function ExpensesPage() {
             <tr>
               <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("date")}</th>
               <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("description")}</th>
+              <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Category</th>
               <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("amount")}</th>
+              <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
             {expenses.slice(0, 50).map((exp) => (
               <tr key={exp.id}>
-                <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{exp.date}</td>
-                <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{exp.description}</td>
-                <td className="px-6 py-4 text-sm font-semibold text-gray-800 dark:text-white">{parseFloat(exp.amount).toLocaleString()} DKK</td>
+                {editId === exp.id ? (
+                  <>
+                    <td className="px-6 py-3">
+                      <input
+                        type="date"
+                        value={editData.date}
+                        onChange={(e) => setEditData({ ...editData, date: e.target.value })}
+                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-36"
+                      />
+                    </td>
+                    <td className="px-6 py-3">
+                      <input
+                        type="text"
+                        value={editData.description}
+                        onChange={(e) => setEditData({ ...editData, description: e.target.value })}
+                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-32"
+                      />
+                    </td>
+                    <td className="px-6 py-3">
+                      <select
+                        value={editData.category_id}
+                        onChange={(e) => setEditData({ ...editData, category_id: e.target.value })}
+                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
+                      >
+                        {categories.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-6 py-3">
+                      <input
+                        type="number"
+                        value={editData.amount}
+                        onChange={(e) => setEditData({ ...editData, amount: parseFloat(e.target.value) || 0 })}
+                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-28"
+                      />
+                    </td>
+                    <td className="px-6 py-3 text-right space-x-2">
+                      <button onClick={saveEdit} className="text-green-600 dark:text-green-400 text-sm font-medium hover:underline">Save</button>
+                      <button onClick={() => setEditId(null)} className="text-gray-400 dark:text-gray-500 text-sm hover:underline">Cancel</button>
+                    </td>
+                  </>
+                ) : (
+                  <>
+                    <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{exp.date}</td>
+                    <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{exp.description}</td>
+                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{getCatName(exp.category_id)}</td>
+                    <td className="px-6 py-4 text-sm font-semibold text-gray-800 dark:text-white">{parseFloat(exp.amount).toLocaleString()} DKK</td>
+                    <td className="px-6 py-4 text-right space-x-3">
+                      <button onClick={() => startEdit(exp)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">Edit</button>
+                      {deleteConfirm === exp.id ? (
+                        <>
+                          <button onClick={() => deleteExpense(exp.id)} className="text-red-600 dark:text-red-400 text-sm font-medium hover:underline">Confirm</button>
+                          <button onClick={() => setDeleteConfirm(null)} className="text-gray-400 text-sm hover:underline">No</button>
+                        </>
+                      ) : (
+                        <button onClick={() => setDeleteConfirm(exp.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">Delete</button>
+                      )}
+                    </td>
+                  </>
+                )}
               </tr>
             ))}
             {expenses.length === 0 && (
-              <tr><td colSpan={3} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noExpensesYet")}</td></tr>
+              <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noExpensesYet")}</td></tr>
             )}
           </tbody>
         </table>

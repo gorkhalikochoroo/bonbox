@@ -10,6 +10,13 @@ class SaleCreate(BaseModel):
     notes: str | None = None
 
 
+class SaleUpdate(BaseModel):
+    date: datetime.date | None = None
+    amount: float | None = None
+    payment_method: str | None = None
+    notes: str | None = None
+
+
 class SaleResponse(BaseModel):
     id: uuid.UUID
     date: datetime.date

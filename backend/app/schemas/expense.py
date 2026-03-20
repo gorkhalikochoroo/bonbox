@@ -24,6 +24,14 @@ class ExpenseCreate(BaseModel):
     is_recurring: bool = False
 
 
+class ExpenseUpdate(BaseModel):
+    category_id: uuid.UUID | None = None
+    date: datetime.date | None = None
+    amount: float | None = None
+    description: str | None = None
+    is_recurring: bool | None = None
+
+
 class ExpenseResponse(BaseModel):
     id: uuid.UUID
     category_id: uuid.UUID

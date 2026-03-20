@@ -7,7 +7,7 @@ from app.database import get_db
 from app.models.user import User
 from app.models.expense import Expense, ExpenseCategory
 from app.schemas.expense import (
-    ExpenseCreate, ExpenseResponse,
+    ExpenseCreate, ExpenseUpdate, ExpenseResponse,
     ExpenseCategoryCreate, ExpenseCategoryResponse,
 )
 from app.services.auth import get_current_user
@@ -107,3 +107,33 @@ def create_expense(
     db.commit()
     db.refresh(expense)
     return expense
+
+
+@router.put("/{expense_id}", response_model=ExpenseResponse)
+def update_expense(
+    expense_id: str,
+    data: ExpenseUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    expense = db.query(Expense).filter(Expense.id == expense_id, Expense.user_id == user.id).first()
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(expense, field, value)
+    db.commit()
+    db.refresh(expense)
+    return expense
+
+
+@router.delete("/{expense_id}", status_code=204)
+def delete_expense(
+    expense_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    expense = db.query(Expense).filter(Expense.id == expense_id, Expense.user_id == user.id).first()
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    db.delete(expense)
+    db.commit()

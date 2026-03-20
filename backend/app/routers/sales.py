@@ -12,7 +12,7 @@ from sqlalchemy import func
 from app.database import get_db
 from app.models.user import User
 from app.models.sale import Sale
-from app.schemas.sale import SaleCreate, SaleResponse
+from app.schemas.sale import SaleCreate, SaleUpdate, SaleResponse
 from app.services.auth import get_current_user
 from app.services.receipt_ocr import extract_amount_from_image, save_receipt_photo
 
@@ -45,6 +45,36 @@ def create_sale(
     db.commit()
     db.refresh(sale)
     return sale
+
+
+@router.put("/{sale_id}", response_model=SaleResponse)
+def update_sale(
+    sale_id: str,
+    data: SaleUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    sale = db.query(Sale).filter(Sale.id == sale_id, Sale.user_id == user.id).first()
+    if not sale:
+        raise HTTPException(status_code=404, detail="Sale not found")
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(sale, field, value)
+    db.commit()
+    db.refresh(sale)
+    return sale
+
+
+@router.delete("/{sale_id}", status_code=204)
+def delete_sale(
+    sale_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    sale = db.query(Sale).filter(Sale.id == sale_id, Sale.user_id == user.id).first()
+    if not sale:
+        raise HTTPException(status_code=404, detail="Sale not found")
+    db.delete(sale)
+    db.commit()
 
 
 @router.post("/repeat-yesterday", response_model=SaleResponse, status_code=201)

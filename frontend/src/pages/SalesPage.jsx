@@ -16,6 +16,9 @@ export default function SalesPage() {
   const [fetchError, setFetchError] = useState("");
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
+  const [editId, setEditId] = useState(null);
+  const [editData, setEditData] = useState({});
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   const fetchSales = async (from, to) => {
     try {
@@ -49,6 +52,40 @@ export default function SalesPage() {
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to add sale");
+    }
+  };
+
+  const startEdit = (sale) => {
+    setEditId(sale.id);
+    setEditData({
+      date: sale.date,
+      amount: parseFloat(sale.amount),
+      payment_method: sale.payment_method,
+    });
+  };
+
+  const saveEdit = async () => {
+    try {
+      await api.put(`/sales/${editId}`, editData);
+      setEditId(null);
+      setEditData({});
+      fetchSales(filterFrom, filterTo);
+      setSuccess("Sale updated!");
+      setTimeout(() => setSuccess(""), 2500);
+    } catch (err) {
+      setError(err.response?.data?.detail || "Failed to update sale");
+    }
+  };
+
+  const deleteSale = async (id) => {
+    try {
+      await api.delete(`/sales/${id}`);
+      setDeleteConfirm(null);
+      fetchSales(filterFrom, filterTo);
+      setSuccess("Sale deleted");
+      setTimeout(() => setSuccess(""), 2500);
+    } catch (err) {
+      setError(err.response?.data?.detail || "Failed to delete sale");
     }
   };
 
@@ -170,18 +207,68 @@ export default function SalesPage() {
               <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("date")}</th>
               <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("amount")}</th>
               <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("payment")}</th>
+              <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
             {sales.slice(0, 50).map((sale) => (
               <tr key={sale.id}>
-                <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{sale.date}</td>
-                <td className="px-6 py-4 text-sm font-semibold text-gray-800 dark:text-white">{parseFloat(sale.amount).toLocaleString()} DKK</td>
-                <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 capitalize">{sale.payment_method}</td>
+                {editId === sale.id ? (
+                  <>
+                    <td className="px-6 py-3">
+                      <input
+                        type="date"
+                        value={editData.date}
+                        onChange={(e) => setEditData({ ...editData, date: e.target.value })}
+                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-36"
+                      />
+                    </td>
+                    <td className="px-6 py-3">
+                      <input
+                        type="number"
+                        value={editData.amount}
+                        onChange={(e) => setEditData({ ...editData, amount: parseFloat(e.target.value) || 0 })}
+                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-28"
+                      />
+                    </td>
+                    <td className="px-6 py-3">
+                      <select
+                        value={editData.payment_method}
+                        onChange={(e) => setEditData({ ...editData, payment_method: e.target.value })}
+                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
+                      >
+                        {["cash", "card", "mobilepay", "mixed", "dankort", "kontant"].map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-6 py-3 text-right space-x-2">
+                      <button onClick={saveEdit} className="text-green-600 dark:text-green-400 text-sm font-medium hover:underline">Save</button>
+                      <button onClick={() => setEditId(null)} className="text-gray-400 dark:text-gray-500 text-sm hover:underline">Cancel</button>
+                    </td>
+                  </>
+                ) : (
+                  <>
+                    <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{sale.date}</td>
+                    <td className="px-6 py-4 text-sm font-semibold text-gray-800 dark:text-white">{parseFloat(sale.amount).toLocaleString()} DKK</td>
+                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 capitalize">{sale.payment_method}</td>
+                    <td className="px-6 py-4 text-right space-x-3">
+                      <button onClick={() => startEdit(sale)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">Edit</button>
+                      {deleteConfirm === sale.id ? (
+                        <>
+                          <button onClick={() => deleteSale(sale.id)} className="text-red-600 dark:text-red-400 text-sm font-medium hover:underline">Confirm</button>
+                          <button onClick={() => setDeleteConfirm(null)} className="text-gray-400 text-sm hover:underline">No</button>
+                        </>
+                      ) : (
+                        <button onClick={() => setDeleteConfirm(sale.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">Delete</button>
+                      )}
+                    </td>
+                  </>
+                )}
               </tr>
             ))}
             {sales.length === 0 && (
-              <tr><td colSpan={3} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noSalesYet")}</td></tr>
+              <tr><td colSpan={4} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noSalesYet")}</td></tr>
             )}
           </tbody>
         </table>
