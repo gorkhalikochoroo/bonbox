@@ -36,9 +36,10 @@ export default function SalesPage() {
         amount: value,
         payment_method: method,
       });
+      const isBackdated = saleDate !== new Date().toISOString().split("T")[0];
       setAmount("");
       setSaleDate(new Date().toISOString().split("T")[0]);
-      setSuccess(`${value.toLocaleString()} DKK!`);
+      setSuccess(`${value.toLocaleString()} DKK${isBackdated ? ` (${saleDate})` : ""}!`);
       fetchSales();
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
@@ -144,7 +145,7 @@ export default function SalesPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {sales.slice(0, 20).map((sale) => (
+            {sales.slice(0, 50).map((sale) => (
               <tr key={sale.id}>
                 <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{sale.date}</td>
                 <td className="px-6 py-4 text-sm font-semibold text-gray-800 dark:text-white">{parseFloat(sale.amount).toLocaleString()} DKK</td>

@@ -55,10 +55,11 @@ export default function ExpensesPage() {
         description: desc,
         is_recurring: false,
       });
+      const isBackdated = expDate !== new Date().toISOString().split("T")[0];
       setAmount("");
       setDesc("");
       setExpDate(new Date().toISOString().split("T")[0]);
-      setSuccess(`${value.toLocaleString()} DKK!`);
+      setSuccess(`${value.toLocaleString()} DKK${isBackdated ? ` (${expDate})` : ""}!`);
       fetchData();
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
@@ -172,7 +173,7 @@ export default function ExpensesPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {expenses.slice(0, 20).map((exp) => (
+            {expenses.slice(0, 50).map((exp) => (
               <tr key={exp.id}>
                 <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{exp.date}</td>
                 <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{exp.description}</td>
