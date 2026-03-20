@@ -12,6 +12,7 @@ export default function ExpensesPage() {
   const [catId, setCatId] = useState("");
   const [amount, setAmount] = useState("");
   const [desc, setDesc] = useState("");
+  const [expDate, setExpDate] = useState(new Date().toISOString().split("T")[0]);
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
   const [showSetup, setShowSetup] = useState(false);
@@ -49,13 +50,14 @@ export default function ExpensesPage() {
     try {
       await api.post("/expenses", {
         category_id: catId,
-        date: new Date().toISOString().split("T")[0],
+        date: expDate,
         amount: value,
         description: desc,
         is_recurring: false,
       });
       setAmount("");
       setDesc("");
+      setExpDate(new Date().toISOString().split("T")[0]);
       setSuccess(`${value.toLocaleString()} DKK!`);
       fetchData();
       setTimeout(() => setSuccess(""), 2500);
@@ -139,6 +141,21 @@ export default function ExpensesPage() {
           >
             {t("add")}
           </button>
+        </div>
+
+        {/* Date picker */}
+        <div className="mt-3 flex items-center gap-3">
+          <label className="text-sm font-medium text-gray-500 dark:text-gray-400">{t("date")}:</label>
+          <input
+            type="date"
+            value={expDate}
+            max={new Date().toISOString().split("T")[0]}
+            onChange={(e) => setExpDate(e.target.value)}
+            className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          {expDate !== new Date().toISOString().split("T")[0] && (
+            <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Backdated entry</span>
+          )}
         </div>
       </div>
 

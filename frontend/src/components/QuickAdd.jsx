@@ -13,10 +13,12 @@ export default function QuickAdd() {
 
   const [saleAmount, setSaleAmount] = useState("");
   const [saleMethod, setSaleMethod] = useState("mixed");
+  const [saleDate, setSaleDate] = useState(new Date().toISOString().split("T")[0]);
 
   const [expAmount, setExpAmount] = useState("");
   const [expCatId, setExpCatId] = useState("");
   const [expDesc, setExpDesc] = useState("");
+  const [expDate, setExpDate] = useState(new Date().toISOString().split("T")[0]);
 
   const salePresets = [500, 1000, 2500, 5000, 10000];
   const expPresets = [100, 500, 1000, 2500];
@@ -43,11 +45,12 @@ export default function QuickAdd() {
     if (!saleAmount) return;
     try {
       await api.post("/sales", {
-        date: new Date().toISOString().split("T")[0],
+        date: saleDate,
         amount: parseFloat(saleAmount),
         payment_method: saleMethod,
       });
       setSaleAmount("");
+      setSaleDate(new Date().toISOString().split("T")[0]);
       showSuccess(t("saleLogged"));
     } catch (err) {
       showError(err.response?.data?.detail || "Failed to log sale");
@@ -59,7 +62,7 @@ export default function QuickAdd() {
     try {
       await api.post("/expenses", {
         category_id: expCatId,
-        date: new Date().toISOString().split("T")[0],
+        date: expDate,
         amount: parseFloat(expAmount),
         description: expDesc,
         is_recurring: false,
@@ -67,6 +70,7 @@ export default function QuickAdd() {
       setExpAmount("");
       setExpDesc("");
       setExpCatId("");
+      setExpDate(new Date().toISOString().split("T")[0]);
       showSuccess(t("expenseAdded"));
     } catch (err) {
       showError(err.response?.data?.detail || "Failed to add expense");
@@ -159,6 +163,17 @@ export default function QuickAdd() {
               ))}
             </div>
 
+            <div className="flex items-center gap-3">
+              <label className="text-xs text-gray-500 dark:text-gray-400">{t("date")}:</label>
+              <input
+                type="date"
+                value={saleDate}
+                max={new Date().toISOString().split("T")[0]}
+                onChange={(e) => setSaleDate(e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
             <button
               onClick={submitSale}
               disabled={!saleAmount}
@@ -225,6 +240,17 @@ export default function QuickAdd() {
               placeholder={t("whatForExpense")}
               className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+
+            <div className="flex items-center gap-3">
+              <label className="text-xs text-gray-500 dark:text-gray-400">{t("date")}:</label>
+              <input
+                type="date"
+                value={expDate}
+                max={new Date().toISOString().split("T")[0]}
+                onChange={(e) => setExpDate(e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
 
             <button
               onClick={submitExpense}

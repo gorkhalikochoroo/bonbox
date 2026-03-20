@@ -9,6 +9,7 @@ export default function SalesPage() {
   const { t } = useLanguage();
   const [sales, setSales] = useState([]);
   const [amount, setAmount] = useState("");
+  const [saleDate, setSaleDate] = useState(new Date().toISOString().split("T")[0]);
   const [method, setMethod] = useState("mixed");
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
@@ -31,11 +32,12 @@ export default function SalesPage() {
     setError("");
     try {
       await api.post("/sales", {
-        date: new Date().toISOString().split("T")[0],
+        date: saleDate,
         amount: value,
         payment_method: method,
       });
       setAmount("");
+      setSaleDate(new Date().toISOString().split("T")[0]);
       setSuccess(`${value.toLocaleString()} DKK!`);
       fetchSales();
       setTimeout(() => setSuccess(""), 2500);
@@ -93,12 +95,12 @@ export default function SalesPage() {
         </div>
 
         {/* Payment method */}
-        <div className="flex gap-2 mt-3">
+        <div className="flex flex-wrap gap-2 mt-3">
           {["cash", "card", "mobilepay", "mixed", "dankort", "kontant"].map((m) => (
             <button
               key={m}
               onClick={() => setMethod(m)}
-              className={`flex-1 py-2.5 rounded-lg text-xs font-medium capitalize border transition ${
+              className={`flex-1 min-w-[4.5rem] py-2.5 rounded-lg text-xs font-medium capitalize border transition ${
                 method === m
                   ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-500 text-blue-700 dark:text-blue-300"
                   : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50"
@@ -107,6 +109,21 @@ export default function SalesPage() {
               {m}
             </button>
           ))}
+        </div>
+
+        {/* Date picker */}
+        <div className="mt-3 flex items-center gap-3">
+          <label className="text-sm font-medium text-gray-500 dark:text-gray-400">{t("date")}:</label>
+          <input
+            type="date"
+            value={saleDate}
+            max={new Date().toISOString().split("T")[0]}
+            onChange={(e) => setSaleDate(e.target.value)}
+            className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          {saleDate !== new Date().toISOString().split("T")[0] && (
+            <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Backdated entry</span>
+          )}
         </div>
       </div>
 
