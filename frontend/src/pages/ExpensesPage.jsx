@@ -16,9 +16,14 @@ export default function ExpensesPage() {
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
   const [showSetup, setShowSetup] = useState(false);
+  const [filterFrom, setFilterFrom] = useState("");
+  const [filterTo, setFilterTo] = useState("");
 
-  const fetchData = () => {
-    api.get("/expenses")
+  const fetchData = (from, to) => {
+    const params = {};
+    if (from) params.from = from;
+    if (to) params.to = to;
+    api.get("/expenses", { params })
       .then((res) => setExpenses(res.data))
       .catch((err) => setError(err.response?.data?.detail || "Failed to load expenses"));
     api.get("/expenses/categories")
@@ -60,7 +65,7 @@ export default function ExpensesPage() {
       setDesc("");
       setExpDate(new Date().toISOString().split("T")[0]);
       setSuccess(`${value.toLocaleString()} DKK${isBackdated ? ` (${expDate})` : ""}!`);
-      fetchData();
+      fetchData(filterFrom, filterTo);
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to add expense");
@@ -161,8 +166,31 @@ export default function ExpensesPage() {
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
+        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">{t("recentExpenses")}</h2>
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              type="date"
+              value={filterFrom}
+              onChange={(e) => { setFilterFrom(e.target.value); fetchData(e.target.value, filterTo); }}
+              className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <span className="text-xs text-gray-400">→</span>
+            <input
+              type="date"
+              value={filterTo}
+              onChange={(e) => { setFilterTo(e.target.value); fetchData(filterFrom, e.target.value); }}
+              className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            {(filterFrom || filterTo) && (
+              <button
+                onClick={() => { setFilterFrom(""); setFilterTo(""); fetchData(); }}
+                className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 font-medium"
+              >
+                Clear
+              </button>
+            )}
+          </div>
         </div>
         <table className="w-full text-left">
           <thead className="bg-gray-50 dark:bg-gray-700/50">
