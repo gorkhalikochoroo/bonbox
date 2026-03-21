@@ -1,13 +1,13 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
 from app.models.waste import WasteLog
-from app.schemas.waste import WasteLogCreate, WasteLogResponse, WasteSummary
+from app.schemas.waste import WasteLogCreate, WasteLogUpdate, WasteLogResponse, WasteSummary
 from app.services.auth import get_current_user
 
 router = APIRouter()
@@ -47,6 +47,36 @@ def create_waste(
     db.commit()
     db.refresh(log)
     return log
+
+
+@router.put("/{log_id}", response_model=WasteLogResponse)
+def update_waste(
+    log_id: str,
+    data: WasteLogUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    log = db.query(WasteLog).filter(WasteLog.id == log_id, WasteLog.user_id == user.id).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="Waste log not found")
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(log, field, value)
+    db.commit()
+    db.refresh(log)
+    return log
+
+
+@router.delete("/{log_id}", status_code=204)
+def delete_waste(
+    log_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    log = db.query(WasteLog).filter(WasteLog.id == log_id, WasteLog.user_id == user.id).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="Waste log not found")
+    db.delete(log)
+    db.commit()
 
 
 @router.get("/summary", response_model=WasteSummary)

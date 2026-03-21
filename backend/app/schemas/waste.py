@@ -12,6 +12,15 @@ class WasteLogCreate(BaseModel):
     date: datetime.date | None = None
 
 
+class WasteLogUpdate(BaseModel):
+    item_name: str | None = None
+    quantity: float | None = None
+    unit: str | None = None
+    estimated_cost: float | None = None
+    reason: str | None = None
+    date: datetime.date | None = None
+
+
 class WasteLogResponse(BaseModel):
     id: uuid.UUID
     date: datetime.date
