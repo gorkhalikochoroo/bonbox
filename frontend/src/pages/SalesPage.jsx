@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import ReceiptCapture from "../components/ReceiptCapture";
+import { trackEvent } from "../hooks/useEventLog";
 
 const QUICK_AMOUNTS = [500, 1000, 2500, 5000, 7500, 10000, 15000];
 
@@ -50,6 +51,7 @@ export default function SalesPage() {
       setAmount("");
       setNotes("");
       setSaleDate(new Date().toISOString().split("T")[0]);
+      trackEvent("sale_logged", "sales", `${value} DKK via ${method}`);
       setSuccess(`${value.toLocaleString()} DKK${isBackdated ? ` (${saleDate})` : ""}!`);
       fetchSales(filterFrom, filterTo);
       setTimeout(() => setSuccess(""), 2500);

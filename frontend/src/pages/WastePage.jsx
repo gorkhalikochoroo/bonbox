@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { trackEvent } from "../hooks/useEventLog";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
 const REASONS = ["expired", "overcooked", "damaged", "other"];
@@ -50,6 +51,7 @@ export default function WastePage() {
       });
       setItem(""); setQty(""); setCost("");
       setWasteDate(new Date().toISOString().split("T")[0]);
+      trackEvent("waste_logged", "waste", `${item} - ${c || 0} DKK`);
       setSuccess(t("wasteLogged"));
       fetchData(filterFrom, filterTo);
       setTimeout(() => setSuccess(""), 2500);

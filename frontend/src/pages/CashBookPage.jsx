@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { trackEvent } from "../hooks/useEventLog";
 
 const IN_CATEGORIES = ["Sales", "Tips", "Loan", "Other"];
 const OUT_CATEGORIES = ["Purchase", "Wages", "Supplies", "Rent", "Other"];
@@ -49,6 +50,7 @@ export default function CashBookPage() {
       setDesc("");
       setCategory("");
       setTxnDate(new Date().toISOString().split("T")[0]);
+      trackEvent("cash_transaction", "cashbook", `${tab} ${value} DKK`);
       setSuccess(`${tab === "cash_in" ? "+" : "-"}${value.toLocaleString()} DKK`);
       fetchData(filterFrom, filterTo);
       setTimeout(() => setSuccess(""), 2500);

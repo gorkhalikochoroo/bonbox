@@ -6,5 +6,6 @@ from app.models.staffing import StaffingRule
 from app.models.waste import WasteLog
 from app.models.feedback import Feedback
 from app.models.cashbook import CashTransaction
+from app.models.event_log import EventLog
 
-__all__ = ["User", "Sale", "ExpenseCategory", "Expense", "InventoryItem", "InventoryLog", "StaffingRule", "WasteLog", "Feedback", "CashTransaction"]
+__all__ = ["User", "Sale", "ExpenseCategory", "Expense", "InventoryItem", "InventoryLog", "StaffingRule", "WasteLog", "Feedback", "CashTransaction", "EventLog"]

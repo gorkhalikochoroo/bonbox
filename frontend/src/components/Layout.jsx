@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useDarkMode } from "../hooks/useDarkMode";
 import { useLanguage } from "../hooks/useLanguage";
 import QuickAdd from "./QuickAdd";
+import { usePageTracking } from "../hooks/useEventLog";
 
 const navItems = [
   { to: "/", labelKey: "dashboard" },
@@ -25,6 +26,7 @@ export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [dark, toggleDark] = useDarkMode();
   const { t, toggleLang } = useLanguage();
+  usePageTracking();
 
   const handleLogout = () => {
     logout();

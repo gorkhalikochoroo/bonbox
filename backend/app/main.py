@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events
 from app.database import engine, Base
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -44,6 +44,7 @@ app.include_router(staffing.router, prefix="/api/staffing", tags=["Staffing"])
 app.include_router(waste.router, prefix="/api/waste", tags=["Waste"])
 app.include_router(feedback.router, prefix="/api/feedback", tags=["Feedback"])
 app.include_router(cashbook.router, prefix="/api/cashbook", tags=["Cash Book"])
+app.include_router(events.router, prefix="/api/events", tags=["Events"])
 
 
 # Serve uploaded receipt photos

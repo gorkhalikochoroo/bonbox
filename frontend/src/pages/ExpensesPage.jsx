@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { trackEvent } from "../hooks/useEventLog";
 
 const QUICK_AMOUNTS = [100, 250, 500, 1000, 2500, 5000];
 const DEFAULT_CATEGORIES = ["Ingredients", "Rent", "Wages", "Utilities", "Supplies", "Other"];
@@ -67,6 +68,7 @@ export default function ExpensesPage() {
       setAmount("");
       setDesc("");
       setExpDate(new Date().toISOString().split("T")[0]);
+      trackEvent("expense_logged", "expenses", `${value} DKK`);
       setSuccess(`${value.toLocaleString()} DKK${isBackdated ? ` (${expDate})` : ""}!`);
       fetchData(filterFrom, filterTo);
       setTimeout(() => setSuccess(""), 2500);
