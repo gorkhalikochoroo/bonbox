@@ -12,3 +12,4 @@ email-validator==2.2.0
 reportlab==4.2.5
 pillow==11.1.0
 pillow-heif==0.18.0
+slowapi==0.1.9

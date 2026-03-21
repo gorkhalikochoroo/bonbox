@@ -3,8 +3,10 @@ import io
 import os
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from sqlalchemy.orm import Session
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from fastapi.responses import FileResponse
 from sqlalchemy import func
@@ -17,6 +19,7 @@ from app.services.auth import get_current_user
 from app.services.receipt_ocr import extract_amount_from_image, save_receipt_photo
 
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
 
 
 @router.get("", response_model=list[SaleResponse])
@@ -107,13 +110,23 @@ def repeat_yesterday(
 
 
 @router.post("/import-csv")
+@limiter.limit("10/minute")
 async def import_csv(
+    request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """Import sales from CSV. Expects columns: date, amount, payment_method (optional)."""
+    # Validate file type
+    if file.content_type not in ("text/csv", "application/vnd.ms-excel", "text/plain"):
+        raise HTTPException(status_code=400, detail="Invalid file type. Please upload a CSV file.")
+
     content = await file.read()
+
+    # Validate file size
+    if len(content) > MAX_CSV_SIZE:
+        raise HTTPException(status_code=413, detail="CSV too large. Maximum size is 2 MB.")
     text = content.decode("utf-8-sig")  # handles BOM from Excel
     reader = csv.DictReader(io.StringIO(text))
 
@@ -147,14 +160,32 @@ async def import_csv(
     return {"imported": imported, "errors": errors}
 
 
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"}
+MAX_UPLOAD_SIZE = 5 * 1024 * 1024  # 5 MB
+MAX_CSV_SIZE = 2 * 1024 * 1024  # 2 MB
+
+
 @router.post("/upload-receipt")
+@limiter.limit("10/minute")
 async def upload_receipt(
+    request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """Upload a receipt photo. OCR extracts the total amount for confirmation."""
+    # Validate file type
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type '{file.content_type}'. Allowed: JPEG, PNG, GIF, WebP, HEIC",
+        )
+
     content = await file.read()
+
+    # Validate file size
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="File too large. Maximum size is 5 MB.")
     # save_receipt_photo saves locally + uploads to Supabase, returns URL or local path
     stored_path = save_receipt_photo(content, file.filename, str(user.id))
 

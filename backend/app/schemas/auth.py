@@ -1,13 +1,24 @@
 import uuid
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator, Field
 
 
 class UserRegister(BaseModel):
     email: EmailStr
-    password: str
-    business_name: str
+    password: str = Field(..., min_length=8, max_length=128)
+    business_name: str = Field(..., min_length=1, max_length=200)
     business_type: str = "restaurant"
     currency: str = "DKK"
+
+    @field_validator("password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Password must contain at least one digit")
+        if not any(c.isalpha() for c in v):
+            raise ValueError("Password must contain at least one letter")
+        return v
 
 
 class UserLogin(BaseModel):
