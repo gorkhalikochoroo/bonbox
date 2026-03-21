@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
+import { exportToCsv } from "../utils/exportCsv";
 
 const QUICK_AMOUNTS = [100, 250, 500, 1000, 2500, 5000];
 const DEFAULT_CATEGORIES = ["Ingredients", "Rent", "Wages", "Utilities", "Supplies", "Other"];
@@ -118,7 +119,7 @@ export default function ExpensesPage() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("expenseTracker")}</h1>
 
       {success && <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
@@ -235,16 +236,31 @@ export default function ExpensesPage() {
                 Clear
               </button>
             )}
+            <button
+              onClick={() => exportToCsv("expenses.csv", expenses.map(exp => ({
+                ...exp,
+                category_name: getCatName(exp.category_id),
+              })), [
+                { key: "date", label: "Date" },
+                { key: "description", label: "Description" },
+                { key: "category_name", label: "Category" },
+                { key: "amount", label: "Amount" },
+              ])}
+              className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
+            >
+              Export CSV
+            </button>
           </div>
         </div>
-        <table className="w-full text-left">
+        <div className="overflow-x-auto">
+        <table className="w-full text-left min-w-[600px]">
           <thead className="bg-gray-50 dark:bg-gray-700/50">
             <tr>
-              <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("date")}</th>
-              <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("description")}</th>
-              <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Category</th>
-              <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("amount")}</th>
-              <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">Actions</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("date")}</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("description")}</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Category</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("amount")}</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -318,6 +334,7 @@ export default function ExpensesPage() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

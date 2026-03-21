@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import Modal from "./Modal";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { trackEvent } from "../hooks/useEventLog";
 
 export default function ReceiptCapture({ onSaleCreated }) {
   const { t } = useLanguage();
@@ -25,13 +26,17 @@ export default function ReceiptCapture({ onSaleCreated }) {
     formData.append("file", file);
 
     try {
-      const res = await api.post("/sales/upload-receipt", formData);
+      const res = await api.post("/sales/upload-receipt", formData, { timeout: 60000 });
       setResult(res.data);
       if (res.data.suggested_amount) {
         setAmount(String(res.data.suggested_amount));
+        trackEvent("receipt_scanned", "receipt", `detected ${res.data.suggested_amount} DKK`);
+      } else {
+        trackEvent("receipt_scan_failed", "receipt", res.data.ocr_available ? "no amount found" : "ocr unavailable");
       }
-    } catch {
+    } catch (err) {
       setResult({ suggested_amount: null, all_amounts_found: [], ocr_available: false });
+      trackEvent("receipt_scan_error", "receipt", err.message);
     }
     setUploading(false);
   };
@@ -113,7 +118,11 @@ export default function ReceiptCapture({ onSaleCreated }) {
             )}
 
             {uploading && (
-              <p className="text-center text-sm text-blue-600">{t("scanningReceipt")}</p>
+              <div className="text-center py-4">
+                <div className="inline-block w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin mb-2"></div>
+                <p className="text-sm text-blue-600 font-medium">{t("scanningReceipt")}</p>
+                <p className="text-xs text-gray-400 mt-1">This may take 10-20 seconds...</p>
+              </div>
             )}
 
             {result && !uploading && (

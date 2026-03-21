@@ -3,6 +3,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
 import ReceiptCapture from "../components/ReceiptCapture";
+import Onboarding from "../components/Onboarding";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -12,6 +13,14 @@ import {
 const COLORS = ["#3B82F6", "#EF4444", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899"];
 
 const PERIODS = ["today", "thisWeek", "thisMonth", "last30", "custom"];
+
+const PERIOD_LABELS = {
+  today: { revenue: "Today's Revenue", profit: "Today's Profit" },
+  thisWeek: { revenue: "This Week's Revenue", profit: "This Week's Profit" },
+  thisMonth: { revenue: "This Month's Revenue", profit: "This Month's Profit" },
+  last30: { revenue: "Last 30 Days Revenue", profit: "Last 30 Days Profit" },
+  custom: { revenue: "Custom Period Revenue", profit: "Custom Period Profit" },
+};
 
 function getDateRange(period) {
   const now = new Date();
@@ -53,6 +62,7 @@ export default function DashboardPage() {
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [periodStats, setPeriodStats] = useState(null);
+  const [categories, setCategories] = useState([]);
 
   const dateRange = useMemo(() => {
     if (period === "custom") return { from: customFrom, to: customTo };
@@ -68,6 +78,7 @@ export default function DashboardPage() {
     api.get("/sales/latest").then((res) => setLastSale(res.data)).catch(() => {});
     api.get("/sales/receipts").then((res) => setReceipts(res.data)).catch(() => {});
     api.get("/reports/forecast", { params: { days: 7 } }).then((res) => setForecast(res.data)).catch(() => {});
+    api.get("/expenses/categories").then((res) => setCategories(res.data)).catch(() => {});
   };
 
   // Fetch period-specific data
@@ -92,6 +103,13 @@ export default function DashboardPage() {
       });
       const topCat = Object.entries(catMap).sort((a, b) => b[1] - a[1])[0];
 
+      // Resolve top expense category name
+      let topExpenseCategoryName = null;
+      if (topCat) {
+        const catObj = categories.find((c) => c.id === topCat[0]);
+        topExpenseCategoryName = catObj ? catObj.name : "Other";
+      }
+
       // Daily revenue for chart
       const dailyMap = {};
       sales.forEach((s) => {
@@ -107,11 +125,12 @@ export default function DashboardPage() {
         profit: Math.round(totalRevenue - totalExpenses),
         margin: totalRevenue > 0 ? Math.round(((totalRevenue - totalExpenses) / totalRevenue) * 100) : 0,
         topExpenseAmount: topCat ? Math.round(topCat[1]) : 0,
+        topExpenseCategoryName,
         dailyRevenue,
         salesCount: sales.length,
       });
     }).catch(() => {});
-  }, [dateRange.from, dateRange.to, period]);
+  }, [dateRange.from, dateRange.to, period, categories]);
 
   useEffect(() => { fetchAll(); }, []);
 
@@ -151,7 +170,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       {/* Header + Quick Actions */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
@@ -207,7 +226,7 @@ export default function DashboardPage() {
           </button>
         ))}
         {period === "custom" && (
-          <div className="flex items-center gap-2 ml-2">
+          <div className="flex items-center gap-2 ml-0 sm:ml-2">
             <input
               type="date"
               value={customFrom}
@@ -225,24 +244,27 @@ export default function DashboardPage() {
         )}
       </div>
 
+      {/* Onboarding for new users */}
+      <Onboarding summary={summary} />
+
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <KpiCard
-          title={period === "today" ? t("todayRevenue") : "Period Revenue"}
+          title={PERIOD_LABELS[period]?.revenue || t("todayRevenue")}
           value={`${(periodStats ? periodStats.totalRevenue : summary.today_revenue).toLocaleString()} DKK`}
           change={period === "today" ? summary.today_revenue_change : undefined}
           changeLabel={period === "today" ? t("vsYesterday") : undefined}
           subtitle={periodStats ? `${periodStats.salesCount} sales` : undefined}
         />
         <KpiCard
-          title={period === "today" ? t("monthlyProfit") : "Period Profit"}
+          title={PERIOD_LABELS[period]?.profit || t("monthlyProfit")}
           value={`${(periodStats ? periodStats.profit : summary.month_profit).toLocaleString()} DKK`}
           subtitle={`${periodStats ? periodStats.margin : summary.profit_margin}% ${t("margin")}`}
         />
         <KpiCard
           title={t("topExpense")}
-          value={periodStats ? `${periodStats.topExpenseAmount.toLocaleString()} DKK` : (summary.top_expense_category || t("none"))}
-          subtitle={!periodStats && summary.top_expense_amount > 0 ? `${summary.top_expense_amount.toLocaleString()} DKK` : ""}
+          value={periodStats ? (periodStats.topExpenseCategoryName || t("none")) : (summary.top_expense_category || t("none"))}
+          subtitle={periodStats ? (periodStats.topExpenseAmount > 0 ? `${periodStats.topExpenseAmount.toLocaleString()} DKK` : "") : (summary.top_expense_amount > 0 ? `${summary.top_expense_amount.toLocaleString()} DKK` : "")}
         />
         <KpiCard
           title={t("inventoryAlerts")}
@@ -306,7 +328,7 @@ export default function DashboardPage() {
       {/* Revenue Forecast */}
       {forecast && forecast.forecast?.length > 0 && (
         <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
             <div>
               <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200">
                 {t("revenueForecastTitle")}
@@ -317,7 +339,7 @@ export default function DashboardPage() {
                 {forecast.trend_direction === "up" ? t("trendUp") : forecast.trend_direction === "down" ? t("trendDown") : t("trendStable")}
               </p>
             </div>
-            <div className="text-right">
+            <div className="text-left sm:text-right">
               <p className="text-sm text-gray-500">{t("predictedTotal")}</p>
               <p className="text-xl font-bold text-blue-600">{forecast.total_predicted?.toLocaleString()} DKK</p>
               <p className="text-xs text-gray-400">{t("avgDaily")}: {forecast.avg_daily_predicted?.toLocaleString()} DKK</p>
@@ -344,7 +366,7 @@ export default function DashboardPage() {
             </BarChart>
           </ResponsiveContainer>
 
-          <div className="grid grid-cols-7 gap-1 mt-3">
+          <div className="grid grid-cols-4 sm:grid-cols-7 gap-1 mt-3">
             {forecast.forecast.map((f, i) => (
               <div key={i} className="text-center">
                 <p className="text-xs font-medium text-gray-600 dark:text-gray-300">{f.day.slice(0, 3)}</p>
@@ -472,9 +494,9 @@ function DailyGoal({ revenue }) {
 
 function KpiCard({ title, value, change, changeLabel, subtitle, alert }) {
   return (
-    <div className={`bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border ${alert ? "border-red-300 dark:border-red-600" : "border-gray-100 dark:border-gray-700"}`}>
-      <p className="text-sm text-gray-500 dark:text-gray-400">{title}</p>
-      <p className="text-2xl font-bold text-gray-800 dark:text-gray-100 mt-1">{value}</p>
+    <div className={`bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border ${alert ? "border-red-300 dark:border-red-600" : "border-gray-100 dark:border-gray-700"}`}>
+      <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">{title}</p>
+      <p className="text-lg sm:text-2xl font-bold text-gray-800 dark:text-gray-100 mt-1 break-words">{value}</p>
       {change !== undefined && (
         <p className={`text-sm mt-1 ${change >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
           {change >= 0 ? "+" : ""}{change}% {changeLabel}

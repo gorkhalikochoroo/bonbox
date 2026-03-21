@@ -3,6 +3,7 @@ import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import ReceiptCapture from "../components/ReceiptCapture";
 import { trackEvent } from "../hooks/useEventLog";
+import { exportToCsv } from "../utils/exportCsv";
 
 const QUICK_AMOUNTS = [500, 1000, 2500, 5000, 7500, 10000, 15000];
 
@@ -96,8 +97,8 @@ export default function SalesPage() {
   };
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="p-4 sm:p-6 space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("salesTracker")}</h1>
         <ReceiptCapture onSaleCreated={fetchSales} />
       </div>
@@ -181,7 +182,7 @@ export default function SalesPage() {
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Add a note (optional)"
-          className="mt-3 w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+          className="mt-3 w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
         />
       </div>
 
@@ -214,15 +215,27 @@ export default function SalesPage() {
                 Clear
               </button>
             )}
+            <button
+              onClick={() => exportToCsv("sales.csv", sales, [
+                { key: "date", label: "Date" },
+                { key: "amount", label: "Amount" },
+                { key: "payment_method", label: "Payment Method" },
+                { key: "notes", label: "Notes" },
+              ])}
+              className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
+            >
+              Export CSV
+            </button>
           </div>
         </div>
-        <table className="w-full text-left">
+        <div className="overflow-x-auto">
+        <table className="w-full text-left min-w-[500px]">
           <thead className="bg-gray-50 dark:bg-gray-700/50">
             <tr>
-              <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("date")}</th>
-              <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("amount")}</th>
-              <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("payment")}</th>
-              <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">Actions</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("date")}</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("amount")}</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("payment")}</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -287,6 +300,7 @@ export default function SalesPage() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

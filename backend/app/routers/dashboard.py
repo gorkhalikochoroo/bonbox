@@ -79,6 +79,25 @@ def get_summary(
         .scalar()
     )
 
+    # Onboarding helpers
+    total_sales = (
+        db.query(func.count(Sale.id))
+        .filter(Sale.user_id == user.id)
+        .scalar()
+    )
+
+    has_expense_categories = (
+        db.query(ExpenseCategory.id)
+        .filter(ExpenseCategory.user_id == user.id)
+        .first()
+    ) is not None
+
+    has_inventory_items = (
+        db.query(InventoryItem.id)
+        .filter(InventoryItem.user_id == user.id)
+        .first()
+    ) is not None
+
     return DashboardSummary(
         today_revenue=float(today_rev),
         today_revenue_change=today_change,
@@ -89,4 +108,7 @@ def get_summary(
         top_expense_category=top_cat[0] if top_cat else None,
         top_expense_amount=float(top_cat[1]) if top_cat else 0,
         inventory_alerts=alert_count,
+        total_sales=total_sales,
+        has_expense_categories=has_expense_categories,
+        has_inventory_items=has_inventory_items,
     )

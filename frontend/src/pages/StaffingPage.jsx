@@ -83,8 +83,8 @@ export default function StaffingPage() {
     : [];
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="p-4 sm:p-6 space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("smartStaffing")}</h1>
         <select
           value={days}
@@ -167,15 +167,16 @@ export default function StaffingPage() {
           )}
 
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-            <table className="w-full text-left">
+            <div className="overflow-x-auto">
+            <table className="w-full text-left min-w-[700px]">
               <thead className="bg-gray-50 dark:bg-gray-700/50">
                 <tr>
-                  <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("date")}</th>
-                  <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("day")}</th>
-                  <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("predictedRevenue")}</th>
-                  <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("level")}</th>
-                  <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("staffNeeded")}</th>
-                  <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("confidence")}</th>
+                  <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("date")}</th>
+                  <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("day")}</th>
+                  <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("predictedRevenue")}</th>
+                  <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("level")}</th>
+                  <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("staffNeeded")}</th>
+                  <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("confidence")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -199,6 +200,7 @@ export default function StaffingPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </>
       )}
@@ -206,9 +208,9 @@ export default function StaffingPage() {
       <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
         <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-4">{t("staffingRules")}</h2>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{t("staffingRulesDesc")}</p>
-        <form onSubmit={addRule} className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-4">
+        <form onSubmit={addRule} className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
           <select value={ruleForm.label} onChange={(e) => setRuleForm({ ...ruleForm, label: e.target.value })}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white">
+            className="px-3 py-3 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white">
             <option value="Slow">{t("slow")}</option>
             <option value="Normal">{t("normal")}</option>
             <option value="Busy">{t("busy")}</option>

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
+import { exportToCsv } from "../utils/exportCsv";
 
 const IN_CATEGORIES = ["Sales", "Tips", "Loan", "Other"];
 const OUT_CATEGORIES = ["Purchase", "Wages", "Supplies", "Rent", "Other"];
@@ -106,7 +107,7 @@ export default function CashBookPage() {
   const categories = tab === "cash_in" ? IN_CATEGORIES : OUT_CATEGORIES;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Cash Book</h1>
 
       {success && <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
@@ -262,6 +263,18 @@ export default function CashBookPage() {
                 Clear
               </button>
             )}
+            <button
+              onClick={() => exportToCsv("cashbook.csv", transactions, [
+                { key: "date", label: "Date" },
+                { key: "type", label: "Type" },
+                { key: "description", label: "Description" },
+                { key: "category", label: "Category" },
+                { key: "amount", label: "Amount" },
+              ])}
+              className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
+            >
+              Export CSV
+            </button>
           </div>
         </div>
         <div className="overflow-x-auto">

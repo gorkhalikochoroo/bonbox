@@ -36,7 +36,7 @@ export default function InventoryPage() {
   const alertIds = new Set(alerts.map((a) => a.id));
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("inventoryMonitor")}</h1>
 
       {alerts.length > 0 && (
@@ -48,15 +48,15 @@ export default function InventoryPage() {
       <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
         <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-4">{t("addItem")}</h2>
         {error && <p className="text-red-600 text-sm mb-3">{error}</p>}
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <form onSubmit={handleSubmit} className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <input type="text" placeholder={t("itemName")} value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" required />
+            className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg col-span-2 md:col-span-1" required />
           <input type="number" step="0.01" placeholder={t("quantity")} value={form.quantity}
             onChange={(e) => setForm({ ...form, quantity: e.target.value })}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" required />
+            className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" required />
           <select value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg">
+            className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg">
             <option value="pieces">{t("pieces")}</option>
             <option value="kg">{t("kg")}</option>
             <option value="liters">{t("liters")}</option>
@@ -64,25 +64,26 @@ export default function InventoryPage() {
           </select>
           <input type="number" step="0.01" placeholder={t("costPerUnit")} value={form.cost_per_unit}
             onChange={(e) => setForm({ ...form, cost_per_unit: e.target.value })}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" required />
+            className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" required />
           <input type="number" step="0.01" placeholder={t("threshold")} value={form.min_threshold}
             onChange={(e) => setForm({ ...form, min_threshold: e.target.value })}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" required />
-          <button type="submit" className="bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition font-medium md:col-span-5">
+            className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" required />
+          <button type="submit" className="bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition font-medium col-span-2 md:col-span-5">
             {t("addItem")}
           </button>
         </form>
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-        <table className="w-full text-left">
+        <div className="overflow-x-auto">
+        <table className="w-full text-left min-w-[550px]">
           <thead className="bg-gray-50 dark:bg-gray-700/50">
             <tr>
-              <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("item")}</th>
-              <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("quantity")}</th>
-              <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("unit")}</th>
-              <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("costPerUnit")}</th>
-              <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("threshold")}</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("item")}</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("quantity")}</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("unit")}</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("costPerUnit")}</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("threshold")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -100,6 +101,7 @@ export default function InventoryPage() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );
