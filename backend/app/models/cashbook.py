@@ -1,0 +1,23 @@
+import uuid
+from datetime import date, datetime
+
+from sqlalchemy import String, Date, DateTime, Numeric, Text, ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.database import Base, GUID
+
+
+class CashTransaction(Base):
+    __tablename__ = "cash_transactions"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
+    date: Mapped[date] = mapped_column(Date)
+    type: Mapped[str] = mapped_column(String(10))  # "cash_in" or "cash_out"
+    amount: Mapped[float] = mapped_column(Numeric(12, 2))
+    description: Mapped[str] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    reference_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    user: Mapped["User"] = relationship()

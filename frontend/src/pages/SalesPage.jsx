@@ -11,6 +11,7 @@ export default function SalesPage() {
   const [amount, setAmount] = useState("");
   const [saleDate, setSaleDate] = useState(new Date().toISOString().split("T")[0]);
   const [method, setMethod] = useState("mixed");
+  const [notes, setNotes] = useState("");
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
   const [fetchError, setFetchError] = useState("");
@@ -43,9 +44,11 @@ export default function SalesPage() {
         date: saleDate,
         amount: value,
         payment_method: method,
+        notes: notes || null,
       });
       const isBackdated = saleDate !== new Date().toISOString().split("T")[0];
       setAmount("");
+      setNotes("");
       setSaleDate(new Date().toISOString().split("T")[0]);
       setSuccess(`${value.toLocaleString()} DKK${isBackdated ? ` (${saleDate})` : ""}!`);
       fetchSales(filterFrom, filterTo);
@@ -61,6 +64,7 @@ export default function SalesPage() {
       date: sale.date,
       amount: parseFloat(sale.amount),
       payment_method: sale.payment_method,
+      notes: sale.notes || "",
     });
   };
 
@@ -168,6 +172,15 @@ export default function SalesPage() {
             <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Backdated entry</span>
           )}
         </div>
+
+        {/* Notes */}
+        <input
+          type="text"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Add a note (optional)"
+          className="mt-3 w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+        />
       </div>
 
       {/* CSV Import */}

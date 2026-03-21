@@ -13,6 +13,8 @@ import WastePage from "./pages/WastePage";
 import WeeklyReportPage from "./pages/WeeklyReportPage";
 import VatReportPage from "./pages/VatReportPage";
 import FeedbackPage from "./pages/FeedbackPage";
+import CashBookPage from "./pages/CashBookPage";
+import ContactPage from "./pages/ContactPage";
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -42,6 +44,8 @@ function AppRoutes() {
         <Route path="/weekly-report" element={<WeeklyReportPage />} />
         <Route path="/vat-report" element={<VatReportPage />} />
         <Route path="/feedback" element={<FeedbackPage />} />
+        <Route path="/cashbook" element={<CashBookPage />} />
+        <Route path="/contact" element={<ContactPage />} />
       </Route>
     </Routes>
   );

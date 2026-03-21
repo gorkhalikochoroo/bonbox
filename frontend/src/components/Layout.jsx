@@ -14,7 +14,9 @@ const navItems = [
   { to: "/waste", labelKey: "wasteTracker" },
   { to: "/weekly-report", labelKey: "weeklyReport" },
   { to: "/vat-report", labelKey: "momsVat" },
+  { to: "/cashbook", labelKey: "cashBook" },
   { to: "/feedback", labelKey: "feedback" },
+  { to: "/contact", labelKey: "contact" },
 ];
 
 export default function Layout() {

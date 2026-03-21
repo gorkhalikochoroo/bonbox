@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
@@ -11,6 +11,35 @@ import {
 
 const COLORS = ["#3B82F6", "#EF4444", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899"];
 
+const PERIODS = ["today", "thisWeek", "thisMonth", "last30", "custom"];
+
+function getDateRange(period) {
+  const now = new Date();
+  const fmt = (d) => d.toISOString().split("T")[0];
+  const today = fmt(now);
+
+  switch (period) {
+    case "today":
+      return { from: today, to: today };
+    case "thisWeek": {
+      const d = new Date(now);
+      d.setDate(d.getDate() - d.getDay() + 1); // Monday
+      return { from: fmt(d), to: today };
+    }
+    case "thisMonth": {
+      const d = new Date(now.getFullYear(), now.getMonth(), 1);
+      return { from: fmt(d), to: today };
+    }
+    case "last30": {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 30);
+      return { from: fmt(d), to: today };
+    }
+    default:
+      return { from: "", to: "" };
+  }
+}
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -20,6 +49,15 @@ export default function DashboardPage() {
   const [receipts, setReceipts] = useState([]);
   const [quickMsg, setQuickMsg] = useState("");
   const [forecast, setForecast] = useState(null);
+  const [period, setPeriod] = useState("today");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const [periodStats, setPeriodStats] = useState(null);
+
+  const dateRange = useMemo(() => {
+    if (period === "custom") return { from: customFrom, to: customTo };
+    return getDateRange(period);
+  }, [period, customFrom, customTo]);
 
   const fetchAll = () => {
     api.get("/dashboard/summary").then((res) => setSummary(res.data)).catch(() => {});
@@ -31,6 +69,49 @@ export default function DashboardPage() {
     api.get("/sales/receipts").then((res) => setReceipts(res.data)).catch(() => {});
     api.get("/reports/forecast", { params: { days: 7 } }).then((res) => setForecast(res.data)).catch(() => {});
   };
+
+  // Fetch period-specific data
+  useEffect(() => {
+    if (!dateRange.from || !dateRange.to) return;
+    if (period === "today") { setPeriodStats(null); return; }
+    const params = { from: dateRange.from, to: dateRange.to };
+    Promise.all([
+      api.get("/sales", { params }),
+      api.get("/expenses", { params }),
+    ]).then(([salesRes, expRes]) => {
+      const sales = salesRes.data;
+      const expenses = expRes.data;
+      const totalRevenue = sales.reduce((s, x) => s + parseFloat(x.amount), 0);
+      const totalExpenses = expenses.reduce((s, x) => s + parseFloat(x.amount), 0);
+
+      // Group expenses by category (use description as fallback)
+      const catMap = {};
+      expenses.forEach((e) => {
+        const key = e.category_id || "other";
+        catMap[key] = (catMap[key] || 0) + parseFloat(e.amount);
+      });
+      const topCat = Object.entries(catMap).sort((a, b) => b[1] - a[1])[0];
+
+      // Daily revenue for chart
+      const dailyMap = {};
+      sales.forEach((s) => {
+        dailyMap[s.date] = (dailyMap[s.date] || 0) + parseFloat(s.amount);
+      });
+      const dailyRevenue = Object.entries(dailyMap)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, amount]) => ({ date, amount: Math.round(amount) }));
+
+      setPeriodStats({
+        totalRevenue: Math.round(totalRevenue),
+        totalExpenses: Math.round(totalExpenses),
+        profit: Math.round(totalRevenue - totalExpenses),
+        margin: totalRevenue > 0 ? Math.round(((totalRevenue - totalExpenses) / totalRevenue) * 100) : 0,
+        topExpenseAmount: topCat ? Math.round(topCat[1]) : 0,
+        dailyRevenue,
+        salesCount: sales.length,
+      });
+    }).catch(() => {});
+  }, [dateRange.from, dateRange.to, period]);
 
   useEffect(() => { fetchAll(); }, []);
 
@@ -110,23 +191,58 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* Period Selector */}
+      <div className="flex flex-wrap items-center gap-2">
+        {PERIODS.map((p) => (
+          <button
+            key={p}
+            onClick={() => setPeriod(p)}
+            className={`px-4 py-1.5 rounded-full text-sm font-medium transition ${
+              period === p
+                ? "bg-blue-600 text-white"
+                : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+            }`}
+          >
+            {p === "today" ? "Today" : p === "thisWeek" ? "This Week" : p === "thisMonth" ? "This Month" : p === "last30" ? "Last 30 Days" : "Custom"}
+          </button>
+        ))}
+        {period === "custom" && (
+          <div className="flex items-center gap-2 ml-2">
+            <input
+              type="date"
+              value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white"
+            />
+            <span className="text-xs text-gray-400">→</span>
+            <input
+              type="date"
+              value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)}
+              className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white"
+            />
+          </div>
+        )}
+      </div>
+
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
-          title={t("todayRevenue")}
-          value={`${summary.today_revenue.toLocaleString()} DKK`}
-          change={summary.today_revenue_change}
-          changeLabel={t("vsYesterday")}
+          title={period === "today" ? t("todayRevenue") : "Period Revenue"}
+          value={`${(periodStats ? periodStats.totalRevenue : summary.today_revenue).toLocaleString()} DKK`}
+          change={period === "today" ? summary.today_revenue_change : undefined}
+          changeLabel={period === "today" ? t("vsYesterday") : undefined}
+          subtitle={periodStats ? `${periodStats.salesCount} sales` : undefined}
         />
         <KpiCard
-          title={t("monthlyProfit")}
-          value={`${summary.month_profit.toLocaleString()} DKK`}
-          subtitle={`${summary.profit_margin}% ${t("margin")}`}
+          title={period === "today" ? t("monthlyProfit") : "Period Profit"}
+          value={`${(periodStats ? periodStats.profit : summary.month_profit).toLocaleString()} DKK`}
+          subtitle={`${periodStats ? periodStats.margin : summary.profit_margin}% ${t("margin")}`}
         />
         <KpiCard
           title={t("topExpense")}
-          value={summary.top_expense_category || t("none")}
-          subtitle={summary.top_expense_amount > 0 ? `${summary.top_expense_amount.toLocaleString()} DKK` : ""}
+          value={periodStats ? `${periodStats.topExpenseAmount.toLocaleString()} DKK` : (summary.top_expense_category || t("none"))}
+          subtitle={!periodStats && summary.top_expense_amount > 0 ? `${summary.top_expense_amount.toLocaleString()} DKK` : ""}
         />
         <KpiCard
           title={t("inventoryAlerts")}
@@ -143,9 +259,9 @@ export default function DashboardPage() {
         {/* Revenue Trend */}
         <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
           <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">{t("revenueTrend")}</h2>
-          {monthlyData?.daily_revenue?.length > 0 ? (
+          {(periodStats?.dailyRevenue?.length > 0 || monthlyData?.daily_revenue?.length > 0) ? (
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={monthlyData.daily_revenue}>
+              <LineChart data={periodStats?.dailyRevenue || monthlyData.daily_revenue}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 12 }} />

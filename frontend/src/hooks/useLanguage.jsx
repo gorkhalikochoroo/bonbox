@@ -105,6 +105,10 @@ const translations = {
     featureRequest: "Feature Request", generalFeedback: "General Feedback",
     complaint: "Complaint", praise: "Praise", noFeedbackYet: "No feedback submitted yet",
     stars: "stars",
+    // Cash Book
+    cashBook: "Cash Book",
+    // Contact
+    contact: "Contact",
   },
   da: {
     dashboard: "Oversigt", sales: "Salg", expenses: "Udgifter", inventory: "Lager",
@@ -207,6 +211,10 @@ const translations = {
     featureRequest: "Funktionsønske", generalFeedback: "Generel tilbagemelding",
     complaint: "Klage", praise: "Ros", noFeedbackYet: "Ingen tilbagemelding endnu",
     stars: "stjerner",
+    // Cash Book
+    cashBook: "Kassebog",
+    // Contact
+    contact: "Kontakt",
   },
 };
 
