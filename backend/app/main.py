@@ -7,8 +7,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-from alembic.config import Config
-from alembic import command
+from sqlalchemy import text
 
 from app.config import settings
 from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events
@@ -17,18 +16,28 @@ from app.models import *  # noqa: ensure all models are loaded
 
 Base.metadata.create_all(bind=engine)
 
-# Run Alembic migrations automatically on startup
+# Run schema migrations (idempotent — safe to run multiple times)
+_migrations = [
+    "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS payment_method VARCHAR(20) DEFAULT 'card'",
+    "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS notes TEXT",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP",
+    "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false",
+    "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP",
+    "ALTER TABLE waste_logs ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false",
+    "ALTER TABLE waste_logs ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP",
+    "ALTER TABLE cash_transactions ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false",
+    "ALTER TABLE cash_transactions ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP",
+]
+
 try:
-    import os
-    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    alembic_ini = os.path.join(backend_dir, "alembic.ini")
-    alembic_cfg = Config(alembic_ini)
-    alembic_cfg.set_main_option("script_location", os.path.join(backend_dir, "alembic"))
-    alembic_cfg.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
-    command.upgrade(alembic_cfg, "head")
-    print("Alembic migrations applied successfully")
+    with engine.connect() as conn:
+        for sql in _migrations:
+            conn.execute(text(sql))
+        conn.commit()
+    print("Schema migrations applied successfully")
 except Exception as e:
-    print(f"Alembic migration warning: {e}")
+    print(f"Migration warning: {e}")
 
 # --- Rate Limiter ---
 limiter = Limiter(key_func=get_remote_address, default_limits=["120/minute"])
