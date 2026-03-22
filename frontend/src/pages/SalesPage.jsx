@@ -188,7 +188,7 @@ export default function SalesPage() {
             <button
               key={amt}
               onClick={() => submit(amt)}
-              className="px-5 py-3 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:border-blue-300 dark:hover:border-blue-500 hover:text-blue-700 dark:hover:text-blue-300 transition"
+              className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:border-blue-300 dark:hover:border-blue-500 hover:text-blue-700 dark:hover:text-blue-300 transition"
             >
               {amt.toLocaleString()} {currency}
             </button>
@@ -196,10 +196,10 @@ export default function SalesPage() {
         </div>
 
         {/* Custom amount */}
-        <div className="flex gap-2 sm:gap-3">
+        <div className="flex items-center gap-2">
           <button
             onClick={startVoice}
-            className={`px-3 py-3 rounded-xl border transition flex-shrink-0 ${
+            className={`p-2.5 rounded-lg border transition flex-shrink-0 ${
               listening
                 ? "bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-600 text-red-600 dark:text-red-400 animate-pulse"
                 : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600"
@@ -215,13 +215,13 @@ export default function SalesPage() {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder={t("customAmount")}
-            className="flex-1 max-w-sm px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-lg dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
           <button
             onClick={() => submit()}
             disabled={!amount}
-            className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition font-semibold disabled:opacity-40"
+            className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold text-sm disabled:opacity-40"
           >
             {t("log")}
           </button>
@@ -265,7 +265,7 @@ export default function SalesPage() {
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Add a note (optional)"
-          className="mt-3 w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+          className="mt-3 w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
         />
       </div>
 

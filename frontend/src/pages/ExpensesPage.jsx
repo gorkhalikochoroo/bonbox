@@ -281,7 +281,7 @@ export default function ExpensesPage() {
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-3">
           <span className="text-sm text-gray-400 dark:text-gray-500">or</span>
           <input
             ref={customCatRef}
@@ -289,7 +289,7 @@ export default function ExpensesPage() {
             value={customCat}
             onChange={(e) => { setCustomCat(e.target.value); if (e.target.value) setCatId(""); }}
             placeholder="Type custom category..."
-            className="flex-1 max-w-sm px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+            className="flex-1 px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
           />
         </div>
 
@@ -298,26 +298,26 @@ export default function ExpensesPage() {
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
           placeholder={t("whatWasIt")}
-          className="max-w-sm px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+          className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
         />
 
-        <div className="flex flex-wrap gap-2 mb-4">
+        <div className="flex flex-wrap gap-2 mb-3">
           {QUICK_AMOUNTS.map((amt) => (
             <button
               key={amt}
               onClick={() => submit(amt)}
               disabled={!catId && !customCat.trim()}
-              className="px-5 py-3 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-700 dark:hover:text-blue-300 transition disabled:opacity-30"
+              className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-700 dark:hover:text-blue-300 transition disabled:opacity-30"
             >
               {amt.toLocaleString()} {currency}
             </button>
           ))}
         </div>
 
-        <div className="flex gap-2 sm:gap-3">
+        <div className="flex items-center gap-2">
           <button
             onClick={startVoice}
-            className={`px-3 py-3 rounded-xl border transition flex-shrink-0 ${
+            className={`p-2.5 rounded-lg border transition flex-shrink-0 ${
               listening
                 ? "bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-600 text-red-600 dark:text-red-400 animate-pulse"
                 : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600"
@@ -333,13 +333,13 @@ export default function ExpensesPage() {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder={t("customAmount")}
-            className="flex-1 max-w-sm px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+            className="flex-1 px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
           <button
             onClick={() => submit()}
             disabled={!amount || (!catId && !customCat.trim())}
-            className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition font-semibold disabled:opacity-40"
+            className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold text-sm disabled:opacity-40"
           >
             {t("add")}
           </button>
@@ -372,7 +372,7 @@ export default function ExpensesPage() {
 
         {/* Notes */}
         <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)}
-          placeholder="Notes (optional)" className="mt-3 w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
+          placeholder="Notes (optional)" className="mt-3 w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
 
         {/* Personal toggle */}
         <div className="mt-3 flex items-center gap-3">

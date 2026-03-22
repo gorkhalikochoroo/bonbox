@@ -18,8 +18,8 @@ const businessNav = [
   { to: "/vat-report", labelKey: "momsVat" },
   { to: "/feedback", labelKey: "feedback" },
   { to: "/recently-deleted", labelKey: "recentlyDeleted" },
-  { to: "/khata", label: "Khata" },
   { to: "/contact", labelKey: "contact" },
+  { to: "/khata", label: "Khata" },
 ];
 
 const personalNav = [

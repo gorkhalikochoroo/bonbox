@@ -9,7 +9,7 @@ export default function RegisterPage() {
     email: "",
     password: "",
     business_name: "",
-    business_type: "restaurant",
+    business_type: "",
     currency: "DKK",
   });
   const [error, setError] = useState("");
@@ -19,6 +19,7 @@ export default function RegisterPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    if (!form.business_type) { setError("Please select a type"); return; }
     try {
       await register(form);
       navigate("/dashboard");
@@ -59,7 +60,8 @@ export default function RegisterPage() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Business Type</label>
             <select name="business_type" value={form.business_type} onChange={handleChange}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base">
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" required>
+              <option value="" disabled>Select type...</option>
               <option value="personal">Personal Finance</option>
               <option value="restaurant">Restaurant</option>
               <option value="cafe">Cafe</option>

@@ -495,14 +495,14 @@ export default function PersonalPage() {
           ))}
         </div>
 
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-3">
           <span className="text-sm text-gray-400">or</span>
           <input
             type="text"
             value={customCat}
             onChange={(e) => { setCustomCat(e.target.value); if (e.target.value) setCatId(""); }}
             placeholder="Type custom category..."
-            className="flex-1 max-w-sm px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white"
+            className="flex-1 px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white"
           />
         </div>
 
@@ -511,7 +511,7 @@ export default function PersonalPage() {
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
           placeholder="Description (optional)"
-          className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl mb-4 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white"
+          className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white"
         />
 
         {/* Quick amounts */}
@@ -526,19 +526,19 @@ export default function PersonalPage() {
           ))}
         </div>
 
-        <div className="flex gap-3 mb-3">
+        <div className="flex items-center gap-2 mb-3">
           <input
             type="number"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="Custom amount"
-            className="flex-1 max-w-sm px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white"
+            className="flex-1 px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white"
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
           <button
             onClick={submit}
             disabled={!amount || (!catId && !customCat.trim())}
-            className="px-6 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition font-semibold disabled:opacity-40"
+            className="px-5 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-semibold text-sm disabled:opacity-40"
           >
             Add
           </button>
@@ -563,7 +563,7 @@ export default function PersonalPage() {
 
         <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)}
           placeholder={LEND_BORROW_CATS.includes(getCatName(catId)) ? "Who? (e.g., Ram, John)" : "Notes (optional)"}
-          className="mt-3 w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+          className="mt-3 w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
         {LEND_BORROW_CATS.includes(getCatName(catId)) && (
           <p className="mt-1 text-xs text-purple-500 dark:text-purple-400">
             Tip: Add the person's name so you can track who owes what
