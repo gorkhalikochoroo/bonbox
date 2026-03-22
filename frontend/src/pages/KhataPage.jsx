@@ -19,7 +19,13 @@ export default function KhataPage() {
   const [error, setError] = useState("");
 
   const fetchCustomers = () => {
-    api.get("/khata/customers").then((r) => setCustomers(r.data)).catch(() => {});
+    api.get("/khata/customers").then((r) => {
+      setCustomers(r.data);
+      if (selectedCustomer) {
+        const updated = r.data.find((c) => c.id === selectedCustomer.id);
+        if (updated) setSelectedCustomer(updated);
+      }
+    }).catch(() => {});
     api.get("/khata/summary").then((r) => setSummary(r.data)).catch(() => {});
   };
 
