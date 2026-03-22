@@ -33,7 +33,7 @@ export default function ExpensesPage() {
   const [customCat, setCustomCat] = useState("");
   const [listening, setListening] = useState(false);
   const [isPersonal, setIsPersonal] = useState(false);
-  const [showFilter, setShowFilter] = useState("all"); // "all", "business", "personal"
+  const [showFilter, setShowFilter] = useState("business"); // "all", "business", "personal"
 
   const filtered = expenses.filter(e => {
     if (search && !(e.description?.toLowerCase().includes(search.toLowerCase()) || e.notes?.toLowerCase().includes(search.toLowerCase()) || e.payment_method?.toLowerCase().includes(search.toLowerCase()))) return false;
