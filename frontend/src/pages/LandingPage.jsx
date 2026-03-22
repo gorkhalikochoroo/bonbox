@@ -3,44 +3,64 @@ import { Link } from "react-router-dom";
 
 const features = [
   {
-    title: "Sales Tracking",
-    description: "Log daily sales, payment methods, receipt scanning",
+    title: "Voice-Powered Entry",
+    description: "Say \"5000 cash\" and it logs instantly. No typing needed.",
     icon: (
       <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+      </svg>
+    ),
+    badge: "Unique",
+  },
+  {
+    title: "Business Health Score",
+    description: "One number (0-100) tells you how your business is doing right now",
+    icon: (
+      <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+      </svg>
+    ),
+    badge: "Unique",
+  },
+  {
+    title: "Personal + Business",
+    description: "Track personal and business expenses separately. Reports stay clean.",
+    icon: (
+      <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
       </svg>
     ),
   },
   {
-    title: "Expense Management",
-    description: "Categories, payment tracking, notes",
+    title: "12 Currencies Built-in",
+    description: "DKK, NPR, INR, JPY, AUD, USD and more with auto VAT rates per country",
     icon: (
       <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     ),
   },
   {
-    title: "Cash Book",
-    description: "Track cash in/out with running balance",
+    title: "Auto Cash Sync",
+    description: "Cash sales and expenses automatically update your Cash Book",
     icon: (
       <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
       </svg>
     ),
   },
   {
-    title: "Inventory Monitor",
-    description: "Stock levels, low-stock alerts",
+    title: "AI Revenue Forecast",
+    description: "Predicts next 7 days of revenue based on your sales patterns",
     icon: (
       <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
       </svg>
     ),
   },
   {
     title: "Smart Staffing",
-    description: "AI-powered staff scheduling based on sales patterns",
+    description: "AI-powered staff scheduling based on your busiest days",
     icon: (
       <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -48,20 +68,29 @@ const features = [
     ),
   },
   {
-    title: "Reports & VAT",
-    description: "Weekly reports, VAT calculation, PDF export",
+    title: "PDF Reports & VAT",
+    description: "Professional PDF reports with auto VAT calculation for your country",
     icon: (
       <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
       </svg>
     ),
   },
+  {
+    title: "Inventory & Waste",
+    description: "Stock levels, low-stock alerts, and waste tracking to cut losses",
+    icon: (
+      <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+      </svg>
+    ),
+  },
 ];
 
 const steps = [
-  { number: "1", title: "Sign up free", subtitle: "30 seconds" },
-  { number: "2", title: "Log your first sale", subtitle: "Quick and easy" },
-  { number: "3", title: "See insights on your dashboard", subtitle: "Instant analytics" },
+  { number: "1", title: "Sign up free", subtitle: "No credit card, 30 seconds" },
+  { number: "2", title: "Log or speak your first entry", subtitle: "Tap or use voice" },
+  { number: "3", title: "Get your Health Score", subtitle: "Instant business insights" },
 ];
 
 export default function LandingPage() {
@@ -124,13 +153,16 @@ export default function LandingPage() {
       {/* Hero */}
       <section className="bg-gradient-to-br from-blue-900 to-blue-700 text-white">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-14 sm:py-20 md:py-28 text-center">
+          <p className="inline-block px-4 py-1.5 bg-white/10 rounded-full text-sm font-medium text-blue-200 mb-6">
+            Free forever. No credit card needed.
+          </p>
           <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold leading-tight">
-            Smart analytics for your
+            Your money, your business
             <br />
-            small business
+            <span className="text-yellow-300">one dashboard</span>
           </h1>
           <p className="mt-6 text-lg md:text-xl text-blue-100 max-w-2xl mx-auto">
-            Track sales, expenses, inventory, and cash flow — all in one free dashboard
+            Track sales, expenses, and cash flow with voice input, AI insights, and a health score — for businesses and individuals worldwide
           </p>
           <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link
@@ -154,18 +186,23 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-14">
             <h2 className="text-3xl md:text-4xl font-bold text-gray-900">
-              Everything you need to run your business
+              Features that set us apart
             </h2>
             <p className="mt-4 text-gray-500 text-lg max-w-xl mx-auto">
-              Simple tools designed for small business owners, not accountants
+              Built for business owners and individuals — not accountants
             </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {features.map((feature) => (
               <div
                 key={feature.title}
-                className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition"
+                className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition relative"
               >
+                {feature.badge && (
+                  <span className="absolute top-4 right-4 px-2 py-0.5 bg-yellow-100 text-yellow-700 text-xs font-semibold rounded-full">
+                    {feature.badge}
+                  </span>
+                )}
                 <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center mb-4">
                   {feature.icon}
                 </div>
@@ -206,8 +243,11 @@ export default function LandingPage() {
             Trusted by
           </p>
           <p className="text-gray-700 text-lg font-medium">
-            Used by small businesses across Denmark, Nepal, India, Japan, Australia, and more
+            Used by businesses and individuals across Denmark, Nepal, India, Japan, Australia, and more
           </p>
+          <div className="flex flex-wrap justify-center gap-4 mt-4 text-sm text-gray-400">
+            <span>Restaurants</span><span>Retail</span><span>Cafes</span><span>Salons</span><span>Freelancers</span><span>Students</span><span>Food Trucks</span>
+          </div>
         </div>
       </section>
 
