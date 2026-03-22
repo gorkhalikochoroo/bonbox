@@ -27,8 +27,44 @@ export default function SalesPage() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(new Set());
+  const [listening, setListening] = useState(false);
 
   const filtered = sales.filter(s => !search || s.notes?.toLowerCase().includes(search.toLowerCase()) || s.payment_method?.toLowerCase().includes(search.toLowerCase()));
+
+  const startVoice = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) { setError("Voice input not supported in this browser"); return; }
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.onstart = () => setListening(true);
+    recognition.onend = () => setListening(false);
+    recognition.onresult = (event) => {
+      const text = event.results[0][0].transcript.toLowerCase();
+      // Extract number from speech
+      const numMatch = text.match(/[\d,]+\.?\d*/);
+      if (numMatch) {
+        const val = parseFloat(numMatch[0].replace(/,/g, ""));
+        if (val > 0) {
+          setAmount(String(val));
+          // Detect payment method
+          if (text.includes("cash")) setMethod("cash");
+          else if (text.includes("card")) setMethod("card");
+          else if (text.includes("mobile")) setMethod("mobilepay");
+          // Extract notes (everything after the number and method)
+          const remaining = text.replace(numMatch[0], "").replace(/cash|card|mobilepay|mixed|dankort/g, "").trim();
+          if (remaining.length > 2) setNotes(remaining);
+          setSuccess(`Voice: "${text}" → ${val.toLocaleString()} ${currency}`);
+          setTimeout(() => setSuccess(""), 3000);
+        }
+      } else {
+        setError(`Couldn't parse amount from: "${text}"`);
+        setTimeout(() => setError(""), 3000);
+      }
+    };
+    recognition.onerror = () => { setListening(false); setError("Voice recognition failed"); setTimeout(() => setError(""), 3000); };
+    recognition.start();
+  };
 
   const fetchSales = async (from, to) => {
     try {
@@ -150,7 +186,20 @@ export default function SalesPage() {
         </div>
 
         {/* Custom amount */}
-        <div className="flex gap-3">
+        <div className="flex gap-2 sm:gap-3">
+          <button
+            onClick={startVoice}
+            className={`px-3 py-3 rounded-xl border transition flex-shrink-0 ${
+              listening
+                ? "bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-600 text-red-600 dark:text-red-400 animate-pulse"
+                : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600"
+            }`}
+            title="Voice input"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+            </svg>
+          </button>
           <input
             type="number"
             value={amount}

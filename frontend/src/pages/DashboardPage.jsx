@@ -289,6 +289,9 @@ export default function DashboardPage() {
       {/* Daily Goal Progress */}
       <DailyGoal revenue={summary.today_revenue} />
 
+      {/* Business Health Score */}
+      <HealthScore summary={summary} monthlyData={monthlyData} />
+
       {/* Motivational Stats */}
       <MotivationalStats summary={summary} monthlyData={monthlyData} />
 
@@ -400,6 +403,9 @@ export default function DashboardPage() {
           );
         })()}
       </div>
+
+      {/* Daily Summary */}
+      <DailySummary summary={summary} monthlyData={monthlyData} />
 
       {/* Revenue Forecast */}
       {forecast && forecast.forecast?.length > 0 && (
@@ -644,6 +650,135 @@ function DailyGoal({ revenue }) {
           className={`h-full rounded-full transition-all duration-500 ${hit ? "bg-green-500" : "bg-blue-500"}`}
           style={{ width: `${pct}%` }}
         />
+      </div>
+    </div>
+  );
+}
+
+function DailySummary({ summary, monthlyData }) {
+  const { user } = useAuth();
+  const currency = user?.currency || "DKK";
+  const dailyRevenue = monthlyData?.daily_revenue || [];
+
+  // Yesterday's data
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayKey = yesterday.toISOString().split("T")[0];
+  const yesterdayData = dailyRevenue.find(d => d.date === yesterdayKey);
+
+  // This week average
+  const now = new Date();
+  const weekStart = new Date(now);
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
+  const weekDays = dailyRevenue.filter(d => d.date >= weekStart.toISOString().split("T")[0]);
+  const weekAvg = weekDays.length > 0 ? Math.round(weekDays.reduce((s, d) => s + d.amount, 0) / weekDays.length) : 0;
+
+  // Best day this month
+  const bestDay = dailyRevenue.length > 0 ? dailyRevenue.reduce((best, d) => d.amount > best.amount ? d : best, dailyRevenue[0]) : null;
+
+  return (
+    <div className="bg-white dark:bg-gray-800 p-5 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+      <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">Daily Summary</h2>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="text-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Today</p>
+          <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{summary.today_revenue.toLocaleString()}</p>
+          <p className="text-xs text-gray-400">{currency}</p>
+        </div>
+        <div className="text-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Yesterday</p>
+          <p className="text-lg font-bold text-gray-700 dark:text-gray-200">{yesterdayData ? yesterdayData.amount.toLocaleString() : "—"}</p>
+          <p className="text-xs text-gray-400">{currency}</p>
+        </div>
+        <div className="text-center p-3 bg-green-50 dark:bg-green-900/20 rounded-xl">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Week Avg</p>
+          <p className="text-lg font-bold text-green-600 dark:text-green-400">{weekAvg.toLocaleString()}</p>
+          <p className="text-xs text-gray-400">{currency}/day</p>
+        </div>
+        <div className="text-center p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Best Day</p>
+          <p className="text-lg font-bold text-yellow-600 dark:text-yellow-400">{bestDay ? bestDay.amount.toLocaleString() : "—"}</p>
+          <p className="text-xs text-gray-400">{bestDay ? bestDay.date.slice(5) : ""}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HealthScore({ summary, monthlyData }) {
+  const { user } = useAuth();
+  const currency = user?.currency || "DKK";
+
+  // Calculate score 0-100 from existing data
+  const factors = [];
+
+  // 1. Profitability (0-30 pts)
+  const margin = summary.profit_margin || 0;
+  const profitScore = Math.min(Math.round(margin * 1.5), 30); // 20% margin = 30 pts
+  factors.push({ label: "Profitability", score: profitScore, max: 30, tip: margin > 0 ? `${margin}% margin` : "Not profitable yet" });
+
+  // 2. Revenue consistency (0-25 pts) — how many days had sales this month
+  const dailyRevenue = monthlyData?.daily_revenue || [];
+  const daysWithSales = dailyRevenue.filter(d => d.amount > 0).length;
+  const totalDays = Math.max(dailyRevenue.length, 1);
+  const consistencyPct = daysWithSales / totalDays;
+  const consistencyScore = Math.min(Math.round(consistencyPct * 25), 25);
+  factors.push({ label: "Consistency", score: consistencyScore, max: 25, tip: `${daysWithSales}/${totalDays} days active` });
+
+  // 3. Revenue growth (0-20 pts)
+  const growthChange = summary.today_revenue_change || 0;
+  const growthScore = growthChange > 0 ? Math.min(Math.round(growthChange), 20) : growthChange === 0 ? 10 : Math.max(10 + Math.round(growthChange / 2), 0);
+  factors.push({ label: "Growth", score: growthScore, max: 20, tip: `${growthChange >= 0 ? "+" : ""}${growthChange}% vs yesterday` });
+
+  // 4. Expense control (0-15 pts) — lower expense ratio = better
+  const expenseRatio = summary.month_revenue > 0 ? summary.month_expenses / summary.month_revenue : 1;
+  const expenseScore = Math.round(Math.max(0, (1 - expenseRatio)) * 15);
+  factors.push({ label: "Cost Control", score: expenseScore, max: 15, tip: `${Math.round(expenseRatio * 100)}% of revenue` });
+
+  // 5. Activity (0-10 pts) — logged today?
+  const activityScore = summary.today_revenue > 0 ? 10 : 0;
+  factors.push({ label: "Activity", score: activityScore, max: 10, tip: summary.today_revenue > 0 ? "Active today" : "No sales today" });
+
+  const total = factors.reduce((s, f) => s + f.score, 0);
+  const color = total >= 75 ? "text-green-500" : total >= 50 ? "text-yellow-500" : total >= 25 ? "text-orange-500" : "text-red-500";
+  const bgColor = total >= 75 ? "bg-green-500" : total >= 50 ? "bg-yellow-500" : total >= 25 ? "bg-orange-500" : "bg-red-500";
+  const label = total >= 75 ? "Excellent" : total >= 50 ? "Good" : total >= 25 ? "Needs Work" : "Critical";
+
+  return (
+    <div className="bg-white dark:bg-gray-800 p-5 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
+        {/* Score circle */}
+        <div className="flex items-center gap-4 sm:gap-0 sm:flex-col sm:items-center">
+          <div className="relative w-20 h-20 flex-shrink-0">
+            <svg className="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
+              <circle cx="40" cy="40" r="34" fill="none" stroke="currentColor" strokeWidth="6" className="text-gray-100 dark:text-gray-700" />
+              <circle cx="40" cy="40" r="34" fill="none" strokeWidth="6" strokeLinecap="round"
+                className={color}
+                strokeDasharray={`${(total / 100) * 213.6} 213.6`}
+              />
+            </svg>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className={`text-xl font-bold ${color}`}>{total}</span>
+            </div>
+          </div>
+          <div className="sm:text-center sm:mt-1">
+            <p className="text-sm font-semibold text-gray-800 dark:text-white">Business Health</p>
+            <p className={`text-xs font-medium ${color}`}>{label}</p>
+          </div>
+        </div>
+
+        {/* Factor bars */}
+        <div className="flex-1 space-y-2">
+          {factors.map((f) => (
+            <div key={f.label} className="flex items-center gap-3">
+              <span className="text-xs text-gray-500 dark:text-gray-400 w-20 shrink-0">{f.label}</span>
+              <div className="flex-1 h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                <div className={`h-full rounded-full ${bgColor} transition-all duration-500`} style={{ width: `${(f.score / f.max) * 100}%` }} />
+              </div>
+              <span className="text-xs text-gray-400 dark:text-gray-500 w-16 text-right">{f.tip}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
