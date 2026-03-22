@@ -14,11 +14,11 @@ const businessNav = [
   { to: "/inventory", labelKey: "inventory" },
   { to: "/staffing", labelKey: "smartStaffing" },
   { to: "/waste", labelKey: "wasteTracker" },
-  { to: "/khata", label: "Khata" },
   { to: "/weekly-report", labelKey: "weeklyReport" },
   { to: "/vat-report", labelKey: "momsVat" },
   { to: "/feedback", labelKey: "feedback" },
   { to: "/recently-deleted", labelKey: "recentlyDeleted" },
+  { to: "/khata", label: "Khata" },
   { to: "/contact", labelKey: "contact" },
 ];
 
