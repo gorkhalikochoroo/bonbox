@@ -184,7 +184,7 @@ export default function CashBookPage() {
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
           placeholder="What was it for?"
-          className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+          className="max-w-sm px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
         />
 
         {/* Quick amounts */}

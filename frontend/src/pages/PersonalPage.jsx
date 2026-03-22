@@ -502,7 +502,7 @@ export default function PersonalPage() {
             value={customCat}
             onChange={(e) => { setCustomCat(e.target.value); if (e.target.value) setCatId(""); }}
             placeholder="Type custom category..."
-            className="flex-1 px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white"
+            className="flex-1 max-w-sm px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white"
           />
         </div>
 
