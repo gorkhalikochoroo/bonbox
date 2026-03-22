@@ -85,6 +85,10 @@ export default function RegisterPage() {
               <option value="GBP">GBP - British Pound</option>
               <option value="NPR">NPR - Nepalese Rupee</option>
               <option value="INR">INR - Indian Rupee</option>
+              <option value="JPY">JPY - Japanese Yen</option>
+              <option value="AUD">AUD - Australian Dollar</option>
+              <option value="CAD">CAD - Canadian Dollar</option>
+              <option value="CHF">CHF - Swiss Franc</option>
             </select>
           </div>
           <button type="submit"

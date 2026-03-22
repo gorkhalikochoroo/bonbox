@@ -37,6 +37,10 @@ VAT_RATES = {
     "USD": 0.0,    # US has no federal VAT (sales tax varies by state)
     "NPR": 0.13,   # Nepal 13%
     "INR": 0.18,   # India GST 18%
+    "JPY": 0.10,   # Japan 10%
+    "AUD": 0.10,   # Australia GST 10%
+    "CAD": 0.05,   # Canada GST 5%
+    "CHF": 0.081,  # Switzerland 8.1%
 }
 
 

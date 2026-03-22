@@ -181,7 +181,7 @@ export default function LandingPage() {
             Trusted by
           </p>
           <p className="text-gray-700 text-lg font-medium">
-            Used by small businesses in Denmark, Nepal, and India
+            Used by small businesses across Denmark, Nepal, India, Japan, Australia, and more
           </p>
         </div>
       </section>
