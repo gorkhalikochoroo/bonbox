@@ -65,10 +65,12 @@ export default function ExpensesPage() {
 
   const submit = async (quickAmt) => {
     const value = quickAmt || parseFloat(amount);
-    if (!value || !desc) return;
+    if (!value) return;
     // Need either a selected category or a custom one typed
     let finalCatId = catId;
     if (!finalCatId && !customCat.trim()) return;
+    // Auto-fill description from category if empty
+    const finalDesc = desc || customCat.trim() || categories.find(c => c.id === finalCatId)?.name || "Expense";
     setError("");
     try {
       // If custom category typed, create it first
@@ -86,7 +88,7 @@ export default function ExpensesPage() {
         category_id: finalCatId,
         date: expDate,
         amount: value,
-        description: desc,
+        description: finalDesc,
         is_recurring: false,
         payment_method: method,
         notes: notes || null,
@@ -188,7 +190,7 @@ export default function ExpensesPage() {
           {categories.map((c) => (
             <button
               key={c.id}
-              onClick={() => { setCatId(c.id); setCustomCat(""); }}
+              onClick={() => { setCatId(c.id); setCustomCat(""); if (!desc) setDesc(c.name); }}
               className={`px-4 py-2.5 rounded-xl text-sm font-medium border transition ${
                 catId === c.id
                   ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300"
@@ -223,7 +225,7 @@ export default function ExpensesPage() {
             <button
               key={amt}
               onClick={() => submit(amt)}
-              disabled={(!catId && !customCat.trim()) || !desc}
+              disabled={!catId && !customCat.trim()}
               className="px-5 py-3 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-700 dark:hover:text-blue-300 transition disabled:opacity-30"
             >
               {amt.toLocaleString()} {currency}
@@ -242,7 +244,7 @@ export default function ExpensesPage() {
           />
           <button
             onClick={() => submit()}
-            disabled={!amount || (!catId && !customCat.trim()) || !desc}
+            disabled={!amount || (!catId && !customCat.trim())}
             className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition font-semibold disabled:opacity-40"
           >
             {t("add")}
