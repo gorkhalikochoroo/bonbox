@@ -22,8 +22,7 @@ const businessNav = [
 ];
 
 const personalNav = [
-  { to: "/personal", label: "Personal Finance" },
-  { to: "/expenses", labelKey: "expenses" },
+  { to: "/personal", label: "Dashboard" },
   { to: "/contact", labelKey: "contact" },
 ];
 
