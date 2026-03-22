@@ -85,6 +85,19 @@ export default function Layout() {
           ))}
         </nav>
         <div className="p-3 border-t border-gray-100 dark:border-gray-700 space-y-1">
+          <NavLink
+            to="/profile"
+            onClick={closeSidebar}
+            className={({ isActive }) =>
+              `block px-4 py-2.5 rounded-lg text-sm font-medium transition ${
+                isActive
+                  ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400"
+                  : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+              }`
+            }
+          >
+            {t("profile")}
+          </NavLink>
           <button
             onClick={toggleDark}
             className="w-full text-left px-4 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition"

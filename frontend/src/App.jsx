@@ -16,6 +16,7 @@ import FeedbackPage from "./pages/FeedbackPage";
 import CashBookPage from "./pages/CashBookPage";
 import ContactPage from "./pages/ContactPage";
 import RecentlyDeletedPage from "./pages/RecentlyDeletedPage";
+import ProfilePage from "./pages/ProfilePage";
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -48,6 +49,7 @@ function AppRoutes() {
         <Route path="/cashbook" element={<CashBookPage />} />
         <Route path="/contact" element={<ContactPage />} />
         <Route path="/recently-deleted" element={<RecentlyDeletedPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
       </Route>
     </Routes>
   );
