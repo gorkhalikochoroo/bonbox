@@ -65,7 +65,7 @@ export default function Layout() {
           </div>
           <button onClick={closeSidebar} className="md:hidden text-gray-400 hover:text-gray-600 text-xl">&times;</button>
         </div>
-        <nav className="flex-1 p-3 space-y-1">
+        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
           {navItems.map(({ to, labelKey }) => (
             <NavLink
               key={to}
