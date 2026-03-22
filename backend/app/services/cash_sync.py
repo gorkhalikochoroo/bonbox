@@ -13,15 +13,19 @@ def sync_cash_in_for_sale(db: Session, sale):
         date=sale.date,
         type="cash_in",
         amount=float(sale.amount),
-        description=f"Sale (auto)",
+        description=f"{sale.notes or 'Sale'} (auto)",
         category="Sales",
         reference_id=ref_id,
     )
     db.add(txn)
 
 
-def sync_cash_out_for_expense(db: Session, expense):
+def sync_cash_out_for_expense(db: Session, expense, category_name=None):
     """Create cash_out entry when a cash expense is created."""
+    from app.models.expense import ExpenseCategory
+    if not category_name:
+        cat = db.query(ExpenseCategory).filter(ExpenseCategory.id == expense.category_id).first()
+        category_name = cat.name if cat else "Purchase"
     ref_id = f"expense_{expense.id}"
     txn = CashTransaction(
         id=uuid.uuid4(),
@@ -30,7 +34,7 @@ def sync_cash_out_for_expense(db: Session, expense):
         type="cash_out",
         amount=float(expense.amount),
         description=f"{expense.description} (auto)",
-        category="Purchase",
+        category=category_name,
         reference_id=ref_id,
     )
     db.add(txn)
