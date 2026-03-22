@@ -235,6 +235,7 @@ export default function SalesPage() {
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("date")}</th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("amount")}</th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("payment")}</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Notes</th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">Actions</th>
             </tr>
           </thead>
@@ -270,6 +271,15 @@ export default function SalesPage() {
                         ))}
                       </select>
                     </td>
+                    <td className="px-6 py-3">
+                      <input
+                        type="text"
+                        value={editData.notes || ""}
+                        onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
+                        placeholder="Notes"
+                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-32"
+                      />
+                    </td>
                     <td className="px-6 py-3 text-right space-x-2">
                       <button onClick={saveEdit} className="text-green-600 dark:text-green-400 text-sm font-medium hover:underline">Save</button>
                       <button onClick={() => setEditId(null)} className="text-gray-400 dark:text-gray-500 text-sm hover:underline">Cancel</button>
@@ -280,6 +290,7 @@ export default function SalesPage() {
                     <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{sale.date}</td>
                     <td className="px-6 py-4 text-sm font-semibold text-gray-800 dark:text-white">{parseFloat(sale.amount).toLocaleString()} DKK</td>
                     <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 capitalize">{sale.payment_method}</td>
+                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{sale.notes || "—"}</td>
                     <td className="px-6 py-4 text-right space-x-3">
                       <button onClick={() => startEdit(sale)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">Edit</button>
                       {deleteConfirm === sale.id ? (
@@ -296,7 +307,7 @@ export default function SalesPage() {
               </tr>
             ))}
             {sales.length === 0 && (
-              <tr><td colSpan={4} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noSalesYet")}</td></tr>
+              <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noSalesYet")}</td></tr>
             )}
           </tbody>
         </table>
