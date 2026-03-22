@@ -122,12 +122,14 @@ export default function ProfilePage() {
             <div>
               <label className={labelClass}>Currency</label>
               <select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} className={inputClass}>
-                <option value="DKK">DKK</option>
-                <option value="SEK">SEK</option>
-                <option value="NOK">NOK</option>
-                <option value="EUR">EUR</option>
-                <option value="USD">USD</option>
-                <option value="GBP">GBP</option>
+                <option value="DKK">DKK - Danish Krone</option>
+                <option value="SEK">SEK - Swedish Krona</option>
+                <option value="NOK">NOK - Norwegian Krone</option>
+                <option value="EUR">EUR - Euro</option>
+                <option value="USD">USD - US Dollar</option>
+                <option value="GBP">GBP - British Pound</option>
+                <option value="NPR">NPR - Nepalese Rupee</option>
+                <option value="INR">INR - Indian Rupee</option>
               </select>
             </div>
           </div>
