@@ -26,7 +26,7 @@ def list_transactions(
         query = query.filter(CashTransaction.date >= from_date)
     if to_date:
         query = query.filter(CashTransaction.date <= to_date)
-    return query.order_by(CashTransaction.date.desc(), CashTransaction.id.desc()).all()
+    return query.order_by(CashTransaction.date.desc(), CashTransaction.created_at.desc()).all()
 
 
 @router.get("/balance")

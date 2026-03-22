@@ -100,7 +100,7 @@ export default function CashBookPage() {
   };
 
   // Calculate running balance
-  const sorted = [...transactions].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+  const sorted = [...transactions].sort((a, b) => a.date.localeCompare(b.date) || (a.created_at || "").localeCompare(b.created_at || ""));
   let runningBal = 0;
   const withBalance = sorted.map((txn) => {
     runningBal += txn.type === "cash_in" ? parseFloat(txn.amount) : -parseFloat(txn.amount);
