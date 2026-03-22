@@ -7,7 +7,7 @@ import QuickAdd from "./QuickAdd";
 import { usePageTracking } from "../hooks/useEventLog";
 
 const navItems = [
-  { to: "/", labelKey: "dashboard" },
+  { to: "/dashboard", labelKey: "dashboard" },
   { to: "/sales", labelKey: "sales" },
   { to: "/expenses", labelKey: "expenses" },
   { to: "/inventory", labelKey: "inventory" },
@@ -70,7 +70,7 @@ export default function Layout() {
             <NavLink
               key={to}
               to={to}
-              end={to === "/"}
+              end={to === "/dashboard"}
               onClick={closeSidebar}
               className={({ isActive }) =>
                 `block px-4 py-2.5 rounded-lg text-sm font-medium transition ${

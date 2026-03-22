@@ -7,7 +7,7 @@ import Onboarding from "../components/Onboarding";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
-  BarChart, Bar,
+  BarChart, Bar, ReferenceLine,
 } from "recharts";
 
 const COLORS = ["#3B82F6", "#EF4444", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899"];
@@ -115,9 +115,21 @@ export default function DashboardPage() {
       sales.forEach((s) => {
         dailyMap[s.date] = (dailyMap[s.date] || 0) + parseFloat(s.amount);
       });
-      const dailyRevenue = Object.entries(dailyMap)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, amount]) => ({ date, amount: Math.round(amount) }));
+      // Daily expenses for chart
+      const dailyExpMap = {};
+      expenses.forEach((e) => {
+        dailyExpMap[e.date] = (dailyExpMap[e.date] || 0) + parseFloat(e.amount);
+      });
+      // Merge into combined daily data
+      const allDates = new Set([...Object.keys(dailyMap), ...Object.keys(dailyExpMap)]);
+      const dailyRevenue = [...allDates]
+        .sort((a, b) => a.localeCompare(b))
+        .map((date) => ({
+          date,
+          amount: Math.round(dailyMap[date] || 0),
+          expenses: Math.round(dailyExpMap[date] || 0),
+          profit: Math.round((dailyMap[date] || 0) - (dailyExpMap[date] || 0)),
+        }));
 
       setPeriodStats({
         totalRevenue: Math.round(totalRevenue),
@@ -276,9 +288,12 @@ export default function DashboardPage() {
       {/* Daily Goal Progress */}
       <DailyGoal revenue={summary.today_revenue} />
 
+      {/* Motivational Stats */}
+      <MotivationalStats summary={summary} monthlyData={monthlyData} />
+
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Revenue Trend */}
+        {/* Revenue Trend + Profit Line */}
         <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
           <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">{t("revenueTrend")}</h2>
           {(periodStats?.dailyRevenue?.length > 0 || monthlyData?.daily_revenue?.length > 0) ? (
@@ -287,8 +302,15 @@ export default function DashboardPage() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip />
-                <Line type="monotone" dataKey="amount" stroke="#3B82F6" strokeWidth={2} dot={false} />
+                <Tooltip formatter={(value, name) => [
+                  `${value.toLocaleString()} DKK`,
+                  name === "amount" ? "Revenue" : name === "profit" ? "Profit" : name,
+                ]} />
+                <Line type="monotone" dataKey="amount" stroke="#3B82F6" strokeWidth={2} dot={false} name="Revenue" />
+                {(periodStats?.dailyRevenue?.[0]?.profit !== undefined) && (
+                  <Line type="monotone" dataKey="profit" stroke="#10B981" strokeWidth={2} dot={false} name="Profit" strokeDasharray="5 3" />
+                )}
+                <ReferenceLine y={0} stroke="#9CA3AF" strokeDasharray="3 3" />
               </LineChart>
             </ResponsiveContainer>
           ) : (
@@ -296,7 +318,7 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* Expense Breakdown */}
+        {/* Expense Breakdown (Donut) */}
         <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
           <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">{t("expenseBreakdown")}</h2>
           {monthlyData?.expense_breakdown?.length > 0 ? (
@@ -308,21 +330,74 @@ export default function DashboardPage() {
                   nameKey="category"
                   cx="50%"
                   cy="50%"
+                  innerRadius={55}
                   outerRadius={100}
-                  label={({ category }) => category}
+                  paddingAngle={2}
+                  label={({ category, percent }) => `${category} (${(percent * 100).toFixed(0)}%)`}
+                  labelLine={{ strokeWidth: 1 }}
                 >
-                  {monthlyData.expense_breakdown.map((_, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                  {monthlyData.expense_breakdown.map((entry, i) => (
+                    <Cell key={i} fill={entry.color || COLORS[i % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip />
-                <Legend />
+                <Tooltip formatter={(value) => [`${value.toLocaleString()} DKK`, "Amount"]} />
+                <Legend
+                  formatter={(value) => <span className="text-sm text-gray-600 dark:text-gray-300">{value}</span>}
+                />
               </PieChart>
             </ResponsiveContainer>
           ) : (
             <p className="text-gray-400 dark:text-gray-500 text-center py-12">{t("noExpenseData")}</p>
           )}
         </div>
+      </div>
+
+      {/* Revenue vs Expenses Comparison */}
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">Revenue vs Expenses</h2>
+        {(() => {
+          // Build comparison data from period stats (daily) or monthly summary
+          const dailyData = periodStats?.dailyRevenue?.filter((d) => d.expenses > 0 || d.amount > 0);
+          if (dailyData && dailyData.length > 0) {
+            return (
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={dailyData} barGap={2}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => v.toLocaleString()} />
+                  <Tooltip formatter={(value, name) => [
+                    `${value.toLocaleString()} DKK`,
+                    name === "amount" ? "Revenue" : name === "expenses" ? "Expenses" : name,
+                  ]} />
+                  <Legend formatter={(value) => value === "amount" ? "Revenue" : value === "expenses" ? "Expenses" : value} />
+                  <Bar dataKey="amount" fill="#3B82F6" radius={[4, 4, 0, 0]} name="amount" />
+                  <Bar dataKey="expenses" fill="#EF4444" radius={[4, 4, 0, 0]} name="expenses" />
+                </BarChart>
+              </ResponsiveContainer>
+            );
+          }
+          // Fallback: show monthly totals as a simple comparison
+          const compData = [
+            { label: "Revenue", value: summary.month_revenue, fill: "#3B82F6" },
+            { label: "Expenses", value: summary.month_expenses, fill: "#EF4444" },
+            { label: "Profit", value: summary.month_profit, fill: summary.month_profit >= 0 ? "#10B981" : "#F59E0B" },
+          ];
+          return (
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={compData} barSize={60}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => v.toLocaleString()} />
+                <Tooltip formatter={(value) => [`${value.toLocaleString()} DKK`]} />
+                <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+                  {compData.map((entry, i) => (
+                    <Cell key={i} fill={entry.fill} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          );
+        })()}
       </div>
 
       {/* Revenue Forecast */}
@@ -408,6 +483,86 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function MotivationalStats({ summary, monthlyData }) {
+  const { user } = useAuth();
+  const dailyGoal = user?.daily_goal || 0;
+
+  const messages = [];
+
+  if (summary.today_revenue > 0) {
+    messages.push({ icon: "check", text: "You've logged sales today", color: "text-blue-600 dark:text-blue-400" });
+  }
+  if (dailyGoal > 0 && summary.today_revenue >= dailyGoal) {
+    messages.push({ icon: "star", text: "You've hit your daily goal!", color: "text-yellow-600 dark:text-yellow-400" });
+  }
+  if (summary.month_profit > 0) {
+    messages.push({ icon: "trending", text: "You're profitable this month", color: "text-green-600 dark:text-green-400" });
+  }
+
+  // Streak: count consecutive days with sales from daily_revenue (most recent backwards)
+  const dailyRevenue = monthlyData?.daily_revenue || [];
+  let streak = 0;
+  if (dailyRevenue.length > 0) {
+    // daily_revenue is sorted by date ascending; walk backwards
+    const today = new Date().toISOString().split("T")[0];
+    const salesDates = new Set(dailyRevenue.map((d) => d.date));
+    const d = new Date();
+    // Check from today backwards
+    for (let i = 0; i < 60; i++) {
+      const key = d.toISOString().split("T")[0];
+      if (salesDates.has(key)) {
+        streak++;
+        d.setDate(d.getDate() - 1);
+      } else {
+        break;
+      }
+    }
+  }
+
+  if (streak > 1) {
+    messages.push({ icon: "fire", text: `${streak}-day sales streak!`, color: "text-orange-600 dark:text-orange-400" });
+  }
+
+  if (messages.length === 0) return null;
+
+  const iconMap = {
+    check: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+      </svg>
+    ),
+    star: (
+      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+      </svg>
+    ),
+    trending: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+      </svg>
+    ),
+    fire: (
+      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+        <path fillRule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A2.99 2.99 0 0113 13a2.99 2.99 0 01-.879 2.121z" clipRule="evenodd" />
+      </svg>
+    ),
+  };
+
+  return (
+    <div className="flex flex-wrap gap-3">
+      {messages.map((msg, i) => (
+        <div
+          key={i}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-sm font-medium ${msg.color}`}
+        >
+          {iconMap[msg.icon]}
+          {msg.text}
+        </div>
+      ))}
     </div>
   );
 }

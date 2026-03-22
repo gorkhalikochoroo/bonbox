@@ -24,6 +24,7 @@ export default function CashBookPage() {
   const [editId, setEditId] = useState(null);
   const [editData, setEditData] = useState({});
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [search, setSearch] = useState("");
 
   const fetchData = (from, to) => {
     const params = {};
@@ -102,7 +103,7 @@ export default function CashBookPage() {
     runningBal += txn.type === "cash_in" ? parseFloat(txn.amount) : -parseFloat(txn.amount);
     return { ...txn, runningBalance: runningBal };
   });
-  const displayTxns = [...withBalance].reverse();
+  const displayTxns = [...withBalance].reverse().filter(txn => !search || txn.description?.toLowerCase().includes(search.toLowerCase()) || txn.category?.toLowerCase().includes(search.toLowerCase()));
 
   const categories = tab === "cash_in" ? IN_CATEGORIES : OUT_CATEGORIES;
 
@@ -254,6 +255,13 @@ export default function CashBookPage() {
               value={filterTo}
               onChange={(e) => { setFilterTo(e.target.value); fetchData(filterFrom, e.target.value); }}
               className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white"
+            />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search..."
+              className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             {(filterFrom || filterTo) && (
               <button

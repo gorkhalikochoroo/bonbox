@@ -22,6 +22,10 @@ export default function SalesPage() {
   const [editId, setEditId] = useState(null);
   const [editData, setEditData] = useState({});
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState(new Set());
+
+  const filtered = sales.filter(s => !search || s.notes?.toLowerCase().includes(search.toLowerCase()) || s.payment_method?.toLowerCase().includes(search.toLowerCase()));
 
   const fetchSales = async (from, to) => {
     try {
@@ -40,6 +44,10 @@ export default function SalesPage() {
   const submit = async (amt) => {
     const value = amt || parseFloat(amount);
     if (!value) return;
+    const duplicate = sales.find(s => s.date === saleDate && parseFloat(s.amount) === value);
+    if (duplicate && !confirm(`A sale of ${value.toLocaleString()} DKK on ${saleDate} already exists. Add another?`)) {
+      return;
+    }
     setError("");
     try {
       await api.post("/sales", {
@@ -81,6 +89,19 @@ export default function SalesPage() {
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to update sale");
+    }
+  };
+
+  const bulkDelete = async () => {
+    if (!confirm(`Move ${selected.size} items to trash?`)) return;
+    try {
+      await Promise.all([...selected].map(id => api.delete(`/sales/${id}`)));
+      setSelected(new Set());
+      fetchSales(filterFrom, filterTo);
+      setSuccess(`${selected.size} items moved to trash`);
+      setTimeout(() => setSuccess(""), 2500);
+    } catch {
+      setError("Failed to delete some items");
     }
   };
 
@@ -207,6 +228,13 @@ export default function SalesPage() {
               onChange={(e) => { setFilterTo(e.target.value); fetchSales(filterFrom, e.target.value); }}
               className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search..."
+              className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
             {(filterFrom || filterTo) && (
               <button
                 onClick={() => { setFilterFrom(""); setFilterTo(""); fetchSales(); }}
@@ -228,10 +256,24 @@ export default function SalesPage() {
             </button>
           </div>
         </div>
+        {selected.size > 0 && (
+          <div className="px-6 py-3 bg-blue-50 dark:bg-blue-900/20 flex items-center justify-between">
+            <span className="text-sm text-blue-700 dark:text-blue-400">{selected.size} selected</span>
+            <button onClick={bulkDelete} className="text-sm text-red-600 dark:text-red-400 font-medium hover:underline">
+              Move to trash
+            </button>
+          </div>
+        )}
         <div className="overflow-x-auto">
         <table className="w-full text-left min-w-[500px]">
           <thead className="bg-gray-50 dark:bg-gray-700/50">
             <tr>
+              <th className="px-4 sm:px-6 py-3 w-8">
+                <input type="checkbox" onChange={(e) => {
+                  if (e.target.checked) setSelected(new Set(filtered.map(i => i.id)));
+                  else setSelected(new Set());
+                }} checked={selected.size === filtered.length && filtered.length > 0} />
+              </th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("date")}</th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("amount")}</th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("payment")}</th>
@@ -240,8 +282,16 @@ export default function SalesPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {sales.slice(0, 50).map((sale) => (
+            {filtered.slice(0, 50).map((sale) => (
               <tr key={sale.id}>
+                <td className="px-4 sm:px-6 py-4">
+                  <input type="checkbox" checked={selected.has(sale.id)} onChange={(e) => {
+                    const next = new Set(selected);
+                    if (e.target.checked) next.add(sale.id);
+                    else next.delete(sale.id);
+                    setSelected(next);
+                  }} />
+                </td>
                 {editId === sale.id ? (
                   <>
                     <td className="px-6 py-3">
@@ -306,8 +356,8 @@ export default function SalesPage() {
                 )}
               </tr>
             ))}
-            {sales.length === 0 && (
-              <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noSalesYet")}</td></tr>
+            {filtered.length === 0 && (
+              <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noSalesYet")}</td></tr>
             )}
           </tbody>
         </table>

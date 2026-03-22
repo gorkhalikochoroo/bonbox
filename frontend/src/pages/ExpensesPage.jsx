@@ -23,8 +23,12 @@ export default function ExpensesPage() {
   const [editId, setEditId] = useState(null);
   const [editData, setEditData] = useState({});
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [selected, setSelected] = useState(new Set());
   const [method, setMethod] = useState("card");
   const [notes, setNotes] = useState("");
+  const [search, setSearch] = useState("");
+
+  const filtered = expenses.filter(e => !search || e.description?.toLowerCase().includes(search.toLowerCase()) || e.notes?.toLowerCase().includes(search.toLowerCase()) || e.payment_method?.toLowerCase().includes(search.toLowerCase()));
 
   const fetchData = (from, to) => {
     const params = {};
@@ -106,6 +110,19 @@ export default function ExpensesPage() {
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to update expense");
+    }
+  };
+
+  const bulkDelete = async () => {
+    if (!confirm(`Move ${selected.size} items to trash?`)) return;
+    try {
+      await Promise.all([...selected].map(id => api.delete(`/expenses/${id}`)));
+      setSelected(new Set());
+      fetchData(filterFrom, filterTo);
+      setSuccess(`${selected.size} items moved to trash`);
+      setTimeout(() => setSuccess(""), 2500);
+    } catch {
+      setError("Failed to delete some items");
     }
   };
 
@@ -250,6 +267,13 @@ export default function ExpensesPage() {
               onChange={(e) => { setFilterTo(e.target.value); fetchData(filterFrom, e.target.value); }}
               className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search..."
+              className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
             {(filterFrom || filterTo) && (
               <button
                 onClick={() => { setFilterFrom(""); setFilterTo(""); fetchData(); }}
@@ -274,10 +298,24 @@ export default function ExpensesPage() {
             </button>
           </div>
         </div>
+        {selected.size > 0 && (
+          <div className="px-6 py-3 bg-blue-50 dark:bg-blue-900/20 flex items-center justify-between">
+            <span className="text-sm text-blue-700 dark:text-blue-400">{selected.size} selected</span>
+            <button onClick={bulkDelete} className="text-sm text-red-600 dark:text-red-400 font-medium hover:underline">
+              Move to trash
+            </button>
+          </div>
+        )}
         <div className="overflow-x-auto">
         <table className="w-full text-left min-w-[600px]">
           <thead className="bg-gray-50 dark:bg-gray-700/50">
             <tr>
+              <th className="px-4 sm:px-6 py-3 w-8">
+                <input type="checkbox" onChange={(e) => {
+                  if (e.target.checked) setSelected(new Set(filtered.map(i => i.id)));
+                  else setSelected(new Set());
+                }} checked={selected.size === filtered.length && filtered.length > 0} />
+              </th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("date")}</th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("description")}</th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Category</th>
@@ -288,8 +326,16 @@ export default function ExpensesPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {expenses.slice(0, 50).map((exp) => (
+            {filtered.slice(0, 50).map((exp) => (
               <tr key={exp.id}>
+                <td className="px-4 sm:px-6 py-4">
+                  <input type="checkbox" checked={selected.has(exp.id)} onChange={(e) => {
+                    const next = new Set(selected);
+                    if (e.target.checked) next.add(exp.id);
+                    else next.delete(exp.id);
+                    setSelected(next);
+                  }} />
+                </td>
                 {editId === exp.id ? (
                   <>
                     <td className="px-6 py-3">
@@ -374,8 +420,8 @@ export default function ExpensesPage() {
                 )}
               </tr>
             ))}
-            {expenses.length === 0 && (
-              <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noExpensesYet")}</td></tr>
+            {filtered.length === 0 && (
+              <tr><td colSpan={8} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noExpensesYet")}</td></tr>
             )}
           </tbody>
         </table>

@@ -1,3 +1,6 @@
+import secrets
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from slowapi import Limiter
@@ -5,7 +8,10 @@ from slowapi.util import get_remote_address
 
 from app.database import get_db
 from app.models.user import User
-from app.schemas.auth import UserRegister, UserLogin, Token, UserResponse, UserUpdate, PasswordChange
+from app.schemas.auth import (
+    UserRegister, UserLogin, Token, UserResponse, UserUpdate, PasswordChange,
+    ForgotPasswordRequest, ResetPasswordRequest,
+)
 from app.services.auth import hash_password, verify_password, create_access_token, get_current_user
 
 router = APIRouter()
@@ -89,6 +95,40 @@ def change_password(
     current_user.password_hash = hash_password(data.new_password)
     db.commit()
     return {"message": "Password changed successfully"}
+
+
+@router.post("/forgot-password")
+@limiter.limit("5/minute")
+def forgot_password(request: Request, data: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == data.email).first()
+    if not user:
+        # Don't reveal if email exists
+        return {"message": "If an account exists with this email, a reset code has been generated."}
+
+    token = secrets.token_urlsafe(32)
+    user.reset_token = token
+    user.reset_token_expires = datetime.utcnow() + timedelta(hours=1)
+    db.commit()
+
+    # In production, this would be emailed. For now, return it.
+    # TODO: Integrate email service
+    return {"message": "Reset code generated. Check your email.", "reset_token": token}
+
+
+@router.post("/reset-password")
+@limiter.limit("5/minute")
+def reset_password(request: Request, data: ResetPasswordRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == data.email).first()
+    if not user or not user.reset_token or user.reset_token != data.reset_token:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset code")
+    if user.reset_token_expires and user.reset_token_expires < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Reset code has expired")
+
+    user.password_hash = hash_password(data.new_password)
+    user.reset_token = None
+    user.reset_token_expires = None
+    db.commit()
+    return {"message": "Password reset successfully. You can now log in."}
 
 
 @router.patch("/daily-goal", response_model=UserResponse)
