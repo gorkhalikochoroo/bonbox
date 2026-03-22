@@ -3,12 +3,17 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 
 const PERSONAL_CATEGORIES = [
-  "Salary", "Freelance", "Groceries", "Rent", "Transport",
-  "Loan Payment", "Borrowed", "Utilities", "Food & Dining",
-  "Shopping", "Entertainment", "Health", "Education", "Savings", "Other",
+  "Salary", "Freelance", "Side Income", "Gift Received",
+  "Groceries", "Rent", "Transport", "Loan Payment", "EMI",
+  "Borrowed", "Lent Out", "Utilities", "Food & Dining",
+  "Shopping", "Entertainment", "Health", "Gym & Fitness",
+  "Education", "Subscriptions", "Insurance", "Phone & Internet",
+  "Clothing", "Personal Care", "Family", "Savings", "Investment", "Other",
 ];
 
-const INCOME_CATS = ["Salary", "Freelance", "Borrowed"];
+const INCOME_CATS = ["Salary", "Freelance", "Side Income", "Gift Received", "Borrowed"];
+const LEND_BORROW_CATS = ["Borrowed", "Lent Out"];
+const QUICK_AMOUNTS = [100, 500, 1000, 2500, 5000];
 
 export default function PersonalPage() {
   const { user } = useAuth();
@@ -69,6 +74,31 @@ export default function PersonalPage() {
     .filter((e) => e.date.startsWith(filterMonth) && !isIncome(getCatName(e.category_id)))
     .reduce((s, e) => s + parseFloat(e.amount), 0);
   const balance = totalIncome - totalSpent;
+
+  // Monthly breakdown by category
+  const monthEntries = entries.filter((e) => e.date.startsWith(filterMonth));
+  const spendingByCategory = {};
+  monthEntries.forEach((e) => {
+    const catName = getCatName(e.category_id);
+    if (!isIncome(catName)) {
+      spendingByCategory[catName] = (spendingByCategory[catName] || 0) + parseFloat(e.amount);
+    }
+  });
+  const topSpending = Object.entries(spendingByCategory).sort((a, b) => b[1] - a[1]);
+
+  // Borrowed & Lent tracker (all time)
+  const totalBorrowed = entries
+    .filter((e) => getCatName(e.category_id) === "Borrowed")
+    .reduce((s, e) => s + parseFloat(e.amount), 0);
+  const totalLent = entries
+    .filter((e) => getCatName(e.category_id) === "Lent Out")
+    .reduce((s, e) => s + parseFloat(e.amount), 0);
+  const totalLoanPayments = entries
+    .filter((e) => ["Loan Payment", "EMI"].includes(getCatName(e.category_id)))
+    .reduce((s, e) => s + parseFloat(e.amount), 0);
+
+  // Savings rate
+  const savingsRate = totalIncome > 0 ? Math.round(((totalIncome - totalSpent) / totalIncome) * 100) : 0;
 
   const submit = async () => {
     const value = parseFloat(amount);
@@ -161,6 +191,58 @@ export default function PersonalPage() {
         </div>
       </div>
 
+      {/* Monthly Insights */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Spending breakdown */}
+        <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Where your money goes</h2>
+          {topSpending.length > 0 ? (
+            <div className="space-y-2">
+              {topSpending.slice(0, 6).map(([cat, amt]) => (
+                <div key={cat} className="flex items-center gap-3">
+                  <span className="text-sm text-gray-600 dark:text-gray-400 w-28 truncate">{cat}</span>
+                  <div className="flex-1 h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                    <div className="h-full bg-purple-500 rounded-full" style={{ width: `${(amt / totalSpent) * 100}%` }} />
+                  </div>
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300 w-24 text-right">{amt.toLocaleString()} {currency}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400">No spending data yet</p>
+          )}
+        </div>
+
+        {/* Financial snapshot */}
+        <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 space-y-3">
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Financial Snapshot</h2>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-gray-500 dark:text-gray-400">Savings Rate</span>
+            <span className={`text-sm font-bold ${savingsRate >= 20 ? "text-green-600" : savingsRate >= 0 ? "text-yellow-600" : "text-red-500"}`}>
+              {savingsRate}%
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-gray-500 dark:text-gray-400">Total Borrowed</span>
+            <span className="text-sm font-bold text-orange-600 dark:text-orange-400">{totalBorrowed.toLocaleString()} {currency}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-gray-500 dark:text-gray-400">Total Lent Out</span>
+            <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{totalLent.toLocaleString()} {currency}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-gray-500 dark:text-gray-400">Loan/EMI Paid</span>
+            <span className="text-sm font-bold text-gray-700 dark:text-gray-300">{totalLoanPayments.toLocaleString()} {currency}</span>
+          </div>
+          <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-700">
+            <span className="text-sm text-gray-500 dark:text-gray-400">Net Owed to You</span>
+            <span className={`text-sm font-bold ${(totalLent - totalBorrowed) >= 0 ? "text-green-600" : "text-red-500"}`}>
+              {(totalLent - totalBorrowed).toLocaleString()} {currency}
+            </span>
+          </div>
+        </div>
+      </div>
+
       {/* Add entry */}
       <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
         <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-1">Add Entry</h2>
@@ -203,12 +285,24 @@ export default function PersonalPage() {
           className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl mb-4 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white"
         />
 
+        {/* Quick amounts */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          {QUICK_AMOUNTS.map((amt) => (
+            <button key={amt} onClick={() => setAmount(String(amt))}
+              className={`px-4 py-2 rounded-xl border text-sm font-medium transition ${
+                amount === String(amt)
+                  ? "bg-purple-50 dark:bg-purple-900/30 border-purple-300 text-purple-700"
+                  : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+              }`}>{amt.toLocaleString()} {currency}</button>
+          ))}
+        </div>
+
         <div className="flex gap-3 mb-3">
           <input
             type="number"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            placeholder="Amount"
+            placeholder="Custom amount"
             className="flex-1 px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white"
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
@@ -239,7 +333,13 @@ export default function PersonalPage() {
         </div>
 
         <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)}
-          placeholder="Notes (optional)" className="mt-3 w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+          placeholder={LEND_BORROW_CATS.includes(getCatName(catId)) ? "Who? (e.g., Ram, John)" : "Notes (optional)"}
+          className="mt-3 w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+        {LEND_BORROW_CATS.includes(getCatName(catId)) && (
+          <p className="mt-1 text-xs text-purple-500 dark:text-purple-400">
+            Tip: Add the person's name so you can track who owes what
+          </p>
+        )}
       </div>
 
       {/* History */}
@@ -272,6 +372,7 @@ export default function PersonalPage() {
                 <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Description</th>
                 <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Amount</th>
                 <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Payment</th>
+                <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Notes</th>
                 <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">Action</th>
               </tr>
             </thead>
@@ -294,6 +395,7 @@ export default function PersonalPage() {
                       {income ? "+" : "-"}{parseFloat(e.amount).toLocaleString()} {currency}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 capitalize">{e.payment_method?.replace("_", " ") || "-"}</td>
+                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{e.notes || "-"}</td>
                     <td className="px-6 py-4 text-right">
                       <button onClick={() => deleteEntry(e.id)} className="text-red-400 text-sm hover:underline">Delete</button>
                     </td>
@@ -301,7 +403,7 @@ export default function PersonalPage() {
                 );
               })}
               {filteredEntries.length === 0 && (
-                <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">No entries yet</td></tr>
+                <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">No entries yet</td></tr>
               )}
             </tbody>
           </table>
