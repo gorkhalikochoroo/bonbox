@@ -12,14 +12,13 @@ import {
 
 const COLORS = ["#3B82F6", "#EF4444", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316", "#6366F1", "#84CC16"];
 
-const PERIODS = ["today", "thisWeek", "thisMonth", "last30", "custom"];
+const PERIODS = ["today", "thisWeek", "thisMonth", "last30"];
 
 const PERIOD_LABELS = {
   today: { revenue: "Today's Revenue", profit: "Today's Profit" },
   thisWeek: { revenue: "This Week's Revenue", profit: "This Week's Profit" },
   thisMonth: { revenue: "This Month's Revenue", profit: "This Month's Profit" },
   last30: { revenue: "Last 30 Days Revenue", profit: "Last 30 Days Profit" },
-  custom: { revenue: "Custom Period Revenue", profit: "Custom Period Profit" },
 };
 
 function getDateRange(period) {
@@ -237,26 +236,9 @@ export default function DashboardPage() {
                 : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
             }`}
           >
-            {p === "today" ? "Today" : p === "thisWeek" ? "This Week" : p === "thisMonth" ? "This Month" : p === "last30" ? "Last 30 Days" : "Custom"}
+            {p === "today" ? "Today" : p === "thisWeek" ? "This Week" : p === "thisMonth" ? "This Month" : "Last 30 Days"}
           </button>
         ))}
-        {period === "custom" && (
-          <div className="flex items-center gap-2 ml-0 sm:ml-2">
-            <input
-              type="date"
-              value={customFrom}
-              onChange={(e) => setCustomFrom(e.target.value)}
-              className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white"
-            />
-            <span className="text-xs text-gray-400">→</span>
-            <input
-              type="date"
-              value={customTo}
-              onChange={(e) => setCustomTo(e.target.value)}
-              className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white"
-            />
-          </div>
-        )}
       </div>
 
       {/* Onboarding for new users */}
