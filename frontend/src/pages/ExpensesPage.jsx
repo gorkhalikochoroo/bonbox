@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -8,6 +8,16 @@ import { displayCurrency } from "../utils/currency";
 
 const QUICK_AMOUNTS = [100, 250, 500, 1000, 2500, 5000];
 const DEFAULT_CATEGORIES = ["Ingredients", "Rent", "Wages", "Utilities", "Supplies", "Other"];
+
+// Categories that only belong in Personal mode — hide from Business expense buttons
+const PERSONAL_ONLY_CATS = new Set([
+  "Salary", "Freelance", "Side Income", "Gift Received",
+  "Groceries", "Transport", "Loan Payment", "EMI",
+  "Borrowed", "Lent Out", "Food & Dining",
+  "Shopping", "Entertainment", "Health", "Gym & Fitness",
+  "Education", "Subscriptions", "Insurance", "Phone & Internet",
+  "Clothing", "Personal Care", "Family", "Savings", "Investment",
+]);
 
 export default function ExpensesPage() {
   const { user } = useAuth();
@@ -32,6 +42,7 @@ export default function ExpensesPage() {
   const [notes, setNotes] = useState("");
   const [search, setSearch] = useState("");
   const [customCat, setCustomCat] = useState("");
+  const customCatRef = useRef(null);
   const [listening, setListening] = useState(false);
   const [isPersonal, setIsPersonal] = useState(false);
   const [showFilter, setShowFilter] = useState("business"); // "all", "business", "personal"
@@ -243,10 +254,23 @@ export default function ExpensesPage() {
         <p className="text-sm text-gray-400 dark:text-gray-400 mb-4">{t("pickCategory")}</p>
 
         <div className="flex flex-wrap gap-2 mb-3">
-          {categories.map((c) => (
+          {categories
+            .filter((c) => !PERSONAL_ONLY_CATS.has(c.name))
+            .map((c) => (
             <button
               key={c.id}
-              onClick={() => { setCatId(c.id); setCustomCat(""); setDesc(c.name); }}
+              onClick={() => {
+                if (c.name === "Other") {
+                  setCatId("");
+                  setCustomCat("");
+                  setDesc("");
+                  setTimeout(() => customCatRef.current?.focus(), 0);
+                } else {
+                  setCatId(c.id);
+                  setCustomCat("");
+                  setDesc(c.name);
+                }
+              }}
               className={`px-4 py-2.5 rounded-xl text-sm font-medium border transition ${
                 catId === c.id
                   ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300"
@@ -260,6 +284,7 @@ export default function ExpensesPage() {
         <div className="flex items-center gap-2 mb-4">
           <span className="text-sm text-gray-400 dark:text-gray-500">or</span>
           <input
+            ref={customCatRef}
             type="text"
             value={customCat}
             onChange={(e) => { setCustomCat(e.target.value); if (e.target.value) setCatId(""); }}
