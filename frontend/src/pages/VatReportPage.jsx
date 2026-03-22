@@ -73,6 +73,9 @@ export default function VatReportPage() {
               {report.business_name || "My Business"}
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{months[month - 1]} {year}</p>
+            {report.vat_rate_pct !== undefined && (
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">VAT/Tax rate: {report.vat_rate_pct}%</p>
+            )}
           </div>
 
           <div className="space-y-3 mb-6">

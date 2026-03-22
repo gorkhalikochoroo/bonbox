@@ -27,6 +27,22 @@ from app.services.auth import get_current_user
 
 router = APIRouter()
 
+# VAT rates by currency (standard rates)
+VAT_RATES = {
+    "DKK": 0.25,   # Denmark 25%
+    "SEK": 0.25,   # Sweden 25%
+    "NOK": 0.25,   # Norway 25%
+    "EUR": 0.21,   # EU average ~21%
+    "GBP": 0.20,   # UK 20%
+    "USD": 0.0,    # US has no federal VAT (sales tax varies by state)
+    "NPR": 0.13,   # Nepal 13%
+    "INR": 0.18,   # India GST 18%
+}
+
+
+def get_vat_rate(currency: str) -> float:
+    return VAT_RATES.get(currency, 0.13)
+
 
 @router.get("/monthly")
 def monthly_report(
@@ -247,10 +263,10 @@ def monthly_report_pdf(
         .all()
     )
 
-    # VAT summary
-    vat_rate = 0.25
-    output_vat = round(total_revenue * vat_rate / (1 + vat_rate), 2)
-    input_vat = round(total_expenses * vat_rate / (1 + vat_rate), 2)
+    # VAT summary (dynamic based on user's currency)
+    vat_rate = get_vat_rate(user.currency)
+    output_vat = round(total_revenue * vat_rate / (1 + vat_rate), 2) if vat_rate > 0 else 0
+    input_vat = round(total_expenses * vat_rate / (1 + vat_rate), 2) if vat_rate > 0 else 0
     vat_payable = round(output_vat - input_vat, 2)
 
     # Best/worst days
@@ -461,7 +477,7 @@ def monthly_report_pdf(
     # VAT SUMMARY
     # ============================================================
     elements.append(Paragraph("VAT / Moms Summary", section_style))
-    elements.append(Paragraph("Danish VAT rate: 25% (for accountant reference)", subsection_style))
+    elements.append(Paragraph(f"VAT/Tax rate: {vat_rate * 100:.0f}% ({user.currency}) (for accountant reference)", subsection_style))
     vat_data = [
         ["", "Incl. VAT", "Excl. VAT", "VAT Amount"],
         ["Sales (Salg)", f"{total_revenue:,.0f}", f"{total_revenue / (1 + vat_rate):,.0f}", f"{output_vat:,.0f}"],
@@ -636,20 +652,22 @@ def vat_export(
         .scalar()
     )
 
-    vat_rate = 0.25
-    output_vat = round(sales_total * vat_rate / (1 + vat_rate), 2)  # moms af salg
-    input_vat = round(expenses_total * vat_rate / (1 + vat_rate), 2)  # moms af indkøb
+    vat_rate = get_vat_rate(user.currency)
+    output_vat = round(sales_total * vat_rate / (1 + vat_rate), 2) if vat_rate > 0 else 0
+    input_vat = round(expenses_total * vat_rate / (1 + vat_rate), 2) if vat_rate > 0 else 0
     vat_payable = round(output_vat - input_vat, 2)
 
     return {
         "period": f"{year}-{month:02d}",
+        "vat_rate": vat_rate,
+        "vat_rate_pct": round(vat_rate * 100, 1),
         "sales_incl_vat": sales_total,
-        "sales_excl_vat": round(sales_total / (1 + vat_rate), 2),
-        "output_vat": output_vat,  # Udgående moms (salgsmoms)
+        "sales_excl_vat": round(sales_total / (1 + vat_rate), 2) if vat_rate > 0 else sales_total,
+        "output_vat": output_vat,
         "expenses_incl_vat": expenses_total,
-        "expenses_excl_vat": round(expenses_total / (1 + vat_rate), 2),
-        "input_vat": input_vat,  # Indgående moms (købsmoms)
-        "vat_payable": vat_payable,  # Moms til betaling
+        "expenses_excl_vat": round(expenses_total / (1 + vat_rate), 2) if vat_rate > 0 else expenses_total,
+        "input_vat": input_vat,
+        "vat_payable": vat_payable,
         "currency": user.currency,
         "business_name": user.business_name,
     }
