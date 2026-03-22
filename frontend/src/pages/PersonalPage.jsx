@@ -31,6 +31,14 @@ export default function PersonalPage() {
   const [error, setError] = useState("");
   const [tab, setTab] = useState("all"); // "all", "income", "spent"
   const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [showBudgetEditor, setShowBudgetEditor] = useState(false);
+  const [budgets, setBudgets] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("bonbox_personal_budgets") || "{}"); } catch { return {}; }
+  });
+  const [totalBudget, setTotalBudget] = useState(() => {
+    try { return parseFloat(localStorage.getItem("bonbox_personal_total_budget") || "0"); } catch { return 0; }
+  });
+  const [showMonthlyReport, setShowMonthlyReport] = useState(false);
 
   const fetchData = () => {
     api.get("/expenses", { params: {} })
@@ -104,6 +112,40 @@ export default function PersonalPage() {
 
   // Savings rate
   const savingsRate = totalIncome > 0 ? Math.round(((totalIncome - totalSpent) / totalIncome) * 100) : 0;
+
+  // Budget helpers
+  const saveBudgets = (newBudgets) => {
+    setBudgets(newBudgets);
+    localStorage.setItem("bonbox_personal_budgets", JSON.stringify(newBudgets));
+  };
+  const saveTotalBudget = (val) => {
+    setTotalBudget(val);
+    localStorage.setItem("bonbox_personal_total_budget", String(val));
+  };
+
+  // Budget warnings — categories that exceeded their budget
+  const overBudgetCats = Object.entries(budgets).filter(([cat, limit]) => {
+    const spent = spendingByCategory[cat] || 0;
+    return limit > 0 && spent > limit;
+  }).map(([cat, limit]) => ({ cat, limit, spent: spendingByCategory[cat] || 0, over: (spendingByCategory[cat] || 0) - limit }));
+
+  // Near budget (80%+)
+  const nearBudgetCats = Object.entries(budgets).filter(([cat, limit]) => {
+    const spent = spendingByCategory[cat] || 0;
+    return limit > 0 && spent >= limit * 0.8 && spent <= limit;
+  }).map(([cat, limit]) => ({ cat, limit, spent: spendingByCategory[cat] || 0, pct: Math.round(((spendingByCategory[cat] || 0) / limit) * 100) }));
+
+  const totalBudgetUsed = totalBudget > 0 ? Math.round((totalSpent / totalBudget) * 100) : 0;
+
+  // Monthly report data
+  const spendingCats = PERSONAL_CATEGORIES.filter((c) => !INCOME_CATS.includes(c));
+  const incomeByCategory = {};
+  monthEntries.forEach((e) => {
+    const catName = getCatName(e.category_id);
+    if (isIncome(catName)) {
+      incomeByCategory[catName] = (incomeByCategory[catName] || 0) + parseFloat(e.amount);
+    }
+  });
 
   const submit = async () => {
     const value = parseFloat(amount);
@@ -195,6 +237,183 @@ export default function PersonalPage() {
           <p className="text-xs text-gray-400">{currency}</p>
         </div>
       </div>
+
+      {/* Budget Warnings */}
+      {overBudgetCats.length > 0 && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 space-y-2">
+          <p className="text-red-700 dark:text-red-400 font-semibold text-sm flex items-center gap-2">
+            <span className="text-lg">!</span> Budget Exceeded
+          </p>
+          {overBudgetCats.map(({ cat, limit, spent, over }) => (
+            <div key={cat} className="flex items-center justify-between text-sm">
+              <span className="text-red-600 dark:text-red-400 font-medium">{cat}</span>
+              <span className="text-red-600 dark:text-red-400">
+                {spent.toLocaleString()} / {limit.toLocaleString()} {currency}
+                <span className="ml-2 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 px-2 py-0.5 rounded text-xs font-bold">
+                  +{over.toLocaleString()} over
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {nearBudgetCats.length > 0 && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4 space-y-2">
+          <p className="text-amber-700 dark:text-amber-400 font-semibold text-sm flex items-center gap-2">
+            <span className="text-lg">!</span> Approaching Budget Limit
+          </p>
+          {nearBudgetCats.map(({ cat, limit, spent, pct }) => (
+            <div key={cat} className="flex items-center justify-between text-sm">
+              <span className="text-amber-600 dark:text-amber-400 font-medium">{cat}</span>
+              <span className="text-amber-600 dark:text-amber-400">
+                {spent.toLocaleString()} / {limit.toLocaleString()} {currency}
+                <span className="ml-2 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded text-xs font-bold">
+                  {pct}% used
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {totalBudget > 0 && (
+        <div className={`rounded-xl p-4 border ${totalBudgetUsed > 100 ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800" : totalBudgetUsed >= 80 ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800" : "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"}`}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Monthly Budget</span>
+            <span className={`text-sm font-bold ${totalBudgetUsed > 100 ? "text-red-600" : totalBudgetUsed >= 80 ? "text-amber-600" : "text-green-600"}`}>
+              {totalSpent.toLocaleString()} / {totalBudget.toLocaleString()} {currency} ({totalBudgetUsed}%)
+            </span>
+          </div>
+          <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+            <div className={`h-full rounded-full transition-all ${totalBudgetUsed > 100 ? "bg-red-500" : totalBudgetUsed >= 80 ? "bg-amber-500" : "bg-green-500"}`}
+              style={{ width: `${Math.min(totalBudgetUsed, 100)}%` }} />
+          </div>
+          {totalBudgetUsed > 100 && (
+            <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium">You've exceeded your monthly budget by {(totalSpent - totalBudget).toLocaleString()} {currency}</p>
+          )}
+        </div>
+      )}
+
+      {/* Budget & Report Buttons */}
+      <div className="flex gap-3">
+        <button onClick={() => setShowBudgetEditor(!showBudgetEditor)}
+          className="px-4 py-2.5 rounded-xl text-sm font-medium border border-purple-200 dark:border-purple-700 text-purple-700 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/30 transition">
+          {showBudgetEditor ? "Hide Budget Settings" : "Set Budget"}
+        </button>
+        <button onClick={() => setShowMonthlyReport(!showMonthlyReport)}
+          className="px-4 py-2.5 rounded-xl text-sm font-medium border border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition">
+          {showMonthlyReport ? "Hide Monthly Report" : "Monthly Report"}
+        </button>
+      </div>
+
+      {/* Budget Editor */}
+      {showBudgetEditor && (
+        <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 space-y-4">
+          <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">Monthly Budget Settings</h2>
+          <div className="flex items-center gap-3 pb-3 border-b border-gray-100 dark:border-gray-700">
+            <label className="text-sm font-medium text-gray-600 dark:text-gray-400 whitespace-nowrap">Total Monthly Budget:</label>
+            <input type="number" value={totalBudget || ""} onChange={(e) => saveTotalBudget(parseFloat(e.target.value) || 0)}
+              placeholder="e.g. 15000" className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-40" />
+            <span className="text-sm text-gray-400">{currency}</span>
+          </div>
+          <p className="text-xs text-gray-400">Set limits per spending category (leave empty for no limit):</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {spendingCats.map((cat) => (
+              <div key={cat} className="flex items-center gap-2">
+                <span className="text-sm text-gray-600 dark:text-gray-400 w-32 truncate">{cat}</span>
+                <input type="number" value={budgets[cat] || ""} onChange={(e) => saveBudgets({ ...budgets, [cat]: parseFloat(e.target.value) || 0 })}
+                  placeholder="0" className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-24" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Monthly Report */}
+      {showMonthlyReport && (
+        <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 space-y-5">
+          <div className="text-center border-b border-gray-100 dark:border-gray-700 pb-4">
+            <p className="text-xs text-gray-400 uppercase tracking-wider">Monthly Report</p>
+            <p className="text-lg font-bold text-gray-800 dark:text-white mt-1">{new Date(filterMonth + "-01").toLocaleDateString("en-US", { month: "long", year: "numeric" })}</p>
+          </div>
+
+          {/* Summary Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="text-center p-3 bg-green-50 dark:bg-green-900/20 rounded-xl">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Income</p>
+              <p className="text-lg font-bold text-green-600 dark:text-green-400">{totalIncome.toLocaleString()}</p>
+            </div>
+            <div className="text-center p-3 bg-red-50 dark:bg-red-900/20 rounded-xl">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Spent</p>
+              <p className="text-lg font-bold text-red-500 dark:text-red-400">{totalSpent.toLocaleString()}</p>
+            </div>
+            <div className={`text-center p-3 rounded-xl ${balance >= 0 ? "bg-green-50 dark:bg-green-900/20" : "bg-red-50 dark:bg-red-900/20"}`}>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Saved</p>
+              <p className={`text-lg font-bold ${balance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400"}`}>{balance.toLocaleString()}</p>
+            </div>
+            <div className="text-center p-3 bg-purple-50 dark:bg-purple-900/20 rounded-xl">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Savings Rate</p>
+              <p className={`text-lg font-bold ${savingsRate >= 20 ? "text-green-600" : savingsRate >= 0 ? "text-amber-600" : "text-red-500"}`}>{savingsRate}%</p>
+            </div>
+          </div>
+
+          {/* Income Breakdown */}
+          {Object.keys(incomeByCategory).length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">Income Sources</h3>
+              <div className="space-y-2">
+                {Object.entries(incomeByCategory).sort((a, b) => b[1] - a[1]).map(([cat, amt]) => (
+                  <div key={cat} className="flex items-center justify-between text-sm">
+                    <span className="text-gray-600 dark:text-gray-400">{cat}</span>
+                    <span className="font-medium text-green-600 dark:text-green-400">+{amt.toLocaleString()} {currency}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Spending vs Budget */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">Spending by Category</h3>
+            <div className="space-y-3">
+              {topSpending.map(([cat, amt]) => {
+                const limit = budgets[cat] || 0;
+                const pct = limit > 0 ? Math.round((amt / limit) * 100) : 0;
+                const exceeded = limit > 0 && amt > limit;
+                return (
+                  <div key={cat}>
+                    <div className="flex items-center justify-between text-sm mb-1">
+                      <span className="text-gray-600 dark:text-gray-400">{cat}</span>
+                      <span className={`font-medium ${exceeded ? "text-red-600 dark:text-red-400" : "text-gray-700 dark:text-gray-300"}`}>
+                        {amt.toLocaleString()} {limit > 0 ? `/ ${limit.toLocaleString()}` : ""} {currency}
+                        {exceeded && <span className="ml-1 text-xs text-red-500 font-bold">OVER</span>}
+                      </span>
+                    </div>
+                    {limit > 0 && (
+                      <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${exceeded ? "bg-red-500" : pct >= 80 ? "bg-amber-500" : "bg-green-500"}`}
+                          style={{ width: `${Math.min(pct, 100)}%` }} />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {topSpending.length === 0 && <p className="text-sm text-gray-400">No spending this month</p>}
+            </div>
+          </div>
+
+          {/* Verdict */}
+          <div className={`p-4 rounded-xl text-center ${balance >= 0 ? "bg-green-50 dark:bg-green-900/20" : "bg-red-50 dark:bg-red-900/20"}`}>
+            <p className={`text-lg font-bold ${balance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400"}`}>
+              {balance >= 0
+                ? savingsRate >= 20 ? "Great month! You saved well." : "You're in the green, keep it up!"
+                : "You overspent this month. Review your spending."}
+            </p>
+            {totalBudget > 0 && totalSpent > totalBudget && (
+              <p className="text-sm text-red-500 mt-1">Budget exceeded by {(totalSpent - totalBudget).toLocaleString()} {currency}</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Monthly Insights */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
