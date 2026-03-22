@@ -24,6 +24,7 @@ class InventoryItemResponse(BaseModel):
     unit: str
     cost_per_unit: float
     min_threshold: float
+    created_at: datetime.datetime | None = None
 
     model_config = {"from_attributes": True}
 

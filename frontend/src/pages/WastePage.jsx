@@ -32,7 +32,11 @@ export default function WastePage() {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(new Set());
 
-  const filtered = logs.filter(l => !search || l.item_name?.toLowerCase().includes(search.toLowerCase()) || l.reason?.toLowerCase().includes(search.toLowerCase()));
+  const filtered = logs.filter(l => !search || l.item_name?.toLowerCase().includes(search.toLowerCase()) || l.reason?.toLowerCase().includes(search.toLowerCase())).sort((a, b) => {
+    const d = b.date.localeCompare(a.date);
+    if (d !== 0) return d;
+    return (b.created_at || "").localeCompare(a.created_at || "");
+  });
 
   const fetchData = (from, to) => {
     const params = {};

@@ -96,7 +96,9 @@ export default function InventoryPage() {
   };
 
   const alertIds = new Set(alerts.map((a) => a.id));
-  const filtered = items.filter((i) => !search || i.name.toLowerCase().includes(search.toLowerCase()));
+  const filtered = items.filter((i) => !search || i.name.toLowerCase().includes(search.toLowerCase())).sort((a, b) => {
+    return (b.created_at || "").localeCompare(a.created_at || "");
+  });
   const totalValue = items.reduce((s, i) => s + parseFloat(i.quantity) * parseFloat(i.cost_per_unit), 0);
 
   return (

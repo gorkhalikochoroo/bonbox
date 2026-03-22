@@ -30,5 +30,6 @@ class CashTransactionResponse(BaseModel):
     reference_id: str | None
     is_deleted: bool = False
     deleted_at: datetime.datetime | None = None
+    created_at: datetime.datetime | None = None
 
     model_config = {"from_attributes": True}

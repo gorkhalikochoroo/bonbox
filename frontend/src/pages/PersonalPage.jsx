@@ -78,6 +78,10 @@ export default function PersonalPage() {
     if (tab === "income" && !isIncome(catName)) return false;
     if (tab === "spent" && isIncome(catName)) return false;
     return true;
+  }).sort((a, b) => {
+    const d = b.date.localeCompare(a.date);
+    if (d !== 0) return d;
+    return (b.created_at || "").localeCompare(a.created_at || "");
   });
 
   const totalIncome = entries

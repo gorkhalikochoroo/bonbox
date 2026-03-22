@@ -31,6 +31,7 @@ class WasteLogResponse(BaseModel):
     reason: str
     is_deleted: bool = False
     deleted_at: datetime.datetime | None = None
+    created_at: datetime.datetime | None = None
 
     model_config = {"from_attributes": True}
 

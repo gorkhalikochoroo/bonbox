@@ -40,6 +40,10 @@ export default function ExpensesPage() {
     if (showFilter === "personal" && !e.is_personal) return false;
     if (showFilter === "business" && e.is_personal) return false;
     return true;
+  }).sort((a, b) => {
+    const d = b.date.localeCompare(a.date);
+    if (d !== 0) return d;
+    return (b.created_at || "").localeCompare(a.created_at || "");
   });
 
   const startVoice = () => {
