@@ -7,12 +7,22 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+from alembic.config import Config
+from alembic import command
+
 from app.config import settings
 from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events
 from app.database import engine, Base
 from app.models import *  # noqa: ensure all models are loaded
 
 Base.metadata.create_all(bind=engine)
+
+# Run Alembic migrations automatically on startup
+try:
+    alembic_cfg = Config("alembic.ini")
+    command.upgrade(alembic_cfg, "head")
+except Exception as e:
+    print(f"Alembic migration warning: {e}")
 
 # --- Rate Limiter ---
 limiter = Limiter(key_func=get_remote_address, default_limits=["120/minute"])
