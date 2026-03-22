@@ -5,12 +5,13 @@ import { useLanguage } from "../hooks/useLanguage";
 import ReceiptCapture from "../components/ReceiptCapture";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
+import { displayCurrency } from "../utils/currency";
 
 const QUICK_AMOUNTS = [500, 1000, 2500, 5000, 7500, 10000, 15000];
 
 export default function SalesPage() {
   const { user } = useAuth();
-  const currency = user?.currency || "DKK";
+  const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
   const [sales, setSales] = useState([]);
   const [amount, setAmount] = useState("");

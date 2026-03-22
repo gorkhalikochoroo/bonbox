@@ -3,10 +3,11 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useDarkMode } from "../hooks/useDarkMode";
 import { useLanguage } from "../hooks/useLanguage";
+import { displayCurrency } from "../utils/currency";
 
 export default function RecentlyDeletedPage() {
   const { user } = useAuth();
-  const currency = user?.currency || "DKK";
+  const currency = displayCurrency(user?.currency);
   const [dark] = useDarkMode();
   const { t } = useLanguage();
   const [tab, setTab] = useState("sales");

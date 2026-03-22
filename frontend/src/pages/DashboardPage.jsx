@@ -9,6 +9,7 @@ import {
   PieChart, Pie, Cell, Legend,
   BarChart, Bar, ReferenceLine,
 } from "recharts";
+import { displayCurrency } from "../utils/currency";
 
 const COLORS = ["#3B82F6", "#EF4444", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316", "#6366F1", "#84CC16"];
 
@@ -52,7 +53,7 @@ function getDateRange(period) {
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const currency = user?.currency || "DKK";
+  const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
   const [summary, setSummary] = useState(null);
   const [monthlyData, setMonthlyData] = useState(null);
@@ -565,7 +566,7 @@ function MotivationalStats({ summary, monthlyData }) {
 
 function DailyGoal({ revenue }) {
   const { user } = useAuth();
-  const currency = user?.currency || "DKK";
+  const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
   const [goal, setGoal] = useState(user?.daily_goal || 0);
   const [editing, setEditing] = useState(false);
@@ -646,7 +647,7 @@ function DailyGoal({ revenue }) {
 
 function DailySummary({ summary, monthlyData }) {
   const { user } = useAuth();
-  const currency = user?.currency || "DKK";
+  const currency = displayCurrency(user?.currency);
   const dailyRevenue = monthlyData?.daily_revenue || [];
 
   // Yesterday's data
@@ -696,7 +697,7 @@ function DailySummary({ summary, monthlyData }) {
 
 function HealthScore({ summary, monthlyData }) {
   const { user } = useAuth();
-  const currency = user?.currency || "DKK";
+  const currency = displayCurrency(user?.currency);
 
   // Calculate score 0-100 from existing data
   const factors = [];

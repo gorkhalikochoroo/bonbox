@@ -4,13 +4,14 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
+import { displayCurrency } from "../utils/currency";
 
 const QUICK_AMOUNTS = [100, 250, 500, 1000, 2500, 5000];
 const DEFAULT_CATEGORIES = ["Ingredients", "Rent", "Wages", "Utilities", "Supplies", "Other"];
 
 export default function ExpensesPage() {
   const { user } = useAuth();
-  const currency = user?.currency || "DKK";
+  const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
   const [expenses, setExpenses] = useState([]);
   const [categories, setCategories] = useState([]);

@@ -29,23 +29,36 @@ router = APIRouter()
 
 # VAT rates by currency (standard rates)
 VAT_RATES = {
-    "DKK": 0.25,   # Denmark 25%
-    "SEK": 0.25,   # Sweden 25%
-    "NOK": 0.25,   # Norway 25%
-    "EUR": 0.21,   # EU average ~21%
-    "GBP": 0.20,   # UK 20%
-    "USD": 0.0,    # US has no federal VAT (sales tax varies by state)
-    "NPR": 0.13,   # Nepal 13%
-    "INR": 0.18,   # India GST 18%
-    "JPY": 0.10,   # Japan 10%
-    "AUD": 0.10,   # Australia GST 10%
-    "CAD": 0.05,   # Canada GST 5%
-    "CHF": 0.081,  # Switzerland 8.1%
+    "DKK": 0.25,       # Denmark 25%
+    "SEK": 0.25,       # Sweden 25%
+    "NOK": 0.25,       # Norway 25%
+    "EUR": 0.21,       # EU average ~21%
+    "EUR_PT": 0.23,    # Portugal IVA 23%
+    "EUR_DE": 0.19,    # Germany 19%
+    "EUR_FR": 0.20,    # France 20%
+    "EUR_ES": 0.21,    # Spain 21%
+    "EUR_IT": 0.22,    # Italy 22%
+    "EUR_NL": 0.21,    # Netherlands 21%
+    "GBP": 0.20,       # UK 20%
+    "USD": 0.0,        # US has no federal VAT (sales tax varies by state)
+    "NPR": 0.13,       # Nepal 13%
+    "INR": 0.18,       # India GST 18%
+    "JPY": 0.10,       # Japan 10%
+    "AUD": 0.10,       # Australia GST 10%
+    "CAD": 0.05,       # Canada GST 5%
+    "CHF": 0.081,      # Switzerland 8.1%
 }
 
 
 def get_vat_rate(currency: str) -> float:
     return VAT_RATES.get(currency, 0.13)
+
+
+def get_display_currency(currency: str) -> str:
+    """EUR_PT -> EUR, EUR_DE -> EUR, etc."""
+    if currency.startswith("EUR_"):
+        return "EUR"
+    return currency
 
 
 @router.get("/monthly")
@@ -180,7 +193,7 @@ def monthly_report_pdf(
     start = date(year, month, 1)
     end = date(year, month, last_day)
     month_name = calendar.month_name[month]
-    cur = user.currency or "DKK"
+    cur = get_display_currency(user.currency or "DKK")
 
     # ---- Gather all data ----
     total_revenue = float(
@@ -672,6 +685,6 @@ def vat_export(
         "expenses_excl_vat": round(expenses_total / (1 + vat_rate), 2) if vat_rate > 0 else expenses_total,
         "input_vat": input_vat,
         "vat_payable": vat_payable,
-        "currency": user.currency,
+        "currency": get_display_currency(user.currency),
         "business_name": user.business_name,
     }

@@ -2,10 +2,11 @@ import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { displayCurrency } from "../utils/currency";
 
 export default function InventoryPage() {
   const { user } = useAuth();
-  const currency = user?.currency || "DKK";
+  const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
   const [items, setItems] = useState([]);
   const [alerts, setAlerts] = useState([]);

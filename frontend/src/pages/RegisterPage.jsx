@@ -82,7 +82,13 @@ export default function RegisterPage() {
               <option value="DKK">DKK - Danish Krone</option>
               <option value="SEK">SEK - Swedish Krona</option>
               <option value="NOK">NOK - Norwegian Krone</option>
-              <option value="EUR">EUR - Euro</option>
+              <option value="EUR">EUR - Euro (General)</option>
+              <option value="EUR_PT">EUR - Portugal (IVA 23%)</option>
+              <option value="EUR_DE">EUR - Germany (MwSt 19%)</option>
+              <option value="EUR_FR">EUR - France (TVA 20%)</option>
+              <option value="EUR_ES">EUR - Spain (IVA 21%)</option>
+              <option value="EUR_IT">EUR - Italy (IVA 22%)</option>
+              <option value="EUR_NL">EUR - Netherlands (BTW 21%)</option>
               <option value="USD">USD - US Dollar</option>
               <option value="GBP">GBP - British Pound</option>
               <option value="NPR">NPR - Nepalese Rupee</option>

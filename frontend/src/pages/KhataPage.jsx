@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
+import { displayCurrency } from "../utils/currency";
 
 export default function KhataPage() {
   const { user } = useAuth();
-  const currency = user?.currency || "DKK";
+  const currency = displayCurrency(user?.currency);
 
   const [customers, setCustomers] = useState([]);
   const [summary, setSummary] = useState({ total_receivable: 0, customer_count: 0, top_debtors: [] });

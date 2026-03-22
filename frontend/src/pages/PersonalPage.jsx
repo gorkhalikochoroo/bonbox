@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
+import { displayCurrency } from "../utils/currency";
 
 const PERSONAL_CATEGORIES = [
   "Salary", "Freelance", "Side Income", "Gift Received",
@@ -17,7 +18,7 @@ const QUICK_AMOUNTS = [100, 500, 1000, 2500, 5000];
 
 export default function PersonalPage() {
   const { user } = useAuth();
-  const currency = user?.currency || "DKK";
+  const currency = displayCurrency(user?.currency);
   const [entries, setEntries] = useState([]);
   const [categories, setCategories] = useState([]);
   const [catId, setCatId] = useState("");

@@ -5,6 +5,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { displayCurrency } from "../utils/currency";
 
 const REASONS = ["expired", "overcooked", "damaged", "other"];
 const REASON_COLORS = { expired: "#ef4444", overcooked: "#f97316", damaged: "#eab308", other: "#6b7280" };
@@ -12,7 +13,7 @@ const QUICK_COSTS = [50, 100, 250, 500, 1000];
 
 export default function WastePage() {
   const { user } = useAuth();
-  const currency = user?.currency || "DKK";
+  const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
   const [logs, setLogs] = useState([]);
   const [summary, setSummary] = useState(null);

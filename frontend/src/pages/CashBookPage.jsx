@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
+import { displayCurrency } from "../utils/currency";
 
 const IN_CATEGORIES = ["Sales", "Tips", "Loan", "Other"];
 const OUT_CATEGORIES = ["Purchase", "Wages", "Supplies", "Rent", "Other"];
@@ -11,7 +12,7 @@ const QUICK_AMOUNTS = [100, 500, 1000, 2500, 5000];
 
 export default function CashBookPage() {
   const { user } = useAuth();
-  const currency = user?.currency || "DKK";
+  const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
   const [transactions, setTransactions] = useState([]);
   const [balance, setBalance] = useState({ balance: 0, total_in: 0, total_out: 0 });

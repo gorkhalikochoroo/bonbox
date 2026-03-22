@@ -6,6 +6,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, Legend,
 } from "recharts";
+import { displayCurrency } from "../utils/currency";
 
 const LEVEL_COLORS = {
   Slow: "bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-700",
@@ -17,7 +18,7 @@ const LEVEL_BAR_COLORS = { Slow: "#22c55e", Normal: "#3b82f6", Busy: "#f97316" }
 
 export default function StaffingPage() {
   const { user } = useAuth();
-  const currency = user?.currency || "DKK";
+  const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
   const [forecast, setForecast] = useState(null);
   const [rules, setRules] = useState([]);
