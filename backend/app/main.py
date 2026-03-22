@@ -42,6 +42,35 @@ try:
 except Exception as e:
     print(f"Migration warning: {e}")
 
+# --- Data migration: fix cashbook auto-synced entries ---
+try:
+    with engine.connect() as conn:
+        # 1. Delete cashbook entries auto-synced from personal expenses
+        conn.execute(text("""
+            DELETE FROM cash_transactions
+            WHERE reference_id LIKE 'expense_%'
+            AND reference_id IN (
+                SELECT 'expense_' || e.id::text
+                FROM expenses e
+                WHERE e.is_personal = true
+            )
+        """))
+
+        # 2. Update cashbook category from 'Purchase' to actual expense category name
+        conn.execute(text("""
+            UPDATE cash_transactions ct
+            SET category = ec.name
+            FROM expenses e
+            JOIN expense_categories ec ON e.category_id = ec.id
+            WHERE ct.reference_id = 'expense_' || e.id::text
+            AND ct.category = 'Purchase'
+        """))
+
+        conn.commit()
+    print("Data migration: cashbook entries fixed")
+except Exception as e:
+    print(f"Data migration warning: {e}")
+
 # --- Rate Limiter ---
 limiter = Limiter(key_func=get_remote_address, default_limits=["120/minute"])
 
