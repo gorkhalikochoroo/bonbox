@@ -101,7 +101,7 @@ def list_expenses(
         query = query.filter(Expense.date >= from_date)
     if to_date:
         query = query.filter(Expense.date <= to_date)
-    return query.order_by(Expense.date.desc()).all()
+    return query.order_by(Expense.date.desc(), Expense.id.desc()).all()
 
 
 @router.get("/recently-deleted", response_model=list[ExpenseResponse])

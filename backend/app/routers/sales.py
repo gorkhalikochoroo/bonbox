@@ -36,7 +36,7 @@ def list_sales(
         query = query.filter(Sale.date >= from_date)
     if to_date:
         query = query.filter(Sale.date <= to_date)
-    return query.order_by(Sale.date.desc()).all()
+    return query.order_by(Sale.date.desc(), Sale.id.desc()).all()
 
 
 @router.get("/recently-deleted", response_model=list[SaleResponse])
