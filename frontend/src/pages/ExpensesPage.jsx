@@ -241,7 +241,7 @@ export default function ExpensesPage() {
           {categories.map((c) => (
             <button
               key={c.id}
-              onClick={() => { setCatId(c.id); setCustomCat(""); if (!desc) setDesc(c.name); }}
+              onClick={() => { setCatId(c.id); setCustomCat(""); setDesc(c.name); }}
               className={`px-4 py-2.5 rounded-xl text-sm font-medium border transition ${
                 catId === c.id
                   ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300"

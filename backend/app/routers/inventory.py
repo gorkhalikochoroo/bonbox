@@ -56,6 +56,24 @@ def update_item(
     return item
 
 
+@router.delete("/{item_id}", status_code=204)
+def delete_item(
+    item_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    item = db.query(InventoryItem).filter(
+        InventoryItem.id == item_id,
+        InventoryItem.user_id == user.id,
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    # Delete related logs first
+    db.query(InventoryLog).filter(InventoryLog.item_id == item_id).delete()
+    db.delete(item)
+    db.commit()
+
+
 @router.get("/alerts", response_model=list[InventoryItemResponse])
 def get_alerts(
     db: Session = Depends(get_db),
