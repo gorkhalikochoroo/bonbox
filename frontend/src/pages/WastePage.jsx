@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import api from "../services/api";
+import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
@@ -10,6 +11,8 @@ const REASON_COLORS = { expired: "#ef4444", overcooked: "#f97316", damaged: "#ea
 const QUICK_COSTS = [50, 100, 250, 500, 1000];
 
 export default function WastePage() {
+  const { user } = useAuth();
+  const currency = user?.currency || "DKK";
   const { t } = useLanguage();
   const [logs, setLogs] = useState([]);
   const [summary, setSummary] = useState(null);
@@ -56,7 +59,7 @@ export default function WastePage() {
       });
       setItem(""); setQty(""); setCost("");
       setWasteDate(new Date().toISOString().split("T")[0]);
-      trackEvent("waste_logged", "waste", `${item} - ${c || 0} DKK`);
+      trackEvent("waste_logged", "waste", `${item} - ${c || 0} ${currency}`);
       setSuccess(t("wasteLogged"));
       fetchData(filterFrom, filterTo);
       setTimeout(() => setSuccess(""), 2500);
@@ -129,7 +132,7 @@ export default function WastePage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
             <p className="text-sm text-gray-500 dark:text-gray-400">{t("monthlyWasteCost")}</p>
-            <p className="text-2xl font-bold text-red-600 dark:text-red-400 mt-1">{summary.total_cost.toLocaleString()} DKK</p>
+            <p className="text-2xl font-bold text-red-600 dark:text-red-400 mt-1">{summary.total_cost.toLocaleString()} {currency}</p>
           </div>
           <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
             <p className="text-sm text-gray-500 dark:text-gray-400">{t("itemsWasted")}</p>
@@ -193,7 +196,7 @@ export default function WastePage() {
           {QUICK_COSTS.map((c) => (
             <button key={c} onClick={() => submit(c)} disabled={!item || !qty}
               className="px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-red-50 dark:hover:bg-red-900/30 hover:border-red-300 dark:hover:border-red-700 hover:text-red-700 dark:hover:text-red-400 transition disabled:opacity-30">
-              {c} DKK
+              {c} {currency}
             </button>
           ))}
         </div>
@@ -359,7 +362,7 @@ export default function WastePage() {
                           "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
                         }`}>{t(log.reason)}</span>
                       </td>
-                      <td className="px-4 py-3 text-sm font-semibold text-red-600 dark:text-red-400">{parseFloat(log.estimated_cost).toLocaleString()} DKK</td>
+                      <td className="px-4 py-3 text-sm font-semibold text-red-600 dark:text-red-400">{parseFloat(log.estimated_cost).toLocaleString()} {currency}</td>
                       <td className="px-4 py-3 text-right space-x-2">
                         <button onClick={() => startEdit(log)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">Edit</button>
                         {deleteConfirm === log.id ? (

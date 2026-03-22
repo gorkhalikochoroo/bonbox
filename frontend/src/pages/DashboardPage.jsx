@@ -51,6 +51,7 @@ function getDateRange(period) {
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const currency = user?.currency || "DKK";
   const { t } = useLanguage();
   const [summary, setSummary] = useState(null);
   const [monthlyData, setMonthlyData] = useState(null);
@@ -203,7 +204,7 @@ export default function DashboardPage() {
           >
             {t("repeatYesterday")}
             {lastSale && (
-              <span className="ml-1 text-green-500">({parseFloat(lastSale.amount).toLocaleString()} DKK)</span>
+              <span className="ml-1 text-green-500">({parseFloat(lastSale.amount).toLocaleString()} {currency})</span>
             )}
           </button>
           <button
@@ -263,20 +264,20 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <KpiCard
           title={PERIOD_LABELS[period]?.revenue || t("todayRevenue")}
-          value={`${(periodStats ? periodStats.totalRevenue : summary.today_revenue).toLocaleString()} DKK`}
+          value={`${(periodStats ? periodStats.totalRevenue : summary.today_revenue).toLocaleString()} ${currency}`}
           change={period === "today" ? summary.today_revenue_change : undefined}
           changeLabel={period === "today" ? t("vsYesterday") : undefined}
           subtitle={periodStats ? `${periodStats.salesCount} sales` : undefined}
         />
         <KpiCard
           title={PERIOD_LABELS[period]?.profit || t("monthlyProfit")}
-          value={`${(periodStats ? periodStats.profit : summary.month_profit).toLocaleString()} DKK`}
+          value={`${(periodStats ? periodStats.profit : summary.month_profit).toLocaleString()} ${currency}`}
           subtitle={`${periodStats ? periodStats.margin : summary.profit_margin}% ${t("margin")}`}
         />
         <KpiCard
           title={t("topExpense")}
           value={periodStats ? (periodStats.topExpenseCategoryName || t("none")) : (summary.top_expense_category || t("none"))}
-          subtitle={periodStats ? (periodStats.topExpenseAmount > 0 ? `${periodStats.topExpenseAmount.toLocaleString()} DKK` : "") : (summary.top_expense_amount > 0 ? `${summary.top_expense_amount.toLocaleString()} DKK` : "")}
+          subtitle={periodStats ? (periodStats.topExpenseAmount > 0 ? `${periodStats.topExpenseAmount.toLocaleString()} ${currency}` : "") : (summary.top_expense_amount > 0 ? `${summary.top_expense_amount.toLocaleString()} ${currency}` : "")}
         />
         <KpiCard
           title={t("inventoryAlerts")}
@@ -303,7 +304,7 @@ export default function DashboardPage() {
                 <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip formatter={(value, name) => [
-                  `${value.toLocaleString()} DKK`,
+                  `${value.toLocaleString()} ${currency}`,
                   name === "amount" ? "Revenue" : name === "profit" ? "Profit" : name,
                 ]} />
                 <Line type="monotone" dataKey="amount" stroke="#3B82F6" strokeWidth={2} dot={false} name="Revenue" />
@@ -340,7 +341,7 @@ export default function DashboardPage() {
                     <Cell key={i} fill={entry.color || COLORS[i % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(value) => [`${value.toLocaleString()} DKK`, "Amount"]} />
+                <Tooltip formatter={(value) => [`${value.toLocaleString()} ${currency}`, "Amount"]} />
                 <Legend
                   formatter={(value) => <span className="text-sm text-gray-600 dark:text-gray-300">{value}</span>}
                 />
@@ -366,7 +367,7 @@ export default function DashboardPage() {
                   <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => v.toLocaleString()} />
                   <Tooltip formatter={(value, name) => [
-                    `${value.toLocaleString()} DKK`,
+                    `${value.toLocaleString()} ${currency}`,
                     name === "amount" ? "Revenue" : name === "expenses" ? "Expenses" : name,
                   ]} />
                   <Legend formatter={(value) => value === "amount" ? "Revenue" : value === "expenses" ? "Expenses" : value} />
@@ -388,7 +389,7 @@ export default function DashboardPage() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="label" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => v.toLocaleString()} />
-                <Tooltip formatter={(value) => [`${value.toLocaleString()} DKK`]} />
+                <Tooltip formatter={(value) => [`${value.toLocaleString()} ${currency}`]} />
                 <Bar dataKey="value" radius={[6, 6, 0, 0]}>
                   {compData.map((entry, i) => (
                     <Cell key={i} fill={entry.fill} />
@@ -416,8 +417,8 @@ export default function DashboardPage() {
             </div>
             <div className="text-left sm:text-right">
               <p className="text-sm text-gray-500">{t("predictedTotal")}</p>
-              <p className="text-xl font-bold text-blue-600">{forecast.total_predicted?.toLocaleString()} DKK</p>
-              <p className="text-xs text-gray-400">{t("avgDaily")}: {forecast.avg_daily_predicted?.toLocaleString()} DKK</p>
+              <p className="text-xl font-bold text-blue-600">{forecast.total_predicted?.toLocaleString()} {currency}</p>
+              <p className="text-xs text-gray-400">{t("avgDaily")}: {forecast.avg_daily_predicted?.toLocaleString()} {currency}</p>
             </div>
           </div>
 
@@ -427,7 +428,7 @@ export default function DashboardPage() {
               <XAxis dataKey="day" tick={{ fontSize: 12 }} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => v.toLocaleString()} />
               <Tooltip
-                formatter={(v) => [`${v.toLocaleString()} DKK`, t("predicted")]}
+                formatter={(v) => [`${v.toLocaleString()} ${currency}`, t("predicted")]}
                 labelFormatter={(label) => label}
               />
               <Bar dataKey="predicted_revenue" radius={[6, 6, 0, 0]}>
@@ -475,7 +476,7 @@ export default function DashboardPage() {
                   <span className="text-3xl">🧾</span>
                 </div>
                 <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs px-2 py-1 rounded-b-lg">
-                  <p className="font-semibold">{r.amount.toLocaleString()} DKK</p>
+                  <p className="font-semibold">{r.amount.toLocaleString()} {currency}</p>
                   <p className="text-gray-300">{r.date}</p>
                 </div>
               </div>
@@ -569,6 +570,7 @@ function MotivationalStats({ summary, monthlyData }) {
 
 function DailyGoal({ revenue }) {
   const { user } = useAuth();
+  const currency = user?.currency || "DKK";
   const { t } = useLanguage();
   const [goal, setGoal] = useState(user?.daily_goal || 0);
   const [editing, setEditing] = useState(false);
@@ -614,7 +616,7 @@ function DailyGoal({ revenue }) {
             {t("dailyGoal")} {hit && <span className="text-green-600 ml-1">{t("reached")}</span>}
           </p>
           <p className="text-xs text-gray-400 mt-0.5">
-            {revenue.toLocaleString()} / {goal.toLocaleString()} DKK ({pct}%)
+            {revenue.toLocaleString()} / {goal.toLocaleString()} {currency} ({pct}%)
           </p>
         </div>
         {editing ? (

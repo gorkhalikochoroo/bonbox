@@ -1,9 +1,12 @@
 import { useState, useEffect } from "react";
 import api from "../services/api";
+import { useAuth } from "../hooks/useAuth";
 import { useDarkMode } from "../hooks/useDarkMode";
 import { useLanguage } from "../hooks/useLanguage";
 
 export default function RecentlyDeletedPage() {
+  const { user } = useAuth();
+  const currency = user?.currency || "DKK";
   const [dark] = useDarkMode();
   const { t } = useLanguage();
   const [tab, setTab] = useState("sales");
@@ -58,19 +61,19 @@ export default function RecentlyDeletedPage() {
     switch (tab) {
       case "sales":
         info = `${item.date} — ${item.payment_method || "mixed"}`;
-        amount = `${Number(item.amount).toLocaleString()} kr`;
+        amount = `${Number(item.amount).toLocaleString()} ${currency}`;
         break;
       case "expenses":
         info = `${item.date} — ${item.description}`;
-        amount = `${Number(item.amount).toLocaleString()} kr`;
+        amount = `${Number(item.amount).toLocaleString()} ${currency}`;
         break;
       case "waste":
         info = `${item.date} — ${item.item_name} (${item.quantity} ${item.unit})`;
-        amount = `${Number(item.estimated_cost).toLocaleString()} kr`;
+        amount = `${Number(item.estimated_cost).toLocaleString()} ${currency}`;
         break;
       case "cashbook":
         info = `${item.date} — ${item.description} (${item.type})`;
-        amount = `${Number(item.amount).toLocaleString()} kr`;
+        amount = `${Number(item.amount).toLocaleString()} ${currency}`;
         break;
     }
     const deletedAt = item.deleted_at ? new Date(item.deleted_at).toLocaleDateString() : "";

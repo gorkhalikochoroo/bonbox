@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import api from "../services/api";
+import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -15,6 +16,8 @@ const LEVEL_COLORS = {
 const LEVEL_BAR_COLORS = { Slow: "#22c55e", Normal: "#3b82f6", Busy: "#f97316" };
 
 export default function StaffingPage() {
+  const { user } = useAuth();
+  const currency = user?.currency || "DKK";
   const { t } = useLanguage();
   const [forecast, setForecast] = useState(null);
   const [rules, setRules] = useState([]);
@@ -136,7 +139,7 @@ export default function StaffingPage() {
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                 <YAxis yAxisId="revenue" tick={{ fontSize: 12 }} />
                 <YAxis yAxisId="staff" orientation="right" tick={{ fontSize: 12 }} domain={[0, 10]} />
-                <Tooltip formatter={(value, name) => name === "revenue" ? [`${value} DKK`, t("predictedRevenue")] : [value, t("staffNeeded")]} />
+                <Tooltip formatter={(value, name) => name === "revenue" ? [`${value} ${currency}`, t("predictedRevenue")] : [value, t("staffNeeded")]} />
                 <Legend />
                 <Bar yAxisId="revenue" dataKey="revenue" name={t("predictedRevenue")} radius={[4, 4, 0, 0]}>
                   {chartData.map((entry, i) => (
@@ -152,14 +155,14 @@ export default function StaffingPage() {
             <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
               <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">{t("salesPatterns")}</h2>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                {patterns.total_days_analyzed} {t("daysRecorded")} — {patterns.overall_avg.toLocaleString()} DKK
+                {patterns.total_days_analyzed} {t("daysRecorded")} — {patterns.overall_avg.toLocaleString()} {currency}
               </p>
               <ResponsiveContainer width="100%" height={250}>
                 <BarChart data={dowData}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="day" />
                   <YAxis tick={{ fontSize: 12 }} />
-                  <Tooltip formatter={(v) => [`${v} DKK`, t("revenue")]} />
+                  <Tooltip formatter={(v) => [`${v} ${currency}`, t("revenue")]} />
                   <Bar dataKey="avg_revenue" fill="#6366f1" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -184,7 +187,7 @@ export default function StaffingPage() {
                   <tr key={r.date}>
                     <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{r.date}</td>
                     <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{r.day}</td>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-800 dark:text-white">{r.predicted_revenue.toLocaleString()} DKK</td>
+                    <td className="px-6 py-4 text-sm font-medium text-gray-800 dark:text-white">{r.predicted_revenue.toLocaleString()} {currency}</td>
                     <td className="px-6 py-4">
                       <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${Object.entries(LEVEL_COLORS).find(([k]) => r.business_level?.toLowerCase().includes(k.toLowerCase()))?.[1] || ""}`}>
                         {r.business_level}
@@ -233,7 +236,7 @@ export default function StaffingPage() {
             {rules.map((rule) => (
               <div key={rule.id} className="flex items-center justify-between bg-gray-50 dark:bg-gray-700/50 px-4 py-2.5 rounded-lg">
                 <span className="text-sm dark:text-gray-200">
-                  <span className="font-medium">{rule.label}</span> — {rule.revenue_min.toLocaleString()}–{rule.revenue_max.toLocaleString()} DKK
+                  <span className="font-medium">{rule.label}</span> — {rule.revenue_min.toLocaleString()}–{rule.revenue_max.toLocaleString()} {currency}
                   → <span className="font-bold">{rule.recommended_staff} {t("staff")}</span>
                 </span>
                 <button onClick={() => deleteRule(rule.id)} className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-sm">{t("remove")}</button>

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import api from "../services/api";
+import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import ReceiptCapture from "../components/ReceiptCapture";
 import { trackEvent } from "../hooks/useEventLog";
@@ -8,6 +9,8 @@ import { exportToCsv } from "../utils/exportCsv";
 const QUICK_AMOUNTS = [500, 1000, 2500, 5000, 7500, 10000, 15000];
 
 export default function SalesPage() {
+  const { user } = useAuth();
+  const currency = user?.currency || "DKK";
   const { t } = useLanguage();
   const [sales, setSales] = useState([]);
   const [amount, setAmount] = useState("");
@@ -45,7 +48,7 @@ export default function SalesPage() {
     const value = amt || parseFloat(amount);
     if (!value) return;
     const duplicate = sales.find(s => s.date === saleDate && parseFloat(s.amount) === value);
-    if (duplicate && !confirm(`A sale of ${value.toLocaleString()} DKK on ${saleDate} already exists. Add another?`)) {
+    if (duplicate && !confirm(`A sale of ${value.toLocaleString()} ${currency} on ${saleDate} already exists. Add another?`)) {
       return;
     }
     setError("");
@@ -60,8 +63,8 @@ export default function SalesPage() {
       setAmount("");
       setNotes("");
       setSaleDate(new Date().toISOString().split("T")[0]);
-      trackEvent("sale_logged", "sales", `${value} DKK via ${method}`);
-      setSuccess(`${value.toLocaleString()} DKK${isBackdated ? ` (${saleDate})` : ""}!`);
+      trackEvent("sale_logged", "sales", `${value} ${currency} via ${method}`);
+      setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${saleDate})` : ""}!`);
       fetchSales(filterFrom, filterTo);
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
@@ -141,7 +144,7 @@ export default function SalesPage() {
               onClick={() => submit(amt)}
               className="px-5 py-3 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:border-blue-300 dark:hover:border-blue-500 hover:text-blue-700 dark:hover:text-blue-300 transition"
             >
-              {amt.toLocaleString()} DKK
+              {amt.toLocaleString()} {currency}
             </button>
           ))}
         </div>
@@ -338,7 +341,7 @@ export default function SalesPage() {
                 ) : (
                   <>
                     <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{sale.date}</td>
-                    <td className="px-6 py-4 text-sm font-semibold text-gray-800 dark:text-white">{parseFloat(sale.amount).toLocaleString()} DKK</td>
+                    <td className="px-6 py-4 text-sm font-semibold text-gray-800 dark:text-white">{parseFloat(sale.amount).toLocaleString()} {currency}</td>
                     <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 capitalize">{sale.payment_method}</td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{sale.notes || "—"}</td>
                     <td className="px-6 py-4 text-right space-x-3">

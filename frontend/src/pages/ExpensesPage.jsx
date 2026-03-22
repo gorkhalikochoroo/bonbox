@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import api from "../services/api";
+import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
@@ -8,6 +9,8 @@ const QUICK_AMOUNTS = [100, 250, 500, 1000, 2500, 5000];
 const DEFAULT_CATEGORIES = ["Ingredients", "Rent", "Wages", "Utilities", "Supplies", "Other"];
 
 export default function ExpensesPage() {
+  const { user } = useAuth();
+  const currency = user?.currency || "DKK";
   const { t } = useLanguage();
   const [expenses, setExpenses] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -79,8 +82,8 @@ export default function ExpensesPage() {
       setMethod("card");
       setNotes("");
       setExpDate(new Date().toISOString().split("T")[0]);
-      trackEvent("expense_logged", "expenses", `${value} DKK`);
-      setSuccess(`${value.toLocaleString()} DKK${isBackdated ? ` (${expDate})` : ""}!`);
+      trackEvent("expense_logged", "expenses", `${value} ${currency}`);
+      setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${expDate})` : ""}!`);
       fetchData(filterFrom, filterTo);
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
@@ -197,7 +200,7 @@ export default function ExpensesPage() {
               disabled={!catId || !desc}
               className="px-5 py-3 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-700 dark:hover:text-blue-300 transition disabled:opacity-30"
             >
-              {amt.toLocaleString()} DKK
+              {amt.toLocaleString()} {currency}
             </button>
           ))}
         </div>
@@ -402,7 +405,7 @@ export default function ExpensesPage() {
                     <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{exp.date}</td>
                     <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{exp.description}</td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{getCatName(exp.category_id)}</td>
-                    <td className="px-6 py-4 text-sm font-semibold text-gray-800 dark:text-white">{parseFloat(exp.amount).toLocaleString()} DKK</td>
+                    <td className="px-6 py-4 text-sm font-semibold text-gray-800 dark:text-white">{parseFloat(exp.amount).toLocaleString()} {currency}</td>
                     <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 capitalize">{exp.payment_method || "-"}</td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{exp.notes || "-"}</td>
                     <td className="px-6 py-4 text-right space-x-3">

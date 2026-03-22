@@ -1,8 +1,11 @@
 import { useState, useEffect } from "react";
 import api from "../services/api";
+import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 
 export default function InventoryPage() {
+  const { user } = useAuth();
+  const currency = user?.currency || "DKK";
   const { t } = useLanguage();
   const [items, setItems] = useState([]);
   const [alerts, setAlerts] = useState([]);
@@ -92,7 +95,7 @@ export default function InventoryPage() {
                 <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300 font-medium">{item.name}</td>
                 <td className="px-6 py-4 text-sm text-gray-800 dark:text-white">{parseFloat(item.quantity)}</td>
                 <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{item.unit}</td>
-                <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{parseFloat(item.cost_per_unit)} DKK</td>
+                <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{parseFloat(item.cost_per_unit)} {currency}</td>
                 <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{parseFloat(item.min_threshold)}</td>
               </tr>
             ))}

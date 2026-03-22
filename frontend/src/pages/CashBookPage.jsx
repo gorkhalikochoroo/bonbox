@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import api from "../services/api";
+import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
@@ -9,6 +10,8 @@ const OUT_CATEGORIES = ["Purchase", "Wages", "Supplies", "Rent", "Other"];
 const QUICK_AMOUNTS = [100, 500, 1000, 2500, 5000];
 
 export default function CashBookPage() {
+  const { user } = useAuth();
+  const currency = user?.currency || "DKK";
   const { t } = useLanguage();
   const [transactions, setTransactions] = useState([]);
   const [balance, setBalance] = useState({ balance: 0, total_in: 0, total_out: 0 });
@@ -52,8 +55,8 @@ export default function CashBookPage() {
       setDesc("");
       setCategory("");
       setTxnDate(new Date().toISOString().split("T")[0]);
-      trackEvent("cash_transaction", "cashbook", `${tab} ${value} DKK`);
-      setSuccess(`${tab === "cash_in" ? "+" : "-"}${value.toLocaleString()} DKK`);
+      trackEvent("cash_transaction", "cashbook", `${tab} ${value} ${currency}`);
+      setSuccess(`${tab === "cash_in" ? "+" : "-"}${value.toLocaleString()} ${currency}`);
       fetchData(filterFrom, filterTo);
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
@@ -119,16 +122,16 @@ export default function CashBookPage() {
         <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
           <p className="text-sm text-gray-500 dark:text-gray-400">Cash Balance</p>
           <p className={`text-3xl font-bold mt-1 ${balance.balance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
-            {balance.balance.toLocaleString()} DKK
+            {balance.balance.toLocaleString()} {currency}
           </p>
         </div>
         <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
           <p className="text-sm text-gray-500 dark:text-gray-400">Total Cash In</p>
-          <p className="text-2xl font-bold text-green-600 dark:text-green-400 mt-1">+{balance.total_in.toLocaleString()} DKK</p>
+          <p className="text-2xl font-bold text-green-600 dark:text-green-400 mt-1">+{balance.total_in.toLocaleString()} {currency}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
           <p className="text-sm text-gray-500 dark:text-gray-400">Total Cash Out</p>
-          <p className="text-2xl font-bold text-red-600 dark:text-red-400 mt-1">-{balance.total_out.toLocaleString()} DKK</p>
+          <p className="text-2xl font-bold text-red-600 dark:text-red-400 mt-1">-{balance.total_out.toLocaleString()} {currency}</p>
         </div>
       </div>
 
@@ -196,7 +199,7 @@ export default function CashBookPage() {
                   : "border-red-200 dark:border-red-700 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30"
               }`}
             >
-              {amt.toLocaleString()} DKK
+              {amt.toLocaleString()} {currency}
             </button>
           ))}
         </div>
@@ -347,7 +350,7 @@ export default function CashBookPage() {
                         {txn.type === "cash_out" ? `-${parseFloat(txn.amount).toLocaleString()}` : ""}
                       </td>
                       <td className={`px-4 py-3 text-sm text-right font-bold ${txn.runningBalance >= 0 ? "text-gray-800 dark:text-white" : "text-red-600 dark:text-red-400"}`}>
-                        {txn.runningBalance.toLocaleString()} DKK
+                        {txn.runningBalance.toLocaleString()} {currency}
                       </td>
                       <td className="px-4 py-3 text-right space-x-2">
                         {txn.reference_id ? (
