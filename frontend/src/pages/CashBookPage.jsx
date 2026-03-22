@@ -163,7 +163,7 @@ export default function CashBookPage() {
           {categories.map((c) => (
             <button
               key={c}
-              onClick={() => setCategory(c)}
+              onClick={() => { setCategory(c); setDesc(c); }}
               className={`px-4 py-2 rounded-xl text-sm font-medium border transition ${
                 category === c
                   ? tab === "cash_in"
