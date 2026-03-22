@@ -19,8 +19,14 @@ Base.metadata.create_all(bind=engine)
 
 # Run Alembic migrations automatically on startup
 try:
-    alembic_cfg = Config("alembic.ini")
+    import os
+    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    alembic_ini = os.path.join(backend_dir, "alembic.ini")
+    alembic_cfg = Config(alembic_ini)
+    alembic_cfg.set_main_option("script_location", os.path.join(backend_dir, "alembic"))
+    alembic_cfg.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
     command.upgrade(alembic_cfg, "head")
+    print("Alembic migrations applied successfully")
 except Exception as e:
     print(f"Alembic migration warning: {e}")
 
