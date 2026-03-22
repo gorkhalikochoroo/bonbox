@@ -7,5 +7,6 @@ from app.models.waste import WasteLog
 from app.models.feedback import Feedback
 from app.models.cashbook import CashTransaction
 from app.models.event_log import EventLog
+from app.models.khata import KhataCustomer, KhataTransaction
 
-__all__ = ["User", "Sale", "ExpenseCategory", "Expense", "InventoryItem", "InventoryLog", "StaffingRule", "WasteLog", "Feedback", "CashTransaction", "EventLog"]
+__all__ = ["User", "Sale", "ExpenseCategory", "Expense", "InventoryItem", "InventoryLog", "StaffingRule", "WasteLog", "Feedback", "CashTransaction", "EventLog", "KhataCustomer", "KhataTransaction"]
