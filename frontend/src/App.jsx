@@ -20,6 +20,7 @@ import ContactPage from "./pages/ContactPage";
 import RecentlyDeletedPage from "./pages/RecentlyDeletedPage";
 import ProfilePage from "./pages/ProfilePage";
 import PersonalPage from "./pages/PersonalPage";
+import KhataPage from "./pages/KhataPage";
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -63,6 +64,7 @@ function AppRoutes() {
         <Route path="/recently-deleted" element={<RecentlyDeletedPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/personal" element={<PersonalPage />} />
+        <Route path="/khata" element={<KhataPage />} />
       </Route>
     </Routes>
   );

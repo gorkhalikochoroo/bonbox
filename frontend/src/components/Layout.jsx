@@ -16,6 +16,7 @@ const businessNav = [
   { to: "/weekly-report", labelKey: "weeklyReport" },
   { to: "/vat-report", labelKey: "momsVat" },
   { to: "/cashbook", labelKey: "cashBook" },
+  { to: "/khata", label: "Khata" },
   { to: "/feedback", labelKey: "feedback" },
   { to: "/recently-deleted", labelKey: "recentlyDeleted" },
   { to: "/contact", labelKey: "contact" },

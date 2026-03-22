@@ -52,7 +52,7 @@ export default function RegisterPage() {
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" required />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Business Name</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{form.business_type === "personal" ? "Display Name" : "Business Name"}</label>
             <input type="text" name="business_name" value={form.business_name} onChange={handleChange}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" required />
           </div>
@@ -60,6 +60,7 @@ export default function RegisterPage() {
             <label className="block text-sm font-medium text-gray-700 mb-1">Business Type</label>
             <select name="business_type" value={form.business_type} onChange={handleChange}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base">
+              <option value="personal">Personal Finance</option>
               <option value="restaurant">Restaurant</option>
               <option value="cafe">Cafe</option>
               <option value="bar">Bar</option>
@@ -68,6 +69,7 @@ export default function RegisterPage() {
               <option value="retail">Retail / Shop</option>
               <option value="clothing">Clothing Store</option>
               <option value="grocery">Grocery Store</option>
+              <option value="wholesale">Wholesale</option>
               <option value="salon">Salon / Beauty</option>
               <option value="pharmacy">Pharmacy</option>
               <option value="other">Other</option>
