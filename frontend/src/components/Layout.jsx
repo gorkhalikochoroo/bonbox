@@ -6,7 +6,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import QuickAdd from "./QuickAdd";
 import { usePageTracking } from "../hooks/useEventLog";
 
-const navItems = [
+const businessNav = [
   { to: "/dashboard", labelKey: "dashboard" },
   { to: "/sales", labelKey: "sales" },
   { to: "/expenses", labelKey: "expenses" },
@@ -21,10 +21,27 @@ const navItems = [
   { to: "/recently-deleted", labelKey: "recentlyDeleted" },
 ];
 
+const personalNav = [
+  { to: "/personal", label: "Personal Finance" },
+  { to: "/expenses", labelKey: "expenses" },
+  { to: "/contact", labelKey: "contact" },
+];
+
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [mode, setMode] = useState(localStorage.getItem("bonbox_mode") || "business");
+
+  const toggleMode = () => {
+    const next = mode === "business" ? "personal" : "business";
+    setMode(next);
+    localStorage.setItem("bonbox_mode", next);
+    navigate(next === "personal" ? "/personal" : "/dashboard");
+    closeSidebar();
+  };
+
+  const navItems = mode === "personal" ? personalNav : businessNav;
   const [dark, toggleDark] = useDarkMode();
   const { t, toggleLang } = useLanguage();
   usePageTracking();
@@ -65,12 +82,29 @@ export default function Layout() {
           </div>
           <button onClick={closeSidebar} className="md:hidden text-gray-400 hover:text-gray-600 text-xl">&times;</button>
         </div>
+        {/* Mode switcher */}
+        <div className="px-3 py-2">
+          <button
+            onClick={toggleMode}
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition ${
+              mode === "personal"
+                ? "bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-700"
+                : "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-700"
+            }`}
+          >
+            <span className="text-base">{mode === "personal" ? "👤" : "💼"}</span>
+            <span>{mode === "personal" ? "Personal Mode" : "Business Mode"}</span>
+            <svg className="w-3.5 h-3.5 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+            </svg>
+          </button>
+        </div>
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          {navItems.map(({ to, labelKey }) => (
+          {navItems.map((item) => (
             <NavLink
-              key={to}
-              to={to}
-              end={to === "/dashboard"}
+              key={item.to}
+              to={item.to}
+              end={item.to === "/dashboard" || item.to === "/personal"}
               onClick={closeSidebar}
               className={({ isActive }) =>
                 `block px-4 py-2.5 rounded-lg text-sm font-medium transition ${
@@ -80,7 +114,7 @@ export default function Layout() {
                 }`
               }
             >
-              {t(labelKey)}
+              {item.labelKey ? t(item.labelKey) : item.label}
             </NavLink>
           ))}
         </nav>
