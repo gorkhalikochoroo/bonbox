@@ -10,7 +10,7 @@ import {
   BarChart, Bar, ReferenceLine,
 } from "recharts";
 
-const COLORS = ["#3B82F6", "#EF4444", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899"];
+const COLORS = ["#3B82F6", "#EF4444", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316", "#6366F1", "#84CC16"];
 
 const PERIODS = ["today", "thisWeek", "thisMonth", "last30", "custom"];
 
@@ -338,7 +338,7 @@ export default function DashboardPage() {
                   labelLine={{ strokeWidth: 1 }}
                 >
                   {monthlyData.expense_breakdown.map((entry, i) => (
-                    <Cell key={i} fill={entry.color || COLORS[i % COLORS.length]} />
+                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
                   ))}
                 </Pie>
                 <Tooltip formatter={(value) => [`${value.toLocaleString()} ${currency}`, "Amount"]} />
