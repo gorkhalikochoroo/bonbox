@@ -65,22 +65,22 @@ def monthly_report(
     # Total revenue
     total_revenue = (
         db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date.between(start, end))
+        .filter(Sale.user_id == user.id, Sale.date.between(start, end), Sale.is_deleted.isnot(True))
         .scalar()
     )
 
-    # Total expenses (exclude personal)
+    # Total expenses (exclude personal and deleted)
     total_expenses = (
         db.query(func.coalesce(func.sum(Expense.amount), 0))
-        .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
         .scalar()
     )
 
-    # Expense breakdown by category (exclude personal)
+    # Expense breakdown by category (exclude personal and deleted)
     expense_breakdown = (
         db.query(ExpenseCategory.name, ExpenseCategory.color, func.sum(Expense.amount).label("total"))
         .join(Expense, Expense.category_id == ExpenseCategory.id)
-        .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
         .group_by(ExpenseCategory.name, ExpenseCategory.color)
         .order_by(func.sum(Expense.amount).desc())
         .all()
@@ -89,7 +89,7 @@ def monthly_report(
     # Daily revenue for the month
     daily_revenue = (
         db.query(Sale.date, func.sum(Sale.amount).label("total"))
-        .filter(Sale.user_id == user.id, Sale.date.between(start, end))
+        .filter(Sale.user_id == user.id, Sale.date.between(start, end), Sale.is_deleted.isnot(True))
         .group_by(Sale.date)
         .order_by(Sale.date)
         .all()
@@ -185,12 +185,12 @@ def monthly_report_pdf(
     # ---- Gather all data ----
     total_revenue = float(
         db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date.between(start, end))
+        .filter(Sale.user_id == user.id, Sale.date.between(start, end), Sale.is_deleted.isnot(True))
         .scalar()
     )
     total_expenses = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
-        .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
         .scalar()
     )
     net_profit = total_revenue - total_expenses
@@ -207,12 +207,12 @@ def monthly_report_pdf(
 
     prev_revenue = float(
         db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date.between(prev_start, prev_end))
+        .filter(Sale.user_id == user.id, Sale.date.between(prev_start, prev_end), Sale.is_deleted.isnot(True))
         .scalar()
     )
     prev_expenses = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
-        .filter(Expense.user_id == user.id, Expense.date.between(prev_start, prev_end), Expense.is_personal.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date.between(prev_start, prev_end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
         .scalar()
     )
     rev_change = round(((total_revenue - prev_revenue) / prev_revenue) * 100, 1) if prev_revenue > 0 else 0
@@ -221,7 +221,7 @@ def monthly_report_pdf(
     expense_breakdown = (
         db.query(ExpenseCategory.name, func.sum(Expense.amount).label("total"))
         .join(Expense, Expense.category_id == ExpenseCategory.id)
-        .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
         .group_by(ExpenseCategory.name)
         .order_by(func.sum(Expense.amount).desc())
         .all()
@@ -229,7 +229,7 @@ def monthly_report_pdf(
 
     daily_revenue = (
         db.query(Sale.date, func.sum(Sale.amount).label("total"))
-        .filter(Sale.user_id == user.id, Sale.date.between(start, end))
+        .filter(Sale.user_id == user.id, Sale.date.between(start, end), Sale.is_deleted.isnot(True))
         .group_by(Sale.date)
         .order_by(Sale.date)
         .all()
@@ -238,7 +238,7 @@ def monthly_report_pdf(
     # Payment method breakdown
     payment_breakdown = (
         db.query(Sale.payment_method, func.count(Sale.id), func.sum(Sale.amount))
-        .filter(Sale.user_id == user.id, Sale.date.between(start, end))
+        .filter(Sale.user_id == user.id, Sale.date.between(start, end), Sale.is_deleted.isnot(True))
         .group_by(Sale.payment_method)
         .order_by(func.sum(Sale.amount).desc())
         .all()
@@ -542,7 +542,7 @@ def revenue_forecast(
     # Get historical daily revenue
     history = (
         db.query(Sale.date, func.sum(Sale.amount).label("total"))
-        .filter(Sale.user_id == user.id, Sale.date.between(lookback_start, today))
+        .filter(Sale.user_id == user.id, Sale.date.between(lookback_start, today), Sale.is_deleted.isnot(True))
         .group_by(Sale.date)
         .order_by(Sale.date)
         .all()
@@ -646,13 +646,13 @@ def vat_export(
 
     sales_total = float(
         db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date >= start, Sale.date < end)
+        .filter(Sale.user_id == user.id, Sale.date >= start, Sale.date < end, Sale.is_deleted.isnot(True))
         .scalar()
     )
 
     expenses_total = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
-        .filter(Expense.user_id == user.id, Expense.date >= start, Expense.date < end, Expense.is_personal.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date >= start, Expense.date < end, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
         .scalar()
     )
 

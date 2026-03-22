@@ -27,14 +27,14 @@ def get_summary(
     # Today's revenue
     today_rev = (
         db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date == today)
+        .filter(Sale.user_id == user.id, Sale.date == today, Sale.is_deleted.isnot(True))
         .scalar()
     )
 
     # Yesterday's revenue (for % change)
     yesterday_rev = (
         db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date == yesterday)
+        .filter(Sale.user_id == user.id, Sale.date == yesterday, Sale.is_deleted.isnot(True))
         .scalar()
     )
 
@@ -45,14 +45,14 @@ def get_summary(
     # This month's revenue
     month_rev = (
         db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date >= month_start)
+        .filter(Sale.user_id == user.id, Sale.date >= month_start, Sale.is_deleted.isnot(True))
         .scalar()
     )
 
-    # This month's expenses (exclude personal)
+    # This month's expenses (exclude personal and deleted)
     month_exp = (
         db.query(func.coalesce(func.sum(Expense.amount), 0))
-        .filter(Expense.user_id == user.id, Expense.date >= month_start, Expense.is_personal.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date >= month_start, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
         .scalar()
     )
 
@@ -63,7 +63,7 @@ def get_summary(
     top_cat = (
         db.query(ExpenseCategory.name, func.sum(Expense.amount).label("total"))
         .join(Expense, Expense.category_id == ExpenseCategory.id)
-        .filter(Expense.user_id == user.id, Expense.date >= month_start, Expense.is_personal.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date >= month_start, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
         .group_by(ExpenseCategory.name)
         .order_by(func.sum(Expense.amount).desc())
         .first()
@@ -82,7 +82,7 @@ def get_summary(
     # Onboarding helpers
     total_sales = (
         db.query(func.count(Sale.id))
-        .filter(Sale.user_id == user.id)
+        .filter(Sale.user_id == user.id, Sale.is_deleted.isnot(True))
         .scalar()
     )
 

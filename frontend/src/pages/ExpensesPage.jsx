@@ -435,12 +435,12 @@ export default function ExpensesPage() {
                   else setSelected(new Set());
                 }} checked={selected.size === filtered.length && filtered.length > 0} />
               </th>
-              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("date")}</th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("description")}</th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Category</th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("amount")}</th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Payment</th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Notes</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">{t("date")}</th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">Actions</th>
             </tr>
           </thead>
@@ -457,14 +457,6 @@ export default function ExpensesPage() {
                 </td>
                 {editId === exp.id ? (
                   <>
-                    <td className="px-6 py-3">
-                      <input
-                        type="date"
-                        value={editData.date}
-                        onChange={(e) => setEditData({ ...editData, date: e.target.value })}
-                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-36"
-                      />
-                    </td>
                     <td className="px-6 py-3">
                       <input
                         type="text"
@@ -511,6 +503,14 @@ export default function ExpensesPage() {
                         className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-28"
                       />
                     </td>
+                    <td className="px-6 py-3 text-right">
+                      <input
+                        type="date"
+                        value={editData.date}
+                        onChange={(e) => setEditData({ ...editData, date: e.target.value })}
+                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-36"
+                      />
+                    </td>
                     <td className="px-6 py-3 text-right space-x-2">
                       <button onClick={saveEdit} className="text-green-600 dark:text-green-400 text-sm font-medium hover:underline">Save</button>
                       <button onClick={() => setEditId(null)} className="text-gray-400 dark:text-gray-500 text-sm hover:underline">Cancel</button>
@@ -518,7 +518,6 @@ export default function ExpensesPage() {
                   </>
                 ) : (
                   <>
-                    <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{exp.date}</td>
                     <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
                       {exp.description}
                       {exp.is_personal && <span className="ml-2 px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 text-xs rounded font-medium">Personal</span>}
@@ -527,6 +526,7 @@ export default function ExpensesPage() {
                     <td className="px-6 py-4 text-sm font-semibold text-gray-800 dark:text-white">{parseFloat(exp.amount).toLocaleString()} {currency}</td>
                     <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 capitalize">{exp.payment_method || "-"}</td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{exp.notes || "-"}</td>
+                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 text-right">{exp.date}</td>
                     <td className="px-6 py-4 text-right space-x-3">
                       <button onClick={() => startEdit(exp)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">Edit</button>
                       {deleteConfirm === exp.id ? (

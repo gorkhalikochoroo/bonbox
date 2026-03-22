@@ -17,8 +17,8 @@ const businessNav = [
   { to: "/vat-report", labelKey: "momsVat" },
   { to: "/cashbook", labelKey: "cashBook" },
   { to: "/feedback", labelKey: "feedback" },
-  { to: "/contact", labelKey: "contact" },
   { to: "/recently-deleted", labelKey: "recentlyDeleted" },
+  { to: "/contact", labelKey: "contact" },
 ];
 
 const personalNav = [
