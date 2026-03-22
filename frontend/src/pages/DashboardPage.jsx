@@ -32,7 +32,9 @@ function getDateRange(period) {
       return { from: today, to: today };
     case "thisWeek": {
       const d = new Date(now);
-      d.setDate(d.getDate() - d.getDay() + 1); // Monday
+      const day = d.getDay();
+      // Monday-based week: Sunday (0) goes back 6 days, Mon (1) stays, Tue (2) goes back 1, etc.
+      d.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
       return { from: fmt(d), to: today };
     }
     case "thisMonth": {

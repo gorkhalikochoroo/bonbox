@@ -32,8 +32,15 @@ export default function ExpensesPage() {
   const [search, setSearch] = useState("");
   const [customCat, setCustomCat] = useState("");
   const [listening, setListening] = useState(false);
+  const [isPersonal, setIsPersonal] = useState(false);
+  const [showFilter, setShowFilter] = useState("all"); // "all", "business", "personal"
 
-  const filtered = expenses.filter(e => !search || e.description?.toLowerCase().includes(search.toLowerCase()) || e.notes?.toLowerCase().includes(search.toLowerCase()) || e.payment_method?.toLowerCase().includes(search.toLowerCase()));
+  const filtered = expenses.filter(e => {
+    if (search && !(e.description?.toLowerCase().includes(search.toLowerCase()) || e.notes?.toLowerCase().includes(search.toLowerCase()) || e.payment_method?.toLowerCase().includes(search.toLowerCase()))) return false;
+    if (showFilter === "personal" && !e.is_personal) return false;
+    if (showFilter === "business" && e.is_personal) return false;
+    return true;
+  });
 
   const startVoice = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -128,6 +135,7 @@ export default function ExpensesPage() {
         is_recurring: false,
         payment_method: method,
         notes: notes || null,
+        is_personal: isPersonal,
       });
       const isBackdated = expDate !== new Date().toISOString().split("T")[0];
       setAmount("");
@@ -135,6 +143,7 @@ export default function ExpensesPage() {
       setMethod("card");
       setNotes("");
       setCustomCat("");
+      setIsPersonal(false);
       setExpDate(new Date().toISOString().split("T")[0]);
       trackEvent("expense_logged", "expenses", `${value} ${currency}`);
       setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${expDate})` : ""}!`);
@@ -154,6 +163,7 @@ export default function ExpensesPage() {
       category_id: exp.category_id,
       payment_method: exp.payment_method || "card",
       notes: exp.notes || "",
+      is_personal: exp.is_personal || false,
     });
   };
 
@@ -328,11 +338,40 @@ export default function ExpensesPage() {
         {/* Notes */}
         <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)}
           placeholder="Notes (optional)" className="mt-3 w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
+
+        {/* Personal toggle */}
+        <div className="mt-3 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setIsPersonal(!isPersonal)}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
+              isPersonal ? "bg-purple-600" : "bg-gray-200 dark:bg-gray-600"
+            }`}
+          >
+            <span className={`inline-block h-4 w-4 rounded-full bg-white transition transform ${isPersonal ? "translate-x-6" : "translate-x-1"}`} />
+          </button>
+          <span className={`text-sm font-medium ${isPersonal ? "text-purple-600 dark:text-purple-400" : "text-gray-500 dark:text-gray-400"}`}>
+            {isPersonal ? "Personal expense" : "Business expense"}
+          </span>
+          {isPersonal && (
+            <span className="text-xs text-purple-500 dark:text-purple-400">Excluded from reports & VAT</span>
+          )}
+        </div>
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">{t("recentExpenses")}</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">{t("recentExpenses")}</h2>
+            <div className="flex gap-1 ml-2">
+              {["all", "business", "personal"].map((f) => (
+                <button key={f} onClick={() => setShowFilter(f)}
+                  className={`px-2 py-0.5 rounded text-xs font-medium transition ${
+                    showFilter === f ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
+                  }`}>{f.charAt(0).toUpperCase() + f.slice(1)}</button>
+              ))}
+            </div>
+          </div>
           <div className="flex items-center gap-2 flex-wrap">
             <input
               type="date"
@@ -480,7 +519,10 @@ export default function ExpensesPage() {
                 ) : (
                   <>
                     <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{exp.date}</td>
-                    <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{exp.description}</td>
+                    <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
+                      {exp.description}
+                      {exp.is_personal && <span className="ml-2 px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 text-xs rounded font-medium">Personal</span>}
+                    </td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{getCatName(exp.category_id)}</td>
                     <td className="px-6 py-4 text-sm font-semibold text-gray-800 dark:text-white">{parseFloat(exp.amount).toLocaleString()} {currency}</td>
                     <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 capitalize">{exp.payment_method || "-"}</td>

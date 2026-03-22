@@ -24,6 +24,7 @@ class ExpenseCreate(BaseModel):
     is_recurring: bool = False
     payment_method: str = "card"
     notes: str | None = None
+    is_personal: bool = False
 
     @field_validator("payment_method", mode="before")
     @classmethod
@@ -41,6 +42,7 @@ class ExpenseUpdate(BaseModel):
     is_recurring: bool | None = None
     payment_method: str | None = None
     notes: str | None = None
+    is_personal: bool | None = None
 
     @field_validator("payment_method", mode="before")
     @classmethod
@@ -59,6 +61,7 @@ class ExpenseResponse(BaseModel):
     is_recurring: bool
     payment_method: str | None
     notes: str | None
+    is_personal: bool = False
     is_deleted: bool = False
     deleted_at: datetime.datetime | None = None
 

@@ -49,10 +49,10 @@ def get_summary(
         .scalar()
     )
 
-    # This month's expenses
+    # This month's expenses (exclude personal)
     month_exp = (
         db.query(func.coalesce(func.sum(Expense.amount), 0))
-        .filter(Expense.user_id == user.id, Expense.date >= month_start)
+        .filter(Expense.user_id == user.id, Expense.date >= month_start, Expense.is_personal.isnot(True))
         .scalar()
     )
 
@@ -63,7 +63,7 @@ def get_summary(
     top_cat = (
         db.query(ExpenseCategory.name, func.sum(Expense.amount).label("total"))
         .join(Expense, Expense.category_id == ExpenseCategory.id)
-        .filter(Expense.user_id == user.id, Expense.date >= month_start)
+        .filter(Expense.user_id == user.id, Expense.date >= month_start, Expense.is_personal.isnot(True))
         .group_by(ExpenseCategory.name)
         .order_by(func.sum(Expense.amount).desc())
         .first()
