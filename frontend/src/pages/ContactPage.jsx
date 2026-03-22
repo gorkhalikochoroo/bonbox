@@ -52,8 +52,8 @@ export default function ContactPage() {
         <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">About BonBox</h2>
         <p className="text-sm text-gray-600 dark:text-gray-400">
           BonBox is built by Manoj Chaudhary as part of a Master's thesis in Data-Driven Business Development
-          at the University of Southern Denmark (SDU). It's designed specifically for small restaurants and cafes
-          in Denmark who need a simple, affordable way to track sales, expenses, and inventory.
+          at the University of Southern Denmark (SDU). It's designed for small businesses — restaurants, retail shops,
+          clothing stores, cafes, and more — who need a simple, affordable way to track sales, expenses, cash flow, and inventory.
         </p>
         <p className="text-sm text-gray-500 dark:text-gray-500 mt-3">
           Based in Copenhagen, Denmark

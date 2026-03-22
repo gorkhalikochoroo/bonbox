@@ -116,6 +116,11 @@ export default function ProfilePage() {
                 <option value="bar">Bar</option>
                 <option value="bakery">Bakery</option>
                 <option value="food_truck">Food Truck</option>
+                <option value="retail">Retail / Shop</option>
+                <option value="clothing">Clothing Store</option>
+                <option value="grocery">Grocery Store</option>
+                <option value="salon">Salon / Beauty</option>
+                <option value="pharmacy">Pharmacy</option>
                 <option value="other">Other</option>
               </select>
             </div>

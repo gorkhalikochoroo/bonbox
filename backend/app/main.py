@@ -47,7 +47,7 @@ is_prod = settings.ENVIRONMENT == "production"
 
 app = FastAPI(
     title="BonBox",
-    description="Din digitale bonkasse — smart analytics for small restaurants and cafes",
+    description="Din digitale bonkasse — smart analytics for small businesses",
     version="1.0.0",
     docs_url=None if is_prod else "/docs",
     redoc_url=None if is_prod else "/redoc",

@@ -62,7 +62,14 @@ export default function RegisterPage() {
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="restaurant">Restaurant</option>
               <option value="cafe">Cafe</option>
-              <option value="shop">Shop</option>
+              <option value="bar">Bar</option>
+              <option value="bakery">Bakery</option>
+              <option value="food_truck">Food Truck</option>
+              <option value="retail">Retail / Shop</option>
+              <option value="clothing">Clothing Store</option>
+              <option value="grocery">Grocery Store</option>
+              <option value="salon">Salon / Beauty</option>
+              <option value="pharmacy">Pharmacy</option>
               <option value="other">Other</option>
             </select>
           </div>
