@@ -92,7 +92,12 @@ export default function ExpensesPage() {
       .catch((err) => setError(err.response?.data?.detail || "Failed to load categories"));
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    fetchData();
+    const onDataChanged = () => fetchData();
+    window.addEventListener("bonbox-data-changed", onDataChanged);
+    return () => window.removeEventListener("bonbox-data-changed", onDataChanged);
+  }, []);
 
   const quickSetup = async () => {
     try {

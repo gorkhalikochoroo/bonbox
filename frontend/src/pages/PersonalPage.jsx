@@ -41,7 +41,12 @@ export default function PersonalPage() {
       .catch(() => {});
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    fetchData();
+    const onDataChanged = () => fetchData();
+    window.addEventListener("bonbox-data-changed", onDataChanged);
+    return () => window.removeEventListener("bonbox-data-changed", onDataChanged);
+  }, []);
 
   const setupPersonalCategories = async () => {
     try {

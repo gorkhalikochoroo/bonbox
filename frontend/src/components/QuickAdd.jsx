@@ -84,6 +84,7 @@ export default function QuickAdd() {
       setSaleAmount("");
       setSaleDate(new Date().toISOString().split("T")[0]);
       showSuccess(t("saleLogged"));
+      window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
       showError(err.response?.data?.detail || "Failed to log sale");
     }
@@ -104,6 +105,7 @@ export default function QuickAdd() {
       setExpCatId("");
       setExpDate(new Date().toISOString().split("T")[0]);
       showSuccess(t("expenseAdded"));
+      window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
       showError(err.response?.data?.detail || "Failed to add expense");
     }
@@ -128,6 +130,7 @@ export default function QuickAdd() {
       setPNotes("");
       setPDate(new Date().toISOString().split("T")[0]);
       showSuccess(INCOME_CATS.includes(cat?.name) ? "Income logged!" : "Expense logged!");
+      window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
       showError(err.response?.data?.detail || "Failed to add entry");
     }

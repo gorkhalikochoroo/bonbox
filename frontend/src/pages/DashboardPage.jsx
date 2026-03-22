@@ -146,7 +146,12 @@ export default function DashboardPage() {
     }).catch(() => {});
   }, [dateRange.from, dateRange.to, period, categories]);
 
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => {
+    fetchAll();
+    const onDataChanged = () => fetchAll();
+    window.addEventListener("bonbox-data-changed", onDataChanged);
+    return () => window.removeEventListener("bonbox-data-changed", onDataChanged);
+  }, []);
 
   const downloadPdf = async () => {
     try {

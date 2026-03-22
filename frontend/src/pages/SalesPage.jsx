@@ -78,7 +78,12 @@ export default function SalesPage() {
       setFetchError(err.response?.data?.detail || "Failed to load sales");
     }
   };
-  useEffect(() => { fetchSales(); }, []);
+  useEffect(() => {
+    fetchSales();
+    const onDataChanged = () => fetchSales();
+    window.addEventListener("bonbox-data-changed", onDataChanged);
+    return () => window.removeEventListener("bonbox-data-changed", onDataChanged);
+  }, []);
 
   const submit = async (amt) => {
     const value = amt || parseFloat(amount);
