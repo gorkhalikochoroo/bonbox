@@ -123,7 +123,7 @@ def restore_expense(
         raise HTTPException(status_code=404, detail="Deleted expense not found")
     expense.is_deleted = False
     expense.deleted_at = None
-    if expense.payment_method == "cash":
+    if expense.payment_method == "cash" and not expense.is_personal:
         sync_cash_out_for_expense(db, expense)
     db.commit()
     db.refresh(expense)
@@ -153,7 +153,7 @@ def create_expense(
     db.add(expense)
     db.commit()
     db.refresh(expense)
-    if expense.payment_method == "cash":
+    if expense.payment_method == "cash" and not expense.is_personal:
         sync_cash_out_for_expense(db, expense)
         db.commit()
         db.refresh(expense)
@@ -174,12 +174,13 @@ def update_expense(
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(expense, field, value)
     ref_id = f"expense_{expense.id}"
-    if old_method == "cash" and expense.payment_method != "cash":
-        delete_cash_entry_by_ref(db, ref_id, user.id)
-    elif old_method != "cash" and expense.payment_method == "cash":
-        sync_cash_out_for_expense(db, expense)
-    elif expense.payment_method == "cash":
-        update_cash_entry_for_ref(db, ref_id, user.id, amount=float(expense.amount), date=expense.date)
+    if not expense.is_personal:
+        if old_method == "cash" and expense.payment_method != "cash":
+            delete_cash_entry_by_ref(db, ref_id, user.id)
+        elif old_method != "cash" and expense.payment_method == "cash":
+            sync_cash_out_for_expense(db, expense)
+        elif expense.payment_method == "cash":
+            update_cash_entry_for_ref(db, ref_id, user.id, amount=float(expense.amount), date=expense.date)
     db.commit()
     db.refresh(expense)
     return expense
@@ -194,7 +195,7 @@ def delete_expense(
     expense = db.query(Expense).filter(Expense.id == expense_id, Expense.user_id == user.id).first()
     if not expense:
         raise HTTPException(status_code=404, detail="Expense not found")
-    if expense.payment_method == "cash":
+    if expense.payment_method == "cash" and not expense.is_personal:
         delete_cash_entry_by_ref(db, f"expense_{expense.id}", user.id)
     expense.is_deleted = True
     expense.deleted_at = datetime.utcnow()

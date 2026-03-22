@@ -26,7 +26,7 @@ def list_waste(
         query = query.filter(WasteLog.date >= from_date)
     if to_date:
         query = query.filter(WasteLog.date <= to_date)
-    return query.order_by(WasteLog.date.desc()).all()
+    return query.order_by(WasteLog.date.desc(), WasteLog.id.desc()).all()
 
 
 @router.get("/recently-deleted", response_model=list[WasteLogResponse])
