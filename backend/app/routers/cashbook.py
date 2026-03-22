@@ -1,4 +1,5 @@
-from datetime import date
+import uuid
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -20,7 +21,7 @@ def list_transactions(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    query = db.query(CashTransaction).filter(CashTransaction.user_id == user.id)
+    query = db.query(CashTransaction).filter(CashTransaction.user_id == user.id).filter(CashTransaction.is_deleted.isnot(True))
     if from_date:
         query = query.filter(CashTransaction.date >= from_date)
     if to_date:
@@ -35,7 +36,7 @@ def get_balance(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    query = db.query(CashTransaction).filter(CashTransaction.user_id == user.id)
+    query = db.query(CashTransaction).filter(CashTransaction.user_id == user.id).filter(CashTransaction.is_deleted.isnot(True))
     if from_date:
         query = query.filter(CashTransaction.date >= from_date)
     if to_date:
@@ -59,6 +60,56 @@ def get_balance(
         "period_start": str(from_date) if from_date else None,
         "period_end": str(to_date) if to_date else None,
     }
+
+
+@router.get("/recently-deleted", response_model=list[CashTransactionResponse])
+def list_deleted_transactions(
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    return db.query(CashTransaction).filter(
+        CashTransaction.user_id == user.id,
+        CashTransaction.is_deleted == True,
+        CashTransaction.reference_id.is_(None),
+    ).order_by(CashTransaction.deleted_at.desc()).all()
+
+
+@router.put("/{txn_id}/restore", response_model=CashTransactionResponse)
+def restore_transaction(
+    txn_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    txn = db.query(CashTransaction).filter(
+        CashTransaction.id == txn_id,
+        CashTransaction.user_id == user.id,
+        CashTransaction.is_deleted == True,
+        CashTransaction.reference_id.is_(None),
+    ).first()
+    if not txn:
+        raise HTTPException(status_code=404, detail="Deleted transaction not found")
+    txn.is_deleted = False
+    txn.deleted_at = None
+    db.commit()
+    db.refresh(txn)
+    return txn
+
+
+@router.delete("/{txn_id}/permanent", status_code=204)
+def permanent_delete_transaction(
+    txn_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    txn = db.query(CashTransaction).filter(
+        CashTransaction.id == txn_id,
+        CashTransaction.user_id == user.id,
+        CashTransaction.is_deleted == True,
+    ).first()
+    if not txn:
+        raise HTTPException(status_code=404, detail="Deleted transaction not found")
+    db.delete(txn)
+    db.commit()
 
 
 @router.post("", response_model=CashTransactionResponse, status_code=201)
@@ -108,5 +159,10 @@ def delete_transaction(
     ).first()
     if not txn:
         raise HTTPException(status_code=404, detail="Transaction not found")
-    db.delete(txn)
+    # Auto-synced entries (with reference_id) are hard-deleted since they're recreated by the parent
+    if txn.reference_id:
+        db.delete(txn)
+    else:
+        txn.is_deleted = True
+        txn.deleted_at = datetime.utcnow()
     db.commit()

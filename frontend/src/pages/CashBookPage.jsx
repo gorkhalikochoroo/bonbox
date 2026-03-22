@@ -88,7 +88,7 @@ export default function CashBookPage() {
       await api.delete(`/cashbook/${id}`);
       setDeleteConfirm(null);
       fetchData(filterFrom, filterTo);
-      setSuccess("Deleted");
+      setSuccess("Moved to recently deleted");
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to delete");
@@ -326,27 +326,36 @@ export default function CashBookPage() {
                     </>
                   ) : (
                     <>
-                      <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{txn.date}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{txn.description}</td>
-                      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{txn.category || "-"}</td>
-                      <td className="px-4 py-3 text-sm text-right font-semibold text-green-600 dark:text-green-400">
+                      <td className={`px-4 py-3 text-sm ${txn.reference_id ? "text-gray-400 dark:text-gray-500" : "text-gray-700 dark:text-gray-300"}`}>{txn.date}</td>
+                      <td className={`px-4 py-3 text-sm ${txn.reference_id ? "text-gray-400 dark:text-gray-500" : "text-gray-700 dark:text-gray-300"}`}>
+                        {txn.description}
+                        {txn.reference_id && <span className="ml-1.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded">(auto)</span>}
+                      </td>
+                      <td className={`px-4 py-3 text-sm ${txn.reference_id ? "text-gray-400 dark:text-gray-500" : "text-gray-500 dark:text-gray-400"}`}>{txn.category || "-"}</td>
+                      <td className={`px-4 py-3 text-sm text-right font-semibold ${txn.reference_id ? "text-green-400 dark:text-green-600" : "text-green-600 dark:text-green-400"}`}>
                         {txn.type === "cash_in" ? `+${parseFloat(txn.amount).toLocaleString()}` : ""}
                       </td>
-                      <td className="px-4 py-3 text-sm text-right font-semibold text-red-600 dark:text-red-400">
+                      <td className={`px-4 py-3 text-sm text-right font-semibold ${txn.reference_id ? "text-red-400 dark:text-red-600" : "text-red-600 dark:text-red-400"}`}>
                         {txn.type === "cash_out" ? `-${parseFloat(txn.amount).toLocaleString()}` : ""}
                       </td>
                       <td className={`px-4 py-3 text-sm text-right font-bold ${txn.runningBalance >= 0 ? "text-gray-800 dark:text-white" : "text-red-600 dark:text-red-400"}`}>
                         {txn.runningBalance.toLocaleString()} DKK
                       </td>
                       <td className="px-4 py-3 text-right space-x-2">
-                        <button onClick={() => startEdit(txn)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">Edit</button>
-                        {deleteConfirm === txn.id ? (
-                          <>
-                            <button onClick={() => deleteTxn(txn.id)} className="text-red-600 dark:text-red-400 text-sm font-medium hover:underline">Confirm</button>
-                            <button onClick={() => setDeleteConfirm(null)} className="text-gray-400 text-sm hover:underline">No</button>
-                          </>
+                        {txn.reference_id ? (
+                          <span className="text-xs text-gray-400 dark:text-gray-500 italic">Auto-synced</span>
                         ) : (
-                          <button onClick={() => setDeleteConfirm(txn.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">Delete</button>
+                          <>
+                            <button onClick={() => startEdit(txn)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">Edit</button>
+                            {deleteConfirm === txn.id ? (
+                              <>
+                                <button onClick={() => deleteTxn(txn.id)} className="text-red-600 dark:text-red-400 text-sm font-medium hover:underline">Yes, move</button>
+                                <button onClick={() => setDeleteConfirm(null)} className="text-gray-400 text-sm hover:underline">No</button>
+                              </>
+                            ) : (
+                              <button onClick={() => setDeleteConfirm(txn.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">Move to trash</button>
+                            )}
+                          </>
                         )}
                       </td>
                     </>

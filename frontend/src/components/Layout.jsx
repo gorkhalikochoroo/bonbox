@@ -18,6 +18,7 @@ const navItems = [
   { to: "/cashbook", labelKey: "cashBook" },
   { to: "/feedback", labelKey: "feedback" },
   { to: "/contact", labelKey: "contact" },
+  { to: "/recently-deleted", labelKey: "recentlyDeleted" },
 ];
 
 export default function Layout() {

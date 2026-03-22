@@ -1,6 +1,6 @@
 import uuid
 import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class ExpenseCategoryCreate(BaseModel):
@@ -22,6 +22,15 @@ class ExpenseCreate(BaseModel):
     amount: float
     description: str
     is_recurring: bool = False
+    payment_method: str = "card"
+    notes: str | None = None
+
+    @field_validator("payment_method", mode="before")
+    @classmethod
+    def normalize_payment_method(cls, v):
+        if isinstance(v, str) and v.lower() == "kontant":
+            return "cash"
+        return v
 
 
 class ExpenseUpdate(BaseModel):
@@ -30,6 +39,15 @@ class ExpenseUpdate(BaseModel):
     amount: float | None = None
     description: str | None = None
     is_recurring: bool | None = None
+    payment_method: str | None = None
+    notes: str | None = None
+
+    @field_validator("payment_method", mode="before")
+    @classmethod
+    def normalize_payment_method(cls, v):
+        if isinstance(v, str) and v.lower() == "kontant":
+            return "cash"
+        return v
 
 
 class ExpenseResponse(BaseModel):
@@ -39,5 +57,9 @@ class ExpenseResponse(BaseModel):
     amount: float
     description: str
     is_recurring: bool
+    payment_method: str | None
+    notes: str | None
+    is_deleted: bool = False
+    deleted_at: datetime.datetime | None = None
 
     model_config = {"from_attributes": True}

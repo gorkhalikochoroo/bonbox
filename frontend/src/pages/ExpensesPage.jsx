@@ -23,6 +23,8 @@ export default function ExpensesPage() {
   const [editId, setEditId] = useState(null);
   const [editData, setEditData] = useState({});
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [method, setMethod] = useState("card");
+  const [notes, setNotes] = useState("");
 
   const fetchData = (from, to) => {
     const params = {};
@@ -64,10 +66,14 @@ export default function ExpensesPage() {
         amount: value,
         description: desc,
         is_recurring: false,
+        payment_method: method,
+        notes: notes || null,
       });
       const isBackdated = expDate !== new Date().toISOString().split("T")[0];
       setAmount("");
       setDesc("");
+      setMethod("card");
+      setNotes("");
       setExpDate(new Date().toISOString().split("T")[0]);
       trackEvent("expense_logged", "expenses", `${value} DKK`);
       setSuccess(`${value.toLocaleString()} DKK${isBackdated ? ` (${expDate})` : ""}!`);
@@ -85,6 +91,8 @@ export default function ExpensesPage() {
       amount: parseFloat(exp.amount),
       description: exp.description,
       category_id: exp.category_id,
+      payment_method: exp.payment_method || "card",
+      notes: exp.notes || "",
     });
   };
 
@@ -106,7 +114,7 @@ export default function ExpensesPage() {
       await api.delete(`/expenses/${id}`);
       setDeleteConfirm(null);
       fetchData(filterFrom, filterTo);
-      setSuccess("Expense deleted");
+      setSuccess("Moved to recently deleted");
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to delete expense");
@@ -209,6 +217,20 @@ export default function ExpensesPage() {
             <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Backdated entry</span>
           )}
         </div>
+
+        {/* Payment method */}
+        <div className="flex flex-wrap gap-2 mt-3">
+          {["cash", "card", "mobilepay", "mixed", "dankort"].map((m) => (
+            <button key={m} type="button" onClick={() => setMethod(m)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium capitalize ${
+                method === m ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
+              }`}>{m}</button>
+          ))}
+        </div>
+
+        {/* Notes */}
+        <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)}
+          placeholder="Notes (optional)" className="mt-3 w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
@@ -260,6 +282,8 @@ export default function ExpensesPage() {
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("description")}</th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Category</th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("amount")}</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Payment</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Notes</th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">Actions</th>
             </tr>
           </thead>
@@ -303,6 +327,25 @@ export default function ExpensesPage() {
                         className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-28"
                       />
                     </td>
+                    <td className="px-6 py-3">
+                      <select
+                        value={editData.payment_method}
+                        onChange={(e) => setEditData({ ...editData, payment_method: e.target.value })}
+                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
+                      >
+                        {["cash", "card", "mobilepay", "mixed", "dankort"].map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-6 py-3">
+                      <input
+                        type="text"
+                        value={editData.notes}
+                        onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
+                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-28"
+                      />
+                    </td>
                     <td className="px-6 py-3 text-right space-x-2">
                       <button onClick={saveEdit} className="text-green-600 dark:text-green-400 text-sm font-medium hover:underline">Save</button>
                       <button onClick={() => setEditId(null)} className="text-gray-400 dark:text-gray-500 text-sm hover:underline">Cancel</button>
@@ -314,15 +357,17 @@ export default function ExpensesPage() {
                     <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{exp.description}</td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{getCatName(exp.category_id)}</td>
                     <td className="px-6 py-4 text-sm font-semibold text-gray-800 dark:text-white">{parseFloat(exp.amount).toLocaleString()} DKK</td>
+                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 capitalize">{exp.payment_method || "-"}</td>
+                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{exp.notes || "-"}</td>
                     <td className="px-6 py-4 text-right space-x-3">
                       <button onClick={() => startEdit(exp)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">Edit</button>
                       {deleteConfirm === exp.id ? (
                         <>
-                          <button onClick={() => deleteExpense(exp.id)} className="text-red-600 dark:text-red-400 text-sm font-medium hover:underline">Confirm</button>
+                          <button onClick={() => deleteExpense(exp.id)} className="text-red-600 dark:text-red-400 text-sm font-medium hover:underline">Yes, move</button>
                           <button onClick={() => setDeleteConfirm(null)} className="text-gray-400 text-sm hover:underline">No</button>
                         </>
                       ) : (
-                        <button onClick={() => setDeleteConfirm(exp.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">Delete</button>
+                        <button onClick={() => setDeleteConfirm(exp.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">Move to trash</button>
                       )}
                     </td>
                   </>
@@ -330,7 +375,7 @@ export default function ExpensesPage() {
               </tr>
             ))}
             {expenses.length === 0 && (
-              <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noExpensesYet")}</td></tr>
+              <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noExpensesYet")}</td></tr>
             )}
           </tbody>
         </table>

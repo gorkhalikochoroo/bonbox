@@ -109,6 +109,8 @@ const translations = {
     cashBook: "Cash Book",
     // Contact
     contact: "Contact",
+    // Recently Deleted
+    recentlyDeleted: "Recently Deleted",
   },
   da: {
     dashboard: "Oversigt", sales: "Salg", expenses: "Udgifter", inventory: "Lager",
@@ -215,6 +217,8 @@ const translations = {
     cashBook: "Kassebog",
     // Contact
     contact: "Kontakt",
+    // Recently Deleted
+    recentlyDeleted: "Nyligt slettet",
   },
 };
 

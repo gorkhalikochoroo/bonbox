@@ -89,7 +89,7 @@ export default function SalesPage() {
       await api.delete(`/sales/${id}`);
       setDeleteConfirm(null);
       fetchSales(filterFrom, filterTo);
-      setSuccess("Sale deleted");
+      setSuccess("Moved to recently deleted");
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to delete sale");
@@ -146,7 +146,7 @@ export default function SalesPage() {
 
         {/* Payment method */}
         <div className="flex flex-wrap gap-2 mt-3">
-          {["cash", "card", "mobilepay", "mixed", "dankort", "kontant"].map((m) => (
+          {["cash", "card", "mobilepay", "mixed", "dankort"].map((m) => (
             <button
               key={m}
               onClick={() => setMethod(m)}
@@ -265,7 +265,7 @@ export default function SalesPage() {
                         onChange={(e) => setEditData({ ...editData, payment_method: e.target.value })}
                         className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
                       >
-                        {["cash", "card", "mobilepay", "mixed", "dankort", "kontant"].map((m) => (
+                        {["cash", "card", "mobilepay", "mixed", "dankort"].map((m) => (
                           <option key={m} value={m}>{m}</option>
                         ))}
                       </select>
@@ -284,11 +284,11 @@ export default function SalesPage() {
                       <button onClick={() => startEdit(sale)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">Edit</button>
                       {deleteConfirm === sale.id ? (
                         <>
-                          <button onClick={() => deleteSale(sale.id)} className="text-red-600 dark:text-red-400 text-sm font-medium hover:underline">Confirm</button>
+                          <button onClick={() => deleteSale(sale.id)} className="text-red-600 dark:text-red-400 text-sm font-medium hover:underline">Yes, move</button>
                           <button onClick={() => setDeleteConfirm(null)} className="text-gray-400 text-sm hover:underline">No</button>
                         </>
                       ) : (
-                        <button onClick={() => setDeleteConfirm(sale.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">Delete</button>
+                        <button onClick={() => setDeleteConfirm(sale.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">Move to trash</button>
                       )}
                     </td>
                   </>

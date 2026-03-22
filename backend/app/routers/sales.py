@@ -1,7 +1,8 @@
 import csv
 import io
 import os
-from datetime import date, timedelta
+import uuid
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from sqlalchemy.orm import Session
@@ -17,6 +18,7 @@ from app.models.sale import Sale
 from app.schemas.sale import SaleCreate, SaleUpdate, SaleResponse
 from app.services.auth import get_current_user
 from app.services.receipt_ocr import extract_amount_from_image, save_receipt_photo
+from app.services.cash_sync import sync_cash_in_for_sale, delete_cash_entry_by_ref, update_cash_entry_for_ref
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -29,12 +31,51 @@ def list_sales(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    query = db.query(Sale).filter(Sale.user_id == user.id)
+    query = db.query(Sale).filter(Sale.user_id == user.id).filter(Sale.is_deleted.isnot(True))
     if from_date:
         query = query.filter(Sale.date >= from_date)
     if to_date:
         query = query.filter(Sale.date <= to_date)
     return query.order_by(Sale.date.desc()).all()
+
+
+@router.get("/recently-deleted", response_model=list[SaleResponse])
+def list_deleted_sales(
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    return db.query(Sale).filter(Sale.user_id == user.id, Sale.is_deleted == True).order_by(Sale.deleted_at.desc()).all()
+
+
+@router.put("/{sale_id}/restore", response_model=SaleResponse)
+def restore_sale(
+    sale_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    sale = db.query(Sale).filter(Sale.id == sale_id, Sale.user_id == user.id, Sale.is_deleted == True).first()
+    if not sale:
+        raise HTTPException(status_code=404, detail="Deleted sale not found")
+    sale.is_deleted = False
+    sale.deleted_at = None
+    if sale.payment_method == "cash":
+        sync_cash_in_for_sale(db, sale)
+    db.commit()
+    db.refresh(sale)
+    return sale
+
+
+@router.delete("/{sale_id}/permanent", status_code=204)
+def permanent_delete_sale(
+    sale_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    sale = db.query(Sale).filter(Sale.id == sale_id, Sale.user_id == user.id, Sale.is_deleted == True).first()
+    if not sale:
+        raise HTTPException(status_code=404, detail="Deleted sale not found")
+    db.delete(sale)
+    db.commit()
 
 
 @router.post("", response_model=SaleResponse, status_code=201)
@@ -47,6 +88,10 @@ def create_sale(
     db.add(sale)
     db.commit()
     db.refresh(sale)
+    if sale.payment_method == "cash":
+        sync_cash_in_for_sale(db, sale)
+        db.commit()
+        db.refresh(sale)
     return sale
 
 
@@ -60,8 +105,16 @@ def update_sale(
     sale = db.query(Sale).filter(Sale.id == sale_id, Sale.user_id == user.id).first()
     if not sale:
         raise HTTPException(status_code=404, detail="Sale not found")
+    old_method = sale.payment_method
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(sale, field, value)
+    ref_id = f"sale_{sale.id}"
+    if old_method == "cash" and sale.payment_method != "cash":
+        delete_cash_entry_by_ref(db, ref_id, user.id)
+    elif old_method != "cash" and sale.payment_method == "cash":
+        sync_cash_in_for_sale(db, sale)
+    elif sale.payment_method == "cash":
+        update_cash_entry_for_ref(db, ref_id, user.id, amount=float(sale.amount), date=sale.date)
     db.commit()
     db.refresh(sale)
     return sale
@@ -76,7 +129,10 @@ def delete_sale(
     sale = db.query(Sale).filter(Sale.id == sale_id, Sale.user_id == user.id).first()
     if not sale:
         raise HTTPException(status_code=404, detail="Sale not found")
-    db.delete(sale)
+    if sale.payment_method == "cash":
+        delete_cash_entry_by_ref(db, f"sale_{sale.id}", user.id)
+    sale.is_deleted = True
+    sale.deleted_at = datetime.utcnow()
     db.commit()
 
 
@@ -90,6 +146,7 @@ def repeat_yesterday(
     last_sale = (
         db.query(Sale)
         .filter(Sale.user_id == user.id, Sale.date == yesterday)
+        .filter(Sale.is_deleted.isnot(True))
         .order_by(Sale.created_at.desc())
         .first()
     )
@@ -106,6 +163,10 @@ def repeat_yesterday(
     db.add(sale)
     db.commit()
     db.refresh(sale)
+    if sale.payment_method == "cash":
+        sync_cash_in_for_sale(db, sale)
+        db.commit()
+        db.refresh(sale)
     return sale
 
 
@@ -223,6 +284,10 @@ def create_sale_from_receipt(
     db.add(sale)
     db.commit()
     db.refresh(sale)
+    if sale.payment_method == "cash":
+        sync_cash_in_for_sale(db, sale)
+        db.commit()
+        db.refresh(sale)
     return sale
 
 
@@ -244,6 +309,7 @@ def weekly_report(
     daily = (
         db.query(Sale.date, func.sum(Sale.amount).label("total"))
         .filter(Sale.user_id == user.id, Sale.date.between(week_start, week_end))
+        .filter(Sale.is_deleted.isnot(True))
         .group_by(Sale.date)
         .order_by(Sale.date)
         .all()
@@ -254,6 +320,7 @@ def weekly_report(
     prev_total = float(
         db.query(func.coalesce(func.sum(Sale.amount), 0))
         .filter(Sale.user_id == user.id, Sale.date.between(prev_start, prev_end))
+        .filter(Sale.is_deleted.isnot(True))
         .scalar()
     )
 
@@ -294,6 +361,7 @@ def get_latest_sale(
     return (
         db.query(Sale)
         .filter(Sale.user_id == user.id)
+        .filter(Sale.is_deleted.isnot(True))
         .order_by(Sale.date.desc(), Sale.created_at.desc())
         .first()
     )
@@ -308,6 +376,7 @@ def list_receipt_sales(
     sales = (
         db.query(Sale)
         .filter(Sale.user_id == user.id, Sale.receipt_photo.isnot(None))
+        .filter(Sale.is_deleted.isnot(True))
         .order_by(Sale.date.desc(), Sale.created_at.desc())
         .limit(20)
         .all()

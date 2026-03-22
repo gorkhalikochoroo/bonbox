@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import String, Date, DateTime, Numeric, Text, ForeignKey
+from sqlalchemy import String, Date, DateTime, Numeric, Text, Boolean, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
@@ -18,6 +18,8 @@ class CashTransaction(Base):
     description: Mapped[str] = mapped_column(Text)
     category: Mapped[str | None] = mapped_column(String(50), nullable=True)
     reference_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     user: Mapped["User"] = relationship()

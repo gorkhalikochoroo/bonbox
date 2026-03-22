@@ -90,7 +90,7 @@ export default function WastePage() {
       await api.delete(`/waste/${id}`);
       setDeleteConfirm(null);
       fetchData(filterFrom, filterTo);
-      setSuccess("Deleted");
+      setSuccess("Moved to recently deleted");
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to delete");
@@ -318,11 +318,11 @@ export default function WastePage() {
                         <button onClick={() => startEdit(log)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">Edit</button>
                         {deleteConfirm === log.id ? (
                           <>
-                            <button onClick={() => deleteWaste(log.id)} className="text-red-600 dark:text-red-400 text-sm font-medium hover:underline">Confirm</button>
+                            <button onClick={() => deleteWaste(log.id)} className="text-red-600 dark:text-red-400 text-sm font-medium hover:underline">Yes, move</button>
                             <button onClick={() => setDeleteConfirm(null)} className="text-gray-400 text-sm hover:underline">No</button>
                           </>
                         ) : (
-                          <button onClick={() => setDeleteConfirm(log.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">Delete</button>
+                          <button onClick={() => setDeleteConfirm(log.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">Move to trash</button>
                         )}
                       </td>
                     </>
