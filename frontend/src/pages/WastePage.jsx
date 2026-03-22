@@ -208,7 +208,7 @@ export default function WastePage() {
 
         <div className="flex gap-3">
           <input type="number" value={cost} onChange={(e) => setCost(e.target.value)}
-            placeholder={t("customCost")} className="flex-1 px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder={t("customCost")} className="flex-1 max-w-sm px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
             onKeyDown={(e) => e.key === "Enter" && submit()} />
           <button onClick={() => submit()} disabled={!item || !qty}
             className="px-6 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 transition font-semibold disabled:opacity-40">

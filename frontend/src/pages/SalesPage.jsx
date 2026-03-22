@@ -215,7 +215,7 @@ export default function SalesPage() {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder={t("customAmount")}
-            className="flex-1 px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-lg dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 max-w-sm px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-lg dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
           <button
