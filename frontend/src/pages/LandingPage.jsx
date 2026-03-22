@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 
 const features = [
@@ -64,11 +65,13 @@ const steps = [
 ];
 
 export default function LandingPage() {
+  const [menuOpen, setMenuOpen] = useState(false);
+
   return (
     <div className="min-h-screen bg-white">
       {/* Navigation */}
       <nav className="bg-gradient-to-r from-blue-900 to-blue-700">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="inline-flex items-center justify-center w-10 h-10 bg-white/10 rounded-xl">
               <svg width="24" height="24" viewBox="0 0 28 28" fill="none">
@@ -79,7 +82,8 @@ export default function LandingPage() {
             </div>
             <span className="text-xl font-bold text-white">BonBox</span>
           </div>
-          <div className="flex items-center gap-3">
+          {/* Desktop nav */}
+          <div className="hidden sm:flex items-center gap-3">
             <Link
               to="/login"
               className="px-4 py-2 text-sm font-medium text-blue-100 hover:text-white transition"
@@ -93,13 +97,34 @@ export default function LandingPage() {
               Get Started
             </Link>
           </div>
+          {/* Mobile hamburger */}
+          <button onClick={() => setMenuOpen(!menuOpen)} className="sm:hidden text-white p-2">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              {menuOpen ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              )}
+            </svg>
+          </button>
         </div>
+        {/* Mobile menu */}
+        {menuOpen && (
+          <div className="sm:hidden px-4 pb-4 space-y-2">
+            <Link to="/login" className="block w-full text-center px-4 py-3 text-sm font-medium text-white border border-white/30 rounded-lg">
+              Sign In
+            </Link>
+            <Link to="/register" className="block w-full text-center px-4 py-3 text-sm font-medium bg-white text-blue-700 rounded-lg">
+              Get Started
+            </Link>
+          </div>
+        )}
       </nav>
 
       {/* Hero */}
       <section className="bg-gradient-to-br from-blue-900 to-blue-700 text-white">
-        <div className="max-w-6xl mx-auto px-6 py-20 md:py-28 text-center">
-          <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold leading-tight">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-14 sm:py-20 md:py-28 text-center">
+          <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold leading-tight">
             Smart analytics for your
             <br />
             small business
@@ -126,7 +151,7 @@ export default function LandingPage() {
 
       {/* Features */}
       <section className="py-20 bg-slate-50">
-        <div className="max-w-6xl mx-auto px-6">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-14">
             <h2 className="text-3xl md:text-4xl font-bold text-gray-900">
               Everything you need to run your business
@@ -154,7 +179,7 @@ export default function LandingPage() {
 
       {/* How it works */}
       <section className="py-20 bg-white">
-        <div className="max-w-6xl mx-auto px-6">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-14">
             <h2 className="text-3xl md:text-4xl font-bold text-gray-900">
               Up and running in minutes
@@ -176,7 +201,7 @@ export default function LandingPage() {
 
       {/* Trusted by */}
       <section className="py-16 bg-slate-50">
-        <div className="max-w-6xl mx-auto px-6 text-center">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 text-center">
           <p className="text-gray-400 text-sm font-medium uppercase tracking-wider mb-3">
             Trusted by
           </p>

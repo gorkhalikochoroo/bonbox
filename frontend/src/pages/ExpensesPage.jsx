@@ -30,6 +30,7 @@ export default function ExpensesPage() {
   const [method, setMethod] = useState("card");
   const [notes, setNotes] = useState("");
   const [search, setSearch] = useState("");
+  const [customCat, setCustomCat] = useState("");
 
   const filtered = expenses.filter(e => !search || e.description?.toLowerCase().includes(search.toLowerCase()) || e.notes?.toLowerCase().includes(search.toLowerCase()) || e.payment_method?.toLowerCase().includes(search.toLowerCase()));
 
@@ -64,11 +65,25 @@ export default function ExpensesPage() {
 
   const submit = async (quickAmt) => {
     const value = quickAmt || parseFloat(amount);
-    if (!value || !catId || !desc) return;
+    if (!value || !desc) return;
+    // Need either a selected category or a custom one typed
+    let finalCatId = catId;
+    if (!finalCatId && !customCat.trim()) return;
     setError("");
     try {
+      // If custom category typed, create it first
+      if (!finalCatId && customCat.trim()) {
+        const catRes = await api.post("/expenses/categories", { name: customCat.trim() });
+        finalCatId = catRes.data.id;
+        setCategories((prev) => {
+          if (prev.find((c) => c.id === catRes.data.id)) return prev;
+          return [...prev, catRes.data];
+        });
+        setCatId(catRes.data.id);
+        setCustomCat("");
+      }
       await api.post("/expenses", {
-        category_id: catId,
+        category_id: finalCatId,
         date: expDate,
         amount: value,
         description: desc,
@@ -81,6 +96,7 @@ export default function ExpensesPage() {
       setDesc("");
       setMethod("card");
       setNotes("");
+      setCustomCat("");
       setExpDate(new Date().toISOString().split("T")[0]);
       trackEvent("expense_logged", "expenses", `${value} ${currency}`);
       setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${expDate})` : ""}!`);
@@ -168,11 +184,11 @@ export default function ExpensesPage() {
         <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-1">{t("addExpense")}</h2>
         <p className="text-sm text-gray-400 dark:text-gray-400 mb-4">{t("pickCategory")}</p>
 
-        <div className="flex flex-wrap gap-2 mb-4">
+        <div className="flex flex-wrap gap-2 mb-3">
           {categories.map((c) => (
             <button
               key={c.id}
-              onClick={() => setCatId(c.id)}
+              onClick={() => { setCatId(c.id); setCustomCat(""); }}
               className={`px-4 py-2.5 rounded-xl text-sm font-medium border transition ${
                 catId === c.id
                   ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300"
@@ -182,6 +198,16 @@ export default function ExpensesPage() {
               {c.name}
             </button>
           ))}
+        </div>
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-sm text-gray-400 dark:text-gray-500">or</span>
+          <input
+            type="text"
+            value={customCat}
+            onChange={(e) => { setCustomCat(e.target.value); if (e.target.value) setCatId(""); }}
+            placeholder="Type custom category..."
+            className="flex-1 px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+          />
         </div>
 
         <input
@@ -197,7 +223,7 @@ export default function ExpensesPage() {
             <button
               key={amt}
               onClick={() => submit(amt)}
-              disabled={!catId || !desc}
+              disabled={(!catId && !customCat.trim()) || !desc}
               className="px-5 py-3 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-700 dark:hover:text-blue-300 transition disabled:opacity-30"
             >
               {amt.toLocaleString()} {currency}
@@ -216,7 +242,7 @@ export default function ExpensesPage() {
           />
           <button
             onClick={() => submit()}
-            disabled={!amount || !catId || !desc}
+            disabled={!amount || (!catId && !customCat.trim()) || !desc}
             className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition font-semibold disabled:opacity-40"
           >
             {t("add")}
