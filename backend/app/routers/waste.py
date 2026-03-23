@@ -8,8 +8,56 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.models.waste import WasteLog
+from app.models.expense import Expense, ExpenseCategory
 from app.schemas.waste import WasteLogCreate, WasteLogUpdate, WasteLogResponse, WasteSummary
 from app.services.auth import get_current_user
+
+
+def _get_or_create_waste_category(db: Session, user_id) -> ExpenseCategory:
+    """Get or create a 'Waste' expense category for the user."""
+    cat = db.query(ExpenseCategory).filter(
+        ExpenseCategory.user_id == user_id,
+        func.lower(ExpenseCategory.name) == "waste",
+    ).first()
+    if not cat:
+        cat = ExpenseCategory(user_id=user_id, name="Waste")
+        db.add(cat)
+        db.commit()
+        db.refresh(cat)
+    return cat
+
+
+def _sync_expense_for_waste(db: Session, log: WasteLog):
+    """Create or update an expense entry synced to a waste log."""
+    if float(log.estimated_cost) <= 0:
+        return
+    ref_id = f"waste_{log.id}"
+    existing = db.query(Expense).filter(Expense.reference_id == ref_id).first()
+    if existing:
+        existing.amount = float(log.estimated_cost)
+        existing.date = log.date
+        existing.description = f"Waste: {log.item_name} ({log.reason})"
+        return
+    cat = _get_or_create_waste_category(db, log.user_id)
+    expense = Expense(
+        id=uuid.uuid4(),
+        user_id=log.user_id,
+        category_id=cat.id,
+        date=log.date,
+        amount=float(log.estimated_cost),
+        description=f"Waste: {log.item_name} ({log.reason})",
+        payment_method="card",
+        reference_id=ref_id,
+    )
+    db.add(expense)
+
+
+def _delete_expense_for_waste(db: Session, log_id, user_id):
+    """Delete expense entry linked to a waste log."""
+    db.query(Expense).filter(
+        Expense.reference_id == f"waste_{log_id}",
+        Expense.user_id == user_id,
+    ).delete()
 
 router = APIRouter()
 
@@ -48,6 +96,8 @@ def restore_waste(
         raise HTTPException(status_code=404, detail="Deleted waste log not found")
     log.is_deleted = False
     log.deleted_at = None
+    # Re-sync expense on restore
+    _sync_expense_for_waste(db, log)
     db.commit()
     db.refresh(log)
     return log
@@ -62,6 +112,7 @@ def permanent_delete_waste(
     log = db.query(WasteLog).filter(WasteLog.id == log_id, WasteLog.user_id == user.id, WasteLog.is_deleted == True).first()
     if not log:
         raise HTTPException(status_code=404, detail="Deleted waste log not found")
+    _delete_expense_for_waste(db, log.id, user.id)
     db.delete(log)
     db.commit()
 
@@ -84,6 +135,9 @@ def create_waste(
     db.add(log)
     db.commit()
     db.refresh(log)
+    # Sync to expenses
+    _sync_expense_for_waste(db, log)
+    db.commit()
     return log
 
 
@@ -99,6 +153,8 @@ def update_waste(
         raise HTTPException(status_code=404, detail="Waste log not found")
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(log, field, value)
+    # Update synced expense
+    _sync_expense_for_waste(db, log)
     db.commit()
     db.refresh(log)
     return log
@@ -115,6 +171,8 @@ def delete_waste(
         raise HTTPException(status_code=404, detail="Waste log not found")
     log.is_deleted = True
     log.deleted_at = datetime.utcnow()
+    # Remove synced expense
+    _delete_expense_for_waste(db, log.id, user.id)
     db.commit()
 
 
