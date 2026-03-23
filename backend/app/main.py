@@ -10,7 +10,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp
 from app.database import engine, Base
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -140,6 +140,7 @@ app.include_router(khata.router, prefix="/api/khata", tags=["Khata"])
 app.include_router(budget.router, prefix="/api/budgets", tags=["Budgets"])
 app.include_router(loan.router, prefix="/api/loans", tags=["Loans"])
 app.include_router(email_settings.router, prefix="/api/email", tags=["Email"])
+app.include_router(whatsapp.router, prefix="/api/whatsapp", tags=["WhatsApp"])
 
 
 # --- Protected Uploads (user can only access own receipts) ---

@@ -11,5 +11,6 @@ from app.models.khata import KhataCustomer, KhataTransaction
 from app.models.budget import Budget
 from app.models.loan import LoanPerson, LoanTransaction
 from app.models.category_mapping import CategoryMapping
+from app.models.whatsapp import WhatsAppUser, WhatsAppMessage
 
-__all__ = ["User", "Sale", "ExpenseCategory", "Expense", "InventoryItem", "InventoryLog", "StaffingRule", "WasteLog", "Feedback", "CashTransaction", "EventLog", "KhataCustomer", "KhataTransaction", "Budget", "LoanPerson", "LoanTransaction", "CategoryMapping"]
+__all__ = ["User", "Sale", "ExpenseCategory", "Expense", "InventoryItem", "InventoryLog", "StaffingRule", "WasteLog", "Feedback", "CashTransaction", "EventLog", "KhataCustomer", "KhataTransaction", "Budget", "LoanPerson", "LoanTransaction", "CategoryMapping", "WhatsAppUser", "WhatsAppMessage"]
