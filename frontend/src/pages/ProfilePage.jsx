@@ -22,6 +22,7 @@ export default function ProfilePage() {
   const [waPhone, setWaPhone] = useState("");
   const [waMsg, setWaMsg] = useState("");
   const [waLinking, setWaLinking] = useState(false);
+  const [waCode, setWaCode] = useState("");
 
   useEffect(() => {
     api.get("/auth/me").then((res) => {
@@ -62,7 +63,8 @@ export default function ProfilePage() {
     setWaMsg("");
     try {
       const res = await api.post("/whatsapp/link-phone", null, { params: { phone: waPhone } });
-      setWaMsg("Code sent! Check WhatsApp and reply with the code.");
+      setWaCode(res.data.code || "");
+      setWaMsg(res.data.code ? "" : "Code sent! Check WhatsApp and reply with the code.");
       setWaStatus({ linked: true, phone: waPhone, verified: false });
     } catch (err) {
       setWaMsg(err.response?.data?.detail || "Failed to link");
@@ -322,7 +324,15 @@ export default function ProfilePage() {
               <span className="w-2 h-2 bg-yellow-500 rounded-full" />
               <span className="text-sm text-yellow-700 dark:text-yellow-400">Verification pending for {waStatus.phone}</span>
             </div>
-            <p className="text-xs text-gray-400">Send the 6-digit code to the BonBox WhatsApp number to verify.</p>
+            {waCode && (
+              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 text-center">
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Your verification code:</p>
+                <p className="text-3xl font-bold tracking-widest text-blue-600 dark:text-blue-400">{waCode}</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">Send this code to the BonBox WhatsApp number</p>
+              </div>
+            )}
+            {!waCode && <p className="text-xs text-gray-400">Send the 6-digit code to the BonBox WhatsApp number to verify.</p>}
+            <button onClick={unlinkWhatsApp} className="text-xs text-red-500 hover:underline">Unlink & try again</button>
           </div>
         ) : (
           <div className="space-y-3">

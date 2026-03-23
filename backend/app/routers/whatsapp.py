@@ -152,7 +152,7 @@ def link_phone(
     # Send verification code via WhatsApp
     send_whatsapp(phone, f"🔐 Your BonBox verification code: *{code}*\n\nReply with this code to link your account.")
 
-    return {"message": "Verification code sent", "phone": phone}
+    return {"message": "Verification code sent", "phone": phone, "code": code}
 
 
 @router.get("/status")
