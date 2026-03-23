@@ -248,7 +248,7 @@ export default function PersonalPage() {
       )}
 
       {/* Balance overview */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
           <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Income</p>
           <p className="text-lg sm:text-2xl font-bold text-green-600 dark:text-green-400 mt-1">{totalIncome.toLocaleString()}</p>
@@ -259,9 +259,18 @@ export default function PersonalPage() {
           <p className="text-lg sm:text-2xl font-bold text-red-500 dark:text-red-400 mt-1">{totalSpent.toLocaleString()}</p>
           <p className="text-xs text-gray-400">{currency}</p>
         </div>
-        <div className={`bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border ${balance >= 0 ? "border-green-200 dark:border-green-800" : "border-red-200 dark:border-red-800"} text-center`}>
-          <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Balance</p>
-          <p className={`text-lg sm:text-2xl font-bold mt-1 ${balance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400"}`}>{balance.toLocaleString()}</p>
+        <div className={`bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border ${loanNetBalance >= 0 ? "border-blue-200 dark:border-blue-800" : "border-orange-200 dark:border-orange-800"} text-center`}>
+          <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Loans</p>
+          <p className={`text-lg sm:text-2xl font-bold mt-1 ${loanNetBalance >= 0 ? "text-blue-600 dark:text-blue-400" : "text-orange-600 dark:text-orange-400"}`}>
+            {loanNetBalance >= 0 ? "+" : ""}{loanNetBalance.toLocaleString()}
+          </p>
+          <p className="text-xs text-gray-400">{loanNetBalance >= 0 ? "owed to you" : "you owe"}</p>
+        </div>
+        <div className={`bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border ${(balance + loanNetBalance) >= 0 ? "border-green-200 dark:border-green-800" : "border-red-200 dark:border-red-800"} text-center`}>
+          <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Net Worth</p>
+          <p className={`text-lg sm:text-2xl font-bold mt-1 ${(balance + loanNetBalance) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400"}`}>
+            {(balance + loanNetBalance).toLocaleString()}
+          </p>
           <p className="text-xs text-gray-400">{currency}</p>
         </div>
       </div>
