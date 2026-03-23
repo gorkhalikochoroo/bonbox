@@ -66,6 +66,7 @@ export default function DashboardPage() {
   const [customTo, setCustomTo] = useState("");
   const [periodStats, setPeriodStats] = useState(null);
   const [categories, setCategories] = useState([]);
+  const [benchmarks, setBenchmarks] = useState(null);
 
   const dateRange = useMemo(() => {
     if (period === "custom") return { from: customFrom, to: customTo };
@@ -82,6 +83,7 @@ export default function DashboardPage() {
     api.get("/sales/receipts").then((res) => setReceipts(res.data)).catch(() => {});
     api.get("/reports/forecast", { params: { days: 7 } }).then((res) => setForecast(res.data)).catch(() => {});
     api.get("/expenses/categories").then((res) => setCategories(res.data)).catch(() => {});
+    api.get("/dashboard/benchmarks").then((res) => setBenchmarks(res.data)).catch(() => {});
   };
 
   // Fetch period-specific data
@@ -281,6 +283,11 @@ export default function DashboardPage() {
 
       {/* Business Health Score */}
       <HealthScore summary={summary} monthlyData={monthlyData} />
+
+      {/* Benchmark Cards */}
+      {benchmarks && benchmarks.metrics?.length > 0 && (
+        <BenchmarkCards benchmarks={benchmarks} currency={currency} />
+      )}
 
       {/* Motivational Stats */}
       <MotivationalStats summary={summary} monthlyData={monthlyData} />
@@ -769,6 +776,73 @@ function HealthScore({ summary, monthlyData }) {
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function BenchmarkCards({ benchmarks, currency }) {
+  const statusColors = {
+    good: { bg: "bg-green-50 dark:bg-green-900/20", border: "border-green-200 dark:border-green-800", text: "text-green-700 dark:text-green-400", bar: "bg-green-500", badge: "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400" },
+    average: { bg: "bg-yellow-50 dark:bg-yellow-900/20", border: "border-yellow-200 dark:border-yellow-800", text: "text-yellow-700 dark:text-yellow-400", bar: "bg-yellow-500", badge: "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-400" },
+    attention: { bg: "bg-red-50 dark:bg-red-900/20", border: "border-red-200 dark:border-red-800", text: "text-red-700 dark:text-red-400", bar: "bg-red-500", badge: "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400" },
+  };
+  const statusLabels = { good: "On Track", average: "Average", attention: "Needs Attention" };
+  const statusIcons = {
+    good: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>,
+    average: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M12 3a9 9 0 100 18 9 9 0 000-18z" /></svg>,
+    attention: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+  };
+
+  return (
+    <div className="bg-white dark:bg-gray-800 p-5 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200">Industry Benchmarks</h2>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {benchmarks.period} • {benchmarks.business_type.charAt(0).toUpperCase() + benchmarks.business_type.slice(1).replace("_", " ")}
+          </p>
+        </div>
+        <div className="text-xs text-gray-400">📊 vs industry avg</div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {benchmarks.metrics.map((m) => {
+          const c = statusColors[m.status];
+          // Calculate marker position on the range bar (0-100%)
+          const barMax = Math.max(m.range_high * 1.5, m.user_value * 1.2, 50);
+          const userPos = Math.min((m.user_value / barMax) * 100, 100);
+          const rangeLowPos = (m.range_low / barMax) * 100;
+          const rangeHighPos = (m.range_high / barMax) * 100;
+
+          return (
+            <div key={m.name} className={`p-4 rounded-xl border ${c.border} ${c.bg}`}>
+              <p className="text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">{m.label}</p>
+              <div className="flex items-baseline gap-2 mb-2">
+                <span className={`text-2xl font-bold ${c.text}`}>{m.user_value}%</span>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium inline-flex items-center gap-1 ${c.badge}`}>
+                  {statusIcons[m.status]}
+                  {statusLabels[m.status]}
+                </span>
+              </div>
+              {/* Range bar */}
+              <div className="relative h-2 bg-gray-200 dark:bg-gray-600 rounded-full mb-1.5">
+                {/* Industry average range */}
+                <div
+                  className="absolute h-full bg-gray-300 dark:bg-gray-500 rounded-full opacity-60"
+                  style={{ left: `${rangeLowPos}%`, width: `${rangeHighPos - rangeLowPos}%` }}
+                />
+                {/* User marker */}
+                <div
+                  className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 border-white dark:border-gray-800 shadow ${c.bar}`}
+                  style={{ left: `${Math.max(userPos - 2, 0)}%` }}
+                />
+              </div>
+              <p className="text-xs text-gray-400">
+                Avg: {m.range_low}-{m.range_high}% • {m.tip}
+              </p>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
