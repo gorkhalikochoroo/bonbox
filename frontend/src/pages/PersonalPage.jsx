@@ -219,8 +219,15 @@ export default function PersonalPage() {
     } catch {}
   };
 
-  // Personal categories that exist
-  const personalCats = categories.filter((c) => PERSONAL_CATEGORIES.includes(c.name));
+  // Personal categories that exist (deduplicated by name, keeping first match)
+  const seen = new Set();
+  const personalCats = categories.filter((c) => {
+    if (!PERSONAL_CATEGORIES.includes(c.name) || seen.has(c.name)) return false;
+    seen.add(c.name);
+    return true;
+  });
+  // Sort to match PERSONAL_CATEGORIES order
+  personalCats.sort((a, b) => PERSONAL_CATEGORIES.indexOf(a.name) - PERSONAL_CATEGORIES.indexOf(b.name));
   const hasPersonalCats = personalCats.length > 0;
 
   return (
@@ -531,12 +538,12 @@ export default function PersonalPage() {
         <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-1">Add Entry</h2>
         <p className="text-sm text-gray-400 mb-4">Pick a category or type your own</p>
 
-        <div className="flex flex-wrap gap-2 mb-3">
+        <div className="flex flex-wrap gap-1.5 mb-3">
           {(hasPersonalCats ? personalCats : categories).map((c) => (
             <button
               key={c.id}
               onClick={() => { setCatId(c.id); setCustomCat(""); if (!desc) setDesc(c.name); }}
-              className={`px-3 py-2 rounded-xl text-sm font-medium border transition ${
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition whitespace-nowrap ${
                 catId === c.id
                   ? isIncome(c.name)
                     ? "bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-600 text-green-700 dark:text-green-300"
