@@ -1,9 +1,21 @@
 import { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
 import ReceiptCapture from "../components/ReceiptCapture";
 import Onboarding from "../components/Onboarding";
+import {
+  AnimatedCounter,
+  SkeletonCard,
+  SkeletonChart,
+  SkeletonWrapper,
+  useToast,
+  useKeyboardShortcuts,
+  ShortcutsHelp,
+  QuickSaleModal,
+  PullToRefresh,
+} from "../components/BonBoxPolishKit";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -67,6 +79,35 @@ export default function DashboardPage() {
   const [periodStats, setPeriodStats] = useState(null);
   const [categories, setCategories] = useState([]);
   const [benchmarks, setBenchmarks] = useState(null);
+  const [saleModal, setSaleModal] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const navigate = useNavigate();
+  const { showToast, ToastContainer } = useToast();
+
+  useKeyboardShortcuts({
+    s: () => setSaleModal(true),
+    e: () => navigate("/expenses"),
+    d: () => navigate("/dashboard"),
+    i: () => navigate("/inventory"),
+    r: () => navigate("/reports"),
+    "?": () => setHelpOpen(true),
+    escape: () => { setSaleModal(false); setHelpOpen(false); },
+  });
+
+  const handleQuickSale = async (amount) => {
+    try {
+      await api.post("/sales", {
+        amount,
+        date: new Date().toISOString().split("T")[0],
+        payment_method: "cash",
+        description: "Quick sale",
+      });
+      showToast(`Sale logged: ${amount.toLocaleString()} ${currency}`, "success");
+      fetchAll();
+    } catch {
+      showToast("Failed to log sale", "error");
+    }
+  };
 
   const dateRange = useMemo(() => {
     if (period === "custom") return { from: customFrom, to: customTo };
@@ -188,11 +229,30 @@ export default function DashboardPage() {
   };
 
   if (!summary) {
-    return <div className="p-8 text-center text-gray-500 dark:text-gray-400">{t("loadingDashboard")}</div>;
+    return (
+      <div className="p-4 sm:p-6 space-y-6">
+        <div className="flex justify-between items-center">
+          <div>
+            <SkeletonCard />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <SkeletonCard /><SkeletonCard /><SkeletonCard /><SkeletonCard />
+        </div>
+        <SkeletonChart />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <SkeletonChart /><SkeletonChart />
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="p-4 sm:p-6 space-y-6">
+    <PullToRefresh onRefresh={async () => fetchAll()}>
+    <div className="p-4 sm:p-6 space-y-6 page-enter">
+      <ToastContainer />
+      <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <QuickSaleModal open={saleModal} onClose={() => setSaleModal(false)} onSubmit={handleQuickSale} currency={currency} />
       {/* Header + Quick Actions */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
@@ -206,6 +266,12 @@ export default function DashboardPage() {
 
         {/* One-tap actions */}
         <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setSaleModal(true)}
+            className="px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition"
+          >
+            + Quick Sale
+          </button>
           <ReceiptCapture onSaleCreated={fetchAll} />
           <button
             onClick={repeatYesterday}
@@ -253,17 +319,19 @@ export default function DashboardPage() {
       <Onboarding summary={summary} />
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 stagger-cards">
         <KpiCard
           title={PERIOD_LABELS[period]?.revenue || t("todayRevenue")}
-          value={`${(periodStats ? periodStats.totalRevenue : summary.today_revenue).toLocaleString()} ${currency}`}
+          numericValue={periodStats ? periodStats.totalRevenue : summary.today_revenue}
+          currency={currency}
           change={period === "today" ? summary.today_revenue_change : undefined}
           changeLabel={period === "today" ? t("vsYesterday") : undefined}
           subtitle={periodStats ? `${periodStats.salesCount} sales` : undefined}
         />
         <KpiCard
           title={PERIOD_LABELS[period]?.profit || t("monthlyProfit")}
-          value={`${(periodStats ? periodStats.profit : summary.month_profit).toLocaleString()} ${currency}`}
+          numericValue={periodStats ? periodStats.profit : summary.month_profit}
+          currency={currency}
           subtitle={`${periodStats ? periodStats.margin : summary.profit_margin}% ${t("margin")}`}
         />
         <KpiCard
@@ -274,7 +342,8 @@ export default function DashboardPage() {
         {summary.khata_receivable > 0 ? (
           <KpiCard
             title="Khata Receivable"
-            value={`${summary.khata_receivable.toLocaleString()} ${currency}`}
+            numericValue={summary.khata_receivable}
+            currency={currency}
             alert={true}
             subtitle="Outstanding credit"
           />
@@ -302,9 +371,9 @@ export default function DashboardPage() {
       <MotivationalStats summary={summary} monthlyData={monthlyData} />
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fadeIn">
         {/* Revenue Trend + Profit Line */}
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 card-hover">
           <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">{t("revenueTrend")}</h2>
           {(periodStats?.dailyRevenue?.length > 0 || monthlyData?.daily_revenue?.length > 0) ? (
             <ResponsiveContainer width="100%" height={300}>
@@ -329,7 +398,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Expense Breakdown (Donut) */}
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 card-hover">
           <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">{t("expenseBreakdown")}</h2>
           {monthlyData?.expense_breakdown?.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
@@ -497,6 +566,7 @@ export default function DashboardPage() {
         </div>
       )}
     </div>
+    </PullToRefresh>
   );
 }
 
@@ -857,11 +927,15 @@ function BenchmarkCards({ benchmarks, currency }) {
   );
 }
 
-function KpiCard({ title, value, change, changeLabel, subtitle, alert }) {
+function KpiCard({ title, value, change, changeLabel, subtitle, alert, numericValue, currency: cur }) {
   return (
-    <div className={`bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border ${alert ? "border-red-300 dark:border-red-600" : "border-gray-100 dark:border-gray-700"}`}>
+    <div className={`bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border card-hover ${alert ? "border-red-300 dark:border-red-600" : "border-gray-100 dark:border-gray-700"}`}>
       <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">{title}</p>
-      <p className="text-lg sm:text-2xl font-bold text-gray-800 dark:text-gray-100 mt-1 break-words">{value}</p>
+      <p className="text-lg sm:text-2xl font-bold text-gray-800 dark:text-gray-100 mt-1 break-words">
+        {numericValue !== undefined ? (
+          <AnimatedCounter value={numericValue} suffix={cur ? ` ${cur}` : ""} />
+        ) : value}
+      </p>
       {change !== undefined && (
         <p className={`text-sm mt-1 ${change >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
           {change >= 0 ? "+" : ""}{change}% {changeLabel}
