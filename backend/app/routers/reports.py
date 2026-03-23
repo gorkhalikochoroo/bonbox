@@ -643,30 +643,26 @@ def revenue_forecast(
     }
 
 
-@router.get("/vat-export")
-def vat_export(
-    month: int = Query(...),
-    year: int = Query(...),
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    """Monthly VAT/moms summary formatted for Danish SKAT reporting."""
-    start = date(year, month, 1)
-    if month == 12:
-        end = date(year + 1, 1, 1)
-    else:
-        end = date(year, month + 1, 1)
-
+def _get_vat_data(db, user, start, end):
+    """Shared helper to calculate VAT data for a period."""
     sales_total = float(
         db.query(func.coalesce(func.sum(Sale.amount), 0))
         .filter(Sale.user_id == user.id, Sale.date >= start, Sale.date < end, Sale.is_deleted.isnot(True))
         .scalar()
     )
-
     expenses_total = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
         .filter(Expense.user_id == user.id, Expense.date >= start, Expense.date < end, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
         .scalar()
+    )
+    # Expense breakdown by category
+    expense_breakdown = (
+        db.query(ExpenseCategory.name, func.sum(Expense.amount).label("total"))
+        .join(Expense, Expense.category_id == ExpenseCategory.id)
+        .filter(Expense.user_id == user.id, Expense.date >= start, Expense.date < end, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .group_by(ExpenseCategory.name)
+        .order_by(func.sum(Expense.amount).desc())
+        .all()
     )
 
     vat_rate = get_vat_rate(user.currency)
@@ -675,7 +671,6 @@ def vat_export(
     vat_payable = round(output_vat - input_vat, 2)
 
     return {
-        "period": f"{year}-{month:02d}",
         "vat_rate": vat_rate,
         "vat_rate_pct": round(vat_rate * 100, 1),
         "sales_incl_vat": sales_total,
@@ -687,4 +682,199 @@ def vat_export(
         "vat_payable": vat_payable,
         "currency": get_display_currency(user.currency),
         "business_name": user.business_name,
+        "expense_breakdown": [(name, float(total)) for name, total in expense_breakdown],
     }
+
+
+@router.get("/vat-export")
+def vat_export(
+    month: int = Query(None),
+    year: int = Query(...),
+    quarter: int = Query(None, ge=1, le=4),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Monthly or quarterly VAT/moms summary formatted for SKAT reporting."""
+    if quarter:
+        q_months = {1: (1, 3), 2: (4, 6), 3: (7, 9), 4: (10, 12)}
+        m_start, m_end = q_months[quarter]
+        start = date(year, m_start, 1)
+        if m_end == 12:
+            end = date(year + 1, 1, 1)
+        else:
+            end = date(year, m_end + 1, 1)
+        period_label = f"Q{quarter} {year}"
+    elif month:
+        start = date(year, month, 1)
+        end = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+        period_label = f"{year}-{month:02d}"
+    else:
+        start = date(year, 1, 1)
+        end = date(year + 1, 1, 1)
+        period_label = str(year)
+
+    data = _get_vat_data(db, user, start, end)
+    data["period"] = period_label
+    return data
+
+
+@router.get("/vat-export/pdf")
+def vat_export_pdf(
+    month: int = Query(None),
+    year: int = Query(...),
+    quarter: int = Query(None, ge=1, le=4),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Generate SKAT-ready Moms/VAT PDF report."""
+    if quarter:
+        q_months = {1: (1, 3), 2: (4, 6), 3: (7, 9), 4: (10, 12)}
+        m_start, m_end = q_months[quarter]
+        start = date(year, m_start, 1)
+        end = date(year + 1, 1, 1) if m_end == 12 else date(year, m_end + 1, 1)
+        period_label = f"Q{quarter} {year} ({calendar.month_abbr[m_start]}-{calendar.month_abbr[m_end]})"
+        filename = f"Moms_Q{quarter}_{year}.pdf"
+    elif month:
+        start = date(year, month, 1)
+        end = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+        period_label = f"{calendar.month_name[month]} {year}"
+        filename = f"Moms_{calendar.month_name[month]}_{year}.pdf"
+    else:
+        start = date(year, 1, 1)
+        end = date(year + 1, 1, 1)
+        period_label = str(year)
+        filename = f"Moms_{year}.pdf"
+
+    data = _get_vat_data(db, user, start, end)
+    cur = data["currency"]
+    vat_rate = data["vat_rate"]
+
+    # Build PDF
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=15 * mm, bottomMargin=15 * mm, leftMargin=15 * mm, rightMargin=15 * mm)
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle("VTitle", parent=styles["Title"], fontSize=22, spaceAfter=2, textColor=DARK)
+    subtitle_style = ParagraphStyle("VSub", parent=styles["Normal"], fontSize=11, textColor=colors.grey, spaceAfter=4)
+    section_style = ParagraphStyle("VSection", parent=styles["Heading2"], fontSize=14, spaceBefore=16, spaceAfter=8, textColor=DARK)
+    small_style = ParagraphStyle("VSmall", parent=styles["Normal"], fontSize=8, textColor=colors.grey)
+
+    elements = []
+
+    # Header
+    elements.append(Paragraph(f"{data['business_name'] or 'My Business'}", title_style))
+    elements.append(Paragraph(f"Moms / VAT Report &mdash; {period_label}", subtitle_style))
+    elements.append(Paragraph(f"VAT Rate: {data['vat_rate_pct']}% | Currency: {cur} | Generated: {date.today().strftime('%d %B %Y')}", small_style))
+    elements.append(Spacer(1, 3 * mm))
+    elements.append(HRFlowable(width="100%", thickness=1.5, color=PURPLE, spaceAfter=10))
+
+    # Sales VAT (Output Moms / Salgsmoms)
+    elements.append(Paragraph("Output VAT (Salgsmoms)", section_style))
+    sales_data = [
+        ["", "Amount"],
+        ["Sales incl. VAT (Salg inkl. moms)", f"{data['sales_incl_vat']:,.2f} {cur}"],
+        ["Sales excl. VAT (Salg ekskl. moms)", f"{data['sales_excl_vat']:,.2f} {cur}"],
+        ["Output VAT (Salgsmoms)", f"{data['output_vat']:,.2f} {cur}"],
+    ]
+    t = Table(sales_data, colWidths=[95 * mm, 70 * mm])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), BLUE),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("PADDING", (0, 0), (-1, -1), 8),
+        ("GRID", (0, 0), (-1, -1), 0.5, BORDER),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT_BG]),
+        ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#eff6ff")),
+    ]))
+    elements.append(t)
+
+    # Expenses VAT (Input Moms / Købsmoms)
+    elements.append(Paragraph("Input VAT (Købsmoms)", section_style))
+    exp_data = [
+        ["", "Amount"],
+        ["Expenses incl. VAT (Udgifter inkl. moms)", f"{data['expenses_incl_vat']:,.2f} {cur}"],
+        ["Expenses excl. VAT (Udgifter ekskl. moms)", f"{data['expenses_excl_vat']:,.2f} {cur}"],
+        ["Input VAT (Købsmoms)", f"{data['input_vat']:,.2f} {cur}"],
+    ]
+    t2 = Table(exp_data, colWidths=[95 * mm, 70 * mm])
+    t2.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), GREEN),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("PADDING", (0, 0), (-1, -1), 8),
+        ("GRID", (0, 0), (-1, -1), 0.5, BORDER),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT_BG]),
+        ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#f0fdf4")),
+    ]))
+    elements.append(t2)
+
+    # Expense breakdown
+    if data["expense_breakdown"]:
+        elements.append(Paragraph("Expense Breakdown by Category", section_style))
+        bd = [["Category", "Incl. VAT", "VAT Amount"]]
+        for name, total in data["expense_breakdown"]:
+            cat_vat = round(total * vat_rate / (1 + vat_rate), 2) if vat_rate > 0 else 0
+            bd.append([name, f"{total:,.2f} {cur}", f"{cat_vat:,.2f} {cur}"])
+        bd.append(["TOTAL", f"{data['expenses_incl_vat']:,.2f} {cur}", f"{data['input_vat']:,.2f} {cur}"])
+        tb = Table(bd, colWidths=[65 * mm, 50 * mm, 50 * mm])
+        tb.setStyle(_header_table_style())
+        tb.setStyle(TableStyle([
+            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+            ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#f1f5f9")),
+        ]))
+        elements.append(tb)
+
+    # NET VAT PAYABLE
+    elements.append(Spacer(1, 5 * mm))
+    elements.append(Paragraph("Net VAT Payable (Moms til betaling)", section_style))
+    payable_color = RED if data["vat_payable"] >= 0 else GREEN
+    net_data = [
+        ["Output VAT (Salgsmoms)", f"{data['output_vat']:,.2f} {cur}"],
+        ["Input VAT (Købsmoms)", f"- {data['input_vat']:,.2f} {cur}"],
+        ["NET VAT PAYABLE", f"{data['vat_payable']:,.2f} {cur}"],
+    ]
+    tn = Table(net_data, colWidths=[95 * mm, 70 * mm])
+    tn.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 11),
+        ("FONTSIZE", (0, -1), (-1, -1), 13),
+        ("PADDING", (0, 0), (-1, -1), 10),
+        ("GRID", (0, 0), (-1, -1), 0.5, BORDER),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#fef2f2") if data["vat_payable"] >= 0 else colors.HexColor("#f0fdf4")),
+        ("TEXTCOLOR", (1, -1), (1, -1), payable_color),
+        ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+    ]))
+    elements.append(tn)
+
+    status_text = "You owe SKAT this amount" if data["vat_payable"] >= 0 else "SKAT owes you a refund"
+    elements.append(Spacer(1, 2 * mm))
+    elements.append(Paragraph(f"<b>{status_text}</b>", ParagraphStyle("VStatus", parent=small_style, fontSize=10, textColor=payable_color)))
+
+    # Disclaimer
+    elements.append(Spacer(1, 10 * mm))
+    elements.append(HRFlowable(width="100%", thickness=0.5, color=BORDER))
+    elements.append(Spacer(1, 3 * mm))
+    elements.append(Paragraph(
+        "<b>Disclaimer:</b> This report is generated by BonBox for informational purposes only. "
+        "It is NOT official tax documentation. Always consult your accountant or revisor "
+        "before submitting to SKAT via TastSelv. BonBox is not responsible for any errors in tax filings.",
+        ParagraphStyle("VDisclaim", parent=small_style, fontSize=7, textColor=colors.grey),
+    ))
+    elements.append(Paragraph("bonbox.dk", ParagraphStyle("VFoot", parent=small_style, textColor=PURPLE)))
+
+    doc.build(elements)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
