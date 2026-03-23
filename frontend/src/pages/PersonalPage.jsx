@@ -32,6 +32,7 @@ export default function PersonalPage() {
   const [error, setError] = useState("");
   const [tab, setTab] = useState("all"); // "all", "income", "spent"
   const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [loanSummary, setLoanSummary] = useState({ total_borrowed: 0, total_lent: 0, net_balance: 0, persons: [] });
   const [showBudgetEditor, setShowBudgetEditor] = useState(false);
   const [budgets, setBudgets] = useState({});
   const [totalBudget, setTotalBudget] = useState(0);
@@ -47,9 +48,14 @@ export default function PersonalPage() {
       .catch(() => {});
   };
 
+  const fetchLoanSummary = () => {
+    api.get("/loans/summary").then((r) => setLoanSummary(r.data)).catch(() => {});
+  };
+
   useEffect(() => {
     fetchData();
-    const onDataChanged = () => fetchData();
+    fetchLoanSummary();
+    const onDataChanged = () => { fetchData(); fetchLoanSummary(); };
     window.addEventListener("bonbox-data-changed", onDataChanged);
     return () => window.removeEventListener("bonbox-data-changed", onDataChanged);
   }, []);
@@ -101,13 +107,10 @@ export default function PersonalPage() {
   });
   const topSpending = Object.entries(spendingByCategory).sort((a, b) => b[1] - a[1]);
 
-  // Borrowed & Lent tracker (all time)
-  const totalBorrowed = entries
-    .filter((e) => getCatName(e.category_id) === "Borrowed")
-    .reduce((s, e) => s + parseFloat(e.amount), 0);
-  const totalLent = entries
-    .filter((e) => getCatName(e.category_id) === "Lent Out")
-    .reduce((s, e) => s + parseFloat(e.amount), 0);
+  // Loan data from Loan Tracker API
+  const totalBorrowed = loanSummary.total_borrowed;
+  const totalLent = loanSummary.total_lent;
+  const loanNetBalance = loanSummary.net_balance;
   const totalLoanPayments = entries
     .filter((e) => ["Loan Payment", "EMI"].includes(getCatName(e.category_id)))
     .reduce((s, e) => s + parseFloat(e.amount), 0);
@@ -470,7 +473,10 @@ export default function PersonalPage() {
 
         {/* Financial snapshot */}
         <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 space-y-3">
-          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Financial Snapshot</h2>
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Financial Snapshot</h2>
+            <a href="/loans" className="text-xs text-purple-600 dark:text-purple-400 hover:underline">View Loan Tracker →</a>
+          </div>
           <div className="flex items-center justify-between">
             <span className="text-sm text-gray-500 dark:text-gray-400">Savings Rate</span>
             <span className={`text-sm font-bold ${savingsRate >= 20 ? "text-green-600" : savingsRate >= 0 ? "text-yellow-600" : "text-red-500"}`}>
@@ -478,11 +484,11 @@ export default function PersonalPage() {
             </span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-500 dark:text-gray-400">Total Borrowed</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">I Owe (Borrowed)</span>
             <span className="text-sm font-bold text-orange-600 dark:text-orange-400">{totalBorrowed.toLocaleString()} {currency}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-500 dark:text-gray-400">Total Lent Out</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">Owed to Me (Lent)</span>
             <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{totalLent.toLocaleString()} {currency}</span>
           </div>
           <div className="flex items-center justify-between">
@@ -490,11 +496,24 @@ export default function PersonalPage() {
             <span className="text-sm font-bold text-gray-700 dark:text-gray-300">{totalLoanPayments.toLocaleString()} {currency}</span>
           </div>
           <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-700">
-            <span className="text-sm text-gray-500 dark:text-gray-400">Net Owed to You</span>
-            <span className={`text-sm font-bold ${(totalLent - totalBorrowed) >= 0 ? "text-green-600" : "text-red-500"}`}>
-              {(totalLent - totalBorrowed).toLocaleString()} {currency}
+            <span className="text-sm text-gray-500 dark:text-gray-400">Net Balance</span>
+            <span className={`text-sm font-bold ${loanNetBalance >= 0 ? "text-green-600" : "text-red-500"}`}>
+              {loanNetBalance >= 0 ? "+" : ""}{loanNetBalance.toLocaleString()} {currency}
             </span>
           </div>
+          {loanSummary.persons?.length > 0 && (
+            <div className="pt-2 border-t border-gray-100 dark:border-gray-700 space-y-1">
+              <p className="text-xs text-gray-400 uppercase">Top People</p>
+              {loanSummary.persons.slice(0, 3).map((p, i) => (
+                <div key={i} className="flex justify-between text-xs">
+                  <span className="text-gray-600 dark:text-gray-400">{p.name}</span>
+                  <span className={`font-medium ${p.net >= 0 ? "text-green-600" : "text-orange-600"}`}>
+                    {p.net >= 0 ? `+${Number(p.net).toLocaleString()}` : Number(p.net).toLocaleString()} {currency}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
