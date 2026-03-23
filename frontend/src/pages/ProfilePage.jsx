@@ -15,6 +15,9 @@ export default function ProfilePage() {
   const [pwError, setPwError] = useState("");
   const [saving, setSaving] = useState(false);
   const [changingPw, setChangingPw] = useState(false);
+  const [emailPrefs, setEmailPrefs] = useState({ daily_digest_enabled: false, expense_alerts_enabled: true });
+  const [emailMsg, setEmailMsg] = useState("");
+  const [sendingTest, setSendingTest] = useState(false);
 
   useEffect(() => {
     api.get("/auth/me").then((res) => {
@@ -26,7 +29,27 @@ export default function ProfilePage() {
         email: res.data.email || "",
       });
     });
+    api.get("/email/preferences").then((res) => setEmailPrefs(res.data)).catch(() => {});
   }, []);
+
+  const toggleEmailPref = async (key) => {
+    const updated = { ...emailPrefs, [key]: !emailPrefs[key] };
+    setEmailPrefs(updated);
+    try {
+      await api.patch("/email/preferences", updated);
+    } catch { /* ignore */ }
+  };
+
+  const sendTestDigest = async () => {
+    setSendingTest(true);
+    setEmailMsg("");
+    try {
+      const res = await api.post("/email/test-digest");
+      setEmailMsg(res.data.sent ? `Digest sent to ${res.data.to}!` : "Failed to send");
+    } catch { setEmailMsg("Failed to send test"); }
+    setSendingTest(false);
+    setTimeout(() => setEmailMsg(""), 4000);
+  };
 
   const saveProfile = async (e) => {
     e.preventDefault();
@@ -190,6 +213,47 @@ export default function ProfilePage() {
             {changingPw ? "Changing..." : "Change Password"}
           </button>
         </form>
+      </div>
+
+      {/* Email Notifications */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Email Notifications</h2>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Daily Digest</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">Morning email with yesterday's revenue, expenses & profit</p>
+            </div>
+            <button
+              onClick={() => toggleEmailPref("daily_digest_enabled")}
+              className={`relative w-11 h-6 rounded-full transition ${emailPrefs.daily_digest_enabled ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-600"}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${emailPrefs.daily_digest_enabled ? "translate-x-5" : ""}`} />
+            </button>
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Expense Alerts</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">Get alerted when spending spikes 25%+ above your average</p>
+            </div>
+            <button
+              onClick={() => toggleEmailPref("expense_alerts_enabled")}
+              className={`relative w-11 h-6 rounded-full transition ${emailPrefs.expense_alerts_enabled ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-600"}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${emailPrefs.expense_alerts_enabled ? "translate-x-5" : ""}`} />
+            </button>
+          </div>
+          <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
+            <button
+              onClick={sendTestDigest}
+              disabled={sendingTest}
+              className="px-4 py-2 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg text-sm font-medium hover:bg-blue-100 dark:hover:bg-blue-900/50 transition disabled:opacity-50"
+            >
+              {sendingTest ? "Sending..." : "Send Test Digest"}
+            </button>
+            {emailMsg && <span className="ml-3 text-sm text-green-600 dark:text-green-400">{emailMsg}</span>}
+          </div>
+        </div>
       </div>
 
       {/* Account Details */}

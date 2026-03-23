@@ -13,3 +13,5 @@ reportlab==4.2.5
 pillow==11.1.0
 pillow-heif==0.18.0
 slowapi==0.1.9
+resend>=0.7.0
+apscheduler>=3.10.0
