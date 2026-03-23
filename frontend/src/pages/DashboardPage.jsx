@@ -271,11 +271,20 @@ export default function DashboardPage() {
           value={periodStats ? (periodStats.topExpenseCategoryName || t("none")) : (summary.top_expense_category || t("none"))}
           subtitle={periodStats ? (periodStats.topExpenseAmount > 0 ? `${periodStats.topExpenseAmount.toLocaleString()} ${currency}` : "") : (summary.top_expense_amount > 0 ? `${summary.top_expense_amount.toLocaleString()} ${currency}` : "")}
         />
-        <KpiCard
-          title={t("inventoryAlerts")}
-          value={summary.inventory_alerts}
-          alert={summary.inventory_alerts > 0}
-        />
+        {summary.khata_receivable > 0 ? (
+          <KpiCard
+            title="Khata Receivable"
+            value={`${summary.khata_receivable.toLocaleString()} ${currency}`}
+            alert={true}
+            subtitle="Outstanding credit"
+          />
+        ) : (
+          <KpiCard
+            title={t("inventoryAlerts")}
+            value={summary.inventory_alerts}
+            alert={summary.inventory_alerts > 0}
+          />
+        )}
       </div>
 
       {/* Daily Goal Progress */}

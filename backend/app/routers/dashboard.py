@@ -9,6 +9,7 @@ from app.models.user import User
 from app.models.sale import Sale
 from app.models.expense import Expense, ExpenseCategory
 from app.models.inventory import InventoryItem
+from app.models.khata import KhataCustomer, KhataTransaction
 from app.schemas.dashboard import DashboardSummary, BenchmarkResponse, BenchmarkMetric
 from app.services.auth import get_current_user
 
@@ -143,6 +144,16 @@ def get_summary(
         .first()
     ) is not None
 
+    # Khata receivable (total outstanding credit)
+    khata_receivable = float(
+        db.query(
+            func.coalesce(func.sum(KhataTransaction.purchase_amount), 0)
+            - func.coalesce(func.sum(KhataTransaction.paid_amount), 0)
+        ).filter(
+            KhataTransaction.user_id == user.id,
+        ).scalar()
+    )
+
     return DashboardSummary(
         today_revenue=float(today_rev),
         today_revenue_change=today_change,
@@ -156,6 +167,7 @@ def get_summary(
         total_sales=total_sales,
         has_expense_categories=has_expense_categories,
         has_inventory_items=has_inventory_items,
+        khata_receivable=max(khata_receivable, 0),
     )
 
 

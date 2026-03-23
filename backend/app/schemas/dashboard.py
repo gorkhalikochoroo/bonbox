@@ -14,6 +14,7 @@ class DashboardSummary(BaseModel):
     total_sales: int  # total number of sales ever recorded
     has_expense_categories: bool  # whether user has any expense categories
     has_inventory_items: bool  # whether user has any inventory items
+    khata_receivable: float = 0  # total outstanding khata credit
 
 
 class BenchmarkMetric(BaseModel):

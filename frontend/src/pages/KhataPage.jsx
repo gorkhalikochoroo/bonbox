@@ -18,6 +18,8 @@ export default function KhataPage() {
   const [txnForm, setTxnForm] = useState({ date: new Date().toISOString().slice(0, 10), purchase_amount: "", paid_amount: "", notes: "" });
   const [editTxn, setEditTxn] = useState(null);
   const [error, setError] = useState("");
+  const [showPayForm, setShowPayForm] = useState(false);
+  const [payAmount, setPayAmount] = useState("");
 
   const fetchCustomers = () => {
     api.get("/khata/customers").then((r) => {
@@ -93,6 +95,38 @@ export default function KhataPage() {
     fetchTransactions(selectedCustomer.id);
     fetchCustomers();
   };
+
+  const handleQuickPay = async (e) => {
+    e.preventDefault();
+    const val = parseFloat(payAmount);
+    if (!val || !selectedCustomer) return;
+    setError("");
+    try {
+      await api.post("/khata/transactions", {
+        customer_id: selectedCustomer.id,
+        date: new Date().toISOString().slice(0, 10),
+        purchase_amount: 0,
+        paid_amount: val,
+        notes: "Payment received",
+      });
+      setPayAmount("");
+      setShowPayForm(false);
+      fetchTransactions(selectedCustomer.id);
+      fetchCustomers();
+    } catch (err) {
+      setError(err.response?.data?.detail || "Failed to record payment");
+    }
+  };
+
+  // Calculate customer totals
+  const customerTotals = transactions.reduce(
+    (acc, t) => ({
+      purchased: acc.purchased + parseFloat(t.purchase_amount),
+      paid: acc.paid + parseFloat(t.paid_amount),
+    }),
+    { purchased: 0, paid: 0 }
+  );
+  const customerRemaining = customerTotals.purchased - customerTotals.paid;
 
   const filtered = customers.filter((c) => !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.phone?.includes(search));
 
@@ -211,19 +245,63 @@ export default function KhataPage() {
           {selectedCustomer ? (
             <>
               <div className="p-4 border-b border-gray-100 dark:border-gray-700">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between mb-3">
                   <div>
                     <h2 className="text-lg font-semibold text-gray-800 dark:text-white">{selectedCustomer.name}</h2>
                     {selectedCustomer.phone && <p className="text-sm text-gray-500">{selectedCustomer.phone}</p>}
-                    {selectedCustomer.address && <p className="text-sm text-gray-500">{selectedCustomer.address}</p>}
                   </div>
-                  <div className="text-right">
-                    <p className="text-xs text-gray-500 uppercase">Balance</p>
-                    <p className={`text-2xl font-bold ${selectedCustomer.balance > 0 ? "text-red-600" : "text-green-600"}`}>
-                      {fmt(selectedCustomer.balance)} {currency}
+                  <button
+                    onClick={() => setShowPayForm(!showPayForm)}
+                    className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition"
+                  >
+                    💰 Record Payment
+                  </button>
+                </div>
+
+                {/* Totals bar */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-3 text-center">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Total Purchased</p>
+                    <p className="text-lg font-bold text-red-600">{fmt(customerTotals.purchased)}</p>
+                  </div>
+                  <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 text-center">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Total Paid</p>
+                    <p className="text-lg font-bold text-green-600">{fmt(customerTotals.paid)}</p>
+                  </div>
+                  <div className={`rounded-lg p-3 text-center ${customerRemaining > 0 ? "bg-orange-50 dark:bg-orange-900/20" : "bg-green-50 dark:bg-green-900/20"}`}>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Remaining</p>
+                    <p className={`text-lg font-bold ${customerRemaining > 0 ? "text-orange-600" : "text-green-600"}`}>
+                      {customerRemaining > 0 ? fmt(customerRemaining) : "Settled ✓"}
                     </p>
                   </div>
                 </div>
+
+                {/* Quick Pay Form */}
+                {showPayForm && (
+                  <form onSubmit={handleQuickPay} className="mt-3 flex gap-2">
+                    <input
+                      type="number"
+                      placeholder={`Amount (remaining: ${fmt(customerRemaining)})`}
+                      value={payAmount}
+                      onChange={(e) => setPayAmount(e.target.value)}
+                      className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-white"
+                      min="0" step="0.01" autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setPayAmount(String(customerRemaining))}
+                      className="px-3 py-2 bg-gray-100 dark:bg-gray-600 rounded-lg text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-500 transition"
+                    >
+                      Full
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition"
+                    >
+                      Pay
+                    </button>
+                  </form>
+                )}
               </div>
 
               {/* Add Transaction Form */}
