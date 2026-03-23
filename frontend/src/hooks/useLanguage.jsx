@@ -6,7 +6,7 @@ const translations = {
   en: {
     dashboard: "Dashboard", sales: "Sales", expenses: "Expenses", inventory: "Inventory",
     smartStaffing: "Smart Staffing", wasteTracker: "Waste Tracker", weeklyReport: "Weekly Report",
-    momsVat: "Moms/VAT", darkMode: "Dark Mode", lightMode: "Light Mode", signOut: "Sign Out",
+    momsVat: "Tax/VAT", darkMode: "Dark Mode", lightMode: "Light Mode", signOut: "Sign Out",
     language: "Dansk",
     // Dashboard
     welcome: "Welcome", todayRevenue: "Today's Revenue", monthlyProfit: "Monthly Profit",
@@ -70,15 +70,15 @@ const translations = {
     daysRecorded: "Days Recorded", bestDay: "Best Day", slowestDay: "Slowest Day",
     revenue: "Revenue", vsLastWeek: "vs last week",
     loadingReport: "Loading report...", noSalesData: "No sales data available yet.",
-    // VAT
-    vatReport: "Momsopgørelse / VAT Report", salesSection: "Salg (Sales)",
-    salesInclVat: "Salg inkl. moms (Sales incl. VAT)", salesExclVat: "Salg ekskl. moms (Sales excl. VAT)",
-    outputVat: "Udgående moms (Output VAT)", expensesSection: "Udgifter (Expenses)",
-    expensesInclVat: "Udgifter inkl. moms (Expenses incl. VAT)",
-    expensesExclVat: "Udgifter ekskl. moms (Expenses excl. VAT)",
-    inputVat: "Indgående moms (Input VAT)", vatPayable: "Moms til betaling (VAT Payable)",
-    payableToSkat: "Amount payable to SKAT", refundFromSkat: "Refund from SKAT",
-    loadingVat: "Loading VAT report...", vatError: "Could not load VAT report.",
+    // VAT — these are now generic fallbacks; currency-specific terms come from getVatTerms()
+    vatReport: "Tax Report", salesSection: "Sales",
+    salesInclVat: "Sales incl. Tax", salesExclVat: "Sales excl. Tax",
+    outputVat: "Output Tax", expensesSection: "Expenses",
+    expensesInclVat: "Expenses incl. Tax",
+    expensesExclVat: "Expenses excl. Tax",
+    inputVat: "Input Tax", vatPayable: "Tax Payable",
+    payableToSkat: "Amount payable to tax authority", refundFromSkat: "Tax refund",
+    loadingVat: "Loading tax report...", vatError: "Could not load tax report.",
     // Receipt
     uploadReceipt: "Upload Receipt Photo", takePhoto: "Take Photo",
     photoOrGallery: "Take a photo or choose from gallery", scanningReceipt: "Scanning receipt...",
@@ -181,7 +181,7 @@ const translations = {
     daysRecorded: "Dage registreret", bestDay: "Bedste dag", slowestDay: "Langsomste dag",
     revenue: "Omsætning", vsLastWeek: "vs sidste uge",
     loadingReport: "Indlæser rapport...", noSalesData: "Ingen salgsdata tilgængelig endnu.",
-    // VAT
+    // VAT — generic Danish fallbacks; currency-specific terms come from getVatTerms()
     vatReport: "Momsopgørelse", salesSection: "Salg",
     salesInclVat: "Salg inkl. moms", salesExclVat: "Salg ekskl. moms",
     outputVat: "Udgående moms", expensesSection: "Udgifter",

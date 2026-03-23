@@ -1,11 +1,15 @@
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { useAuth } from "../hooks/useAuth";
+import { getVatTerms } from "../utils/currency";
 
 const currentDate = new Date();
 
 export default function VatReportPage() {
   const { t } = useLanguage();
+  const { user } = useAuth();
+  const vat = getVatTerms(user?.currency);
   const [mode, setMode] = useState("monthly"); // "monthly" or "quarterly"
   const [month, setMonth] = useState(currentDate.getMonth() + 1);
   const [quarter, setQuarter] = useState(Math.ceil((currentDate.getMonth() + 1) / 3));
@@ -52,8 +56,8 @@ export default function VatReportPage() {
       const a = document.createElement("a");
       a.href = url;
       a.download = mode === "quarterly"
-        ? `Moms_Q${quarter}_${year}.pdf`
-        : `Moms_${months[month - 1]}_${year}.pdf`;
+        ? `${vat.vatName}_Q${quarter}_${year}.pdf`
+        : `${vat.vatName}_${months[month - 1]}_${year}.pdf`;
       a.click();
       window.URL.revokeObjectURL(url);
     } catch {
@@ -65,7 +69,7 @@ export default function VatReportPage() {
   };
 
   const fmt = (val) =>
-    val != null ? val.toLocaleString("da-DK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
+    val != null ? val.toLocaleString(vat.locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
 
   const months = [
     "Januar", "Februar", "Marts", "April", "Maj", "Juni",
@@ -161,44 +165,44 @@ export default function VatReportPage() {
       {report && !loading && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
           <div className="text-center mb-6">
-            <p className="text-sm text-gray-400 dark:text-gray-500 uppercase tracking-wide">{t("vatReport")}</p>
+            <p className="text-sm text-gray-400 dark:text-gray-500 uppercase tracking-wide">{vat.reportTitle}</p>
             <h1 className="text-xl font-bold text-gray-800 dark:text-white mt-1">
               {report.business_name || "My Business"}
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{report.period}</p>
             {report.vat_rate_pct !== undefined && (
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">VAT Rate: {report.vat_rate_pct}%</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{vat.vatName} Rate: {report.vat_rate_pct}%</p>
             )}
           </div>
 
           <div className="space-y-3 mb-6">
-            <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("salesSection")}</h2>
+            <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">{vat.salesSection}</h2>
             <div className="flex justify-between py-2 border-b border-gray-100 dark:border-gray-700">
-              <span className="text-sm text-gray-600 dark:text-gray-300">{t("salesInclVat")}</span>
+              <span className="text-sm text-gray-600 dark:text-gray-300">{vat.salesInclVat}</span>
               <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{fmt(report.sales_incl_vat)} {report.currency}</span>
             </div>
             <div className="flex justify-between py-2 border-b border-gray-100 dark:border-gray-700">
-              <span className="text-sm text-gray-600 dark:text-gray-300">{t("salesExclVat")}</span>
+              <span className="text-sm text-gray-600 dark:text-gray-300">{vat.salesExclVat}</span>
               <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{fmt(report.sales_excl_vat)} {report.currency}</span>
             </div>
             <div className="flex justify-between py-2 border-b border-gray-100 dark:border-gray-700">
-              <span className="text-sm text-gray-600 dark:text-gray-300">{t("outputVat")}</span>
+              <span className="text-sm text-gray-600 dark:text-gray-300">{vat.outputVat}</span>
               <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">{fmt(report.output_vat)} {report.currency}</span>
             </div>
           </div>
 
           <div className="space-y-3 mb-6">
-            <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("expensesSection")}</h2>
+            <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">{vat.expensesSection}</h2>
             <div className="flex justify-between py-2 border-b border-gray-100 dark:border-gray-700">
-              <span className="text-sm text-gray-600 dark:text-gray-300">{t("expensesInclVat")}</span>
+              <span className="text-sm text-gray-600 dark:text-gray-300">{vat.expensesInclVat}</span>
               <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{fmt(report.expenses_incl_vat)} {report.currency}</span>
             </div>
             <div className="flex justify-between py-2 border-b border-gray-100 dark:border-gray-700">
-              <span className="text-sm text-gray-600 dark:text-gray-300">{t("expensesExclVat")}</span>
+              <span className="text-sm text-gray-600 dark:text-gray-300">{vat.expensesExclVat}</span>
               <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{fmt(report.expenses_excl_vat)} {report.currency}</span>
             </div>
             <div className="flex justify-between py-2 border-b border-gray-100 dark:border-gray-700">
-              <span className="text-sm text-gray-600 dark:text-gray-300">{t("inputVat")}</span>
+              <span className="text-sm text-gray-600 dark:text-gray-300">{vat.inputVat}</span>
               <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">{fmt(report.input_vat)} {report.currency}</span>
             </div>
           </div>
@@ -206,7 +210,7 @@ export default function VatReportPage() {
           {/* Expense breakdown */}
           {report.expense_breakdown?.length > 0 && (
             <div className="mb-6">
-              <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Expense VAT Breakdown</h2>
+              <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">{vat.expensesSection} {vat.vatName} Breakdown</h2>
               <div className="space-y-2">
                 {report.expense_breakdown.map(([name, total]) => {
                   const catVat = report.vat_rate > 0 ? total * report.vat_rate / (1 + report.vat_rate) : 0;
@@ -214,7 +218,7 @@ export default function VatReportPage() {
                     <div key={name} className="flex justify-between py-1.5 text-sm">
                       <span className="text-gray-600 dark:text-gray-300">{name}</span>
                       <span className="text-gray-500 dark:text-gray-400">
-                        {fmt(total)} ({t("inputVat")}: {fmt(catVat)}) {report.currency}
+                        {fmt(total)} ({vat.inputVat}: {fmt(catVat)}) {report.currency}
                       </span>
                     </div>
                   );
@@ -225,18 +229,18 @@ export default function VatReportPage() {
 
           <div className="bg-slate-50 dark:bg-gray-700/50 rounded-xl p-4">
             <div className="flex justify-between items-center">
-              <span className="text-base font-bold text-gray-800 dark:text-white">{t("vatPayable")}</span>
+              <span className="text-base font-bold text-gray-800 dark:text-white">{vat.vatPayable}</span>
               <span className={`text-2xl font-extrabold ${report.vat_payable >= 0 ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}>
                 {fmt(report.vat_payable)} {report.currency}
               </span>
             </div>
             <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-              {report.vat_payable >= 0 ? t("payableToSkat") : t("refundFromSkat")}
+              {report.vat_payable >= 0 ? vat.payableTo : vat.refundFrom}
             </p>
           </div>
 
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-4 text-center">
-            ⚠️ This is an estimate for reference only. Consult your accountant before submitting to SKAT.
+            ⚠️ This is an estimate for reference only. Consult your accountant before submitting to {vat.taxAuthority}.
           </p>
         </div>
       )}

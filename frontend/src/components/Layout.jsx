@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useDarkMode } from "../hooks/useDarkMode";
 import { useLanguage } from "../hooks/useLanguage";
+import { getVatTerms } from "../utils/currency";
 import QuickAdd from "./QuickAdd";
 import { usePageTracking } from "../hooks/useEventLog";
 
@@ -15,7 +16,7 @@ const businessNav = [
   { to: "/staffing", labelKey: "smartStaffing" },
   { to: "/waste", labelKey: "wasteTracker" },
   { to: "/weekly-report", labelKey: "weeklyReport" },
-  { to: "/vat-report", labelKey: "momsVat" },
+  { to: "/vat-report", labelKey: "momsVat", dynamic: true },
   { to: "/feedback", labelKey: "feedback" },
   { to: "/recently-deleted", labelKey: "recentlyDeleted" },
   { to: "/contact", labelKey: "contact" },
@@ -42,6 +43,7 @@ export default function Layout() {
     closeSidebar();
   };
 
+  const vatTerms = getVatTerms(user?.currency);
   const navItems = mode === "personal" ? personalNav : businessNav;
   const [dark, toggleDark] = useDarkMode();
   const { t, toggleLang } = useLanguage();
@@ -115,7 +117,7 @@ export default function Layout() {
                 }`
               }
             >
-              {item.labelKey ? t(item.labelKey) : item.label}
+              {item.dynamic ? vatTerms.sidebarLabel : item.labelKey ? t(item.labelKey) : item.label}
             </NavLink>
           ))}
         </nav>

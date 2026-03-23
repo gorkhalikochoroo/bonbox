@@ -54,6 +54,92 @@ def get_vat_rate(currency: str) -> float:
     return VAT_RATES.get(currency, 0.13)
 
 
+# Localized VAT terminology by currency
+VAT_TERMS = {
+    "DKK": {"name": "Moms", "output": "Udgående moms (Salgsmoms)", "input": "Indgående moms (Købsmoms)",
+             "net": "Moms til betaling", "owe": "Du skylder SKAT dette beløb", "refund": "SKAT skylder dig en tilbagebetaling",
+             "authority": "SKAT", "report": "Momsopgørelse",
+             "sales_incl": "Salg inkl. moms", "sales_excl": "Salg ekskl. moms",
+             "exp_incl": "Udgifter inkl. moms", "exp_excl": "Udgifter ekskl. moms"},
+    "SEK": {"name": "Moms", "output": "Utgående moms", "input": "Ingående moms",
+             "net": "Moms att betala", "owe": "Att betala till Skatteverket", "refund": "Återbetalning från Skatteverket",
+             "authority": "Skatteverket", "report": "Momsredovisning",
+             "sales_incl": "Försäljning inkl. moms", "sales_excl": "Försäljning exkl. moms",
+             "exp_incl": "Utgifter inkl. moms", "exp_excl": "Utgifter exkl. moms"},
+    "NOK": {"name": "MVA", "output": "Utgående MVA", "input": "Inngående MVA",
+             "net": "MVA å betale", "owe": "Beløp å betale til Skatteetaten", "refund": "Tilgode fra Skatteetaten",
+             "authority": "Skatteetaten", "report": "MVA-oppgave",
+             "sales_incl": "Salg inkl. MVA", "sales_excl": "Salg ekskl. MVA",
+             "exp_incl": "Utgifter inkl. MVA", "exp_excl": "Utgifter ekskl. MVA"},
+    "EUR_DE": {"name": "MwSt", "output": "Umsatzsteuer", "input": "Vorsteuer",
+             "net": "MwSt-Zahllast", "owe": "An das Finanzamt zu zahlen", "refund": "Erstattung vom Finanzamt",
+             "authority": "Finanzamt", "report": "Umsatzsteuererklärung",
+             "sales_incl": "Umsätze inkl. MwSt", "sales_excl": "Umsätze exkl. MwSt",
+             "exp_incl": "Ausgaben inkl. MwSt", "exp_excl": "Ausgaben exkl. MwSt"},
+    "EUR_FR": {"name": "TVA", "output": "TVA collectée", "input": "TVA déductible",
+             "net": "TVA à payer", "owe": "Montant à payer aux impôts", "refund": "Crédit de TVA",
+             "authority": "DGFiP", "report": "Déclaration de TVA",
+             "sales_incl": "Ventes TTC", "sales_excl": "Ventes HT",
+             "exp_incl": "Dépenses TTC", "exp_excl": "Dépenses HT"},
+    "EUR_ES": {"name": "IVA", "output": "IVA repercutido", "input": "IVA soportado",
+             "net": "IVA a pagar", "owe": "A ingresar en Hacienda", "refund": "A devolver por Hacienda",
+             "authority": "Hacienda", "report": "Declaración de IVA",
+             "sales_incl": "Ventas con IVA", "sales_excl": "Ventas sin IVA",
+             "exp_incl": "Gastos con IVA", "exp_excl": "Gastos sin IVA"},
+    "EUR_PT": {"name": "IVA", "output": "IVA liquidado", "input": "IVA dedutível",
+             "net": "IVA a pagar", "owe": "Montante a pagar à AT", "refund": "Reembolso da AT",
+             "authority": "AT", "report": "Declaração de IVA",
+             "sales_incl": "Vendas com IVA", "sales_excl": "Vendas sem IVA",
+             "exp_incl": "Despesas com IVA", "exp_excl": "Despesas sem IVA"},
+    "EUR_IT": {"name": "IVA", "output": "IVA a debito", "input": "IVA a credito",
+             "net": "IVA da versare", "owe": "Da versare all'Agenzia delle Entrate", "refund": "Credito dall'Agenzia delle Entrate",
+             "authority": "Agenzia delle Entrate", "report": "Dichiarazione IVA",
+             "sales_incl": "Vendite IVA inclusa", "sales_excl": "Vendite IVA esclusa",
+             "exp_incl": "Spese IVA inclusa", "exp_excl": "Spese IVA esclusa"},
+    "EUR_NL": {"name": "BTW", "output": "Verschuldigde BTW", "input": "Voorbelasting",
+             "net": "Te betalen BTW", "owe": "Te betalen aan de Belastingdienst", "refund": "Terug te ontvangen van de Belastingdienst",
+             "authority": "Belastingdienst", "report": "BTW-aangifte",
+             "sales_incl": "Verkoop incl. BTW", "sales_excl": "Verkoop excl. BTW",
+             "exp_incl": "Uitgaven incl. BTW", "exp_excl": "Uitgaven excl. BTW"},
+    "NPR": {"name": "VAT", "output": "Output VAT", "input": "Input VAT",
+             "net": "VAT Payable", "owe": "Amount payable to IRD Nepal", "refund": "Refund from IRD Nepal",
+             "authority": "IRD", "report": "VAT Return",
+             "sales_incl": "Sales incl. VAT", "sales_excl": "Sales excl. VAT",
+             "exp_incl": "Expenses incl. VAT", "exp_excl": "Expenses excl. VAT"},
+    "GBP": {"name": "VAT", "output": "Output VAT", "input": "Input VAT",
+             "net": "VAT Payable", "owe": "Amount payable to HMRC", "refund": "Refund from HMRC",
+             "authority": "HMRC", "report": "VAT Return",
+             "sales_incl": "Sales incl. VAT", "sales_excl": "Sales excl. VAT",
+             "exp_incl": "Expenses incl. VAT", "exp_excl": "Expenses excl. VAT"},
+    "INR": {"name": "GST", "output": "Output GST", "input": "Input GST",
+             "net": "GST Payable", "owe": "Amount payable to GST Council", "refund": "GST refund",
+             "authority": "GST Council", "report": "GST Return",
+             "sales_incl": "Sales incl. GST", "sales_excl": "Sales excl. GST",
+             "exp_incl": "Expenses incl. GST", "exp_excl": "Expenses excl. GST"},
+    "AUD": {"name": "GST", "output": "GST on Sales", "input": "GST on Purchases",
+             "net": "GST Payable", "owe": "Amount payable to ATO", "refund": "Refund from ATO",
+             "authority": "ATO", "report": "GST Report",
+             "sales_incl": "Sales incl. GST", "sales_excl": "Sales excl. GST",
+             "exp_incl": "Expenses incl. GST", "exp_excl": "Expenses excl. GST"},
+    "CHF": {"name": "MWST", "output": "Geschuldete MWST", "input": "Vorsteuer",
+             "net": "MWST-Zahllast", "owe": "An die ESTV zu zahlen", "refund": "Rückerstattung von der ESTV",
+             "authority": "ESTV", "report": "MWST-Abrechnung",
+             "sales_incl": "Umsätze inkl. MWST", "sales_excl": "Umsätze exkl. MWST",
+             "exp_incl": "Ausgaben inkl. MWST", "exp_excl": "Ausgaben exkl. MWST"},
+}
+
+# Default English fallback
+_DEFAULT_TERMS = {"name": "Tax", "output": "Output Tax", "input": "Input Tax",
+                  "net": "Tax Payable", "owe": "You owe this amount", "refund": "Tax refund due",
+                  "authority": "Tax Authority", "report": "Tax Report",
+                  "sales_incl": "Sales incl. Tax", "sales_excl": "Sales excl. Tax",
+                  "exp_incl": "Expenses incl. Tax", "exp_excl": "Expenses excl. Tax"}
+
+
+def get_vat_terms(currency: str) -> dict:
+    return VAT_TERMS.get(currency, _DEFAULT_TERMS)
+
+
 def get_display_currency(currency: str) -> str:
     """EUR_PT -> EUR, EUR_DE -> EUR, etc."""
     if currency.startswith("EUR_"):
@@ -493,13 +579,14 @@ def monthly_report_pdf(
     # ============================================================
     # VAT SUMMARY
     # ============================================================
-    elements.append(Paragraph("VAT / Moms Summary", section_style))
-    elements.append(Paragraph(f"VAT/Tax rate: {vat_rate * 100:.0f}% ({user.currency}) (for accountant reference)", subsection_style))
+    mterms = get_vat_terms(user.currency or "DKK")
+    elements.append(Paragraph(f"{mterms['name']} Summary", section_style))
+    elements.append(Paragraph(f"{mterms['name']} rate: {vat_rate * 100:.0f}% ({user.currency}) (for accountant reference)", subsection_style))
     vat_data = [
-        ["", "Incl. VAT", "Excl. VAT", "VAT Amount"],
-        ["Sales (Salg)", f"{total_revenue:,.0f}", f"{total_revenue / (1 + vat_rate):,.0f}", f"{output_vat:,.0f}"],
-        ["Expenses (Udgifter)", f"{total_expenses:,.0f}", f"{total_expenses / (1 + vat_rate):,.0f}", f"{input_vat:,.0f}"],
-        ["VAT Payable (Moms)", "", "", f"{vat_payable:,.0f} {cur}"],
+        ["", f"Incl. {mterms['name']}", f"Excl. {mterms['name']}", f"{mterms['name']} Amount"],
+        [mterms["output"], f"{total_revenue:,.0f}", f"{total_revenue / (1 + vat_rate):,.0f}", f"{output_vat:,.0f}"],
+        [mterms["input"], f"{total_expenses:,.0f}", f"{total_expenses / (1 + vat_rate):,.0f}", f"{input_vat:,.0f}"],
+        [mterms["net"], "", "", f"{vat_payable:,.0f} {cur}"],
     ]
     tv = Table(vat_data, colWidths=[45 * mm, 35 * mm, 35 * mm, 40 * mm])
     tv.setStyle(_header_table_style())
@@ -726,28 +813,30 @@ def vat_export_pdf(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Generate SKAT-ready Moms/VAT PDF report."""
+    """Generate localized VAT/Tax PDF report."""
+    tax_name = get_vat_terms(user.currency or "DKK")["name"]
     if quarter:
         q_months = {1: (1, 3), 2: (4, 6), 3: (7, 9), 4: (10, 12)}
         m_start, m_end = q_months[quarter]
         start = date(year, m_start, 1)
         end = date(year + 1, 1, 1) if m_end == 12 else date(year, m_end + 1, 1)
         period_label = f"Q{quarter} {year} ({calendar.month_abbr[m_start]}-{calendar.month_abbr[m_end]})"
-        filename = f"Moms_Q{quarter}_{year}.pdf"
+        filename = f"{tax_name}_Q{quarter}_{year}.pdf"
     elif month:
         start = date(year, month, 1)
         end = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
         period_label = f"{calendar.month_name[month]} {year}"
-        filename = f"Moms_{calendar.month_name[month]}_{year}.pdf"
+        filename = f"{tax_name}_{calendar.month_name[month]}_{year}.pdf"
     else:
         start = date(year, 1, 1)
         end = date(year + 1, 1, 1)
         period_label = str(year)
-        filename = f"Moms_{year}.pdf"
+        filename = f"{tax_name}_{year}.pdf"
 
     data = _get_vat_data(db, user, start, end)
     cur = data["currency"]
     vat_rate = data["vat_rate"]
+    terms = get_vat_terms(user.currency or "DKK")
 
     # Build PDF
     buf = io.BytesIO()
@@ -763,18 +852,18 @@ def vat_export_pdf(
 
     # Header
     elements.append(Paragraph(f"{data['business_name'] or 'My Business'}", title_style))
-    elements.append(Paragraph(f"Moms / VAT Report &mdash; {period_label}", subtitle_style))
-    elements.append(Paragraph(f"VAT Rate: {data['vat_rate_pct']}% | Currency: {cur} | Generated: {date.today().strftime('%d %B %Y')}", small_style))
+    elements.append(Paragraph(f"{terms['report']} &mdash; {period_label}", subtitle_style))
+    elements.append(Paragraph(f"{terms['name']} Rate: {data['vat_rate_pct']}% | Currency: {cur} | Generated: {date.today().strftime('%d %B %Y')}", small_style))
     elements.append(Spacer(1, 3 * mm))
     elements.append(HRFlowable(width="100%", thickness=1.5, color=PURPLE, spaceAfter=10))
 
-    # Sales VAT (Output Moms / Salgsmoms)
-    elements.append(Paragraph("Output VAT (Salgsmoms)", section_style))
+    # Sales VAT (Output)
+    elements.append(Paragraph(terms["output"], section_style))
     sales_data = [
         ["", "Amount"],
-        ["Sales incl. VAT (Salg inkl. moms)", f"{data['sales_incl_vat']:,.2f} {cur}"],
-        ["Sales excl. VAT (Salg ekskl. moms)", f"{data['sales_excl_vat']:,.2f} {cur}"],
-        ["Output VAT (Salgsmoms)", f"{data['output_vat']:,.2f} {cur}"],
+        [terms["sales_incl"], f"{data['sales_incl_vat']:,.2f} {cur}"],
+        [terms["sales_excl"], f"{data['sales_excl_vat']:,.2f} {cur}"],
+        [terms["output"], f"{data['output_vat']:,.2f} {cur}"],
     ]
     t = Table(sales_data, colWidths=[95 * mm, 70 * mm])
     t.setStyle(TableStyle([
@@ -792,13 +881,13 @@ def vat_export_pdf(
     ]))
     elements.append(t)
 
-    # Expenses VAT (Input Moms / Købsmoms)
-    elements.append(Paragraph("Input VAT (Købsmoms)", section_style))
+    # Expenses VAT (Input)
+    elements.append(Paragraph(terms["input"], section_style))
     exp_data = [
         ["", "Amount"],
-        ["Expenses incl. VAT (Udgifter inkl. moms)", f"{data['expenses_incl_vat']:,.2f} {cur}"],
-        ["Expenses excl. VAT (Udgifter ekskl. moms)", f"{data['expenses_excl_vat']:,.2f} {cur}"],
-        ["Input VAT (Købsmoms)", f"{data['input_vat']:,.2f} {cur}"],
+        [terms["exp_incl"], f"{data['expenses_incl_vat']:,.2f} {cur}"],
+        [terms["exp_excl"], f"{data['expenses_excl_vat']:,.2f} {cur}"],
+        [terms["input"], f"{data['input_vat']:,.2f} {cur}"],
     ]
     t2 = Table(exp_data, colWidths=[95 * mm, 70 * mm])
     t2.setStyle(TableStyle([
@@ -834,12 +923,12 @@ def vat_export_pdf(
 
     # NET VAT PAYABLE
     elements.append(Spacer(1, 5 * mm))
-    elements.append(Paragraph("Net VAT Payable (Moms til betaling)", section_style))
+    elements.append(Paragraph(terms["net"], section_style))
     payable_color = RED if data["vat_payable"] >= 0 else GREEN
     net_data = [
-        ["Output VAT (Salgsmoms)", f"{data['output_vat']:,.2f} {cur}"],
-        ["Input VAT (Købsmoms)", f"- {data['input_vat']:,.2f} {cur}"],
-        ["NET VAT PAYABLE", f"{data['vat_payable']:,.2f} {cur}"],
+        [terms["output"], f"{data['output_vat']:,.2f} {cur}"],
+        [terms["input"], f"- {data['input_vat']:,.2f} {cur}"],
+        [terms["net"].upper(), f"{data['vat_payable']:,.2f} {cur}"],
     ]
     tn = Table(net_data, colWidths=[95 * mm, 70 * mm])
     tn.setStyle(TableStyle([
@@ -855,7 +944,7 @@ def vat_export_pdf(
     ]))
     elements.append(tn)
 
-    status_text = "You owe SKAT this amount" if data["vat_payable"] >= 0 else "SKAT owes you a refund"
+    status_text = terms["owe"] if data["vat_payable"] >= 0 else terms["refund"]
     elements.append(Spacer(1, 2 * mm))
     elements.append(Paragraph(f"<b>{status_text}</b>", ParagraphStyle("VStatus", parent=small_style, fontSize=10, textColor=payable_color)))
 
@@ -864,9 +953,9 @@ def vat_export_pdf(
     elements.append(HRFlowable(width="100%", thickness=0.5, color=BORDER))
     elements.append(Spacer(1, 3 * mm))
     elements.append(Paragraph(
-        "<b>Disclaimer:</b> This report is generated by BonBox for informational purposes only. "
-        "It is NOT official tax documentation. Always consult your accountant or revisor "
-        "before submitting to SKAT via TastSelv. BonBox is not responsible for any errors in tax filings.",
+        f"<b>Disclaimer:</b> This report is generated by BonBox for informational purposes only. "
+        f"It is NOT official tax documentation. Always consult your accountant "
+        f"before submitting to {terms['authority']}. BonBox is not responsible for any errors in tax filings.",
         ParagraphStyle("VDisclaim", parent=small_style, fontSize=7, textColor=colors.grey),
     ))
     elements.append(Paragraph("bonbox.dk", ParagraphStyle("VFoot", parent=small_style, textColor=PURPLE)))
