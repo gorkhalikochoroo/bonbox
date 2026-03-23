@@ -17,6 +17,7 @@ class Sale(Base):
     payment_method: Mapped[str] = mapped_column(String(20), default="mixed")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     receipt_photo: Mapped[str | None] = mapped_column(String(500), nullable=True)  # file path
+    reference_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

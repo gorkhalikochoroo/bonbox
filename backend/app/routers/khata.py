@@ -12,6 +12,12 @@ from app.schemas.khata import (
     KhataTransactionCreate, KhataTransactionUpdate, KhataTransactionResponse,
 )
 from app.services.auth import get_current_user
+from app.services.khata_sync import (
+    sync_sale_for_khata_purchase,
+    sync_cashbook_for_khata_payment,
+    delete_khata_synced_entries,
+    update_khata_synced_entries,
+)
 
 router = APIRouter()
 
@@ -135,6 +141,10 @@ def create_transaction(
     db.add(txn)
     db.commit()
     db.refresh(txn)
+    # Sync to Sales & CashBook
+    sync_sale_for_khata_purchase(db, txn, customer.name)
+    sync_cashbook_for_khata_payment(db, txn, customer.name)
+    db.commit()
     return txn
 
 
@@ -152,6 +162,9 @@ def update_transaction(
         raise HTTPException(status_code=404, detail="Transaction not found")
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(txn, field, value)
+    # Update synced entries
+    customer = db.query(KhataCustomer).filter(KhataCustomer.id == txn.customer_id).first()
+    update_khata_synced_entries(db, txn, customer.name if customer else "Unknown")
     db.commit()
     db.refresh(txn)
     return txn
@@ -168,6 +181,7 @@ def delete_transaction(
     ).first()
     if not txn:
         raise HTTPException(status_code=404, detail="Transaction not found")
+    delete_khata_synced_entries(db, txn.id, user.id)
     db.delete(txn)
     db.commit()
 

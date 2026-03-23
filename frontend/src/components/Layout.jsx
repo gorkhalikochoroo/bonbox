@@ -24,6 +24,7 @@ const businessNav = [
 
 const personalNav = [
   { to: "/personal", label: "Dashboard" },
+  { to: "/loans", label: "Loan Tracker" },
   { to: "/contact", labelKey: "contact" },
 ];
 

@@ -10,7 +10,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan
 from app.database import engine, Base
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -31,6 +31,7 @@ _migrations = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token VARCHAR(100)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP",
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS is_personal BOOLEAN DEFAULT false",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS reference_id VARCHAR(100)",
 ]
 
 try:
@@ -133,6 +134,8 @@ app.include_router(feedback.router, prefix="/api/feedback", tags=["Feedback"])
 app.include_router(cashbook.router, prefix="/api/cashbook", tags=["Cash Book"])
 app.include_router(events.router, prefix="/api/events", tags=["Events"])
 app.include_router(khata.router, prefix="/api/khata", tags=["Khata"])
+app.include_router(budget.router, prefix="/api/budgets", tags=["Budgets"])
+app.include_router(loan.router, prefix="/api/loans", tags=["Loans"])
 
 
 # --- Protected Uploads (user can only access own receipts) ---

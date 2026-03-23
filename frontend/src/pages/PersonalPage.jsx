@@ -33,13 +33,10 @@ export default function PersonalPage() {
   const [tab, setTab] = useState("all"); // "all", "income", "spent"
   const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7));
   const [showBudgetEditor, setShowBudgetEditor] = useState(false);
-  const [budgets, setBudgets] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("bonbox_personal_budgets") || "{}"); } catch { return {}; }
-  });
-  const [totalBudget, setTotalBudget] = useState(() => {
-    try { return parseFloat(localStorage.getItem("bonbox_personal_total_budget") || "0"); } catch { return 0; }
-  });
+  const [budgets, setBudgets] = useState({});
+  const [totalBudget, setTotalBudget] = useState(0);
   const [showMonthlyReport, setShowMonthlyReport] = useState(false);
+  const [budgetDirty, setBudgetDirty] = useState(false);
 
   const fetchData = () => {
     api.get("/expenses", { params: {} })
@@ -118,14 +115,37 @@ export default function PersonalPage() {
   // Savings rate
   const savingsRate = totalIncome > 0 ? Math.round(((totalIncome - totalSpent) / totalIncome) * 100) : 0;
 
+  // Fetch budgets from API
+  const fetchBudgets = () => {
+    api.get("/budgets", { params: { month: filterMonth } }).then((r) => {
+      const map = {};
+      let total = 0;
+      r.data.forEach((b) => {
+        if (b.category === "__TOTAL__") total = b.limit_amount;
+        else map[b.category] = b.limit_amount;
+      });
+      setBudgets(map);
+      setTotalBudget(total);
+    }).catch(() => {});
+  };
+
+  useEffect(() => { fetchBudgets(); }, [filterMonth]);
+
   // Budget helpers
   const saveBudgets = (newBudgets) => {
     setBudgets(newBudgets);
-    localStorage.setItem("bonbox_personal_budgets", JSON.stringify(newBudgets));
+    setBudgetDirty(true);
   };
   const saveTotalBudget = (val) => {
     setTotalBudget(val);
-    localStorage.setItem("bonbox_personal_total_budget", String(val));
+    setBudgetDirty(true);
+  };
+  const saveBudgetsToApi = () => {
+    const items = Object.entries(budgets).map(([category, limit_amount]) => ({ category, limit_amount }));
+    items.push({ category: "__TOTAL__", limit_amount: totalBudget });
+    api.put("/budgets", { month: filterMonth, budgets: items }).then(() => {
+      setBudgetDirty(false);
+    }).catch(() => {});
   };
 
   // Budget warnings — categories that exceeded their budget
@@ -330,6 +350,12 @@ export default function PersonalPage() {
               </div>
             ))}
           </div>
+          <button onClick={saveBudgetsToApi}
+            className={`mt-3 px-5 py-2.5 rounded-lg text-sm font-medium transition ${
+              budgetDirty ? "bg-purple-600 text-white hover:bg-purple-700" : "bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-400"
+            }`}>
+            {budgetDirty ? "Save Budget" : "Saved"}
+          </button>
         </div>
       )}
 
@@ -502,7 +528,7 @@ export default function PersonalPage() {
             value={customCat}
             onChange={(e) => { setCustomCat(e.target.value); if (e.target.value) setCatId(""); }}
             placeholder="Type custom category..."
-            className="flex-1 px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white"
+            className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white"
           />
         </div>
 
@@ -511,7 +537,7 @@ export default function PersonalPage() {
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
           placeholder="Description (optional)"
-          className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white"
+          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white"
         />
 
         {/* Quick amounts */}
@@ -532,13 +558,13 @@ export default function PersonalPage() {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="Custom amount"
-            className="flex-1 px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white"
+            className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white"
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
           <button
             onClick={submit}
             disabled={!amount || (!catId && !customCat.trim())}
-            className="px-5 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-semibold text-sm disabled:opacity-40"
+            className="px-5 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-semibold text-sm disabled:opacity-40"
           >
             Add
           </button>
@@ -563,7 +589,7 @@ export default function PersonalPage() {
 
         <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)}
           placeholder={LEND_BORROW_CATS.includes(getCatName(catId)) ? "Who? (e.g., Ram, John)" : "Notes (optional)"}
-          className="mt-3 w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+          className="mt-3 w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
         {LEND_BORROW_CATS.includes(getCatName(catId)) && (
           <p className="mt-1 text-xs text-purple-500 dark:text-purple-400">
             Tip: Add the person's name so you can track who owes what
