@@ -1,12 +1,15 @@
+import re
 import uuid
 from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from app.database import get_db
 from app.models.user import User
 from app.models.expense import Expense, ExpenseCategory
+from app.models.category_mapping import CategoryMapping
 from app.schemas.expense import (
     ExpenseCreate, ExpenseUpdate, ExpenseResponse,
     ExpenseCategoryCreate, ExpenseCategoryResponse,
@@ -15,6 +18,161 @@ from app.services.auth import get_current_user
 from app.services.cash_sync import sync_cash_out_for_expense, delete_cash_entry_by_ref, update_cash_entry_for_ref
 
 router = APIRouter()
+
+# Default keyword map for Danish/international market
+DEFAULT_KEYWORDS = {
+    # Groceries / Ingredients
+    "nemlig": "Ingredients", "netto": "Ingredients", "føtex": "Ingredients", "fotex": "Ingredients",
+    "rema": "Ingredients", "aldi": "Ingredients", "lidl": "Ingredients", "irma": "Ingredients",
+    "meny": "Ingredients", "bilka": "Ingredients", "coop": "Ingredients", "spar": "Ingredients",
+    "fakta": "Ingredients", "grønt": "Ingredients", "torvehallerne": "Ingredients",
+    "grøntsager": "Ingredients", "kød": "Ingredients", "fisk": "Ingredients",
+    "biedronka": "Ingredients", "tesco": "Ingredients", "carrefour": "Ingredients",
+    "tomatoes": "Ingredients", "chicken": "Ingredients", "meat": "Ingredients",
+    "vegetables": "Ingredients", "flour": "Ingredients", "milk": "Ingredients",
+    "ingredients": "Ingredients", "råvarer": "Ingredients",
+    # Food & Dining
+    "wolt": "Food & Dining", "just eat": "Food & Dining", "too good to go": "Food & Dining",
+    "uber eats": "Food & Dining", "deliveroo": "Food & Dining",
+    "restaurant": "Food & Dining", "café": "Food & Dining", "cafe": "Food & Dining",
+    "pizza": "Food & Dining", "burger": "Food & Dining", "sushi": "Food & Dining",
+    # Transport
+    "rejsekort": "Transport", "dsb": "Transport", "metro": "Transport",
+    "bus": "Transport", "taxi": "Transport", "uber": "Transport", "bolt": "Transport",
+    "benzin": "Transport", "petrol": "Transport", "diesel": "Transport", "parkering": "Transport",
+    "parking": "Transport", "flyv": "Transport", "flight": "Transport",
+    # Utilities
+    "el": "Utilities", "vand": "Utilities", "varme": "Utilities",
+    "norlys": "Utilities", "ørsted": "Utilities", "orsted": "Utilities", "ewii": "Utilities",
+    "radius": "Utilities", "electricity": "Utilities", "heating": "Utilities",
+    "water": "Utilities", "gas": "Utilities", "internet": "Utilities", "wifi": "Utilities",
+    # Rent
+    "husleje": "Rent", "leje": "Rent", "rent": "Rent", "lease": "Rent",
+    # Wages / Salary
+    "løn": "Wages", "salary": "Wages", "wage": "Wages", "personale": "Wages",
+    "staff": "Wages", "medarbejder": "Wages",
+    # Insurance
+    "forsikring": "Insurance", "tryg": "Insurance", "topdanmark": "Insurance",
+    "alm brand": "Insurance", "insurance": "Insurance",
+    # Subscriptions
+    "netflix": "Subscriptions", "spotify": "Subscriptions", "apple": "Subscriptions",
+    "google": "Subscriptions", "microsoft": "Subscriptions", "adobe": "Subscriptions",
+    "abonnement": "Subscriptions", "subscription": "Subscriptions",
+    # Equipment
+    "maskine": "Equipment", "machine": "Equipment", "computer": "Equipment",
+    "printer": "Equipment", "equipment": "Equipment", "udstyr": "Equipment",
+    # Supplies
+    "rengøring": "Supplies", "cleaning": "Supplies", "papir": "Supplies",
+    "paper": "Supplies", "supplies": "Supplies", "emballage": "Supplies", "packaging": "Supplies",
+    # Marketing
+    "reklame": "Marketing", "facebook ads": "Marketing", "google ads": "Marketing",
+    "marketing": "Marketing", "annonce": "Marketing", "flyer": "Marketing",
+}
+
+
+# --- Auto-Categorization ---
+
+def extract_keywords(text: str) -> list[str]:
+    """Extract meaningful keywords from description, strip numbers and short words."""
+    text = text.lower().strip()
+    # Remove numbers and currency
+    text = re.sub(r"[\d.,]+\s*(kr|dkk|eur|usd|nok|sek|gbp|npr|inr)?", "", text)
+    words = text.split()
+    # Return individual words and bigrams for multi-word matches
+    keywords = [w for w in words if len(w) >= 2]
+    bigrams = [f"{words[i]} {words[i+1]}" for i in range(len(words) - 1)]
+    return keywords + bigrams
+
+
+def suggest_category_for(description: str, user_id, db: Session) -> dict | None:
+    """Suggest a category based on user history and default keywords."""
+    keywords = extract_keywords(description)
+    if not keywords:
+        return None
+
+    # 1. Check user-specific mappings first (highest priority)
+    for kw in keywords:
+        mapping = (
+            db.query(CategoryMapping)
+            .filter(CategoryMapping.user_id == user_id, CategoryMapping.keyword == kw)
+            .order_by(CategoryMapping.usage_count.desc())
+            .first()
+        )
+        if mapping:
+            return {"category_name": mapping.category_name, "confidence": 0.9, "source": "history"}
+
+    # 2. Check global/default keyword map
+    for kw in keywords:
+        if kw in DEFAULT_KEYWORDS:
+            return {"category_name": DEFAULT_KEYWORDS[kw], "confidence": 0.7, "source": "default"}
+
+    # 3. Check user's most recent expense with similar description
+    for kw in keywords:
+        if len(kw) < 3:
+            continue
+        recent = (
+            db.query(Expense, ExpenseCategory.name)
+            .join(ExpenseCategory, Expense.category_id == ExpenseCategory.id)
+            .filter(
+                Expense.user_id == user_id,
+                Expense.description.ilike(f"%{kw}%"),
+                Expense.is_deleted.isnot(True),
+            )
+            .order_by(Expense.created_at.desc())
+            .first()
+        )
+        if recent:
+            return {"category_name": recent[1], "confidence": 0.6, "source": "similar"}
+
+    return None
+
+
+def learn_category(description: str, category_name: str, user_id, db: Session):
+    """Update category mappings when user confirms/selects a category."""
+    keywords = extract_keywords(description)
+    for kw in keywords:
+        if len(kw) < 3:
+            continue
+        existing = db.query(CategoryMapping).filter(
+            CategoryMapping.user_id == user_id,
+            CategoryMapping.keyword == kw,
+            CategoryMapping.category_name == category_name,
+        ).first()
+        if existing:
+            existing.usage_count += 1
+        else:
+            db.add(CategoryMapping(
+                user_id=user_id,
+                keyword=kw,
+                category_name=category_name,
+            ))
+
+
+@router.get("/suggest-category")
+def suggest_category(
+    q: str = Query("", description="Expense description to suggest category for"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if not q.strip():
+        return {"suggestion": None}
+    result = suggest_category_for(q, user.id, db)
+    if result:
+        # Find the category ID for this user
+        cat = db.query(ExpenseCategory).filter(
+            ExpenseCategory.user_id == user.id,
+            ExpenseCategory.name == result["category_name"],
+        ).first()
+        if cat:
+            return {
+                "suggestion": {
+                    "category_id": str(cat.id),
+                    "category_name": result["category_name"],
+                    "confidence": result["confidence"],
+                    "source": result["source"],
+                }
+            }
+    return {"suggestion": None}
 
 
 # --- Categories ---
@@ -157,6 +315,15 @@ def create_expense(
         sync_cash_out_for_expense(db, expense)
         db.commit()
         db.refresh(expense)
+    # Auto-learn: map description keywords to selected category
+    if expense.description and expense.category_id:
+        cat = db.query(ExpenseCategory).filter(ExpenseCategory.id == expense.category_id).first()
+        if cat:
+            try:
+                learn_category(expense.description, cat.name, user.id, db)
+                db.commit()
+            except Exception:
+                db.rollback()
     return expense
 
 

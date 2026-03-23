@@ -46,6 +46,8 @@ export default function ExpensesPage() {
   const [listening, setListening] = useState(false);
   const [isPersonal, setIsPersonal] = useState(false);
   const [showFilter, setShowFilter] = useState("business"); // "all", "business", "personal"
+  const [suggestion, setSuggestion] = useState(null);
+  const suggestTimer = useRef(null);
 
   const filtered = expenses.filter(e => {
     if (search && !(e.description?.toLowerCase().includes(search.toLowerCase()) || e.notes?.toLowerCase().includes(search.toLowerCase()) || e.payment_method?.toLowerCase().includes(search.toLowerCase()))) return false;
@@ -91,6 +93,30 @@ export default function ExpensesPage() {
     };
     recognition.onerror = () => { setListening(false); setError("Voice recognition failed"); setTimeout(() => setError(""), 3000); };
     recognition.start();
+  };
+
+  // Auto-suggest category from description
+  const fetchSuggestion = (text) => {
+    if (suggestTimer.current) clearTimeout(suggestTimer.current);
+    if (!text || text.length < 2) { setSuggestion(null); return; }
+    suggestTimer.current = setTimeout(() => {
+      api.get("/expenses/suggest-category", { params: { q: text } })
+        .then((res) => {
+          if (res.data.suggestion) {
+            setSuggestion(res.data.suggestion);
+          } else {
+            setSuggestion(null);
+          }
+        })
+        .catch(() => {});
+    }, 400); // debounce 400ms
+  };
+
+  const applySuggestion = () => {
+    if (!suggestion) return;
+    setCatId(suggestion.category_id);
+    setCustomCat("");
+    setSuggestion(null);
   };
 
   const fetchData = (from, to) => {
@@ -293,13 +319,24 @@ export default function ExpensesPage() {
           />
         </div>
 
-        <input
-          type="text"
-          value={desc}
-          onChange={(e) => setDesc(e.target.value)}
-          placeholder={t("whatWasIt")}
-          className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-        />
+        <div className="relative mb-3">
+          <input
+            type="text"
+            value={desc}
+            onChange={(e) => { setDesc(e.target.value); fetchSuggestion(e.target.value); }}
+            placeholder={t("whatWasIt")}
+            className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+          />
+          {suggestion && !catId && (
+            <button
+              onClick={applySuggestion}
+              className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg text-xs font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+              {suggestion.category_name}
+            </button>
+          )}
+        </div>
 
         <div className="flex flex-wrap gap-2 mb-3">
           {QUICK_AMOUNTS.map((amt) => (
