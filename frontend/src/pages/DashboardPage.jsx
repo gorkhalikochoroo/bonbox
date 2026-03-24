@@ -79,6 +79,7 @@ export default function DashboardPage() {
   const [periodStats, setPeriodStats] = useState(null);
   const [categories, setCategories] = useState([]);
   const [benchmarks, setBenchmarks] = useState(null);
+  const [inventoryItems, setInventoryItems] = useState([]);
   const [saleModal, setSaleModal] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const navigate = useNavigate();
@@ -109,6 +110,29 @@ export default function DashboardPage() {
     }
   };
 
+  const invStats = useMemo(() => {
+    let totalCost = 0, totalRevenue = 0, lowStock = 0, itemsWithMargin = 0, totalMarginPct = 0;
+    const marginItems = [];
+    inventoryItems.forEach((i) => {
+      const qty = parseFloat(i.quantity);
+      const buy = parseFloat(i.cost_per_unit);
+      const sell = i.sell_price != null ? parseFloat(i.sell_price) : null;
+      totalCost += qty * buy;
+      if (qty <= parseFloat(i.min_threshold)) lowStock++;
+      if (sell != null && buy > 0) {
+        const marginPct = ((sell - buy) / buy) * 100;
+        totalRevenue += qty * sell;
+        totalMarginPct += marginPct;
+        itemsWithMargin++;
+        marginItems.push({ name: i.name, margin: Math.round(marginPct), profit: Math.round((sell - buy) * qty) });
+      }
+    });
+    const totalProfit = totalRevenue - totalCost;
+    const avgMargin = itemsWithMargin > 0 ? Math.round(totalMarginPct / itemsWithMargin) : 0;
+    const topMargin = marginItems.sort((a, b) => b.margin - a.margin).slice(0, 4);
+    return { totalCost, totalRevenue, totalProfit, avgMargin, lowStock, topMargin, count: inventoryItems.length };
+  }, [inventoryItems]);
+
   const dateRange = useMemo(() => {
     if (period === "custom") return { from: customFrom, to: customTo };
     return getDateRange(period);
@@ -125,6 +149,7 @@ export default function DashboardPage() {
     api.get("/reports/forecast", { params: { days: 7 } }).then((res) => setForecast(res.data)).catch(() => {});
     api.get("/expenses/categories").then((res) => setCategories(res.data)).catch(() => {});
     api.get("/dashboard/benchmarks").then((res) => setBenchmarks(res.data)).catch(() => {});
+    api.get("/inventory").then((res) => setInventoryItems(res.data)).catch(() => {});
   };
 
   // Fetch period-specific data
@@ -365,6 +390,59 @@ export default function DashboardPage() {
       {/* Benchmark Cards */}
       {benchmarks && benchmarks.metrics?.length > 0 && (
         <BenchmarkCards benchmarks={benchmarks} currency={currency} />
+      )}
+
+      {/* Inventory Overview */}
+      {invStats.count > 0 && (
+        <div className="bg-white dark:bg-gray-800 p-5 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200">Inventory Overview</h2>
+            <button
+              onClick={() => navigate("/inventory")}
+              className="text-xs text-blue-600 hover:underline"
+            >
+              View all
+            </button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+            <div className="text-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Stock Value</p>
+              <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{invStats.totalCost.toLocaleString()}</p>
+              <p className="text-xs text-gray-400">{currency}</p>
+            </div>
+            <div className="text-center p-3 bg-green-50 dark:bg-green-900/20 rounded-xl">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Potential Profit</p>
+              <p className="text-lg font-bold text-green-600 dark:text-green-400">{invStats.totalProfit.toLocaleString()}</p>
+              <p className="text-xs text-gray-400">{currency}</p>
+            </div>
+            <div className="text-center p-3 bg-purple-50 dark:bg-purple-900/20 rounded-xl">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Avg Margin</p>
+              <p className="text-lg font-bold text-purple-600 dark:text-purple-400">{invStats.avgMargin}%</p>
+              <p className="text-xs text-gray-400">across items</p>
+            </div>
+            <div className={`text-center p-3 rounded-xl ${invStats.lowStock > 0 ? "bg-red-50 dark:bg-red-900/20" : "bg-gray-50 dark:bg-gray-700/50"}`}>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Low Stock</p>
+              <p className={`text-lg font-bold ${invStats.lowStock > 0 ? "text-red-600 dark:text-red-400" : "text-gray-600 dark:text-gray-300"}`}>{invStats.lowStock}</p>
+              <p className="text-xs text-gray-400">items</p>
+            </div>
+          </div>
+          {invStats.topMargin.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Top Margin Items</p>
+              <div className="space-y-1.5">
+                {invStats.topMargin.map((item, i) => (
+                  <div key={i} className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                    <span className="text-sm text-gray-700 dark:text-gray-200">{item.name}</span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-medium text-green-600 dark:text-green-400">+{item.margin}%</span>
+                      <span className="text-xs text-gray-500">{item.profit.toLocaleString()} {currency}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Motivational Stats */}
