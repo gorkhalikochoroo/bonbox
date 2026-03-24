@@ -5,12 +5,12 @@ import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 
 const TEMPLATES = [
-  { type: "restaurant", name: "Restaurant & Cafe", icon: "🍽️", count: 45, desc: "Ingredients, beverages, sauces, supplies. Perishable tracking for fresh produce & meat.", color: "orange" },
-  { type: "veggie_shop", name: "Nepali Veggie Shop", icon: "🥬", count: 40, desc: "Vegetables, fruits, herbs, lentils. Kg-based, daily pricing, perishable tracking.", color: "green" },
+  { type: "restaurant", name: "Restaurant & Cafe", icon: "🍽️", count: 45, desc: "Ingredients, beverages, sauces, supplies. Fresh produce & meat tracking.", color: "orange" },
+  { type: "veggie_shop", name: "Dukan / Veggie Shop", icon: "🥬", count: 40, desc: "Vegetables, fruits, herbs, lentils. Kg-based with daily pricing.", color: "green" },
   { type: "kiosk", name: "Danish Kiosk", icon: "🏪", count: 50, desc: "Beverages, snacks, tobacco, bakery, lottery. Piece-based with barcodes.", color: "blue" },
   { type: "grocery", name: "Grocery / Mini-Mart", icon: "🛒", count: 45, desc: "Packaged food, dairy, household, personal care, spices. Mixed units.", color: "yellow" },
   { type: "clothing", name: "Clothing Store", icon: "👕", count: 40, desc: "Tops, bottoms, dresses, footwear, accessories. Size-based variants.", color: "purple" },
-  { type: "pharmacy", name: "Pharmacy", icon: "💊", count: 45, desc: "Medicines, vitamins, first aid, devices, hygiene. Expiry tracking critical.", color: "red" },
+  { type: "pharmacy", name: "Pharmacy", icon: "💊", count: 45, desc: "Medicines, vitamins, first aid, devices, hygiene. Expiry tracking.", color: "red" },
   { type: "electronics", name: "Electronics & Mobile", icon: "📱", count: 35, desc: "Chargers, cables, audio, phone accessories, computer gear, batteries.", color: "cyan" },
 ];
 
@@ -249,7 +249,7 @@ export default function InventoryPage() {
           <p className={`text-2xl font-bold mt-1 ${alerts.length > 0 ? "text-red-500" : "text-green-600 dark:text-green-400"}`}>{alerts.length}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Perishable</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Fresh Items</p>
           <p className="text-2xl font-bold text-orange-500 mt-1">{perishableCount}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
@@ -316,7 +316,7 @@ export default function InventoryPage() {
             <input type="checkbox" checked={form.is_perishable}
               onChange={(e) => setForm({ ...form, is_perishable: e.target.checked })}
               className="rounded" />
-            Perishable
+            Fresh item
           </label>
           <button type="submit" className="bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition font-medium col-span-2 md:col-span-4">
             {t("addItem")}
@@ -408,7 +408,6 @@ export default function InventoryPage() {
                       <>
                         <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300 font-medium">
                           {item.name}
-                          {item.is_perishable && <span className="ml-1.5 px-1.5 py-0.5 bg-orange-100 dark:bg-orange-900/40 text-orange-600 dark:text-orange-400 text-[10px] rounded font-medium">Fresh</span>}
                           {alertIds.has(item.id) && <span className="ml-1.5 px-1.5 py-0.5 bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-[10px] rounded font-medium">Low</span>}
                         </td>
                         <td className="px-6 py-4 text-xs text-gray-500 dark:text-gray-400">{item.category || "General"}</td>
