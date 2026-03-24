@@ -251,10 +251,13 @@ def delete_category(
 def list_expenses(
     from_date: date = Query(None, alias="from"),
     to_date: date = Query(None, alias="to"),
+    is_personal: bool = Query(None),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     query = db.query(Expense).filter(Expense.user_id == user.id).filter(Expense.is_deleted.isnot(True))
+    if is_personal is not None:
+        query = query.filter(Expense.is_personal == is_personal)
     if from_date:
         query = query.filter(Expense.date >= from_date)
     if to_date:

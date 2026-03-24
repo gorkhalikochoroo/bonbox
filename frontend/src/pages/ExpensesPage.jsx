@@ -120,7 +120,7 @@ export default function ExpensesPage() {
   };
 
   const fetchData = (from, to) => {
-    const params = {};
+    const params = { is_personal: false };
     if (from) params.from = from;
     if (to) params.to = to;
     api.get("/expenses", { params })

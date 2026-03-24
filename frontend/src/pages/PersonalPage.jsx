@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { displayCurrency } from "../utils/currency";
@@ -40,8 +40,8 @@ export default function PersonalPage() {
   const [budgetDirty, setBudgetDirty] = useState(false);
 
   const fetchData = () => {
-    api.get("/expenses", { params: {} })
-      .then((res) => setEntries(res.data.filter((e) => e.is_personal)))
+    api.get("/expenses", { params: { is_personal: true } })
+      .then((res) => setEntries(res.data))
       .catch(() => {});
     api.get("/expenses/categories")
       .then((res) => setCategories(res.data))
@@ -74,49 +74,69 @@ export default function PersonalPage() {
   };
 
   const isIncome = (catName) => INCOME_CATS.includes(catName);
-  const getCatName = (id) => categories.find((c) => c.id === id)?.name || "";
 
-  const filteredEntries = entries.filter((e) => {
-    if (filterMonth && !e.date.startsWith(filterMonth)) return false;
-    const catName = getCatName(e.category_id);
-    if (tab === "income" && !isIncome(catName)) return false;
-    if (tab === "spent" && isIncome(catName)) return false;
-    return true;
-  }).sort((a, b) => {
-    const d = b.date.localeCompare(a.date);
-    if (d !== 0) return d;
-    return (b.created_at || "").localeCompare(a.created_at || "");
-  });
+  // Fast category lookup map instead of .find() on every entry
+  const catMap = useMemo(() => {
+    const m = {};
+    categories.forEach((c) => { m[c.id] = c.name; });
+    return m;
+  }, [categories]);
+  const getCatName = useCallback((id) => catMap[id] || "", [catMap]);
 
-  const totalIncome = entries
-    .filter((e) => e.date.startsWith(filterMonth) && isIncome(getCatName(e.category_id)))
-    .reduce((s, e) => s + parseFloat(e.amount), 0);
-  const totalSpent = entries
-    .filter((e) => e.date.startsWith(filterMonth) && !isIncome(getCatName(e.category_id)))
-    .reduce((s, e) => s + parseFloat(e.amount), 0);
-  const balance = totalIncome - totalSpent;
+  // Memoize all heavy computations
+  const { filteredEntries, totalIncome, totalSpent, balance, spendingByCategory, topSpending, incomeByCategory, totalLoanPayments, savingsRate, monthEntries } = useMemo(() => {
+    const monthE = entries.filter((e) => e.date.startsWith(filterMonth));
+    let inc = 0, spent = 0;
+    const spendByCat = {};
+    const incByCat = {};
+    let loanPay = 0;
 
-  // Monthly breakdown by category
-  const monthEntries = entries.filter((e) => e.date.startsWith(filterMonth));
-  const spendingByCategory = {};
-  monthEntries.forEach((e) => {
-    const catName = getCatName(e.category_id);
-    if (!isIncome(catName)) {
-      spendingByCategory[catName] = (spendingByCategory[catName] || 0) + parseFloat(e.amount);
-    }
-  });
-  const topSpending = Object.entries(spendingByCategory).sort((a, b) => b[1] - a[1]);
+    monthE.forEach((e) => {
+      const catName = getCatName(e.category_id);
+      const amt = parseFloat(e.amount);
+      if (isIncome(catName)) {
+        inc += amt;
+        incByCat[catName] = (incByCat[catName] || 0) + amt;
+      } else {
+        spent += amt;
+        spendByCat[catName] = (spendByCat[catName] || 0) + amt;
+      }
+      if (["Loan Payment", "EMI"].includes(catName)) loanPay += amt;
+    });
+
+    const filtered = entries.filter((e) => {
+      if (filterMonth && !e.date.startsWith(filterMonth)) return false;
+      const catName = getCatName(e.category_id);
+      if (tab === "income" && !isIncome(catName)) return false;
+      if (tab === "spent" && isIncome(catName)) return false;
+      return true;
+    }).sort((a, b) => {
+      const d = b.date.localeCompare(a.date);
+      if (d !== 0) return d;
+      return (b.created_at || "").localeCompare(a.created_at || "");
+    });
+
+    const bal = inc - spent;
+    const rate = inc > 0 ? Math.round((bal / inc) * 100) : 0;
+
+    return {
+      filteredEntries: filtered,
+      totalIncome: inc,
+      totalSpent: spent,
+      balance: bal,
+      spendingByCategory: spendByCat,
+      topSpending: Object.entries(spendByCat).sort((a, b) => b[1] - a[1]),
+      incomeByCategory: incByCat,
+      totalLoanPayments: loanPay,
+      savingsRate: rate,
+      monthEntries: monthE,
+    };
+  }, [entries, filterMonth, tab, getCatName]);
 
   // Loan data from Loan Tracker API
   const totalBorrowed = loanSummary.total_borrowed;
   const totalLent = loanSummary.total_lent;
   const loanNetBalance = loanSummary.net_balance;
-  const totalLoanPayments = entries
-    .filter((e) => ["Loan Payment", "EMI"].includes(getCatName(e.category_id)))
-    .reduce((s, e) => s + parseFloat(e.amount), 0);
-
-  // Savings rate
-  const savingsRate = totalIncome > 0 ? Math.round(((totalIncome - totalSpent) / totalIncome) * 100) : 0;
 
   // Fetch budgets from API
   const fetchBudgets = () => {
@@ -167,13 +187,6 @@ export default function PersonalPage() {
 
   // Monthly report data
   const spendingCats = PERSONAL_CATEGORIES.filter((c) => !INCOME_CATS.includes(c));
-  const incomeByCategory = {};
-  monthEntries.forEach((e) => {
-    const catName = getCatName(e.category_id);
-    if (isIncome(catName)) {
-      incomeByCategory[catName] = (incomeByCategory[catName] || 0) + parseFloat(e.amount);
-    }
-  });
 
   const submit = async () => {
     const value = parseFloat(amount);
@@ -254,31 +267,56 @@ export default function PersonalPage() {
         </div>
       )}
 
-      {/* Balance overview */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Income</p>
-          <p className="text-lg sm:text-2xl font-bold text-green-600 dark:text-green-400 mt-1">{totalIncome.toLocaleString()}</p>
-          <p className="text-xs text-gray-400">{currency}</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Spent</p>
-          <p className="text-lg sm:text-2xl font-bold text-red-500 dark:text-red-400 mt-1">{totalSpent.toLocaleString()}</p>
-          <p className="text-xs text-gray-400">{currency}</p>
-        </div>
-        <div className={`bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border ${loanNetBalance >= 0 ? "border-blue-200 dark:border-blue-800" : "border-orange-200 dark:border-orange-800"} text-center`}>
-          <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Loans</p>
-          <p className={`text-lg sm:text-2xl font-bold mt-1 ${loanNetBalance >= 0 ? "text-blue-600 dark:text-blue-400" : "text-orange-600 dark:text-orange-400"}`}>
-            {loanNetBalance >= 0 ? "+" : ""}{loanNetBalance.toLocaleString()}
-          </p>
-          <p className="text-xs text-gray-400">{loanNetBalance >= 0 ? "owed to you" : "you owe"}</p>
-        </div>
-        <div className={`bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border ${(balance + loanNetBalance) >= 0 ? "border-green-200 dark:border-green-800" : "border-red-200 dark:border-red-800"} text-center`}>
-          <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Net Worth</p>
-          <p className={`text-lg sm:text-2xl font-bold mt-1 ${(balance + loanNetBalance) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400"}`}>
-            {(balance + loanNetBalance).toLocaleString()}
-          </p>
-          <p className="text-xs text-gray-400">{currency}</p>
+      {/* Balance overview — Income flows into Remaining */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 sm:p-5">
+        {/* Income bar showing how much was spent from it */}
+        {totalIncome > 0 && (
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Income used</span>
+              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                {totalSpent.toLocaleString()} of {totalIncome.toLocaleString()} {currency}
+                {totalIncome > 0 && <span className="ml-1">({Math.min(Math.round((totalSpent / totalIncome) * 100), 999)}%)</span>}
+              </span>
+            </div>
+            <div className="h-3 bg-green-100 dark:bg-green-900/30 rounded-full overflow-hidden">
+              <div className={`h-full rounded-full transition-all ${totalSpent > totalIncome ? "bg-red-500" : totalSpent >= totalIncome * 0.8 ? "bg-amber-500" : "bg-purple-500"}`}
+                style={{ width: `${Math.min((totalSpent / totalIncome) * 100, 100)}%` }} />
+            </div>
+          </div>
+        )}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <div className="text-center p-3 bg-green-50 dark:bg-green-900/20 rounded-xl">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Income</p>
+            <p className="text-lg sm:text-xl font-bold text-green-600 dark:text-green-400 mt-0.5">+{totalIncome.toLocaleString()}</p>
+            <p className="text-xs text-gray-400">{currency}</p>
+          </div>
+          <div className="text-center p-3 bg-red-50 dark:bg-red-900/20 rounded-xl">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Spent</p>
+            <p className="text-lg sm:text-xl font-bold text-red-500 dark:text-red-400 mt-0.5">-{totalSpent.toLocaleString()}</p>
+            <p className="text-xs text-gray-400">{currency}</p>
+          </div>
+          <div className={`text-center p-3 rounded-xl ${balance >= 0 ? "bg-emerald-50 dark:bg-emerald-900/20" : "bg-red-50 dark:bg-red-900/20"}`}>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Remaining</p>
+            <p className={`text-lg sm:text-xl font-bold mt-0.5 ${balance >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500 dark:text-red-400"}`}>
+              {balance >= 0 ? "" : ""}{balance.toLocaleString()}
+            </p>
+            <p className="text-xs text-gray-400">{currency}</p>
+          </div>
+          <div className={`text-center p-3 rounded-xl ${loanNetBalance >= 0 ? "bg-blue-50 dark:bg-blue-900/20" : "bg-orange-50 dark:bg-orange-900/20"}`}>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Loans</p>
+            <p className={`text-lg sm:text-xl font-bold mt-0.5 ${loanNetBalance >= 0 ? "text-blue-600 dark:text-blue-400" : "text-orange-600 dark:text-orange-400"}`}>
+              {loanNetBalance >= 0 ? "+" : ""}{loanNetBalance.toLocaleString()}
+            </p>
+            <p className="text-xs text-gray-400">{loanNetBalance >= 0 ? "owed to you" : "you owe"}</p>
+          </div>
+          <div className={`text-center p-3 rounded-xl col-span-2 sm:col-span-1 ${(balance + loanNetBalance) >= 0 ? "bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-700" : "bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700"}`}>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Net Worth</p>
+            <p className={`text-lg sm:text-xl font-bold mt-0.5 ${(balance + loanNetBalance) >= 0 ? "text-purple-600 dark:text-purple-400" : "text-red-500 dark:text-red-400"}`}>
+              {(balance + loanNetBalance).toLocaleString()}
+            </p>
+            <p className="text-xs text-gray-400">{currency}</p>
+          </div>
         </div>
       </div>
 
