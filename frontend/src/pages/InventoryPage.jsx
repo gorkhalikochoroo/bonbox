@@ -306,7 +306,7 @@ export default function InventoryPage() {
           <input type="number" step="0.01" placeholder={`Cost (${currency})`} value={form.cost_per_unit}
             onChange={(e) => setForm({ ...form, cost_per_unit: e.target.value })}
             className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" required />
-          <input type="number" step="0.01" placeholder={`MRP (${currency})`} value={form.sell_price}
+          <input type="number" step="0.01" placeholder={`Sell Price (${currency})`} value={form.sell_price}
             onChange={(e) => setForm({ ...form, sell_price: e.target.value })}
             className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" />
           <input type="number" step="0.01" placeholder="Min Stock" value={form.min_threshold}
@@ -347,7 +347,7 @@ export default function InventoryPage() {
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("quantity")}</th>
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("unit")}</th>
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Cost</th>
-                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">MRP</th>
+                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Sell</th>
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Margin</th>
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Profit</th>
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">Actions</th>
