@@ -267,56 +267,53 @@ export default function PersonalPage() {
         </div>
       )}
 
-      {/* Balance overview — Income flows into Remaining */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 sm:p-5">
-        {/* Income bar showing how much was spent from it */}
+      {/* Wallet — one big balance, auto-deducts */}
+      <div className={`rounded-2xl shadow-sm border p-5 sm:p-6 text-center ${
+        balance >= 0
+          ? "bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border-green-200 dark:border-green-800"
+          : "bg-gradient-to-br from-red-50 to-orange-50 dark:from-red-900/20 dark:to-orange-900/20 border-red-200 dark:border-red-800"
+      }`}>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">
+          {balance >= 0 ? "You have" : "You're short"}
+        </p>
+        <p className={`text-4xl sm:text-5xl font-extrabold ${
+          balance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400"
+        }`}>
+          {balance.toLocaleString()} <span className="text-lg font-medium text-gray-400">{currency}</span>
+        </p>
+        <div className="flex items-center justify-center gap-4 mt-3 text-sm">
+          <span className="text-green-600 dark:text-green-400">+{totalIncome.toLocaleString()} in</span>
+          <span className="text-gray-300 dark:text-gray-600">|</span>
+          <span className="text-red-500 dark:text-red-400">-{totalSpent.toLocaleString()} out</span>
+        </div>
+        {/* Progress bar */}
         {totalIncome > 0 && (
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Income used</span>
-              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                {totalSpent.toLocaleString()} of {totalIncome.toLocaleString()} {currency}
-                {totalIncome > 0 && <span className="ml-1">({Math.min(Math.round((totalSpent / totalIncome) * 100), 999)}%)</span>}
-              </span>
+          <div className="mt-3 max-w-xs mx-auto">
+            <div className="h-2 bg-white/60 dark:bg-gray-700/60 rounded-full overflow-hidden">
+              <div className={`h-full rounded-full transition-all ${
+                totalSpent > totalIncome ? "bg-red-500" : totalSpent >= totalIncome * 0.8 ? "bg-amber-500" : "bg-green-500"
+              }`} style={{ width: `${Math.min((totalSpent / totalIncome) * 100, 100)}%` }} />
             </div>
-            <div className="h-3 bg-green-100 dark:bg-green-900/30 rounded-full overflow-hidden">
-              <div className={`h-full rounded-full transition-all ${totalSpent > totalIncome ? "bg-red-500" : totalSpent >= totalIncome * 0.8 ? "bg-amber-500" : "bg-purple-500"}`}
-                style={{ width: `${Math.min((totalSpent / totalIncome) * 100, 100)}%` }} />
-            </div>
+            <p className="text-xs text-gray-400 mt-1">{Math.min(Math.round((totalSpent / totalIncome) * 100), 999)}% spent</p>
           </div>
         )}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          <div className="text-center p-3 bg-green-50 dark:bg-green-900/20 rounded-xl">
-            <p className="text-xs text-gray-500 dark:text-gray-400">Income</p>
-            <p className="text-lg sm:text-xl font-bold text-green-600 dark:text-green-400 mt-0.5">+{totalIncome.toLocaleString()}</p>
-            <p className="text-xs text-gray-400">{currency}</p>
-          </div>
-          <div className="text-center p-3 bg-red-50 dark:bg-red-900/20 rounded-xl">
-            <p className="text-xs text-gray-500 dark:text-gray-400">Spent</p>
-            <p className="text-lg sm:text-xl font-bold text-red-500 dark:text-red-400 mt-0.5">-{totalSpent.toLocaleString()}</p>
-            <p className="text-xs text-gray-400">{currency}</p>
-          </div>
-          <div className={`text-center p-3 rounded-xl ${balance >= 0 ? "bg-emerald-50 dark:bg-emerald-900/20" : "bg-red-50 dark:bg-red-900/20"}`}>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Remaining</p>
-            <p className={`text-lg sm:text-xl font-bold mt-0.5 ${balance >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500 dark:text-red-400"}`}>
-              {balance >= 0 ? "" : ""}{balance.toLocaleString()}
-            </p>
-            <p className="text-xs text-gray-400">{currency}</p>
-          </div>
-          <div className={`text-center p-3 rounded-xl ${loanNetBalance >= 0 ? "bg-blue-50 dark:bg-blue-900/20" : "bg-orange-50 dark:bg-orange-900/20"}`}>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Loans</p>
-            <p className={`text-lg sm:text-xl font-bold mt-0.5 ${loanNetBalance >= 0 ? "text-blue-600 dark:text-blue-400" : "text-orange-600 dark:text-orange-400"}`}>
-              {loanNetBalance >= 0 ? "+" : ""}{loanNetBalance.toLocaleString()}
-            </p>
-            <p className="text-xs text-gray-400">{loanNetBalance >= 0 ? "owed to you" : "you owe"}</p>
-          </div>
-          <div className={`text-center p-3 rounded-xl col-span-2 sm:col-span-1 ${(balance + loanNetBalance) >= 0 ? "bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-700" : "bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700"}`}>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Net Worth</p>
-            <p className={`text-lg sm:text-xl font-bold mt-0.5 ${(balance + loanNetBalance) >= 0 ? "text-purple-600 dark:text-purple-400" : "text-red-500 dark:text-red-400"}`}>
-              {(balance + loanNetBalance).toLocaleString()}
-            </p>
-            <p className="text-xs text-gray-400">{currency}</p>
-          </div>
+      </div>
+
+      {/* Secondary stats */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className={`bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border text-center ${loanNetBalance >= 0 ? "border-blue-100 dark:border-blue-900" : "border-orange-100 dark:border-orange-900"}`}>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Loans</p>
+          <p className={`text-xl font-bold mt-0.5 ${loanNetBalance >= 0 ? "text-blue-600 dark:text-blue-400" : "text-orange-600 dark:text-orange-400"}`}>
+            {loanNetBalance >= 0 ? "+" : ""}{loanNetBalance.toLocaleString()} <span className="text-xs font-normal text-gray-400">{currency}</span>
+          </p>
+          <p className="text-xs text-gray-400">{loanNetBalance >= 0 ? "owed to you" : "you owe"}</p>
+        </div>
+        <div className={`bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border text-center ${(balance + loanNetBalance) >= 0 ? "border-purple-100 dark:border-purple-900" : "border-red-100 dark:border-red-900"}`}>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Net Worth</p>
+          <p className={`text-xl font-bold mt-0.5 ${(balance + loanNetBalance) >= 0 ? "text-purple-600 dark:text-purple-400" : "text-red-500 dark:text-red-400"}`}>
+            {(balance + loanNetBalance).toLocaleString()} <span className="text-xs font-normal text-gray-400">{currency}</span>
+          </p>
+          <p className="text-xs text-gray-400">balance + loans</p>
         </div>
       </div>
 
