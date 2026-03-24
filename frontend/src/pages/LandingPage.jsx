@@ -3,94 +3,86 @@ import { Link } from "react-router-dom";
 
 const features = [
   {
+    title: "Sales + Expenses + Cash Flow",
+    description: "Log sales, track expenses, see cash flow — all auto-synced. No double entry.",
+    icon: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z",
+  },
+  {
+    title: "Inventory & Waste Tracking",
+    description: "Stock levels, low-stock alerts, waste logs. Know what you have and what you lose.",
+    icon: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4",
+  },
+  {
+    title: "Staff Scheduling",
+    description: "AI-powered scheduling based on your busiest days. Right people, right time.",
+    icon: "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z",
+  },
+  {
+    title: "WhatsApp Bot",
+    description: "Text 'sale 450' to log a sale. Text 'balance' to check cash flow. From the app you already use.",
+    icon: "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z",
+  },
+  {
+    title: "Khata (Credit Book)",
+    description: "Track who owes what. Partial payments, customer balances — the way you already do business.",
+    icon: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253",
+  },
+  {
+    title: "Personal Finance Mode",
+    description: "Switch to personal mode. Track income, spending, budgets, loans — separately from business.",
+    icon: "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z",
+  },
+  {
+    title: "VAT Reports & PDF Export",
+    description: "Auto VAT calculation for your country. Professional PDF reports ready for tax time.",
+    icon: "M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
+  },
+  {
+    title: "12 Currencies, 10+ Languages",
+    description: "DKK, NPR, INR, USD, EUR and more. VAT terms adapt to your country automatically.",
+    icon: "M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
+  },
+  {
     title: "Voice-Powered Entry",
-    description: "Say \"5000 cash\" and it logs instantly. No typing needed.",
-    icon: (
-      <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-      </svg>
-    ),
-    badge: "Unique",
-  },
-  {
-    title: "Business Health Score",
-    description: "One number (0-100) tells you how your business is doing right now",
-    icon: (
-      <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-      </svg>
-    ),
-    badge: "Unique",
-  },
-  {
-    title: "Personal + Business",
-    description: "Track personal and business expenses separately. Reports stay clean.",
-    icon: (
-      <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-      </svg>
-    ),
-  },
-  {
-    title: "12 Currencies Built-in",
-    description: "DKK, NPR, INR, JPY, AUD, USD and more with auto VAT rates per country",
-    icon: (
-      <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
-  },
-  {
-    title: "Auto Cash Sync",
-    description: "Cash sales and expenses automatically update your Cash Book",
-    icon: (
-      <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-      </svg>
-    ),
-  },
-  {
-    title: "AI Revenue Forecast",
-    description: "Predicts next 7 days of revenue based on your sales patterns",
-    icon: (
-      <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-      </svg>
-    ),
-  },
-  {
-    title: "Smart Staffing",
-    description: "AI-powered staff scheduling based on your busiest days",
-    icon: (
-      <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-      </svg>
-    ),
-  },
-  {
-    title: "PDF Reports & VAT",
-    description: "Professional PDF reports with auto VAT calculation for your country",
-    icon: (
-      <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-      </svg>
-    ),
-  },
-  {
-    title: "Inventory & Waste",
-    description: "Stock levels, low-stock alerts, and waste tracking to cut losses",
-    icon: (
-      <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-      </svg>
-    ),
+    description: "Say '5000 cash' and it logs instantly. No typing, no friction.",
+    icon: "M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z",
   },
 ];
 
+const comparisonRows = [
+  { feature: "Sales & Expense Tracking", bonbox: true, dinero: true, billy: true, wave: true },
+  { feature: "Smart Analytics Dashboard", bonbox: true, dinero: false, billy: false, wave: false },
+  { feature: "Inventory Management", bonbox: true, dinero: false, billy: false, wave: false },
+  { feature: "Staff Scheduling", bonbox: true, dinero: false, billy: "Payroll", wave: "Payroll" },
+  { feature: "Cash Flow Tracking", bonbox: true, dinero: "Basic", billy: false, wave: "Basic" },
+  { feature: "WhatsApp Bot", bonbox: true, dinero: false, billy: false, wave: false },
+  { feature: "Khata / Credit Book", bonbox: true, dinero: false, billy: false, wave: false },
+  { feature: "Personal Finance Mode", bonbox: true, dinero: false, billy: false, wave: false },
+  { feature: "Waste Tracking", bonbox: true, dinero: false, billy: false, wave: false },
+  { feature: "Price", bonbox: "Free", dinero: "197-797 DKK/mo", billy: "160-595 DKK/mo", wave: "$19/mo" },
+];
+
+const Check = () => (
+  <svg className="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
+  </svg>
+);
+const Cross = () => (
+  <svg className="w-5 h-5 text-gray-300" fill="currentColor" viewBox="0 0 20 20">
+    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"/>
+  </svg>
+);
+
+function CellValue({ val }) {
+  if (val === true) return <Check />;
+  if (val === false) return <Cross />;
+  return <span className="text-xs text-gray-500 font-medium">{val}</span>;
+}
+
 const steps = [
-  { number: "1", title: "Sign up free", subtitle: "No credit card, 30 seconds" },
-  { number: "2", title: "Log or speak your first entry", subtitle: "Tap or use voice" },
-  { number: "3", title: "Get your Health Score", subtitle: "Instant business insights" },
+  { number: "1", title: "Sign up in 30 seconds", subtitle: "Name + email. That's it." },
+  { number: "2", title: "Log your first sale", subtitle: "Tap, type, or speak" },
+  { number: "3", title: "See your business clearly", subtitle: "Dashboard lights up instantly" },
 ];
 
 export default function LandingPage() {
@@ -111,22 +103,14 @@ export default function LandingPage() {
             </div>
             <span className="text-xl font-bold text-white">BonBox</span>
           </div>
-          {/* Desktop nav */}
           <div className="hidden sm:flex items-center gap-3">
-            <Link
-              to="/login"
-              className="px-4 py-2 text-sm font-medium text-blue-100 hover:text-white transition"
-            >
+            <Link to="/login" className="px-4 py-2 text-sm font-medium text-blue-100 hover:text-white transition">
               Sign In
             </Link>
-            <Link
-              to="/register"
-              className="px-4 py-2 text-sm font-medium bg-white text-blue-700 rounded-lg hover:bg-blue-50 transition"
-            >
+            <Link to="/register" className="px-4 py-2 text-sm font-medium bg-white text-blue-700 rounded-lg hover:bg-blue-50 transition">
               Get Started
             </Link>
           </div>
-          {/* Mobile hamburger */}
           <button onClick={() => setMenuOpen(!menuOpen)} className="sm:hidden text-white p-2">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               {menuOpen ? (
@@ -137,15 +121,10 @@ export default function LandingPage() {
             </svg>
           </button>
         </div>
-        {/* Mobile menu */}
         {menuOpen && (
           <div className="sm:hidden px-4 pb-4 space-y-2">
-            <Link to="/login" className="block w-full text-center px-4 py-3 text-sm font-medium text-white border border-white/30 rounded-lg">
-              Sign In
-            </Link>
-            <Link to="/register" className="block w-full text-center px-4 py-3 text-sm font-medium bg-white text-blue-700 rounded-lg">
-              Get Started
-            </Link>
+            <Link to="/login" className="block w-full text-center px-4 py-3 text-sm font-medium text-white border border-white/30 rounded-lg">Sign In</Link>
+            <Link to="/register" className="block w-full text-center px-4 py-3 text-sm font-medium bg-white text-blue-700 rounded-lg">Get Started</Link>
           </div>
         )}
       </nav>
@@ -155,62 +134,125 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-14 sm:py-20 md:py-28 text-center">
           <p className="inline-flex items-center gap-2 px-5 py-2 bg-white/10 backdrop-blur-sm rounded-full text-sm font-medium text-white mb-6 border border-white/20">
             <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-            Small steps, smart decisions, steady growth
+            Not another accounting tool
           </p>
           <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold leading-tight">
-            Your money, your business
+            Stop guessing.
             <br />
-            <span className="text-yellow-300">one dashboard</span>
+            <span className="text-yellow-300">Start knowing.</span>
           </h1>
           <p className="mt-6 text-lg md:text-xl text-blue-100 max-w-2xl mx-auto">
-            Track sales, expenses, and cash flow with voice input, AI insights, and a health score — for businesses and individuals worldwide
+            Sales, expenses, inventory, staff, cash flow, and WhatsApp — all in one free dashboard. Built for shop owners, not accountants.
           </p>
           <div className="mt-4 flex items-center justify-center gap-6 text-sm text-blue-200">
-            <span className="flex items-center gap-1.5"><svg className="w-4 h-4 text-green-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg> Free to start</span>
-            <span className="flex items-center gap-1.5"><svg className="w-4 h-4 text-green-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg> No credit card</span>
-            <span className="flex items-center gap-1.5"><svg className="w-4 h-4 text-green-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg> Growing with you</span>
+            <span className="flex items-center gap-1.5">
+              <svg className="w-4 h-4 text-green-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
+              100% free
+            </span>
+            <span className="flex items-center gap-1.5">
+              <svg className="w-4 h-4 text-green-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
+              No credit card
+            </span>
+            <span className="flex items-center gap-1.5">
+              <svg className="w-4 h-4 text-green-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
+              Works on any phone
+            </span>
           </div>
           <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link
-              to="/register"
-              className="w-full sm:w-auto px-8 py-3.5 bg-white text-blue-700 font-semibold rounded-lg hover:bg-blue-50 transition shadow-lg shadow-blue-900/30 text-center"
-            >
-              Get Started Free
+            <Link to="/register" className="w-full sm:w-auto px-8 py-3.5 bg-white text-blue-700 font-semibold rounded-lg hover:bg-blue-50 transition shadow-lg shadow-blue-900/30 text-center">
+              Get Started — It's Free
             </Link>
-            <Link
-              to="/login"
-              className="w-full sm:w-auto px-8 py-3.5 border-2 border-white/30 text-white font-semibold rounded-lg hover:bg-white/10 transition text-center"
-            >
+            <Link to="/login" className="w-full sm:w-auto px-8 py-3.5 border-2 border-white/30 text-white font-semibold rounded-lg hover:bg-white/10 transition text-center">
               Sign In
             </Link>
           </div>
         </div>
       </section>
 
-      {/* Features */}
-      <section className="py-20 bg-slate-50">
+      {/* The Problem */}
+      <section className="py-16 bg-gray-900 text-white">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 text-center">
+          <p className="text-blue-400 text-sm font-semibold uppercase tracking-wider mb-4">The problem</p>
+          <h2 className="text-2xl sm:text-3xl font-bold mb-6">
+            Accounting tools tell you what happened.<br />
+            <span className="text-blue-400">They don't help you decide what to do next.</span>
+          </h2>
+          <p className="text-gray-400 text-lg">
+            Dinero, Billy, Wave — they're built for tax filing and invoices. But as a shop owner, you need to know: Am I making money? What's selling? Who owes me? Do I have enough stock? BonBox answers those questions.
+          </p>
+        </div>
+      </section>
+
+      {/* Comparison Table */}
+      <section className="py-16 sm:py-20 bg-slate-50">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6">
+          <div className="text-center mb-10">
+            <p className="text-blue-600 text-sm font-semibold uppercase tracking-wider mb-2">How we compare</p>
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900">
+              More features. Zero cost.
+            </h2>
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Feature</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-blue-600 uppercase tracking-wider text-center bg-blue-50">BonBox</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-center">Dinero</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-center">Billy</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-center">Wave</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {comparisonRows.map((row) => (
+                  <tr key={row.feature} className={row.feature === "Price" ? "bg-gray-50 font-semibold" : ""}>
+                    <td className="px-4 py-3 text-gray-700 font-medium">{row.feature}</td>
+                    <td className="px-4 py-3 text-center bg-blue-50/50">
+                      {row.feature === "Price"
+                        ? <span className="text-green-600 font-bold">{row.bonbox}</span>
+                        : <span className="flex justify-center"><CellValue val={row.bonbox} /></span>}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {row.feature === "Price"
+                        ? <span className="text-gray-500 text-xs">{row.dinero}</span>
+                        : <span className="flex justify-center"><CellValue val={row.dinero} /></span>}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {row.feature === "Price"
+                        ? <span className="text-gray-500 text-xs">{row.billy}</span>
+                        : <span className="flex justify-center"><CellValue val={row.billy} /></span>}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {row.feature === "Price"
+                        ? <span className="text-gray-500 text-xs">{row.wave}</span>
+                        : <span className="flex justify-center"><CellValue val={row.wave} /></span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      {/* Features Grid */}
+      <section className="py-16 sm:py-20 bg-white">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-14">
             <h2 className="text-3xl md:text-4xl font-bold text-gray-900">
-              Features that set us apart
+              Everything you need to run your shop
             </h2>
             <p className="mt-4 text-gray-500 text-lg max-w-xl mx-auto">
-              Built for business owners and individuals — not accountants
+              Built for the kiosk owner, the grillbar chef, the corner shop
             </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {features.map((feature) => (
-              <div
-                key={feature.title}
-                className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition relative"
-              >
-                {feature.badge && (
-                  <span className="absolute top-4 right-4 px-2 py-0.5 bg-yellow-100 text-yellow-700 text-xs font-semibold rounded-full">
-                    {feature.badge}
-                  </span>
-                )}
+              <div key={feature.title} className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 hover:shadow-md hover:border-blue-200 transition">
                 <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center mb-4">
-                  {feature.icon}
+                  <svg className="w-7 h-7 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={feature.icon} />
+                  </svg>
                 </div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">{feature.title}</h3>
                 <p className="text-gray-500 text-sm leading-relaxed">{feature.description}</p>
@@ -221,11 +263,11 @@ export default function LandingPage() {
       </section>
 
       {/* How it works */}
-      <section className="py-20 bg-white">
+      <section className="py-16 sm:py-20 bg-slate-50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-14">
             <h2 className="text-3xl md:text-4xl font-bold text-gray-900">
-              Up and running in minutes
+              Up and running in 60 seconds
             </h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-3xl mx-auto">
@@ -242,18 +284,34 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Trusted by */}
-      <section className="py-16 bg-slate-50">
+      {/* Built for real businesses */}
+      <section className="py-16 bg-white">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 text-center">
-          <p className="text-gray-400 text-sm font-medium uppercase tracking-wider mb-3">
-            Trusted by
-          </p>
+          <p className="text-gray-400 text-sm font-medium uppercase tracking-wider mb-3">Built for</p>
           <p className="text-gray-700 text-lg font-medium">
-            Used by businesses and individuals across Denmark, Nepal, India, Japan, Australia, and more
+            Shops, restaurants, cafes, salons, food trucks, freelancers, and anyone who wants clarity on their money
           </p>
-          <div className="flex flex-wrap justify-center gap-4 mt-4 text-sm text-gray-400">
-            <span>Restaurants</span><span>Retail</span><span>Cafes</span><span>Salons</span><span>Freelancers</span><span>Students</span><span>Food Trucks</span>
+          <div className="flex flex-wrap justify-center gap-3 mt-5">
+            {["Denmark", "Nepal", "India", "Germany", "Japan", "Australia", "Sweden", "Norway"].map((c) => (
+              <span key={c} className="px-3 py-1.5 bg-gray-100 text-gray-600 text-sm rounded-full">{c}</span>
+            ))}
           </div>
+        </div>
+      </section>
+
+      {/* Final CTA */}
+      <section className="py-16 sm:py-20 bg-gradient-to-br from-blue-900 to-blue-700 text-white text-center">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6">
+          <h2 className="text-3xl sm:text-4xl font-bold mb-4">
+            Your business deserves better than guesswork
+          </h2>
+          <p className="text-blue-200 text-lg mb-8">
+            Join BonBox and see your business clearly — sales, stock, staff, cash, all in one place.
+          </p>
+          <Link to="/register" className="inline-block px-10 py-4 bg-white text-blue-700 font-bold rounded-lg hover:bg-blue-50 transition shadow-lg shadow-blue-900/30 text-lg">
+            Get Started Free
+          </Link>
+          <p className="mt-4 text-blue-300 text-sm">No credit card. No monthly fees. No catch.</p>
         </div>
       </section>
 
@@ -262,10 +320,7 @@ export default function LandingPage() {
         <p className="text-gray-400 text-sm">
           Built by Manoj Chaudhary | MSc Data-Driven Business Development, SDU
         </p>
-        <Link
-          to="/contact"
-          className="inline-block mt-3 text-blue-400 text-sm hover:text-blue-300 transition"
-        >
+        <Link to="/contact" className="inline-block mt-3 text-blue-400 text-sm hover:text-blue-300 transition">
           Contact
         </Link>
       </footer>
