@@ -4,6 +4,26 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 
+const TEMPLATES = [
+  { type: "restaurant", name: "Restaurant & Cafe", icon: "🍽️", count: 45, desc: "Ingredients, beverages, sauces, supplies. Perishable tracking for fresh produce & meat.", color: "orange" },
+  { type: "veggie_shop", name: "Nepali Veggie Shop", icon: "🥬", count: 40, desc: "Vegetables, fruits, herbs, lentils. Kg-based, daily pricing, perishable tracking.", color: "green" },
+  { type: "kiosk", name: "Danish Kiosk", icon: "🏪", count: 50, desc: "Beverages, snacks, tobacco, bakery, lottery. Piece-based with barcodes.", color: "blue" },
+  { type: "grocery", name: "Grocery / Mini-Mart", icon: "🛒", count: 45, desc: "Packaged food, dairy, household, personal care, spices. Mixed units.", color: "yellow" },
+  { type: "clothing", name: "Clothing Store", icon: "👕", count: 40, desc: "Tops, bottoms, dresses, footwear, accessories. Size-based variants.", color: "purple" },
+  { type: "pharmacy", name: "Pharmacy", icon: "💊", count: 45, desc: "Medicines, vitamins, first aid, devices, hygiene. Expiry tracking critical.", color: "red" },
+  { type: "electronics", name: "Electronics & Mobile", icon: "📱", count: 35, desc: "Chargers, cables, audio, phone accessories, computer gear, batteries.", color: "cyan" },
+];
+
+const COLOR_MAP = {
+  orange: { border: "hover:border-orange-400", bg: "hover:bg-orange-50 dark:hover:bg-orange-900/20" },
+  green: { border: "hover:border-green-400", bg: "hover:bg-green-50 dark:hover:bg-green-900/20" },
+  blue: { border: "hover:border-blue-400", bg: "hover:bg-blue-50 dark:hover:bg-blue-900/20" },
+  yellow: { border: "hover:border-yellow-400", bg: "hover:bg-yellow-50 dark:hover:bg-yellow-900/20" },
+  purple: { border: "hover:border-purple-400", bg: "hover:bg-purple-50 dark:hover:bg-purple-900/20" },
+  red: { border: "hover:border-red-400", bg: "hover:bg-red-50 dark:hover:bg-red-900/20" },
+  cyan: { border: "hover:border-cyan-400", bg: "hover:bg-cyan-50 dark:hover:bg-cyan-900/20" },
+};
+
 export default function InventoryPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
@@ -141,9 +161,28 @@ export default function InventoryPage() {
     return list.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
   }, [items, activeCategory, search]);
 
-  const totalValue = items.reduce((s, i) => s + parseFloat(i.quantity) * parseFloat(i.cost_per_unit), 0);
-  const perishableCount = items.filter((i) => i.is_perishable).length;
+  // Auto-calculated financials
+  const stats = useMemo(() => {
+    let totalCost = 0, totalRevenue = 0, itemsWithMargin = 0, totalMarginPct = 0;
+    items.forEach((i) => {
+      const qty = parseFloat(i.quantity);
+      const buy = parseFloat(i.cost_per_unit);
+      const sell = i.sell_price != null ? parseFloat(i.sell_price) : null;
+      totalCost += qty * buy;
+      if (sell != null) {
+        totalRevenue += qty * sell;
+        if (buy > 0) {
+          totalMarginPct += ((sell - buy) / buy) * 100;
+          itemsWithMargin++;
+        }
+      }
+    });
+    const totalProfit = totalRevenue - totalCost;
+    const avgMargin = itemsWithMargin > 0 ? Math.round(totalMarginPct / itemsWithMargin) : 0;
+    return { totalCost, totalRevenue, totalProfit, avgMargin, itemsWithMargin };
+  }, [items]);
 
+  const perishableCount = items.filter((i) => i.is_perishable).length;
   const allCategories = ["All", ...categories];
 
   return (
@@ -157,10 +196,6 @@ export default function InventoryPage() {
           >
             Load Template
           </button>
-          <div className="text-right">
-            <p className="text-sm text-gray-500 dark:text-gray-400">Total Stock Value</p>
-            <p className="text-xl font-bold text-blue-600 dark:text-blue-400">{totalValue.toLocaleString()} {currency}</p>
-          </div>
         </div>
       </div>
 
@@ -169,9 +204,39 @@ export default function InventoryPage() {
 
       {alerts.length > 0 && (
         <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 p-4 rounded-xl">
-          <p className="text-red-700 dark:text-red-300 font-medium">{t("lowStockAlerts")}: {alerts.map((a) => a.name).join(", ")}</p>
+          <p className="text-red-700 dark:text-red-300 font-medium text-sm">{t("lowStockAlerts")}: {alerts.length} items below threshold</p>
         </div>
       )}
+
+      {/* Financial overview — auto-calculated from buy/sell prices */}
+      <div className="bg-gradient-to-r from-blue-50 to-emerald-50 dark:from-gray-800 dark:to-gray-800 p-5 rounded-2xl border border-blue-100 dark:border-gray-700">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Stock Cost</p>
+            <p className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white mt-1">{stats.totalCost.toLocaleString()}</p>
+            <p className="text-xs text-gray-400">{currency} invested</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Potential Revenue</p>
+            <p className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">{stats.totalRevenue.toLocaleString()}</p>
+            <p className="text-xs text-gray-400">{currency} if all sold</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Potential Profit</p>
+            <p className={`text-xl sm:text-2xl font-bold mt-1 ${stats.totalProfit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
+              {stats.totalProfit >= 0 ? "+" : ""}{stats.totalProfit.toLocaleString()}
+            </p>
+            <p className="text-xs text-gray-400">{currency} margin</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Avg Margin</p>
+            <p className={`text-xl sm:text-2xl font-bold mt-1 ${stats.avgMargin >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
+              {stats.avgMargin}%
+            </p>
+            <p className="text-xs text-gray-400">{stats.itemsWithMargin} items priced</p>
+          </div>
+        </div>
+      </div>
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
@@ -184,17 +249,16 @@ export default function InventoryPage() {
           <p className={`text-2xl font-bold mt-1 ${alerts.length > 0 ? "text-red-500" : "text-green-600 dark:text-green-400"}`}>{alerts.length}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Stock Value</p>
-          <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">{totalValue.toLocaleString()}</p>
-          <p className="text-xs text-gray-400">{currency}</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
           <p className="text-xs text-gray-500 dark:text-gray-400">Perishable</p>
           <p className="text-2xl font-bold text-orange-500 mt-1">{perishableCount}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
           <p className="text-xs text-gray-500 dark:text-gray-400">Categories</p>
           <p className="text-2xl font-bold text-purple-600 dark:text-purple-400 mt-1">{categories.length}</p>
+        </div>
+        <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Priced</p>
+          <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">{stats.itemsWithMargin}/{items.length}</p>
         </div>
       </div>
 
@@ -285,15 +349,17 @@ export default function InventoryPage() {
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Buy</th>
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Sell</th>
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Margin</th>
-                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("threshold")}</th>
+                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Profit</th>
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {filtered.map((item) => {
+                const qty = parseFloat(item.quantity);
                 const buy = parseFloat(item.cost_per_unit);
                 const sell = item.sell_price != null ? parseFloat(item.sell_price) : null;
                 const margin = sell && buy > 0 ? Math.round(((sell - buy) / buy) * 100) : null;
+                const profit = sell != null ? (sell - buy) * qty : null;
 
                 return (
                   <tr key={item.id} className={alertIds.has(item.id) ? "bg-red-50 dark:bg-red-900/20" : ""}>
@@ -332,10 +398,7 @@ export default function InventoryPage() {
                             className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-20" />
                         </td>
                         <td className="px-6 py-3 text-sm text-gray-500">—</td>
-                        <td className="px-6 py-3">
-                          <input type="number" step="0.01" value={editData.min_threshold} onChange={(e) => setEditData({ ...editData, min_threshold: parseFloat(e.target.value) || 0 })}
-                            className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-20" />
-                        </td>
+                        <td className="px-6 py-3 text-sm text-gray-500">—</td>
                         <td className="px-6 py-3 text-right space-x-2">
                           <button onClick={saveEdit} className="text-green-600 dark:text-green-400 text-sm font-medium hover:underline">Save</button>
                           <button onClick={() => setEditId(null)} className="text-gray-400 text-sm hover:underline">Cancel</button>
@@ -350,7 +413,7 @@ export default function InventoryPage() {
                         </td>
                         <td className="px-6 py-4 text-xs text-gray-500 dark:text-gray-400">{item.category || "General"}</td>
                         <td className="px-6 py-4 text-sm font-semibold text-gray-800 dark:text-white">
-                          {parseFloat(item.quantity)}
+                          {qty}
                           {adjustId === item.id ? (
                             <span className="ml-2 inline-flex items-center gap-1">
                               <input type="number" value={adjustQty} onChange={(e) => setAdjustQty(e.target.value)} placeholder="+/-"
@@ -377,7 +440,15 @@ export default function InventoryPage() {
                             <span className="text-gray-400">—</span>
                           )}
                         </td>
-                        <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{parseFloat(item.min_threshold)}</td>
+                        <td className="px-6 py-4 text-sm">
+                          {profit != null ? (
+                            <span className={profit >= 0 ? "text-green-600 dark:text-green-400 font-medium" : "text-red-500 font-medium"}>
+                              {profit >= 0 ? "+" : ""}{profit.toLocaleString()}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
+                        </td>
                         <td className="px-6 py-4 text-right space-x-3">
                           <button onClick={() => startEdit(item)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">Edit</button>
                           {deleteConfirm === item.id ? (
@@ -405,28 +476,33 @@ export default function InventoryPage() {
       {/* Template Modal */}
       {showTemplateModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowTemplateModal(false)}>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-2">Load Inventory Template</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">Pre-load common items for your business type. Existing items won't be duplicated.</p>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-lg w-full p-6 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-1">Load Inventory Template</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">Choose your business type. Items already in your inventory won't be duplicated.</p>
 
-            <div className="space-y-3">
-              <button
-                onClick={() => loadTemplate("veggie_shop")}
-                disabled={templateLoading}
-                className="w-full p-4 text-left border border-gray-200 dark:border-gray-600 rounded-xl hover:border-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 transition"
-              >
-                <p className="font-semibold text-gray-800 dark:text-white">Nepali Veggie Shop</p>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">40 items — vegetables, fruits, herbs, lentils. Kg-based, perishable tracking.</p>
-              </button>
-
-              <button
-                onClick={() => loadTemplate("kiosk")}
-                disabled={templateLoading}
-                className="w-full p-4 text-left border border-gray-200 dark:border-gray-600 rounded-xl hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition"
-              >
-                <p className="font-semibold text-gray-800 dark:text-white">Danish Kiosk</p>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">50 items — beverages, snacks, tobacco, bakery. Piece-based with barcodes.</p>
-              </button>
+            <div className="space-y-2.5">
+              {TEMPLATES.map((tmpl) => {
+                const c = COLOR_MAP[tmpl.color];
+                return (
+                  <button
+                    key={tmpl.type}
+                    onClick={() => loadTemplate(tmpl.type)}
+                    disabled={templateLoading}
+                    className={`w-full p-4 text-left border border-gray-200 dark:border-gray-600 rounded-xl ${c.border} ${c.bg} transition`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">{tmpl.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-semibold text-gray-800 dark:text-white">{tmpl.name}</p>
+                          <span className="text-xs text-gray-400">{tmpl.count} items</span>
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{tmpl.desc}</p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
 
             {templateLoading && (
