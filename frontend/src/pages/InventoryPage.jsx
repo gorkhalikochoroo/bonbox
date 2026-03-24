@@ -204,7 +204,7 @@ export default function InventoryPage() {
 
       {alerts.length > 0 && (
         <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 p-4 rounded-xl">
-          <p className="text-red-700 dark:text-red-300 font-medium text-sm">{t("lowStockAlerts")}: {alerts.length} items below threshold</p>
+          <p className="text-red-700 dark:text-red-300 font-medium text-sm">{t("lowStockAlerts")}: {alerts.length} items below min stock</p>
         </div>
       )}
 
@@ -300,16 +300,16 @@ export default function InventoryPage() {
             <option value="bundle">Bundle</option>
             <option value="dozen">Dozen</option>
           </select>
-          <input type="text" placeholder="Category" value={form.category}
+          <input type="text" placeholder="e.g. Beverages, Dairy" value={form.category}
             onChange={(e) => setForm({ ...form, category: e.target.value })}
             className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" />
-          <input type="number" step="0.01" placeholder={`Buy Price (${currency})`} value={form.cost_per_unit}
+          <input type="number" step="0.01" placeholder={`Cost (${currency})`} value={form.cost_per_unit}
             onChange={(e) => setForm({ ...form, cost_per_unit: e.target.value })}
             className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" required />
-          <input type="number" step="0.01" placeholder={`Sell Price (${currency})`} value={form.sell_price}
+          <input type="number" step="0.01" placeholder={`MRP (${currency})`} value={form.sell_price}
             onChange={(e) => setForm({ ...form, sell_price: e.target.value })}
             className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" />
-          <input type="number" step="0.01" placeholder={t("threshold")} value={form.min_threshold}
+          <input type="number" step="0.01" placeholder="Min Stock" value={form.min_threshold}
             onChange={(e) => setForm({ ...form, min_threshold: e.target.value })}
             className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" required />
           <label className="flex items-center gap-2 px-3 py-3 text-sm text-gray-600 dark:text-gray-300">
@@ -346,8 +346,8 @@ export default function InventoryPage() {
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Category</th>
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("quantity")}</th>
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("unit")}</th>
-                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Buy</th>
-                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Sell</th>
+                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Cost</th>
+                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">MRP</th>
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Margin</th>
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Profit</th>
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">Actions</th>
