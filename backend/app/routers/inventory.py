@@ -1,12 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import date, timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
-from app.models.inventory import InventoryItem, InventoryLog
+from app.models.inventory import InventoryItem, InventoryLog, InventoryTemplate
 from app.schemas.inventory import (
     InventoryItemCreate, InventoryItemUpdate, InventoryItemResponse,
     InventoryLogCreate, InventoryLogResponse,
+    TemplateResponse, TemplateLoadRequest,
 )
 from app.services.auth import get_current_user
 
@@ -15,10 +18,46 @@ router = APIRouter()
 
 @router.get("", response_model=list[InventoryItemResponse])
 def list_items(
+    category: str = Query(None),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    return db.query(InventoryItem).filter(InventoryItem.user_id == user.id).all()
+    query = db.query(InventoryItem).filter(InventoryItem.user_id == user.id)
+    if category and category != "All":
+        query = query.filter(InventoryItem.category == category)
+    return query.all()
+
+
+@router.get("/categories", response_model=list[str])
+def list_categories(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    rows = (
+        db.query(InventoryItem.category)
+        .filter(InventoryItem.user_id == user.id)
+        .distinct()
+        .all()
+    )
+    return sorted(set(r[0] or "General" for r in rows))
+
+
+@router.get("/expiring", response_model=list[InventoryItemResponse])
+def get_expiring(
+    days: int = Query(3),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    cutoff = date.today() + timedelta(days=days)
+    return (
+        db.query(InventoryItem)
+        .filter(
+            InventoryItem.user_id == user.id,
+            InventoryItem.expiry_date != None,
+            InventoryItem.expiry_date <= cutoff,
+        )
+        .all()
+    )
 
 
 @router.post("", response_model=InventoryItemResponse, status_code=201)
@@ -68,7 +107,6 @@ def delete_item(
     ).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-    # Delete related logs first
     db.query(InventoryLog).filter(InventoryLog.item_id == item_id).delete()
     db.delete(item)
     db.commit()
@@ -108,3 +146,58 @@ def create_log(
     db.commit()
     db.refresh(log)
     return log
+
+
+# ── Templates ──────────────────────────────────────────────
+
+@router.get("/templates", response_model=list[TemplateResponse])
+def list_templates(
+    template_type: str = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    query = db.query(InventoryTemplate)
+    if template_type:
+        query = query.filter(InventoryTemplate.template_type == template_type)
+    return query.all()
+
+
+@router.post("/templates/load", response_model=list[InventoryItemResponse], status_code=201)
+def load_template(
+    data: TemplateLoadRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    templates = (
+        db.query(InventoryTemplate)
+        .filter(InventoryTemplate.template_type == data.template_type)
+        .all()
+    )
+    if not templates:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    created = []
+    for t in templates:
+        existing = db.query(InventoryItem).filter(
+            InventoryItem.user_id == user.id,
+            InventoryItem.name == t.item_name,
+        ).first()
+        if existing:
+            continue
+        item = InventoryItem(
+            user_id=user.id,
+            name=t.item_name,
+            quantity=0,
+            unit=t.default_unit,
+            cost_per_unit=0,
+            min_threshold=t.default_reorder_level,
+            category=t.default_category,
+            is_perishable=t.is_perishable,
+        )
+        db.add(item)
+        created.append(item)
+
+    db.commit()
+    for item in created:
+        db.refresh(item)
+    return created

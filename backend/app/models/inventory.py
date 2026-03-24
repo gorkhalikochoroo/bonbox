@@ -1,7 +1,8 @@
 import uuid
 from datetime import date, datetime
+from typing import Optional
 
-from sqlalchemy import String, Date, DateTime, Numeric, ForeignKey
+from sqlalchemy import String, Boolean, Date, DateTime, Numeric, ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
@@ -17,6 +18,12 @@ class InventoryItem(Base):
     unit: Mapped[str] = mapped_column(String(20), default="pieces")
     cost_per_unit: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
     min_threshold: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
+    category: Mapped[Optional[str]] = mapped_column(Text, default="General")
+    sell_price: Mapped[Optional[float]] = mapped_column(Numeric(12, 2), nullable=True)
+    barcode: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    expiry_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    image_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_perishable: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
@@ -34,6 +41,21 @@ class InventoryLog(Base):
     change_qty: Mapped[float] = mapped_column(Numeric(10, 2))
     reason: Mapped[str] = mapped_column(String(50), default="adjustment")
     date: Mapped[date] = mapped_column(Date)
+    batch_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     item: Mapped["InventoryItem"] = relationship(back_populates="logs")
+
+
+class InventoryTemplate(Base):
+    __tablename__ = "inventory_templates"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    template_name: Mapped[str] = mapped_column(Text)
+    template_type: Mapped[str] = mapped_column(Text)
+    item_name: Mapped[str] = mapped_column(Text)
+    default_unit: Mapped[str] = mapped_column(Text, default="pcs")
+    default_category: Mapped[str] = mapped_column(Text, default="General")
+    is_perishable: Mapped[bool] = mapped_column(Boolean, default=False)
+    default_reorder_level: Mapped[int] = mapped_column(default=5)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
