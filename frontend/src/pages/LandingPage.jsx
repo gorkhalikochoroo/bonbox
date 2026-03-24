@@ -136,6 +136,70 @@ export default function LandingPage() {
               Sign In
             </Link>
           </div>
+
+          {/* Dashboard Preview */}
+          <div className="mt-14 max-w-4xl mx-auto">
+            <div className="bg-gray-900 rounded-xl border border-gray-700 shadow-2xl shadow-black/40 p-4 sm:p-6 text-left">
+              {/* Top bar */}
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <p className="text-white text-sm font-semibold">Welcome, Your Shop</p>
+                  <p className="text-gray-500 text-xs">Tuesday, 24 March 2026</p>
+                </div>
+                <div className="hidden sm:flex gap-2">
+                  <span className="px-3 py-1 bg-blue-600 text-white text-xs rounded-lg font-medium">+ Quick Sale</span>
+                  <span className="px-3 py-1 bg-gray-700 text-gray-300 text-xs rounded-lg">PDF Report</span>
+                </div>
+              </div>
+              {/* KPI Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4">
+                <div className="bg-gray-800 p-3 rounded-lg border border-gray-700">
+                  <p className="text-gray-500 text-xs">Revenue</p>
+                  <p className="text-white text-lg font-bold">24,500</p>
+                  <p className="text-green-400 text-xs">+12% vs yesterday</p>
+                </div>
+                <div className="bg-gray-800 p-3 rounded-lg border border-gray-700">
+                  <p className="text-gray-500 text-xs">Profit</p>
+                  <p className="text-white text-lg font-bold">70,097</p>
+                  <p className="text-gray-500 text-xs">57.8% margin</p>
+                </div>
+                <div className="bg-gray-800 p-3 rounded-lg border border-gray-700">
+                  <p className="text-gray-500 text-xs">Top Expense</p>
+                  <p className="text-white text-lg font-bold">Wages</p>
+                  <p className="text-gray-500 text-xs">17,500</p>
+                </div>
+                <div className="bg-gray-800 p-3 rounded-lg border border-red-800/50">
+                  <p className="text-gray-500 text-xs">Khata Receivable</p>
+                  <p className="text-red-400 text-lg font-bold">40,000</p>
+                  <p className="text-gray-500 text-xs">Outstanding credit</p>
+                </div>
+              </div>
+              {/* Health Score */}
+              <div className="bg-gray-800 rounded-lg border border-gray-700 p-4 flex items-center gap-6">
+                <div className="text-center flex-shrink-0">
+                  <div className="w-14 h-14 rounded-full border-4 border-green-500 flex items-center justify-center">
+                    <span className="text-green-400 font-bold text-lg">64</span>
+                  </div>
+                  <p className="text-gray-500 text-xs mt-1">Health</p>
+                </div>
+                <div className="flex-1 space-y-2 hidden sm:block">
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-500 text-xs w-24">Profitability</span>
+                    <div className="flex-1 h-1.5 bg-gray-700 rounded-full"><div className="h-full bg-yellow-500 rounded-full" style={{width: "75%"}} /></div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-500 text-xs w-24">Consistency</span>
+                    <div className="flex-1 h-1.5 bg-gray-700 rounded-full"><div className="h-full bg-yellow-500 rounded-full" style={{width: "95%"}} /></div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-500 text-xs w-24">Cost Control</span>
+                    <div className="flex-1 h-1.5 bg-gray-700 rounded-full"><div className="h-full bg-yellow-500 rounded-full" style={{width: "60%"}} /></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p className="text-blue-300/60 text-xs mt-3">This is what your dashboard looks like</p>
+          </div>
         </div>
       </section>
 
