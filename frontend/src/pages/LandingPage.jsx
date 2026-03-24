@@ -193,10 +193,10 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 text-center">
           <p className="text-gray-400 text-sm font-medium uppercase tracking-wider mb-3">Built for</p>
           <p className="text-gray-700 text-lg font-medium">
-            Shops, restaurants, cafes, salons, food trucks, freelancers, and anyone who wants clarity on their money
+            Shops, restaurants, cafes, salons, food trucks, and freelancers
           </p>
           <div className="flex flex-wrap justify-center gap-3 mt-5">
-            {["Denmark", "Nepal", "India", "Germany", "Japan", "Australia", "Sweden", "Norway"].map((c) => (
+            {["Denmark", "Nepal", "India"].map((c) => (
               <span key={c} className="px-3 py-1.5 bg-gray-100 text-gray-600 text-sm rounded-full">{c}</span>
             ))}
           </div>

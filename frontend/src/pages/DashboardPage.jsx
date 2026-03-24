@@ -936,10 +936,13 @@ function KpiCard({ title, value, change, changeLabel, subtitle, alert, numericVa
           <AnimatedCounter value={numericValue} suffix={cur ? ` ${cur}` : ""} />
         ) : value}
       </p>
-      {change !== undefined && (
+      {change !== undefined && change !== -100 && (
         <p className={`text-sm mt-1 ${change >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
           {change >= 0 ? "+" : ""}{change}% {changeLabel}
         </p>
+      )}
+      {change === -100 && (
+        <p className="text-sm mt-1 text-gray-400 dark:text-gray-500">No sales yet today</p>
       )}
       {subtitle && <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{subtitle}</p>}
     </div>

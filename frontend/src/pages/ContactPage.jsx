@@ -23,18 +23,6 @@ export default function ContactPage() {
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-green-50 dark:bg-green-900/30 rounded-lg flex items-center justify-center text-green-600 dark:text-green-400 text-lg">
-              #
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Phone</p>
-              <a href="tel:+4591675974" className="text-blue-600 dark:text-blue-400 hover:underline text-sm">
-                +45 91675974
-              </a>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-purple-50 dark:bg-purple-900/30 rounded-lg flex items-center justify-center text-purple-600 dark:text-purple-400 text-lg">
               *
             </div>
