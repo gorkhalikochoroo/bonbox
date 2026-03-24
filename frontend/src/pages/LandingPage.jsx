@@ -49,36 +49,6 @@ const features = [
   },
 ];
 
-const comparisonRows = [
-  { feature: "Sales & Expense Tracking", bonbox: true, dinero: true, billy: true, wave: true },
-  { feature: "Smart Analytics Dashboard", bonbox: true, dinero: false, billy: false, wave: false },
-  { feature: "Inventory Management", bonbox: true, dinero: false, billy: false, wave: false },
-  { feature: "Staff Scheduling", bonbox: true, dinero: false, billy: "Payroll", wave: "Payroll" },
-  { feature: "Cash Flow Tracking", bonbox: true, dinero: "Basic", billy: false, wave: "Basic" },
-  { feature: "WhatsApp Bot", bonbox: true, dinero: false, billy: false, wave: false },
-  { feature: "Khata / Credit Book", bonbox: true, dinero: false, billy: false, wave: false },
-  { feature: "Personal Finance Mode", bonbox: true, dinero: false, billy: false, wave: false },
-  { feature: "Waste Tracking", bonbox: true, dinero: false, billy: false, wave: false },
-  { feature: "Price", bonbox: "Free", dinero: "197-797 DKK/mo", billy: "160-595 DKK/mo", wave: "$19/mo" },
-];
-
-const Check = () => (
-  <svg className="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
-  </svg>
-);
-const Cross = () => (
-  <svg className="w-5 h-5 text-gray-300" fill="currentColor" viewBox="0 0 20 20">
-    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"/>
-  </svg>
-);
-
-function CellValue({ val }) {
-  if (val === true) return <Check />;
-  if (val === false) return <Cross />;
-  return <span className="text-xs text-gray-500 font-medium">{val}</span>;
-}
-
 const steps = [
   { number: "1", title: "Sign up in 30 seconds", subtitle: "Name + email. That's it." },
   { number: "2", title: "Log your first sale", subtitle: "Tap, type, or speak" },
@@ -165,72 +135,6 @@ export default function LandingPage() {
             <Link to="/login" className="w-full sm:w-auto px-8 py-3.5 border-2 border-white/30 text-white font-semibold rounded-lg hover:bg-white/10 transition text-center">
               Sign In
             </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* The Problem */}
-      <section className="py-16 bg-gray-900 text-white">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 text-center">
-          <p className="text-blue-400 text-sm font-semibold uppercase tracking-wider mb-4">The problem</p>
-          <h2 className="text-2xl sm:text-3xl font-bold mb-6">
-            Accounting tools tell you what happened.<br />
-            <span className="text-blue-400">They don't help you decide what to do next.</span>
-          </h2>
-          <p className="text-gray-400 text-lg">
-            Dinero, Billy, Wave — they're built for tax filing and invoices. But as a shop owner, you need to know: Am I making money? What's selling? Who owes me? Do I have enough stock? BonBox answers those questions.
-          </p>
-        </div>
-      </section>
-
-      {/* Comparison Table */}
-      <section className="py-16 sm:py-20 bg-slate-50">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-10">
-            <p className="text-blue-600 text-sm font-semibold uppercase tracking-wider mb-2">How we compare</p>
-            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900">
-              More features. Zero cost.
-            </h2>
-          </div>
-          <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Feature</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-blue-600 uppercase tracking-wider text-center bg-blue-50">BonBox</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-center">Dinero</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-center">Billy</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-center">Wave</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {comparisonRows.map((row) => (
-                  <tr key={row.feature} className={row.feature === "Price" ? "bg-gray-50 font-semibold" : ""}>
-                    <td className="px-4 py-3 text-gray-700 font-medium">{row.feature}</td>
-                    <td className="px-4 py-3 text-center bg-blue-50/50">
-                      {row.feature === "Price"
-                        ? <span className="text-green-600 font-bold">{row.bonbox}</span>
-                        : <span className="flex justify-center"><CellValue val={row.bonbox} /></span>}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {row.feature === "Price"
-                        ? <span className="text-gray-500 text-xs">{row.dinero}</span>
-                        : <span className="flex justify-center"><CellValue val={row.dinero} /></span>}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {row.feature === "Price"
-                        ? <span className="text-gray-500 text-xs">{row.billy}</span>
-                        : <span className="flex justify-center"><CellValue val={row.billy} /></span>}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {row.feature === "Price"
-                        ? <span className="text-gray-500 text-xs">{row.wave}</span>
-                        : <span className="flex justify-center"><CellValue val={row.wave} /></span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </div>
         </div>
       </section>
