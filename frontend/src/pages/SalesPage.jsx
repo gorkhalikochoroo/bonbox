@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -29,6 +29,8 @@ export default function SalesPage() {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(new Set());
   const [listening, setListening] = useState(false);
+  const [showItemSale, setShowItemSale] = useState(false);
+  const [inventoryItems, setInventoryItems] = useState([]);
 
   const filtered = sales.filter(s => !search || s.notes?.toLowerCase().includes(search.toLowerCase()) || s.payment_method?.toLowerCase().includes(search.toLowerCase())).sort((a, b) => {
     const d = b.date.localeCompare(a.date);
@@ -83,9 +85,14 @@ export default function SalesPage() {
       setFetchError(err.response?.data?.detail || "Failed to load sales");
     }
   };
+  const fetchInventory = () => {
+    api.get("/inventory").then((res) => setInventoryItems(res.data)).catch(() => {});
+  };
+
   useEffect(() => {
     fetchSales();
-    const onDataChanged = () => fetchSales();
+    fetchInventory();
+    const onDataChanged = () => { fetchSales(); fetchInventory(); };
     window.addEventListener("bonbox-data-changed", onDataChanged);
     return () => window.removeEventListener("bonbox-data-changed", onDataChanged);
   }, []);
@@ -170,7 +177,15 @@ export default function SalesPage() {
     <div className="p-4 sm:p-6 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("salesTracker")}</h1>
-        <ReceiptCapture onSaleCreated={fetchSales} />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowItemSale(true)}
+            className="px-4 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition"
+          >
+            + Item Sale
+          </button>
+          <ReceiptCapture onSaleCreated={fetchSales} />
+        </div>
       </div>
 
       {success && <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
@@ -268,6 +283,28 @@ export default function SalesPage() {
           className="mt-3 w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
         />
       </div>
+
+      {/* Item Sale Modal */}
+      {showItemSale && (
+        <ItemSaleModal
+          items={inventoryItems}
+          currency={currency}
+          onClose={() => setShowItemSale(false)}
+          onSale={async (saleData) => {
+            try {
+              await api.post("/sales", saleData);
+              setShowItemSale(false);
+              fetchSales(filterFrom, filterTo);
+              fetchInventory();
+              setSuccess(`Item sale: ${saleData.item_name || "item"} × ${saleData.quantity_sold} = ${(saleData.quantity_sold * saleData.unit_price).toLocaleString()} ${currency}`);
+              setTimeout(() => setSuccess(""), 3000);
+            } catch (err) {
+              setError(err.response?.data?.detail || "Failed to create item sale");
+              setTimeout(() => setError(""), 4000);
+            }
+          }}
+        />
+      )}
 
       {/* CSV Import */}
       <CsvUpload onDone={fetchSales} />
@@ -399,7 +436,19 @@ export default function SalesPage() {
                   </>
                 ) : (
                   <>
-                    <td className="px-6 py-4 text-sm font-semibold text-gray-800 dark:text-white">{parseFloat(sale.amount).toLocaleString()} {currency}</td>
+                    <td className="px-6 py-4 text-sm font-semibold text-gray-800 dark:text-white">
+                      {parseFloat(sale.amount).toLocaleString()} {currency}
+                      {sale.item_name && (
+                        <div className="text-xs font-normal text-gray-400 mt-0.5">
+                          {sale.item_name} × {sale.quantity_sold} @ {parseFloat(sale.unit_price).toLocaleString()}/{currency}
+                          {sale.cost_at_sale != null && (
+                            <span className="ml-1.5 text-green-600 dark:text-green-400">
+                              +{Math.round((sale.unit_price - sale.cost_at_sale) * sale.quantity_sold).toLocaleString()} profit
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 capitalize">{sale.payment_method}</td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{sale.notes || "—"}</td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 text-right">{sale.date}</td>
@@ -424,6 +473,186 @@ export default function SalesPage() {
           </tbody>
         </table>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ItemSaleModal({ items, currency, onClose, onSale }) {
+  const [search, setSearch] = useState("");
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [qty, setQty] = useState("");
+  const [price, setPrice] = useState("");
+  const [method, setMethod] = useState("cash");
+
+  const filtered = useMemo(() => {
+    if (!search) return items.filter((i) => parseFloat(i.quantity) > 0).slice(0, 20);
+    return items
+      .filter((i) => i.name.toLowerCase().includes(search.toLowerCase()) && parseFloat(i.quantity) > 0)
+      .slice(0, 20);
+  }, [items, search]);
+
+  const cost = selectedItem ? parseFloat(selectedItem.cost_per_unit) : 0;
+  const qtyNum = parseFloat(qty) || 0;
+  const priceNum = parseFloat(price) || 0;
+  const total = qtyNum * priceNum;
+  const profit = qtyNum * (priceNum - cost);
+  const available = selectedItem ? parseFloat(selectedItem.quantity) : 0;
+
+  const handleSubmit = () => {
+    if (!selectedItem || !qtyNum || !priceNum) return;
+    onSale({
+      date: new Date().toISOString().split("T")[0],
+      inventory_item_id: selectedItem.id,
+      quantity_sold: qtyNum,
+      unit_price: priceNum,
+      payment_method: method,
+      item_name: selectedItem.name,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-1">Item Sale</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Pick item from inventory, set qty & price</p>
+
+        {!selectedItem ? (
+          <>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search inventory..."
+              className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white mb-3"
+              autoFocus
+            />
+            <div className="max-h-64 overflow-y-auto space-y-1">
+              {filtered.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setSelectedItem(item);
+                    if (item.sell_price) setPrice(String(parseFloat(item.sell_price)));
+                  }}
+                  className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition flex items-center justify-between"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{item.name}</p>
+                    <p className="text-xs text-gray-400">{item.category} · Cost: {parseFloat(item.cost_per_unit)} {currency}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300">{parseFloat(item.quantity)} {item.unit}</p>
+                  </div>
+                </button>
+              ))}
+              {filtered.length === 0 && (
+                <p className="text-center text-gray-400 py-4 text-sm">No items with stock found</p>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg mb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-semibold text-gray-800 dark:text-white">{selectedItem.name}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Cost: {cost} {currency}/{selectedItem.unit} · Stock: {available} {selectedItem.unit}
+                  </p>
+                </div>
+                <button onClick={() => { setSelectedItem(null); setQty(""); setPrice(""); }} className="text-xs text-blue-600 hover:underline">Change</button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Quantity ({selectedItem.unit})</label>
+                <input
+                  type="number"
+                  value={qty}
+                  onChange={(e) => setQty(e.target.value)}
+                  placeholder="0"
+                  max={available}
+                  className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
+                  autoFocus
+                />
+                {qtyNum > available && (
+                  <p className="text-xs text-red-500 mt-1">Only {available} {selectedItem.unit} available</p>
+                )}
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Sell Price ({currency}/{selectedItem.unit})</label>
+                <input
+                  type="number"
+                  value={price}
+                  onChange={(e) => setPrice(e.target.value)}
+                  placeholder="0"
+                  className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
+                />
+              </div>
+            </div>
+
+            {/* Payment method */}
+            <div className="flex gap-2 mb-4">
+              {["cash", "card", "mobilepay", "mixed"].map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setMethod(m)}
+                  className={`flex-1 py-2 rounded-lg text-xs font-medium capitalize border transition ${
+                    method === m
+                      ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-500 text-blue-700 dark:text-blue-300"
+                      : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+
+            {/* Summary */}
+            {qtyNum > 0 && priceNum > 0 && (
+              <div className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg mb-4 space-y-1">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Total</span>
+                  <span className="font-bold text-gray-800 dark:text-white">{total.toLocaleString()} {currency}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Cost</span>
+                  <span className="text-gray-600 dark:text-gray-300">{(qtyNum * cost).toLocaleString()} {currency}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Profit</span>
+                  <span className={`font-bold ${profit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
+                    {profit >= 0 ? "+" : ""}{profit.toLocaleString()} {currency}
+                  </span>
+                </div>
+                {cost > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Margin</span>
+                    <span className="text-green-600 dark:text-green-400">{Math.round(((priceNum - cost) / cost) * 100)}%</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={onClose}
+                className="flex-1 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={!qtyNum || !priceNum || qtyNum > available}
+                className="flex-1 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition disabled:opacity-40"
+              >
+                Sell {total > 0 ? `(${total.toLocaleString()} ${currency})` : ""}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

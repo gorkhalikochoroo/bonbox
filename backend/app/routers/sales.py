@@ -15,6 +15,7 @@ from sqlalchemy import func
 from app.database import get_db
 from app.models.user import User
 from app.models.sale import Sale
+from app.models.inventory import InventoryItem, InventoryLog
 from app.schemas.sale import SaleCreate, SaleUpdate, SaleResponse
 from app.services.auth import get_current_user
 from app.services.receipt_ocr import extract_amount_from_image, save_receipt_photo
@@ -84,7 +85,35 @@ def create_sale(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    sale = Sale(user_id=user.id, **data.model_dump())
+    sale_data = data.model_dump()
+
+    # Item sale: link to inventory, auto-calculate amount, deduct stock
+    if data.inventory_item_id and data.quantity_sold and data.unit_price:
+        item = db.query(InventoryItem).filter(
+            InventoryItem.id == data.inventory_item_id,
+            InventoryItem.user_id == user.id,
+        ).first()
+        if not item:
+            raise HTTPException(status_code=404, detail="Inventory item not found")
+        if float(item.quantity) < data.quantity_sold:
+            raise HTTPException(status_code=400, detail=f"Not enough stock. Available: {float(item.quantity)} {item.unit}")
+
+        sale_data["cost_at_sale"] = float(item.cost_per_unit)
+        sale_data["item_name"] = item.name
+        sale_data["amount"] = round(data.quantity_sold * data.unit_price, 2)
+
+        # Deduct inventory
+        item.quantity = float(item.quantity) - data.quantity_sold
+        # Log the deduction
+        log = InventoryLog(
+            item_id=item.id,
+            change_qty=-data.quantity_sold,
+            reason="sale",
+            date=data.date,
+        )
+        db.add(log)
+
+    sale = Sale(user_id=user.id, **sale_data)
     db.add(sale)
     db.commit()
     db.refresh(sale)
