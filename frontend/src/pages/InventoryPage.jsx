@@ -213,7 +213,7 @@ export default function InventoryPage() {
             onClick={() => setShowTemplateModal(true)}
             className="px-4 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 transition font-medium"
           >
-            Load Template
+            {t("loadTemplate")}
           </button>
         </div>
       </div>
@@ -223,7 +223,7 @@ export default function InventoryPage() {
 
       {alerts.length > 0 && (
         <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 p-4 rounded-xl">
-          <p className="text-red-700 dark:text-red-300 font-medium text-sm">{t("lowStockAlerts")}: {alerts.length} items below min stock</p>
+          <p className="text-red-700 dark:text-red-300 font-medium text-sm">{t("lowStockAlerts")}: {alerts.length} {t("itemsBelowMinStock")}</p>
         </div>
       )}
 
@@ -231,28 +231,28 @@ export default function InventoryPage() {
       <div className="bg-gradient-to-r from-blue-50 to-emerald-50 dark:from-gray-800 dark:to-gray-800 p-5 rounded-2xl border border-blue-100 dark:border-gray-700">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Stock Cost</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("stockCost")}</p>
             <p className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white mt-1">{stats.totalCost.toLocaleString()}</p>
-            <p className="text-xs text-gray-400">{currency} invested</p>
+            <p className="text-xs text-gray-400">{currency} {t("invested")}</p>
           </div>
           <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Potential Revenue</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("potentialRevenue")}</p>
             <p className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">{stats.totalRevenue.toLocaleString()}</p>
-            <p className="text-xs text-gray-400">{currency} if all sold</p>
+            <p className="text-xs text-gray-400">{currency} {t("ifAllSold")}</p>
           </div>
           <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Potential Profit</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("potentialProfit")}</p>
             <p className={`text-xl sm:text-2xl font-bold mt-1 ${stats.totalProfit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
               {stats.totalProfit >= 0 ? "+" : ""}{stats.totalProfit.toLocaleString()}
             </p>
-            <p className="text-xs text-gray-400">{currency} margin</p>
+            <p className="text-xs text-gray-400">{currency} {t("margin")}</p>
           </div>
           <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Avg Margin</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("avgMargin")}</p>
             <p className={`text-xl sm:text-2xl font-bold mt-1 ${stats.avgMargin >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
               {stats.avgMargin}%
             </p>
-            <p className="text-xs text-gray-400">{stats.itemsWithMargin} items priced</p>
+            <p className="text-xs text-gray-400">{stats.itemsWithMargin} {t("itemsPriced")}</p>
           </div>
         </div>
       </div>
@@ -260,23 +260,23 @@ export default function InventoryPage() {
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Total Items</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{t("totalItems")}</p>
           <p className="text-2xl font-bold text-gray-800 dark:text-white mt-1">{items.length}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Low Stock</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{t("lowStock")}</p>
           <p className={`text-2xl font-bold mt-1 ${alerts.length > 0 ? "text-red-500" : "text-green-600 dark:text-green-400"}`}>{alerts.length}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Fresh Items</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{t("freshItems")}</p>
           <p className="text-2xl font-bold text-orange-500 mt-1">{perishableCount}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Categories</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{t("categories")}</p>
           <p className="text-2xl font-bold text-purple-600 dark:text-purple-400 mt-1">{categories.length}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Priced</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{t("priced")}</p>
           <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">{stats.itemsWithMargin}/{items.length}</p>
         </div>
       </div>
@@ -287,13 +287,13 @@ export default function InventoryPage() {
           {templateFilter && (
             <div className="flex items-center gap-2 mb-2">
               <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">
-                Filtered by: {TEMPLATES.find((t) => t.type === templateLoaded)?.name || "Template"}
+                {t("filteredBy")}: {TEMPLATES.find((t) => t.type === templateLoaded)?.name || "Template"}
               </p>
               <button
                 onClick={() => { setTemplateFilter(null); setActiveCategory("All"); }}
                 className="text-xs text-gray-400 hover:text-red-500 transition"
               >
-                ✕ Show all
+                ✕ {t("showAll")}
               </button>
             </div>
           )}
@@ -331,10 +331,10 @@ export default function InventoryPage() {
             <option value="kg">{t("kg")}</option>
             <option value="liters">{t("liters")}</option>
             <option value="boxes">{t("boxes")}</option>
-            <option value="bundle">Bundle</option>
-            <option value="dozen">Dozen</option>
+            <option value="bundle">{t("bundle")}</option>
+            <option value="dozen">{t("dozen")}</option>
           </select>
-          <input type="text" placeholder="e.g. Beverages, Dairy" value={form.category}
+          <input type="text" placeholder={t("categoryPlaceholder")} value={form.category}
             onChange={(e) => setForm({ ...form, category: e.target.value })}
             className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" />
           <input type="number" step="0.01" placeholder={`Cost (${currency})`} value={form.cost_per_unit}
@@ -343,14 +343,14 @@ export default function InventoryPage() {
           <input type="number" step="0.01" placeholder={`Sell Price (${currency})`} value={form.sell_price}
             onChange={(e) => setForm({ ...form, sell_price: e.target.value })}
             className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" />
-          <input type="number" step="0.01" placeholder="Min Stock" value={form.min_threshold}
+          <input type="number" step="0.01" placeholder={t("minStock")} value={form.min_threshold}
             onChange={(e) => setForm({ ...form, min_threshold: e.target.value })}
             className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" required />
           <label className="flex items-center gap-2 px-3 py-3 text-sm text-gray-600 dark:text-gray-300">
             <input type="checkbox" checked={form.is_perishable}
               onChange={(e) => setForm({ ...form, is_perishable: e.target.checked })}
               className="rounded" />
-            Fresh item
+            {t("freshItem")}
           </label>
           <button type="submit" className="bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition font-medium col-span-2 md:col-span-4">
             {t("addItem")}
@@ -362,13 +362,13 @@ export default function InventoryPage() {
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
           <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">
-            Stock Items {activeCategory !== "All" && <span className="text-sm font-normal text-gray-400">({activeCategory})</span>}
+            {t("stockItems")} {activeCategory !== "All" && <span className="text-sm font-normal text-gray-400">({activeCategory})</span>}
           </h2>
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search items..."
+            placeholder={t("searchItems")}
             className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -377,14 +377,14 @@ export default function InventoryPage() {
             <thead className="bg-gray-50 dark:bg-gray-700/50">
               <tr>
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("item")}</th>
-                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Category</th>
+                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("category")}</th>
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("quantity")}</th>
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("unit")}</th>
-                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Cost</th>
-                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Sell</th>
-                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Margin</th>
-                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Profit</th>
-                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">Actions</th>
+                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("cost")}</th>
+                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("sell")}</th>
+                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("margin")}</th>
+                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("profit")}</th>
+                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">{t("actions")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -414,12 +414,12 @@ export default function InventoryPage() {
                         <td className="px-6 py-3">
                           <select value={editData.unit} onChange={(e) => setEditData({ ...editData, unit: e.target.value })}
                             className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white">
-                            <option value="pieces">pieces</option>
-                            <option value="kg">kg</option>
-                            <option value="liters">liters</option>
-                            <option value="boxes">boxes</option>
-                            <option value="bundle">bundle</option>
-                            <option value="dozen">dozen</option>
+                            <option value="pieces">{t("pieces")}</option>
+                            <option value="kg">{t("kg")}</option>
+                            <option value="liters">{t("liters")}</option>
+                            <option value="boxes">{t("boxes")}</option>
+                            <option value="bundle">{t("bundle")}</option>
+                            <option value="dozen">{t("dozen")}</option>
                           </select>
                         </td>
                         <td className="px-6 py-3">
@@ -434,8 +434,8 @@ export default function InventoryPage() {
                         <td className="px-6 py-3 text-sm text-gray-500">—</td>
                         <td className="px-6 py-3 text-sm text-gray-500">—</td>
                         <td className="px-6 py-3 text-right space-x-2">
-                          <button onClick={saveEdit} className="text-green-600 dark:text-green-400 text-sm font-medium hover:underline">Save</button>
-                          <button onClick={() => setEditId(null)} className="text-gray-400 text-sm hover:underline">Cancel</button>
+                          <button onClick={saveEdit} className="text-green-600 dark:text-green-400 text-sm font-medium hover:underline">{t("save")}</button>
+                          <button onClick={() => setEditId(null)} className="text-gray-400 text-sm hover:underline">{t("cancel")}</button>
                         </td>
                       </>
                     ) : (
@@ -483,14 +483,15 @@ export default function InventoryPage() {
                           )}
                         </td>
                         <td className="px-6 py-4 text-right space-x-3">
-                          <button onClick={() => startEdit(item)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">Edit</button>
+                          <button onClick={() => startEdit(item)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">{t("edit")}</button>
                           {deleteConfirm === item.id ? (
-                            <>
-                              <button onClick={() => deleteItem(item.id)} className="text-red-600 dark:text-red-400 text-sm font-medium hover:underline">Yes</button>
-                              <button onClick={() => setDeleteConfirm(null)} className="text-gray-400 text-sm hover:underline">No</button>
-                            </>
+                            <span className="inline-flex items-center gap-1.5 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded-lg">
+                              <span className="text-xs text-red-600 dark:text-red-400">{t("delete")}?</span>
+                              <button onClick={() => deleteItem(item.id)} className="text-red-600 dark:text-red-400 text-xs font-bold hover:underline">&#10003;</button>
+                              <button onClick={() => setDeleteConfirm(null)} className="text-gray-400 text-xs font-bold hover:underline">&#10005;</button>
+                            </span>
                           ) : (
-                            <button onClick={() => setDeleteConfirm(item.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">Delete</button>
+                            <button onClick={() => setDeleteConfirm(item.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">{t("delete")}</button>
                           )}
                         </td>
                       </>
@@ -515,7 +516,7 @@ export default function InventoryPage() {
             style={{ animation: "slideIn 0.25s ease-out" }}
           >
             <div className="flex items-center justify-between mb-1">
-              <h3 className="text-lg font-bold text-gray-800 dark:text-white">Load Template</h3>
+              <h3 className="text-lg font-bold text-gray-800 dark:text-white">{t("loadTemplate")}</h3>
               <button onClick={() => { setShowTemplateModal(false); setTemplateLoaded(null); }} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
               </button>

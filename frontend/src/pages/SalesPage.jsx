@@ -351,7 +351,7 @@ export default function SalesPage() {
               ])}
               className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
             >
-              Export CSV
+              {t("exportCsv")}
             </button>
           </div>
         </div>
@@ -359,7 +359,7 @@ export default function SalesPage() {
           <div className="px-6 py-3 bg-blue-50 dark:bg-blue-900/20 flex items-center justify-between">
             <span className="text-sm text-blue-700 dark:text-blue-400">{selected.size} selected</span>
             <button onClick={bulkDelete} className="text-sm text-red-600 dark:text-red-400 font-medium hover:underline">
-              Move to trash
+              {t("moveToTrash")}
             </button>
           </div>
         )}
@@ -375,9 +375,9 @@ export default function SalesPage() {
               </th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("amount")}</th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("payment")}</th>
-              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Notes</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("notes")}</th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">{t("date")}</th>
-              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">Actions</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">{t("actions")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -453,14 +453,15 @@ export default function SalesPage() {
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{sale.notes || "—"}</td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 text-right">{sale.date}</td>
                     <td className="px-6 py-4 text-right space-x-3">
-                      <button onClick={() => startEdit(sale)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">Edit</button>
+                      <button onClick={() => startEdit(sale)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">{t("edit")}</button>
                       {deleteConfirm === sale.id ? (
-                        <>
-                          <button onClick={() => deleteSale(sale.id)} className="text-red-600 dark:text-red-400 text-sm font-medium hover:underline">Yes, move</button>
-                          <button onClick={() => setDeleteConfirm(null)} className="text-gray-400 text-sm hover:underline">No</button>
-                        </>
+                        <span className="inline-flex items-center gap-1.5 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded-lg">
+                          <span className="text-xs text-red-600 dark:text-red-400">{t("delete")}?</span>
+                          <button onClick={() => deleteSale(sale.id)} className="text-red-600 dark:text-red-400 text-xs font-bold hover:underline">✓</button>
+                          <button onClick={() => setDeleteConfirm(null)} className="text-gray-400 text-xs font-bold hover:underline">✕</button>
+                        </span>
                       ) : (
-                        <button onClick={() => setDeleteConfirm(sale.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">Move to trash</button>
+                        <button onClick={() => setDeleteConfirm(sale.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">{t("moveToTrash")}</button>
                       )}
                     </td>
                   </>

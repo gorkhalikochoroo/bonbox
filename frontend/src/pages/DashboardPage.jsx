@@ -82,6 +82,7 @@ export default function DashboardPage() {
   const [inventoryItems, setInventoryItems] = useState([]);
   const [saleModal, setSaleModal] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [lightboxImg, setLightboxImg] = useState(null);
   const navigate = useNavigate();
   const { showToast, ToastContainer } = useToast();
 
@@ -640,7 +641,7 @@ export default function DashboardPage() {
           <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">{t("recentReceipts")}</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
             {receipts.map((r) => (
-              <div key={r.id} className="group relative">
+              <div key={r.id} className="group relative cursor-pointer" onClick={() => r.receipt_photo?.startsWith('http') && setLightboxImg(r.receipt_photo)}>
                 {r.receipt_photo?.startsWith('http') ? (
                   <img
                     src={r.receipt_photo}
@@ -662,6 +663,13 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {lightboxImg && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => setLightboxImg(null)}>
+          <button onClick={() => setLightboxImg(null)} className="absolute top-4 right-4 text-white text-3xl font-bold hover:text-gray-300">&times;</button>
+          <img src={lightboxImg} alt="Receipt" className="max-w-full max-h-[90vh] rounded-xl shadow-2xl object-contain" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
     </div>

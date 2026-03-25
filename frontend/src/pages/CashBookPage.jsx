@@ -81,7 +81,7 @@ export default function CashBookPage() {
       await api.put(`/cashbook/${editId}`, editData);
       setEditId(null);
       fetchData(filterFrom, filterTo);
-      setSuccess("Updated!");
+      setSuccess(t("updated"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to update");
@@ -93,7 +93,7 @@ export default function CashBookPage() {
       await api.delete(`/cashbook/${id}`);
       setDeleteConfirm(null);
       fetchData(filterFrom, filterTo);
-      setSuccess("Moved to recently deleted");
+      setSuccess(t("movedToDeleted"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to delete");
@@ -113,7 +113,7 @@ export default function CashBookPage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Cash Book</h1>
+      <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("cashBook")}</h1>
 
       {success && <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
       {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">{error}</div>}
@@ -121,17 +121,17 @@ export default function CashBookPage() {
       {/* Balance Summary */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Cash Balance</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t("cashBalance")}</p>
           <p className={`text-3xl font-bold mt-1 ${balance.balance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
             {balance.balance.toLocaleString()} {currency}
           </p>
         </div>
         <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Total Cash In</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t("totalCashIn")}</p>
           <p className="text-2xl font-bold text-green-600 dark:text-green-400 mt-1">+{balance.total_in.toLocaleString()} {currency}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Total Cash Out</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t("totalCashOut")}</p>
           <p className="text-2xl font-bold text-red-600 dark:text-red-400 mt-1">-{balance.total_out.toLocaleString()} {currency}</p>
         </div>
       </div>
@@ -146,7 +146,7 @@ export default function CashBookPage() {
               tab === "cash_in" ? "bg-green-600 text-white" : "text-gray-600 dark:text-gray-300"
             }`}
           >
-            Cash In
+            {t("cashIn")}
           </button>
           <button
             onClick={() => { setTab("cash_out"); setCategory(""); }}
@@ -154,12 +154,12 @@ export default function CashBookPage() {
               tab === "cash_out" ? "bg-red-600 text-white" : "text-gray-600 dark:text-gray-300"
             }`}
           >
-            Cash Out
+            {t("cashOut")}
           </button>
         </div>
 
         {/* Category */}
-        <p className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Category</p>
+        <p className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">{t("category")}</p>
         <div className="flex flex-wrap gap-2 mb-4">
           {categories.map((c) => (
             <button
@@ -183,7 +183,7 @@ export default function CashBookPage() {
           type="text"
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
-          placeholder="What was it for?"
+          placeholder={t("whatWasItFor")}
           className="max-w-sm px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
         />
 
@@ -211,7 +211,7 @@ export default function CashBookPage() {
             type="number"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            placeholder="Custom amount"
+            placeholder={t("customAmount")}
             className="flex-1 max-w-sm px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
@@ -222,7 +222,7 @@ export default function CashBookPage() {
               tab === "cash_in" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"
             }`}
           >
-            {tab === "cash_in" ? "Add In" : "Add Out"}
+            {tab === "cash_in" ? t("addIn") : t("addOut")}
           </button>
         </div>
 
@@ -237,7 +237,7 @@ export default function CashBookPage() {
             className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           {txnDate !== new Date().toISOString().split("T")[0] && (
-            <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Backdated entry</span>
+            <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">{t("backdatedEntry")}</span>
           )}
         </div>
       </div>
@@ -245,7 +245,7 @@ export default function CashBookPage() {
       {/* Transaction History */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">Transaction History</h2>
+          <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">{t("transactionHistory")}</h2>
           <div className="flex items-center gap-2 flex-wrap">
             <input
               type="date"
@@ -264,7 +264,7 @@ export default function CashBookPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search..."
+              placeholder={t("search")}
               className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             {(filterFrom || filterTo) && (
@@ -272,7 +272,7 @@ export default function CashBookPage() {
                 onClick={() => { setFilterFrom(""); setFilterTo(""); fetchData(); }}
                 className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 font-medium"
               >
-                Clear
+                {t("clear")}
               </button>
             )}
             <button
@@ -285,7 +285,7 @@ export default function CashBookPage() {
               ])}
               className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
             >
-              Export CSV
+              {t("exportCsv")}
             </button>
           </div>
         </div>
@@ -294,12 +294,12 @@ export default function CashBookPage() {
             <thead className="bg-gray-50 dark:bg-gray-700/50">
               <tr>
                 <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("date")}</th>
-                <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Description</th>
-                <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Category</th>
-                <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">Cash In</th>
-                <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">Cash Out</th>
-                <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">Balance</th>
-                <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">Actions</th>
+                <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("description")}</th>
+                <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("category")}</th>
+                <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">{t("cashIn")}</th>
+                <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">{t("cashOut")}</th>
+                <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">{t("balance")}</th>
+                <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">{t("actions")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -323,8 +323,8 @@ export default function CashBookPage() {
                         <div className="flex items-center gap-2">
                           <select value={editData.type} onChange={(e) => setEditData({ ...editData, type: e.target.value })}
                             className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-sm dark:bg-gray-700 dark:text-white">
-                            <option value="cash_in">In</option>
-                            <option value="cash_out">Out</option>
+                            <option value="cash_in">{t("cashIn")}</option>
+                            <option value="cash_out">{t("cashOut")}</option>
                           </select>
                           <input type="number" value={editData.amount} onChange={(e) => setEditData({ ...editData, amount: parseFloat(e.target.value) || 0 })}
                             className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-sm dark:bg-gray-700 dark:text-white w-24" />
@@ -332,8 +332,8 @@ export default function CashBookPage() {
                       </td>
                       <td className="px-4 py-3"></td>
                       <td className="px-4 py-3 text-right space-x-2">
-                        <button onClick={saveEdit} className="text-green-600 dark:text-green-400 text-sm font-medium hover:underline">Save</button>
-                        <button onClick={() => setEditId(null)} className="text-gray-400 text-sm hover:underline">Cancel</button>
+                        <button onClick={saveEdit} className="text-green-600 dark:text-green-400 text-sm font-medium hover:underline">{t("save")}</button>
+                        <button onClick={() => setEditId(null)} className="text-gray-400 text-sm hover:underline">{t("cancel")}</button>
                       </td>
                     </>
                   ) : (
@@ -355,17 +355,18 @@ export default function CashBookPage() {
                       </td>
                       <td className="px-4 py-3 text-right space-x-2">
                         {txn.reference_id ? (
-                          <span className="text-xs text-gray-400 dark:text-gray-500 italic">Auto-synced</span>
+                          <span className="text-xs text-gray-400 dark:text-gray-500 italic">{t("autoSynced")}</span>
                         ) : (
                           <>
-                            <button onClick={() => startEdit(txn)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">Edit</button>
+                            <button onClick={() => startEdit(txn)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">{t("edit")}</button>
                             {deleteConfirm === txn.id ? (
-                              <>
-                                <button onClick={() => deleteTxn(txn.id)} className="text-red-600 dark:text-red-400 text-sm font-medium hover:underline">Yes, move</button>
-                                <button onClick={() => setDeleteConfirm(null)} className="text-gray-400 text-sm hover:underline">No</button>
-                              </>
+                              <span className="inline-flex items-center gap-1.5 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded-lg">
+                                <span className="text-xs text-red-600 dark:text-red-400">{t("delete")}?</span>
+                                <button onClick={() => deleteTxn(txn.id)} className="text-red-600 dark:text-red-400 text-xs font-bold hover:underline">&#x2713;</button>
+                                <button onClick={() => setDeleteConfirm(null)} className="text-gray-400 text-xs font-bold hover:underline">&#x2715;</button>
+                              </span>
                             ) : (
-                              <button onClick={() => setDeleteConfirm(txn.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">Move to trash</button>
+                              <button onClick={() => setDeleteConfirm(txn.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">{t("moveToTrash")}</button>
                             )}
                           </>
                         )}
@@ -375,7 +376,7 @@ export default function CashBookPage() {
                 </tr>
               ))}
               {transactions.length === 0 && (
-                <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">No cash transactions yet</td></tr>
+                <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noCashTransactionsYet")}</td></tr>
               )}
             </tbody>
           </table>

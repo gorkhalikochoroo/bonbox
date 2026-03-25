@@ -15,10 +15,10 @@ export default function RecentlyDeletedPage() {
   const [loading, setLoading] = useState(false);
 
   const tabs = [
-    { key: "sales", label: "Sales" },
-    { key: "expenses", label: "Expenses" },
-    { key: "waste", label: "Waste" },
-    { key: "cashbook", label: "Cash Book" },
+    { key: "sales", label: t("sales") },
+    { key: "expenses", label: t("expenses") },
+    { key: "waste", label: t("waste") },
+    { key: "cashbook", label: t("cashBook") },
   ];
 
   const fetchDeleted = async () => {
@@ -88,11 +88,11 @@ export default function RecentlyDeletedPage() {
         <div className="flex gap-2">
           <button onClick={() => restore(item.id)}
             className="px-3 py-1.5 text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-lg hover:bg-green-200 dark:hover:bg-green-900/50">
-            Restore
+            {t("restore")}
           </button>
           <button onClick={() => permanentDelete(item.id)}
             className="px-3 py-1.5 text-xs font-medium bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/50">
-            Delete Forever
+            {t("deleteForever")}
           </button>
         </div>
       </div>
@@ -101,22 +101,22 @@ export default function RecentlyDeletedPage() {
 
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Recently Deleted</h1>
+      <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t("recentlyDeleted")}</h1>
       <div className="flex gap-2 flex-wrap">
-        {tabs.map((t) => (
-          <button key={t.key} onClick={() => setTab(t.key)}
+        {tabs.map((tb) => (
+          <button key={tb.key} onClick={() => setTab(tb.key)}
             className={`px-4 py-2 rounded-xl text-sm font-medium ${
-              tab === t.key
+              tab === tb.key
                 ? "bg-blue-600 text-white"
                 : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
-            }`}>{t.label}</button>
+            }`}>{tb.label}</button>
         ))}
       </div>
 
       {loading ? (
-        <p className="text-gray-500 dark:text-gray-400 text-center py-8">Loading...</p>
+        <p className="text-gray-500 dark:text-gray-400 text-center py-8">{t("loading")}</p>
       ) : items.length === 0 ? (
-        <p className="text-gray-500 dark:text-gray-400 text-center py-8">No deleted items</p>
+        <p className="text-gray-500 dark:text-gray-400 text-center py-8">{t("noDeletedItems")}</p>
       ) : (
         <div className="space-y-3">
           {items.map(renderItem)}
