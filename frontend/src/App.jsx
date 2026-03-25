@@ -1,7 +1,22 @@
-import { Component } from "react";
+import { Component, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
 import { LanguageProvider } from "./hooks/useLanguage";
+
+// Loading spinner for lazy-loaded pages
+function PageLoader() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-900">
+      <div className="text-center">
+        <svg className="animate-spin h-8 w-8 text-blue-600 mx-auto mb-3" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+        </svg>
+        <p className="text-gray-500 dark:text-gray-400 text-sm">Loading...</p>
+      </div>
+    </div>
+  );
+}
 
 // Catch React render crashes — prevents white screen
 class ErrorBoundary extends Component {
@@ -31,76 +46,82 @@ class ErrorBoundary extends Component {
     return this.props.children;
   }
 }
-import Layout from "./components/Layout";
+
+// Landing, Login, Register load immediately (small)
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
-import ForgotPasswordPage from "./pages/ForgotPasswordPage";
-import DashboardPage from "./pages/DashboardPage";
-import SalesPage from "./pages/SalesPage";
-import ExpensesPage from "./pages/ExpensesPage";
-import InventoryPage from "./pages/InventoryPage";
-import StaffingPage from "./pages/StaffingPage";
-import WastePage from "./pages/WastePage";
-import WeeklyReportPage from "./pages/WeeklyReportPage";
-import VatReportPage from "./pages/VatReportPage";
-import ReportsPage from "./pages/ReportsPage";
-import FeedbackPage from "./pages/FeedbackPage";
-import CashBookPage from "./pages/CashBookPage";
 import ContactPage from "./pages/ContactPage";
-import RecentlyDeletedPage from "./pages/RecentlyDeletedPage";
-import ProfilePage from "./pages/ProfilePage";
-import PersonalPage from "./pages/PersonalPage";
-import KhataPage from "./pages/KhataPage";
-import LoanTrackerPage from "./pages/LoanTrackerPage";
+
+// Everything else lazy-loaded (only downloaded when needed)
+const Layout = lazy(() => import("./components/Layout"));
+const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage"));
+const DashboardPage = lazy(() => import("./pages/DashboardPage"));
+const SalesPage = lazy(() => import("./pages/SalesPage"));
+const ExpensesPage = lazy(() => import("./pages/ExpensesPage"));
+const InventoryPage = lazy(() => import("./pages/InventoryPage"));
+const StaffingPage = lazy(() => import("./pages/StaffingPage"));
+const WastePage = lazy(() => import("./pages/WastePage"));
+const WeeklyReportPage = lazy(() => import("./pages/WeeklyReportPage"));
+const VatReportPage = lazy(() => import("./pages/VatReportPage"));
+const ReportsPage = lazy(() => import("./pages/ReportsPage"));
+const FeedbackPage = lazy(() => import("./pages/FeedbackPage"));
+const CashBookPage = lazy(() => import("./pages/CashBookPage"));
+const RecentlyDeletedPage = lazy(() => import("./pages/RecentlyDeletedPage"));
+const ProfilePage = lazy(() => import("./pages/ProfilePage"));
+const PersonalPage = lazy(() => import("./pages/PersonalPage"));
+const KhataPage = lazy(() => import("./pages/KhataPage"));
+const LoanTrackerPage = lazy(() => import("./pages/LoanTrackerPage"));
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
-  if (loading) return <div className="p-8 text-center text-gray-500">Loading...</div>;
+  if (loading) return <PageLoader />;
   if (!user) return <Navigate to="/login" />;
   return children;
 }
 
 function PublicOrDashboard() {
   const { user, loading } = useAuth();
-  if (loading) return <div className="p-8 text-center text-gray-500">Loading...</div>;
+  if (loading) return <PageLoader />;
   if (user) return <Navigate to="/dashboard" />;
   return <LandingPage />;
 }
 
 function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/" element={<PublicOrDashboard />} />
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<RegisterPage />} />
-      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-      <Route
-        element={
-          <ProtectedRoute>
-            <Layout />
-          </ProtectedRoute>
-        }
-      >
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/sales" element={<SalesPage />} />
-        <Route path="/expenses" element={<ExpensesPage />} />
-        <Route path="/inventory" element={<InventoryPage />} />
-        <Route path="/staffing" element={<StaffingPage />} />
-        <Route path="/waste" element={<WastePage />} />
-        <Route path="/weekly-report" element={<WeeklyReportPage />} />
-        <Route path="/vat-report" element={<VatReportPage />} />
-        <Route path="/reports" element={<ReportsPage />} />
-        <Route path="/feedback" element={<FeedbackPage />} />
-        <Route path="/cashbook" element={<CashBookPage />} />
+    <Suspense fallback={<PageLoader />}>
+      <Routes>
+        <Route path="/" element={<PublicOrDashboard />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/contact" element={<ContactPage />} />
-        <Route path="/recently-deleted" element={<RecentlyDeletedPage />} />
-        <Route path="/profile" element={<ProfilePage />} />
-        <Route path="/personal" element={<PersonalPage />} />
-        <Route path="/khata" element={<KhataPage />} />
-        <Route path="/loans" element={<LoanTrackerPage />} />
-      </Route>
-    </Routes>
+        <Route
+          element={
+            <ProtectedRoute>
+              <Layout />
+            </ProtectedRoute>
+          }
+        >
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/sales" element={<SalesPage />} />
+          <Route path="/expenses" element={<ExpensesPage />} />
+          <Route path="/inventory" element={<InventoryPage />} />
+          <Route path="/staffing" element={<StaffingPage />} />
+          <Route path="/waste" element={<WastePage />} />
+          <Route path="/weekly-report" element={<WeeklyReportPage />} />
+          <Route path="/vat-report" element={<VatReportPage />} />
+          <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/feedback" element={<FeedbackPage />} />
+          <Route path="/cashbook" element={<CashBookPage />} />
+          <Route path="/recently-deleted" element={<RecentlyDeletedPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/personal" element={<PersonalPage />} />
+          <Route path="/khata" element={<KhataPage />} />
+          <Route path="/loans" element={<LoanTrackerPage />} />
+        </Route>
+      </Routes>
+    </Suspense>
   );
 }
 
