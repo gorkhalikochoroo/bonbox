@@ -13,6 +13,7 @@ export default function RegisterPage() {
     currency: "DKK",
   });
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
@@ -20,11 +21,15 @@ export default function RegisterPage() {
     e.preventDefault();
     setError("");
     if (!form.business_type) { setError("Please select a type"); return; }
+    setLoading(true);
     try {
       await register(form);
       navigate("/dashboard");
     } catch (err) {
-      setError(err.response?.data?.detail || "Registration failed");
+      const msg = err.response?.data?.detail || (err.code === "ECONNABORTED" ? "Server is waking up — please try again" : "Registration failed. Check your internet and try again.");
+      setError(msg);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -101,9 +106,14 @@ export default function RegisterPage() {
               <option value="CHF">CHF - Swiss Franc</option>
             </select>
           </div>
-          <button type="submit"
-            className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition font-semibold text-base">
-            Create Account
+          <button type="submit" disabled={loading}
+            className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition font-semibold text-base disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+            {loading ? (
+              <>
+                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                Creating account...
+              </>
+            ) : "Create Account"}
           </button>
         </form>
         <p className="mt-4 text-center text-sm text-gray-600">
