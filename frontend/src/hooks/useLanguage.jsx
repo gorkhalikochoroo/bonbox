@@ -110,6 +110,43 @@ const translations = {
     dankort: "Dankort", bankTransfer: "Bank Transfer",
     // Quick Sale
     quickSale: "Quick Sale",
+    // Time periods
+    today: "Today", thisWeek: "This Week", thisMonth: "This Month", last30Days: "Last 30 Days",
+    // Layout / Nav
+    businessMode: "Business Mode", personalMode: "Personal Mode",
+    reports: "Reports", khata: "Khata", loanTracker: "Loan Tracker",
+    // Common actions
+    delete: "Delete", edit: "Edit", or: "or",
+    search: "Search...", exportCsv: "Export CSV", clear: "Clear",
+    noData: "No data", loading: "Loading...",
+    // QuickAdd personal
+    income: "Income", expense: "Expense", incomeSource: "Income Source",
+    spendingCategory: "Spending Category", amountReceived: "Amount received",
+    amountSpent: "Amount spent", notesOptional: "Notes (optional)",
+    logIncome: "Log Income", logExpense: "Log Expense",
+    incomeLogged: "Income logged!", expenseLogged: "Expense logged!",
+    noIncomeCatsYet: "No income categories yet", noSpendCatsYet: "No spending categories yet",
+    // Dashboard extras
+    todaysProfit: "Today's Profit", thisWeekRevenue: "This Week's Revenue",
+    thisWeekProfit: "This Week's Profit", thisMonthRevenue: "This Month's Revenue",
+    thisMonthProfit: "This Month's Profit", last30Revenue: "Last 30 Days Revenue",
+    last30Profit: "Last 30 Days Profit",
+    profitability: "Profitability", consistency: "Consistency", growth: "Growth",
+    costControl: "Cost Control", activity: "Activity",
+    excellent: "Excellent", good: "Good", needsWork: "Needs Work", critical: "Critical",
+    businessHealth: "Business Health", onTrack: "On Track", average: "Average",
+    needsAttention: "Needs Attention", khataReceivable: "Khata Receivable",
+    outstandingCredit: "Outstanding credit", daysActive: "days active",
+    ofRevenue: "of revenue", activeToday: "Active today", noSalesToday: "No sales today",
+    notProfitableYet: "Not profitable yet",
+    // Inventory extras
+    general: "General", itemAdded: "Item added!", itemUpdated: "Item updated!",
+    stockAdded: "Stock added", stockRemoved: "Stock removed", itemDeleted: "Item deleted",
+    // Expenses extras
+    backdatedEntry: "Backdated entry", personalExpense: "Personal expense",
+    businessExpense: "Business expense", excludedFromReports: "Excluded from reports & VAT",
+    typeCustomCategory: "Type custom category...", moveToTrash: "Move to trash",
+    actions: "Actions", notes: "Notes",
     // Cash Book
     cashBook: "Cash Book",
     // Contact
@@ -225,6 +262,43 @@ const translations = {
     dankort: "Dankort", bankTransfer: "Bankoverførsel",
     // Quick Sale
     quickSale: "Hurtig salg",
+    // Time periods
+    today: "I dag", thisWeek: "Denne uge", thisMonth: "Denne måned", last30Days: "Sidste 30 dage",
+    // Layout / Nav
+    businessMode: "Virksomhed", personalMode: "Personlig",
+    reports: "Rapporter", khata: "Khata", loanTracker: "Lånoversigt",
+    // Common actions
+    delete: "Slet", edit: "Rediger", or: "eller",
+    search: "Søg...", exportCsv: "Eksporter CSV", clear: "Ryd",
+    noData: "Ingen data", loading: "Indlæser...",
+    // QuickAdd personal
+    income: "Indkomst", expense: "Udgift", incomeSource: "Indkomstkilde",
+    spendingCategory: "Udgiftskategori", amountReceived: "Beløb modtaget",
+    amountSpent: "Beløb brugt", notesOptional: "Noter (valgfri)",
+    logIncome: "Registrer indkomst", logExpense: "Registrer udgift",
+    incomeLogged: "Indkomst registreret!", expenseLogged: "Udgift registreret!",
+    noIncomeCatsYet: "Ingen indkomstkategorier endnu", noSpendCatsYet: "Ingen udgiftskategorier endnu",
+    // Dashboard extras
+    todaysProfit: "Dagens overskud", thisWeekRevenue: "Ugens omsætning",
+    thisWeekProfit: "Ugens overskud", thisMonthRevenue: "Månedens omsætning",
+    thisMonthProfit: "Månedens overskud", last30Revenue: "Sidste 30 dages omsætning",
+    last30Profit: "Sidste 30 dages overskud",
+    profitability: "Rentabilitet", consistency: "Konsistens", growth: "Vækst",
+    costControl: "Omkostningskontrol", activity: "Aktivitet",
+    excellent: "Fremragende", good: "God", needsWork: "Behøver arbejde", critical: "Kritisk",
+    businessHealth: "Virksomhedshelbred", onTrack: "På rette spor", average: "Gennemsnitlig",
+    needsAttention: "Kræver opmærksomhed", khataReceivable: "Khata tilgodehavende",
+    outstandingCredit: "Udestående kredit", daysActive: "dage aktiv",
+    ofRevenue: "af omsætning", activeToday: "Aktiv i dag", noSalesToday: "Intet salg i dag",
+    notProfitableYet: "Ikke rentabel endnu",
+    // Inventory extras
+    general: "Generelt", itemAdded: "Vare tilføjet!", itemUpdated: "Vare opdateret!",
+    stockAdded: "Lager tilføjet", stockRemoved: "Lager fjernet", itemDeleted: "Vare slettet",
+    // Expenses extras
+    backdatedEntry: "Tilbagedateret post", personalExpense: "Personlig udgift",
+    businessExpense: "Forretningsudgift", excludedFromReports: "Ekskluderet fra rapporter & moms",
+    typeCustomCategory: "Skriv egen kategori...", moveToTrash: "Flyt til papirkurv",
+    actions: "Handlinger", notes: "Noter",
     // Cash Book
     cashBook: "Kassebog",
     // Contact
@@ -339,6 +413,43 @@ const translations = {
     dankort: "Dankort", bankTransfer: "बैंक ट्रान्सफर",
     // Quick Sale
     quickSale: "छिटो बिक्री",
+    // Time periods
+    today: "आज", thisWeek: "यो हप्ता", thisMonth: "यो महिना", last30Days: "गत ३० दिन",
+    // Layout / Nav
+    businessMode: "व्यापार मोड", personalMode: "व्यक्तिगत मोड",
+    reports: "रिपोर्टहरू", khata: "खाता", loanTracker: "ऋण ट्र्याकर",
+    // Common actions
+    delete: "मेट्नुहोस्", edit: "सम्पादन", or: "वा",
+    search: "खोज्नुहोस्...", exportCsv: "CSV निर्यात", clear: "खाली गर्नुहोस्",
+    noData: "डाटा छैन", loading: "लोड हुँदैछ...",
+    // QuickAdd personal
+    income: "आम्दानी", expense: "खर्च", incomeSource: "आम्दानीको स्रोत",
+    spendingCategory: "खर्चको कोटि", amountReceived: "प्राप्त रकम",
+    amountSpent: "खर्च गरिएको रकम", notesOptional: "टिप्पणी (ऐच्छिक)",
+    logIncome: "आम्दानी राख्नुहोस्", logExpense: "खर्च राख्नुहोस्",
+    incomeLogged: "आम्दानी रेकर्ड भयो!", expenseLogged: "खर्च रेकर्ड भयो!",
+    noIncomeCatsYet: "अहिलेसम्म आम्दानी कोटि छैन", noSpendCatsYet: "अहिलेसम्म खर्च कोटि छैन",
+    // Dashboard extras
+    todaysProfit: "आजको नाफा", thisWeekRevenue: "यो हप्ताको आम्दानी",
+    thisWeekProfit: "यो हप्ताको नाफा", thisMonthRevenue: "यो महिनाको आम्दानी",
+    thisMonthProfit: "यो महिनाको नाफा", last30Revenue: "गत ३० दिनको आम्दानी",
+    last30Profit: "गत ३० दिनको नाफा",
+    profitability: "नाफा", consistency: "नियमितता", growth: "वृद्धि",
+    costControl: "खर्च नियन्त्रण", activity: "सक्रियता",
+    excellent: "उत्कृष्ट", good: "राम्रो", needsWork: "सुधार चाहिन्छ", critical: "गम्भीर",
+    businessHealth: "व्यापार स्वास्थ्य", onTrack: "सही बाटोमा", average: "औसत",
+    needsAttention: "ध्यान चाहिन्छ", khataReceivable: "खाता लिनुपर्ने",
+    outstandingCredit: "बाँकी रकम", daysActive: "दिन सक्रिय",
+    ofRevenue: "आम्दानीको", activeToday: "आज सक्रिय", noSalesToday: "आज बिक्री छैन",
+    notProfitableYet: "अहिलेसम्म नाफा छैन",
+    // Inventory extras
+    general: "सामान्य", itemAdded: "सामान थपियो!", itemUpdated: "सामान अपडेट भयो!",
+    stockAdded: "स्टक थपियो", stockRemoved: "स्टक घटाइयो", itemDeleted: "सामान मेटियो",
+    // Expenses extras
+    backdatedEntry: "पुरानो मितिको एन्ट्री", personalExpense: "व्यक्तिगत खर्च",
+    businessExpense: "व्यापारिक खर्च", excludedFromReports: "रिपोर्ट र भ्याटबाट बाहिर",
+    typeCustomCategory: "आफ्नो कोटि लेख्नुहोस्...", moveToTrash: "रद्दीमा सार्नुहोस्",
+    actions: "कार्य", notes: "टिप्पणी",
     // Cash Book
     cashBook: "खाता",
     // Contact

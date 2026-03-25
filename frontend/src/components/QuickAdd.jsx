@@ -129,7 +129,7 @@ export default function QuickAdd() {
       setPCatId("");
       setPNotes("");
       setPDate(new Date().toISOString().split("T")[0]);
-      showSuccess(INCOME_CATS.includes(cat?.name) ? "Income logged!" : "Expense logged!");
+      showSuccess(INCOME_CATS.includes(cat?.name) ? t("incomeLogged") : t("expenseLogged"));
       window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
       showError(err.response?.data?.detail || "Failed to add entry");
@@ -167,13 +167,13 @@ export default function QuickAdd() {
                 className={`flex-1 py-2.5 rounded-md text-sm font-medium transition ${
                   tab === "personal_income" ? "bg-white dark:bg-gray-600 shadow text-green-700 dark:text-green-400" : "text-gray-500 dark:text-gray-400"
                 }`}>
-                Income
+                {t("income")}
               </button>
               <button onClick={() => setTab("personal_expense")}
                 className={`flex-1 py-2.5 rounded-md text-sm font-medium transition ${
                   tab === "personal_expense" ? "bg-white dark:bg-gray-600 shadow text-red-600 dark:text-red-400" : "text-gray-500 dark:text-gray-400"
                 }`}>
-                Expense
+                {t("expense")}
               </button>
             </>
           ) : (
@@ -344,7 +344,7 @@ export default function QuickAdd() {
         {tab === "personal_income" && (
           <div className="space-y-4">
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Income Source</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{t("incomeSource")}</p>
               <div className="flex flex-wrap gap-2">
                 {incomeCats.map((c) => (
                   <button
@@ -360,13 +360,13 @@ export default function QuickAdd() {
                   </button>
                 ))}
                 {incomeCats.length === 0 && (
-                  <p className="text-sm text-gray-400 dark:text-gray-500">No income categories yet</p>
+                  <p className="text-sm text-gray-400 dark:text-gray-500">{t("noIncomeCatsYet")}</p>
                 )}
               </div>
             </div>
 
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Quick Amount</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{t("quickAmount")}</p>
               <div className="flex flex-wrap gap-2">
                 {personalPresets.map((amt) => (
                   <button
@@ -388,7 +388,7 @@ export default function QuickAdd() {
               type="number"
               value={pAmount}
               onChange={(e) => setPAmount(e.target.value)}
-              placeholder="Amount received"
+              placeholder={t("amountReceived")}
               className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
               autoFocus
             />
@@ -397,7 +397,7 @@ export default function QuickAdd() {
               type="text"
               value={pNotes}
               onChange={(e) => setPNotes(e.target.value)}
-              placeholder="Notes (optional)"
+              placeholder={t("notesOptional")}
               className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
             />
 
@@ -417,7 +417,7 @@ export default function QuickAdd() {
               disabled={!pAmount || !pCatId}
               className="w-full bg-green-600 text-white py-3.5 rounded-xl hover:bg-green-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
             >
-              Log Income
+              {t("logIncome")}
             </button>
           </div>
         )}
@@ -425,7 +425,7 @@ export default function QuickAdd() {
         {tab === "personal_expense" && (
           <div className="space-y-3">
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">Spending Category</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">{t("spendingCategory")}</p>
               <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1 -m-1 rounded-lg">
                 {spendCats.map((c) => (
                   <button
@@ -441,13 +441,13 @@ export default function QuickAdd() {
                   </button>
                 ))}
                 {spendCats.length === 0 && (
-                  <p className="text-sm text-gray-400 dark:text-gray-500">No spending categories yet</p>
+                  <p className="text-sm text-gray-400 dark:text-gray-500">{t("noSpendCatsYet")}</p>
                 )}
               </div>
             </div>
 
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">Quick Amount</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">{t("quickAmount")}</p>
               <div className="flex flex-wrap gap-1.5">
                 {personalPresets.map((amt) => (
                   <button
@@ -469,7 +469,7 @@ export default function QuickAdd() {
               type="number"
               value={pAmount}
               onChange={(e) => setPAmount(e.target.value)}
-              placeholder="Amount spent"
+              placeholder={t("amountSpent")}
               className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-base bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
               autoFocus
             />
@@ -478,7 +478,7 @@ export default function QuickAdd() {
               type="text"
               value={pNotes}
               onChange={(e) => setPNotes(e.target.value)}
-              placeholder="Notes (optional)"
+              placeholder={t("notesOptional")}
               className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
             />
 
@@ -498,7 +498,7 @@ export default function QuickAdd() {
               disabled={!pAmount || !pCatId}
               className="w-full bg-purple-600 text-white py-3 rounded-xl hover:bg-purple-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
             >
-              Log Expense
+              {t("logExpense")}
             </button>
           </div>
         )}

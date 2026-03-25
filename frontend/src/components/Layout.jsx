@@ -15,16 +15,16 @@ const businessNav = [
   { to: "/inventory", labelKey: "inventory" },
   { to: "/staffing", labelKey: "smartStaffing" },
   { to: "/waste", labelKey: "wasteTracker" },
-  { to: "/reports", label: "Reports" },
+  { to: "/reports", labelKey: "reports" },
   { to: "/feedback", labelKey: "feedback" },
   { to: "/recently-deleted", labelKey: "recentlyDeleted" },
   { to: "/contact", labelKey: "contact" },
-  { to: "/khata", label: "Khata" },
+  { to: "/khata", labelKey: "khata" },
 ];
 
 const personalNav = [
-  { to: "/personal", label: "Dashboard" },
-  { to: "/loans", label: "Loan Tracker" },
+  { to: "/personal", labelKey: "dashboard" },
+  { to: "/loans", labelKey: "loanTracker" },
   { to: "/contact", labelKey: "contact" },
 ];
 
@@ -95,7 +95,7 @@ export default function Layout() {
             }`}
           >
             <span className="text-base">{mode === "personal" ? "👤" : "💼"}</span>
-            <span>{mode === "personal" ? "Personal Mode" : "Business Mode"}</span>
+            <span>{mode === "personal" ? t("personalMode") : t("businessMode")}</span>
             <svg className="w-3.5 h-3.5 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
             </svg>

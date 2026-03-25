@@ -297,7 +297,7 @@ export default function DashboardPage() {
             onClick={() => setSaleModal(true)}
             className="px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition"
           >
-            + Quick Sale
+            + {t("quickSale")}
           </button>
           <ReceiptCapture onSaleCreated={fetchAll} />
           <button
@@ -337,7 +337,7 @@ export default function DashboardPage() {
                 : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
             }`}
           >
-            {p === "today" ? "Today" : p === "thisWeek" ? "This Week" : p === "thisMonth" ? "This Month" : "Last 30 Days"}
+            {p === "today" ? t("today") : p === "thisWeek" ? t("thisWeek") : p === "thisMonth" ? t("thisMonth") : t("last30Days")}
           </button>
         ))}
       </div>
@@ -348,7 +348,7 @@ export default function DashboardPage() {
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 stagger-cards">
         <KpiCard
-          title={PERIOD_LABELS[period]?.revenue || t("todayRevenue")}
+          title={period === "today" ? t("todayRevenue") : period === "thisWeek" ? t("thisWeekRevenue") : period === "thisMonth" ? t("thisMonthRevenue") : t("last30Revenue")}
           numericValue={periodStats ? periodStats.totalRevenue : summary.today_revenue}
           currency={currency}
           change={period === "today" ? summary.today_revenue_change : undefined}
@@ -356,7 +356,7 @@ export default function DashboardPage() {
           subtitle={periodStats ? `${periodStats.salesCount} sales` : undefined}
         />
         <KpiCard
-          title={PERIOD_LABELS[period]?.profit || t("monthlyProfit")}
+          title={period === "today" ? t("todaysProfit") : period === "thisWeek" ? t("thisWeekProfit") : period === "thisMonth" ? t("thisMonthProfit") : t("last30Profit")}
           numericValue={periodStats ? periodStats.profit : summary.month_profit}
           currency={currency}
           subtitle={`${periodStats ? periodStats.margin : summary.profit_margin}% ${t("margin")}`}
@@ -368,11 +368,11 @@ export default function DashboardPage() {
         />
         {summary.khata_receivable > 0 ? (
           <KpiCard
-            title="Khata Receivable"
+            title={t("khataReceivable")}
             numericValue={summary.khata_receivable}
             currency={currency}
             alert={true}
-            subtitle="Outstanding credit"
+            subtitle={t("outstandingCredit")}
           />
         ) : (
           <KpiCard
@@ -882,6 +882,7 @@ function DailySummary({ summary, monthlyData }) {
 
 function HealthScore({ summary, monthlyData }) {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const currency = displayCurrency(user?.currency);
 
   // Calculate score 0-100 from existing data
@@ -890,7 +891,7 @@ function HealthScore({ summary, monthlyData }) {
   // 1. Profitability (0-30 pts)
   const margin = summary.profit_margin || 0;
   const profitScore = Math.min(Math.round(margin * 1.5), 30); // 20% margin = 30 pts
-  factors.push({ label: "Profitability", score: profitScore, max: 30, tip: margin > 0 ? `${margin}% margin` : "Not profitable yet" });
+  factors.push({ label: t("profitability"), score: profitScore, max: 30, tip: margin > 0 ? `${margin}% ${t("margin")}` : t("notProfitableYet") });
 
   // 2. Revenue consistency (0-25 pts) — how many days had sales this month
   const dailyRevenue = monthlyData?.daily_revenue || [];
@@ -898,26 +899,26 @@ function HealthScore({ summary, monthlyData }) {
   const totalDays = Math.max(dailyRevenue.length, 1);
   const consistencyPct = daysWithSales / totalDays;
   const consistencyScore = Math.min(Math.round(consistencyPct * 25), 25);
-  factors.push({ label: "Consistency", score: consistencyScore, max: 25, tip: `${daysWithSales}/${totalDays} days active` });
+  factors.push({ label: t("consistency"), score: consistencyScore, max: 25, tip: `${daysWithSales}/${totalDays} ${t("daysActive")}` });
 
   // 3. Revenue growth (0-20 pts)
   const growthChange = summary.today_revenue_change || 0;
   const growthScore = growthChange > 0 ? Math.min(Math.round(growthChange), 20) : growthChange === 0 ? 10 : Math.max(10 + Math.round(growthChange / 2), 0);
-  factors.push({ label: "Growth", score: growthScore, max: 20, tip: `${growthChange >= 0 ? "+" : ""}${growthChange}% vs yesterday` });
+  factors.push({ label: t("growth"), score: growthScore, max: 20, tip: `${growthChange >= 0 ? "+" : ""}${growthChange}% ${t("vsYesterday")}` });
 
   // 4. Expense control (0-15 pts) — lower expense ratio = better
   const expenseRatio = summary.month_revenue > 0 ? summary.month_expenses / summary.month_revenue : 1;
   const expenseScore = Math.round(Math.max(0, (1 - expenseRatio)) * 15);
-  factors.push({ label: "Cost Control", score: expenseScore, max: 15, tip: `${Math.round(expenseRatio * 100)}% of revenue` });
+  factors.push({ label: t("costControl"), score: expenseScore, max: 15, tip: `${Math.round(expenseRatio * 100)}% ${t("ofRevenue")}` });
 
   // 5. Activity (0-10 pts) — logged today?
   const activityScore = summary.today_revenue > 0 ? 10 : 0;
-  factors.push({ label: "Activity", score: activityScore, max: 10, tip: summary.today_revenue > 0 ? "Active today" : "No sales today" });
+  factors.push({ label: t("activity"), score: activityScore, max: 10, tip: summary.today_revenue > 0 ? t("activeToday") : t("noSalesToday") });
 
   const total = factors.reduce((s, f) => s + f.score, 0);
   const color = total >= 75 ? "text-green-500" : total >= 50 ? "text-yellow-500" : total >= 25 ? "text-orange-500" : "text-red-500";
   const bgColor = total >= 75 ? "bg-green-500" : total >= 50 ? "bg-yellow-500" : total >= 25 ? "bg-orange-500" : "bg-red-500";
-  const label = total >= 75 ? "Excellent" : total >= 50 ? "Good" : total >= 25 ? "Needs Work" : "Critical";
+  const label = total >= 75 ? t("excellent") : total >= 50 ? t("good") : total >= 25 ? t("needsWork") : t("critical");
 
   return (
     <div className="bg-white dark:bg-gray-800 p-5 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
@@ -937,7 +938,7 @@ function HealthScore({ summary, monthlyData }) {
             </div>
           </div>
           <div className="sm:text-center sm:mt-1">
-            <p className="text-sm font-semibold text-gray-800 dark:text-white">Business Health</p>
+            <p className="text-sm font-semibold text-gray-800 dark:text-white">{t("businessHealth")}</p>
             <p className={`text-xs font-medium ${color}`}>{label}</p>
           </div>
         </div>
