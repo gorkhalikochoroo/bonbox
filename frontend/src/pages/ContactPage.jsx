@@ -1,7 +1,21 @@
+import { useNavigate } from "react-router-dom";
+
 export default function ContactPage() {
+  const navigate = useNavigate();
+
   return (
-    <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Contact & Support</h1>
+    <div className="p-6 space-y-6 max-w-2xl mx-auto">
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => navigate(-1)}
+          className="w-9 h-9 flex items-center justify-center rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Contact & Support</h1>
+      </div>
 
       <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
         <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-4">Get in Touch</h2>
