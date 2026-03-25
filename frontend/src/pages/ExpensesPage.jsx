@@ -401,9 +401,9 @@ export default function ExpensesPage() {
         <div className="flex flex-wrap gap-2 mt-3">
           {["cash", "card", "mobilepay", "mixed", "dankort"].map((m) => (
             <button key={m} type="button" onClick={() => setMethod(m)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium capitalize ${
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
                 method === m ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
-              }`}>{m}</button>
+              }`}>{t(m)}</button>
           ))}
         </div>
 
@@ -563,7 +563,7 @@ export default function ExpensesPage() {
                         className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
                       >
                         {["cash", "card", "mobilepay", "mixed", "dankort"].map((m) => (
-                          <option key={m} value={m}>{m}</option>
+                          <option key={m} value={m}>{t(m)}</option>
                         ))}
                       </select>
                     </td>

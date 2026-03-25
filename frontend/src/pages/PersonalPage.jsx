@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
+import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 
 const PERSONAL_CATEGORIES = [
@@ -18,6 +19,7 @@ const QUICK_AMOUNTS = [100, 500, 1000, 2500, 5000];
 
 export default function PersonalPage() {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const currency = displayCurrency(user?.currency);
   const [entries, setEntries] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -648,11 +650,11 @@ export default function PersonalPage() {
             className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
           />
           <div className="flex gap-1">
-            {["cash", "card", "bank_transfer"].map((m) => (
-              <button key={m} onClick={() => setMethod(m)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium capitalize ${
-                  method === m ? "bg-purple-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300"
-                }`}>{m.replace("_", " ")}</button>
+            {["cash", "card", "bankTransfer"].map((m) => (
+              <button key={m} onClick={() => setMethod(m === "bankTransfer" ? "bank_transfer" : m)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
+                  method === (m === "bankTransfer" ? "bank_transfer" : m) ? "bg-purple-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300"
+                }`}>{t(m)}</button>
             ))}
           </div>
         </div>

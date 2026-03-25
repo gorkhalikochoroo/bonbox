@@ -158,17 +158,17 @@ export default function ReceiptCapture({ onSaleCreated }) {
                 />
 
                 <div className="flex gap-2 mb-4">
-                  {["cash", "card", "mobilepay", "mixed", "dankort", "kontant"].map((m) => (
+                  {["cash", "card", "mobilepay", "mixed", "dankort"].map((m) => (
                     <button
                       key={m}
                       onClick={() => setMethod(m)}
-                      className={`flex-1 py-2 rounded-lg text-xs font-medium capitalize border transition ${
+                      className={`flex-1 py-2 rounded-lg text-xs font-medium border transition ${
                         method === m
-                          ? "bg-blue-50 border-blue-300 text-blue-700"
-                          : "border-gray-200 text-gray-500 hover:bg-gray-50"
+                          ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-400"
+                          : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
                       }`}
                     >
-                      {m}
+                      {t(m)}
                     </button>
                   ))}
                 </div>

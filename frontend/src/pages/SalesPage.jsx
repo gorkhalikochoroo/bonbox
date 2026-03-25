@@ -248,13 +248,13 @@ export default function SalesPage() {
             <button
               key={m}
               onClick={() => setMethod(m)}
-              className={`flex-1 min-w-[4.5rem] py-2.5 rounded-lg text-xs font-medium capitalize border transition ${
+              className={`flex-1 min-w-[4.5rem] py-2.5 rounded-lg text-xs font-medium border transition ${
                 method === m
                   ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-500 text-blue-700 dark:text-blue-300"
                   : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50"
               }`}
             >
-              {m}
+              {t(m)}
             </button>
           ))}
         </div>
@@ -408,7 +408,7 @@ export default function SalesPage() {
                         className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
                       >
                         {["cash", "card", "mobilepay", "mixed", "dankort"].map((m) => (
-                          <option key={m} value={m}>{m}</option>
+                          <option key={m} value={m}>{t(m)}</option>
                         ))}
                       </select>
                     </td>
@@ -599,13 +599,13 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
                 <button
                   key={m}
                   onClick={() => setMethod(m)}
-                  className={`flex-1 py-2 rounded-lg text-xs font-medium capitalize border transition ${
+                  className={`flex-1 py-2 rounded-lg text-xs font-medium border transition ${
                     method === m
                       ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-500 text-blue-700 dark:text-blue-300"
                       : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"
                   }`}
                 >
-                  {m}
+                  {t(m)}
                 </button>
               ))}
             </div>
