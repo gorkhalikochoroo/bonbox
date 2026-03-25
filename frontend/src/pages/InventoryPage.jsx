@@ -46,6 +46,7 @@ export default function InventoryPage() {
   const [search, setSearch] = useState("");
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [templateLoading, setTemplateLoading] = useState(false);
+  const [templateLoaded, setTemplateLoaded] = useState(null);
 
   const fetchData = () => {
     api.get("/inventory").then((res) => setItems(res.data)).catch(() => {});
@@ -137,9 +138,10 @@ export default function InventoryPage() {
     setTemplateLoading(true);
     try {
       const res = await api.post("/inventory/templates/load", { template_type: templateType });
-      setShowTemplateModal(false);
-      fetchData();
-      setSuccess(`Loaded ${res.data.length} items from template!`);
+      setTemplateLoaded(templateType);
+      fetchData(); // refresh items + categories behind the panel
+      const count = res.data.length;
+      setSuccess(count > 0 ? `Loaded ${count} items from template!` : "All items already in your inventory.");
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to load template");
@@ -472,22 +474,32 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {/* Template Modal */}
+      {/* Template Side Panel */}
       {showTemplateModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowTemplateModal(false)}>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-lg w-full p-6 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-1">Load Inventory Template</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">Choose your business type. Items already in your inventory won't be duplicated.</p>
+        <div className="fixed inset-0 bg-black/30 z-50 flex justify-end" onClick={() => { setShowTemplateModal(false); setTemplateLoaded(null); }}>
+          <div
+            className="bg-white dark:bg-gray-800 shadow-2xl w-full max-w-sm h-full overflow-y-auto p-6 animate-slideIn"
+            onClick={(e) => e.stopPropagation()}
+            style={{ animation: "slideIn 0.25s ease-out" }}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-lg font-bold text-gray-800 dark:text-white">Load Template</h3>
+              <button onClick={() => { setShowTemplateModal(false); setTemplateLoaded(null); }} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">Pick a template. Items already in your inventory won't be duplicated.</p>
 
             <div className="space-y-2.5">
               {TEMPLATES.map((tmpl) => {
                 const c = COLOR_MAP[tmpl.color];
+                const isLoaded = templateLoaded === tmpl.type;
                 return (
                   <button
                     key={tmpl.type}
                     onClick={() => loadTemplate(tmpl.type)}
                     disabled={templateLoading}
-                    className={`w-full p-4 text-left border border-gray-200 dark:border-gray-600 rounded-xl ${c.border} ${c.bg} transition`}
+                    className={`w-full p-4 text-left border rounded-xl transition ${isLoaded ? "border-green-400 bg-green-50 dark:bg-green-900/20" : `border-gray-200 dark:border-gray-600 ${c.border} ${c.bg}`}`}
                   >
                     <div className="flex items-center gap-3">
                       <span className="text-2xl">{tmpl.icon}</span>
@@ -495,6 +507,7 @@ export default function InventoryPage() {
                         <div className="flex items-center gap-2">
                           <p className="font-semibold text-gray-800 dark:text-white">{tmpl.name}</p>
                           <span className="text-xs text-gray-400">{tmpl.count} items</span>
+                          {isLoaded && <span className="text-xs text-green-600 dark:text-green-400 font-medium">✓ Loaded</span>}
                         </div>
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{tmpl.desc}</p>
                       </div>
@@ -505,18 +518,22 @@ export default function InventoryPage() {
             </div>
 
             {templateLoading && (
-              <p className="text-sm text-blue-600 dark:text-blue-400 mt-3 text-center">Loading template...</p>
+              <div className="flex items-center justify-center gap-2 mt-4">
+                <svg className="animate-spin h-4 w-4 text-blue-600" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                <p className="text-sm text-blue-600 dark:text-blue-400">Loading template...</p>
+              </div>
             )}
 
             <button
-              onClick={() => setShowTemplateModal(false)}
-              className="w-full mt-4 py-2 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              onClick={() => { setShowTemplateModal(false); setTemplateLoaded(null); }}
+              className="w-full mt-5 py-2.5 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 border border-gray-200 dark:border-gray-600 rounded-lg"
             >
-              Cancel
+              Done
             </button>
           </div>
         </div>
       )}
+      <style>{`@keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }`}</style>
     </div>
   );
 }
