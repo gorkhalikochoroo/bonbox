@@ -45,7 +45,7 @@ export default function Layout() {
   const vatTerms = getVatTerms(user?.currency);
   const navItems = mode === "personal" ? personalNav : businessNav;
   const [dark, toggleDark] = useDarkMode();
-  const { t, toggleLang } = useLanguage();
+  const { t, lang, setLang, LANGUAGES } = useLanguage();
   usePageTracking();
 
   const handleLogout = () => {
@@ -140,12 +140,22 @@ export default function Layout() {
           >
             {dark ? t("lightMode") : t("darkMode")}
           </button>
-          <button
-            onClick={toggleLang}
-            className="w-full text-left px-4 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
-          >
-            {t("language")}
-          </button>
+          <div className="flex items-center gap-1 px-2 py-1.5">
+            {LANGUAGES.map((l) => (
+              <button
+                key={l.code}
+                onClick={() => setLang(l.code)}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-medium text-center transition ${
+                  lang === l.code
+                    ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 ring-1 ring-blue-200 dark:ring-blue-700"
+                    : "text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
+                }`}
+                title={l.label}
+              >
+                <span className="text-base">{l.flag}</span>
+              </button>
+            ))}
+          </div>
           <button
             onClick={handleLogout}
             className="w-full text-left px-4 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition"

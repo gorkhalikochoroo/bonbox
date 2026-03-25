@@ -223,21 +223,144 @@ const translations = {
     recentlyDeleted: "Nyligt slettet",
     profile: "Profil",
   },
+  np: {
+    dashboard: "ड्यासबोर्ड", sales: "बिक्री", expenses: "खर्च", inventory: "स्टक",
+    smartStaffing: "स्मार्ट स्टाफिङ", wasteTracker: "फोहोर ट्र्याकर", weeklyReport: "हप्ताको रिपोर्ट",
+    momsVat: "भ्याट", darkMode: "डार्क मोड", lightMode: "लाइट मोड", signOut: "लग आउट",
+    language: "भाषा",
+    // Dashboard
+    welcome: "स्वागतम", todayRevenue: "आजको आम्दानी", monthlyProfit: "मासिक नाफा",
+    topExpense: "सबैभन्दा ठूलो खर्च", inventoryAlerts: "स्टक अलर्ट", snapReceipt: "रसिद खिच्नुहोस्",
+    repeatYesterday: "हिजोको बिक्री दोहोर्‍याउनुहोस्", downloadPdf: "PDF रिपोर्ट डाउनलोड",
+    loadingDashboard: "ड्यासबोर्ड लोड हुँदैछ...", vsYesterday: "हिजोको तुलनामा", margin: "मार्जिन",
+    none: "छैन", revenueTrend: "आम्दानीको प्रवृत्ति", expenseBreakdown: "खर्चको विवरण",
+    noRevenueData: "अहिलेसम्म आम्दानी डाटा छैन", noExpenseData: "अहिलेसम्म खर्च डाटा छैन",
+    recentReceipts: "हालका रसिदहरू", dailyGoal: "दैनिक लक्ष्य", reached: "पुग्यो!",
+    setDailyGoal: "दैनिक आम्दानीको लक्ष्य राख्नुहोस्", trackProgress: "दिनभरको प्रगति ट्र्याक गर्नुहोस्",
+    setGoal: "लक्ष्य राख्नुहोस्", editGoal: "लक्ष्य सम्पादन", save: "सेभ", cancel: "रद्द",
+    yesterdayCopied: "हिजोको बिक्री आजमा कपी भयो!", noYesterdaySale: "हिजोको बिक्री भेटिएन",
+    // Sales
+    salesTracker: "बिक्री ट्र्याकर", logSale: "आजको बिक्री राख्नुहोस्",
+    tapAmount: "रकम छान्नुहोस् वा आफ्नो टाइप गर्नुहोस्", customAmount: "आफ्नो रकम...", log: "राख्नुहोस्",
+    recentSales: "हालका बिक्रीहरू", date: "मिति", amount: "रकम", payment: "भुक्तानी",
+    noSalesYet: "अहिलेसम्म बिक्री छैन — माथि रकम थिच्नुहोस्!",
+    importCsv: "CSV बाट आयात", csvColumns: "स्तम्भहरू: date, amount, payment_method (ऐच्छिक)",
+    uploading: "अपलोड हुँदैछ...", chooseFile: "फाइल छान्नुहोस्",
+    salesImported: "बिक्री आयात भयो", rowsSkipped: "पङ्क्ति छोडियो",
+    // Expenses
+    expenseTracker: "खर्च ट्र्याकर", addExpense: "खर्च थप्नुहोस्",
+    pickCategory: "कोटि छान्नुहोस्, विवरण लेख्नुहोस्, रकम थिच्नुहोस्",
+    whatWasIt: "के थियो? (जस्तै: गोलभेडा, बिजुलीको बिल)", add: "थप्नुहोस्",
+    recentExpenses: "हालका खर्चहरू", description: "विवरण",
+    noExpensesYet: "अहिलेसम्म खर्च छैन — कोटि छानेर माथि थप्नुहोस्!",
+    firstTimeSetup: "पहिलो पटक? एक थिचाइमा सामान्य कोटिहरू सेटअप गर्नुहोस्",
+    setupCategories: "कोटिहरू सेटअप",
+    // Inventory
+    inventoryMonitor: "स्टक मनिटर", lowStockAlerts: "कम स्टक अलर्ट",
+    addItem: "सामान थप्नुहोस्", itemName: "सामानको नाम", quantity: "परिमाण", unit: "इकाई",
+    costPerUnit: "प्रति इकाई मूल्य", threshold: "न्यूनतम सीमा",
+    pieces: "थान", kg: "केजी", liters: "लिटर", boxes: "बाकस",
+    noInventoryYet: "अहिलेसम्म स्टकमा सामान छैन",
+    // Staffing
+    analyzingPatterns: "बिक्री ढाँचा विश्लेषण हुँदैछ...", notEnoughData: "अहिलेसम्म पर्याप्त बिक्री डाटा छैन",
+    logMoreSales: "पूर्वानुमानको लागि कम्तिमा केही हप्ताको बिक्री राख्नुहोस्",
+    slowDaysAhead: "सुस्त दिनहरू आउँदैछन्", reduceStaff: "कर्मचारी घटाउनुहोस्, कम तयारी गर्नुहोस्",
+    normalDays: "सामान्य दिनहरू", standardStaffing: "सामान्य स्टाफिङ",
+    busyDaysAhead: "व्यस्त दिनहरू आउँदैछन्", extraStaff: "थप कर्मचारी चाहिन्छ",
+    revenueForecast: "आम्दानी पूर्वानुमान र सिफारिस स्टाफ", salesPatterns: "तपाईंको बिक्री ढाँचा",
+    predictedRevenue: "अनुमानित आम्दानी", day: "दिन", level: "स्तर",
+    staffNeeded: "चाहिने कर्मचारी", confidence: "विश्वसनीयता", staffingRules: "स्टाफिङ नियमहरू",
+    staffingRulesDesc: "विभिन्न आम्दानी स्तरमा कति कर्मचारी चाहिन्छ भनेर तोक्नुहोस्।",
+    addRule: "नियम थप्नुहोस्", remove: "हटाउनुहोस्", staff: "कर्मचारी",
+    next7days: "अर्को ७ दिन", next14days: "अर्को १४ दिन", next30days: "अर्को ३० दिन",
+    totalStaffNeeded: "कुल चाहिने कर्मचारी", basedOnPatterns: "अनुमानित आम्दानी ढाँचामा आधारित",
+    minRevenue: "न्यूनतम आम्दानी", maxRevenue: "अधिकतम आम्दानी",
+    slow: "सुस्त", normal: "सामान्य", busy: "व्यस्त",
+    // Waste
+    logWaste: "फोहोर राख्नुहोस्", trackWaste: "के फालियो ट्र्याक गर्नुहोस्",
+    wasteLogged: "फोहोर रेकर्ड भयो!", monthlyWasteCost: "मासिक फोहोर खर्च",
+    itemsWasted: "फालिएका सामानहरू", noDataYet: "अहिलेसम्म डाटा छैन",
+    whatWasWasted: "के फालियो? (जस्तै: कुखुराको मासु)", qty: "परिमाण",
+    estimatedCost: "अनुमानित मूल्य", customCost: "आफ्नो मूल्य...",
+    recentWaste: "हालको फोहोर", item: "सामान", reason: "कारण", cost: "मूल्य",
+    noWasteYet: "अहिलेसम्म फोहोर रेकर्ड छैन",
+    expired: "म्याद सकियो", overcooked: "बढी पाकेको", damaged: "बिग्रेको", other: "अन्य",
+    // Weekly Report
+    weeklySalesReport: "हप्ताको बिक्री रिपोर्ट", dailyAvg: "दैनिक औसत",
+    daysRecorded: "रेकर्ड गरिएका दिन", bestDay: "सबैभन्दा राम्रो दिन", slowestDay: "सबैभन्दा सुस्त दिन",
+    revenue: "आम्दानी", vsLastWeek: "गत हप्ताको तुलनामा",
+    loadingReport: "रिपोर्ट लोड हुँदैछ...", noSalesData: "अहिलेसम्म बिक्री डाटा उपलब्ध छैन।",
+    // VAT
+    vatReport: "कर रिपोर्ट", salesSection: "बिक्री",
+    salesInclVat: "भ्याट सहित बिक्री", salesExclVat: "भ्याट बिना बिक्री",
+    outputVat: "आउटपुट भ्याट", expensesSection: "खर्च",
+    expensesInclVat: "भ्याट सहित खर्च", expensesExclVat: "भ्याट बिना खर्च",
+    inputVat: "इनपुट भ्याट", vatPayable: "तिर्नुपर्ने भ्याट",
+    payableToSkat: "कर कार्यालयलाई तिर्नुपर्ने रकम", refundFromSkat: "कर कार्यालयबाट फिर्ता हुने रकम",
+    loadingVat: "कर रिपोर्ट लोड हुँदैछ...", vatError: "कर रिपोर्ट लोड गर्न सकिएन।",
+    // Receipt
+    uploadReceipt: "रसिदको फोटो अपलोड गर्नुहोस्", takePhoto: "फोटो खिच्नुहोस्",
+    photoOrGallery: "फोटो खिच्नुहोस् वा ग्यालरीबाट छान्नुहोस्", scanningReceipt: "रसिद स्क्यान हुँदैछ...",
+    detectedAmount: "पत्ता लागेको रकम", couldntRead: "रकम पढ्न सकिएन — तल आफैं टाइप गर्नुहोस्",
+    ocrNotAvailable: "OCR उपलब्ध छैन — रकम आफैं टाइप गर्नुहोस्",
+    enterTotal: "कुल रकम लेख्नुहोस्...", confirmLog: "पुष्टि गरी बिक्री राख्नुहोस्",
+    saleLoggedReceipt: "रसिदबाट बिक्री रेकर्ड भयो!",
+    // Quick Add
+    quickEntry: "छिटो एन्ट्री", logSaleTab: "बिक्री राख्नुहोस्", addExpenseTab: "खर्च थप्नुहोस्",
+    quickAmount: "छिटो रकम", orTypeAmount: "वा रकम टाइप गर्नुहोस्...",
+    category: "कोटि", addCategoriesFirst: "पहिले खर्च पेजमा कोटिहरू थप्नुहोस्",
+    whatForExpense: "के को लागि थियो? (जस्तै: गोलभेडा)",
+    saleLogged: "बिक्री रेकर्ड भयो!", expenseAdded: "खर्च थपियो!",
+    // Forecast
+    revenueForecastTitle: "आम्दानी पूर्वानुमान", nextDays: "अर्को ७ दिन",
+    predictedTotal: "अनुमानित जम्मा", avgDaily: "औसत/दिन",
+    trendUp: "बढ्दो", trendDown: "घट्दो", trendStable: "स्थिर",
+    forecastConfidence: "विश्वसनीयता", noForecastData: "पूर्वानुमानको लागि थप बिक्री डाटा चाहिन्छ",
+    predicted: "अनुमानित", actual: "वास्तविक",
+    // Feedback
+    feedback: "प्रतिक्रिया", sendFeedback: "प्रतिक्रिया पठाउनुहोस्", yourFeedback: "तपाईंको प्रतिक्रिया",
+    feedbackSent: "प्रतिक्रियाको लागि धन्यवाद!", rateExperience: "आफ्नो अनुभव मूल्याङ्कन गर्नुहोस्",
+    feedbackMessage: "तपाईंको विचार लेख्नुहोस्...", bugReport: "बग रिपोर्ट",
+    featureRequest: "फिचर अनुरोध", generalFeedback: "सामान्य प्रतिक्रिया",
+    complaint: "उजुरी", praise: "प्रशंसा", noFeedbackYet: "अहिलेसम्म प्रतिक्रिया छैन",
+    stars: "तारा",
+    // Cash Book
+    cashBook: "खाता",
+    // Contact
+    contact: "सम्पर्क",
+    // Recently Deleted
+    recentlyDeleted: "हालै मेटाइएको",
+    // Profile
+    profile: "प्रोफाइल",
+  },
 };
 
-export function LanguageProvider({ children }) {
-  const [lang, setLang] = useState(() => localStorage.getItem("lang") || "en");
+const LANGUAGES = [
+  { code: "en", label: "English", flag: "🇬🇧" },
+  { code: "da", label: "Dansk", flag: "🇩🇰" },
+  { code: "np", label: "नेपाली", flag: "🇳🇵" },
+];
 
+export function LanguageProvider({ children }) {
+  const [lang, setLangState] = useState(() => localStorage.getItem("lang") || "en");
+
+  const setLang = (code) => {
+    setLangState(code);
+    localStorage.setItem("lang", code);
+  };
+
+  // Keep toggleLang for backward compat — cycles through all languages
   const toggleLang = () => {
-    const next = lang === "en" ? "da" : "en";
+    const codes = LANGUAGES.map((l) => l.code);
+    const idx = codes.indexOf(lang);
+    const next = codes[(idx + 1) % codes.length];
     setLang(next);
-    localStorage.setItem("lang", next);
   };
 
   const t = (key) => translations[lang]?.[key] || translations.en[key] || key;
 
   return (
-    <LanguageContext.Provider value={{ lang, toggleLang, t }}>
+    <LanguageContext.Provider value={{ lang, setLang, toggleLang, t, LANGUAGES }}>
       {children}
     </LanguageContext.Provider>
   );

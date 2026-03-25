@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { useLanguage } from "../hooks/useLanguage";
 
 export default function LoginPage() {
   const { login } = useAuth();
+  const { lang, setLang, LANGUAGES } = useLanguage();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -83,6 +85,21 @@ export default function LoginPage() {
             Register
           </Link>
         </p>
+        <div className="flex justify-center gap-2 mt-4">
+          {LANGUAGES.map((l) => (
+            <button
+              key={l.code}
+              onClick={() => setLang(l.code)}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition ${
+                lang === l.code
+                  ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200"
+                  : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              {l.flag} {l.label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
