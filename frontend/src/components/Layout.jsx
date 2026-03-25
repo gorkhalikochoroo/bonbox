@@ -16,10 +16,10 @@ const businessNav = [
   { to: "/staffing", labelKey: "smartStaffing" },
   { to: "/waste", labelKey: "wasteTracker" },
   { to: "/reports", labelKey: "reports" },
+  { to: "/khata", labelKey: "khata" },
   { to: "/feedback", labelKey: "feedback" },
   { to: "/recently-deleted", labelKey: "recentlyDeleted" },
   { to: "/contact", labelKey: "contact" },
-  { to: "/khata", labelKey: "khata" },
 ];
 
 const personalNav = [
