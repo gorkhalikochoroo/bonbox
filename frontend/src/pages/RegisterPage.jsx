@@ -26,16 +26,12 @@ export default function RegisterPage() {
       await register(form);
       navigate("/dashboard");
     } catch (err) {
+      const status = err.response?.status;
       const detail = err.response?.data?.detail;
-      if (detail === "Email already registered") {
-        // Might have registered on a previous timed-out attempt — try logging in
-        try {
-          const { login } = await import("../hooks/useAuth").then(() => ({}));
-          // Just tell user to sign in
-          setError("Account already exists! Try signing in instead.");
-        } catch {
-          setError("Account already exists! Try signing in instead.");
-        }
+      if (status === 429) {
+        setError("Too many attempts — please wait a minute and try again.");
+      } else if (detail === "Email already registered") {
+        setError("Account already exists! Try signing in instead.");
       } else {
         const msg = detail || (err.code === "ECONNABORTED" || !err.response ? "Slow connection — please try again" : "Registration failed");
         setError(msg);
