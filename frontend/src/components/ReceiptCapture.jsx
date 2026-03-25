@@ -78,31 +78,21 @@ export default function ReceiptCapture({ onSaleCreated }) {
         ) : (
           <div className="space-y-4">
             {!preview && (
-              <div className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center">
-                <p className="text-gray-500 mb-3">{t("photoOrGallery")}</p>
-                <div className="flex gap-2 justify-center">
-                  <label className="px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium cursor-pointer hover:bg-blue-700 transition">
-                    {t("takePhoto")}
-                    <input
-                      ref={fileRef}
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      onChange={handleFile}
-                      className="hidden"
-                    />
-                  </label>
-                  <label className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium cursor-pointer hover:bg-gray-200 transition">
-                    {t("chooseFile")}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleFile}
-                      className="hidden"
-                    />
-                  </label>
-                </div>
-              </div>
+              <label className="block border-2 border-dashed border-gray-200 dark:border-gray-600 rounded-xl p-8 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition group">
+                <svg className="w-10 h-10 mx-auto mb-3 text-gray-300 dark:text-gray-500 group-hover:text-blue-400 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  <circle cx="12" cy="13" r="3" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} />
+                </svg>
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">{t("takePhoto")}</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500">{t("photoOrGallery")}</p>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFile}
+                  className="hidden"
+                />
+              </label>
             )}
 
             {preview && (
