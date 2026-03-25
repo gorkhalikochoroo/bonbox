@@ -47,6 +47,7 @@ export default function InventoryPage() {
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [templateLoading, setTemplateLoading] = useState(false);
   const [templateLoaded, setTemplateLoaded] = useState(null);
+  const [templateFilter, setTemplateFilter] = useState(null); // categories from last loaded template
 
   const fetchData = () => {
     api.get("/inventory").then((res) => setItems(res.data)).catch(() => {});
@@ -139,6 +140,12 @@ export default function InventoryPage() {
     try {
       const res = await api.post("/inventory/templates/load", { template_type: templateType });
       setTemplateLoaded(templateType);
+      // Extract categories from this template's items to filter the tabs
+      const tmplCats = [...new Set(res.data.map((i) => i.category || "General"))].sort();
+      if (tmplCats.length > 0) {
+        setTemplateFilter(tmplCats);
+        setActiveCategory("All");
+      }
       fetchData(); // refresh items + categories behind the panel
       const count = res.data.length;
       setSuccess(count > 0 ? `Loaded ${count} items from template!` : "All items already in your inventory.");
@@ -154,6 +161,10 @@ export default function InventoryPage() {
 
   const filtered = useMemo(() => {
     let list = items;
+    // Filter by template categories if active
+    if (templateFilter && activeCategory === "All") {
+      list = list.filter((i) => templateFilter.includes(i.category || "General"));
+    }
     if (activeCategory !== "All") {
       list = list.filter((i) => (i.category || "General") === activeCategory);
     }
@@ -161,7 +172,7 @@ export default function InventoryPage() {
       list = list.filter((i) => i.name.toLowerCase().includes(search.toLowerCase()));
     }
     return list.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
-  }, [items, activeCategory, search]);
+  }, [items, activeCategory, search, templateFilter]);
 
   // Auto-calculated financials
   const stats = useMemo(() => {
@@ -185,7 +196,9 @@ export default function InventoryPage() {
   }, [items]);
 
   const perishableCount = items.filter((i) => i.is_perishable).length;
-  const allCategories = ["All", ...categories];
+  const displayCategories = templateFilter
+    ? ["All", ...categories.filter((c) => templateFilter.includes(c))]
+    : ["All", ...categories];
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
@@ -266,20 +279,35 @@ export default function InventoryPage() {
 
       {/* Category tabs */}
       {categories.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {allCategories.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setActiveCategory(cat)}
-              className={`px-3 py-1.5 text-sm rounded-lg transition font-medium ${
-                activeCategory === cat
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
+        <div>
+          {templateFilter && (
+            <div className="flex items-center gap-2 mb-2">
+              <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">
+                Filtered by: {TEMPLATES.find((t) => t.type === templateLoaded)?.name || "Template"}
+              </p>
+              <button
+                onClick={() => { setTemplateFilter(null); setActiveCategory("All"); }}
+                className="text-xs text-gray-400 hover:text-red-500 transition"
+              >
+                ✕ Show all
+              </button>
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {displayCategories.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setActiveCategory(cat)}
+                className={`px-3 py-1.5 text-sm rounded-lg transition font-medium ${
+                  activeCategory === cat
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
