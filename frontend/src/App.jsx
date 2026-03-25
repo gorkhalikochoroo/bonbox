@@ -14,6 +14,7 @@ import StaffingPage from "./pages/StaffingPage";
 import WastePage from "./pages/WastePage";
 import WeeklyReportPage from "./pages/WeeklyReportPage";
 import VatReportPage from "./pages/VatReportPage";
+import ReportsPage from "./pages/ReportsPage";
 import FeedbackPage from "./pages/FeedbackPage";
 import CashBookPage from "./pages/CashBookPage";
 import ContactPage from "./pages/ContactPage";
@@ -59,6 +60,7 @@ function AppRoutes() {
         <Route path="/waste" element={<WastePage />} />
         <Route path="/weekly-report" element={<WeeklyReportPage />} />
         <Route path="/vat-report" element={<VatReportPage />} />
+        <Route path="/reports" element={<ReportsPage />} />
         <Route path="/feedback" element={<FeedbackPage />} />
         <Route path="/cashbook" element={<CashBookPage />} />
         <Route path="/contact" element={<ContactPage />} />
