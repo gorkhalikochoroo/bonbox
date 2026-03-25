@@ -26,8 +26,20 @@ export default function RegisterPage() {
       await register(form);
       navigate("/dashboard");
     } catch (err) {
-      const msg = err.response?.data?.detail || (err.code === "ECONNABORTED" ? "Server is waking up — please try again" : "Registration failed. Check your internet and try again.");
-      setError(msg);
+      const detail = err.response?.data?.detail;
+      if (detail === "Email already registered") {
+        // Might have registered on a previous timed-out attempt — try logging in
+        try {
+          const { login } = await import("../hooks/useAuth").then(() => ({}));
+          // Just tell user to sign in
+          setError("Account already exists! Try signing in instead.");
+        } catch {
+          setError("Account already exists! Try signing in instead.");
+        }
+      } else {
+        const msg = detail || (err.code === "ECONNABORTED" || !err.response ? "Slow connection — please try again" : "Registration failed");
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
