@@ -53,25 +53,36 @@ import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import ContactPage from "./pages/ContactPage";
 
+// Retry wrapper for lazy imports — retries 2x on slow connections
+function lazyRetry(importFn) {
+  return lazy(() => importFn().catch(() =>
+    new Promise((resolve) => setTimeout(resolve, 1500)).then(() =>
+      importFn().catch(() =>
+        new Promise((resolve) => setTimeout(resolve, 3000)).then(() => importFn())
+      )
+    )
+  ));
+}
+
 // Everything else lazy-loaded (only downloaded when needed)
-const Layout = lazy(() => import("./components/Layout"));
-const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage"));
-const DashboardPage = lazy(() => import("./pages/DashboardPage"));
-const SalesPage = lazy(() => import("./pages/SalesPage"));
-const ExpensesPage = lazy(() => import("./pages/ExpensesPage"));
-const InventoryPage = lazy(() => import("./pages/InventoryPage"));
-const StaffingPage = lazy(() => import("./pages/StaffingPage"));
-const WastePage = lazy(() => import("./pages/WastePage"));
-const WeeklyReportPage = lazy(() => import("./pages/WeeklyReportPage"));
-const VatReportPage = lazy(() => import("./pages/VatReportPage"));
-const ReportsPage = lazy(() => import("./pages/ReportsPage"));
-const FeedbackPage = lazy(() => import("./pages/FeedbackPage"));
-const CashBookPage = lazy(() => import("./pages/CashBookPage"));
-const RecentlyDeletedPage = lazy(() => import("./pages/RecentlyDeletedPage"));
-const ProfilePage = lazy(() => import("./pages/ProfilePage"));
-const PersonalPage = lazy(() => import("./pages/PersonalPage"));
-const KhataPage = lazy(() => import("./pages/KhataPage"));
-const LoanTrackerPage = lazy(() => import("./pages/LoanTrackerPage"));
+const Layout = lazyRetry(() => import("./components/Layout"));
+const ForgotPasswordPage = lazyRetry(() => import("./pages/ForgotPasswordPage"));
+const DashboardPage = lazyRetry(() => import("./pages/DashboardPage"));
+const SalesPage = lazyRetry(() => import("./pages/SalesPage"));
+const ExpensesPage = lazyRetry(() => import("./pages/ExpensesPage"));
+const InventoryPage = lazyRetry(() => import("./pages/InventoryPage"));
+const StaffingPage = lazyRetry(() => import("./pages/StaffingPage"));
+const WastePage = lazyRetry(() => import("./pages/WastePage"));
+const WeeklyReportPage = lazyRetry(() => import("./pages/WeeklyReportPage"));
+const VatReportPage = lazyRetry(() => import("./pages/VatReportPage"));
+const ReportsPage = lazyRetry(() => import("./pages/ReportsPage"));
+const FeedbackPage = lazyRetry(() => import("./pages/FeedbackPage"));
+const CashBookPage = lazyRetry(() => import("./pages/CashBookPage"));
+const RecentlyDeletedPage = lazyRetry(() => import("./pages/RecentlyDeletedPage"));
+const ProfilePage = lazyRetry(() => import("./pages/ProfilePage"));
+const PersonalPage = lazyRetry(() => import("./pages/PersonalPage"));
+const KhataPage = lazyRetry(() => import("./pages/KhataPage"));
+const LoanTrackerPage = lazyRetry(() => import("./pages/LoanTrackerPage"));
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
