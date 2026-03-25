@@ -138,10 +138,14 @@ export default function InventoryPage() {
   const loadTemplate = async (templateType) => {
     setTemplateLoading(true);
     try {
+      // First fetch template definition to get categories (works even if items already exist)
+      const tmplRes = await api.get("/inventory/templates", { params: { template_type: templateType } });
+      const tmplCats = [...new Set(tmplRes.data.map((t) => t.default_category || "General"))].sort();
+
       const res = await api.post("/inventory/templates/load", { template_type: templateType });
       setTemplateLoaded(templateType);
-      // Extract categories from this template's items to filter the tabs
-      const tmplCats = [...new Set(res.data.map((i) => i.category || "General"))].sort();
+
+      // Filter categories to this template's categories
       if (tmplCats.length > 0) {
         setTemplateFilter(tmplCats);
         setActiveCategory("All");
