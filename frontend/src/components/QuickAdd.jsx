@@ -262,15 +262,15 @@ export default function QuickAdd() {
         )}
 
         {tab === "expense" && (
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{t("category")}</p>
-              <div className="flex flex-wrap gap-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">{t("category")}</p>
+              <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1 -m-1 rounded-lg">
                 {categories.map((c) => (
                   <button
                     key={c.id}
                     onClick={() => setExpCatId(c.id)}
-                    className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition ${
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition whitespace-nowrap ${
                       expCatId === c.id
                         ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-400"
                         : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
@@ -423,15 +423,15 @@ export default function QuickAdd() {
         )}
 
         {tab === "personal_expense" && (
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Spending Category</p>
-              <div className="flex flex-wrap gap-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">Spending Category</p>
+              <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1 -m-1 rounded-lg">
                 {spendCats.map((c) => (
                   <button
                     key={c.id}
                     onClick={() => setPCatId(c.id)}
-                    className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition ${
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition whitespace-nowrap ${
                       pCatId === c.id
                         ? "bg-purple-50 dark:bg-purple-900/30 border-purple-300 dark:border-purple-600 text-purple-700 dark:text-purple-400"
                         : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
@@ -447,13 +447,13 @@ export default function QuickAdd() {
             </div>
 
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Quick Amount</p>
-              <div className="flex flex-wrap gap-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">Quick Amount</p>
+              <div className="flex flex-wrap gap-1.5">
                 {personalPresets.map((amt) => (
                   <button
                     key={amt}
                     onClick={() => setPAmount(String(amt))}
-                    className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
                       pAmount === String(amt)
                         ? "bg-purple-50 dark:bg-purple-900/30 border-purple-300 dark:border-purple-600 text-purple-700 dark:text-purple-400"
                         : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
@@ -470,7 +470,7 @@ export default function QuickAdd() {
               value={pAmount}
               onChange={(e) => setPAmount(e.target.value)}
               placeholder="Amount spent"
-              className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-base bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
               autoFocus
             />
 
@@ -479,7 +479,7 @@ export default function QuickAdd() {
               value={pNotes}
               onChange={(e) => setPNotes(e.target.value)}
               placeholder="Notes (optional)"
-              className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
             />
 
             <div className="flex items-center gap-3">
@@ -496,7 +496,7 @@ export default function QuickAdd() {
             <button
               onClick={submitPersonal}
               disabled={!pAmount || !pCatId}
-              className="w-full bg-purple-600 text-white py-3.5 rounded-xl hover:bg-purple-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
+              className="w-full bg-purple-600 text-white py-3 rounded-xl hover:bg-purple-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
             >
               Log Expense
             </button>
