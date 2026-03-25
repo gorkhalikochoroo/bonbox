@@ -1,7 +1,7 @@
-const CACHE_NAME = "bonbox-v2";
+const CACHE_NAME = "bonbox-v3";
 const STATIC_ASSETS = ["/manifest.json", "/icon-192.png", "/icon-512.png", "/favicon.svg"];
 
-// Install: cache static assets (not index.html — always fetch fresh)
+// Install: cache static assets, skip waiting to activate immediately
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
@@ -9,7 +9,7 @@ self.addEventListener("install", (event) => {
   self.skipWaiting();
 });
 
-// Activate: clean old caches
+// Activate: delete ALL old caches aggressively
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
@@ -19,7 +19,14 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
-// Fetch: network-first for HTML & JS/CSS, cache-first for images/icons
+// Message handler: allow page to force-clear caches
+self.addEventListener("message", (event) => {
+  if (event.data === "CLEAR_CACHE") {
+    caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k))));
+  }
+});
+
+// Fetch: network-first for everything, cache only for offline fallback
 self.addEventListener("fetch", (event) => {
   const { request } = event;
 
@@ -29,7 +36,7 @@ self.addEventListener("fetch", (event) => {
   // API requests: network only (always fresh data)
   if (request.url.includes("/api/")) return;
 
-  // HTML navigation requests: always network-first
+  // HTML navigation: network-first, cache fallback
   if (request.mode === "navigate" || request.url.endsWith(".html")) {
     event.respondWith(
       fetch(request)
@@ -43,7 +50,8 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // JS/CSS bundles: network-first (hashed filenames change on deploy)
+  // JS/CSS bundles: network-first, NO stale cache fallback
+  // Hashed filenames change on deploy — serving old cache causes crashes
   if (request.url.includes("/assets/")) {
     event.respondWith(
       fetch(request)
@@ -54,7 +62,10 @@ self.addEventListener("fetch", (event) => {
           }
           return response;
         })
-        .catch(() => caches.match(request))
+        .catch(() => {
+          // Only return cached version if URL hash matches (same deploy)
+          return caches.match(request);
+        })
     );
     return;
   }

@@ -18,11 +18,33 @@ function PageLoader() {
   );
 }
 
-// Catch React render crashes — prevents white screen
+// Catch React render crashes — auto-recovers from stale cache
 class ErrorBoundary extends Component {
-  constructor(props) { super(props); this.state = { hasError: false }; }
+  constructor(props) { super(props); this.state = { hasError: false, retrying: false }; }
   static getDerivedStateFromError() { return { hasError: true }; }
-  componentDidCatch(err, info) { console.error("BonBox error:", err, info); }
+  componentDidCatch(err, info) {
+    console.error("BonBox error:", err, info);
+    // Auto-clear cache and reload on first crash (stale cache fix)
+    if (!sessionStorage.getItem("error_recovered")) {
+      sessionStorage.setItem("error_recovered", "1");
+      if ("caches" in window) {
+        caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k)))).then(() => {
+          window.location.reload();
+        });
+      }
+    }
+  }
+  handleClearAndReload = () => {
+    this.setState({ retrying: true });
+    if ("caches" in window) {
+      caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k)))).then(() => {
+        sessionStorage.removeItem("error_recovered");
+        window.location.reload();
+      });
+    } else {
+      window.location.reload();
+    }
+  };
   render() {
     if (this.state.hasError) {
       return (
@@ -31,9 +53,9 @@ class ErrorBoundary extends Component {
             <div className="text-5xl mb-4">📦</div>
             <h1 className="text-2xl font-bold text-gray-800 mb-2">Something went wrong</h1>
             <p className="text-gray-500 mb-6">This might be a connection issue. Try refreshing.</p>
-            <button onClick={() => { this.setState({ hasError: false }); window.location.href = "/dashboard"; }}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold">
-              Go to Dashboard
+            <button onClick={this.handleClearAndReload} disabled={this.state.retrying}
+              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold disabled:opacity-60">
+              {this.state.retrying ? "Refreshing..." : "Refresh & Try Again"}
             </button>
             <button onClick={() => { this.setState({ hasError: false }); window.location.href = "/login"; }}
               className="ml-3 px-6 py-3 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition font-semibold">

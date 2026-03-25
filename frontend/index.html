@@ -55,12 +55,34 @@
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
     <script>
-      // Register service worker for PWA
+      // Register service worker for PWA + force update
       if ("serviceWorker" in navigator) {
         window.addEventListener("load", () => {
-          navigator.serviceWorker.register("/sw.js").catch(() => {});
+          navigator.serviceWorker.register("/sw.js").then(function(reg) {
+            // Check for updates every page load
+            reg.update();
+          }).catch(() => {});
         });
       }
+
+      // Auto-recover from stale cache crashes
+      // If the app crashes and shows ErrorBoundary, this detects it and clears cache
+      window.addEventListener("error", function(e) {
+        // Only trigger on chunk/module load failures
+        if (e.message && (e.message.includes("Loading chunk") || e.message.includes("Failed to fetch") || e.message.includes("Importing a module"))) {
+          // Clear all caches and reload once
+          if (!sessionStorage.getItem("cache_cleared")) {
+            sessionStorage.setItem("cache_cleared", "1");
+            if ("caches" in window) {
+              caches.keys().then(function(keys) {
+                return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+              }).then(function() {
+                window.location.reload();
+              });
+            }
+          }
+        }
+      });
     </script>
   </body>
 </html>
