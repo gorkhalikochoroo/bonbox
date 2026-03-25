@@ -119,12 +119,14 @@ export default function DashboardPage() {
       const sell = i.sell_price != null ? parseFloat(i.sell_price) : null;
       totalCost += qty * buy;
       if (qty <= parseFloat(i.min_threshold)) lowStock++;
-      if (sell != null && buy > 0) {
-        const marginPct = ((sell - buy) / buy) * 100;
+      if (sell != null) {
         totalRevenue += qty * sell;
-        totalMarginPct += marginPct;
-        itemsWithMargin++;
-        marginItems.push({ name: i.name, margin: Math.round(marginPct), profit: Math.round((sell - buy) * qty) });
+        if (buy > 0) {
+          const marginPct = ((sell - buy) / buy) * 100;
+          totalMarginPct += marginPct;
+          itemsWithMargin++;
+          marginItems.push({ name: i.name, margin: Math.round(marginPct), profit: Math.round((sell - buy) * qty) });
+        }
       }
     });
     const totalProfit = totalRevenue - totalCost;
@@ -394,48 +396,67 @@ export default function DashboardPage() {
 
       {/* Inventory Overview */}
       {invStats.count > 0 && (
-        <div className="bg-white dark:bg-gray-800 p-5 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <div className="bg-gradient-to-r from-blue-50 to-emerald-50 dark:from-gray-800 dark:to-gray-800 p-5 sm:p-6 rounded-2xl border border-blue-100 dark:border-gray-700">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200">Inventory Overview</h2>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-blue-600/10 dark:bg-blue-500/20 rounded-lg flex items-center justify-center">
+                <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+              </div>
+              <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200">Inventory Overview</h2>
+            </div>
             <button
               onClick={() => navigate("/inventory")}
-              className="text-xs text-blue-600 hover:underline"
+              className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
             >
-              View all
+              View all →
             </button>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-            <div className="text-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
-              <p className="text-xs text-gray-500 dark:text-gray-400">Stock Value</p>
-              <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{invStats.totalCost.toLocaleString()}</p>
-              <p className="text-xs text-gray-400">{currency}</p>
+            <div className="p-3 bg-white/70 dark:bg-gray-700/50 rounded-xl">
+              <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide">Stock Cost</p>
+              <p className="text-xl font-bold text-gray-800 dark:text-white mt-1">{invStats.totalCost.toLocaleString()}</p>
+              <p className="text-[10px] text-gray-400">{currency} invested</p>
             </div>
-            <div className="text-center p-3 bg-green-50 dark:bg-green-900/20 rounded-xl">
-              <p className="text-xs text-gray-500 dark:text-gray-400">Potential Profit</p>
-              <p className="text-lg font-bold text-green-600 dark:text-green-400">{invStats.totalProfit.toLocaleString()}</p>
-              <p className="text-xs text-gray-400">{currency}</p>
+            <div className="p-3 bg-white/70 dark:bg-gray-700/50 rounded-xl">
+              <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide">Potential Revenue</p>
+              <p className="text-xl font-bold text-blue-600 dark:text-blue-400 mt-1">{invStats.totalRevenue.toLocaleString()}</p>
+              <p className="text-[10px] text-gray-400">{currency} if all sold</p>
             </div>
-            <div className="text-center p-3 bg-purple-50 dark:bg-purple-900/20 rounded-xl">
-              <p className="text-xs text-gray-500 dark:text-gray-400">Avg Margin</p>
-              <p className="text-lg font-bold text-purple-600 dark:text-purple-400">{invStats.avgMargin}%</p>
-              <p className="text-xs text-gray-400">across items</p>
+            <div className="p-3 bg-white/70 dark:bg-gray-700/50 rounded-xl">
+              <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide">Potential Profit</p>
+              <p className={`text-xl font-bold mt-1 ${invStats.totalProfit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
+                {invStats.totalProfit >= 0 ? "+" : ""}{invStats.totalProfit.toLocaleString()}
+              </p>
+              <p className="text-[10px] text-gray-400">{currency} margin</p>
             </div>
-            <div className={`text-center p-3 rounded-xl ${invStats.lowStock > 0 ? "bg-red-50 dark:bg-red-900/20" : "bg-gray-50 dark:bg-gray-700/50"}`}>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Low Stock</p>
-              <p className={`text-lg font-bold ${invStats.lowStock > 0 ? "text-red-600 dark:text-red-400" : "text-gray-600 dark:text-gray-300"}`}>{invStats.lowStock}</p>
-              <p className="text-xs text-gray-400">items</p>
+            <div className="p-3 bg-white/70 dark:bg-gray-700/50 rounded-xl">
+              <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide">Avg Margin</p>
+              <p className={`text-xl font-bold mt-1 ${invStats.avgMargin >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
+                {invStats.avgMargin}%
+              </p>
+              <p className="text-[10px] text-gray-400">{invStats.topMargin.length > 0 ? `${invStats.topMargin.length}+ items priced` : "no items priced"}</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+            <div className="text-center p-2.5 bg-white/50 dark:bg-gray-700/30 rounded-lg">
+              <p className="text-[10px] text-gray-500 dark:text-gray-400">Total Items</p>
+              <p className="text-lg font-bold text-gray-800 dark:text-white">{invStats.count}</p>
+            </div>
+            <div className={`text-center p-2.5 rounded-lg ${invStats.lowStock > 0 ? "bg-red-50/80 dark:bg-red-900/20" : "bg-white/50 dark:bg-gray-700/30"}`}>
+              <p className="text-[10px] text-gray-500 dark:text-gray-400">Low Stock</p>
+              <p className={`text-lg font-bold ${invStats.lowStock > 0 ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}>{invStats.lowStock}</p>
             </div>
           </div>
           {invStats.topMargin.length > 0 && (
             <div>
-              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Top Margin Items</p>
+              <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">Top Margin Items</p>
               <div className="space-y-1.5">
                 {invStats.topMargin.map((item, i) => (
-                  <div key={i} className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                    <span className="text-sm text-gray-700 dark:text-gray-200">{item.name}</span>
+                  <div key={i} className="flex items-center justify-between px-3 py-2 bg-white/60 dark:bg-gray-700/50 rounded-lg">
+                    <span className="text-sm text-gray-700 dark:text-gray-200 font-medium">{item.name}</span>
                     <div className="flex items-center gap-3">
-                      <span className="text-xs font-medium text-green-600 dark:text-green-400">+{item.margin}%</span>
-                      <span className="text-xs text-gray-500">{item.profit.toLocaleString()} {currency}</span>
+                      <span className="text-xs font-semibold text-green-600 dark:text-green-400">+{item.margin}%</span>
+                      <span className="text-xs text-gray-500 font-medium">{item.profit.toLocaleString()} {currency}</span>
                     </div>
                   </div>
                 ))}
