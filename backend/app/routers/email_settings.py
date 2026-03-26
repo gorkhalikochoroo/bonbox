@@ -77,6 +77,15 @@ def preview_alerts(
     return {"alerts": alerts}
 
 
+@router.post("/test-welcome")
+def test_welcome(user: User = Depends(get_current_user)):
+    """Send a test welcome email to the current user."""
+    from app.routers.auth import _welcome_email_html
+    html = _welcome_email_html(user.business_name or "there")
+    success = send_email(user.email, "Welcome to BonBox! 🎉", html)
+    return {"sent": success, "to": user.email}
+
+
 @router.post("/run-digest")
 def run_digest_now(
     db: Session = Depends(get_db),
