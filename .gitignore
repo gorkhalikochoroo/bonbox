@@ -19,3 +19,6 @@ uploads/
 .DS_Store
 # Keep .claude/ tracked for project config
 # .claude/
+
+# Misc local files
+misc/
