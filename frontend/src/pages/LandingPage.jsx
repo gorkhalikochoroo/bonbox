@@ -477,12 +477,12 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <FadeIn>
             <div className="text-center">
-              <p className="text-blue-600 text-sm font-semibold uppercase tracking-wider mb-3">Built for</p>
+              <p className="text-blue-600 text-sm font-semibold uppercase tracking-wider mb-3">Global</p>
               <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-4">
-                Real businesses, real results
+                Works where you work
               </h2>
               <p className="text-gray-500 text-lg mb-8 max-w-lg mx-auto">
-                Shops, restaurants, wholesalers, cafes, salons, food trucks, and freelancers
+                Whether you're in Copenhagen, Kathmandu, or Delhi — BonBox speaks your language and supports your currency.
               </p>
               <div className="flex flex-wrap justify-center gap-3">
                 {[
