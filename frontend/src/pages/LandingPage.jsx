@@ -408,10 +408,10 @@ export default function LandingPage() {
             <div className="text-center mb-16">
               <p className="text-blue-600 text-sm font-semibold uppercase tracking-wider mb-3">Features</p>
               <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-gray-900 tracking-tight">
-                Everything you need to run your shop
+                Small business. Smart tools. Global standard.
               </h2>
               <p className="mt-5 text-gray-500 text-lg max-w-xl mx-auto">
-                Built for the kiosk owner, the grillbar chef, the wholesaler, the corner shop
+                Sales tracking, expense management, and real-time insights — for businesses ready to grow.
               </p>
             </div>
           </FadeIn>
@@ -482,13 +482,16 @@ export default function LandingPage() {
                 Works where you work
               </h2>
               <p className="text-gray-500 text-lg mb-8 max-w-lg mx-auto">
-                Whether you're in Copenhagen, Kathmandu, or Delhi — BonBox speaks your language and supports your currency.
+                3 languages, 17+ currencies, and growing. BonBox adapts to your market — wherever you are.
               </p>
               <div className="flex flex-wrap justify-center gap-3">
                 {[
                   { flag: "\ud83c\udde9\ud83c\uddf0", name: "Denmark" },
                   { flag: "\ud83c\uddf3\ud83c\uddf5", name: "Nepal" },
+                  { flag: "\ud83c\uddec\ud83c\udde7", name: "UK" },
+                  { flag: "\ud83c\uddea\ud83c\uddfa", name: "Europe" },
                   { flag: "\ud83c\uddee\ud83c\uddf3", name: "India" },
+                  { flag: "\ud83c\uddef\ud83c\uddf5", name: "Japan" },
                 ].map((c) => (
                   <span key={c.name} className="inline-flex items-center gap-2 px-5 py-2.5 bg-gray-50 border border-gray-200 text-gray-700 text-sm font-medium rounded-full hover:border-blue-300 transition">
                     <span className="text-lg">{c.flag}</span>
