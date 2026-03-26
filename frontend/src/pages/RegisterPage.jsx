@@ -15,6 +15,7 @@ export default function RegisterPage() {
     currency: "DKK",
   });
   const [error, setError] = useState("");
+  const [alreadyExists, setAlreadyExists] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
@@ -22,6 +23,7 @@ export default function RegisterPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    setAlreadyExists(false);
     if (!form.business_type) { setError("Please select a type"); return; }
     setLoading(true);
     try {
@@ -32,8 +34,8 @@ export default function RegisterPage() {
       const detail = err.response?.data?.detail;
       if (status === 429) {
         setError("Too many attempts — please wait a minute and try again.");
-      } else if (detail === "Email already registered") {
-        setError("Account already exists! Try signing in instead.");
+      } else if (status === 409 || detail === "Email already registered") {
+        setAlreadyExists(true);
       } else {
         const msg = detail || (err.code === "ECONNABORTED" || !err.response ? "Slow connection — please try again" : "Registration failed");
         setError(msg);
@@ -53,6 +55,14 @@ export default function RegisterPage() {
           <h1 className="text-2xl font-bold text-gray-800">BonBox</h1>
           <p className="text-sm text-gray-500 mt-1">Create your account</p>
         </div>
+        {alreadyExists && (
+          <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg mb-4 text-center">
+            <p className="text-sm text-blue-800 font-medium mb-2">This email is already registered</p>
+            <Link to="/login" className="inline-block bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 transition">
+              Sign in instead →
+            </Link>
+          </div>
+        )}
         {error && (
           <p className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm">{error}</p>
         )}

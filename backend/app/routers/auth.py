@@ -13,9 +13,42 @@ from app.schemas.auth import (
     ForgotPasswordRequest, ResetPasswordRequest,
 )
 from app.services.auth import hash_password, verify_password, create_access_token, get_current_user
+from app.services.email_service import send_email
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
+
+
+def _welcome_email_html(name: str) -> str:
+    return f"""\
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#ffffff">
+  <div style="text-align:center;margin-bottom:24px">
+    <div style="display:inline-block;background:#2563eb;border-radius:14px;padding:12px 14px">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="2" width="20" height="24" rx="3" stroke="white" stroke-width="2"/><path d="M9 8h10M9 12h10M9 16h6" stroke="white" stroke-width="1.5" stroke-linecap="round"/><path d="M4 20h20" stroke="#FCD34D" stroke-width="2"/></svg>
+    </div>
+    <h1 style="font-size:22px;color:#1e293b;margin:12px 0 4px">Welcome to BonBox!</h1>
+    <p style="color:#64748b;font-size:14px;margin:0">Your smart business companion</p>
+  </div>
+  <p style="font-size:15px;color:#334155;line-height:1.6">
+    Hi <strong>{name}</strong>,
+  </p>
+  <p style="font-size:15px;color:#334155;line-height:1.6">
+    Your account is ready. Here's what you can do:
+  </p>
+  <ul style="font-size:14px;color:#475569;line-height:1.8;padding-left:20px">
+    <li>Log sales & expenses in seconds</li>
+    <li>Track inventory & waste</li>
+    <li>Get smart staffing suggestions</li>
+    <li>Generate PDF reports</li>
+    <li>Snap receipts with your camera</li>
+  </ul>
+  <div style="text-align:center;margin:28px 0">
+    <a href="https://bonbox.dk/dashboard" style="background:#2563eb;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px;display:inline-block">Open BonBox →</a>
+  </div>
+  <p style="font-size:13px;color:#94a3b8;text-align:center;margin-top:32px;border-top:1px solid #e2e8f0;padding-top:16px">
+    Questions? Reply to this email or visit <a href="https://bonbox.dk/contact" style="color:#2563eb;text-decoration:none">bonbox.dk/contact</a>
+  </p>
+</div>"""
 
 
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
@@ -24,7 +57,7 @@ def register(request: Request, data: UserRegister, db: Session = Depends(get_db)
     existing = db.query(User).filter(User.email == data.email).first()
     if existing:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_409_CONFLICT,
             detail="Email already registered",
         )
 
@@ -38,6 +71,16 @@ def register(request: Request, data: UserRegister, db: Session = Depends(get_db)
     db.add(user)
     db.commit()
     db.refresh(user)
+
+    # Send welcome email (non-blocking — don't fail registration if email fails)
+    try:
+        send_email(
+            user.email,
+            "Welcome to BonBox! 🎉",
+            _welcome_email_html(user.business_name or "there"),
+        )
+    except Exception:
+        pass
 
     token = create_access_token(str(user.id))
     return Token(access_token=token, user=UserResponse.model_validate(user))
