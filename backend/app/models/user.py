@@ -17,6 +17,7 @@ class User(Base):
     business_type: Mapped[str] = mapped_column(String(50), default="restaurant")
     currency: Mapped[str] = mapped_column(String(10), default="DKK")
     daily_goal: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    monthly_goal: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     daily_digest_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     expense_alerts_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     reset_token: Mapped[str | None] = mapped_column(String(100), nullable=True)

@@ -15,8 +15,8 @@ const translations = {
     loadingDashboard: "Loading dashboard...", vsYesterday: "vs yesterday", margin: "margin",
     none: "None", revenueTrend: "Revenue Trend", expenseBreakdown: "Expense Breakdown",
     noRevenueData: "No revenue data yet", noExpenseData: "No expense data yet",
-    recentReceipts: "Recent Receipts", dailyGoal: "Daily Goal", reached: "Reached!",
-    setDailyGoal: "Set a daily revenue goal", trackProgress: "Track progress throughout the day",
+    recentReceipts: "Recent Receipts", dailyGoal: "Daily Goal", monthlyGoal: "Monthly Target", reached: "Reached!",
+    setDailyGoal: "Set a daily revenue goal", trackProgress: "Set a target to track progress",
     setGoal: "Set Goal", editGoal: "Edit goal", save: "Save", cancel: "Cancel",
     yesterdayCopied: "Yesterday's sale copied to today!", noYesterdaySale: "No sale found for yesterday",
     // Sales
@@ -242,8 +242,8 @@ const translations = {
     loadingDashboard: "Indlæser oversigt...", vsYesterday: "vs i går", margin: "margin",
     none: "Ingen", revenueTrend: "Omsætningsudvikling", expenseBreakdown: "Udgiftsfordeling",
     noRevenueData: "Ingen omsætningsdata endnu", noExpenseData: "Ingen udgiftsdata endnu",
-    recentReceipts: "Seneste kvitteringer", dailyGoal: "Dagligt mål", reached: "Nået!",
-    setDailyGoal: "Sæt et dagligt omsætningsmål", trackProgress: "Følg fremskridt i løbet af dagen",
+    recentReceipts: "Seneste kvitteringer", dailyGoal: "Dagligt mål", monthlyGoal: "Månedligt mål", reached: "Nået!",
+    setDailyGoal: "Sæt et dagligt omsætningsmål", trackProgress: "Sæt et mål for at følge fremskridt",
     setGoal: "Sæt mål", editGoal: "Rediger mål", save: "Gem", cancel: "Annuller",
     yesterdayCopied: "Gårsdagens salg kopieret til i dag!", noYesterdaySale: "Intet salg fundet for i går",
     // Sales
@@ -467,8 +467,8 @@ const translations = {
     loadingDashboard: "ड्यासबोर्ड लोड हुँदैछ...", vsYesterday: "हिजोको तुलनामा", margin: "मार्जिन",
     none: "छैन", revenueTrend: "आम्दानीको प्रवृत्ति", expenseBreakdown: "खर्चको विवरण",
     noRevenueData: "अहिलेसम्म आम्दानी डाटा छैन", noExpenseData: "अहिलेसम्म खर्च डाटा छैन",
-    recentReceipts: "हालका रसिदहरू", dailyGoal: "दैनिक लक्ष्य", reached: "पुग्यो!",
-    setDailyGoal: "दैनिक आम्दानीको लक्ष्य राख्नुहोस्", trackProgress: "दिनभरको प्रगति ट्र्याक गर्नुहोस्",
+    recentReceipts: "हालका रसिदहरू", dailyGoal: "दैनिक लक्ष्य", monthlyGoal: "मासिक लक्ष्य", reached: "पुग्यो!",
+    setDailyGoal: "दैनिक आम्दानीको लक्ष्य राख्नुहोस्", trackProgress: "प्रगति ट्र्याक गर्न लक्ष्य राख्नुहोस्",
     setGoal: "लक्ष्य राख्नुहोस्", editGoal: "लक्ष्य सम्पादन", save: "सेभ", cancel: "रद्द",
     yesterdayCopied: "हिजोको बिक्री आजमा कपी भयो!", noYesterdaySale: "हिजोको बिक्री भेटिएन",
     // Sales

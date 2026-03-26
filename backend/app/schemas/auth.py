@@ -33,6 +33,7 @@ class UserResponse(BaseModel):
     business_type: str
     currency: str
     daily_goal: float = 0
+    monthly_goal: float = 0
 
     model_config = {"from_attributes": True}
 

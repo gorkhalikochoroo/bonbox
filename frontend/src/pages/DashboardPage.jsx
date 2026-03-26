@@ -384,8 +384,8 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Daily Goal Progress */}
-      <DailyGoal revenue={summary.today_revenue} />
+      {/* Goal Progress */}
+      <GoalTracker todayRevenue={summary.today_revenue} monthRevenue={summary.month_revenue} />
 
       {/* Business Health Score */}
       <HealthScore summary={summary} monthlyData={monthlyData} />
@@ -757,83 +757,92 @@ function MotivationalStats({ summary, monthlyData }) {
   );
 }
 
-function DailyGoal({ revenue }) {
+function GoalTracker({ todayRevenue, monthRevenue }) {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
-  const [goal, setGoal] = useState(user?.daily_goal || 0);
-  const [editing, setEditing] = useState(false);
+  const [dailyGoal, setDailyGoal] = useState(user?.daily_goal || 0);
+  const [monthlyGoal, setMonthlyGoal] = useState(user?.monthly_goal || 0);
+  const [editing, setEditing] = useState(null); // "daily" | "monthly" | null
   const [inputVal, setInputVal] = useState("");
 
-  const pct = goal > 0 ? Math.min(Math.round((revenue / goal) * 100), 100) : 0;
-  const hit = pct >= 100;
-
-  const saveGoal = async () => {
+  const saveGoal = async (type) => {
     const val = parseFloat(inputVal);
     if (!val || val <= 0) return;
     try {
-      await api.patch("/auth/daily-goal", null, { params: { goal: val } });
-      setGoal(val);
-      setEditing(false);
+      if (type === "daily") {
+        await api.patch("/auth/daily-goal", null, { params: { goal: val } });
+        setDailyGoal(val);
+      } else {
+        await api.patch("/auth/monthly-goal", null, { params: { goal: val } });
+        setMonthlyGoal(val);
+      }
+      setEditing(null);
     } catch {
-      // silently handle save failure
+      // silently handle
     }
   };
 
-  if (goal <= 0 && !editing) {
-    return (
-      <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{t("setDailyGoal")}</p>
-          <p className="text-xs text-gray-400 mt-0.5">{t("trackProgress")}</p>
-        </div>
-        <button
-          onClick={() => { setEditing(true); setInputVal(""); }}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition"
-        >
-          {t("setGoal")}
-        </button>
-      </div>
-    );
-  }
+  const GoalBar = ({ label, current, goal, type, color }) => {
+    const pct = goal > 0 ? Math.min(Math.round((current / goal) * 100), 100) : 0;
+    const hit = pct >= 100;
 
-  return (
-    <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
-            {t("dailyGoal")} {hit && <span className="text-green-600 ml-1">{t("reached")}</span>}
-          </p>
-          <p className="text-xs text-gray-400 mt-0.5">
-            {revenue.toLocaleString()} / {goal.toLocaleString()} {currency} ({pct}%)
-          </p>
-        </div>
-        {editing ? (
-          <div className="flex gap-2">
-            <input
-              type="number"
-              value={inputVal}
-              onChange={(e) => setInputVal(e.target.value)}
-              placeholder={String(goal)}
-              className="w-28 px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-              autoFocus
-              onKeyDown={(e) => e.key === "Enter" && saveGoal()}
-            />
-            <button onClick={saveGoal} className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium">{t("save")}</button>
-            <button onClick={() => setEditing(false)} className="px-3 py-1.5 text-gray-500 text-xs">{t("cancel")}</button>
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-1.5">
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
+              {label} {hit && <span className="text-green-600 text-xs ml-1">{t("reached")}</span>}
+            </p>
           </div>
+          {editing === type ? (
+            <div className="flex gap-1.5">
+              <input
+                type="number"
+                value={inputVal}
+                onChange={(e) => setInputVal(e.target.value)}
+                placeholder={String(goal)}
+                className="w-24 px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-xs bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                autoFocus
+                onKeyDown={(e) => e.key === "Enter" && saveGoal(type)}
+              />
+              <button onClick={() => saveGoal(type)} className="px-2 py-1 bg-blue-600 text-white rounded-lg text-xs font-medium">{t("save")}</button>
+              <button onClick={() => setEditing(null)} className="text-gray-400 text-xs">✕</button>
+            </div>
+          ) : goal > 0 ? (
+            <button onClick={() => { setEditing(type); setInputVal(String(goal)); }}
+              className="text-xs text-blue-500 hover:underline">{t("edit")}</button>
+          ) : (
+            <button onClick={() => { setEditing(type); setInputVal(""); }}
+              className="text-xs text-blue-600 font-medium hover:underline">{t("setGoal")}</button>
+          )}
+        </div>
+        {goal > 0 ? (
+          <>
+            <div className="flex items-baseline justify-between mb-1">
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {current.toLocaleString()} / {goal.toLocaleString()} {currency}
+              </span>
+              <span className={`text-xs font-semibold ${hit ? "text-green-600" : "text-gray-500"}`}>{pct}%</span>
+            </div>
+            <div className="w-full h-3 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${hit ? "bg-green-500" : color}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </>
         ) : (
-          <button onClick={() => { setEditing(true); setInputVal(String(goal)); }}
-            className="text-xs text-blue-600 hover:underline">{t("editGoal")}</button>
+          <p className="text-xs text-gray-400">{t("trackProgress")}</p>
         )}
       </div>
-      {/* Progress bar */}
-      <div className="w-full h-4 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all duration-500 ${hit ? "bg-green-500" : "bg-blue-500"}`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
+    );
+  };
+
+  return (
+    <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 space-y-4">
+      <GoalBar label={t("dailyGoal")} current={todayRevenue} goal={dailyGoal} type="daily" color="bg-blue-500" />
+      <GoalBar label={t("monthlyGoal")} current={monthRevenue} goal={monthlyGoal} type="monthly" color="bg-purple-500" />
     </div>
   );
 }

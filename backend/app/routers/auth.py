@@ -201,3 +201,15 @@ def set_daily_goal(
     db.commit()
     db.refresh(current_user)
     return current_user
+
+
+@router.patch("/monthly-goal", response_model=UserResponse)
+def set_monthly_goal(
+    goal: float,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    current_user.monthly_goal = goal
+    db.commit()
+    db.refresh(current_user)
+    return current_user
