@@ -17,4 +17,5 @@ uploads/
 .vscode/
 .idea/
 .DS_Store
-.claude/
+# Keep .claude/ tracked for project config
+# .claude/

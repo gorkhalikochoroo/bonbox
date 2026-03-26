@@ -1,0 +1,4 @@
+{
+  "project": "bonbox",
+  "description": "Small business analytics dashboard - React + FastAPI + PostgreSQL"
+}
