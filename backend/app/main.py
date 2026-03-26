@@ -36,6 +36,7 @@ _migrations = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS expense_alerts_enabled BOOLEAN DEFAULT true",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS currency VARCHAR(10)",
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS reference_id VARCHAR(100)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_goal NUMERIC(12,2) DEFAULT 0",
 ]
 
 try:
