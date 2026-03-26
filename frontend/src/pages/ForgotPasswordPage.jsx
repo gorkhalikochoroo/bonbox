@@ -5,8 +5,7 @@ import api from "../services/api";
 export default function ForgotPasswordPage() {
   const [step, setStep] = useState(1);
   const [email, setEmail] = useState("");
-  const [resetToken, setResetToken] = useState("");
-  const [tokenInput, setTokenInput] = useState("");
+  const [code, setCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
@@ -18,11 +17,7 @@ export default function ForgotPasswordPage() {
     setError("");
     setLoading(true);
     try {
-      const res = await api.post("/auth/forgot-password", { email });
-      if (res.data.reset_token) {
-        setResetToken(res.data.reset_token);
-        setTokenInput(res.data.reset_token);
-      }
+      await api.post("/auth/forgot-password", { email });
       setStep(2);
     } catch (err) {
       setError(err.response?.data?.detail || "Something went wrong. Please try again.");
@@ -46,13 +41,13 @@ export default function ForgotPasswordPage() {
     try {
       const res = await api.post("/auth/reset-password", {
         email,
-        reset_token: tokenInput,
+        reset_token: code,
         new_password: newPassword,
       });
       setSuccess(res.data.message);
       setStep(3);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to reset password. Please try again.");
+      setError(err.response?.data?.detail || "Invalid code or something went wrong.");
     } finally {
       setLoading(false);
     }
@@ -109,27 +104,25 @@ export default function ForgotPasswordPage() {
 
         {step === 2 && (
           <>
-            {resetToken && (
-              <div className="bg-amber-50 border border-amber-200 p-4 rounded-lg mb-4">
-                <p className="text-sm font-medium text-amber-800 mb-1">
-                  Your reset code (no email service configured):
-                </p>
-                <p className="text-xs font-mono bg-white p-2 rounded border border-amber-200 break-all select-all">
-                  {resetToken}
-                </p>
-              </div>
-            )}
+            <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg mb-4 text-center">
+              <p className="text-sm text-blue-800">
+                We sent a 6-digit code to <strong>{email}</strong>
+              </p>
+              <p className="text-xs text-blue-600 mt-1">Check your inbox (and spam folder)</p>
+            </div>
             <form onSubmit={handleResetPassword} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Reset Code
+                  6-digit code
                 </label>
                 <input
                   type="text"
-                  value={tokenInput}
-                  onChange={(e) => setTokenInput(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
-                  placeholder="Paste your reset code"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-center text-2xl font-bold tracking-[0.5em]"
+                  placeholder="••••••"
                   required
                 />
               </div>
@@ -163,20 +156,27 @@ export default function ForgotPasswordPage() {
               </div>
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || code.length !== 6}
                 className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition font-semibold text-base disabled:opacity-50"
               >
                 {loading ? "Resetting..." : "Reset Password"}
               </button>
-              <p className="text-center text-sm text-gray-600">
+              <div className="flex justify-between text-sm">
                 <button
                   type="button"
-                  onClick={() => { setStep(1); setError(""); }}
+                  onClick={() => { setStep(1); setError(""); setCode(""); }}
                   className="text-blue-600 hover:underline"
                 >
-                  Start over
+                  Try different email
                 </button>
-              </p>
+                <button
+                  type="button"
+                  onClick={handleRequestReset}
+                  className="text-gray-500 hover:underline"
+                >
+                  Resend code
+                </button>
+              </div>
             </form>
           </>
         )}
@@ -188,9 +188,9 @@ export default function ForgotPasswordPage() {
             </div>
             <Link
               to="/login"
-              className="inline-block w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition font-medium text-center"
+              className="inline-block w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition font-semibold text-center"
             >
-              Go to Sign In
+              Sign in with new password →
             </Link>
           </div>
         )}

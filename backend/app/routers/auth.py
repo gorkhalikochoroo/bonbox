@@ -148,14 +148,31 @@ def forgot_password(request: Request, data: ForgotPasswordRequest, db: Session =
         # Don't reveal if email exists
         return {"message": "If an account exists with this email, a reset code has been generated."}
 
-    token = secrets.token_urlsafe(32)
-    user.reset_token = token
-    user.reset_token_expires = datetime.utcnow() + timedelta(hours=1)
+    # Generate a short 6-digit code instead of a long token
+    code = f"{secrets.randbelow(900000) + 100000}"
+    user.reset_token = code
+    user.reset_token_expires = datetime.utcnow() + timedelta(minutes=15)
     db.commit()
 
-    # In production, this would be emailed. For now, return it.
-    # TODO: Integrate email service
-    return {"message": "Reset code generated. Check your email.", "reset_token": token}
+    send_email(
+        user.email,
+        f"BonBox — Your reset code is {code}",
+        f"""\
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#fff">
+  <div style="text-align:center;margin-bottom:24px">
+    <div style="display:inline-block;background:#2563eb;border-radius:14px;padding:12px 14px">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="2" width="20" height="24" rx="3" stroke="white" stroke-width="2"/><path d="M9 8h10M9 12h10M9 16h6" stroke="white" stroke-width="1.5" stroke-linecap="round"/><path d="M4 20h20" stroke="#FCD34D" stroke-width="2"/></svg>
+    </div>
+    <h1 style="font-size:20px;color:#1e293b;margin:12px 0 4px">Password Reset</h1>
+  </div>
+  <p style="font-size:15px;color:#334155;text-align:center">Your reset code is:</p>
+  <div style="text-align:center;margin:20px 0">
+    <span style="display:inline-block;font-size:32px;font-weight:700;letter-spacing:8px;color:#2563eb;background:#eff6ff;padding:16px 32px;border-radius:12px;border:2px dashed #93c5fd">{code}</span>
+  </div>
+  <p style="font-size:13px;color:#94a3b8;text-align:center">This code expires in 15 minutes.<br>If you didn't request this, ignore this email.</p>
+</div>""",
+    )
+    return {"message": "We've sent a 6-digit code to your email."}
 
 
 @router.post("/reset-password")
