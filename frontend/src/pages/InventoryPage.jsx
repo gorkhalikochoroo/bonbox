@@ -180,7 +180,8 @@ export default function InventoryPage() {
         pours: pourCount,
         date: new Date().toISOString().split("T")[0],
       });
-      setSuccess(`Poured ${pourCount}x ${pourModal.name} — ${res.data.remaining_pours} pours left`);
+      const saleMsg = res.data.sale_recorded ? ` · Sale: ${res.data.revenue} ${currency}` : "";
+      setSuccess(`Poured ${pourCount}x ${pourModal.name} — ${res.data.remaining_pours} pours left${saleMsg}`);
       setPourModal(null);
       setPourCount(1);
       fetchData();
@@ -255,6 +256,9 @@ export default function InventoryPage() {
     return { totalCost, totalRevenue, totalProfit, avgMargin, itemsWithMargin };
   }, [items]);
 
+  // Bar items with pour tracking
+  const barItems = useMemo(() => items.filter((i) => i.pour_size && i.pour_size > 0), [items]);
+
   const perishableCount = items.filter((i) => i.is_perishable).length;
   const displayCategories = templateFilter
     ? ["All", ...categories.filter((c) => templateFilter.includes(c))]
@@ -280,6 +284,41 @@ export default function InventoryPage() {
       {alerts.length > 0 && (
         <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 p-4 rounded-xl">
           <p className="text-red-700 dark:text-red-300 font-medium text-sm">{t("lowStockAlerts")}: {alerts.length} {t("itemsBelowMinStock")}</p>
+        </div>
+      )}
+
+      {/* Bar Quick Pour */}
+      {barItems.length > 0 && (
+        <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-gray-800 dark:to-gray-800 p-5 rounded-2xl border border-amber-200 dark:border-amber-800">
+          <h3 className="text-sm font-bold text-amber-800 dark:text-amber-400 mb-3 flex items-center gap-2">
+            <span>🍸</span> Quick Pour — tap to sell
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+            {barItems.map((item) => {
+              const remaining = item.pour_size > 0 ? Math.floor(item.quantity / item.pour_size) : 0;
+              const isEmpty = remaining <= 0;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => { if (!isEmpty) { setPourModal(item); setPourCount(1); } }}
+                  disabled={isEmpty}
+                  className={`p-3 rounded-xl text-left transition border ${isEmpty
+                    ? "border-gray-200 dark:border-gray-700 opacity-40 cursor-not-allowed"
+                    : "border-amber-200 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/30 hover:border-amber-400 cursor-pointer"}`}
+                >
+                  <p className="text-sm font-semibold text-gray-800 dark:text-white truncate">{item.name}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    {remaining} pours left
+                  </p>
+                  {item.sell_price_per_pour > 0 && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400 font-medium mt-0.5">
+                      {item.sell_price_per_pour} {currency}/glass
+                    </p>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 

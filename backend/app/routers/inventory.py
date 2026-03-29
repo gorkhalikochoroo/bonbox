@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.models.inventory import InventoryItem, InventoryLog, InventoryTemplate
+from app.models.sale import Sale
 from app.schemas.inventory import (
     InventoryItemCreate, InventoryItemUpdate, InventoryItemResponse,
     InventoryLogCreate, InventoryLogResponse,
@@ -170,19 +171,33 @@ def record_pour(
     if total_ml > current_ml:
         raise HTTPException(status_code=400, detail=f"Not enough stock. Have {current_ml} {item.pour_unit or 'ml'}, need {total_ml}")
 
+    pour_date = data.date or date.today()
     item.quantity = current_ml - total_ml
     log = InventoryLog(
         item_id=item.id,
         change_qty=-total_ml,
         reason=f"pour:{data.pours}x{item.pour_size}{item.pour_unit or 'ml'}",
-        date=data.date or date.today(),
+        date=pour_date,
     )
     db.add(log)
+
+    # Auto-record sale if sell price is set
+    revenue = float(item.sell_price_per_pour or 0) * data.pours
+    if revenue > 0:
+        sale = Sale(
+            user_id=user.id,
+            date=pour_date,
+            amount=revenue,
+            payment_method="cash",
+            notes=f"Bar: {data.pours}x {item.name}",
+            reference_id=f"pour_{item.id}_{pour_date}",
+        )
+        db.add(sale)
+
     db.commit()
     db.refresh(item)
 
     remaining_pours = int(float(item.quantity) / float(item.pour_size)) if float(item.pour_size) > 0 else 0
-    revenue = float(item.sell_price_per_pour or 0) * data.pours
 
     return {
         "item_id": str(item.id),
@@ -192,6 +207,7 @@ def record_pour(
         "remaining_ml": float(item.quantity),
         "remaining_pours": remaining_pours,
         "revenue": revenue,
+        "sale_recorded": revenue > 0,
     }
 
 
