@@ -154,7 +154,7 @@ def forgot_password(request: Request, data: ForgotPasswordRequest, db: Session =
     user.reset_token_expires = datetime.utcnow() + timedelta(minutes=15)
     db.commit()
 
-    send_email(
+    email_sent = send_email(
         user.email,
         f"BonBox — Your reset code is {code}",
         f"""\
@@ -172,6 +172,8 @@ def forgot_password(request: Request, data: ForgotPasswordRequest, db: Session =
   <p style="font-size:13px;color:#94a3b8;text-align:center">This code expires in 15 minutes.<br>If you didn't request this, ignore this email.</p>
 </div>""",
     )
+    if not email_sent:
+        raise HTTPException(status_code=500, detail="Could not send reset email. Please try again later.")
     return {"message": "We've sent a 6-digit code to your email."}
 
 
