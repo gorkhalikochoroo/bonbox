@@ -10,7 +10,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather
 from app.database import engine, Base
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -41,6 +41,8 @@ _migrations = [
     "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS pour_size NUMERIC(10,2)",
     "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS pour_unit VARCHAR(20)",
     "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS sell_price_per_pour NUMERIC(12,2)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS latitude NUMERIC(10,6)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS longitude NUMERIC(10,6)",
 ]
 
 try:
@@ -150,6 +152,7 @@ app.include_router(budget.router, prefix="/api/budgets", tags=["Budgets"])
 app.include_router(loan.router, prefix="/api/loans", tags=["Loans"])
 app.include_router(email_settings.router, prefix="/api/email", tags=["Email"])
 app.include_router(whatsapp.router, prefix="/api/whatsapp", tags=["WhatsApp"])
+app.include_router(weather.router, prefix="/api/weather", tags=["Weather"])
 
 
 # --- Protected Uploads (user can only access own receipts) ---

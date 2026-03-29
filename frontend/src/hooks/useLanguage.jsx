@@ -5,7 +5,7 @@ const LanguageContext = createContext(null);
 const translations = {
   en: {
     dashboard: "Dashboard", sales: "Sales", expenses: "Expenses", inventory: "Inventory",
-    smartStaffing: "Smart Staffing", wasteTracker: "Waste Tracker", weeklyReport: "Weekly Report",
+    smartStaffing: "Smart Staffing", weatherSmart: "Weather Smart", wasteTracker: "Waste Tracker", weeklyReport: "Weekly Report",
     momsVat: "Tax/VAT", darkMode: "Dark Mode", lightMode: "Light Mode", signOut: "Sign Out",
     language: "Dansk",
     // Dashboard
@@ -237,7 +237,7 @@ const translations = {
   },
   da: {
     dashboard: "Oversigt", sales: "Salg", expenses: "Udgifter", inventory: "Lager",
-    smartStaffing: "Vagtplanlægning", wasteTracker: "Madspild", weeklyReport: "Ugerapport",
+    smartStaffing: "Vagtplanlægning", weatherSmart: "Vejr Smart", wasteTracker: "Madspild", weeklyReport: "Ugerapport",
     momsVat: "Moms", darkMode: "Mørk tilstand", lightMode: "Lys tilstand", signOut: "Log ud",
     language: "English",
     // Dashboard
@@ -467,7 +467,7 @@ const translations = {
   },
   np: {
     dashboard: "ड्यासबोर्ड", sales: "बिक्री", expenses: "खर्च", inventory: "स्टक",
-    smartStaffing: "स्मार्ट स्टाफिङ", wasteTracker: "फोहोर ट्र्याकर", weeklyReport: "हप्ताको रिपोर्ट",
+    smartStaffing: "स्मार्ट स्टाफिङ", weatherSmart: "मौसम स्मार्ट", wasteTracker: "फोहोर ट्र्याकर", weeklyReport: "हप्ताको रिपोर्ट",
     momsVat: "भ्याट", darkMode: "डार्क मोड", lightMode: "लाइट मोड", signOut: "लग आउट",
     language: "भाषा",
     // Dashboard

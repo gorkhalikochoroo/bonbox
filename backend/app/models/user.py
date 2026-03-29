@@ -20,6 +20,8 @@ class User(Base):
     monthly_goal: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     daily_digest_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     expense_alerts_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    latitude: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
     reset_token: Mapped[str | None] = mapped_column(String(100), nullable=True)
     reset_token_expires: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

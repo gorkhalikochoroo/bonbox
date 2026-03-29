@@ -14,6 +14,7 @@ const businessNav = [
   { to: "/cashbook", labelKey: "cashBook" },
   { to: "/inventory", labelKey: "inventory" },
   { to: "/staffing", labelKey: "smartStaffing" },
+  { to: "/weather", labelKey: "weatherSmart" },
   { to: "/waste", labelKey: "wasteTracker" },
   { to: "/reports", labelKey: "reports" },
   { to: "/khata", labelKey: "khata" },
