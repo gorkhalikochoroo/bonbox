@@ -480,6 +480,7 @@ export default function SalesPage() {
 }
 
 function ItemSaleModal({ items, currency, onClose, onSale }) {
+  const { t } = useLanguage();
   const [search, setSearch] = useState("");
   const [selectedItem, setSelectedItem] = useState(null);
   const [qty, setQty] = useState("");
