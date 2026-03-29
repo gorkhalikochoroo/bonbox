@@ -46,8 +46,8 @@ const features = [
     color: "orange",
   },
   {
-    title: "12 Currencies, 10+ Languages",
-    desc: "DKK, NPR, INR, USD, EUR and more. VAT terms adapt to your country automatically.",
+    title: "17+ Currencies, 3 Languages",
+    desc: "DKK, NPR, INR, USD, EUR and more. English, Danish, Nepali — with VAT terms that adapt automatically.",
     icon: "M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
     color: "cyan",
   },
@@ -56,6 +56,24 @@ const features = [
     desc: "Say '5000 cash' and it logs instantly. No typing, no friction.",
     icon: "M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z",
     color: "rose",
+  },
+  {
+    title: "Loan Tracker",
+    desc: "Track loans given and taken. See balances, due dates, and payment history at a glance.",
+    icon: "M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z",
+    color: "teal",
+  },
+  {
+    title: "Daily Kasserapport",
+    desc: "End-of-day receipt with totals, VAT, payment breakdown — just like your POS printout.",
+    icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01",
+    color: "indigo",
+  },
+  {
+    title: "Waste Tracker",
+    desc: "Log waste and expired stock. See how much is lost and reduce it over time.",
+    icon: "M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16",
+    color: "red",
   },
 ];
 
@@ -69,6 +87,9 @@ const colorMap = {
   orange:  { bg: "bg-orange-50",  text: "text-orange-600",  border: "hover:border-orange-300" },
   cyan:    { bg: "bg-cyan-50",    text: "text-cyan-600",    border: "hover:border-cyan-300" },
   rose:    { bg: "bg-rose-50",    text: "text-rose-600",    border: "hover:border-rose-300" },
+  teal:    { bg: "bg-teal-50",    text: "text-teal-600",    border: "hover:border-teal-300" },
+  indigo:  { bg: "bg-indigo-50",  text: "text-indigo-600",  border: "hover:border-indigo-300" },
+  red:     { bg: "bg-red-50",     text: "text-red-600",     border: "hover:border-red-300" },
 };
 
 const steps = [
@@ -383,10 +404,10 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
             {[
-              { val: 9, suffix: "+", label: "Features" },
-              { val: 12, suffix: "", label: "Currencies" },
-              { val: 10, suffix: "+", label: "Languages" },
-              { val: 3, suffix: "", label: "Countries" },
+              { val: 12, suffix: "+", label: "Features" },
+              { val: 17, suffix: "+", label: "Currencies" },
+              { val: 3, suffix: "", label: "Languages" },
+              { val: 6, suffix: "+", label: "Countries" },
             ].map((s) => (
               <FadeIn key={s.label}>
                 <div>
