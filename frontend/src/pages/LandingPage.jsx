@@ -440,7 +440,7 @@ export default function LandingPage() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl mx-auto">
                 {[
-                  { icon: "🎓", text: "Built by MSc Data-Driven Business graduate, SDU Denmark" },
+                  { icon: "🎓", text: "Built by Manoj — MSc Data-Driven Business, 3rd semester, SDU Denmark" },
                   { icon: "📱", text: "Available on web + Android (Google Play)" },
                   { icon: "🔒", text: "Your data is yours. Always encrypted. Never sold." },
                 ].map((item) => (
