@@ -22,6 +22,10 @@ export default function KhataPage() {
   const [error, setError] = useState("");
   const [showPayForm, setShowPayForm] = useState(false);
   const [payAmount, setPayAmount] = useState("");
+  const [inventoryItems, setInventoryItems] = useState([]);
+  const [selectedItems, setSelectedItems] = useState([]); // [{item_id, quantity, name}]
+  const [showItemPicker, setShowItemPicker] = useState(false);
+  const [itemSearch, setItemSearch] = useState("");
 
   const fetchCustomers = () => {
     api.get("/khata/customers").then((r) => {
@@ -38,7 +42,10 @@ export default function KhataPage() {
     api.get(`/khata/customers/${custId}/transactions`).then((r) => setTransactions(r.data)).catch(() => {});
   };
 
-  useEffect(() => { fetchCustomers(); }, []);
+  useEffect(() => {
+    fetchCustomers();
+    api.get("/inventory").then((r) => setInventoryItems(r.data)).catch(() => {});
+  }, []);
   useEffect(() => { if (selectedCustomer) fetchTransactions(selectedCustomer.id); }, [selectedCustomer]);
 
   const handleAddCustomer = async (e) => {
@@ -82,12 +89,17 @@ export default function KhataPage() {
       if (editTxn) {
         await api.put(`/khata/transactions/${editTxn.id}`, payload);
       } else {
+        if (selectedItems.length > 0) {
+          payload.inventory_items = selectedItems.map((si) => ({ item_id: si.item_id, quantity: si.quantity }));
+        }
         await api.post("/khata/transactions", payload);
       }
       setTxnForm({ date: new Date().toISOString().slice(0, 10), purchase_amount: "", paid_amount: "", notes: "" });
+      setSelectedItems([]);
       setEditTxn(null);
       fetchTransactions(selectedCustomer.id);
       fetchCustomers();
+      if (selectedItems.length > 0) api.get("/inventory").then((r) => setInventoryItems(r.data)).catch(() => {});
       window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
       setError(err.response?.data?.detail || "Failed");
@@ -336,6 +348,66 @@ export default function KhataPage() {
                     )}
                   </div>
                 </div>
+
+                {/* Inventory items to deduct */}
+                {!editTxn && inventoryItems.length > 0 && (
+                  <div className="mt-3">
+                    <button type="button" onClick={() => setShowItemPicker(!showItemPicker)}
+                      className="text-sm text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1">
+                      <span>{showItemPicker ? "▾" : "▸"}</span>
+                      {t("linkInventory") || "Link inventory items"} {selectedItems.length > 0 && `(${selectedItems.length})`}
+                    </button>
+
+                    {showItemPicker && (
+                      <div className="mt-2 border border-gray-200 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-800 max-h-48 overflow-y-auto">
+                        <input type="text" placeholder={t("searchItems") || "Search items..."} value={itemSearch}
+                          onChange={(e) => setItemSearch(e.target.value)}
+                          className="w-full px-3 py-1.5 border rounded-lg text-xs dark:bg-gray-700 dark:border-gray-600 dark:text-white mb-2" />
+                        {inventoryItems
+                          .filter((i) => !itemSearch || i.name.toLowerCase().includes(itemSearch.toLowerCase()))
+                          .slice(0, 20)
+                          .map((item) => {
+                            const sel = selectedItems.find((s) => s.item_id === item.id);
+                            return (
+                              <div key={item.id} className="flex items-center gap-2 py-1.5 border-b border-gray-50 dark:border-gray-700 last:border-0">
+                                <input type="checkbox" checked={!!sel}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedItems([...selectedItems, { item_id: item.id, quantity: 1, name: item.name }]);
+                                    } else {
+                                      setSelectedItems(selectedItems.filter((s) => s.item_id !== item.id));
+                                    }
+                                  }}
+                                  className="w-4 h-4 rounded border-gray-300 text-blue-600" />
+                                <span className="text-sm text-gray-700 dark:text-gray-300 flex-1">{item.name}</span>
+                                <span className="text-xs text-gray-400">{parseFloat(item.quantity)} {item.unit}</span>
+                                {sel && (
+                                  <input type="number" value={sel.quantity} min="0.1" step="0.1"
+                                    onChange={(e) => {
+                                      const qty = parseFloat(e.target.value) || 1;
+                                      setSelectedItems(selectedItems.map((s) => s.item_id === item.id ? { ...s, quantity: qty } : s));
+                                    }}
+                                    className="w-16 px-2 py-1 border rounded text-xs text-center dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                                )}
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
+
+                    {selectedItems.length > 0 && !showItemPicker && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {selectedItems.map((si) => (
+                          <span key={si.item_id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-xs rounded-full">
+                            {si.name} x{si.quantity}
+                            <button type="button" onClick={() => setSelectedItems(selectedItems.filter((s) => s.item_id !== si.item_id))}
+                              className="text-blue-500 hover:text-red-500 font-bold">x</button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </form>
 
               {/* Transactions Table */}

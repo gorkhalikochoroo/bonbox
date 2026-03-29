@@ -27,12 +27,18 @@ class KhataCustomerResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class KhataInventoryItem(BaseModel):
+    item_id: uuid.UUID
+    quantity: float
+
+
 class KhataTransactionCreate(BaseModel):
     customer_id: uuid.UUID
     date: datetime.date
     purchase_amount: float = 0
     paid_amount: float = 0
     notes: str | None = None
+    inventory_items: list[KhataInventoryItem] = []
 
 
 class KhataTransactionUpdate(BaseModel):

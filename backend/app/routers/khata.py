@@ -7,6 +7,7 @@ from sqlalchemy import func
 from app.database import get_db
 from app.models.user import User
 from app.models.khata import KhataCustomer, KhataTransaction
+from app.models.inventory import InventoryItem, InventoryLog
 from app.schemas.khata import (
     KhataCustomerCreate, KhataCustomerUpdate, KhataCustomerResponse,
     KhataTransactionCreate, KhataTransactionUpdate, KhataTransactionResponse,
@@ -137,13 +138,29 @@ def create_transaction(
     ).first()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
-    txn = KhataTransaction(user_id=user.id, **data.model_dump())
+    txn_data = data.model_dump(exclude={"inventory_items"})
+    txn = KhataTransaction(user_id=user.id, **txn_data)
     db.add(txn)
     db.commit()
     db.refresh(txn)
     # Sync to Sales & CashBook
     sync_sale_for_khata_purchase(db, txn, customer.name)
     sync_cashbook_for_khata_payment(db, txn, customer.name)
+    # Deduct inventory stock for items sold on credit
+    for inv_item in data.inventory_items:
+        item = db.query(InventoryItem).filter(
+            InventoryItem.id == inv_item.item_id,
+            InventoryItem.user_id == user.id,
+        ).first()
+        if item:
+            item.quantity = float(item.quantity) - inv_item.quantity
+            log = InventoryLog(
+                item_id=item.id,
+                change_qty=-inv_item.quantity,
+                reason=f"khata:{customer.name}",
+                date=data.date,
+            )
+            db.add(log)
     db.commit()
     return txn
 
