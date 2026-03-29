@@ -14,6 +14,10 @@ class InventoryItemCreate(BaseModel):
     barcode: str | None = None
     expiry_date: datetime.date | None = None
     is_perishable: bool = False
+    bottle_size: float | None = None
+    pour_size: float | None = None
+    pour_unit: str | None = None
+    sell_price_per_pour: float | None = None
 
 
 class InventoryItemUpdate(BaseModel):
@@ -27,6 +31,10 @@ class InventoryItemUpdate(BaseModel):
     barcode: str | None = None
     expiry_date: datetime.date | None = None
     is_perishable: bool | None = None
+    bottle_size: float | None = None
+    pour_size: float | None = None
+    pour_unit: str | None = None
+    sell_price_per_pour: float | None = None
 
 
 class InventoryItemResponse(BaseModel):
@@ -41,9 +49,19 @@ class InventoryItemResponse(BaseModel):
     barcode: str | None = None
     expiry_date: datetime.date | None = None
     is_perishable: bool = False
+    bottle_size: float | None = None
+    pour_size: float | None = None
+    pour_unit: str | None = None
+    sell_price_per_pour: float | None = None
     created_at: datetime.datetime | None = None
 
     model_config = {"from_attributes": True}
+
+
+class PourRequest(BaseModel):
+    item_id: uuid.UUID
+    pours: int = 1  # how many glasses/shots
+    date: datetime.date | None = None
 
 
 class InventoryLogCreate(BaseModel):

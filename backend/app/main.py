@@ -37,6 +37,10 @@ _migrations = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS currency VARCHAR(10)",
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS reference_id VARCHAR(100)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_goal NUMERIC(12,2) DEFAULT 0",
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS bottle_size NUMERIC(10,2)",
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS pour_size NUMERIC(10,2)",
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS pour_unit VARCHAR(20)",
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS sell_price_per_pour NUMERIC(12,2)",
 ]
 
 try:

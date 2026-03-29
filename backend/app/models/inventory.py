@@ -24,6 +24,10 @@ class InventoryItem(Base):
     expiry_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     image_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_perishable: Mapped[bool] = mapped_column(Boolean, default=False)
+    bottle_size: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)   # e.g. 750 ml per bottle
+    pour_size: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)     # e.g. 30 ml per shot
+    pour_unit: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)           # e.g. "ml", "cl"
+    sell_price_per_pour: Mapped[Optional[float]] = mapped_column(Numeric(12, 2), nullable=True)  # price per glass/shot
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow

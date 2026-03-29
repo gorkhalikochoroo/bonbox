@@ -12,6 +12,7 @@ const TEMPLATES = [
   { type: "clothing", name: "Clothing Store", icon: "👕", count: 40, desc: "Tops, bottoms, dresses, footwear, accessories. Size-based variants.", color: "purple" },
   { type: "pharmacy", name: "Pharmacy", icon: "💊", count: 45, desc: "Medicines, vitamins, first aid, devices, hygiene. Expiry tracking.", color: "red" },
   { type: "electronics", name: "Electronics & Mobile", icon: "📱", count: 35, desc: "Chargers, cables, audio, phone accessories, computer gear, batteries.", color: "cyan" },
+  { type: "bar", name: "Bar / Cocktail", icon: "🍸", count: 30, desc: "Spirits, wine, beer, mixers, liqueurs, garnish. Pour tracking by ml/glass.", color: "amber" },
   { type: "other", name: "Other / Custom", icon: "📦", count: 20, desc: "General items for any business. Basic categories: supplies, tools, materials, services.", color: "gray" },
 ];
 
@@ -23,6 +24,7 @@ const COLOR_MAP = {
   purple: { border: "hover:border-purple-400", bg: "hover:bg-purple-50 dark:hover:bg-purple-900/20" },
   red: { border: "hover:border-red-400", bg: "hover:bg-red-50 dark:hover:bg-red-900/20" },
   cyan: { border: "hover:border-cyan-400", bg: "hover:bg-cyan-50 dark:hover:bg-cyan-900/20" },
+  amber: { border: "hover:border-amber-400", bg: "hover:bg-amber-50 dark:hover:bg-amber-900/20" },
   gray: { border: "hover:border-gray-400", bg: "hover:bg-gray-50 dark:hover:bg-gray-700/30" },
 };
 
@@ -51,7 +53,9 @@ export default function InventoryPage() {
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [templateLoading, setTemplateLoading] = useState(false);
   const [templateLoaded, setTemplateLoaded] = useState(null);
-  const [templateFilter, setTemplateFilter] = useState(null); // categories from last loaded template
+  const [templateFilter, setTemplateFilter] = useState(null);
+  const [pourModal, setPourModal] = useState(null); // item to pour from
+  const [pourCount, setPourCount] = useState(1);
 
   const fetchData = () => {
     api.get("/inventory").then((res) => setItems(res.data)).catch(() => {});
@@ -165,6 +169,25 @@ export default function InventoryPage() {
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
       setError("Failed to delete some items");
+    }
+  };
+
+  const recordPour = async () => {
+    if (!pourModal) return;
+    try {
+      const res = await api.post("/inventory/pour", {
+        item_id: pourModal.id,
+        pours: pourCount,
+        date: new Date().toISOString().split("T")[0],
+      });
+      setSuccess(`Poured ${pourCount}x ${pourModal.name} — ${res.data.remaining_pours} pours left`);
+      setPourModal(null);
+      setPourCount(1);
+      fetchData();
+      setTimeout(() => setSuccess(""), 3000);
+    } catch (err) {
+      setError(err.response?.data?.detail || "Pour failed");
+      setTimeout(() => setError(""), 3000);
     }
   };
 
@@ -540,17 +563,21 @@ export default function InventoryPage() {
                             <span className="text-gray-400">—</span>
                           )}
                         </td>
-                        <td className="px-6 py-4 text-right space-x-3">
-                          <button onClick={() => startEdit(item)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">{t("edit")}</button>
-                          {deleteConfirm === item.id ? (
-                            <span className="inline-flex items-center gap-1.5 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded-lg">
-                              <span className="text-xs text-red-600 dark:text-red-400">{t("delete")}?</span>
-                              <button onClick={() => deleteItem(item.id)} className="bg-red-600 text-white text-xs font-bold px-2 py-0.5 rounded hover:bg-red-700">{t("delete")}</button>
-                              <button onClick={() => setDeleteConfirm(null)} className="bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 text-xs font-bold px-2 py-0.5 rounded hover:bg-gray-300">&#10005;</button>
-                            </span>
-                          ) : (
-                            <button onClick={() => setDeleteConfirm(item.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">{t("delete")}</button>
-                          )}
+                        <td className="px-4 py-3 text-right">
+                          <div className="inline-flex items-center gap-2">
+                            {item.pour_size && (
+                              <button onClick={() => { setPourModal(item); setPourCount(1); }} className="bg-amber-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-amber-600 min-w-[48px] min-h-[32px]">Pour</button>
+                            )}
+                            <button onClick={() => startEdit(item)} className="bg-blue-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-blue-600 min-w-[48px] min-h-[32px]">{t("edit")}</button>
+                            {deleteConfirm === item.id ? (
+                              <span className="inline-flex items-center gap-1.5 bg-red-50 dark:bg-red-900/20 px-2 py-1.5 rounded-lg">
+                                <button onClick={() => deleteItem(item.id)} className="bg-red-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-red-700 min-w-[48px] min-h-[32px]">{t("delete")}</button>
+                                <button onClick={() => setDeleteConfirm(null)} className="bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 text-xs font-bold px-2 py-1.5 rounded-lg hover:bg-gray-300 min-h-[32px]">&#10005;</button>
+                              </span>
+                            ) : (
+                              <button onClick={() => setDeleteConfirm(item.id)} className="bg-red-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-red-600 min-w-[48px] min-h-[32px]">{t("delete")}</button>
+                            )}
+                          </div>
                         </td>
                       </>
                     )}
@@ -564,6 +591,44 @@ export default function InventoryPage() {
           </table>
         </div>
       </div>
+
+      {/* Pour Modal */}
+      {pourModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setPourModal(null)}>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-1">Pour — {pourModal.name}</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              {pourModal.pour_size}{pourModal.pour_unit || "ml"} per glass · {Math.round(pourModal.quantity)} {pourModal.pour_unit || "ml"} in stock
+              {pourModal.pour_size > 0 && ` · ${Math.floor(pourModal.quantity / pourModal.pour_size)} pours left`}
+            </p>
+
+            <div className="flex items-center justify-center gap-4 mb-4">
+              <button onClick={() => setPourCount(Math.max(1, pourCount - 1))} className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-600 text-lg font-bold text-gray-700 dark:text-gray-200">-</button>
+              <span className="text-3xl font-bold text-gray-800 dark:text-white w-16 text-center">{pourCount}</span>
+              <button onClick={() => setPourCount(pourCount + 1)} className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-600 text-lg font-bold text-gray-700 dark:text-gray-200">+</button>
+            </div>
+
+            <div className="flex gap-2 flex-wrap justify-center mb-4">
+              {[1, 2, 3, 5, 10].map((n) => (
+                <button key={n} onClick={() => setPourCount(n)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition ${pourCount === n ? "bg-amber-100 dark:bg-amber-900/30 border-amber-400 text-amber-700 dark:text-amber-400" : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"}`}>
+                  {n}x
+                </button>
+              ))}
+            </div>
+
+            <p className="text-center text-sm text-gray-500 dark:text-gray-400 mb-4">
+              Total: {pourCount * (pourModal.pour_size || 0)} {pourModal.pour_unit || "ml"}
+              {pourModal.sell_price_per_pour > 0 && ` · Revenue: ${(pourCount * pourModal.sell_price_per_pour).toLocaleString()} ${currency}`}
+            </p>
+
+            <div className="flex gap-2">
+              <button onClick={() => setPourModal(null)} className="flex-1 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm text-gray-600 dark:text-gray-300">Cancel</button>
+              <button onClick={recordPour} className="flex-1 py-2.5 bg-amber-500 text-white rounded-xl font-semibold text-sm hover:bg-amber-600">Pour {pourCount}x</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Template Side Panel */}
       {showTemplateModal && (

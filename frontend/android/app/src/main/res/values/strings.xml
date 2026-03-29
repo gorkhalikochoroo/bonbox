@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">BonBox</string>
+    <string name="title_activity_main">BonBox</string>
+    <string name="package_name">dk.bonbox.app</string>
+    <string name="custom_url_scheme">dk.bonbox.app</string>
+</resources>
