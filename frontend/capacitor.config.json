@@ -1,0 +1,22 @@
+{
+  "appId": "dk.bonbox.app",
+  "appName": "BonBox",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": true,
+      "backgroundColor": "#1e3a8a",
+      "androidSplashResourceName": "splash",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "style": "LIGHT",
+      "backgroundColor": "#1e3a8a",
+      "overlaysWebView": false
+    }
+  }
+}
