@@ -58,7 +58,7 @@ export default function Layout() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-gray-900">
       {/* Mobile top bar */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-30 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between">
+      <div className="md:hidden fixed top-0 left-0 right-0 z-30 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         <button onClick={() => setSidebarOpen(true)} className="text-gray-600 dark:text-gray-300">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
@@ -76,7 +76,7 @@ export default function Layout() {
       {/* Sidebar */}
       <aside className={`fixed top-0 left-0 h-full w-56 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col z-50 transition-transform duration-200 ${
         sidebarOpen ? "translate-x-0" : "-translate-x-full"
-      } md:translate-x-0`}>
+      } md:translate-x-0`} style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         <div className="p-5 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold text-blue-600">BonBox</h1>
@@ -120,7 +120,7 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
-        <div className="p-3 border-t border-gray-100 dark:border-gray-700 space-y-1">
+        <div className="p-3 border-t border-gray-100 dark:border-gray-700 space-y-1" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 12px)" }}>
           <NavLink
             to="/profile"
             onClick={closeSidebar}
@@ -158,7 +158,7 @@ export default function Layout() {
           </div>
           <button
             onClick={handleLogout}
-            className="w-full text-left px-4 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+            className="w-full text-left px-4 py-2.5 rounded-lg text-sm text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition font-medium"
           >
             {t("signOut")}
           </button>
