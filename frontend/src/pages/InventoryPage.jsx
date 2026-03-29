@@ -56,6 +56,9 @@ export default function InventoryPage() {
   const [templateFilter, setTemplateFilter] = useState(null);
   const [pourModal, setPourModal] = useState(null); // item to pour from
   const [pourCount, setPourCount] = useState(1);
+  const [showBarSection, setShowBarSection] = useState(() => localStorage.getItem("bonbox_bar_mode") === "true");
+  const [restockItem, setRestockItem] = useState(null);
+  const [restockBottles, setRestockBottles] = useState(1);
 
   const fetchData = () => {
     api.get("/inventory").then((res) => setItems(res.data)).catch(() => {});
@@ -172,6 +175,27 @@ export default function InventoryPage() {
     }
   };
 
+  const restockBottle = async () => {
+    if (!restockItem) return;
+    const addMl = (restockItem.bottle_size || 750) * restockBottles;
+    try {
+      await api.post("/inventory/logs", {
+        item_id: restockItem.id,
+        change_qty: addMl,
+        reason: `restock:${restockBottles} bottle(s)`,
+        date: new Date().toISOString().split("T")[0],
+      });
+      setSuccess(`Restocked ${restockItem.name} — added ${restockBottles} bottle(s) (${addMl} ${restockItem.pour_unit || "ml"})`);
+      setRestockItem(null);
+      setRestockBottles(1);
+      fetchData();
+      setTimeout(() => setSuccess(""), 3000);
+    } catch (err) {
+      setError(err.response?.data?.detail || "Restock failed");
+      setTimeout(() => setError(""), 3000);
+    }
+  };
+
   const recordPour = async () => {
     if (!pourModal) return;
     try {
@@ -201,6 +225,12 @@ export default function InventoryPage() {
 
       const res = await api.post("/inventory/templates/load", { template_type: templateType });
       setTemplateLoaded(templateType);
+
+      // Enable bar mode when bar template loaded
+      if (templateType === "bar") {
+        setShowBarSection(true);
+        localStorage.setItem("bonbox_bar_mode", "true");
+      }
 
       // Filter categories to this template's categories
       if (tmplCats.length > 0) {
@@ -287,35 +317,45 @@ export default function InventoryPage() {
         </div>
       )}
 
-      {/* Bar Quick Pour */}
-      {barItems.length > 0 && (
+      {/* Bar Quick Pour — only shows when bar template was loaded */}
+      {showBarSection && barItems.length > 0 && (
         <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-gray-800 dark:to-gray-800 p-5 rounded-2xl border border-amber-200 dark:border-amber-800">
-          <h3 className="text-sm font-bold text-amber-800 dark:text-amber-400 mb-3 flex items-center gap-2">
-            <span>🍸</span> Quick Pour — tap to sell
-          </h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-bold text-amber-800 dark:text-amber-400 flex items-center gap-2">
+              <span>🍸</span> Bar — tap to pour & sell
+            </h3>
+            <button onClick={() => { setShowBarSection(false); localStorage.removeItem("bonbox_bar_mode"); }}
+              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">Hide</button>
+          </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
             {barItems.map((item) => {
               const remaining = item.pour_size > 0 ? Math.floor(item.quantity / item.pour_size) : 0;
               const isEmpty = remaining <= 0;
               return (
-                <button
-                  key={item.id}
-                  onClick={() => { if (!isEmpty) { setPourModal(item); setPourCount(1); } }}
-                  disabled={isEmpty}
-                  className={`p-3 rounded-xl text-left transition border ${isEmpty
-                    ? "border-gray-200 dark:border-gray-700 opacity-40 cursor-not-allowed"
-                    : "border-amber-200 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/30 hover:border-amber-400 cursor-pointer"}`}
-                >
+                <div key={item.id} className={`p-3 rounded-xl border transition ${isEmpty
+                  ? "border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10"
+                  : "border-amber-200 dark:border-amber-700"}`}>
                   <p className="text-sm font-semibold text-gray-800 dark:text-white truncate">{item.name}</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                    {remaining} pours left
+                    {Math.round(item.quantity)} {item.pour_unit || "ml"} · {remaining} pours
                   </p>
                   {item.sell_price_per_pour > 0 && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400 font-medium mt-0.5">
-                      {item.sell_price_per_pour} {currency}/glass
-                    </p>
+                    <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">{item.sell_price_per_pour} {currency}/glass</p>
                   )}
-                </button>
+                  <div className="flex gap-1 mt-2">
+                    {isEmpty ? (
+                      <button onClick={() => { setRestockItem(item); setRestockBottles(1); }}
+                        className="flex-1 bg-green-500 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-green-600">+ Restock</button>
+                    ) : (
+                      <>
+                        <button onClick={() => { setPourModal(item); setPourCount(1); }}
+                          className="flex-1 bg-amber-500 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-amber-600">Pour</button>
+                        <button onClick={() => { setRestockItem(item); setRestockBottles(1); }}
+                          className="bg-green-500 text-white text-xs font-bold px-2 py-1.5 rounded-lg hover:bg-green-600">+</button>
+                      </>
+                    )}
+                  </div>
+                </div>
               );
             })}
           </div>
@@ -630,6 +670,30 @@ export default function InventoryPage() {
           </table>
         </div>
       </div>
+
+      {/* Restock Modal */}
+      {restockItem && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setRestockItem(null)}>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-1">Restock — {restockItem.name}</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              {restockItem.bottle_size || 750}{restockItem.pour_unit || "ml"} per bottle · Currently {Math.round(restockItem.quantity)} {restockItem.pour_unit || "ml"} in stock
+            </p>
+            <div className="flex items-center justify-center gap-4 mb-4">
+              <button onClick={() => setRestockBottles(Math.max(1, restockBottles - 1))} className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-600 text-lg font-bold text-gray-700 dark:text-gray-200">-</button>
+              <span className="text-3xl font-bold text-gray-800 dark:text-white w-16 text-center">{restockBottles}</span>
+              <button onClick={() => setRestockBottles(restockBottles + 1)} className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-600 text-lg font-bold text-gray-700 dark:text-gray-200">+</button>
+            </div>
+            <p className="text-center text-sm text-gray-500 dark:text-gray-400 mb-4">
+              Adding {restockBottles} bottle(s) = {(restockItem.bottle_size || 750) * restockBottles} {restockItem.pour_unit || "ml"}
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => setRestockItem(null)} className="flex-1 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm text-gray-600 dark:text-gray-300">Cancel</button>
+              <button onClick={restockBottle} className="flex-1 py-2.5 bg-green-500 text-white rounded-xl font-semibold text-sm hover:bg-green-600">Add {restockBottles} Bottle(s)</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Pour Modal */}
       {pourModal && (
