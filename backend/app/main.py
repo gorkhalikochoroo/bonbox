@@ -102,6 +102,9 @@ origins = [
     "https://bonbox.vercel.app",
     "https://bonbox.dk",
     "https://www.bonbox.dk",
+    "https://localhost",
+    "capacitor://localhost",
+    "http://localhost",
 ]
 
 app.add_middleware(
