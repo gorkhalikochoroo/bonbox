@@ -149,7 +149,8 @@ export default function WeatherPage() {
 
   // ─── MAIN VIEW ───
   const days = forecast?.days || [];
-  const today = days[0] || null;
+  const current = forecast?.current || null;
+  const todayForecast = days[0] || null;
 
   // Build conditions array from impact object
   const conditionsObj = impact?.conditions || {};
@@ -180,24 +181,37 @@ export default function WeatherPage() {
       </div>
 
       {/* ─── TODAY'S WEATHER ─── */}
-      {today && (
+      {(current || todayForecast) && (
         <div className="bg-gradient-to-r from-slate-800 to-slate-900 rounded-2xl p-6 text-white">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-300">Today's Weather</p>
+              <p className="text-sm text-gray-300">Right Now</p>
               <div className="flex items-center gap-3 mt-1">
-                <span className="text-5xl">{WEATHER_ICONS[today.condition] || "🌡️"}</span>
+                <span className="text-5xl">{WEATHER_ICONS[current?.condition || todayForecast?.condition] || "🌡️"}</span>
                 <div>
-                  <p className="text-3xl font-bold">{formatTemp(today.temp_max)}</p>
-                  <p className="text-gray-400 capitalize">{today.condition}</p>
+                  <p className="text-3xl font-bold">{current ? formatTemp(current.temperature) : formatTemp(todayForecast?.temp_max)}</p>
+                  {current?.feels_like != null && (
+                    <p className="text-sm text-gray-400">Feels like {formatTemp(current.feels_like)}</p>
+                  )}
+                  <p className="text-gray-400 capitalize">{current?.condition || todayForecast?.condition}</p>
                 </div>
               </div>
             </div>
-            <div className="text-right">
-              <p className="text-sm text-gray-400">Precipitation</p>
-              <p className="text-xl font-semibold">{today.precipitation?.toFixed(1) || 0} mm</p>
-              <p className="text-sm text-gray-400 mt-1">Wind</p>
-              <p className="text-lg">{today.wind_speed?.toFixed(0) || 0} km/h</p>
+            <div className="text-right space-y-1">
+              {current?.humidity != null && (
+                <>
+                  <p className="text-sm text-gray-400">Humidity</p>
+                  <p className="text-lg font-semibold">{current.humidity}%</p>
+                </>
+              )}
+              <p className="text-sm text-gray-400">Wind</p>
+              <p className="text-lg">{(current?.wind_speed || todayForecast?.wind_speed)?.toFixed(0) || 0} km/h</p>
+              {todayForecast && (
+                <>
+                  <p className="text-sm text-gray-400">High / Low</p>
+                  <p className="text-sm">{formatTemp(todayForecast.temp_max)} / {formatTemp(todayForecast.temp_min)}</p>
+                </>
+              )}
             </div>
           </div>
         </div>

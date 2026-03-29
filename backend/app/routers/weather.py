@@ -63,13 +63,30 @@ def get_forecast(
 
     resp = httpx.get(OPEN_METEO_FORECAST, params={
         "latitude": lat, "longitude": lon,
+        "current": "temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m,precipitation",
         "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,wind_speed_10m_max",
         "timezone": "auto",
     }, timeout=10)
     if resp.status_code != 200:
         raise HTTPException(502, "Weather service unavailable")
 
-    data = resp.json()["daily"]
+    body = resp.json()
+    data = body["daily"]
+    current_data = body.get("current", {})
+
+    current = None
+    if current_data:
+        cwmo = current_data.get("weather_code", 0)
+        current = {
+            "temperature": current_data.get("temperature_2m"),
+            "feels_like": current_data.get("apparent_temperature"),
+            "humidity": current_data.get("relative_humidity_2m"),
+            "wind_speed": current_data.get("wind_speed_10m"),
+            "precipitation": current_data.get("precipitation"),
+            "weather_code": cwmo,
+            "condition": _wmo_to_condition(cwmo),
+        }
+
     days = []
     for i in range(len(data["time"])):
         wmo = data["weather_code"][i]
@@ -82,7 +99,7 @@ def get_forecast(
             "weather_code": wmo,
             "condition": _wmo_to_condition(wmo),
         })
-    return {"days": days, "timezone": resp.json().get("timezone", "UTC")}
+    return {"current": current, "days": days, "timezone": body.get("timezone", "UTC")}
 
 
 # ─── Weather impact profile (sales by weather condition) ─────────
