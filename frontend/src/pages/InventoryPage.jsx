@@ -12,6 +12,7 @@ const TEMPLATES = [
   { type: "clothing", name: "Clothing Store", icon: "👕", count: 40, desc: "Tops, bottoms, dresses, footwear, accessories. Size-based variants.", color: "purple" },
   { type: "pharmacy", name: "Pharmacy", icon: "💊", count: 45, desc: "Medicines, vitamins, first aid, devices, hygiene. Expiry tracking.", color: "red" },
   { type: "electronics", name: "Electronics & Mobile", icon: "📱", count: 35, desc: "Chargers, cables, audio, phone accessories, computer gear, batteries.", color: "cyan" },
+  { type: "other", name: "Other / Custom", icon: "📦", count: 20, desc: "General items for any business. Basic categories: supplies, tools, materials, services.", color: "gray" },
 ];
 
 const COLOR_MAP = {
@@ -22,6 +23,7 @@ const COLOR_MAP = {
   purple: { border: "hover:border-purple-400", bg: "hover:bg-purple-50 dark:hover:bg-purple-900/20" },
   red: { border: "hover:border-red-400", bg: "hover:bg-red-50 dark:hover:bg-red-900/20" },
   cyan: { border: "hover:border-cyan-400", bg: "hover:bg-cyan-50 dark:hover:bg-cyan-900/20" },
+  gray: { border: "hover:border-gray-400", bg: "hover:bg-gray-50 dark:hover:bg-gray-700/30" },
 };
 
 export default function InventoryPage() {
@@ -44,6 +46,8 @@ export default function InventoryPage() {
   const [adjustQty, setAdjustQty] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState(new Set());
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [templateLoading, setTemplateLoading] = useState(false);
   const [templateLoaded, setTemplateLoaded] = useState(null);
@@ -132,6 +136,35 @@ export default function InventoryPage() {
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to delete");
+    }
+  };
+
+  const toggleSelect = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selected.size === filtered.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(filtered.map((i) => i.id)));
+    }
+  };
+
+  const bulkDelete = async () => {
+    try {
+      await Promise.all([...selected].map((id) => api.delete(`/inventory/${id}`)));
+      setSuccess(`${selected.size} items deleted`);
+      setSelected(new Set());
+      setBulkDeleteConfirm(false);
+      fetchData();
+      setTimeout(() => setSuccess(""), 2500);
+    } catch (err) {
+      setError("Failed to delete some items");
     }
   };
 
@@ -372,10 +405,31 @@ export default function InventoryPage() {
             className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
+        {selected.size > 0 && (
+          <div className="px-6 py-3 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800 flex items-center justify-between">
+            <span className="text-sm font-medium text-red-700 dark:text-red-400">{selected.size} selected</span>
+            {bulkDeleteConfirm ? (
+              <span className="flex items-center gap-2">
+                <span className="text-sm text-red-600 dark:text-red-400">Delete {selected.size} items?</span>
+                <button onClick={bulkDelete} className="bg-red-600 text-white text-xs font-bold px-3 py-1 rounded hover:bg-red-700">Yes, Delete</button>
+                <button onClick={() => setBulkDeleteConfirm(false)} className="bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 text-xs font-bold px-3 py-1 rounded">Cancel</button>
+              </span>
+            ) : (
+              <span className="flex items-center gap-2">
+                <button onClick={() => setBulkDeleteConfirm(true)} className="bg-red-600 text-white text-xs font-bold px-3 py-1 rounded hover:bg-red-700">Delete Selected</button>
+                <button onClick={() => setSelected(new Set())} className="text-gray-500 dark:text-gray-400 text-xs hover:underline">Clear</button>
+              </span>
+            )}
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-left min-w-[800px]">
             <thead className="bg-gray-50 dark:bg-gray-700/50">
               <tr>
+                <th className="px-3 py-3 w-10">
+                  <input type="checkbox" checked={filtered.length > 0 && selected.size === filtered.length} onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                </th>
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("item")}</th>
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("category")}</th>
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("quantity")}</th>
@@ -397,6 +451,10 @@ export default function InventoryPage() {
 
                 return (
                   <tr key={item.id} className={alertIds.has(item.id) ? "bg-red-50 dark:bg-red-900/20" : ""}>
+                    <td className="px-3 py-3">
+                      <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelect(item.id)}
+                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                    </td>
                     {editId === item.id ? (
                       <>
                         <td className="px-6 py-3">
@@ -500,7 +558,7 @@ export default function InventoryPage() {
                 );
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={9} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noInventoryYet")}</td></tr>
+                <tr><td colSpan={10} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noInventoryYet")}</td></tr>
               )}
             </tbody>
           </table>

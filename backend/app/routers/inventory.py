@@ -150,12 +150,42 @@ def create_log(
 
 # ── Templates ──────────────────────────────────────────────
 
+OTHER_TEMPLATE_LIST = [
+    {"name": "Office Supplies", "unit": "pieces", "category": "Supplies", "perishable": False, "reorder": 10},
+    {"name": "Printer Paper", "unit": "boxes", "category": "Supplies", "perishable": False, "reorder": 3},
+    {"name": "Pens & Markers", "unit": "pieces", "category": "Supplies", "perishable": False, "reorder": 10},
+    {"name": "Cleaning Supplies", "unit": "pieces", "category": "Supplies", "perishable": False, "reorder": 5},
+    {"name": "Trash Bags", "unit": "boxes", "category": "Supplies", "perishable": False, "reorder": 2},
+    {"name": "Hand Tools", "unit": "pieces", "category": "Tools", "perishable": False, "reorder": 2},
+    {"name": "Tape & Glue", "unit": "pieces", "category": "Tools", "perishable": False, "reorder": 5},
+    {"name": "Batteries", "unit": "pieces", "category": "Tools", "perishable": False, "reorder": 10},
+    {"name": "Light Bulbs", "unit": "pieces", "category": "Tools", "perishable": False, "reorder": 5},
+    {"name": "Extension Cords", "unit": "pieces", "category": "Tools", "perishable": False, "reorder": 2},
+    {"name": "Raw Materials", "unit": "kg", "category": "Materials", "perishable": False, "reorder": 10},
+    {"name": "Packaging Boxes", "unit": "pieces", "category": "Materials", "perishable": False, "reorder": 20},
+    {"name": "Plastic Bags", "unit": "pieces", "category": "Materials", "perishable": False, "reorder": 50},
+    {"name": "Labels & Stickers", "unit": "pieces", "category": "Materials", "perishable": False, "reorder": 50},
+    {"name": "Bubble Wrap", "unit": "pieces", "category": "Materials", "perishable": False, "reorder": 5},
+    {"name": "Delivery Service", "unit": "pieces", "category": "Services", "perishable": False, "reorder": 0},
+    {"name": "Repair Parts", "unit": "pieces", "category": "Services", "perishable": False, "reorder": 5},
+    {"name": "Fuel / Petrol", "unit": "liters", "category": "Services", "perishable": False, "reorder": 10},
+    {"name": "Uniforms", "unit": "pieces", "category": "Services", "perishable": False, "reorder": 2},
+    {"name": "Safety Equipment", "unit": "pieces", "category": "Services", "perishable": False, "reorder": 3},
+]
+
 @router.get("/templates", response_model=list[TemplateResponse])
 def list_templates(
     template_type: str = Query(None),
     db: Session = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
+    if template_type == "other":
+        return [
+            {"id": i + 1, "template_name": "Other / Custom", "template_type": "other",
+             "item_name": t["name"], "default_unit": t["unit"], "default_category": t["category"],
+             "is_perishable": t["perishable"], "default_reorder_level": t["reorder"]}
+            for i, t in enumerate(OTHER_TEMPLATE_LIST)
+        ]
     query = db.query(InventoryTemplate)
     if template_type:
         query = query.filter(InventoryTemplate.template_type == template_type)
@@ -168,6 +198,27 @@ def load_template(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    if data.template_type == "other":
+        created = []
+        for t in OTHER_TEMPLATE_LIST:
+            existing = db.query(InventoryItem).filter(
+                InventoryItem.user_id == user.id,
+                InventoryItem.name == t["name"],
+            ).first()
+            if existing:
+                continue
+            item = InventoryItem(
+                user_id=user.id, name=t["name"], quantity=0, unit=t["unit"],
+                cost_per_unit=0, min_threshold=t["reorder"], category=t["category"],
+                is_perishable=t["perishable"],
+            )
+            db.add(item)
+            created.append(item)
+        db.commit()
+        for c in created:
+            db.refresh(c)
+        return created
+
     templates = (
         db.query(InventoryTemplate)
         .filter(InventoryTemplate.template_type == data.template_type)
