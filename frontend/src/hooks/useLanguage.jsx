@@ -36,7 +36,7 @@ const translations = {
     firstTimeSetup: "First time? Set up common categories in one tap",
     setupCategories: "Set Up Categories",
     // Inventory
-    inventoryMonitor: "Inventory Monitor", lowStockAlerts: "Low Stock Alerts",
+    inventoryMonitor: "Inventory Monitor", lowStockAlerts: "Low Stock Alerts", itemsBelowMinStock: "items below min stock",
     addItem: "Add Item", itemName: "Item name", quantity: "Quantity", unit: "Unit",
     costPerUnit: "Cost/Unit", threshold: "Threshold",
     pieces: "Pieces", kg: "Kg", liters: "Liters", boxes: "Boxes",
@@ -268,7 +268,7 @@ const translations = {
     firstTimeSetup: "Første gang? Opret standardkategorier med ét tryk",
     setupCategories: "Opret kategorier",
     // Inventory
-    inventoryMonitor: "Lageroversigt", lowStockAlerts: "Advarsler om lav beholdning",
+    inventoryMonitor: "Lageroversigt", lowStockAlerts: "Advarsler om lav beholdning", itemsBelowMinStock: "varer under minimum",
     addItem: "Tilføj vare", itemName: "Varenavn", quantity: "Antal", unit: "Enhed",
     costPerUnit: "Pris/enhed", threshold: "Grænseværdi",
     pieces: "Styk", kg: "Kg", liters: "Liter", boxes: "Kasser",
@@ -498,7 +498,7 @@ const translations = {
     firstTimeSetup: "पहिलो पटक? एक थिचाइमा सामान्य कोटिहरू सेटअप गर्नुहोस्",
     setupCategories: "कोटिहरू सेटअप",
     // Inventory
-    inventoryMonitor: "स्टक मनिटर", lowStockAlerts: "कम स्टक अलर्ट",
+    inventoryMonitor: "स्टक मनिटर", lowStockAlerts: "कम स्टक अलर्ट", itemsBelowMinStock: "न्यूनतम स्टकभन्दा कम",
     addItem: "सामान थप्नुहोस्", itemName: "सामानको नाम", quantity: "परिमाण", unit: "इकाई",
     costPerUnit: "प्रति इकाई मूल्य", threshold: "न्यूनतम सीमा",
     pieces: "थान", kg: "केजी", liters: "लिटर", boxes: "बाकस",

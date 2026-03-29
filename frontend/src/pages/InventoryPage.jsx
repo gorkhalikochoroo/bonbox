@@ -100,6 +100,7 @@ export default function InventoryPage() {
       category: item.category || "General",
       sell_price: item.sell_price != null ? parseFloat(item.sell_price) : "",
       is_perishable: item.is_perishable || false,
+      sell_price_per_pour: item.sell_price_per_pour != null ? parseFloat(item.sell_price_per_pour) : "",
     });
   };
 
@@ -108,6 +109,9 @@ export default function InventoryPage() {
       const payload = { ...editData };
       if (payload.sell_price === "" || payload.sell_price === null) {
         payload.sell_price = null;
+      }
+      if (payload.sell_price_per_pour === "" || payload.sell_price_per_pour === null) {
+        payload.sell_price_per_pour = null;
       }
       await api.patch(`/inventory/${editId}`, payload);
       setEditId(null);
@@ -591,7 +595,11 @@ export default function InventoryPage() {
                             placeholder="—"
                             className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-20" />
                         </td>
-                        <td className="px-6 py-3 text-sm text-gray-500">—</td>
+                        <td className="px-6 py-3">
+                          <input type="number" step="0.01" value={editData.sell_price_per_pour} onChange={(e) => setEditData({ ...editData, sell_price_per_pour: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
+                            placeholder="per pour"
+                            className="px-2 py-1.5 border border-amber-300 dark:border-amber-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-20" />
+                        </td>
                         <td className="px-6 py-3 text-sm text-gray-500">—</td>
                         <td className="px-6 py-3 text-right space-x-2">
                           <button onClick={saveEdit} className="text-green-600 dark:text-green-400 text-sm font-medium hover:underline">{t("save")}</button>
@@ -625,7 +633,9 @@ export default function InventoryPage() {
                           {sell != null ? `${sell} ${currency}` : "—"}
                         </td>
                         <td className="px-6 py-4 text-sm">
-                          {margin != null ? (
+                          {item.sell_price_per_pour > 0 ? (
+                            <span className="text-amber-600 dark:text-amber-400 font-medium">{parseFloat(item.sell_price_per_pour)}/{item.pour_unit || "glass"}</span>
+                          ) : margin != null ? (
                             <span className={margin >= 0 ? "text-green-600 dark:text-green-400 font-medium" : "text-red-500 font-medium"}>
                               {margin >= 0 ? "+" : ""}{margin}%
                             </span>
