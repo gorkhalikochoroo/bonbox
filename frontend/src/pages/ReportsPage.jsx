@@ -3,6 +3,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { getVatTerms } from "../utils/currency";
 import { useLanguage } from "../hooks/useLanguage";
+import { displayCurrency } from "../utils/currency";
 
 const currentDate = new Date();
 
@@ -21,6 +22,7 @@ export default function ReportsPage() {
   const { user } = useAuth();
   const vat = getVatTerms(user?.currency);
   const { t } = useLanguage();
+  const [tab, setTab] = useState("daily");
   const months = [t("january"),t("february"),t("march"),t("april"),t("may"),t("june"),t("july"),t("august"),t("september"),t("october"),t("november"),t("december")];
   const [month, setMonth] = useState(currentDate.getMonth() + 1);
   const [year, setYear] = useState(currentDate.getFullYear());
@@ -88,6 +90,21 @@ export default function ReportsPage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-4xl mx-auto">
+      {/* Tab Switcher */}
+      <div className="flex gap-2">
+        <button onClick={() => setTab("daily")}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition ${tab === "daily" ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"}`}>
+          {t("dailyReport")}
+        </button>
+        <button onClick={() => setTab("monthly")}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition ${tab === "monthly" ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"}`}>
+          {t("monthlyReport")}
+        </button>
+      </div>
+
+      {tab === "daily" && <DailyKasserapport />}
+
+      {tab === "monthly" && <>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -225,6 +242,119 @@ export default function ReportsPage() {
       <p className="text-xs text-center text-gray-400 dark:text-gray-500">
         {t("reportsDisclaimer")}
       </p>
+      </>}
+    </div>
+  );
+}
+
+function DailyKasserapport() {
+  const { user } = useAuth();
+  const { t } = useLanguage();
+  const currency = displayCurrency(user?.currency);
+  const [reportDate, setReportDate] = useState(new Date().toISOString().split("T")[0]);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    api.get("/reports/daily-kasserapport", { params: { report_date: reportDate } })
+      .then(res => setData(res.data))
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, [reportDate]);
+
+  const fmt = (v) => v != null ? Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "0";
+  const METHODS = ["cash", "card", "mobilepay", "dankort", "mixed"];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("dailyKasserapport")}</h1>
+        <input type="date" value={reportDate} onChange={e => setReportDate(e.target.value)}
+          className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-3 py-2 text-sm" />
+      </div>
+
+      {loading ? (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 text-center border border-gray-100 dark:border-gray-700">
+          <div className="inline-block w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : data ? (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden print:shadow-none print:border-none">
+          {/* Receipt Header */}
+          <div className="text-center py-6 border-b border-dashed border-gray-200 dark:border-gray-700">
+            <h2 className="text-lg font-bold text-gray-800 dark:text-white tracking-wide">{t("kasserapport")}</h2>
+            <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mt-1">{data.business_name}</p>
+            <p className="text-xs text-gray-400 mt-1">{new Date(data.date).toLocaleDateString("da-DK", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</p>
+          </div>
+
+          {data.transaction_count === 0 ? (
+            <div className="py-12 text-center text-gray-400 dark:text-gray-500">{t("noSalesOnDate")}</div>
+          ) : (
+            <div className="font-mono text-sm">
+              {/* Revenue Section */}
+              <div className="px-6 py-4 space-y-2">
+                <Row label={t("subtotal")} value={`${fmt(data.subtotal)} ${currency}`} />
+                <Row label={`${data.vat_name} ${data.vat_rate}%`} value={`${fmt(data.vat_amount)} ${currency}`} />
+                <div className="border-t border-gray-200 dark:border-gray-700 pt-2">
+                  <Row label={t("totalInclVat")} value={`${fmt(data.total)} ${currency}`} bold />
+                </div>
+              </div>
+
+              {/* Payment Breakdown */}
+              <div className="px-6 py-4 border-t border-dashed border-gray-200 dark:border-gray-700 space-y-2">
+                <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{t("paymentBreakdown")}</p>
+                {METHODS.map(m => {
+                  const amt = data.payment_breakdown[m];
+                  if (!amt) return null;
+                  return <Row key={m} label={t(m)} value={`${fmt(amt)} ${currency}`} />;
+                })}
+                {Object.entries(data.payment_breakdown).filter(([k]) => !METHODS.includes(k)).map(([k, v]) => (
+                  <Row key={k} label={k} value={`${fmt(v)} ${currency}`} />
+                ))}
+              </div>
+
+              {/* Transactions */}
+              <div className="px-6 py-4 border-t border-dashed border-gray-200 dark:border-gray-700 space-y-2">
+                <Row label={t("transactionCount")} value={data.transaction_count} />
+              </div>
+
+              {/* Expenses & Net */}
+              <div className="px-6 py-4 border-t border-dashed border-gray-200 dark:border-gray-700 space-y-2">
+                <Row label={t("expensesTotal")} value={`${fmt(data.expenses_total)} ${currency}`} />
+                <div className="border-t border-gray-200 dark:border-gray-700 pt-2">
+                  <Row label={t("netCash")} value={`${fmt(data.net_cash)} ${currency}`} bold
+                    color={data.net_cash >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"} />
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="text-center py-4 border-t border-dashed border-gray-200 dark:border-gray-700">
+                <p className="text-xs text-gray-400">***** {t("kasserapport").toUpperCase()} *****</p>
+              </div>
+            </div>
+          )}
+
+          {/* Print Button */}
+          <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-700 print:hidden">
+            <button onClick={() => window.print()}
+              className="w-full py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition flex items-center justify-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+              </svg>
+              {t("printReport")}
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function Row({ label, value, bold, color }) {
+  return (
+    <div className="flex justify-between items-center">
+      <span className={`${bold ? "font-bold text-gray-800 dark:text-white" : "text-gray-600 dark:text-gray-400"}`}>{label}</span>
+      <span className={`${bold ? "font-bold" : ""} ${color || "text-gray-800 dark:text-white"}`}>{value}</span>
     </div>
   );
 }

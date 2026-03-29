@@ -152,6 +152,72 @@ def get_display_currency(currency: str) -> str:
     return currency
 
 
+@router.get("/daily-kasserapport")
+def daily_kasserapport(
+    report_date: str = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    d = date.fromisoformat(report_date) if report_date else date.today()
+    currency = user.currency or "DKK"
+    vat_rate = get_vat_rate(currency)
+    vat_terms = get_vat_terms(currency)
+    display_cur = get_display_currency(currency)
+
+    # Sales for the day (not deleted)
+    sales = (
+        db.query(Sale)
+        .filter(Sale.user_id == user.id, Sale.date == d, Sale.is_deleted.isnot(True))
+        .all()
+    )
+
+    # Payment breakdown
+    payment_totals = {}
+    for s in sales:
+        m = (s.payment_method or "mixed").lower()
+        payment_totals[m] = payment_totals.get(m, 0) + float(s.amount)
+
+    total_revenue = sum(float(s.amount) for s in sales)
+    subtotal = round(total_revenue / (1 + vat_rate), 2) if vat_rate > 0 else total_revenue
+    vat_amount = round(total_revenue - subtotal, 2)
+
+    # Expenses for the day
+    total_expenses = float(
+        db.query(func.coalesce(func.sum(Expense.amount), 0))
+        .filter(Expense.user_id == user.id, Expense.date == d, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .scalar()
+    )
+
+    # Cash transactions
+    cash_in = float(
+        db.query(func.coalesce(func.sum(CashTransaction.amount), 0))
+        .filter(CashTransaction.user_id == user.id, CashTransaction.date == d, CashTransaction.type == "in", CashTransaction.is_deleted.isnot(True))
+        .scalar()
+    )
+    cash_out = float(
+        db.query(func.coalesce(func.sum(CashTransaction.amount), 0))
+        .filter(CashTransaction.user_id == user.id, CashTransaction.date == d, CashTransaction.type == "out", CashTransaction.is_deleted.isnot(True))
+        .scalar()
+    )
+
+    return {
+        "date": d.isoformat(),
+        "business_name": user.business_name or "BonBox",
+        "currency": display_cur,
+        "transaction_count": len(sales),
+        "subtotal": subtotal,
+        "vat_rate": round(vat_rate * 100, 1),
+        "vat_name": vat_terms["name"],
+        "vat_amount": vat_amount,
+        "total": total_revenue,
+        "payment_breakdown": payment_totals,
+        "expenses_total": total_expenses,
+        "cash_in": cash_in,
+        "cash_out": cash_out,
+        "net_cash": round(total_revenue - total_expenses, 2),
+    }
+
+
 @router.get("/monthly")
 def monthly_report(
     month: int = Query(..., ge=1, le=12),
