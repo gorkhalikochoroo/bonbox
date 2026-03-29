@@ -145,16 +145,16 @@ def get_summary(
     ) is not None
 
     # Khata receivable (total outstanding credit, excluding deleted customers)
-    khata_receivable = float(
+    khata_recv_raw = (
         db.query(
-            func.coalesce(func.sum(KhataTransaction.purchase_amount), 0)
-            - func.coalesce(func.sum(KhataTransaction.paid_amount), 0)
+            func.sum(KhataTransaction.purchase_amount) - func.sum(KhataTransaction.paid_amount)
         ).join(KhataCustomer, KhataTransaction.customer_id == KhataCustomer.id)
         .filter(
             KhataTransaction.user_id == user.id,
             KhataCustomer.is_deleted == False,
         ).scalar()
     )
+    khata_receivable = float(khata_recv_raw) if khata_recv_raw is not None else 0.0
 
     return DashboardSummary(
         today_revenue=float(today_rev),
