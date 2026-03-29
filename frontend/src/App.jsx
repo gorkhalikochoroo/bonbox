@@ -105,6 +105,7 @@ const ProfilePage = lazyRetry(() => import("./pages/ProfilePage"));
 const PersonalPage = lazyRetry(() => import("./pages/PersonalPage"));
 const KhataPage = lazyRetry(() => import("./pages/KhataPage"));
 const LoanTrackerPage = lazyRetry(() => import("./pages/LoanTrackerPage"));
+const PrivacyPolicyPage = lazyRetry(() => import("./pages/PrivacyPolicyPage"));
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -129,6 +130,7 @@ function AppRoutes() {
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/contact" element={<ContactPage />} />
+        <Route path="/privacy" element={<PrivacyPolicyPage />} />
         <Route
           element={
             <ProtectedRoute>
