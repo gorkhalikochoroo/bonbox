@@ -53,6 +53,114 @@ BENCHMARKS = {
         "profit_margin": {"label": "Net Profit Margin", "good": (5, 100), "avg": (2, 5), "attention": 2},
         "rent_cost": {"label": "Rent % of Revenue", "good": (0, 5), "avg": (5, 10), "attention": 10},
     },
+    "clothing": {
+        "food_cost": {"label": "COGS % of Revenue", "good": (40, 55), "avg": (55, 65), "attention": 65},
+        "labor_cost": {"label": "Staff Cost % of Revenue", "good": (10, 18), "avg": (18, 25), "attention": 25},
+        "profit_margin": {"label": "Net Profit Margin", "good": (12, 100), "avg": (5, 12), "attention": 5},
+        "rent_cost": {"label": "Rent % of Revenue", "good": (0, 10), "avg": (10, 18), "attention": 18},
+    },
+    "grocery": {
+        "food_cost": {"label": "COGS % of Revenue", "good": (65, 75), "avg": (75, 82), "attention": 82},
+        "labor_cost": {"label": "Staff Cost % of Revenue", "good": (8, 14), "avg": (14, 20), "attention": 20},
+        "profit_margin": {"label": "Net Profit Margin", "good": (5, 100), "avg": (2, 5), "attention": 2},
+        "rent_cost": {"label": "Rent % of Revenue", "good": (0, 6), "avg": (6, 12), "attention": 12},
+    },
+    "veggie_shop": {
+        "food_cost": {"label": "Purchase Cost % of Revenue", "good": (55, 65), "avg": (65, 75), "attention": 75},
+        "labor_cost": {"label": "Staff Cost % of Revenue", "good": (5, 12), "avg": (12, 18), "attention": 18},
+        "profit_margin": {"label": "Net Profit Margin", "good": (8, 100), "avg": (3, 8), "attention": 3},
+        "rent_cost": {"label": "Rent % of Revenue", "good": (0, 8), "avg": (8, 14), "attention": 14},
+    },
+    "pharmacy": {
+        "food_cost": {"label": "Drug Cost % of Revenue", "good": (55, 68), "avg": (68, 76), "attention": 76},
+        "labor_cost": {"label": "Staff Cost % of Revenue", "good": (10, 16), "avg": (16, 22), "attention": 22},
+        "profit_margin": {"label": "Net Profit Margin", "good": (8, 100), "avg": (3, 8), "attention": 3},
+        "rent_cost": {"label": "Rent % of Revenue", "good": (0, 8), "avg": (8, 14), "attention": 14},
+    },
+    "electronics": {
+        "food_cost": {"label": "COGS % of Revenue", "good": (50, 62), "avg": (62, 72), "attention": 72},
+        "labor_cost": {"label": "Staff Cost % of Revenue", "good": (8, 15), "avg": (15, 22), "attention": 22},
+        "profit_margin": {"label": "Net Profit Margin", "good": (10, 100), "avg": (4, 10), "attention": 4},
+        "rent_cost": {"label": "Rent % of Revenue", "good": (0, 8), "avg": (8, 14), "attention": 14},
+    },
+    "kiosk": {
+        "food_cost": {"label": "COGS % of Revenue", "good": (55, 65), "avg": (65, 75), "attention": 75},
+        "labor_cost": {"label": "Staff Cost % of Revenue", "good": (10, 18), "avg": (18, 25), "attention": 25},
+        "profit_margin": {"label": "Net Profit Margin", "good": (8, 100), "avg": (3, 8), "attention": 3},
+        "rent_cost": {"label": "Rent % of Revenue", "good": (0, 10), "avg": (10, 16), "attention": 16},
+    },
+    "online_clothing": {
+        "food_cost": {"label": "Product Cost % of Revenue", "good": (35, 50), "avg": (50, 60), "attention": 60},
+        "labor_cost": {"label": "Shipping & Ops Cost", "good": (5, 12), "avg": (12, 20), "attention": 20},
+        "profit_margin": {"label": "Net Profit Margin", "good": (15, 100), "avg": (8, 15), "attention": 8},
+        "rent_cost": {"label": "Platform/Ads % of Revenue", "good": (0, 10), "avg": (10, 20), "attention": 20},
+    },
+    "tea_shop": {
+        "food_cost": {"label": "Ingredient Cost % of Revenue", "good": (20, 30), "avg": (30, 40), "attention": 40},
+        "labor_cost": {"label": "Staff Cost % of Revenue", "good": (15, 25), "avg": (25, 35), "attention": 35},
+        "profit_margin": {"label": "Net Profit Margin", "good": (15, 100), "avg": (8, 15), "attention": 8},
+        "rent_cost": {"label": "Rent % of Revenue", "good": (0, 12), "avg": (12, 20), "attention": 20},
+    },
+    "cosmetics": {
+        "food_cost": {"label": "Product Cost % of Revenue", "good": (40, 55), "avg": (55, 65), "attention": 65},
+        "labor_cost": {"label": "Staff Cost % of Revenue", "good": (10, 18), "avg": (18, 25), "attention": 25},
+        "profit_margin": {"label": "Net Profit Margin", "good": (12, 100), "avg": (5, 12), "attention": 5},
+        "rent_cost": {"label": "Rent % of Revenue", "good": (0, 10), "avg": (10, 16), "attention": 16},
+    },
+    "stationery": {
+        "food_cost": {"label": "COGS % of Revenue", "good": (50, 62), "avg": (62, 72), "attention": 72},
+        "labor_cost": {"label": "Staff Cost % of Revenue", "good": (8, 15), "avg": (15, 22), "attention": 22},
+        "profit_margin": {"label": "Net Profit Margin", "good": (8, 100), "avg": (3, 8), "attention": 3},
+        "rent_cost": {"label": "Rent % of Revenue", "good": (0, 8), "avg": (8, 14), "attention": 14},
+    },
+    "hardware": {
+        "food_cost": {"label": "COGS % of Revenue", "good": (60, 72), "avg": (72, 80), "attention": 80},
+        "labor_cost": {"label": "Staff Cost % of Revenue", "good": (5, 12), "avg": (12, 18), "attention": 18},
+        "profit_margin": {"label": "Net Profit Margin", "good": (5, 100), "avg": (2, 5), "attention": 2},
+        "rent_cost": {"label": "Rent % of Revenue", "good": (0, 6), "avg": (6, 12), "attention": 12},
+    },
+    "flower_shop": {
+        "food_cost": {"label": "Flower Cost % of Revenue", "good": (30, 42), "avg": (42, 55), "attention": 55},
+        "labor_cost": {"label": "Staff Cost % of Revenue", "good": (15, 22), "avg": (22, 30), "attention": 30},
+        "profit_margin": {"label": "Net Profit Margin", "good": (12, 100), "avg": (5, 12), "attention": 5},
+        "rent_cost": {"label": "Rent % of Revenue", "good": (0, 12), "avg": (12, 18), "attention": 18},
+    },
+    "jewelry": {
+        "food_cost": {"label": "Material Cost % of Revenue", "good": (40, 55), "avg": (55, 68), "attention": 68},
+        "labor_cost": {"label": "Staff Cost % of Revenue", "good": (8, 15), "avg": (15, 22), "attention": 22},
+        "profit_margin": {"label": "Net Profit Margin", "good": (15, 100), "avg": (8, 15), "attention": 8},
+        "rent_cost": {"label": "Rent % of Revenue", "good": (0, 8), "avg": (8, 14), "attention": 14},
+    },
+    "mobile_repair": {
+        "food_cost": {"label": "Parts Cost % of Revenue", "good": (25, 38), "avg": (38, 50), "attention": 50},
+        "labor_cost": {"label": "Staff Cost % of Revenue", "good": (15, 25), "avg": (25, 35), "attention": 35},
+        "profit_margin": {"label": "Net Profit Margin", "good": (20, 100), "avg": (10, 20), "attention": 10},
+        "rent_cost": {"label": "Rent % of Revenue", "good": (0, 10), "avg": (10, 16), "attention": 16},
+    },
+    "salon": {
+        "food_cost": {"label": "Product Cost % of Revenue", "good": (5, 12), "avg": (12, 18), "attention": 18},
+        "labor_cost": {"label": "Staff Cost % of Revenue", "good": (35, 45), "avg": (45, 55), "attention": 55},
+        "profit_margin": {"label": "Net Profit Margin", "good": (15, 100), "avg": (8, 15), "attention": 8},
+        "rent_cost": {"label": "Rent % of Revenue", "good": (0, 13), "avg": (13, 20), "attention": 20},
+    },
+    "laundry": {
+        "food_cost": {"label": "Supply Cost % of Revenue", "good": (15, 25), "avg": (25, 35), "attention": 35},
+        "labor_cost": {"label": "Staff Cost % of Revenue", "good": (25, 35), "avg": (35, 45), "attention": 45},
+        "profit_margin": {"label": "Net Profit Margin", "good": (15, 100), "avg": (8, 15), "attention": 8},
+        "rent_cost": {"label": "Rent % of Revenue", "good": (0, 12), "avg": (12, 18), "attention": 18},
+    },
+    "thrift": {
+        "food_cost": {"label": "Purchase Cost % of Revenue", "good": (20, 35), "avg": (35, 50), "attention": 50},
+        "labor_cost": {"label": "Staff Cost % of Revenue", "good": (10, 18), "avg": (18, 25), "attention": 25},
+        "profit_margin": {"label": "Net Profit Margin", "good": (20, 100), "avg": (10, 20), "attention": 10},
+        "rent_cost": {"label": "Rent % of Revenue", "good": (0, 12), "avg": (12, 18), "attention": 18},
+    },
+    "food_truck": {
+        "food_cost": {"label": "Food Cost % of Revenue", "good": (25, 32), "avg": (32, 40), "attention": 40},
+        "labor_cost": {"label": "Staff Cost % of Revenue", "good": (20, 28), "avg": (28, 35), "attention": 35},
+        "profit_margin": {"label": "Net Profit Margin", "good": (12, 100), "avg": (5, 12), "attention": 5},
+        "rent_cost": {"label": "Parking/License % of Revenue", "good": (0, 8), "avg": (8, 14), "attention": 14},
+    },
 }
 
 # Category keywords to detect expense types
@@ -173,6 +281,143 @@ def get_summary(
     )
 
 
+@router.get("/top-sellers")
+def get_top_sellers(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    days: int = 30,
+):
+    """Top selling items by revenue and quantity in the last N days."""
+    since = date.today() - timedelta(days=days)
+
+    rows = (
+        db.query(
+            Sale.item_name,
+            func.count(Sale.id).label("sale_count"),
+            func.sum(Sale.amount).label("total_revenue"),
+            func.sum(Sale.quantity_sold).label("total_qty"),
+        )
+        .filter(
+            Sale.user_id == user.id,
+            Sale.date >= since,
+            Sale.is_deleted.isnot(True),
+            Sale.item_name.isnot(None),
+            Sale.item_name != "",
+        )
+        .group_by(Sale.item_name)
+        .order_by(func.sum(Sale.amount).desc())
+        .limit(10)
+        .all()
+    )
+
+    return [
+        {
+            "name": r.item_name,
+            "sales": r.sale_count,
+            "revenue": round(float(r.total_revenue), 2),
+            "quantity": round(float(r.total_qty), 2) if r.total_qty else r.sale_count,
+        }
+        for r in rows
+    ]
+
+
+@router.get("/action-items")
+def get_action_items(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Actionable insights for the business owner."""
+    today = date.today()
+    month_start = today.replace(day=1)
+    items = []
+
+    # 1. Low stock items
+    low_stock = (
+        db.query(InventoryItem.name, InventoryItem.quantity, InventoryItem.min_threshold)
+        .filter(
+            InventoryItem.user_id == user.id,
+            InventoryItem.quantity <= InventoryItem.min_threshold,
+            InventoryItem.min_threshold > 0,
+        )
+        .order_by(InventoryItem.quantity.asc())
+        .limit(5)
+        .all()
+    )
+    for item in low_stock:
+        items.append({
+            "type": "restock",
+            "priority": "high",
+            "title": f"Restock: {item.name}",
+            "detail": f"{float(item.quantity):.0f} left (min: {float(item.min_threshold):.0f})",
+        })
+
+    # 2. Expiring items (within 7 days)
+    expiring = (
+        db.query(InventoryItem.name, InventoryItem.expiry_date)
+        .filter(
+            InventoryItem.user_id == user.id,
+            InventoryItem.expiry_date.isnot(None),
+            InventoryItem.expiry_date <= today + timedelta(days=7),
+            InventoryItem.expiry_date >= today,
+        )
+        .order_by(InventoryItem.expiry_date.asc())
+        .limit(5)
+        .all()
+    )
+    for item in expiring:
+        days_left = (item.expiry_date - today).days
+        items.append({
+            "type": "expiring",
+            "priority": "high" if days_left <= 2 else "medium",
+            "title": f"Expiring: {item.name}",
+            "detail": "Today!" if days_left == 0 else f"In {days_left} day{'s' if days_left != 1 else ''}"
+        })
+
+    # 3. No sales today
+    today_sales = (
+        db.query(func.count(Sale.id))
+        .filter(Sale.user_id == user.id, Sale.date == today, Sale.is_deleted.isnot(True))
+        .scalar()
+    )
+    if today_sales == 0:
+        items.append({
+            "type": "reminder",
+            "priority": "low",
+            "title": "No sales logged today",
+            "detail": "Log your first sale to keep tracking accurate",
+        })
+
+    # 4. High expense ratio
+    month_rev = float(
+        db.query(func.coalesce(func.sum(Sale.amount), 0))
+        .filter(Sale.user_id == user.id, Sale.date >= month_start, Sale.is_deleted.isnot(True))
+        .scalar()
+    )
+    month_exp = float(
+        db.query(func.coalesce(func.sum(Expense.amount), 0))
+        .filter(Expense.user_id == user.id, Expense.date >= month_start, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .scalar()
+    )
+    if month_rev > 0:
+        exp_ratio = round((month_exp / month_rev) * 100)
+        if exp_ratio > 70:
+            items.append({
+                "type": "cost",
+                "priority": "high",
+                "title": f"Expenses are {exp_ratio}% of revenue",
+                "detail": "Review your biggest expense categories to cut costs",
+            })
+        elif exp_ratio > 50:
+            items.append({
+                "type": "cost",
+                "priority": "medium",
+                "title": f"Expenses are {exp_ratio}% of revenue",
+                "detail": "Good, but there may be room to improve margins",
+            })
+
+    return items
+
+
 @router.get("/benchmarks", response_model=BenchmarkResponse)
 def get_benchmarks(
     db: Session = Depends(get_db),
@@ -288,3 +533,97 @@ def get_benchmarks(
         business_type=btype,
         period=period_label,
     )
+
+
+@router.get("/week-comparison")
+def get_week_comparison(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Compare this week vs last week (Monday-based weeks)."""
+    today = date.today()
+    weekday = today.weekday()  # Monday=0
+    this_monday = today - timedelta(days=weekday)
+    last_monday = this_monday - timedelta(days=7)
+    last_sunday = this_monday - timedelta(days=1)
+
+    # This week revenue
+    this_week_rev = float(
+        db.query(func.coalesce(func.sum(Sale.amount), 0))
+        .filter(Sale.user_id == user.id, Sale.date >= this_monday, Sale.date <= today, Sale.is_deleted.isnot(True))
+        .scalar()
+    )
+
+    # Last week revenue
+    last_week_rev = float(
+        db.query(func.coalesce(func.sum(Sale.amount), 0))
+        .filter(Sale.user_id == user.id, Sale.date >= last_monday, Sale.date <= last_sunday, Sale.is_deleted.isnot(True))
+        .scalar()
+    )
+
+    # This week expenses
+    this_week_exp = float(
+        db.query(func.coalesce(func.sum(Expense.amount), 0))
+        .filter(Expense.user_id == user.id, Expense.date >= this_monday, Expense.date <= today, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .scalar()
+    )
+
+    # Last week expenses
+    last_week_exp = float(
+        db.query(func.coalesce(func.sum(Expense.amount), 0))
+        .filter(Expense.user_id == user.id, Expense.date >= last_monday, Expense.date <= last_sunday, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .scalar()
+    )
+
+    this_week_profit = this_week_rev - this_week_exp
+    last_week_profit = last_week_rev - last_week_exp
+
+    change_pct = 0.0
+    if last_week_rev > 0:
+        change_pct = round(((this_week_rev - last_week_rev) / last_week_rev) * 100, 1)
+
+    return {
+        "this_week_revenue": round(this_week_rev, 2),
+        "last_week_revenue": round(last_week_rev, 2),
+        "change_pct": change_pct,
+        "this_week_expenses": round(this_week_exp, 2),
+        "last_week_expenses": round(last_week_exp, 2),
+        "this_week_profit": round(this_week_profit, 2),
+        "last_week_profit": round(last_week_profit, 2),
+    }
+
+
+@router.get("/payment-breakdown")
+def get_payment_breakdown(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Payment method totals for the current month."""
+    today = date.today()
+    month_start = today.replace(day=1)
+
+    rows = (
+        db.query(
+            Sale.payment_method,
+            func.sum(Sale.amount).label("total"),
+            func.count(Sale.id).label("cnt"),
+        )
+        .filter(
+            Sale.user_id == user.id,
+            Sale.date >= month_start,
+            Sale.is_deleted.isnot(True),
+        )
+        .group_by(Sale.payment_method)
+        .all()
+    )
+
+    results = []
+    for r in rows:
+        method = r.payment_method or "other"
+        results.append({
+            "method": method.lower(),
+            "amount": round(float(r.total), 2),
+            "count": r.cnt,
+        })
+
+    return results

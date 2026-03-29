@@ -80,6 +80,10 @@ export default function DashboardPage() {
   const [categories, setCategories] = useState([]);
   const [benchmarks, setBenchmarks] = useState(null);
   const [inventoryItems, setInventoryItems] = useState([]);
+  const [topSellers, setTopSellers] = useState([]);
+  const [actionItems, setActionItems] = useState([]);
+  const [weekComparison, setWeekComparison] = useState(null);
+  const [paymentBreakdown, setPaymentBreakdown] = useState([]);
   const [saleModal, setSaleModal] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [lightboxImg, setLightboxImg] = useState(null);
@@ -153,6 +157,10 @@ export default function DashboardPage() {
     api.get("/expenses/categories").then((res) => setCategories(res.data)).catch(() => {});
     api.get("/dashboard/benchmarks").then((res) => setBenchmarks(res.data)).catch(() => {});
     api.get("/inventory").then((res) => setInventoryItems(res.data)).catch(() => {});
+    api.get("/dashboard/top-sellers").then((res) => setTopSellers(res.data)).catch(() => {});
+    api.get("/dashboard/action-items").then((res) => setActionItems(res.data)).catch(() => {});
+    api.get("/dashboard/week-comparison").then((res) => setWeekComparison(res.data)).catch(() => {});
+    api.get("/dashboard/payment-breakdown").then((res) => setPaymentBreakdown(res.data)).catch(() => {});
   };
 
   // Fetch period-specific data
@@ -383,6 +391,187 @@ export default function DashboardPage() {
           />
         )}
       </div>
+
+      {/* Action Items + Top Sellers — what owners actually care about */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+        {/* Action Items */}
+        {actionItems.length > 0 && (
+          <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-8 h-8 bg-orange-100 dark:bg-orange-900/30 rounded-lg flex items-center justify-center">
+                <svg className="w-4 h-4 text-orange-600 dark:text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              </div>
+              <h2 className="text-base font-semibold text-gray-700 dark:text-gray-200">Action Items</h2>
+              <span className="ml-auto text-xs bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 px-2 py-0.5 rounded-full font-medium">{actionItems.length}</span>
+            </div>
+            <div className="space-y-2">
+              {actionItems.map((item, i) => (
+                <div key={i} className={`flex items-start gap-3 p-3 rounded-lg ${
+                  item.priority === "high" ? "bg-red-50 dark:bg-red-900/15 border border-red-100 dark:border-red-900/30" :
+                  item.priority === "medium" ? "bg-yellow-50 dark:bg-yellow-900/15 border border-yellow-100 dark:border-yellow-900/30" :
+                  "bg-gray-50 dark:bg-gray-700/30 border border-gray-100 dark:border-gray-700"
+                }`}>
+                  <span className="text-lg mt-0.5">
+                    {item.type === "restock" ? "📦" : item.type === "expiring" ? "⏰" : item.type === "cost" ? "💸" : "💡"}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{item.title}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{item.detail}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Top Sellers */}
+        {topSellers.length > 0 && (
+          <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-8 h-8 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
+                <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+              </div>
+              <h2 className="text-base font-semibold text-gray-700 dark:text-gray-200">Top Sellers</h2>
+              <span className="ml-auto text-xs text-gray-400">Last 30 days</span>
+            </div>
+            <div className="space-y-1.5">
+              {topSellers.slice(0, 5).map((item, i) => (
+                <div key={i} className="flex items-center justify-between px-3 py-2.5 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className={`text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center ${
+                      i === 0 ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-400" :
+                      i === 1 ? "bg-gray-200 text-gray-600 dark:bg-gray-600 dark:text-gray-300" :
+                      i === 2 ? "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400" :
+                      "bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400"
+                    }`}>{i + 1}</span>
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate">{item.name}</span>
+                  </div>
+                  <div className="flex items-center gap-4 flex-shrink-0">
+                    <span className="text-xs text-gray-400">{item.sales} sales</span>
+                    <span className="text-sm font-bold text-green-600 dark:text-green-400">{item.revenue.toLocaleString()} {currency}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Week vs Last Week Comparison */}
+      {weekComparison && (
+        <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="w-8 h-8 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg flex items-center justify-center">
+              <svg className="w-4 h-4 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+            </div>
+            <h2 className="text-base font-semibold text-gray-700 dark:text-gray-200">Week vs Last Week</h2>
+            {weekComparison.change_pct !== 0 && (
+              <span className={`ml-auto text-sm font-bold px-2.5 py-0.5 rounded-full ${
+                weekComparison.change_pct > 0
+                  ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+                  : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
+              }`}>
+                {weekComparison.change_pct > 0 ? "\u2191" : "\u2193"} {Math.abs(weekComparison.change_pct)}%
+              </span>
+            )}
+          </div>
+          <div className="space-y-3">
+            {[
+              { label: "Revenue", thisWeek: weekComparison.this_week_revenue, lastWeek: weekComparison.last_week_revenue, color: "blue" },
+              { label: "Expenses", thisWeek: weekComparison.this_week_expenses, lastWeek: weekComparison.last_week_expenses, color: "red" },
+              { label: "Profit", thisWeek: weekComparison.this_week_profit, lastWeek: weekComparison.last_week_profit, color: "green" },
+            ].map((row) => {
+              const diff = row.lastWeek > 0 ? ((row.thisWeek - row.lastWeek) / Math.abs(row.lastWeek)) * 100 : 0;
+              const isUp = diff > 0;
+              const isGood = row.label === "Expenses" ? !isUp : isUp;
+              return (
+                <div key={row.label} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
+                  <span className="text-sm font-medium text-gray-600 dark:text-gray-300 w-20">{row.label}</span>
+                  <div className="flex items-center gap-4 flex-1 justify-end">
+                    <div className="text-right">
+                      <p className="text-xs text-gray-400 dark:text-gray-500">This week</p>
+                      <p className={`text-sm font-bold ${row.color === "blue" ? "text-blue-600 dark:text-blue-400" : row.color === "red" ? "text-red-500 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}>
+                        {Math.round(row.thisWeek).toLocaleString()} {currency}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-gray-400 dark:text-gray-500">Last week</p>
+                      <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                        {Math.round(row.lastWeek).toLocaleString()} {currency}
+                      </p>
+                    </div>
+                    {diff !== 0 && (
+                      <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+                        isGood ? "text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30" : "text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-900/30"
+                      }`}>
+                        {isUp ? "\u2191" : "\u2193"}{Math.abs(Math.round(diff))}%
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Payment Method Breakdown */}
+      {paymentBreakdown.length > 0 && (() => {
+        const total = paymentBreakdown.reduce((s, p) => s + p.amount, 0);
+        const methodConfig = {
+          cash: { label: "Cash", color: "bg-green-500", textColor: "text-green-600 dark:text-green-400", bgLight: "bg-green-100 dark:bg-green-900/30" },
+          card: { label: "Card", color: "bg-blue-500", textColor: "text-blue-600 dark:text-blue-400", bgLight: "bg-blue-100 dark:bg-blue-900/30" },
+          mobilepay: { label: "MobilePay", color: "bg-purple-500", textColor: "text-purple-600 dark:text-purple-400", bgLight: "bg-purple-100 dark:bg-purple-900/30" },
+        };
+        const defaultConfig = { label: null, color: "bg-gray-400", textColor: "text-gray-600 dark:text-gray-400", bgLight: "bg-gray-100 dark:bg-gray-700/30" };
+        return (
+          <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
+                <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
+              </div>
+              <h2 className="text-base font-semibold text-gray-700 dark:text-gray-200">Payment Methods</h2>
+              <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">This month</span>
+            </div>
+            <div className="space-y-3">
+              {paymentBreakdown
+                .sort((a, b) => b.amount - a.amount)
+                .map((p) => {
+                  const pct = total > 0 ? (p.amount / total) * 100 : 0;
+                  const cfg = methodConfig[p.method] || defaultConfig;
+                  const label = cfg.label || (p.method.charAt(0).toUpperCase() + p.method.slice(1));
+                  return (
+                    <div key={p.method}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2.5 h-2.5 rounded-full ${cfg.color}`}></span>
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-200">{label}</span>
+                          <span className="text-xs text-gray-400 dark:text-gray-500">{p.count} sales</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-sm font-bold ${cfg.textColor}`}>{Math.round(p.amount).toLocaleString()} {currency}</span>
+                          <span className="text-xs text-gray-400 dark:text-gray-500 w-10 text-right">{Math.round(pct)}%</span>
+                        </div>
+                      </div>
+                      <div className="w-full h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${cfg.color} transition-all duration-500`}
+                          style={{ width: `${pct}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+            {total > 0 && (
+              <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 flex justify-between">
+                <span className="text-sm text-gray-500 dark:text-gray-400">Total</span>
+                <span className="text-sm font-bold text-gray-700 dark:text-gray-200">{Math.round(total).toLocaleString()} {currency}</span>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Goal Progress */}
       <GoalTracker todayRevenue={summary.today_revenue} monthRevenue={summary.month_revenue} />

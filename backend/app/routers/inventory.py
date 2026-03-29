@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, case
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -149,6 +150,111 @@ def create_log(
     return log
 
 
+# ── Dead Stock Detection ──────────────────────────────────
+
+@router.get("/dead-stock")
+def get_dead_stock(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    cutoff = date.today() - timedelta(days=30)
+
+    # Subquery: most recent sale date per item_name for this user
+    last_sale_sq = (
+        db.query(
+            Sale.item_name,
+            func.max(Sale.date).label("last_sale_date"),
+        )
+        .filter(Sale.user_id == user.id, Sale.is_deleted == False)
+        .group_by(Sale.item_name)
+        .subquery()
+    )
+
+    # Join inventory items with their last sale date (if any)
+    rows = (
+        db.query(
+            InventoryItem,
+            last_sale_sq.c.last_sale_date,
+        )
+        .outerjoin(last_sale_sq, InventoryItem.name == last_sale_sq.c.item_name)
+        .filter(
+            InventoryItem.user_id == user.id,
+            InventoryItem.quantity > 0,
+        )
+        .filter(
+            # No sale at all, or last sale older than 30 days
+            (last_sale_sq.c.last_sale_date == None) | (last_sale_sq.c.last_sale_date < cutoff)
+        )
+        .all()
+    )
+
+    today = date.today()
+    result = []
+    for item, last_sale_date in rows:
+        qty = float(item.quantity)
+        cost = float(item.cost_per_unit)
+        stock_value = round(qty * cost, 2)
+        if last_sale_date:
+            days_since = (today - last_sale_date).days
+        else:
+            days_since = 999  # never sold
+        result.append({
+            "id": str(item.id),
+            "name": item.name,
+            "quantity": qty,
+            "cost_per_unit": cost,
+            "days_since_last_sale": days_since,
+            "stock_value": stock_value,
+        })
+
+    # Sort by stock_value descending, limit 10
+    result.sort(key=lambda x: x["stock_value"], reverse=True)
+    return result[:10]
+
+
+# ── Profit Per Item Ranking ───────────────────────────────
+
+@router.get("/profit-ranking")
+def get_profit_ranking(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    items = (
+        db.query(InventoryItem)
+        .filter(
+            InventoryItem.user_id == user.id,
+            InventoryItem.cost_per_unit > 0,
+        )
+        .all()
+    )
+
+    result = []
+    for item in items:
+        cost = float(item.cost_per_unit)
+        sell = float(item.sell_price) if item.sell_price and float(item.sell_price) > 0 else None
+        sell_pour = float(item.sell_price_per_pour) if item.sell_price_per_pour and float(item.sell_price_per_pour) > 0 else None
+
+        # Use sell_price first, fall back to sell_price_per_pour for bar items
+        effective_sell = sell if sell else sell_pour
+        if not effective_sell or effective_sell <= 0:
+            continue
+
+        margin_pct = round(((effective_sell - cost) / cost) * 100, 1)
+        profit_per_unit = round(effective_sell - cost, 2)
+
+        result.append({
+            "name": item.name,
+            "cost": cost,
+            "sell": effective_sell,
+            "margin_pct": margin_pct,
+            "profit_per_unit": profit_per_unit,
+            "quantity": float(item.quantity),
+        })
+
+    result.sort(key=lambda x: x["margin_pct"], reverse=True)
+    return result[:10]
+
+
 # ── Pour / Bar ─────────────────────────────────────────────
 
 @router.post("/pour", status_code=201)
@@ -246,6 +352,213 @@ BAR_TEMPLATE_LIST = [
     {"name": "Ice", "unit": "kg", "category": "Supplies", "perishable": True, "reorder": 5, "bottle_size": None, "pour_size": None, "pour_unit": None},
 ]
 
+RESTAURANT_TEMPLATE_LIST = [
+    {"name": "Chicken", "unit": "kg", "category": "Protein", "perishable": True, "reorder": 5},
+    {"name": "Rice", "unit": "kg", "category": "Pantry", "perishable": False, "reorder": 10},
+    {"name": "Cooking Oil", "unit": "liters", "category": "Pantry", "perishable": False, "reorder": 5},
+    {"name": "Onions", "unit": "kg", "category": "Produce", "perishable": True, "reorder": 10},
+    {"name": "Tomatoes", "unit": "kg", "category": "Produce", "perishable": True, "reorder": 5},
+    {"name": "Potatoes", "unit": "kg", "category": "Produce", "perishable": True, "reorder": 10},
+    {"name": "Flour", "unit": "kg", "category": "Pantry", "perishable": False, "reorder": 5},
+    {"name": "Cheese", "unit": "kg", "category": "Dairy", "perishable": True, "reorder": 2},
+    {"name": "Butter", "unit": "kg", "category": "Dairy", "perishable": True, "reorder": 2},
+    {"name": "Coca-Cola", "unit": "pieces", "category": "Beverages", "perishable": False, "reorder": 24},
+    {"name": "Coffee Beans", "unit": "kg", "category": "Beverages", "perishable": False, "reorder": 3},
+    {"name": "Takeaway Boxes", "unit": "pieces", "category": "Supplies", "perishable": False, "reorder": 50},
+    {"name": "Napkins", "unit": "packs", "category": "Supplies", "perishable": False, "reorder": 10},
+]
+
+VEGGIE_SHOP_TEMPLATE_LIST = [
+    {"name": "Tomatoes", "unit": "kg", "category": "Vegetables", "perishable": True, "reorder": 10},
+    {"name": "Potatoes", "unit": "kg", "category": "Vegetables", "perishable": True, "reorder": 20},
+    {"name": "Onions", "unit": "kg", "category": "Vegetables", "perishable": True, "reorder": 15},
+    {"name": "Spinach", "unit": "kg", "category": "Vegetables", "perishable": True, "reorder": 5},
+    {"name": "Carrots", "unit": "kg", "category": "Vegetables", "perishable": True, "reorder": 10},
+    {"name": "Cauliflower", "unit": "pieces", "category": "Vegetables", "perishable": True, "reorder": 10},
+    {"name": "Chillies", "unit": "kg", "category": "Vegetables", "perishable": True, "reorder": 2},
+    {"name": "Apples", "unit": "kg", "category": "Fruits", "perishable": True, "reorder": 10},
+    {"name": "Bananas", "unit": "kg", "category": "Fruits", "perishable": True, "reorder": 10},
+    {"name": "Coriander", "unit": "bunches", "category": "Herbs", "perishable": True, "reorder": 10},
+    {"name": "Rice", "unit": "kg", "category": "Dry Goods", "perishable": False, "reorder": 25},
+    {"name": "Red Lentils", "unit": "kg", "category": "Dry Goods", "perishable": False, "reorder": 10},
+    {"name": "Plastic Bags", "unit": "packs", "category": "Supplies", "perishable": False, "reorder": 5},
+]
+
+KIOSK_TEMPLATE_LIST = [
+    {"name": "Coca-Cola 0.5L", "unit": "pieces", "category": "Beverages", "perishable": False, "reorder": 24},
+    {"name": "Red Bull", "unit": "pieces", "category": "Beverages", "perishable": False, "reorder": 12},
+    {"name": "Water 0.5L", "unit": "pieces", "category": "Beverages", "perishable": False, "reorder": 24},
+    {"name": "Chocolate Milk", "unit": "pieces", "category": "Beverages", "perishable": True, "reorder": 12},
+    {"name": "Chips (assorted)", "unit": "pieces", "category": "Snacks", "perishable": False, "reorder": 20},
+    {"name": "Chocolate Bars", "unit": "pieces", "category": "Snacks", "perishable": False, "reorder": 20},
+    {"name": "Ice Cream", "unit": "pieces", "category": "Snacks", "perishable": True, "reorder": 20},
+    {"name": "Cigarettes", "unit": "packs", "category": "Tobacco", "perishable": False, "reorder": 10},
+    {"name": "Lighters", "unit": "pieces", "category": "Tobacco", "perishable": False, "reorder": 10},
+    {"name": "Rundstykker", "unit": "pieces", "category": "Bakery", "perishable": True, "reorder": 20},
+    {"name": "Hotdog Sausages", "unit": "packs", "category": "Bakery", "perishable": True, "reorder": 5},
+    {"name": "Scratch Cards", "unit": "pieces", "category": "Misc", "perishable": False, "reorder": 20},
+]
+
+GROCERY_TEMPLATE_LIST = [
+    {"name": "Milk", "unit": "pieces", "category": "Dairy", "perishable": True, "reorder": 20},
+    {"name": "Eggs", "unit": "packs", "category": "Dairy", "perishable": True, "reorder": 10},
+    {"name": "Butter", "unit": "pieces", "category": "Dairy", "perishable": True, "reorder": 10},
+    {"name": "Rice", "unit": "pieces", "category": "Packaged", "perishable": False, "reorder": 15},
+    {"name": "Pasta", "unit": "pieces", "category": "Packaged", "perishable": False, "reorder": 15},
+    {"name": "Cooking Oil", "unit": "pieces", "category": "Packaged", "perishable": False, "reorder": 8},
+    {"name": "Sugar", "unit": "pieces", "category": "Packaged", "perishable": False, "reorder": 8},
+    {"name": "Instant Noodles", "unit": "pieces", "category": "Packaged", "perishable": False, "reorder": 20},
+    {"name": "Soda (cans)", "unit": "pieces", "category": "Beverages", "perishable": False, "reorder": 24},
+    {"name": "Dish Soap", "unit": "pieces", "category": "Household", "perishable": False, "reorder": 6},
+    {"name": "Toilet Paper", "unit": "packs", "category": "Household", "perishable": False, "reorder": 10},
+    {"name": "Toothpaste", "unit": "pieces", "category": "Personal Care", "perishable": False, "reorder": 5},
+]
+
+CLOTHING_TEMPLATE_LIST = [
+    {"name": "T-Shirts", "unit": "pieces", "category": "Tops", "perishable": False, "reorder": 10},
+    {"name": "Shirts", "unit": "pieces", "category": "Tops", "perishable": False, "reorder": 5},
+    {"name": "Hoodies", "unit": "pieces", "category": "Tops", "perishable": False, "reorder": 5},
+    {"name": "Jeans", "unit": "pieces", "category": "Bottoms", "perishable": False, "reorder": 5},
+    {"name": "Trousers", "unit": "pieces", "category": "Bottoms", "perishable": False, "reorder": 5},
+    {"name": "Dresses", "unit": "pieces", "category": "Dresses", "perishable": False, "reorder": 5},
+    {"name": "Jackets", "unit": "pieces", "category": "Outerwear", "perishable": False, "reorder": 3},
+    {"name": "Sneakers", "unit": "pairs", "category": "Footwear", "perishable": False, "reorder": 5},
+    {"name": "Sandals", "unit": "pairs", "category": "Footwear", "perishable": False, "reorder": 5},
+    {"name": "Belts", "unit": "pieces", "category": "Accessories", "perishable": False, "reorder": 5},
+    {"name": "Bags", "unit": "pieces", "category": "Accessories", "perishable": False, "reorder": 3},
+    {"name": "Socks", "unit": "packs", "category": "Accessories", "perishable": False, "reorder": 10},
+]
+
+PHARMACY_TEMPLATE_LIST = [
+    {"name": "Paracetamol", "unit": "strips", "category": "Medicine", "perishable": True, "reorder": 20},
+    {"name": "Ibuprofen", "unit": "strips", "category": "Medicine", "perishable": True, "reorder": 15},
+    {"name": "Cough Syrup", "unit": "bottles", "category": "Medicine", "perishable": True, "reorder": 10},
+    {"name": "Antacid", "unit": "strips", "category": "Medicine", "perishable": True, "reorder": 10},
+    {"name": "ORS Sachets", "unit": "pieces", "category": "Medicine", "perishable": True, "reorder": 20},
+    {"name": "Vitamin C", "unit": "bottles", "category": "Vitamins", "perishable": True, "reorder": 5},
+    {"name": "Bandages", "unit": "packs", "category": "First Aid", "perishable": False, "reorder": 10},
+    {"name": "Hand Sanitizer", "unit": "bottles", "category": "First Aid", "perishable": True, "reorder": 5},
+    {"name": "Thermometer", "unit": "pieces", "category": "Devices", "perishable": False, "reorder": 3},
+    {"name": "Sanitary Pads", "unit": "packs", "category": "Hygiene", "perishable": False, "reorder": 10},
+    {"name": "Toothpaste", "unit": "pieces", "category": "Hygiene", "perishable": False, "reorder": 10},
+    {"name": "Soap", "unit": "pieces", "category": "Hygiene", "perishable": False, "reorder": 10},
+]
+
+ELECTRONICS_TEMPLATE_LIST = [
+    {"name": "USB-C Charger", "unit": "pieces", "category": "Chargers", "perishable": False, "reorder": 5},
+    {"name": "Lightning Cable", "unit": "pieces", "category": "Cables", "perishable": False, "reorder": 10},
+    {"name": "USB-C Cable", "unit": "pieces", "category": "Cables", "perishable": False, "reorder": 10},
+    {"name": "Power Bank", "unit": "pieces", "category": "Chargers", "perishable": False, "reorder": 3},
+    {"name": "Bluetooth Earbuds", "unit": "pieces", "category": "Audio", "perishable": False, "reorder": 5},
+    {"name": "Phone Cases", "unit": "pieces", "category": "Phone", "perishable": False, "reorder": 10},
+    {"name": "Screen Protectors", "unit": "pieces", "category": "Phone", "perishable": False, "reorder": 10},
+    {"name": "Memory Cards", "unit": "pieces", "category": "Phone", "perishable": False, "reorder": 5},
+    {"name": "Mouse", "unit": "pieces", "category": "Computer", "perishable": False, "reorder": 3},
+    {"name": "AA Batteries", "unit": "packs", "category": "Batteries", "perishable": False, "reorder": 10},
+    {"name": "LED Bulbs", "unit": "pieces", "category": "Batteries", "perishable": False, "reorder": 5},
+]
+
+ONLINE_CLOTHING_TEMPLATE_LIST = [
+    {"name": "T-Shirts", "unit": "pieces", "category": "Tops", "perishable": False, "reorder": 15},
+    {"name": "Hoodies", "unit": "pieces", "category": "Tops", "perishable": False, "reorder": 10},
+    {"name": "Jeans", "unit": "pieces", "category": "Bottoms", "perishable": False, "reorder": 10},
+    {"name": "Dresses", "unit": "pieces", "category": "Dresses", "perishable": False, "reorder": 10},
+    {"name": "Kurta / Salwar", "unit": "pieces", "category": "Traditional", "perishable": False, "reorder": 10},
+    {"name": "Saree", "unit": "pieces", "category": "Traditional", "perishable": False, "reorder": 5},
+    {"name": "Sneakers", "unit": "pairs", "category": "Footwear", "perishable": False, "reorder": 5},
+    {"name": "Bags", "unit": "pieces", "category": "Accessories", "perishable": False, "reorder": 5},
+    {"name": "Shipping Boxes", "unit": "pieces", "category": "Packaging", "perishable": False, "reorder": 50},
+    {"name": "Bubble Wrap", "unit": "rolls", "category": "Packaging", "perishable": False, "reorder": 5},
+    {"name": "Poly Mailers", "unit": "pieces", "category": "Packaging", "perishable": False, "reorder": 50},
+    {"name": "Thank You Cards", "unit": "pieces", "category": "Packaging", "perishable": False, "reorder": 30},
+]
+
+TEA_SHOP_TEMPLATE_LIST = [
+    {"name": "Tea Leaves", "unit": "kg", "category": "Tea", "perishable": False, "reorder": 5},
+    {"name": "Milk", "unit": "liters", "category": "Dairy", "perishable": True, "reorder": 10},
+    {"name": "Sugar", "unit": "kg", "category": "Pantry", "perishable": False, "reorder": 5},
+    {"name": "Ginger", "unit": "kg", "category": "Spices", "perishable": True, "reorder": 1},
+    {"name": "Cardamom", "unit": "kg", "category": "Spices", "perishable": False, "reorder": 1},
+    {"name": "Biscuits", "unit": "packs", "category": "Snacks", "perishable": False, "reorder": 20},
+    {"name": "Samosa", "unit": "pieces", "category": "Snacks", "perishable": True, "reorder": 20},
+    {"name": "Bread / Pauroti", "unit": "pieces", "category": "Snacks", "perishable": True, "reorder": 10},
+    {"name": "Paper Cups", "unit": "pieces", "category": "Supplies", "perishable": False, "reorder": 100},
+    {"name": "Instant Noodles", "unit": "pieces", "category": "Snacks", "perishable": False, "reorder": 20},
+]
+
+COSMETICS_TEMPLATE_LIST = [
+    {"name": "Face Cream", "unit": "pieces", "category": "Skincare", "perishable": True, "reorder": 10},
+    {"name": "Lipstick", "unit": "pieces", "category": "Makeup", "perishable": False, "reorder": 10},
+    {"name": "Foundation", "unit": "pieces", "category": "Makeup", "perishable": True, "reorder": 5},
+    {"name": "Nail Polish", "unit": "pieces", "category": "Nails", "perishable": False, "reorder": 10},
+    {"name": "Shampoo", "unit": "pieces", "category": "Hair Care", "perishable": False, "reorder": 10},
+    {"name": "Hair Oil", "unit": "pieces", "category": "Hair Care", "perishable": False, "reorder": 10},
+    {"name": "Perfume", "unit": "pieces", "category": "Fragrance", "perishable": False, "reorder": 5},
+    {"name": "Sunscreen", "unit": "pieces", "category": "Skincare", "perishable": True, "reorder": 5},
+    {"name": "Face Wash", "unit": "pieces", "category": "Skincare", "perishable": True, "reorder": 10},
+    {"name": "Eyeliner", "unit": "pieces", "category": "Makeup", "perishable": False, "reorder": 10},
+]
+
+STATIONERY_TEMPLATE_LIST = [
+    {"name": "Notebooks", "unit": "pieces", "category": "Paper", "perishable": False, "reorder": 20},
+    {"name": "Pens", "unit": "pieces", "category": "Writing", "perishable": False, "reorder": 30},
+    {"name": "Pencils", "unit": "pieces", "category": "Writing", "perishable": False, "reorder": 20},
+    {"name": "Erasers", "unit": "pieces", "category": "Writing", "perishable": False, "reorder": 10},
+    {"name": "Printer Paper (A4)", "unit": "reams", "category": "Paper", "perishable": False, "reorder": 10},
+    {"name": "Markers", "unit": "packs", "category": "Writing", "perishable": False, "reorder": 5},
+    {"name": "Glue Sticks", "unit": "pieces", "category": "Tools", "perishable": False, "reorder": 10},
+    {"name": "Files & Folders", "unit": "pieces", "category": "Paper", "perishable": False, "reorder": 10},
+    {"name": "School Bags", "unit": "pieces", "category": "Bags", "perishable": False, "reorder": 5},
+    {"name": "Scissors", "unit": "pieces", "category": "Tools", "perishable": False, "reorder": 5},
+]
+
+HARDWARE_TEMPLATE_LIST = [
+    {"name": "Cement", "unit": "bags", "category": "Construction", "perishable": False, "reorder": 20},
+    {"name": "Iron Rod", "unit": "pieces", "category": "Construction", "perishable": False, "reorder": 10},
+    {"name": "Paint", "unit": "liters", "category": "Paint", "perishable": False, "reorder": 10},
+    {"name": "Nails", "unit": "kg", "category": "Fasteners", "perishable": False, "reorder": 5},
+    {"name": "Screws", "unit": "packs", "category": "Fasteners", "perishable": False, "reorder": 10},
+    {"name": "PVC Pipes", "unit": "pieces", "category": "Plumbing", "perishable": False, "reorder": 10},
+    {"name": "Electric Wire", "unit": "meters", "category": "Electrical", "perishable": False, "reorder": 50},
+    {"name": "Switches & Sockets", "unit": "pieces", "category": "Electrical", "perishable": False, "reorder": 10},
+    {"name": "Locks", "unit": "pieces", "category": "Hardware", "perishable": False, "reorder": 5},
+    {"name": "Tape", "unit": "pieces", "category": "Tools", "perishable": False, "reorder": 10},
+]
+
+FLOWER_SHOP_TEMPLATE_LIST = [
+    {"name": "Roses", "unit": "bunches", "category": "Flowers", "perishable": True, "reorder": 10},
+    {"name": "Lilies", "unit": "bunches", "category": "Flowers", "perishable": True, "reorder": 5},
+    {"name": "Tulips", "unit": "bunches", "category": "Flowers", "perishable": True, "reorder": 5},
+    {"name": "Mixed Bouquet", "unit": "pieces", "category": "Arrangements", "perishable": True, "reorder": 5},
+    {"name": "Wrapping Paper", "unit": "rolls", "category": "Supplies", "perishable": False, "reorder": 5},
+    {"name": "Ribbon", "unit": "rolls", "category": "Supplies", "perishable": False, "reorder": 5},
+    {"name": "Vases", "unit": "pieces", "category": "Supplies", "perishable": False, "reorder": 5},
+    {"name": "Potted Plants", "unit": "pieces", "category": "Plants", "perishable": True, "reorder": 5},
+    {"name": "Greeting Cards", "unit": "pieces", "category": "Supplies", "perishable": False, "reorder": 20},
+]
+
+JEWELRY_TEMPLATE_LIST = [
+    {"name": "Gold Rings", "unit": "pieces", "category": "Gold", "perishable": False, "reorder": 3},
+    {"name": "Gold Necklaces", "unit": "pieces", "category": "Gold", "perishable": False, "reorder": 3},
+    {"name": "Silver Rings", "unit": "pieces", "category": "Silver", "perishable": False, "reorder": 5},
+    {"name": "Earrings", "unit": "pairs", "category": "Accessories", "perishable": False, "reorder": 10},
+    {"name": "Bangles", "unit": "pieces", "category": "Accessories", "perishable": False, "reorder": 10},
+    {"name": "Watches", "unit": "pieces", "category": "Watches", "perishable": False, "reorder": 3},
+    {"name": "Beads / Mala", "unit": "pieces", "category": "Accessories", "perishable": False, "reorder": 5},
+    {"name": "Gift Boxes", "unit": "pieces", "category": "Packaging", "perishable": False, "reorder": 20},
+]
+
+MOBILE_REPAIR_TEMPLATE_LIST = [
+    {"name": "Phone Screens", "unit": "pieces", "category": "Screens", "perishable": False, "reorder": 5},
+    {"name": "Phone Batteries", "unit": "pieces", "category": "Parts", "perishable": False, "reorder": 10},
+    {"name": "Charging Ports", "unit": "pieces", "category": "Parts", "perishable": False, "reorder": 10},
+    {"name": "Back Covers", "unit": "pieces", "category": "Parts", "perishable": False, "reorder": 10},
+    {"name": "Screwdriver Kit", "unit": "sets", "category": "Tools", "perishable": False, "reorder": 2},
+    {"name": "Adhesive Tape", "unit": "rolls", "category": "Tools", "perishable": False, "reorder": 5},
+    {"name": "Screen Protectors", "unit": "pieces", "category": "Accessories", "perishable": False, "reorder": 20},
+    {"name": "Phone Cases", "unit": "pieces", "category": "Accessories", "perishable": False, "reorder": 15},
+]
+
 OTHER_TEMPLATE_LIST = [
     {"name": "Office Supplies", "unit": "pieces", "category": "Supplies", "perishable": False, "reorder": 10},
     {"name": "Printer Paper", "unit": "boxes", "category": "Supplies", "perishable": False, "reorder": 3},
@@ -269,25 +582,85 @@ OTHER_TEMPLATE_LIST = [
     {"name": "Safety Equipment", "unit": "pieces", "category": "Services", "perishable": False, "reorder": 3},
 ]
 
+SALON_TEMPLATE_LIST = [
+    {"name": "Shampoo", "unit": "bottles", "category": "Products", "perishable": False, "reorder": 5},
+    {"name": "Conditioner", "unit": "bottles", "category": "Products", "perishable": False, "reorder": 5},
+    {"name": "Hair Color / Dye", "unit": "boxes", "category": "Products", "perishable": False, "reorder": 3},
+    {"name": "Hair Oil", "unit": "bottles", "category": "Products", "perishable": False, "reorder": 3},
+    {"name": "Gel / Wax", "unit": "pieces", "category": "Products", "perishable": False, "reorder": 3},
+    {"name": "Razor Blades", "unit": "pieces", "category": "Supplies", "perishable": False, "reorder": 20},
+    {"name": "Towels", "unit": "pieces", "category": "Supplies", "perishable": False, "reorder": 5},
+    {"name": "Nail Polish", "unit": "bottles", "category": "Nail", "perishable": False, "reorder": 5},
+    {"name": "Nail Remover", "unit": "bottles", "category": "Nail", "perishable": False, "reorder": 2},
+    {"name": "Face Cream / Mask", "unit": "pieces", "category": "Skin", "perishable": True, "reorder": 3},
+    {"name": "Disposable Gloves", "unit": "boxes", "category": "Supplies", "perishable": False, "reorder": 3},
+    {"name": "Cape / Apron", "unit": "pieces", "category": "Supplies", "perishable": False, "reorder": 2},
+]
+
+LAUNDRY_TEMPLATE_LIST = [
+    {"name": "Detergent", "unit": "kg", "category": "Chemicals", "perishable": False, "reorder": 5},
+    {"name": "Fabric Softener", "unit": "liters", "category": "Chemicals", "perishable": False, "reorder": 3},
+    {"name": "Bleach", "unit": "liters", "category": "Chemicals", "perishable": False, "reorder": 2},
+    {"name": "Stain Remover", "unit": "bottles", "category": "Chemicals", "perishable": False, "reorder": 2},
+    {"name": "Hangers", "unit": "pieces", "category": "Supplies", "perishable": False, "reorder": 50},
+    {"name": "Plastic Covers", "unit": "pieces", "category": "Supplies", "perishable": False, "reorder": 100},
+    {"name": "Laundry Bags", "unit": "pieces", "category": "Supplies", "perishable": False, "reorder": 20},
+    {"name": "Tags / Labels", "unit": "pieces", "category": "Supplies", "perishable": False, "reorder": 100},
+    {"name": "Iron Spray / Starch", "unit": "bottles", "category": "Chemicals", "perishable": False, "reorder": 3},
+    {"name": "Lint Rollers", "unit": "pieces", "category": "Supplies", "perishable": False, "reorder": 5},
+]
+
+THRIFT_TEMPLATE_LIST = [
+    {"name": "T-Shirts", "unit": "pieces", "category": "Clothing", "perishable": False, "reorder": 10},
+    {"name": "Jeans / Pants", "unit": "pieces", "category": "Clothing", "perishable": False, "reorder": 5},
+    {"name": "Jackets / Coats", "unit": "pieces", "category": "Clothing", "perishable": False, "reorder": 3},
+    {"name": "Shoes", "unit": "pairs", "category": "Footwear", "perishable": False, "reorder": 5},
+    {"name": "Bags / Purses", "unit": "pieces", "category": "Accessories", "perishable": False, "reorder": 3},
+    {"name": "Books", "unit": "pieces", "category": "Media", "perishable": False, "reorder": 10},
+    {"name": "Electronics (Used)", "unit": "pieces", "category": "Electronics", "perishable": False, "reorder": 2},
+    {"name": "Household Items", "unit": "pieces", "category": "Home", "perishable": False, "reorder": 5},
+    {"name": "Kids Clothing", "unit": "pieces", "category": "Clothing", "perishable": False, "reorder": 5},
+    {"name": "Dresses / Skirts", "unit": "pieces", "category": "Clothing", "perishable": False, "reorder": 5},
+]
+
 @router.get("/templates", response_model=list[TemplateResponse])
 def list_templates(
     template_type: str = Query(None),
     db: Session = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    if template_type == "bar":
+    HARDCODED_TEMPLATES = {
+        "bar": ("Bar / Cocktail", BAR_TEMPLATE_LIST),
+        "restaurant": ("Restaurant & Cafe", RESTAURANT_TEMPLATE_LIST),
+        "cafe": ("Cafe / Coffee Shop", RESTAURANT_TEMPLATE_LIST),
+        "bakery": ("Bakery / Sweet Shop", RESTAURANT_TEMPLATE_LIST),
+        "food_truck": ("Food Truck", RESTAURANT_TEMPLATE_LIST),
+        "veggie_shop": ("Veggie / Fruit Shop", VEGGIE_SHOP_TEMPLATE_LIST),
+        "kiosk": ("Danish Kiosk", KIOSK_TEMPLATE_LIST),
+        "grocery": ("Grocery / Mini-Mart", GROCERY_TEMPLATE_LIST),
+        "clothing": ("Clothing Store", CLOTHING_TEMPLATE_LIST),
+        "online_clothing": ("Online Clothing Store", ONLINE_CLOTHING_TEMPLATE_LIST),
+        "pharmacy": ("Pharmacy", PHARMACY_TEMPLATE_LIST),
+        "electronics": ("Electronics & Mobile", ELECTRONICS_TEMPLATE_LIST),
+        "tea_shop": ("Tea Shop / Chiya Pasal", TEA_SHOP_TEMPLATE_LIST),
+        "cosmetics": ("Cosmetics / Beauty Supply", COSMETICS_TEMPLATE_LIST),
+        "stationery": ("Stationery / Book Shop", STATIONERY_TEMPLATE_LIST),
+        "hardware": ("Hardware / Construction", HARDWARE_TEMPLATE_LIST),
+        "flower_shop": ("Flower Shop", FLOWER_SHOP_TEMPLATE_LIST),
+        "jewelry": ("Jewelry / Accessories", JEWELRY_TEMPLATE_LIST),
+        "mobile_repair": ("Mobile Repair", MOBILE_REPAIR_TEMPLATE_LIST),
+        "salon": ("Salon / Barber / Nail", SALON_TEMPLATE_LIST),
+        "laundry": ("Laundry / Dry Cleaning", LAUNDRY_TEMPLATE_LIST),
+        "thrift": ("Thrift / Second-hand", THRIFT_TEMPLATE_LIST),
+        "other": ("Other / Custom", OTHER_TEMPLATE_LIST),
+    }
+    if template_type in HARDCODED_TEMPLATES:
+        tpl_name, tpl_list = HARDCODED_TEMPLATES[template_type]
         return [
-            {"id": i + 1, "template_name": "Bar / Cocktail", "template_type": "bar",
+            {"id": i + 1, "template_name": tpl_name, "template_type": template_type,
              "item_name": t["name"], "default_unit": t["unit"], "default_category": t["category"],
              "is_perishable": t["perishable"], "default_reorder_level": t["reorder"]}
-            for i, t in enumerate(BAR_TEMPLATE_LIST)
-        ]
-    if template_type == "other":
-        return [
-            {"id": i + 1, "template_name": "Other / Custom", "template_type": "other",
-             "item_name": t["name"], "default_unit": t["unit"], "default_category": t["category"],
-             "is_perishable": t["perishable"], "default_reorder_level": t["reorder"]}
-            for i, t in enumerate(OTHER_TEMPLATE_LIST)
+            for i, t in enumerate(tpl_list)
         ]
     query = db.query(InventoryTemplate)
     if template_type:
@@ -301,9 +674,35 @@ def load_template(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    if data.template_type == "bar":
+    HARDCODED_TEMPLATES = {
+        "bar": BAR_TEMPLATE_LIST,
+        "restaurant": RESTAURANT_TEMPLATE_LIST,
+        "cafe": RESTAURANT_TEMPLATE_LIST,
+        "bakery": RESTAURANT_TEMPLATE_LIST,
+        "food_truck": RESTAURANT_TEMPLATE_LIST,
+        "veggie_shop": VEGGIE_SHOP_TEMPLATE_LIST,
+        "kiosk": KIOSK_TEMPLATE_LIST,
+        "grocery": GROCERY_TEMPLATE_LIST,
+        "clothing": CLOTHING_TEMPLATE_LIST,
+        "online_clothing": ONLINE_CLOTHING_TEMPLATE_LIST,
+        "pharmacy": PHARMACY_TEMPLATE_LIST,
+        "electronics": ELECTRONICS_TEMPLATE_LIST,
+        "tea_shop": TEA_SHOP_TEMPLATE_LIST,
+        "cosmetics": COSMETICS_TEMPLATE_LIST,
+        "stationery": STATIONERY_TEMPLATE_LIST,
+        "hardware": HARDWARE_TEMPLATE_LIST,
+        "flower_shop": FLOWER_SHOP_TEMPLATE_LIST,
+        "jewelry": JEWELRY_TEMPLATE_LIST,
+        "mobile_repair": MOBILE_REPAIR_TEMPLATE_LIST,
+        "salon": SALON_TEMPLATE_LIST,
+        "laundry": LAUNDRY_TEMPLATE_LIST,
+        "thrift": THRIFT_TEMPLATE_LIST,
+        "other": OTHER_TEMPLATE_LIST,
+    }
+    if data.template_type in HARDCODED_TEMPLATES:
+        tpl_list = HARDCODED_TEMPLATES[data.template_type]
         created = []
-        for t in BAR_TEMPLATE_LIST:
+        for t in tpl_list:
             existing = db.query(InventoryItem).filter(
                 InventoryItem.user_id == user.id,
                 InventoryItem.name == t["name"],
@@ -317,27 +716,6 @@ def load_template(
                 bottle_size=t.get("bottle_size"),
                 pour_size=t.get("pour_size"),
                 pour_unit=t.get("pour_unit"),
-            )
-            db.add(item)
-            created.append(item)
-        db.commit()
-        for c in created:
-            db.refresh(c)
-        return created
-
-    if data.template_type == "other":
-        created = []
-        for t in OTHER_TEMPLATE_LIST:
-            existing = db.query(InventoryItem).filter(
-                InventoryItem.user_id == user.id,
-                InventoryItem.name == t["name"],
-            ).first()
-            if existing:
-                continue
-            item = InventoryItem(
-                user_id=user.id, name=t["name"], quantity=0, unit=t["unit"],
-                cost_per_unit=0, min_threshold=t["reorder"], category=t["category"],
-                is_perishable=t["perishable"],
             )
             db.add(item)
             created.append(item)

@@ -88,18 +88,39 @@ export default function RegisterPage() {
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" required>
               <option value="" disabled>Select type...</option>
               <option value="personal">Personal Finance</option>
-              <option value="restaurant">Restaurant</option>
-              <option value="cafe">Cafe</option>
-              <option value="bar">Bar</option>
-              <option value="bakery">Bakery</option>
-              <option value="food_truck">Food Truck</option>
-              <option value="retail">Retail / Shop</option>
-              <option value="clothing">Clothing Store</option>
-              <option value="grocery">Grocery Store</option>
-              <option value="wholesale">Wholesale</option>
-              <option value="salon">Salon / Beauty</option>
-              <option value="pharmacy">Pharmacy</option>
-              <option value="other">Other</option>
+              <optgroup label="Food & Drink">
+                <option value="restaurant">Restaurant / Pizza / Grill</option>
+                <option value="cafe">Cafe / Coffee Shop</option>
+                <option value="bar">Bar / Nightclub</option>
+                <option value="bakery">Bakery / Sweet Shop</option>
+                <option value="food_truck">Food Truck / Street Food</option>
+                <option value="tea_shop">Tea Shop / Chiya Pasal</option>
+              </optgroup>
+              <optgroup label="Retail">
+                <option value="clothing">Clothing / Fashion</option>
+                <option value="online_clothing">Online Clothing Store</option>
+                <option value="grocery">Grocery / Kirana Store</option>
+                <option value="veggie_shop">Veggie / Fruit Shop</option>
+                <option value="kiosk">Kiosk / Convenience Store</option>
+                <option value="electronics">Electronics / Mobile</option>
+                <option value="pharmacy">Pharmacy / Medical</option>
+                <option value="cosmetics">Cosmetics / Beauty Supply</option>
+                <option value="stationery">Stationery / Book Shop</option>
+                <option value="hardware">Hardware / Construction</option>
+                <option value="flower_shop">Flower Shop</option>
+                <option value="jewelry">Jewelry / Accessories</option>
+                <option value="thrift">Thrift / Second-hand</option>
+              </optgroup>
+              <optgroup label="Services">
+                <option value="salon">Salon / Barber / Nail</option>
+                <option value="mobile_repair">Mobile Repair</option>
+                <option value="laundry">Laundry / Dry Cleaning</option>
+              </optgroup>
+              <optgroup label="Other">
+                <option value="retail">General Retail</option>
+                <option value="wholesale">Wholesale / Distributor</option>
+                <option value="other">Other</option>
+              </optgroup>
             </select>
           </div>
           <div>

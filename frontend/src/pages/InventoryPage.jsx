@@ -5,15 +5,33 @@ import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 
 const TEMPLATES = [
-  { type: "restaurant", name: "Restaurant & Cafe", icon: "🍽️", count: 45, desc: "Ingredients, beverages, sauces, supplies. Fresh produce & meat tracking.", color: "orange" },
-  { type: "veggie_shop", name: "Dukan / Veggie Shop", icon: "🥬", count: 40, desc: "Vegetables, fruits, herbs, lentils. Kg-based with daily pricing.", color: "green" },
-  { type: "kiosk", name: "Danish Kiosk", icon: "🏪", count: 50, desc: "Beverages, snacks, tobacco, bakery, lottery. Piece-based with barcodes.", color: "blue" },
-  { type: "grocery", name: "Grocery / Mini-Mart", icon: "🛒", count: 45, desc: "Packaged food, dairy, household, personal care, spices. Mixed units.", color: "yellow" },
-  { type: "clothing", name: "Clothing Store", icon: "👕", count: 40, desc: "Tops, bottoms, dresses, footwear, accessories. Size-based variants.", color: "purple" },
-  { type: "pharmacy", name: "Pharmacy", icon: "💊", count: 45, desc: "Medicines, vitamins, first aid, devices, hygiene. Expiry tracking.", color: "red" },
-  { type: "electronics", name: "Electronics & Mobile", icon: "📱", count: 35, desc: "Chargers, cables, audio, phone accessories, computer gear, batteries.", color: "cyan" },
-  { type: "bar", name: "Bar / Cocktail", icon: "🍸", count: 30, desc: "Spirits, wine, beer, mixers, liqueurs, garnish. Pour tracking by ml/glass.", color: "amber" },
-  { type: "other", name: "Other / Custom", icon: "📦", count: 20, desc: "General items for any business. Basic categories: supplies, tools, materials, services.", color: "gray" },
+  // Food & Drink
+  { type: "restaurant", name: "Restaurant / Pizza / Grill", icon: "🍽️", count: 13, desc: "Chicken, rice, oil, produce, drinks, supplies.", color: "orange" },
+  { type: "cafe", name: "Cafe / Coffee Shop", icon: "☕", count: 13, desc: "Same as restaurant. Coffee, pastry, snacks focus.", color: "orange" },
+  { type: "bakery", name: "Bakery / Sweet Shop", icon: "🥐", count: 13, desc: "Flour, butter, sugar, pastries, bread, drinks.", color: "orange" },
+  { type: "bar", name: "Bar / Cocktail", icon: "🍸", count: 30, desc: "Spirits, wine, beer, mixers, garnish. Pour tracking.", color: "amber" },
+  { type: "food_truck", name: "Food Truck / Street Food", icon: "🚚", count: 13, desc: "Same as restaurant. Quick bites, drinks, sauces.", color: "orange" },
+  { type: "tea_shop", name: "Tea Shop / Chiya Pasal", icon: "🍵", count: 10, desc: "Tea, milk, sugar, spices, snacks, cups.", color: "orange" },
+  // Retail
+  { type: "clothing", name: "Clothing Store", icon: "👕", count: 12, desc: "Tops, bottoms, dresses, footwear, accessories.", color: "purple" },
+  { type: "online_clothing", name: "Online Clothing", icon: "🛍️", count: 12, desc: "Clothing + packaging, poly mailers, shipping boxes.", color: "purple" },
+  { type: "veggie_shop", name: "Veggie / Fruit Shop", icon: "🥬", count: 13, desc: "Vegetables, fruits, herbs, dry goods. Kg-based.", color: "green" },
+  { type: "grocery", name: "Grocery / Kirana", icon: "🛒", count: 12, desc: "Dairy, packaged food, drinks, household.", color: "yellow" },
+  { type: "kiosk", name: "Danish Kiosk", icon: "🏪", count: 12, desc: "Drinks, snacks, tobacco, bakery, scratch cards.", color: "blue" },
+  { type: "electronics", name: "Electronics & Mobile", icon: "📱", count: 11, desc: "Chargers, cables, earbuds, phone cases.", color: "cyan" },
+  { type: "pharmacy", name: "Pharmacy / Medical", icon: "💊", count: 12, desc: "Medicines, vitamins, first aid, hygiene.", color: "red" },
+  { type: "cosmetics", name: "Cosmetics / Beauty", icon: "💄", count: 10, desc: "Skincare, makeup, hair care, fragrance.", color: "pink" },
+  { type: "stationery", name: "Stationery / Books", icon: "📝", count: 10, desc: "Notebooks, pens, paper, school supplies.", color: "indigo" },
+  { type: "hardware", name: "Hardware / Construction", icon: "🔧", count: 10, desc: "Cement, rods, paint, plumbing, electrical.", color: "gray" },
+  { type: "flower_shop", name: "Flower Shop", icon: "💐", count: 9, desc: "Roses, tulips, bouquets, wrapping, vases.", color: "pink" },
+  { type: "jewelry", name: "Jewelry / Accessories", icon: "💍", count: 8, desc: "Gold, silver, earrings, bangles, watches.", color: "yellow" },
+  { type: "mobile_repair", name: "Mobile Repair", icon: "🔩", count: 8, desc: "Screens, batteries, parts, tools, cases.", color: "cyan" },
+  // Services
+  { type: "salon", name: "Salon / Barber / Nail", icon: "💇", count: 12, desc: "Shampoo, dye, razors, nail polish, skincare.", color: "pink" },
+  { type: "laundry", name: "Laundry / Dry Cleaning", icon: "🧺", count: 10, desc: "Detergent, softener, hangers, covers, tags.", color: "blue" },
+  { type: "thrift", name: "Thrift / Second-hand", icon: "♻️", count: 10, desc: "Used clothing, shoes, bags, books, electronics.", color: "green" },
+  // General
+  { type: "other", name: "Other / Custom", icon: "📦", count: 20, desc: "General supplies, tools, materials.", color: "gray" },
 ];
 
 const COLOR_MAP = {
@@ -25,6 +43,8 @@ const COLOR_MAP = {
   red: { border: "hover:border-red-400", bg: "hover:bg-red-50 dark:hover:bg-red-900/20" },
   cyan: { border: "hover:border-cyan-400", bg: "hover:bg-cyan-50 dark:hover:bg-cyan-900/20" },
   amber: { border: "hover:border-amber-400", bg: "hover:bg-amber-50 dark:hover:bg-amber-900/20" },
+  pink: { border: "hover:border-pink-400", bg: "hover:bg-pink-50 dark:hover:bg-pink-900/20" },
+  indigo: { border: "hover:border-indigo-400", bg: "hover:bg-indigo-50 dark:hover:bg-indigo-900/20" },
   gray: { border: "hover:border-gray-400", bg: "hover:bg-gray-50 dark:hover:bg-gray-700/30" },
 };
 
@@ -59,11 +79,15 @@ export default function InventoryPage() {
   const [showBarSection, setShowBarSection] = useState(() => localStorage.getItem("bonbox_bar_mode") === "true");
   const [restockItem, setRestockItem] = useState(null);
   const [restockBottles, setRestockBottles] = useState(1);
+  const [deadStock, setDeadStock] = useState([]);
+  const [profitRanking, setProfitRanking] = useState([]);
 
   const fetchData = () => {
     api.get("/inventory").then((res) => setItems(res.data)).catch(() => {});
     api.get("/inventory/alerts").then((res) => setAlerts(res.data)).catch(() => {});
     api.get("/inventory/categories").then((res) => setCategories(res.data)).catch(() => {});
+    api.get("/inventory/dead-stock").then((res) => setDeadStock(res.data)).catch(() => {});
+    api.get("/inventory/profit-ranking").then((res) => setProfitRanking(res.data)).catch(() => {});
   };
 
   useEffect(() => { fetchData(); }, []);
@@ -449,6 +473,53 @@ export default function InventoryPage() {
               >
                 {cat}
               </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Dead Stock Alert */}
+      {deadStock.length > 0 && (
+        <div className="bg-gradient-to-r from-red-50 to-orange-50 dark:from-gray-800 dark:to-gray-800 p-5 rounded-2xl border border-red-200 dark:border-red-800">
+          <h3 className="text-sm font-bold text-red-700 dark:text-red-400 mb-3">Dead Stock — not sold in 30+ days</h3>
+          <div className="space-y-2">
+            {deadStock.map((ds) => (
+              <div key={ds.id} className="flex items-center justify-between bg-white/60 dark:bg-gray-700/40 px-3 py-2 rounded-lg">
+                <div>
+                  <p className="text-sm font-medium text-gray-800 dark:text-white">{ds.name}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {ds.quantity} in stock · {ds.days_since_last_sale >= 999 ? "Never sold" : `${ds.days_since_last_sale} days since last sale`}
+                  </p>
+                </div>
+                <p className="text-sm font-semibold text-red-600 dark:text-red-400">{ds.stock_value.toLocaleString()} {currency}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 pt-3 border-t border-red-200 dark:border-red-700 flex justify-between items-center">
+            <p className="text-xs text-red-600 dark:text-red-400 font-medium">Total dead stock value</p>
+            <p className="text-base font-bold text-red-700 dark:text-red-400">
+              {deadStock.reduce((sum, ds) => sum + ds.stock_value, 0).toLocaleString()} {currency}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Top Profit Items */}
+      {profitRanking.length > 0 && (
+        <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-gray-800 dark:to-gray-800 p-5 rounded-2xl border border-green-200 dark:border-green-800">
+          <h3 className="text-sm font-bold text-green-700 dark:text-green-400 mb-3">Best Margin Items</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {profitRanking.slice(0, 5).map((pr, idx) => (
+              <div key={pr.name} className="flex items-center gap-3 bg-white/60 dark:bg-gray-700/40 px-3 py-2 rounded-lg">
+                <span className="text-lg font-bold text-green-600 dark:text-green-400 w-6 text-center">{idx + 1}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-800 dark:text-white truncate">{pr.name}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {pr.cost} {currency} → {pr.sell} {currency}
+                  </p>
+                </div>
+                <span className="text-sm font-bold text-green-600 dark:text-green-400 whitespace-nowrap">+{pr.margin_pct}%</span>
+              </div>
             ))}
           </div>
         </div>
