@@ -487,8 +487,8 @@ export default function InventoryPage() {
                           {deleteConfirm === item.id ? (
                             <span className="inline-flex items-center gap-1.5 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded-lg">
                               <span className="text-xs text-red-600 dark:text-red-400">{t("delete")}?</span>
-                              <button onClick={() => deleteItem(item.id)} className="text-red-600 dark:text-red-400 text-xs font-bold hover:underline">&#10003;</button>
-                              <button onClick={() => setDeleteConfirm(null)} className="text-gray-400 text-xs font-bold hover:underline">&#10005;</button>
+                              <button onClick={() => deleteItem(item.id)} className="bg-red-600 text-white text-xs font-bold px-2 py-0.5 rounded hover:bg-red-700">{t("delete")}</button>
+                              <button onClick={() => setDeleteConfirm(null)} className="bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 text-xs font-bold px-2 py-0.5 rounded hover:bg-gray-300">&#10005;</button>
                             </span>
                           ) : (
                             <button onClick={() => setDeleteConfirm(item.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">{t("delete")}</button>

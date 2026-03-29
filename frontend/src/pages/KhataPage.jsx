@@ -54,6 +54,7 @@ export default function KhataPage() {
       setShowAddCustomer(false);
       setEditCust(null);
       fetchCustomers();
+      window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
       setError(err.response?.data?.detail || "Failed");
     }
@@ -64,6 +65,7 @@ export default function KhataPage() {
     await api.delete(`/khata/customers/${id}`);
     if (selectedCustomer?.id === id) { setSelectedCustomer(null); setTransactions([]); }
     fetchCustomers();
+    window.dispatchEvent(new Event("bonbox-data-changed"));
   };
 
   const handleAddTxn = async (e) => {
@@ -86,6 +88,7 @@ export default function KhataPage() {
       setEditTxn(null);
       fetchTransactions(selectedCustomer.id);
       fetchCustomers();
+      window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
       setError(err.response?.data?.detail || "Failed");
     }
@@ -96,6 +99,7 @@ export default function KhataPage() {
     await api.delete(`/khata/transactions/${id}`);
     fetchTransactions(selectedCustomer.id);
     fetchCustomers();
+    window.dispatchEvent(new Event("bonbox-data-changed"));
   };
 
   const handleQuickPay = async (e) => {
@@ -115,6 +119,7 @@ export default function KhataPage() {
       setShowPayForm(false);
       fetchTransactions(selectedCustomer.id);
       fetchCustomers();
+      window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to record payment");
     }

@@ -144,13 +144,15 @@ def get_summary(
         .first()
     ) is not None
 
-    # Khata receivable (total outstanding credit)
+    # Khata receivable (total outstanding credit, excluding deleted customers)
     khata_receivable = float(
         db.query(
             func.coalesce(func.sum(KhataTransaction.purchase_amount), 0)
             - func.coalesce(func.sum(KhataTransaction.paid_amount), 0)
-        ).filter(
+        ).join(KhataCustomer, KhataTransaction.customer_id == KhataCustomer.id)
+        .filter(
             KhataTransaction.user_id == user.id,
+            KhataCustomer.is_deleted == False,
         ).scalar()
     )
 

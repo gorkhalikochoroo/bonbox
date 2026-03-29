@@ -166,7 +166,7 @@ export default function Layout() {
       </aside>
 
       {/* Main content */}
-      <main className="md:ml-56 pt-14 md:pt-0">
+      <main className="md:ml-56 pt-14 md:pt-0 pb-20">
         <Outlet />
       </main>
 
