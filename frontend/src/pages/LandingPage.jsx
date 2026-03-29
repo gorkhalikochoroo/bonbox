@@ -132,9 +132,9 @@ export default function LandingPage() {
 
           <FadeIn delay={200}>
             <p className="mt-6 text-lg md:text-xl text-gray-400 max-w-2xl mx-auto leading-relaxed">
-              Sales, expenses, inventory, staff — all in one dashboard.
+              Sales, expenses, inventory, weather, staff — all in one dashboard.
               <br className="hidden sm:block" />
-              Built for <span className="text-white font-medium">shops, restaurants & bars</span> who want real numbers, not paperwork.
+              Built for <span className="text-white font-medium">21+ business types</span> who want real numbers, not paperwork.
             </p>
           </FadeIn>
 
@@ -271,8 +271,8 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
             {[
-              { val: 12, suffix: "+", label: "Features" },
-              { val: 17, suffix: "+", label: "Currencies" },
+              { val: 15, suffix: "+", label: "Features" },
+              { val: 21, suffix: "+", label: "Business Types" },
               { val: 3, suffix: "", label: "Languages" },
               { val: 0, suffix: "kr", label: "Price", prefix: "" },
             ].map((s) => (
@@ -299,7 +299,7 @@ export default function LandingPage() {
                 One app. Every business need.
               </h2>
               <p className="mt-5 text-gray-400 text-lg max-w-xl mx-auto">
-                Whether you run a corner shop, a restaurant, or a bar — BonBox has you covered.
+                Restaurant, bar, grocery, salon, bakery, food truck, thrift store — BonBox has you covered.
               </p>
             </div>
           </FadeIn>
@@ -307,11 +307,11 @@ export default function LandingPage() {
           {/* Top 6 features - the convincing ones */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {[
-              { icon: "💰", title: "Sales & Cash Flow", desc: "Log sales in 2 taps. See revenue, profit, and cash flow — auto-synced, real-time.", accent: "from-green-500/20 to-emerald-500/10", border: "border-green-500/20 hover:border-green-500/40" },
-              { icon: "📦", title: "Inventory & Stock", desc: "Track stock levels, get low-stock alerts, sell items with auto-deduction. Know your margins.", accent: "from-blue-500/20 to-cyan-500/10", border: "border-blue-500/20 hover:border-blue-500/40" },
+              { icon: "💰", title: "Sales & Cash Flow", desc: "Log sales in 2 taps. See revenue, profit, and cash flow — auto-synced to your cashbook in real-time.", accent: "from-green-500/20 to-emerald-500/10", border: "border-green-500/20 hover:border-green-500/40" },
+              { icon: "📦", title: "Inventory & Stock", desc: "Track stock levels, get low-stock alerts, sell items with auto-deduction. Pre-built templates for 21+ business types.", accent: "from-blue-500/20 to-cyan-500/10", border: "border-blue-500/20 hover:border-blue-500/40" },
+              { icon: "🌦️", title: "Weather Smart", desc: "Rain = less foot traffic. See how weather affects your revenue, plan staff smarter, and track sick calls by condition.", accent: "from-cyan-500/20 to-sky-500/10", border: "border-cyan-500/20 hover:border-cyan-500/40" },
+              { icon: "👥", title: "Smart Staffing", desc: "AI-powered shifts based on your busiest days + weather forecast. See payroll costs. Right people, right time.", accent: "from-violet-500/20 to-purple-500/10", border: "border-violet-500/20 hover:border-violet-500/40" },
               { icon: "🍸", title: "Bar Pour System", desc: "Buy bottles in bulk, sell by glass. Auto-track pours, deduct stock, and log sales per drink.", accent: "from-orange-500/20 to-amber-500/10", border: "border-orange-500/20 hover:border-orange-500/40" },
-              { icon: "👥", title: "Staff Scheduling", desc: "AI-powered shifts based on your busiest days. See payroll costs. Right people, right time.", accent: "from-violet-500/20 to-purple-500/10", border: "border-violet-500/20 hover:border-violet-500/40" },
-              { icon: "📊", title: "Business Health Score", desc: "Get a score from 0-100. Profitability, consistency, cost control — at a glance.", accent: "from-emerald-500/20 to-green-500/10", border: "border-emerald-500/20 hover:border-emerald-500/40" },
               { icon: "🗑️", title: "Waste Tracker", desc: "Log expired and wasted stock. See how much you're losing. Reduce waste, increase profit.", accent: "from-red-500/20 to-rose-500/10", border: "border-red-500/20 hover:border-red-500/40" },
             ].map((f, i) => (
               <FadeIn key={f.title} delay={i * 80}>
@@ -327,7 +327,7 @@ export default function LandingPage() {
           {/* Extra features ribbon */}
           <FadeIn delay={200}>
             <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
-              {["Khata Credit Book", "VAT Reports", "PDF Export", "Kasserapport", "Loan Tracker", "Personal Finance", "Voice Entry", "WhatsApp Bot", "Multi-currency", "Multi-language"].map((f) => (
+              {["Cash Book", "Khata Credit Book", "Business Health Score", "VAT Reports", "PDF Export", "Loan Tracker", "Personal Finance", "Dark Mode", "Seasonal Patterns", "Sick Call Tracker", "Multi-currency", "Multi-language"].map((f) => (
                 <span key={f} className="px-4 py-2 bg-white/5 border border-white/10 text-gray-400 text-sm font-medium rounded-full">
                   {f}
                 </span>
@@ -421,7 +421,7 @@ export default function LandingPage() {
                 Works where you work
               </h2>
               <p className="text-gray-400 text-lg mb-8 max-w-lg mx-auto">
-                3 languages, 17+ currencies, and growing.
+                3 languages, 17+ currencies, 21+ business types, and growing.
               </p>
               <div className="flex flex-wrap justify-center gap-3 mb-10">
                 {[
@@ -469,7 +469,7 @@ export default function LandingPage() {
               <span className="bg-gradient-to-r from-green-400 to-emerald-300 bg-clip-text text-transparent">better than guesswork</span>
             </h2>
             <p className="text-gray-400 text-lg mb-10 max-w-lg mx-auto">
-              Join BonBox and finally see your business clearly — sales, stock, staff, cash, all in one place.
+              Join BonBox and finally see your business clearly — sales, stock, staff, weather, cash, all in one place.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link to="/register" className="w-full sm:w-auto px-12 py-4 bg-green-500 text-white font-bold rounded-xl hover:bg-green-400 transition shadow-2xl shadow-green-500/25 text-lg">
