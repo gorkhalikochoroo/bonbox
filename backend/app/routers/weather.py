@@ -302,11 +302,11 @@ def get_insights(
                 "title": f"{day_label}: Heavy {'Storm' if cond == 'storm' else 'Rain'} Expected",
                 "detail": f"{precip}mm precipitation — expect 20-40% lower foot traffic. Consider reducing staff.",
             })
-        elif cond == "rain":
+        elif cond in ("rain", "drizzle") and precip > 2:
             insights.append({
                 "type": "weather",
                 "severity": "medium",
-                "title": f"{day_label}: Rain Forecast",
+                "title": f"{day_label}: {'Rain' if cond == 'rain' else 'Drizzle'} Forecast",
                 "detail": f"{precip}mm precipitation — foot traffic may drop 10-20%.",
             })
         elif cond == "snow":
