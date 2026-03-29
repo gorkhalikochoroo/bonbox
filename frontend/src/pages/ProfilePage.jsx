@@ -207,7 +207,7 @@ export default function ProfilePage() {
           {success && <p className="text-sm text-green-500">{success}</p>}
 
           <button type="submit" disabled={saving}
-            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition disabled:opacity-50">
+            className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl transition disabled:opacity-50">
             {saving ? "Saving..." : "Save Changes"}
           </button>
         </form>
@@ -257,7 +257,7 @@ export default function ProfilePage() {
             </div>
             <button
               onClick={() => toggleEmailPref("daily_digest_enabled")}
-              className={`relative w-11 h-6 rounded-full transition ${emailPrefs.daily_digest_enabled ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-600"}`}
+              className={`relative w-11 h-6 rounded-full transition ${emailPrefs.daily_digest_enabled ? "bg-green-600" : "bg-gray-300 dark:bg-gray-600"}`}
             >
               <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${emailPrefs.daily_digest_enabled ? "translate-x-5" : ""}`} />
             </button>
@@ -269,7 +269,7 @@ export default function ProfilePage() {
             </div>
             <button
               onClick={() => toggleEmailPref("expense_alerts_enabled")}
-              className={`relative w-11 h-6 rounded-full transition ${emailPrefs.expense_alerts_enabled ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-600"}`}
+              className={`relative w-11 h-6 rounded-full transition ${emailPrefs.expense_alerts_enabled ? "bg-green-600" : "bg-gray-300 dark:bg-gray-600"}`}
             >
               <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${emailPrefs.expense_alerts_enabled ? "translate-x-5" : ""}`} />
             </button>

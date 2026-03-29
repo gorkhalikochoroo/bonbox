@@ -467,7 +467,7 @@ export default function InventoryPage() {
                 onClick={() => setActiveCategory(cat)}
                 className={`px-3 py-1.5 text-sm rounded-lg transition font-medium ${
                   activeCategory === cat
-                    ? "bg-blue-600 text-white"
+                    ? "bg-green-600 text-white"
                     : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
                 }`}
               >
@@ -562,7 +562,7 @@ export default function InventoryPage() {
               className="rounded" />
             {t("freshItem")}
           </label>
-          <button type="submit" className="bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition font-medium col-span-2 md:col-span-4">
+          <button type="submit" className="bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 transition font-medium col-span-2 md:col-span-4">
             {t("addItem")}
           </button>
         </form>

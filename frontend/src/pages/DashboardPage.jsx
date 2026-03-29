@@ -23,7 +23,7 @@ import {
 } from "recharts";
 import { displayCurrency } from "../utils/currency";
 
-const COLORS = ["#3B82F6", "#EF4444", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316", "#6366F1", "#84CC16"];
+const COLORS = ["#22C55E", "#EF4444", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316", "#6366F1", "#84CC16"];
 
 const PERIODS = ["today", "thisWeek", "thisMonth", "last30"];
 
@@ -304,7 +304,7 @@ export default function DashboardPage() {
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setSaleModal(true)}
-            className="px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition"
+            className="px-4 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition"
           >
             + {t("quickSale")}
           </button>
@@ -342,7 +342,7 @@ export default function DashboardPage() {
             onClick={() => setPeriod(p)}
             className={`px-4 py-1.5 rounded-full text-sm font-medium transition ${
               period === p
-                ? "bg-blue-600 text-white"
+                ? "bg-green-600 text-white"
                 : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
             }`}
           >
@@ -674,7 +674,7 @@ export default function DashboardPage() {
                   `${value.toLocaleString()} ${currency}`,
                   name === "amount" ? "Revenue" : name === "profit" ? "Profit" : name,
                 ]} />
-                <Line type="monotone" dataKey="amount" stroke="#3B82F6" strokeWidth={2} dot={false} name="Revenue" />
+                <Line type="monotone" dataKey="amount" stroke="#22C55E" strokeWidth={2} dot={false} name="Revenue" />
                 {(periodStats?.dailyRevenue?.[0]?.profit !== undefined) && (
                   <Line type="monotone" dataKey="profit" stroke="#10B981" strokeWidth={2} dot={false} name="Profit" strokeDasharray="5 3" />
                 )}
@@ -738,7 +738,7 @@ export default function DashboardPage() {
                     name === "amount" ? "Revenue" : name === "expenses" ? "Expenses" : name,
                   ]} />
                   <Legend formatter={(value) => value === "amount" ? "Revenue" : value === "expenses" ? "Expenses" : value} />
-                  <Bar dataKey="amount" fill="#3B82F6" radius={[4, 4, 0, 0]} name="amount" />
+                  <Bar dataKey="amount" fill="#22C55E" radius={[4, 4, 0, 0]} name="amount" />
                   <Bar dataKey="expenses" fill="#EF4444" radius={[4, 4, 0, 0]} name="expenses" />
                 </BarChart>
               </ResponsiveContainer>
@@ -746,7 +746,7 @@ export default function DashboardPage() {
           }
           // Fallback: show monthly totals as a simple comparison
           const compData = [
-            { label: "Revenue", value: summary.month_revenue, fill: "#3B82F6" },
+            { label: "Revenue", value: summary.month_revenue, fill: "#22C55E" },
             { label: "Expenses", value: summary.month_expenses, fill: "#EF4444" },
             { label: "Profit", value: summary.month_profit, fill: summary.month_profit >= 0 ? "#10B981" : "#F59E0B" },
           ];

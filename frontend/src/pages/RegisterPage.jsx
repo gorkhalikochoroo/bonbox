@@ -49,7 +49,7 @@ export default function RegisterPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4 py-8">
       <div className="bg-white p-6 sm:p-8 rounded-xl shadow-md w-full max-w-md">
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-14 h-14 bg-blue-600 rounded-2xl mb-3">
+          <div className="inline-flex items-center justify-center w-14 h-14 bg-green-600 rounded-2xl mb-3">
             <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="4" y="2" width="20" height="24" rx="3" stroke="white" strokeWidth="2"/><path d="M9 8h10M9 12h10M9 16h6" stroke="white" strokeWidth="1.5" strokeLinecap="round"/><path d="M4 20h20" stroke="#FCD34D" strokeWidth="2"/></svg>
           </div>
           <h1 className="text-2xl font-bold text-gray-800">BonBox</h1>
@@ -58,7 +58,7 @@ export default function RegisterPage() {
         {alreadyExists && (
           <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg mb-4 text-center">
             <p className="text-sm text-blue-800 font-medium mb-2">This email is already registered</p>
-            <Link to="/login" className="inline-block bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 transition">
+            <Link to="/login" className="inline-block bg-green-600 text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-green-700 transition">
               Sign in instead →
             </Link>
           </div>
@@ -70,22 +70,22 @@ export default function RegisterPage() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
             <input type="email" name="email" value={form.email} onChange={handleChange}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" required />
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-base" required />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
             <input type="password" name="password" value={form.password} onChange={handleChange}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" required />
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-base" required />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{form.business_type === "personal" ? "Display Name" : "Business Name"}</label>
             <input type="text" name="business_name" value={form.business_name} onChange={handleChange}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" required />
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-base" required />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Business Type</label>
             <select name="business_type" value={form.business_type} onChange={handleChange}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" required>
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-base" required>
               <option value="" disabled>Select type...</option>
               <option value="personal">Personal Finance</option>
               <optgroup label="Food & Drink">
@@ -126,7 +126,7 @@ export default function RegisterPage() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Currency</label>
             <select name="currency" value={form.currency} onChange={handleChange}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base">
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-base">
               <option value="DKK">DKK - Danish Krone</option>
               <option value="SEK">SEK - Swedish Krona</option>
               <option value="NOK">NOK - Norwegian Krone</option>
@@ -148,7 +148,7 @@ export default function RegisterPage() {
             </select>
           </div>
           <button type="submit" disabled={loading}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition font-semibold text-base disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+            className="w-full bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 transition font-semibold text-base disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2">
             {loading ? (
               <>
                 <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
