@@ -140,7 +140,7 @@ export default function InventoryPage() {
     try {
       // First fetch template definition to get categories (works even if items already exist)
       const tmplRes = await api.get("/inventory/templates", { params: { template_type: templateType } });
-      const tmplCats = [...new Set(tmplRes.data.map((t) => t.default_category || "General"))].sort();
+      const tmplCats = [...new Set(tmplRes.data.map((tp) => tp.default_category || "General"))].sort();
 
       const res = await api.post("/inventory/templates/load", { template_type: templateType });
       setTemplateLoaded(templateType);
@@ -287,7 +287,7 @@ export default function InventoryPage() {
           {templateFilter && (
             <div className="flex items-center gap-2 mb-2">
               <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">
-                {t("filteredBy")}: {TEMPLATES.find((t) => t.type === templateLoaded)?.name || "Template"}
+                {t("filteredBy")}: {TEMPLATES.find((tp) => tp.type === templateLoaded)?.name || "Template"}
               </p>
               <button
                 onClick={() => { setTemplateFilter(null); setActiveCategory("All"); }}
