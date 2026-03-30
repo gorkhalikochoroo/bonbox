@@ -531,7 +531,7 @@ export default function SalesPage() {
         </div>
       </div>
 
-      {/* Inline selection popup */}
+      {/* Sticky selection bar */}
       {selected.size > 0 && (() => {
         const selSales = filtered.filter(s => selected.has(s.id));
         const total = selSales.reduce((sum, s) => sum + parseFloat(s.amount), 0);
@@ -539,25 +539,23 @@ export default function SalesPage() {
         const byMethod = {};
         selSales.forEach(s => { byMethod[s.payment_method] = (byMethod[s.payment_method] || 0) + parseFloat(s.amount); });
         return (
-          <div className="bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-3 shadow-sm">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm font-semibold text-blue-800 dark:text-blue-200">
-                {selected.size} selected &middot; {total.toLocaleString()} {currency}
-              </p>
-              <button onClick={() => setSelected(new Set())} className="w-6 h-6 flex items-center justify-center rounded-full bg-blue-200 dark:bg-blue-800 text-blue-600 dark:text-blue-300 text-xs font-bold hover:bg-blue-300 dark:hover:bg-blue-700 transition">
+          <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-blue-600 dark:bg-blue-700 text-white rounded-2xl px-5 py-3 shadow-2xl shadow-blue-600/30 max-w-lg w-[calc(100%-2rem)]">
+            <div className="flex items-center gap-3 mb-1.5">
+              <button onClick={() => setSelected(new Set())} className="w-6 h-6 flex items-center justify-center rounded-full bg-white/20 text-white text-xs font-bold hover:bg-white/30 transition flex-shrink-0">
                 &times;
               </button>
+              <p className="text-sm font-semibold flex-1">
+                {selected.size} selected &middot; {total.toLocaleString()} {currency}
+              </p>
+              <span className="text-xs opacity-75">Avg: {Math.round(avg).toLocaleString()}</span>
             </div>
             {Object.keys(byMethod).length > 1 && (
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {Object.entries(byMethod).sort((a, b) => b[1] - a[1]).map(([m, amt]) => (
-                  <span key={m} className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/50 rounded-full text-[11px] text-blue-700 dark:text-blue-300 capitalize">
+                  <span key={m} className="px-2 py-0.5 bg-white/15 rounded-full text-[11px] capitalize">
                     {t(m)}: {amt.toLocaleString()}
                   </span>
                 ))}
-                <span className="px-2 py-0.5 bg-blue-200 dark:bg-blue-800 rounded-full text-[11px] text-blue-800 dark:text-blue-200">
-                  Avg: {Math.round(avg).toLocaleString()}
-                </span>
               </div>
             )}
             <div className="flex gap-2">
@@ -568,11 +566,11 @@ export default function SalesPage() {
                   setSuccess("Copied to clipboard!");
                   setTimeout(() => setSuccess(""), 2000);
                 }}
-                className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 transition"
+                className="px-3 py-1.5 bg-white/20 rounded-lg text-xs font-medium hover:bg-white/30 transition"
               >
                 Copy Summary
               </button>
-              <button onClick={bulkDelete} className="px-3 py-1.5 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg text-xs font-medium hover:bg-red-200 dark:hover:bg-red-900/50 transition">
+              <button onClick={bulkDelete} className="px-3 py-1.5 bg-red-500/80 rounded-lg text-xs font-medium hover:bg-red-500 transition">
                 {t("moveToTrash")}
               </button>
             </div>

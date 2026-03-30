@@ -153,6 +153,49 @@ export default function ExpensesPage() {
     }
   };
 
+  // Quick expense (no category required)
+  const [quickMode, setQuickMode] = useState(false);
+  const [quickAmount, setQuickAmount] = useState("");
+  const [quickMethod, setQuickMethod] = useState("card");
+  const [quickNotes, setQuickNotes] = useState("");
+  const [quickDate, setQuickDate] = useState(new Date().toISOString().split("T")[0]);
+
+  const submitQuick = async (amt) => {
+    const value = amt || parseFloat(quickAmount);
+    if (!value) return;
+    setError("");
+    try {
+      // Find or create "Other" category
+      let otherCat = categories.find(c => c.name === "Other");
+      if (!otherCat) {
+        const res = await api.post("/expenses/categories", { name: "Other" });
+        otherCat = res.data;
+        setCategories(prev => [...prev, res.data]);
+      }
+      await api.post("/expenses", {
+        category_id: otherCat.id,
+        date: quickDate,
+        amount: value,
+        description: quickNotes || "Quick expense",
+        is_recurring: false,
+        payment_method: quickMethod,
+        notes: quickNotes || null,
+        is_personal: false,
+      });
+      const isBackdated = quickDate !== new Date().toISOString().split("T")[0];
+      setQuickAmount("");
+      setQuickNotes("");
+      setQuickMethod("card");
+      setQuickDate(new Date().toISOString().split("T")[0]);
+      trackEvent("quick_expense_logged", "expenses", `${value} ${currency}`);
+      setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${quickDate})` : ""}!`);
+      fetchData(filterFrom, filterTo);
+      setTimeout(() => setSuccess(""), 2500);
+    } catch (err) {
+      setError(err.response?.data?.detail || "Failed to add expense");
+    }
+  };
+
   const submit = async (quickAmt) => {
     const value = quickAmt || parseFloat(amount);
     if (!value) return;
@@ -279,7 +322,81 @@ export default function ExpensesPage() {
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
       <div className="lg:col-span-3 bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
         <div className="max-w-md">
-        <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300 mb-0.5">{t("addExpense")}</h2>
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">{t("addExpense")}</h2>
+          <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
+            <button
+              onClick={() => setQuickMode(false)}
+              className={`px-3 py-1 rounded-md text-xs font-medium transition ${!quickMode ? "bg-white dark:bg-gray-600 text-gray-800 dark:text-white shadow-sm" : "text-gray-500 dark:text-gray-400"}`}
+            >
+              Detailed
+            </button>
+            <button
+              onClick={() => setQuickMode(true)}
+              className={`px-3 py-1 rounded-md text-xs font-medium transition ${quickMode ? "bg-white dark:bg-gray-600 text-gray-800 dark:text-white shadow-sm" : "text-gray-500 dark:text-gray-400"}`}
+            >
+              Quick
+            </button>
+          </div>
+        </div>
+
+        {quickMode ? (
+          <div>
+            <p className="text-xs text-gray-400 dark:text-gray-400 mb-3">Amount, payment & go — saved as "Other"</p>
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {QUICK_AMOUNTS.map((amt) => (
+                <button
+                  key={amt}
+                  onClick={() => submitQuick(amt)}
+                  className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-green-50 dark:hover:bg-green-900/30 hover:border-green-300 dark:hover:border-green-500 hover:text-green-700 dark:hover:text-green-300 transition"
+                >
+                  {amt.toLocaleString()} {currency}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 mb-2">
+              <input
+                type="number"
+                value={quickAmount}
+                onChange={(e) => setQuickAmount(e.target.value)}
+                placeholder={t("customAmount")}
+                className="flex-1 px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                onKeyDown={(e) => e.key === "Enter" && submitQuick()}
+              />
+              <button
+                onClick={() => submitQuick()}
+                disabled={!quickAmount}
+                className="px-4 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold text-sm disabled:opacity-40"
+              >
+                {t("add")}
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
+                <button key={m} type="button" onClick={() => setQuickMethod(m)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition ${
+                    quickMethod === m ? "bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-500 text-green-700 dark:text-green-300" : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                  }`}>{t(m)}</button>
+              ))}
+            </div>
+            <input type="text" value={quickNotes} onChange={(e) => setQuickNotes(e.target.value)}
+              placeholder="Notes (optional)" className="w-full px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm mb-2" />
+            <div className="flex items-center gap-3">
+              <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("date")}:</label>
+              <input
+                type="date"
+                value={quickDate}
+                max={new Date().toISOString().split("T")[0]}
+                onChange={(e) => setQuickDate(e.target.value)}
+                className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+              />
+              {quickDate !== new Date().toISOString().split("T")[0] && (
+                <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Backdated</span>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div>
         <p className="text-xs text-gray-400 dark:text-gray-400 mb-3">{t("pickCategory")}</p>
 
         <div className="flex flex-wrap gap-1.5 mb-2">
@@ -310,16 +427,36 @@ export default function ExpensesPage() {
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2 mb-2">
+        <div className="flex items-center gap-2 mb-2 relative">
           <span className="text-xs text-gray-400 dark:text-gray-500">or</span>
-          <input
-            ref={customCatRef}
-            type="text"
-            value={customCat}
-            onChange={(e) => { setCustomCat(e.target.value); if (e.target.value) setCatId(""); }}
-            placeholder="Custom category..."
-            className="flex-1 px-2.5 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-          />
+          <div className="flex-1 relative">
+            <input
+              ref={customCatRef}
+              type="text"
+              value={customCat}
+              onChange={(e) => { setCustomCat(e.target.value); if (e.target.value) setCatId(""); }}
+              placeholder="Custom category..."
+              className="w-full px-2.5 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+            />
+            {customCat.length >= 1 && (() => {
+              const matches = categories.filter(c => c.name.toLowerCase().includes(customCat.toLowerCase()) && c.name.toLowerCase() !== customCat.toLowerCase());
+              if (matches.length === 0) return null;
+              return (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg z-20 max-h-32 overflow-y-auto">
+                  {matches.slice(0, 5).map(c => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => { setCatId(c.id); setCustomCat(""); setDesc(c.name); }}
+                      className="w-full text-left px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition"
+                    >
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
         </div>
 
         <div className="relative mb-2">
@@ -432,6 +569,8 @@ export default function ExpensesPage() {
             <span className="text-xs text-purple-500 dark:text-purple-400">Excluded from reports & VAT</span>
           )}
         </div>
+          </div>
+        )}
         </div>
       </div>
 
@@ -677,7 +816,7 @@ export default function ExpensesPage() {
         </div>
       </div>
 
-      {/* Inline selection popup */}
+      {/* Sticky selection bar */}
       {selected.size > 0 && (() => {
         const selExp = filtered.filter(e => selected.has(e.id));
         const total = selExp.reduce((sum, e) => sum + parseFloat(e.amount), 0);
@@ -685,25 +824,23 @@ export default function ExpensesPage() {
         const byCat = {};
         selExp.forEach(e => { byCat[e.category_name || "Other"] = (byCat[e.category_name || "Other"] || 0) + parseFloat(e.amount); });
         return (
-          <div className="bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3 shadow-sm">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
-                {selected.size} selected &middot; {total.toLocaleString()} {currency}
-              </p>
-              <button onClick={() => setSelected(new Set())} className="w-6 h-6 flex items-center justify-center rounded-full bg-amber-200 dark:bg-amber-800 text-amber-600 dark:text-amber-300 text-xs font-bold hover:bg-amber-300 dark:hover:bg-amber-700 transition">
+          <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-amber-600 dark:bg-amber-700 text-white rounded-2xl px-5 py-3 shadow-2xl shadow-amber-600/30 max-w-lg w-[calc(100%-2rem)]">
+            <div className="flex items-center gap-3 mb-1.5">
+              <button onClick={() => setSelected(new Set())} className="w-6 h-6 flex items-center justify-center rounded-full bg-white/20 text-white text-xs font-bold hover:bg-white/30 transition flex-shrink-0">
                 &times;
               </button>
+              <p className="text-sm font-semibold flex-1">
+                {selected.size} selected &middot; {total.toLocaleString()} {currency}
+              </p>
+              <span className="text-xs opacity-75">Avg: {Math.round(avg).toLocaleString()}</span>
             </div>
             {Object.keys(byCat).length > 0 && (
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([cat, amt]) => (
-                  <span key={cat} className="px-2 py-0.5 bg-amber-100 dark:bg-amber-900/50 rounded-full text-[11px] text-amber-700 dark:text-amber-300">
+                  <span key={cat} className="px-2 py-0.5 bg-white/15 rounded-full text-[11px]">
                     {cat}: {amt.toLocaleString()}
                   </span>
                 ))}
-                <span className="px-2 py-0.5 bg-amber-200 dark:bg-amber-800 rounded-full text-[11px] text-amber-800 dark:text-amber-200">
-                  Avg: {Math.round(avg).toLocaleString()}
-                </span>
               </div>
             )}
             <div className="flex gap-2">
@@ -714,11 +851,11 @@ export default function ExpensesPage() {
                   setSuccess("Copied to clipboard!");
                   setTimeout(() => setSuccess(""), 2000);
                 }}
-                className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700 transition"
+                className="px-3 py-1.5 bg-white/20 rounded-lg text-xs font-medium hover:bg-white/30 transition"
               >
                 Copy Summary
               </button>
-              <button onClick={bulkDelete} className="px-3 py-1.5 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg text-xs font-medium hover:bg-red-200 dark:hover:bg-red-900/50 transition">
+              <button onClick={bulkDelete} className="px-3 py-1.5 bg-red-500/80 rounded-lg text-xs font-medium hover:bg-red-500 transition">
                 Move to trash
               </button>
             </div>
