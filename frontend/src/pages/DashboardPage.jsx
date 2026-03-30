@@ -87,6 +87,9 @@ export default function DashboardPage() {
   const [saleModal, setSaleModal] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [lightboxImg, setLightboxImg] = useState(null);
+  const [expandedKpi, setExpandedKpi] = useState(null); // "revenue" | "profit" | "expense" | "alerts"
+  const [todaySales, setTodaySales] = useState([]);
+  const [todayExpenses, setTodayExpenses] = useState([]);
   const navigate = useNavigate();
   const { showToast, ToastContainer } = useToast();
 
@@ -161,6 +164,9 @@ export default function DashboardPage() {
     api.get("/dashboard/action-items").then((res) => setActionItems(res.data)).catch(() => {});
     api.get("/dashboard/week-comparison").then((res) => setWeekComparison(res.data)).catch(() => {});
     api.get("/dashboard/payment-breakdown").then((res) => setPaymentBreakdown(res.data)).catch(() => {});
+    const today = new Date().toISOString().split("T")[0];
+    api.get("/sales", { params: { from: today, to: today } }).then((res) => setTodaySales(res.data)).catch(() => {});
+    api.get("/expenses", { params: { from: today, to: today } }).then((res) => setTodayExpenses(res.data)).catch(() => {});
   };
 
   // Fetch period-specific data
@@ -354,7 +360,7 @@ export default function DashboardPage() {
       {/* Onboarding for new users */}
       <Onboarding summary={summary} />
 
-      {/* KPI Cards */}
+      {/* KPI Cards — clickable to expand details */}
       <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 stagger-cards">
         <KpiCard
           title={period === "today" ? t("todayRevenue") : period === "thisWeek" ? t("thisWeekRevenue") : period === "thisMonth" ? t("thisMonthRevenue") : t("last30Revenue")}
@@ -363,20 +369,23 @@ export default function DashboardPage() {
           change={period === "today" ? summary.today_revenue_change : undefined}
           changeLabel={period === "today" ? t("vsYesterday") : undefined}
           subtitle={periodStats ? `${periodStats.salesCount} sales` : undefined}
-          to="/sales"
+          expanded={expandedKpi === "revenue"}
+          onToggle={() => setExpandedKpi(expandedKpi === "revenue" ? null : "revenue")}
         />
         <KpiCard
           title={period === "today" ? t("todaysProfit") : period === "thisWeek" ? t("thisWeekProfit") : period === "thisMonth" ? t("thisMonthProfit") : t("last30Profit")}
           numericValue={periodStats ? periodStats.profit : summary.month_profit}
           currency={currency}
           subtitle={`${periodStats ? periodStats.margin : summary.profit_margin}% ${t("margin")}`}
-          to="/reports"
+          expanded={expandedKpi === "profit"}
+          onToggle={() => setExpandedKpi(expandedKpi === "profit" ? null : "profit")}
         />
         <KpiCard
           title={t("topExpense")}
           value={periodStats ? (periodStats.topExpenseCategoryName || t("none")) : (summary.top_expense_category || t("none"))}
           subtitle={periodStats ? (periodStats.topExpenseAmount > 0 ? `${periodStats.topExpenseAmount.toLocaleString()} ${currency}` : "") : (summary.top_expense_amount > 0 ? `${summary.top_expense_amount.toLocaleString()} ${currency}` : "")}
-          to="/expenses"
+          expanded={expandedKpi === "expense"}
+          onToggle={() => setExpandedKpi(expandedKpi === "expense" ? null : "expense")}
         />
         {summary.khata_receivable > 0 ? (
           <KpiCard
@@ -385,17 +394,154 @@ export default function DashboardPage() {
             currency={currency}
             alert={true}
             subtitle={t("outstandingCredit")}
-            to="/khata"
+            expanded={expandedKpi === "alerts"}
+            onToggle={() => setExpandedKpi(expandedKpi === "alerts" ? null : "alerts")}
           />
         ) : (
           <KpiCard
             title={t("inventoryAlerts")}
             value={summary.inventory_alerts}
             alert={summary.inventory_alerts > 0}
-            to="/inventory"
+            expanded={expandedKpi === "alerts"}
+            onToggle={() => setExpandedKpi(expandedKpi === "alerts" ? null : "alerts")}
           />
         )}
       </div>
+
+      {/* Expanded KPI detail panel */}
+      {expandedKpi === "revenue" && (() => {
+        const byMethod = {};
+        todaySales.forEach(s => { byMethod[s.payment_method || "other"] = (byMethod[s.payment_method || "other"] || 0) + parseFloat(s.amount); });
+        return (
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-green-200 dark:border-green-800 p-4 sm:p-5 shadow-sm animate-in">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Revenue Breakdown</h3>
+              <div className="flex items-center gap-2">
+                <button onClick={() => navigate("/sales")} className="text-xs text-blue-500 hover:underline font-medium">View all sales →</button>
+                <button onClick={() => setExpandedKpi(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
+              </div>
+            </div>
+            {Object.keys(byMethod).length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {Object.entries(byMethod).sort((a, b) => b[1] - a[1]).map(([m, amt]) => (
+                  <span key={m} className="px-3 py-1.5 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-xs font-bold text-green-700 dark:text-green-400 capitalize">
+                    {t(m)} · {amt.toLocaleString()} {currency}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="space-y-1.5 max-h-48 overflow-y-auto">
+              {todaySales.length > 0 ? todaySales.slice(0, 10).map((s, i) => (
+                <div key={i} className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-gray-800 dark:text-white">{parseFloat(s.amount).toLocaleString()} {currency}</span>
+                    <span className="text-xs text-gray-400 capitalize">{s.payment_method}</span>
+                  </div>
+                  <span className="text-xs text-gray-400">{s.notes || "—"}</span>
+                </div>
+              )) : <p className="text-sm text-gray-400 text-center py-3">No sales today yet</p>}
+            </div>
+          </div>
+        );
+      })()}
+
+      {expandedKpi === "profit" && (() => {
+        const rev = periodStats ? periodStats.totalRevenue : summary.today_revenue;
+        const exp = periodStats ? periodStats.totalExpenses : summary.month_expenses;
+        const profit = periodStats ? periodStats.profit : summary.month_profit;
+        return (
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-blue-200 dark:border-blue-800 p-4 sm:p-5 shadow-sm animate-in">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Profit Breakdown</h3>
+              <div className="flex items-center gap-2">
+                <button onClick={() => navigate("/reports")} className="text-xs text-blue-500 hover:underline font-medium">Full reports →</button>
+                <button onClick={() => setExpandedKpi(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 text-center">
+                <p className="text-[10px] uppercase tracking-wide text-green-600 dark:text-green-400 font-semibold">Revenue</p>
+                <p className="text-lg font-extrabold text-green-600 dark:text-green-400">{rev.toLocaleString()}</p>
+              </div>
+              <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-3 text-center">
+                <p className="text-[10px] uppercase tracking-wide text-red-500 dark:text-red-400 font-semibold">Expenses</p>
+                <p className="text-lg font-extrabold text-red-500 dark:text-red-400">−{exp.toLocaleString()}</p>
+              </div>
+              <div className={`rounded-lg p-3 text-center ${profit >= 0 ? "bg-emerald-50 dark:bg-emerald-900/20" : "bg-orange-50 dark:bg-orange-900/20"}`}>
+                <p className={`text-[10px] uppercase tracking-wide font-semibold ${profit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-orange-600 dark:text-orange-400"}`}>Profit</p>
+                <p className={`text-lg font-extrabold ${profit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-orange-600 dark:text-orange-400"}`}>{profit >= 0 ? "+" : ""}{profit.toLocaleString()}</p>
+              </div>
+            </div>
+            <div className="mt-3 bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3 flex items-center justify-between">
+              <span className="text-xs text-gray-500 dark:text-gray-400">Profit Margin</span>
+              <span className={`text-sm font-bold ${(periodStats?.margin || summary.profit_margin) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
+                {periodStats ? periodStats.margin : summary.profit_margin}%
+              </span>
+            </div>
+          </div>
+        );
+      })()}
+
+      {expandedKpi === "expense" && (() => {
+        const byCat = {};
+        todayExpenses.forEach(e => { byCat[e.category_name || e.description || "Other"] = (byCat[e.category_name || e.description || "Other"] || 0) + parseFloat(e.amount); });
+        return (
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-red-200 dark:border-red-800 p-4 sm:p-5 shadow-sm animate-in">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Expense Breakdown</h3>
+              <div className="flex items-center gap-2">
+                <button onClick={() => navigate("/expenses")} className="text-xs text-blue-500 hover:underline font-medium">View all expenses →</button>
+                <button onClick={() => setExpandedKpi(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
+              </div>
+            </div>
+            {Object.keys(byCat).length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([cat, amt]) => (
+                  <span key={cat} className="px-3 py-1.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-xs font-bold text-red-600 dark:text-red-400">
+                    {cat} · {amt.toLocaleString()} {currency}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="space-y-1.5 max-h-48 overflow-y-auto">
+              {todayExpenses.length > 0 ? todayExpenses.slice(0, 10).map((e, i) => (
+                <div key={i} className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-gray-800 dark:text-white">{parseFloat(e.amount).toLocaleString()} {currency}</span>
+                    <span className="text-xs text-gray-400">{e.description || e.category_name || "—"}</span>
+                  </div>
+                  <span className="text-xs text-gray-400 capitalize">{e.payment_method || "—"}</span>
+                </div>
+              )) : <p className="text-sm text-gray-400 text-center py-3">No expenses today</p>}
+            </div>
+          </div>
+        );
+      })()}
+
+      {expandedKpi === "alerts" && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-yellow-200 dark:border-yellow-800 p-4 sm:p-5 shadow-sm animate-in">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">{summary.khata_receivable > 0 ? "Khata Details" : "Inventory Alerts"}</h3>
+            <div className="flex items-center gap-2">
+              <button onClick={() => navigate(summary.khata_receivable > 0 ? "/khata" : "/inventory")} className="text-xs text-blue-500 hover:underline font-medium">
+                {summary.khata_receivable > 0 ? "View Khata →" : "View Inventory →"}
+              </button>
+              <button onClick={() => setExpandedKpi(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
+            </div>
+          </div>
+          {summary.khata_receivable > 0 ? (
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3 text-center">
+              <p className="text-xs text-yellow-600 dark:text-yellow-400 font-semibold">Outstanding Credit</p>
+              <p className="text-2xl font-extrabold text-yellow-600 dark:text-yellow-400">{summary.khata_receivable.toLocaleString()} {currency}</p>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3 bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3">
+              <span className={`text-2xl font-extrabold ${summary.inventory_alerts > 0 ? "text-red-500" : "text-green-500"}`}>{summary.inventory_alerts}</span>
+              <span className="text-sm text-gray-600 dark:text-gray-300">{summary.inventory_alerts > 0 ? "items below minimum stock level" : "All stock levels healthy"}</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Action Items + Top Sellers — what owners actually care about */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
@@ -1241,21 +1387,17 @@ function BenchmarkCards({ benchmarks, currency }) {
   );
 }
 
-function KpiCard({ title, value, change, changeLabel, subtitle, alert, numericValue, currency: cur, to }) {
-  const navigate = useNavigate();
-  const Wrapper = to ? "button" : "div";
+function KpiCard({ title, value, change, changeLabel, subtitle, alert, numericValue, currency: cur, expanded, onToggle }) {
   return (
-    <Wrapper
-      onClick={to ? () => navigate(to) : undefined}
-      className={`bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border card-hover text-left w-full transition ${to ? "cursor-pointer hover:ring-2 hover:ring-green-400/50 hover:border-green-300 dark:hover:border-green-600 active:scale-[0.98]" : ""} ${alert ? "border-red-300 dark:border-red-600" : "border-gray-100 dark:border-gray-700"}`}
+    <button
+      onClick={onToggle}
+      className={`bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border card-hover text-left w-full transition cursor-pointer hover:ring-2 hover:ring-green-400/50 hover:border-green-300 dark:hover:border-green-600 active:scale-[0.98] ${expanded ? "ring-2 ring-green-400/50 border-green-300 dark:border-green-600" : ""} ${alert ? "border-red-300 dark:border-red-600" : !expanded ? "border-gray-100 dark:border-gray-700" : ""}`}
     >
       <div className="flex items-center justify-between">
         <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">{title}</p>
-        {to && (
-          <svg className="w-3.5 h-3.5 text-gray-300 dark:text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-        )}
+        <svg className={`w-3.5 h-3.5 text-gray-300 dark:text-gray-600 transition-transform ${expanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
       </div>
       <p className="text-lg sm:text-2xl font-bold text-gray-800 dark:text-gray-100 mt-1 break-words">
         {numericValue !== undefined ? (
@@ -1271,6 +1413,6 @@ function KpiCard({ title, value, change, changeLabel, subtitle, alert, numericVa
         <p className="text-sm mt-1 text-gray-400 dark:text-gray-500">No sales yet today</p>
       )}
       {subtitle && <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{subtitle}</p>}
-    </Wrapper>
+    </button>
   );
 }
