@@ -31,6 +31,7 @@ export default function SalesPage() {
   const [listening, setListening] = useState(false);
   const [showItemSale, setShowItemSale] = useState(false);
   const [inventoryItems, setInventoryItems] = useState([]);
+  const [expandedStat, setExpandedStat] = useState(null); // "today" | "total" | "avg" | null
 
   const filtered = sales.filter(s => !search || s.notes?.toLowerCase().includes(search.toLowerCase()) || s.payment_method?.toLowerCase().includes(search.toLowerCase())).sort((a, b) => {
     const d = b.date.localeCompare(a.date);
@@ -293,43 +294,160 @@ export default function SalesPage() {
           const todayRev = todaySales.reduce((s, x) => s + parseFloat(x.amount), 0);
           const methods = {};
           sales.forEach(s => { methods[s.payment_method] = (methods[s.payment_method] || 0) + parseFloat(s.amount); });
-          const topMethod = Object.entries(methods).sort((a, b) => b[1] - a[1])[0];
+          // Group sales by date for breakdown
+          const byDate = {};
+          sales.forEach(s => { byDate[s.date] = (byDate[s.date] || 0) + parseFloat(s.amount); });
+          const sortedDates = Object.entries(byDate).sort((a, b) => b[0].localeCompare(a[0]));
+          // Today's methods
+          const todayMethods = {};
+          todaySales.forEach(s => { todayMethods[s.payment_method] = (todayMethods[s.payment_method] || 0) + parseFloat(s.amount); });
           return (
-            <div className="lg:col-span-2 grid grid-cols-2 gap-3 content-start">
-              <div className="bg-gradient-to-br from-green-950 to-gray-800 rounded-xl p-4 border border-green-800/50">
-                <p className="text-[10px] uppercase tracking-widest text-green-300/70 font-semibold mb-1.5">Today</p>
-                <p className="text-3xl font-extrabold text-green-400">{todayRev.toLocaleString()}</p>
-                <p className="text-[11px] text-green-300/50 mt-1 font-medium">{todaySales.length} sale{todaySales.length !== 1 ? "s" : ""} today</p>
-              </div>
-              <div className="bg-gradient-to-br from-blue-950 to-gray-800 rounded-xl p-4 border border-blue-800/50">
-                <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold mb-1.5">Total Revenue</p>
-                <p className="text-3xl font-extrabold text-blue-400">{totalRev.toLocaleString()}</p>
-                <p className="text-[11px] text-blue-300/50 mt-1 font-medium">{currency} from {sales.length} sales</p>
-              </div>
-              <div className="bg-gradient-to-br from-purple-950 to-gray-800 rounded-xl p-4 border border-purple-800/50">
-                <p className="text-[10px] uppercase tracking-widest text-purple-300/70 font-semibold mb-1.5">Avg Sale</p>
-                <p className="text-3xl font-extrabold text-purple-400">{Math.round(avgSale).toLocaleString()}</p>
-                <p className="text-[11px] text-purple-300/50 mt-1 font-medium">{currency} per sale</p>
-              </div>
-              <div className="bg-gradient-to-br from-orange-950 to-gray-800 rounded-xl p-4 border border-orange-800/50">
-                <p className="text-[10px] uppercase tracking-widest text-orange-300/70 font-semibold mb-1.5">By Payment</p>
-                <div className="flex flex-wrap gap-1.5 mt-1.5">
-                  {Object.entries(methods).sort((a, b) => b[1] - a[1]).map(([m, amt]) => (
-                    <button
-                      key={m}
-                      onClick={() => setSearch(search === m ? "" : m)}
-                      className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition capitalize ${
-                        search === m
-                          ? "bg-orange-500 text-white shadow-lg shadow-orange-500/30"
-                          : "bg-orange-900/40 text-orange-200 hover:bg-orange-800/60 border border-orange-700/40"
-                      }`}
-                    >
-                      {t(m)} · {amt.toLocaleString()}
-                    </button>
-                  ))}
+            <div className="lg:col-span-2 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <button onClick={() => setExpandedStat(expandedStat === "today" ? null : "today")} className={`text-left bg-gradient-to-br from-green-950 to-gray-800 rounded-xl p-4 border transition hover:brightness-110 active:scale-[0.98] ${expandedStat === "today" ? "border-green-400 ring-1 ring-green-400/50" : "border-green-800/50"}`}>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] uppercase tracking-widest text-green-300/70 font-semibold">Today</p>
+                    <svg className={`w-3 h-3 text-green-400/60 transition-transform ${expandedStat === "today" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                  </div>
+                  <p className="text-3xl font-extrabold text-green-400 mt-1">{todayRev.toLocaleString()}</p>
+                  <p className="text-[11px] text-green-300/50 mt-1 font-medium">{todaySales.length} sale{todaySales.length !== 1 ? "s" : ""} today</p>
+                </button>
+                <button onClick={() => setExpandedStat(expandedStat === "total" ? null : "total")} className={`text-left bg-gradient-to-br from-blue-950 to-gray-800 rounded-xl p-4 border transition hover:brightness-110 active:scale-[0.98] ${expandedStat === "total" ? "border-blue-400 ring-1 ring-blue-400/50" : "border-blue-800/50"}`}>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold">Total Revenue</p>
+                    <svg className={`w-3 h-3 text-blue-400/60 transition-transform ${expandedStat === "total" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                  </div>
+                  <p className="text-3xl font-extrabold text-blue-400 mt-1">{totalRev.toLocaleString()}</p>
+                  <p className="text-[11px] text-blue-300/50 mt-1 font-medium">{currency} from {sales.length} sales</p>
+                </button>
+                <button onClick={() => setExpandedStat(expandedStat === "avg" ? null : "avg")} className={`text-left bg-gradient-to-br from-purple-950 to-gray-800 rounded-xl p-4 border transition hover:brightness-110 active:scale-[0.98] ${expandedStat === "avg" ? "border-purple-400 ring-1 ring-purple-400/50" : "border-purple-800/50"}`}>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] uppercase tracking-widest text-purple-300/70 font-semibold">Avg Sale</p>
+                    <svg className={`w-3 h-3 text-purple-400/60 transition-transform ${expandedStat === "avg" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                  </div>
+                  <p className="text-3xl font-extrabold text-purple-400 mt-1">{Math.round(avgSale).toLocaleString()}</p>
+                  <p className="text-[11px] text-purple-300/50 mt-1 font-medium">{currency} per sale</p>
+                </button>
+                <div className="bg-gradient-to-br from-orange-950 to-gray-800 rounded-xl p-4 border border-orange-800/50">
+                  <p className="text-[10px] uppercase tracking-widest text-orange-300/70 font-semibold mb-1.5">By Payment</p>
+                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    {Object.entries(methods).sort((a, b) => b[1] - a[1]).map(([m, amt]) => (
+                      <button
+                        key={m}
+                        onClick={() => setSearch(search === m ? "" : m)}
+                        className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition capitalize ${
+                          search === m
+                            ? "bg-orange-500 text-white shadow-lg shadow-orange-500/30"
+                            : "bg-orange-900/40 text-orange-200 hover:bg-orange-800/60 border border-orange-700/40"
+                        }`}
+                      >
+                        {t(m)} · {amt.toLocaleString()}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-orange-300/50 mt-2 font-medium">{Object.keys(methods).length} method{Object.keys(methods).length !== 1 ? "s" : ""} used</p>
                 </div>
-                <p className="text-[11px] text-orange-300/50 mt-2 font-medium">{Object.keys(methods).length} method{Object.keys(methods).length !== 1 ? "s" : ""} used</p>
               </div>
+
+              {/* Expanded detail panel */}
+              {expandedStat === "today" && (
+                <div className="bg-gradient-to-br from-green-950/80 to-gray-800 rounded-xl p-4 border border-green-700/60 animate-in">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs font-semibold text-green-300">Today's Breakdown</p>
+                    <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-green-900/50 text-green-400 text-xs hover:bg-green-800/60">&times;</button>
+                  </div>
+                  {todaySales.length > 0 ? (
+                    <>
+                      {Object.keys(todayMethods).length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mb-3">
+                          {Object.entries(todayMethods).sort((a, b) => b[1] - a[1]).map(([m, amt]) => (
+                            <span key={m} className="px-2.5 py-1 bg-green-900/40 border border-green-700/40 rounded-full text-[11px] font-bold text-green-300 capitalize">{t(m)} · {amt.toLocaleString()}</span>
+                          ))}
+                        </div>
+                      )}
+                      <div className="space-y-1 max-h-36 overflow-y-auto">
+                        {todaySales.map((s, i) => (
+                          <div key={i} className="flex items-center justify-between px-3 py-1.5 bg-green-900/20 rounded-lg text-xs">
+                            <span className="font-bold text-green-300">{parseFloat(s.amount).toLocaleString()} {currency}</span>
+                            <span className="text-green-400/50 capitalize">{s.payment_method}</span>
+                            <span className="text-green-400/40 truncate max-w-[80px]">{s.notes || "—"}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : <p className="text-xs text-green-400/50 text-center py-2">No sales today yet</p>}
+                </div>
+              )}
+
+              {expandedStat === "total" && (
+                <div className="bg-gradient-to-br from-blue-950/80 to-gray-800 rounded-xl p-4 border border-blue-700/60 animate-in">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs font-semibold text-blue-300">Revenue by Day</p>
+                    <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-blue-900/50 text-blue-400 text-xs hover:bg-blue-800/60">&times;</button>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    {Object.entries(methods).sort((a, b) => b[1] - a[1]).map(([m, amt]) => (
+                      <span key={m} className="px-2.5 py-1 bg-blue-900/40 border border-blue-700/40 rounded-full text-[11px] font-bold text-blue-300 capitalize">{t(m)} · {amt.toLocaleString()}</span>
+                    ))}
+                  </div>
+                  <div className="space-y-1 max-h-36 overflow-y-auto">
+                    {sortedDates.slice(0, 10).map(([date, amt]) => (
+                      <div key={date} className="flex items-center justify-between px-3 py-1.5 bg-blue-900/20 rounded-lg text-xs">
+                        <span className="text-blue-300/70">{date}</span>
+                        <span className="font-bold text-blue-300">{amt.toLocaleString()} {currency}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-blue-400/40 mt-2 text-center">{sales.length} sales across {sortedDates.length} days</p>
+                </div>
+              )}
+
+              {expandedStat === "avg" && (() => {
+                const amounts = sales.map(s => parseFloat(s.amount)).sort((a, b) => a - b);
+                const min = amounts[0];
+                const max = amounts[amounts.length - 1];
+                const median = amounts.length % 2 === 0 ? (amounts[amounts.length / 2 - 1] + amounts[amounts.length / 2]) / 2 : amounts[Math.floor(amounts.length / 2)];
+                // Distribution buckets
+                const buckets = [
+                  { label: `< ${Math.round(avgSale * 0.5).toLocaleString()}`, count: amounts.filter(a => a < avgSale * 0.5).length },
+                  { label: `${Math.round(avgSale * 0.5).toLocaleString()} – ${Math.round(avgSale * 1.5).toLocaleString()}`, count: amounts.filter(a => a >= avgSale * 0.5 && a <= avgSale * 1.5).length },
+                  { label: `> ${Math.round(avgSale * 1.5).toLocaleString()}`, count: amounts.filter(a => a > avgSale * 1.5).length },
+                ];
+                return (
+                  <div className="bg-gradient-to-br from-purple-950/80 to-gray-800 rounded-xl p-4 border border-purple-700/60 animate-in">
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-xs font-semibold text-purple-300">Sale Distribution</p>
+                      <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-purple-900/50 text-purple-400 text-xs hover:bg-purple-800/60">&times;</button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 mb-3">
+                      <div className="text-center p-2 bg-purple-900/30 rounded-lg">
+                        <p className="text-[10px] text-purple-400/60 font-semibold">Min</p>
+                        <p className="text-sm font-extrabold text-purple-300">{min.toLocaleString()}</p>
+                      </div>
+                      <div className="text-center p-2 bg-purple-900/30 rounded-lg">
+                        <p className="text-[10px] text-purple-400/60 font-semibold">Median</p>
+                        <p className="text-sm font-extrabold text-purple-300">{Math.round(median).toLocaleString()}</p>
+                      </div>
+                      <div className="text-center p-2 bg-purple-900/30 rounded-lg">
+                        <p className="text-[10px] text-purple-400/60 font-semibold">Max</p>
+                        <p className="text-sm font-extrabold text-purple-300">{max.toLocaleString()}</p>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      {buckets.map((b) => (
+                        <div key={b.label} className="flex items-center gap-2">
+                          <span className="text-[10px] text-purple-400/60 w-24 text-right truncate">{b.label}</span>
+                          <div className="flex-1 bg-purple-900/30 rounded-full h-4 overflow-hidden">
+                            <div className="h-full bg-purple-500/60 rounded-full" style={{ width: `${Math.max(4, (b.count / sales.length) * 100)}%` }} />
+                          </div>
+                          <span className="text-[10px] font-bold text-purple-300 w-6">{b.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-purple-400/40 mt-2 text-center">Average: {Math.round(avgSale).toLocaleString()} {currency} from {sales.length} sales</p>
+                  </div>
+                );
+              })()}
             </div>
           );
         })() : (
