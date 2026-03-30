@@ -299,63 +299,63 @@ export default function SalesPage() {
           const topMethod = Object.entries(methods).sort((a, b) => b[1] - a[1])[0];
           return (
             <div className="lg:col-span-2 grid grid-cols-2 gap-3 content-start">
-              <div className="bg-gray-800 dark:bg-gray-800 rounded-xl p-4 border border-gray-700">
-                <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">Today</p>
-                <p className="text-2xl font-bold text-green-400">{todayRev.toLocaleString()}</p>
-                <p className="text-[11px] text-gray-500 mt-0.5">{todaySales.length} sale{todaySales.length !== 1 ? "s" : ""} today</p>
+              <div className="bg-gradient-to-br from-green-950 to-gray-800 rounded-xl p-4 border border-green-800/50">
+                <p className="text-[10px] uppercase tracking-widest text-green-300/70 font-semibold mb-1.5">Today</p>
+                <p className="text-3xl font-extrabold text-green-400">{todayRev.toLocaleString()}</p>
+                <p className="text-[11px] text-green-300/50 mt-1 font-medium">{todaySales.length} sale{todaySales.length !== 1 ? "s" : ""} today</p>
               </div>
-              <div className="bg-gray-800 dark:bg-gray-800 rounded-xl p-4 border border-gray-700">
-                <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">Total Revenue</p>
-                <p className="text-2xl font-bold text-blue-400">{totalRev.toLocaleString()}</p>
-                <p className="text-[11px] text-gray-500 mt-0.5">{currency} from {sales.length} sales</p>
+              <div className="bg-gradient-to-br from-blue-950 to-gray-800 rounded-xl p-4 border border-blue-800/50">
+                <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold mb-1.5">Total Revenue</p>
+                <p className="text-3xl font-extrabold text-blue-400">{totalRev.toLocaleString()}</p>
+                <p className="text-[11px] text-blue-300/50 mt-1 font-medium">{currency} from {sales.length} sales</p>
               </div>
-              <div className="bg-gray-800 dark:bg-gray-800 rounded-xl p-4 border border-gray-700">
-                <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">Avg Sale</p>
-                <p className="text-2xl font-bold text-purple-400">{Math.round(avgSale).toLocaleString()}</p>
-                <p className="text-[11px] text-gray-500 mt-0.5">{currency} per sale</p>
+              <div className="bg-gradient-to-br from-purple-950 to-gray-800 rounded-xl p-4 border border-purple-800/50">
+                <p className="text-[10px] uppercase tracking-widest text-purple-300/70 font-semibold mb-1.5">Avg Sale</p>
+                <p className="text-3xl font-extrabold text-purple-400">{Math.round(avgSale).toLocaleString()}</p>
+                <p className="text-[11px] text-purple-300/50 mt-1 font-medium">{currency} per sale</p>
               </div>
-              <div className="bg-gray-800 dark:bg-gray-800 rounded-xl p-4 border border-gray-700">
-                <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">By Payment</p>
-                <div className="flex flex-wrap gap-1 mt-1">
+              <div className="bg-gradient-to-br from-orange-950 to-gray-800 rounded-xl p-4 border border-orange-800/50">
+                <p className="text-[10px] uppercase tracking-widest text-orange-300/70 font-semibold mb-1.5">By Payment</p>
+                <div className="flex flex-wrap gap-1.5 mt-1.5">
                   {Object.entries(methods).sort((a, b) => b[1] - a[1]).map(([m, amt]) => (
                     <button
                       key={m}
                       onClick={() => setSearch(search === m ? "" : m)}
-                      className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition capitalize ${
+                      className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition capitalize ${
                         search === m
-                          ? "bg-orange-500 text-white"
-                          : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                          ? "bg-orange-500 text-white shadow-lg shadow-orange-500/30"
+                          : "bg-orange-900/40 text-orange-200 hover:bg-orange-800/60 border border-orange-700/40"
                       }`}
                     >
                       {t(m)} · {amt.toLocaleString()}
                     </button>
                   ))}
                 </div>
-                <p className="text-[11px] text-gray-500 mt-1.5">{Object.keys(methods).length} method{Object.keys(methods).length !== 1 ? "s" : ""} used</p>
+                <p className="text-[11px] text-orange-300/50 mt-2 font-medium">{Object.keys(methods).length} method{Object.keys(methods).length !== 1 ? "s" : ""} used</p>
               </div>
             </div>
           );
         })() : (
           <div className="lg:col-span-2 grid grid-cols-2 gap-3 content-start">
-            <div className="bg-gray-800 dark:bg-gray-800 rounded-xl p-4 border border-gray-700">
-              <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">Today</p>
-              <p className="text-2xl font-bold text-green-400">0</p>
-              <p className="text-[11px] text-gray-500 mt-0.5">No sales yet</p>
+            <div className="bg-gradient-to-br from-green-950 to-gray-800 rounded-xl p-4 border border-green-800/50">
+              <p className="text-[10px] uppercase tracking-widest text-green-300/70 font-semibold mb-1.5">Today</p>
+              <p className="text-3xl font-extrabold text-green-400">0</p>
+              <p className="text-[11px] text-green-300/50 mt-1 font-medium">No sales yet</p>
             </div>
-            <div className="bg-gray-800 dark:bg-gray-800 rounded-xl p-4 border border-gray-700">
-              <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">Total Revenue</p>
-              <p className="text-2xl font-bold text-blue-400">0</p>
-              <p className="text-[11px] text-gray-500 mt-0.5">{currency}</p>
+            <div className="bg-gradient-to-br from-blue-950 to-gray-800 rounded-xl p-4 border border-blue-800/50">
+              <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold mb-1.5">Total Revenue</p>
+              <p className="text-3xl font-extrabold text-blue-400">0</p>
+              <p className="text-[11px] text-blue-300/50 mt-1 font-medium">{currency}</p>
             </div>
-            <div className="bg-gray-800 dark:bg-gray-800 rounded-xl p-4 border border-gray-700">
-              <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">Avg Sale</p>
-              <p className="text-2xl font-bold text-purple-400">—</p>
-              <p className="text-[11px] text-gray-500 mt-0.5">Log your first sale</p>
+            <div className="bg-gradient-to-br from-purple-950 to-gray-800 rounded-xl p-4 border border-purple-800/50">
+              <p className="text-[10px] uppercase tracking-widest text-purple-300/70 font-semibold mb-1.5">Avg Sale</p>
+              <p className="text-3xl font-extrabold text-purple-400">—</p>
+              <p className="text-[11px] text-purple-300/50 mt-1 font-medium">Log your first sale</p>
             </div>
-            <div className="bg-gray-800 dark:bg-gray-800 rounded-xl p-4 border border-gray-700">
-              <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">By Payment</p>
-              <p className="text-lg font-bold text-orange-400 mt-1">—</p>
-              <p className="text-[11px] text-gray-500 mt-0.5">No data yet</p>
+            <div className="bg-gradient-to-br from-orange-950 to-gray-800 rounded-xl p-4 border border-orange-800/50">
+              <p className="text-[10px] uppercase tracking-widest text-orange-300/70 font-semibold mb-1.5">By Payment</p>
+              <p className="text-lg font-extrabold text-orange-400 mt-1">—</p>
+              <p className="text-[11px] text-orange-300/50 mt-1 font-medium">No data yet</p>
             </div>
           </div>
         )}
