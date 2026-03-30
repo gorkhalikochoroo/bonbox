@@ -193,7 +193,8 @@ export default function SalesPage() {
       {fetchError && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">{fetchError}</div>}
 
       {/* Quick Entry */}
-      <div className="bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 max-w-xl">
+      <div className="bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <div className="max-w-md">
         <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300 mb-0.5">{t("logSale")}</h2>
         <p className="text-xs text-gray-400 dark:text-gray-400 mb-3">{t("tapAmount")}</p>
 
@@ -211,7 +212,7 @@ export default function SalesPage() {
         </div>
 
         {/* Custom amount */}
-        <div className="flex items-center gap-2 max-w-sm">
+        <div className="flex items-center gap-2">
           <button
             onClick={startVoice}
             className={`p-2 rounded-lg border transition flex-shrink-0 ${
@@ -280,8 +281,9 @@ export default function SalesPage() {
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Add a note (optional)"
-          className="mt-2 max-w-sm px-2.5 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+          className="mt-2 w-full px-2.5 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
         />
+        </div>
       </div>
 
       {/* Item Sale Modal */}
