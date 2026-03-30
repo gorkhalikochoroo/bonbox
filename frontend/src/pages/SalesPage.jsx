@@ -355,45 +355,6 @@ export default function SalesPage() {
             </button>
           </div>
         </div>
-        {selected.size > 0 && (() => {
-          const selSales = filtered.filter(s => selected.has(s.id));
-          const total = selSales.reduce((sum, s) => sum + parseFloat(s.amount), 0);
-          const avg = selSales.length ? total / selSales.length : 0;
-          const byMethod = {};
-          selSales.forEach(s => { byMethod[s.payment_method] = (byMethod[s.payment_method] || 0) + parseFloat(s.amount); });
-          return (
-            <div className="px-6 py-3 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-100 dark:border-blue-800">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-4">
-                  <span className="text-sm font-semibold text-blue-700 dark:text-blue-300">{selected.size} selected</span>
-                  <span className="text-sm text-blue-600 dark:text-blue-400">
-                    Total: <strong>{total.toLocaleString()} {currency}</strong>
-                  </span>
-                  <span className="text-xs text-blue-500 dark:text-blue-400">
-                    Avg: {Math.round(avg).toLocaleString()} {currency}
-                  </span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button onClick={() => setSelected(new Set())} className="text-xs text-gray-500 dark:text-gray-400 hover:underline">
-                    Clear
-                  </button>
-                  <button onClick={bulkDelete} className="text-sm text-red-600 dark:text-red-400 font-medium hover:underline">
-                    {t("moveToTrash")}
-                  </button>
-                </div>
-              </div>
-              {Object.keys(byMethod).length > 1 && (
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {Object.entries(byMethod).sort((a, b) => b[1] - a[1]).map(([m, amt]) => (
-                    <span key={m} className="px-2 py-0.5 bg-white dark:bg-gray-700 rounded text-xs text-gray-600 dark:text-gray-300 border border-blue-200 dark:border-blue-700 capitalize">
-                      {t(m)}: {amt.toLocaleString()} {currency}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })()}
         <div className="overflow-x-auto">
         <table className="w-full text-left min-w-[500px]">
           <thead className="bg-gray-50 dark:bg-gray-700/50">
@@ -506,6 +467,57 @@ export default function SalesPage() {
         </table>
         </div>
       </div>
+
+      {/* Floating selection bar */}
+      {selected.size > 0 && (() => {
+        const selSales = filtered.filter(s => selected.has(s.id));
+        const total = selSales.reduce((sum, s) => sum + parseFloat(s.amount), 0);
+        const avg = selSales.length ? total / selSales.length : 0;
+        const byMethod = {};
+        selSales.forEach(s => { byMethod[s.payment_method] = (byMethod[s.payment_method] || 0) + parseFloat(s.amount); });
+        return (
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-[0_-4px_20px_rgba(0,0,0,0.15)] px-4 py-3 safe-bottom">
+            <div className="max-w-3xl mx-auto">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-semibold text-gray-800 dark:text-white">
+                  {selected.size} selected in total {total.toLocaleString()} {currency}
+                </p>
+                <button onClick={() => setSelected(new Set())} className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-200 dark:bg-gray-600 text-gray-500 dark:text-gray-300 text-xs font-bold hover:bg-gray-300 dark:hover:bg-gray-500">
+                  &times;
+                </button>
+              </div>
+              {Object.keys(byMethod).length > 1 && (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {Object.entries(byMethod).sort((a, b) => b[1] - a[1]).map(([m, amt]) => (
+                    <span key={m} className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded-full text-[11px] text-gray-600 dark:text-gray-300 capitalize">
+                      {t(m)}: {amt.toLocaleString()}
+                    </span>
+                  ))}
+                  <span className="px-2 py-0.5 bg-blue-50 dark:bg-blue-900/30 rounded-full text-[11px] text-blue-600 dark:text-blue-400">
+                    Avg: {Math.round(avg).toLocaleString()}
+                  </span>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    const text = `${selected.size} sales | Total: ${total.toLocaleString()} ${currency} | Avg: ${Math.round(avg).toLocaleString()} ${currency}`;
+                    navigator.clipboard?.writeText(text);
+                    setSuccess("Copied to clipboard!");
+                    setTimeout(() => setSuccess(""), 2000);
+                  }}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition"
+                >
+                  Copy Summary
+                </button>
+                <button onClick={bulkDelete} className="px-4 py-2 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg text-sm font-medium hover:bg-red-200 dark:hover:bg-red-900/50 transition">
+                  {t("moveToTrash")}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
