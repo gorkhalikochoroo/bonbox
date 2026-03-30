@@ -379,10 +379,9 @@ export default function ExpensesPage() {
                   }`}>{t(m)}</button>
               ))}
             </div>
-            <input type="text" value={quickNotes} onChange={(e) => setQuickNotes(e.target.value)}
-              placeholder="Notes (optional)" className="w-full px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm mb-2" />
-            <div className="flex items-center gap-3">
-              <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("date")}:</label>
+            <div className="flex items-center gap-2">
+              <input type="text" value={quickNotes} onChange={(e) => setQuickNotes(e.target.value)}
+                placeholder="Notes (optional)" className="flex-1 px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
               <input
                 type="date"
                 value={quickDate}
@@ -390,10 +389,10 @@ export default function ExpensesPage() {
                 onChange={(e) => setQuickDate(e.target.value)}
                 className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
               />
-              {quickDate !== new Date().toISOString().split("T")[0] && (
-                <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Backdated</span>
-              )}
             </div>
+            {quickDate !== new Date().toISOString().split("T")[0] && (
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 font-medium">Backdated</p>
+            )}
           </div>
         ) : (
           <div>
@@ -522,21 +521,6 @@ export default function ExpensesPage() {
           </button>
         </div>
 
-        {/* Date + Payment inline */}
-        <div className="mt-2 flex items-center gap-3">
-          <label className="text-sm font-medium text-gray-500 dark:text-gray-400">{t("date")}:</label>
-          <input
-            type="date"
-            value={expDate}
-            max={new Date().toISOString().split("T")[0]}
-            onChange={(e) => setExpDate(e.target.value)}
-            className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          {expDate !== new Date().toISOString().split("T")[0] && (
-            <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Backdated entry</span>
-          )}
-        </div>
-
         {/* Payment method */}
         <div className="flex flex-wrap gap-1.5 mt-2">
           {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
@@ -547,9 +531,21 @@ export default function ExpensesPage() {
           ))}
         </div>
 
-        {/* Notes */}
-        <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)}
-          placeholder="Notes (optional)" className="mt-2 w-full px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+        {/* Notes + Date row */}
+        <div className="mt-2 flex items-center gap-2">
+          <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)}
+            placeholder="Notes (optional)" className="flex-1 px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+          <input
+            type="date"
+            value={expDate}
+            max={new Date().toISOString().split("T")[0]}
+            onChange={(e) => setExpDate(e.target.value)}
+            className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        {expDate !== new Date().toISOString().split("T")[0] && (
+          <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 font-medium">Backdated entry</p>
+        )}
 
         {/* Personal toggle */}
         <div className="mt-2 flex items-center gap-3">
