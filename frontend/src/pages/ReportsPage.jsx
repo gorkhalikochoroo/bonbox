@@ -264,7 +264,7 @@ function DailyKasserapport() {
   }, [reportDate]);
 
   const fmt = (v) => v != null ? Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "0";
-  const METHODS = ["cash", "card", "mobilepay", "dankort", "mixed"];
+  const METHODS = ["cash", "card", "mobilepay", "online", "dankort", "mixed"];
 
   return (
     <div className="space-y-4">

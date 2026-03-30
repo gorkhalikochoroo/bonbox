@@ -398,11 +398,11 @@ export default function ExpensesPage() {
         </div>
 
         {/* Payment method */}
-        <div className="flex flex-wrap gap-2 mt-3">
-          {["cash", "card", "mobilepay", "mixed", "dankort"].map((m) => (
+        <div className="flex flex-wrap gap-1.5 mt-3">
+          {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
             <button key={m} type="button" onClick={() => setMethod(m)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
-                method === m ? "bg-green-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
+              className={`px-3 py-2 rounded-lg text-xs font-medium border transition ${
+                method === m ? "bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-500 text-green-700 dark:text-green-300" : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50"
               }`}>{t(m)}</button>
           ))}
         </div>
@@ -489,14 +489,45 @@ export default function ExpensesPage() {
             </button>
           </div>
         </div>
-        {selected.size > 0 && (
-          <div className="px-6 py-3 bg-blue-50 dark:bg-blue-900/20 flex items-center justify-between">
-            <span className="text-sm text-blue-700 dark:text-blue-400">{selected.size} selected</span>
-            <button onClick={bulkDelete} className="text-sm text-red-600 dark:text-red-400 font-medium hover:underline">
-              Move to trash
-            </button>
-          </div>
-        )}
+        {selected.size > 0 && (() => {
+          const selExp = filtered.filter(e => selected.has(e.id));
+          const total = selExp.reduce((sum, e) => sum + parseFloat(e.amount), 0);
+          const avg = selExp.length ? total / selExp.length : 0;
+          const byMethod = {};
+          selExp.forEach(e => { byMethod[e.payment_method || "—"] = (byMethod[e.payment_method || "—"] || 0) + parseFloat(e.amount); });
+          const byCat = {};
+          selExp.forEach(e => { byCat[e.category_name || "Other"] = (byCat[e.category_name || "Other"] || 0) + parseFloat(e.amount); });
+          return (
+            <div className="px-6 py-3 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-100 dark:border-blue-800">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-4">
+                  <span className="text-sm font-semibold text-blue-700 dark:text-blue-300">{selected.size} selected</span>
+                  <span className="text-sm text-blue-600 dark:text-blue-400">
+                    Total: <strong>{total.toLocaleString()} {currency}</strong>
+                  </span>
+                  <span className="text-xs text-blue-500 dark:text-blue-400">
+                    Avg: {Math.round(avg).toLocaleString()} {currency}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => setSelected(new Set())} className="text-xs text-gray-500 dark:text-gray-400 hover:underline">
+                    Clear
+                  </button>
+                  <button onClick={bulkDelete} className="text-sm text-red-600 dark:text-red-400 font-medium hover:underline">
+                    Move to trash
+                  </button>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([cat, amt]) => (
+                  <span key={cat} className="px-2 py-0.5 bg-white dark:bg-gray-700 rounded text-xs text-gray-600 dark:text-gray-300 border border-blue-200 dark:border-blue-700">
+                    {cat}: {amt.toLocaleString()} {currency}
+                  </span>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
         <div className="overflow-x-auto">
         <table className="w-full text-left min-w-[600px]">
           <thead className="bg-gray-50 dark:bg-gray-700/50">
@@ -562,7 +593,7 @@ export default function ExpensesPage() {
                         onChange={(e) => setEditData({ ...editData, payment_method: e.target.value })}
                         className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
                       >
-                        {["cash", "card", "mobilepay", "mixed", "dankort"].map((m) => (
+                        {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
                           <option key={m} value={m}>{t(m)}</option>
                         ))}
                       </select>

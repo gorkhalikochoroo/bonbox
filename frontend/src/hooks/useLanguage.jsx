@@ -106,7 +106,7 @@ const translations = {
     complaint: "Complaint", praise: "Praise", noFeedbackYet: "No feedback submitted yet",
     stars: "stars",
     // Payment methods
-    cash: "Cash", card: "Card", mobilepay: "MobilePay", mixed: "Mixed",
+    cash: "Cash", card: "Card", mobilepay: "MobilePay", online: "Online", mixed: "Mixed",
     dankort: "Dankort", bankTransfer: "Bank Transfer",
     // Quick Sale
     quickSale: "Quick Sale",
@@ -337,7 +337,7 @@ const translations = {
     complaint: "Klage", praise: "Ros", noFeedbackYet: "Ingen tilbagemelding endnu",
     stars: "stjerner",
     // Payment methods
-    cash: "Kontant", card: "Kort", mobilepay: "MobilePay", mixed: "Blandet",
+    cash: "Kontant", card: "Kort", mobilepay: "MobilePay", online: "Online", mixed: "Blandet",
     dankort: "Dankort", bankTransfer: "Bankoverførsel",
     // Quick Sale
     quickSale: "Hurtig salg",
@@ -567,7 +567,7 @@ const translations = {
     complaint: "उजुरी", praise: "प्रशंसा", noFeedbackYet: "अहिलेसम्म प्रतिक्रिया छैन",
     stars: "तारा",
     // Payment methods
-    cash: "नगद", card: "कार्ड", mobilepay: "MobilePay", mixed: "मिश्रित",
+    cash: "नगद", card: "कार्ड", mobilepay: "MobilePay", online: "अनलाइन", mixed: "मिश्रित",
     dankort: "Dankort", bankTransfer: "बैंक ट्रान्सफर",
     // Quick Sale
     quickSale: "छिटो बिक्री",

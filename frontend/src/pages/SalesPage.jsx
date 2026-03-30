@@ -243,12 +243,12 @@ export default function SalesPage() {
         </div>
 
         {/* Payment method */}
-        <div className="flex flex-wrap gap-2 mt-3">
-          {["cash", "card", "mobilepay", "mixed", "dankort"].map((m) => (
+        <div className="flex flex-wrap gap-1.5 mt-3">
+          {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
             <button
               key={m}
               onClick={() => setMethod(m)}
-              className={`flex-1 min-w-[4.5rem] py-2.5 rounded-lg text-xs font-medium border transition ${
+              className={`px-3 py-2 rounded-lg text-xs font-medium border transition ${
                 method === m
                   ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-500 text-blue-700 dark:text-blue-300"
                   : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50"
@@ -355,14 +355,45 @@ export default function SalesPage() {
             </button>
           </div>
         </div>
-        {selected.size > 0 && (
-          <div className="px-6 py-3 bg-blue-50 dark:bg-blue-900/20 flex items-center justify-between">
-            <span className="text-sm text-blue-700 dark:text-blue-400">{selected.size} selected</span>
-            <button onClick={bulkDelete} className="text-sm text-red-600 dark:text-red-400 font-medium hover:underline">
-              {t("moveToTrash")}
-            </button>
-          </div>
-        )}
+        {selected.size > 0 && (() => {
+          const selSales = filtered.filter(s => selected.has(s.id));
+          const total = selSales.reduce((sum, s) => sum + parseFloat(s.amount), 0);
+          const avg = selSales.length ? total / selSales.length : 0;
+          const byMethod = {};
+          selSales.forEach(s => { byMethod[s.payment_method] = (byMethod[s.payment_method] || 0) + parseFloat(s.amount); });
+          return (
+            <div className="px-6 py-3 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-100 dark:border-blue-800">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-4">
+                  <span className="text-sm font-semibold text-blue-700 dark:text-blue-300">{selected.size} selected</span>
+                  <span className="text-sm text-blue-600 dark:text-blue-400">
+                    Total: <strong>{total.toLocaleString()} {currency}</strong>
+                  </span>
+                  <span className="text-xs text-blue-500 dark:text-blue-400">
+                    Avg: {Math.round(avg).toLocaleString()} {currency}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => setSelected(new Set())} className="text-xs text-gray-500 dark:text-gray-400 hover:underline">
+                    Clear
+                  </button>
+                  <button onClick={bulkDelete} className="text-sm text-red-600 dark:text-red-400 font-medium hover:underline">
+                    {t("moveToTrash")}
+                  </button>
+                </div>
+              </div>
+              {Object.keys(byMethod).length > 1 && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {Object.entries(byMethod).sort((a, b) => b[1] - a[1]).map(([m, amt]) => (
+                    <span key={m} className="px-2 py-0.5 bg-white dark:bg-gray-700 rounded text-xs text-gray-600 dark:text-gray-300 border border-blue-200 dark:border-blue-700 capitalize">
+                      {t(m)}: {amt.toLocaleString()} {currency}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
         <div className="overflow-x-auto">
         <table className="w-full text-left min-w-[500px]">
           <thead className="bg-gray-50 dark:bg-gray-700/50">
@@ -407,7 +438,7 @@ export default function SalesPage() {
                         onChange={(e) => setEditData({ ...editData, payment_method: e.target.value })}
                         className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
                       >
-                        {["cash", "card", "mobilepay", "mixed", "dankort"].map((m) => (
+                        {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
                           <option key={m} value={m}>{t(m)}</option>
                         ))}
                       </select>
@@ -596,12 +627,12 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
             </div>
 
             {/* Payment method */}
-            <div className="flex gap-2 mb-4">
-              {["cash", "card", "mobilepay", "mixed"].map((m) => (
+            <div className="flex flex-wrap gap-1.5 mb-4">
+              {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
                 <button
                   key={m}
                   onClick={() => setMethod(m)}
-                  className={`flex-1 py-2 rounded-lg text-xs font-medium border transition ${
+                  className={`px-3 py-2 rounded-lg text-xs font-medium border transition ${
                     method === m
                       ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-500 text-blue-700 dark:text-blue-300"
                       : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"

@@ -224,12 +224,12 @@ export default function QuickAdd() {
               autoFocus
             />
 
-            <div className="flex flex-wrap gap-2">
-              {["cash", "card", "mobilepay", "mixed", "dankort"].map((m) => (
+            <div className="flex flex-wrap gap-1.5">
+              {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
                 <button
                   key={m}
                   onClick={() => setSaleMethod(m)}
-                  className={`flex-1 min-w-[4.5rem] py-2.5 rounded-lg text-xs font-medium border transition ${
+                  className={`px-3 py-2 rounded-lg text-xs font-medium border transition ${
                     saleMethod === m
                       ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-400"
                       : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
