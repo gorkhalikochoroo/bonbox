@@ -667,7 +667,7 @@ export default function ExpensesPage() {
             {expandedStat === "total" && (
               <div className="bg-gradient-to-br from-blue-950/80 to-gray-800 rounded-xl p-4 border border-blue-700/60 animate-in">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs font-semibold text-blue-300">Spending by Day</p>
+                  <p className="text-xs font-semibold text-blue-300">All Expenses</p>
                   <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-blue-900/50 text-blue-400 text-xs hover:bg-blue-800/60">&times;</button>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mb-3">
@@ -675,15 +675,17 @@ export default function ExpensesPage() {
                     <span key={cat} className="px-2.5 py-1 bg-blue-900/40 border border-blue-700/40 rounded-full text-[11px] font-bold text-blue-300">{cat} · {amt.toLocaleString()}</span>
                   ))}
                 </div>
-                <div className="space-y-1 max-h-36 overflow-y-auto">
-                  {sortedDates.slice(0, 10).map(([date, amt]) => (
-                    <div key={date} className="flex items-center justify-between px-3 py-1.5 bg-blue-900/20 rounded-lg text-xs">
-                      <span className="text-blue-300/70">{date}</span>
-                      <span className="font-bold text-blue-300">{amt.toLocaleString()} {currency}</span>
+                <div className="space-y-1 max-h-48 overflow-y-auto">
+                  {[...expenses].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 20).map((e, i) => (
+                    <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-blue-900/20 rounded-lg text-xs">
+                      <span className="text-blue-300/50 flex-shrink-0">{e.date.slice(5)}</span>
+                      <span className="font-bold text-blue-300 flex-shrink-0">{parseFloat(e.amount).toLocaleString()}</span>
+                      <span className="text-blue-200 truncate">{e.description || e.category_name || "—"}</span>
+                      <span className="text-blue-400/40 ml-auto flex-shrink-0 capitalize">{e.payment_method || ""}</span>
                     </div>
                   ))}
                 </div>
-                <p className="text-[10px] text-blue-400/40 mt-2 text-center">{expenses.length} expenses across {sortedDates.length} days</p>
+                <p className="text-[10px] text-blue-400/40 mt-2 text-center">{expenses.length} expenses · {sortedDates.length} days · {Object.keys(cats).length} categories</p>
               </div>
             )}
 
