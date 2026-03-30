@@ -830,8 +830,8 @@ export default function DashboardPage() {
           <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">{t("recentReceipts")}</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
             {receipts.map((r) => (
-              <div key={r.id} className="group relative cursor-pointer" onClick={() => r.receipt_photo?.startsWith('http') && setLightboxImg(r.receipt_photo)}>
-                {r.receipt_photo?.startsWith('http') ? (
+              <div key={r.id} className="group relative cursor-pointer" onClick={() => r.receipt_photo && setLightboxImg(r.receipt_photo)}>
+                {r.receipt_photo ? (
                   <img
                     src={r.receipt_photo}
                     alt={`Receipt ${r.date}`}
@@ -841,7 +841,7 @@ export default function DashboardPage() {
                 ) : null}
                 <div
                   className="w-full h-28 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 flex items-center justify-center"
-                  style={{ display: r.receipt_photo?.startsWith('http') ? 'none' : 'flex' }}
+                  style={{ display: r.receipt_photo ? 'none' : 'flex' }}
                 >
                   <span className="text-3xl">🧾</span>
                 </div>

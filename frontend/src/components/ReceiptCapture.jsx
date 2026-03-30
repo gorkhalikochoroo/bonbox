@@ -148,6 +148,17 @@ export default function ReceiptCapture({ onSaleCreated }) {
                   </div>
                 )}
 
+                {result.raw_text && (
+                  <details className="mb-3">
+                    <summary className="text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">
+                      {t("receiptText") || "Receipt text recognized"}
+                    </summary>
+                    <pre className="mt-2 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg text-xs text-gray-600 dark:text-gray-300 whitespace-pre-wrap max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-600">
+                      {result.raw_text}
+                    </pre>
+                  </details>
+                )}
+
                 <input
                   type="number"
                   value={amount}

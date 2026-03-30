@@ -285,11 +285,17 @@ async def upload_receipt(
     local_path = local_files[0] if local_files else stored_path
 
     result = extract_amount_from_image(local_path)
+    # Convert local path to full URL so frontend can display it
+    display_path = stored_path
+    if not stored_path.startswith("http"):
+        base_url = str(request.base_url).rstrip("/")
+        display_path = f"{base_url}/{stored_path}"
     return {
-        "filepath": stored_path,
+        "filepath": display_path,
         "suggested_amount": result["suggested_amount"],
         "all_amounts_found": result["all_amounts_found"],
         "ocr_available": result["ocr_available"],
+        "raw_text": result.get("raw_text", ""),
     }
 
 
@@ -398,6 +404,7 @@ def get_latest_sale(
 
 @router.get("/receipts")
 def list_receipt_sales(
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -410,13 +417,20 @@ def list_receipt_sales(
         .limit(20)
         .all()
     )
-    return [
-        {
+    base_url = str(request.base_url).rstrip("/")
+    results = []
+    for s in sales:
+        photo = s.receipt_photo
+        # Convert local paths to full URLs so frontend can display them
+        if photo and not photo.startswith("http"):
+            photo = f"{base_url}/{photo}"
+        results.append({
             "id": str(s.id),
             "date": str(s.date),
             "amount": float(s.amount),
             "payment_method": s.payment_method,
-            "receipt_photo": s.receipt_photo,
-        }
-        for s in sales
-    ]
+            "receipt_photo": photo,
+        })
+    return results
+
+

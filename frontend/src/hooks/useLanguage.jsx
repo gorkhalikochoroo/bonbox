@@ -83,7 +83,7 @@ const translations = {
     uploadReceipt: "Upload Receipt Photo", takePhoto: "Take Photo",
     photoOrGallery: "Take a photo or choose from gallery", scanningReceipt: "Scanning receipt...",
     detectedAmount: "Detected amount", couldntRead: "Couldn't read amount — type it manually below",
-    ocrNotAvailable: "OCR not available — type the amount manually",
+    ocrNotAvailable: "OCR not available — type the amount manually", receiptText: "View recognized text",
     enterTotal: "Enter total amount...", confirmLog: "Confirm & Log Sale",
     saleLoggedReceipt: "Sale logged from receipt!",
     // Quick Add
@@ -314,7 +314,7 @@ const translations = {
     uploadReceipt: "Upload kvitteringsbillede", takePhoto: "Tag billede",
     photoOrGallery: "Tag et billede eller vælg fra galleri", scanningReceipt: "Scanner kvittering...",
     detectedAmount: "Registreret beløb", couldntRead: "Kunne ikke læse beløb — skriv det manuelt nedenfor",
-    ocrNotAvailable: "OCR ikke tilgængelig — skriv beløbet manuelt",
+    ocrNotAvailable: "OCR ikke tilgængelig — skriv beløbet manuelt", receiptText: "Se genkendt tekst",
     enterTotal: "Indtast totalbeløb...", confirmLog: "Bekræft & registrer salg",
     saleLoggedReceipt: "Salg registreret fra kvittering!",
     // Quick Add
@@ -544,7 +544,7 @@ const translations = {
     uploadReceipt: "रसिदको फोटो अपलोड गर्नुहोस्", takePhoto: "फोटो खिच्नुहोस्",
     photoOrGallery: "फोटो खिच्नुहोस् वा ग्यालरीबाट छान्नुहोस्", scanningReceipt: "रसिद स्क्यान हुँदैछ...",
     detectedAmount: "पत्ता लागेको रकम", couldntRead: "रकम पढ्न सकिएन — तल आफैं टाइप गर्नुहोस्",
-    ocrNotAvailable: "OCR उपलब्ध छैन — रकम आफैं टाइप गर्नुहोस्",
+    ocrNotAvailable: "OCR उपलब्ध छैन — रकम आफैं टाइप गर्नुहोस्", receiptText: "पढिएको टेक्स्ट हेर्नुहोस्",
     enterTotal: "कुल रकम लेख्नुहोस्...", confirmLog: "पुष्टि गरी बिक्री राख्नुहोस्",
     saleLoggedReceipt: "रसिदबाट बिक्री रेकर्ड भयो!",
     // Quick Add
