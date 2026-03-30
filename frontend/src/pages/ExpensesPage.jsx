@@ -601,9 +601,23 @@ export default function ExpensesPage() {
               <p className="text-[11px] text-gray-500 mt-0.5">{currency} per expense</p>
             </div>
             <div className="bg-gray-800 dark:bg-gray-800 rounded-xl p-4 border border-gray-700">
-              <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">Top Category</p>
-              <p className="text-2xl font-bold text-orange-400">{topCat?.[0] || "—"}</p>
-              <p className="text-[11px] text-gray-500 mt-0.5">{topCat ? `${Math.round(topCat[1] / totalExp * 100)}% of spending` : ""}</p>
+              <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">By Category</p>
+              <div className="flex flex-wrap gap-1 mt-1">
+                {Object.entries(cats).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([cat, amt]) => (
+                  <button
+                    key={cat}
+                    onClick={() => setSearch(search === cat ? "" : cat)}
+                    className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition ${
+                      search === cat
+                        ? "bg-orange-500 text-white"
+                        : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                    }`}
+                  >
+                    {cat} · {amt.toLocaleString()}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-gray-500 mt-1.5">{Object.keys(cats).length} categor{Object.keys(cats).length !== 1 ? "ies" : "y"}</p>
             </div>
           </div>
         );
@@ -625,8 +639,8 @@ export default function ExpensesPage() {
             <p className="text-[11px] text-gray-500 mt-0.5">Log your first expense</p>
           </div>
           <div className="bg-gray-800 dark:bg-gray-800 rounded-xl p-4 border border-gray-700">
-            <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">Top Category</p>
-            <p className="text-2xl font-bold text-orange-400">—</p>
+            <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">By Category</p>
+            <p className="text-lg font-bold text-orange-400 mt-1">—</p>
             <p className="text-[11px] text-gray-500 mt-0.5">No data yet</p>
           </div>
         </div>

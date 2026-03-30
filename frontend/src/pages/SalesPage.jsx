@@ -315,9 +315,23 @@ export default function SalesPage() {
                 <p className="text-[11px] text-gray-500 mt-0.5">{currency} per sale</p>
               </div>
               <div className="bg-gray-800 dark:bg-gray-800 rounded-xl p-4 border border-gray-700">
-                <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">Top Method</p>
-                <p className="text-2xl font-bold text-orange-400 capitalize">{topMethod?.[0] || "—"}</p>
-                <p className="text-[11px] text-gray-500 mt-0.5">{topMethod ? `${Math.round(topMethod[1] / totalRev * 100)}% of revenue` : ""}</p>
+                <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">By Payment</p>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {Object.entries(methods).sort((a, b) => b[1] - a[1]).map(([m, amt]) => (
+                    <button
+                      key={m}
+                      onClick={() => setSearch(search === m ? "" : m)}
+                      className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition capitalize ${
+                        search === m
+                          ? "bg-orange-500 text-white"
+                          : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                      }`}
+                    >
+                      {t(m)} · {amt.toLocaleString()}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-gray-500 mt-1.5">{Object.keys(methods).length} method{Object.keys(methods).length !== 1 ? "s" : ""} used</p>
               </div>
             </div>
           );
@@ -339,8 +353,8 @@ export default function SalesPage() {
               <p className="text-[11px] text-gray-500 mt-0.5">Log your first sale</p>
             </div>
             <div className="bg-gray-800 dark:bg-gray-800 rounded-xl p-4 border border-gray-700">
-              <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">Top Method</p>
-              <p className="text-2xl font-bold text-orange-400">—</p>
+              <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">By Payment</p>
+              <p className="text-lg font-bold text-orange-400 mt-1">—</p>
               <p className="text-[11px] text-gray-500 mt-0.5">No data yet</p>
             </div>
           </div>
