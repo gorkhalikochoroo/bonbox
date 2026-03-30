@@ -307,25 +307,25 @@ export default function ExpensesPage() {
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2 mb-3">
-          <span className="text-sm text-gray-400 dark:text-gray-500">or</span>
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-xs text-gray-400 dark:text-gray-500">or</span>
           <input
             ref={customCatRef}
             type="text"
             value={customCat}
             onChange={(e) => { setCustomCat(e.target.value); if (e.target.value) setCatId(""); }}
-            placeholder="Type custom category..."
-            className="flex-1 px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+            placeholder="Custom category..."
+            className="flex-1 px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
           />
         </div>
 
-        <div className="relative mb-3">
+        <div className="relative mb-2">
           <input
             type="text"
             value={desc}
             onChange={(e) => { setDesc(e.target.value); fetchSuggestion(e.target.value); }}
             placeholder={t("whatWasIt")}
-            className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+            className="w-full px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
           />
           {suggestion && !catId && (
             <button
@@ -338,13 +338,13 @@ export default function ExpensesPage() {
           )}
         </div>
 
-        <div className="flex flex-wrap gap-2 mb-3">
+        <div className="flex flex-wrap gap-1.5 mb-2">
           {QUICK_AMOUNTS.map((amt) => (
             <button
               key={amt}
               onClick={() => submit(amt)}
               disabled={!catId && !customCat.trim()}
-              className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-700 dark:hover:text-blue-300 transition disabled:opacity-30"
+              className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-700 dark:hover:text-blue-300 transition disabled:opacity-30"
             >
               {amt.toLocaleString()} {currency}
             </button>
@@ -354,14 +354,14 @@ export default function ExpensesPage() {
         <div className="flex items-center gap-2">
           <button
             onClick={startVoice}
-            className={`p-2.5 rounded-lg border transition flex-shrink-0 ${
+            className={`p-2 rounded-lg border transition flex-shrink-0 ${
               listening
                 ? "bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-600 text-red-600 dark:text-red-400 animate-pulse"
                 : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600"
             }`}
             title="Voice input"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
             </svg>
           </button>
@@ -370,20 +370,20 @@ export default function ExpensesPage() {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder={t("customAmount")}
-            className="flex-1 px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+            className="flex-1 px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
           <button
             onClick={() => submit()}
             disabled={!amount || (!catId && !customCat.trim())}
-            className="px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold text-sm disabled:opacity-40"
+            className="px-4 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold text-sm disabled:opacity-40"
           >
             {t("add")}
           </button>
         </div>
 
-        {/* Date picker */}
-        <div className="mt-3 flex items-center gap-3">
+        {/* Date + Payment inline */}
+        <div className="mt-2 flex items-center gap-3">
           <label className="text-sm font-medium text-gray-500 dark:text-gray-400">{t("date")}:</label>
           <input
             type="date"
@@ -398,10 +398,10 @@ export default function ExpensesPage() {
         </div>
 
         {/* Payment method */}
-        <div className="flex flex-wrap gap-1.5 mt-3">
+        <div className="flex flex-wrap gap-1.5 mt-2">
           {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
             <button key={m} type="button" onClick={() => setMethod(m)}
-              className={`px-3 py-2 rounded-lg text-xs font-medium border transition ${
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition ${
                 method === m ? "bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-500 text-green-700 dark:text-green-300" : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50"
               }`}>{t(m)}</button>
           ))}
@@ -409,7 +409,7 @@ export default function ExpensesPage() {
 
         {/* Notes */}
         <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)}
-          placeholder="Notes (optional)" className="mt-3 w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+          placeholder="Notes (optional)" className="mt-2 w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
 
         {/* Personal toggle */}
         <div className="mt-3 flex items-center gap-3">

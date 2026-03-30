@@ -193,17 +193,17 @@ export default function SalesPage() {
       {fetchError && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">{fetchError}</div>}
 
       {/* Quick Entry */}
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-        <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-1">{t("logSale")}</h2>
-        <p className="text-sm text-gray-400 dark:text-gray-400 mb-4">{t("tapAmount")}</p>
+      <div className="bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300 mb-0.5">{t("logSale")}</h2>
+        <p className="text-xs text-gray-400 dark:text-gray-400 mb-3">{t("tapAmount")}</p>
 
         {/* One-tap amounts */}
-        <div className="flex flex-wrap gap-2 mb-4">
+        <div className="flex flex-wrap gap-1.5 mb-3">
           {QUICK_AMOUNTS.map((amt) => (
             <button
               key={amt}
               onClick={() => submit(amt)}
-              className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:border-blue-300 dark:hover:border-blue-500 hover:text-blue-700 dark:hover:text-blue-300 transition"
+              className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:border-blue-300 dark:hover:border-blue-500 hover:text-blue-700 dark:hover:text-blue-300 transition"
             >
               {amt.toLocaleString()} {currency}
             </button>
@@ -214,14 +214,14 @@ export default function SalesPage() {
         <div className="flex items-center gap-2">
           <button
             onClick={startVoice}
-            className={`p-2.5 rounded-lg border transition flex-shrink-0 ${
+            className={`p-2 rounded-lg border transition flex-shrink-0 ${
               listening
                 ? "bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-600 text-red-600 dark:text-red-400 animate-pulse"
                 : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600"
             }`}
             title="Voice input"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
             </svg>
           </button>
@@ -230,25 +230,25 @@ export default function SalesPage() {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder={t("customAmount")}
-            className="flex-1 px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
           <button
             onClick={() => submit()}
             disabled={!amount}
-            className="px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold text-sm disabled:opacity-40"
+            className="px-4 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold text-sm disabled:opacity-40"
           >
             {t("log")}
           </button>
         </div>
 
         {/* Payment method */}
-        <div className="flex flex-wrap gap-1.5 mt-3">
+        <div className="flex flex-wrap gap-1.5 mt-2">
           {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
             <button
               key={m}
               onClick={() => setMethod(m)}
-              className={`px-3 py-2 rounded-lg text-xs font-medium border transition ${
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition ${
                 method === m
                   ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-500 text-blue-700 dark:text-blue-300"
                   : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50"
@@ -260,14 +260,14 @@ export default function SalesPage() {
         </div>
 
         {/* Date picker */}
-        <div className="mt-3 flex items-center gap-3">
-          <label className="text-sm font-medium text-gray-500 dark:text-gray-400">{t("date")}:</label>
+        <div className="mt-2 flex items-center gap-3">
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("date")}:</label>
           <input
             type="date"
             value={saleDate}
             max={new Date().toISOString().split("T")[0]}
             onChange={(e) => setSaleDate(e.target.value)}
-            className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           {saleDate !== new Date().toISOString().split("T")[0] && (
             <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Backdated entry</span>
@@ -280,7 +280,7 @@ export default function SalesPage() {
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Add a note (optional)"
-          className="mt-3 w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+          className="mt-2 w-full px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
         />
       </div>
 
