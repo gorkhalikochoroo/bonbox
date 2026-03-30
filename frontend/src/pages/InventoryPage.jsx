@@ -81,6 +81,7 @@ export default function InventoryPage() {
   const [restockBottles, setRestockBottles] = useState(1);
   const [deadStock, setDeadStock] = useState([]);
   const [profitRanking, setProfitRanking] = useState([]);
+  const [expandedStat, setExpandedStat] = useState(null); // "total" | "low" | "fresh" | "categories" | "priced"
 
   const fetchData = () => {
     api.get("/inventory").then((res) => setItems(res.data)).catch(() => {});
@@ -421,27 +422,203 @@ export default function InventoryPage() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-xs text-gray-500 dark:text-gray-400">{t("totalItems")}</p>
-          <p className="text-2xl font-bold text-gray-800 dark:text-white mt-1">{items.length}</p>
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <button onClick={() => setExpandedStat(expandedStat === "total" ? null : "total")} className={`text-left bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border transition hover:ring-2 hover:ring-green-400/50 active:scale-[0.98] cursor-pointer ${expandedStat === "total" ? "ring-2 ring-green-400/50 border-green-300 dark:border-green-600" : "border-gray-100 dark:border-gray-700"}`}>
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t("totalItems")}</p>
+              <svg className={`w-3 h-3 text-gray-400 transition-transform ${expandedStat === "total" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+            </div>
+            <p className="text-2xl font-bold text-gray-800 dark:text-white mt-1">{items.length}</p>
+          </button>
+          <button onClick={() => setExpandedStat(expandedStat === "low" ? null : "low")} className={`text-left bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border transition hover:ring-2 hover:ring-red-400/50 active:scale-[0.98] cursor-pointer ${expandedStat === "low" ? "ring-2 ring-red-400/50 border-red-300 dark:border-red-600" : "border-gray-100 dark:border-gray-700"}`}>
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t("lowStock")}</p>
+              <svg className={`w-3 h-3 text-gray-400 transition-transform ${expandedStat === "low" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+            </div>
+            <p className={`text-2xl font-bold mt-1 ${alerts.length > 0 ? "text-red-500" : "text-green-600 dark:text-green-400"}`}>{alerts.length}</p>
+          </button>
+          <button onClick={() => setExpandedStat(expandedStat === "fresh" ? null : "fresh")} className={`text-left bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border transition hover:ring-2 hover:ring-orange-400/50 active:scale-[0.98] cursor-pointer ${expandedStat === "fresh" ? "ring-2 ring-orange-400/50 border-orange-300 dark:border-orange-600" : "border-gray-100 dark:border-gray-700"}`}>
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t("freshItems")}</p>
+              <svg className={`w-3 h-3 text-gray-400 transition-transform ${expandedStat === "fresh" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+            </div>
+            <p className="text-2xl font-bold text-orange-500 mt-1">{perishableCount}</p>
+          </button>
+          <button onClick={() => setExpandedStat(expandedStat === "categories" ? null : "categories")} className={`text-left bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border transition hover:ring-2 hover:ring-purple-400/50 active:scale-[0.98] cursor-pointer ${expandedStat === "categories" ? "ring-2 ring-purple-400/50 border-purple-300 dark:border-purple-600" : "border-gray-100 dark:border-gray-700"}`}>
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t("categories")}</p>
+              <svg className={`w-3 h-3 text-gray-400 transition-transform ${expandedStat === "categories" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+            </div>
+            <p className="text-2xl font-bold text-purple-600 dark:text-purple-400 mt-1">{categories.length}</p>
+          </button>
+          <button onClick={() => setExpandedStat(expandedStat === "priced" ? null : "priced")} className={`text-left bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border transition hover:ring-2 hover:ring-blue-400/50 active:scale-[0.98] cursor-pointer ${expandedStat === "priced" ? "ring-2 ring-blue-400/50 border-blue-300 dark:border-blue-600" : "border-gray-100 dark:border-gray-700"}`}>
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t("priced")}</p>
+              <svg className={`w-3 h-3 text-gray-400 transition-transform ${expandedStat === "priced" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+            </div>
+            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">{stats.itemsWithMargin}/{items.length}</p>
+          </button>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-xs text-gray-500 dark:text-gray-400">{t("lowStock")}</p>
-          <p className={`text-2xl font-bold mt-1 ${alerts.length > 0 ? "text-red-500" : "text-green-600 dark:text-green-400"}`}>{alerts.length}</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-xs text-gray-500 dark:text-gray-400">{t("freshItems")}</p>
-          <p className="text-2xl font-bold text-orange-500 mt-1">{perishableCount}</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-xs text-gray-500 dark:text-gray-400">{t("categories")}</p>
-          <p className="text-2xl font-bold text-purple-600 dark:text-purple-400 mt-1">{categories.length}</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-xs text-gray-500 dark:text-gray-400">{t("priced")}</p>
-          <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">{stats.itemsWithMargin}/{items.length}</p>
-        </div>
+
+        {/* Expanded detail panels */}
+        {expandedStat === "total" && (
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-green-200 dark:border-green-800 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">All Items ({items.length})</p>
+              <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
+            </div>
+            {(() => {
+              const byCat = {};
+              items.forEach(i => { byCat[i.category || "General"] = (byCat[i.category || "General"] || []).concat(i); });
+              return (
+                <>
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    {Object.entries(byCat).sort((a, b) => b[1].length - a[1].length).map(([cat, list]) => (
+                      <span key={cat} className="px-2.5 py-1 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-xs font-bold text-green-700 dark:text-green-400">{cat} · {list.length}</span>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 mb-3">
+                    <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
+                      <p className="text-[10px] text-gray-500 dark:text-gray-400 font-semibold">Stock Value</p>
+                      <p className="text-sm font-extrabold text-gray-800 dark:text-white">{Math.round(stats.totalCost).toLocaleString()} {currency}</p>
+                    </div>
+                    <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
+                      <p className="text-[10px] text-gray-500 dark:text-gray-400 font-semibold">Sale Value</p>
+                      <p className="text-sm font-extrabold text-gray-800 dark:text-white">{Math.round(stats.totalRevenue).toLocaleString()} {currency}</p>
+                    </div>
+                    <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
+                      <p className="text-[10px] text-gray-500 dark:text-gray-400 font-semibold">Avg Margin</p>
+                      <p className={`text-sm font-extrabold ${stats.avgMargin >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>{stats.avgMargin}%</p>
+                    </div>
+                  </div>
+                  <div className="space-y-1 max-h-48 overflow-y-auto">
+                    {items.slice(0, 15).map((i) => (
+                      <div key={i.id} className="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-gray-700/30 rounded-lg text-xs">
+                        <span className="font-medium text-gray-800 dark:text-white truncate max-w-[40%]">{i.name}</span>
+                        <span className="text-gray-500 dark:text-gray-400">{i.category || "General"}</span>
+                        <span className="font-bold text-gray-700 dark:text-gray-300">{i.quantity} {i.unit}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        )}
+
+        {expandedStat === "low" && (
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-red-200 dark:border-red-800 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Low Stock Items ({alerts.length})</p>
+              <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
+            </div>
+            {alerts.length > 0 ? (
+              <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                {alerts.map((a) => (
+                  <div key={a.id} className="flex items-center justify-between px-3 py-2 bg-red-50 dark:bg-red-900/20 rounded-lg text-xs">
+                    <div>
+                      <span className="font-bold text-red-700 dark:text-red-400">{a.name}</span>
+                      <span className="text-red-500/60 ml-2">{a.category || "General"}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-extrabold text-red-600 dark:text-red-400">{a.quantity} {a.unit}</span>
+                      <span className="text-red-400/50 ml-2">min: {a.min_stock}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : <p className="text-sm text-green-600 dark:text-green-400 text-center py-3 font-medium">All items well stocked!</p>}
+          </div>
+        )}
+
+        {expandedStat === "fresh" && (
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-orange-200 dark:border-orange-800 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Perishable Items ({perishableCount})</p>
+              <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
+            </div>
+            {perishableCount > 0 ? (
+              <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                {items.filter(i => i.is_perishable).map((i) => (
+                  <div key={i.id} className="flex items-center justify-between px-3 py-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg text-xs">
+                    <div>
+                      <span className="font-bold text-orange-700 dark:text-orange-400">{i.name}</span>
+                      <span className="text-orange-500/60 ml-2">{i.category || "General"}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-bold text-orange-600 dark:text-orange-400">{i.quantity} {i.unit}</span>
+                      {i.expiry_date && <span className="text-orange-400/60 ml-2">exp: {i.expiry_date}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : <p className="text-sm text-gray-400 text-center py-3">No perishable items</p>}
+          </div>
+        )}
+
+        {expandedStat === "categories" && (
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-purple-200 dark:border-purple-800 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Categories ({categories.length})</p>
+              <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
+            </div>
+            {categories.length > 0 ? (
+              <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                {categories.map((cat) => {
+                  const catItems = items.filter(i => (i.category || "General") === cat);
+                  const catValue = catItems.reduce((s, i) => s + parseFloat(i.quantity) * parseFloat(i.cost_per_unit), 0);
+                  return (
+                    <button key={cat} onClick={() => { setActiveCategory(cat); setExpandedStat(null); }} className="w-full flex items-center justify-between px-3 py-2 bg-purple-50 dark:bg-purple-900/20 rounded-lg text-xs hover:bg-purple-100 dark:hover:bg-purple-900/40 transition">
+                      <span className="font-bold text-purple-700 dark:text-purple-400">{cat}</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-purple-500/60">{catItems.length} items</span>
+                        <span className="font-bold text-purple-600 dark:text-purple-400">{Math.round(catValue).toLocaleString()} {currency}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : <p className="text-sm text-gray-400 text-center py-3">No categories yet</p>}
+          </div>
+        )}
+
+        {expandedStat === "priced" && (
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-blue-200 dark:border-blue-800 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Pricing Status ({stats.itemsWithMargin}/{items.length})</p>
+              <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
+            </div>
+            <div className="space-y-1.5 max-h-48 overflow-y-auto">
+              {items.filter(i => i.sell_price != null && parseFloat(i.sell_price) > 0).length > 0 && (
+                <p className="text-[10px] uppercase tracking-wide text-green-600 dark:text-green-400 font-semibold px-1 mb-1">Priced</p>
+              )}
+              {items.filter(i => i.sell_price != null && parseFloat(i.sell_price) > 0).slice(0, 10).map((i) => {
+                const margin = parseFloat(i.cost_per_unit) > 0 ? Math.round(((parseFloat(i.sell_price) - parseFloat(i.cost_per_unit)) / parseFloat(i.cost_per_unit)) * 100) : 0;
+                return (
+                  <div key={i.id} className="flex items-center justify-between px-3 py-1.5 bg-green-50 dark:bg-green-900/20 rounded-lg text-xs">
+                    <span className="font-medium text-gray-800 dark:text-white truncate max-w-[35%]">{i.name}</span>
+                    <span className="text-gray-500">Buy: {parseFloat(i.cost_per_unit).toLocaleString()}</span>
+                    <span className="text-blue-600 dark:text-blue-400">Sell: {parseFloat(i.sell_price).toLocaleString()}</span>
+                    <span className={`font-bold ${margin >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>{margin}%</span>
+                  </div>
+                );
+              })}
+              {items.filter(i => !i.sell_price || parseFloat(i.sell_price) === 0).length > 0 && (
+                <>
+                  <p className="text-[10px] uppercase tracking-wide text-red-500 dark:text-red-400 font-semibold px-1 mt-2 mb-1">Not Priced</p>
+                  {items.filter(i => !i.sell_price || parseFloat(i.sell_price) === 0).slice(0, 8).map((i) => (
+                    <div key={i.id} className="flex items-center justify-between px-3 py-1.5 bg-red-50 dark:bg-red-900/20 rounded-lg text-xs">
+                      <span className="font-medium text-gray-800 dark:text-white truncate max-w-[50%]">{i.name}</span>
+                      <span className="text-gray-500">Cost: {parseFloat(i.cost_per_unit).toLocaleString()}</span>
+                      <span className="text-red-400 font-medium">No sell price</span>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Category tabs */}
