@@ -294,14 +294,15 @@ export default function SalesPage() {
           const monthName = now.toLocaleString("default", { month: "long" });
           const monthSales = sales.filter(s => s.date?.startsWith(monthPrefix));
           const totalRev = monthSales.reduce((s, x) => s + parseFloat(x.amount), 0);
-          const avgSale = monthSales.length > 0 ? totalRev / monthSales.length : 0;
           const todaySales = sales.filter(s => s.date === now.toISOString().split("T")[0]);
           const todayRev = todaySales.reduce((s, x) => s + parseFloat(x.amount), 0);
           const methods = {};
           monthSales.forEach(s => { methods[s.payment_method] = (methods[s.payment_method] || 0) + parseFloat(s.amount); });
-          // Group sales by date for breakdown
+          // Group sales by date for breakdown (avg per day, not per entry)
           const byDate = {};
           monthSales.forEach(s => { byDate[s.date] = (byDate[s.date] || 0) + parseFloat(s.amount); });
+          const daysWithSales = Object.keys(byDate).length;
+          const avgSale = daysWithSales > 0 ? totalRev / daysWithSales : 0;
           const sortedDates = Object.entries(byDate).sort((a, b) => b[0].localeCompare(a[0]));
           // Today's methods
           const todayMethods = {};
@@ -331,7 +332,7 @@ export default function SalesPage() {
                     <svg className={`w-3 h-3 text-purple-400/60 transition-transform ${expandedStat === "avg" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                   </div>
                   <p className="text-3xl font-extrabold text-purple-400 mt-1">{Math.round(avgSale).toLocaleString()}</p>
-                  <p className="text-[11px] text-purple-300/50 mt-1 font-medium">{currency} per sale</p>
+                  <p className="text-[11px] text-purple-300/50 mt-1 font-medium">{currency}/day · {daysWithSales} days</p>
                 </button>
                 <div className="bg-gradient-to-br from-orange-950 to-gray-800 rounded-xl p-4 border border-orange-800/50">
                   <p className="text-[10px] uppercase tracking-widest text-orange-300/70 font-semibold mb-1.5">By Payment</p>
@@ -450,7 +451,7 @@ export default function SalesPage() {
                         </div>
                       ))}
                     </div>
-                    <p className="text-[10px] text-purple-400/40 mt-2 text-center">Average: {Math.round(avgSale).toLocaleString()} {currency} from {monthSales.length} sales in {monthName}</p>
+                    <p className="text-[10px] text-purple-400/40 mt-2 text-center">{totalRev.toLocaleString()} ÷ {daysWithSales} days = {Math.round(avgSale).toLocaleString()} {currency}/day</p>
                   </div>
                 );
               })()}
@@ -529,7 +530,7 @@ export default function SalesPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search..."
+              placeholder="Search notes, payment..."
               className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             {(filterFrom || filterTo) && (

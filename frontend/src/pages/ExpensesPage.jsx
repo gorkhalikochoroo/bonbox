@@ -579,14 +579,15 @@ export default function ExpensesPage() {
         const monthName = now.toLocaleString("default", { month: "long" });
         const monthExpenses = expenses.filter(e => e.date?.startsWith(monthPrefix));
         const totalExp = monthExpenses.reduce((s, x) => s + parseFloat(x.amount), 0);
-        const avgExp = monthExpenses.length > 0 ? totalExp / monthExpenses.length : 0;
         const todayExp = expenses.filter(e => e.date === now.toISOString().split("T")[0]);
         const todayTotal = todayExp.reduce((s, x) => s + parseFloat(x.amount), 0);
         const cats = {};
         monthExpenses.forEach(e => { cats[e.category_name || "Other"] = (cats[e.category_name || "Other"] || 0) + parseFloat(e.amount); });
-        // Group by date
+        // Group by date (avg per day, not per entry)
         const byDate = {};
         monthExpenses.forEach(e => { byDate[e.date] = (byDate[e.date] || 0) + parseFloat(e.amount); });
+        const daysWithExpenses = Object.keys(byDate).length;
+        const avgExp = daysWithExpenses > 0 ? totalExp / daysWithExpenses : 0;
         const sortedDates = Object.entries(byDate).sort((a, b) => b[0].localeCompare(a[0]));
         // Today's categories
         const todayCats = {};
@@ -616,7 +617,7 @@ export default function ExpensesPage() {
                   <svg className={`w-3 h-3 text-purple-400/60 transition-transform ${expandedStat === "avg" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                 </div>
                 <p className="text-3xl font-extrabold text-purple-400 mt-1">{Math.round(avgExp).toLocaleString()}</p>
-                <p className="text-[11px] text-purple-300/50 mt-1 font-medium">{currency} per expense</p>
+                <p className="text-[11px] text-purple-300/50 mt-1 font-medium">{currency}/day · {daysWithExpenses} days</p>
               </button>
               <div className="bg-gradient-to-br from-orange-950 to-gray-800 rounded-xl p-4 border border-orange-800/50">
                 <p className="text-[10px] uppercase tracking-widest text-orange-300/70 font-semibold mb-1.5">By Category</p>
@@ -736,7 +737,7 @@ export default function ExpensesPage() {
                       </div>
                     ))}
                   </div>
-                  <p className="text-[10px] text-purple-400/40 mt-2 text-center">Average: {Math.round(avgExp).toLocaleString()} {currency} from {monthExpenses.length} expenses</p>
+                  <p className="text-[10px] text-purple-400/40 mt-2 text-center">{totalExp.toLocaleString()} ÷ {daysWithExpenses} days = {Math.round(avgExp).toLocaleString()} {currency}/day</p>
                 </div>
               );
             })()}
@@ -799,7 +800,7 @@ export default function ExpensesPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search..."
+              placeholder="Search name, category, payment..."
               className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             {(filterFrom || filterTo) && (
