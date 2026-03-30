@@ -2,11 +2,16 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "bonbox-frontend",
+      "name": "Backend (FastAPI)",
+      "runtimeExecutable": "uvicorn",
+      "runtimeArgs": ["app.main:app", "--reload", "--port", "8000"],
+      "port": 8000
+    },
+    {
+      "name": "Frontend (Vite)",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "--host", "0.0.0.0"],
-      "port": 5173,
-      "cwd": "/Users/nova/Downloads/Project_CHL/smallbiz-dashboard/frontend"
+      "runtimeArgs": ["run", "dev"],
+      "port": 5173
     }
   ]
 }

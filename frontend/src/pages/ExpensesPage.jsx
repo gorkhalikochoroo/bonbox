@@ -275,7 +275,9 @@ export default function ExpensesPage() {
         </div>
       )}
 
-      <div className="bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+      {/* Form + Stats side by side */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+      <div className="lg:col-span-3 bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
         <div className="max-w-md">
         <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300 mb-0.5">{t("addExpense")}</h2>
         <p className="text-xs text-gray-400 dark:text-gray-400 mb-3">{t("pickCategory")}</p>
@@ -431,6 +433,65 @@ export default function ExpensesPage() {
           )}
         </div>
         </div>
+      </div>
+
+      {/* Summary Stats - right side, Inventory Monitor style */}
+      {expenses.length > 0 ? (() => {
+        const totalExp = expenses.reduce((s, x) => s + parseFloat(x.amount), 0);
+        const avgExp = totalExp / expenses.length;
+        const todayExp = expenses.filter(e => e.date === new Date().toISOString().split("T")[0]);
+        const todayTotal = todayExp.reduce((s, x) => s + parseFloat(x.amount), 0);
+        const cats = {};
+        expenses.forEach(e => { cats[e.category_name || "Other"] = (cats[e.category_name || "Other"] || 0) + parseFloat(e.amount); });
+        const topCat = Object.entries(cats).sort((a, b) => b[1] - a[1])[0];
+        return (
+          <div className="lg:col-span-2 grid grid-cols-2 gap-3 content-start">
+            <div className="bg-gray-800 dark:bg-gray-800 rounded-xl p-4 border border-gray-700">
+              <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">Today</p>
+              <p className="text-2xl font-bold text-red-400">{todayTotal.toLocaleString()}</p>
+              <p className="text-[11px] text-gray-500 mt-0.5">{todayExp.length} expense{todayExp.length !== 1 ? "s" : ""} today</p>
+            </div>
+            <div className="bg-gray-800 dark:bg-gray-800 rounded-xl p-4 border border-gray-700">
+              <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">Total Spent</p>
+              <p className="text-2xl font-bold text-blue-400">{totalExp.toLocaleString()}</p>
+              <p className="text-[11px] text-gray-500 mt-0.5">{currency} from {expenses.length} expenses</p>
+            </div>
+            <div className="bg-gray-800 dark:bg-gray-800 rounded-xl p-4 border border-gray-700">
+              <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">Avg Expense</p>
+              <p className="text-2xl font-bold text-purple-400">{Math.round(avgExp).toLocaleString()}</p>
+              <p className="text-[11px] text-gray-500 mt-0.5">{currency} per expense</p>
+            </div>
+            <div className="bg-gray-800 dark:bg-gray-800 rounded-xl p-4 border border-gray-700">
+              <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">Top Category</p>
+              <p className="text-2xl font-bold text-orange-400">{topCat?.[0] || "—"}</p>
+              <p className="text-[11px] text-gray-500 mt-0.5">{topCat ? `${Math.round(topCat[1] / totalExp * 100)}% of spending` : ""}</p>
+            </div>
+          </div>
+        );
+      })() : (
+        <div className="lg:col-span-2 grid grid-cols-2 gap-3 content-start">
+          <div className="bg-gray-800 dark:bg-gray-800 rounded-xl p-4 border border-gray-700">
+            <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">Today</p>
+            <p className="text-2xl font-bold text-red-400">0</p>
+            <p className="text-[11px] text-gray-500 mt-0.5">No expenses yet</p>
+          </div>
+          <div className="bg-gray-800 dark:bg-gray-800 rounded-xl p-4 border border-gray-700">
+            <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">Total Spent</p>
+            <p className="text-2xl font-bold text-blue-400">0</p>
+            <p className="text-[11px] text-gray-500 mt-0.5">{currency}</p>
+          </div>
+          <div className="bg-gray-800 dark:bg-gray-800 rounded-xl p-4 border border-gray-700">
+            <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">Avg Expense</p>
+            <p className="text-2xl font-bold text-purple-400">—</p>
+            <p className="text-[11px] text-gray-500 mt-0.5">Log your first expense</p>
+          </div>
+          <div className="bg-gray-800 dark:bg-gray-800 rounded-xl p-4 border border-gray-700">
+            <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5">Top Category</p>
+            <p className="text-2xl font-bold text-orange-400">—</p>
+            <p className="text-[11px] text-gray-500 mt-0.5">No data yet</p>
+          </div>
+        </div>
+      )}
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
@@ -616,7 +677,7 @@ export default function ExpensesPage() {
         </div>
       </div>
 
-      {/* Floating selection bar */}
+      {/* Inline selection popup */}
       {selected.size > 0 && (() => {
         const selExp = filtered.filter(e => selected.has(e.id));
         const total = selExp.reduce((sum, e) => sum + parseFloat(e.amount), 0);
@@ -624,44 +685,42 @@ export default function ExpensesPage() {
         const byCat = {};
         selExp.forEach(e => { byCat[e.category_name || "Other"] = (byCat[e.category_name || "Other"] || 0) + parseFloat(e.amount); });
         return (
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-[0_-4px_20px_rgba(0,0,0,0.15)] px-4 py-3 safe-bottom">
-            <div className="max-w-3xl mx-auto">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-sm font-semibold text-gray-800 dark:text-white">
-                  {selected.size} selected in total {total.toLocaleString()} {currency}
-                </p>
-                <button onClick={() => setSelected(new Set())} className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-200 dark:bg-gray-600 text-gray-500 dark:text-gray-300 text-xs font-bold hover:bg-gray-300 dark:hover:bg-gray-500">
-                  &times;
-                </button>
-              </div>
-              {Object.keys(byCat).length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([cat, amt]) => (
-                    <span key={cat} className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded-full text-[11px] text-gray-600 dark:text-gray-300">
-                      {cat}: {amt.toLocaleString()}
-                    </span>
-                  ))}
-                  <span className="px-2 py-0.5 bg-blue-50 dark:bg-blue-900/30 rounded-full text-[11px] text-blue-600 dark:text-blue-400">
-                    Avg: {Math.round(avg).toLocaleString()}
+          <div className="bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3 shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+                {selected.size} selected &middot; {total.toLocaleString()} {currency}
+              </p>
+              <button onClick={() => setSelected(new Set())} className="w-6 h-6 flex items-center justify-center rounded-full bg-amber-200 dark:bg-amber-800 text-amber-600 dark:text-amber-300 text-xs font-bold hover:bg-amber-300 dark:hover:bg-amber-700 transition">
+                &times;
+              </button>
+            </div>
+            {Object.keys(byCat).length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([cat, amt]) => (
+                  <span key={cat} className="px-2 py-0.5 bg-amber-100 dark:bg-amber-900/50 rounded-full text-[11px] text-amber-700 dark:text-amber-300">
+                    {cat}: {amt.toLocaleString()}
                   </span>
-                </div>
-              )}
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    const text = `${selected.size} expenses | Total: ${total.toLocaleString()} ${currency} | Avg: ${Math.round(avg).toLocaleString()} ${currency}`;
-                    navigator.clipboard?.writeText(text);
-                    setSuccess("Copied to clipboard!");
-                    setTimeout(() => setSuccess(""), 2000);
-                  }}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition"
-                >
-                  Copy Summary
-                </button>
-                <button onClick={bulkDelete} className="px-4 py-2 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg text-sm font-medium hover:bg-red-200 dark:hover:bg-red-900/50 transition">
-                  Move to trash
-                </button>
+                ))}
+                <span className="px-2 py-0.5 bg-amber-200 dark:bg-amber-800 rounded-full text-[11px] text-amber-800 dark:text-amber-200">
+                  Avg: {Math.round(avg).toLocaleString()}
+                </span>
               </div>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  const text = `${selected.size} expenses | Total: ${total.toLocaleString()} ${currency} | Avg: ${Math.round(avg).toLocaleString()} ${currency}`;
+                  navigator.clipboard?.writeText(text);
+                  setSuccess("Copied to clipboard!");
+                  setTimeout(() => setSuccess(""), 2000);
+                }}
+                className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700 transition"
+              >
+                Copy Summary
+              </button>
+              <button onClick={bulkDelete} className="px-3 py-1.5 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg text-xs font-medium hover:bg-red-200 dark:hover:bg-red-900/50 transition">
+                Move to trash
+              </button>
             </div>
           </div>
         );
