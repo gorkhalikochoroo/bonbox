@@ -363,17 +363,20 @@ export default function DashboardPage() {
           change={period === "today" ? summary.today_revenue_change : undefined}
           changeLabel={period === "today" ? t("vsYesterday") : undefined}
           subtitle={periodStats ? `${periodStats.salesCount} sales` : undefined}
+          to="/sales"
         />
         <KpiCard
           title={period === "today" ? t("todaysProfit") : period === "thisWeek" ? t("thisWeekProfit") : period === "thisMonth" ? t("thisMonthProfit") : t("last30Profit")}
           numericValue={periodStats ? periodStats.profit : summary.month_profit}
           currency={currency}
           subtitle={`${periodStats ? periodStats.margin : summary.profit_margin}% ${t("margin")}`}
+          to="/reports"
         />
         <KpiCard
           title={t("topExpense")}
           value={periodStats ? (periodStats.topExpenseCategoryName || t("none")) : (summary.top_expense_category || t("none"))}
           subtitle={periodStats ? (periodStats.topExpenseAmount > 0 ? `${periodStats.topExpenseAmount.toLocaleString()} ${currency}` : "") : (summary.top_expense_amount > 0 ? `${summary.top_expense_amount.toLocaleString()} ${currency}` : "")}
+          to="/expenses"
         />
         {summary.khata_receivable > 0 ? (
           <KpiCard
@@ -382,12 +385,14 @@ export default function DashboardPage() {
             currency={currency}
             alert={true}
             subtitle={t("outstandingCredit")}
+            to="/khata"
           />
         ) : (
           <KpiCard
             title={t("inventoryAlerts")}
             value={summary.inventory_alerts}
             alert={summary.inventory_alerts > 0}
+            to="/inventory"
           />
         )}
       </div>
@@ -402,7 +407,8 @@ export default function DashboardPage() {
                 <svg className="w-4 h-4 text-orange-600 dark:text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
               </div>
               <h2 className="text-base font-semibold text-gray-700 dark:text-gray-200">Action Items</h2>
-              <span className="ml-auto text-xs bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 px-2 py-0.5 rounded-full font-medium">{actionItems.length}</span>
+              <span className="text-xs bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 px-2 py-0.5 rounded-full font-medium">{actionItems.length}</span>
+              <button onClick={() => navigate("/inventory")} className="ml-auto text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 font-medium hover:underline">View Inventory →</button>
             </div>
             <div className="space-y-2">
               {actionItems.map((item, i) => (
@@ -432,7 +438,8 @@ export default function DashboardPage() {
                 <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
               </div>
               <h2 className="text-base font-semibold text-gray-700 dark:text-gray-200">Top Sellers</h2>
-              <span className="ml-auto text-xs text-gray-400">Last 30 days</span>
+              <span className="text-xs text-gray-400">Last 30 days</span>
+              <button onClick={() => navigate("/sales")} className="ml-auto text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 font-medium hover:underline">View Sales →</button>
             </div>
             <div className="space-y-1.5">
               {topSellers.slice(0, 5).map((item, i) => (
@@ -531,7 +538,8 @@ export default function DashboardPage() {
                 <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
               </div>
               <h2 className="text-base font-semibold text-gray-700 dark:text-gray-200">Payment Methods</h2>
-              <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">This month</span>
+              <span className="text-xs text-gray-400 dark:text-gray-500">This month</span>
+              <button onClick={() => navigate("/sales")} className="ml-auto text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 font-medium hover:underline">View Sales →</button>
             </div>
             <div className="space-y-3">
               {paymentBreakdown
@@ -1233,10 +1241,22 @@ function BenchmarkCards({ benchmarks, currency }) {
   );
 }
 
-function KpiCard({ title, value, change, changeLabel, subtitle, alert, numericValue, currency: cur }) {
+function KpiCard({ title, value, change, changeLabel, subtitle, alert, numericValue, currency: cur, to }) {
+  const navigate = useNavigate();
+  const Wrapper = to ? "button" : "div";
   return (
-    <div className={`bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border card-hover ${alert ? "border-red-300 dark:border-red-600" : "border-gray-100 dark:border-gray-700"}`}>
-      <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">{title}</p>
+    <Wrapper
+      onClick={to ? () => navigate(to) : undefined}
+      className={`bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border card-hover text-left w-full transition ${to ? "cursor-pointer hover:ring-2 hover:ring-green-400/50 hover:border-green-300 dark:hover:border-green-600 active:scale-[0.98]" : ""} ${alert ? "border-red-300 dark:border-red-600" : "border-gray-100 dark:border-gray-700"}`}
+    >
+      <div className="flex items-center justify-between">
+        <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">{title}</p>
+        {to && (
+          <svg className="w-3.5 h-3.5 text-gray-300 dark:text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        )}
+      </div>
       <p className="text-lg sm:text-2xl font-bold text-gray-800 dark:text-gray-100 mt-1 break-words">
         {numericValue !== undefined ? (
           <AnimatedCounter value={numericValue} suffix={cur ? ` ${cur}` : ""} />
@@ -1251,6 +1271,6 @@ function KpiCard({ title, value, change, changeLabel, subtitle, alert, numericVa
         <p className="text-sm mt-1 text-gray-400 dark:text-gray-500">No sales yet today</p>
       )}
       {subtitle && <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{subtitle}</p>}
-    </div>
+    </Wrapper>
   );
 }
