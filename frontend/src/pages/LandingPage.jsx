@@ -309,10 +309,11 @@ export default function LandingPage() {
             {[
               { icon: "💰", title: "Sales & Cash Flow", desc: "Log sales in 2 taps. See revenue, profit, and cash flow — auto-synced to your cashbook in real-time.", accent: "from-green-500/20 to-emerald-500/10", border: "border-green-500/20 hover:border-green-500/40" },
               { icon: "📦", title: "Inventory & Stock", desc: "Track stock levels, get low-stock alerts, sell items with auto-deduction. Pre-built templates for 21+ business types.", accent: "from-blue-500/20 to-cyan-500/10", border: "border-blue-500/20 hover:border-blue-500/40" },
-              { icon: "🌦️", title: "Weather Smart", desc: "Rain = less foot traffic. See how weather affects your revenue, plan staff smarter, and track sick calls by condition.", accent: "from-cyan-500/20 to-sky-500/10", border: "border-cyan-500/20 hover:border-cyan-500/40" },
-              { icon: "👥", title: "Smart Staffing", desc: "AI-powered shifts based on your busiest days + weather forecast. See payroll costs. Right people, right time.", accent: "from-violet-500/20 to-purple-500/10", border: "border-violet-500/20 hover:border-violet-500/40" },
               { icon: "🍸", title: "Bar Pour System", desc: "Buy bottles in bulk, sell by glass. Auto-track pours, deduct stock, and log sales per drink.", accent: "from-orange-500/20 to-amber-500/10", border: "border-orange-500/20 hover:border-orange-500/40" },
+              { icon: "👥", title: "Smart Staffing", desc: "AI-powered shifts based on your busiest days + weather forecast. See payroll costs. Right people, right time.", accent: "from-violet-500/20 to-purple-500/10", border: "border-violet-500/20 hover:border-violet-500/40" },
+              { icon: "📊", title: "Business Health Score", desc: "Get a score from 0-100. Profitability, consistency, cost control — at a glance.", accent: "from-emerald-500/20 to-green-500/10", border: "border-emerald-500/20 hover:border-emerald-500/40" },
               { icon: "🗑️", title: "Waste Tracker", desc: "Log expired and wasted stock. See how much you're losing. Reduce waste, increase profit.", accent: "from-red-500/20 to-rose-500/10", border: "border-red-500/20 hover:border-red-500/40" },
+              { icon: "🌦️", title: "Weather Smart", desc: "Rain = less foot traffic. See how weather affects your revenue, plan staff smarter, and track sick calls by condition.", accent: "from-cyan-500/20 to-sky-500/10", border: "border-cyan-500/20 hover:border-cyan-500/40" },
             ].map((f, i) => (
               <FadeIn key={f.title} delay={i * 80}>
                 <div className={`bg-gradient-to-br ${f.accent} rounded-2xl p-6 border ${f.border} transition-all duration-300 h-full group`}>
@@ -327,7 +328,7 @@ export default function LandingPage() {
           {/* Extra features ribbon */}
           <FadeIn delay={200}>
             <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
-              {["Cash Book", "Khata Credit Book", "Business Health Score", "VAT Reports", "PDF Export", "Loan Tracker", "Personal Finance", "Dark Mode", "Seasonal Patterns", "Sick Call Tracker", "Multi-currency", "Multi-language"].map((f) => (
+              {["Cash Book", "Khata Credit Book", "VAT Reports", "PDF Export", "Loan Tracker", "Personal Finance", "Dark Mode", "Seasonal Patterns", "Sick Call Tracker", "Multi-currency", "Multi-language"].map((f) => (
                 <span key={f} className="px-4 py-2 bg-white/5 border border-white/10 text-gray-400 text-sm font-medium rounded-full">
                   {f}
                 </span>
