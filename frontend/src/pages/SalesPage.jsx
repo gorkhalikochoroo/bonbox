@@ -262,9 +262,15 @@ export default function SalesPage() {
             ))}
           </div>
 
-          {/* Date picker */}
-          <div className="mt-2 flex items-center gap-3">
-            <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("date")}:</label>
+          {/* Notes + Date row */}
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Add a note (optional)"
+              className="flex-1 px-2.5 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+            />
             <input
               type="date"
               value={saleDate}
@@ -272,19 +278,10 @@ export default function SalesPage() {
               onChange={(e) => setSaleDate(e.target.value)}
               className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            {saleDate !== new Date().toISOString().split("T")[0] && (
-              <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Backdated entry</span>
-            )}
           </div>
-
-          {/* Notes */}
-          <input
-            type="text"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Add a note (optional)"
-            className="mt-2 w-full px-2.5 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-          />
+          {saleDate !== new Date().toISOString().split("T")[0] && (
+            <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 font-medium">Backdated entry</p>
+          )}
           </div>
         </div>
 
