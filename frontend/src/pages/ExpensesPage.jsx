@@ -838,7 +838,7 @@ export default function ExpensesPage() {
         const byCat = {};
         selExp.forEach(e => { byCat[e.category_name || "Other"] = (byCat[e.category_name || "Other"] || 0) + parseFloat(e.amount); });
         return (
-          <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-amber-600 dark:bg-amber-700 text-white rounded-2xl px-5 py-3 shadow-2xl shadow-amber-600/30 max-w-lg w-[calc(100%-2rem)]">
+          <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-blue-600 dark:bg-blue-700 text-white rounded-2xl px-5 py-3 shadow-2xl shadow-blue-600/30 max-w-lg w-[calc(100%-2rem)]">
             <div className="flex items-center gap-3 mb-1.5">
               <button onClick={() => setSelected(new Set())} className="w-6 h-6 flex items-center justify-center rounded-full bg-white/20 text-white text-xs font-bold hover:bg-white/30 transition flex-shrink-0">
                 &times;
