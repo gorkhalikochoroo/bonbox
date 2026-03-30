@@ -288,15 +288,20 @@ export default function SalesPage() {
 
         {/* Summary Stats - right side, Inventory Monitor style */}
         {sales.length > 0 ? (() => {
-          const totalRev = sales.reduce((s, x) => s + parseFloat(x.amount), 0);
-          const avgSale = totalRev / sales.length;
-          const todaySales = sales.filter(s => s.date === new Date().toISOString().split("T")[0]);
+          // Current month filter
+          const now = new Date();
+          const monthPrefix = now.toISOString().slice(0, 7); // "2026-03"
+          const monthName = now.toLocaleString("default", { month: "long" });
+          const monthSales = sales.filter(s => s.date?.startsWith(monthPrefix));
+          const totalRev = monthSales.reduce((s, x) => s + parseFloat(x.amount), 0);
+          const avgSale = monthSales.length > 0 ? totalRev / monthSales.length : 0;
+          const todaySales = sales.filter(s => s.date === now.toISOString().split("T")[0]);
           const todayRev = todaySales.reduce((s, x) => s + parseFloat(x.amount), 0);
           const methods = {};
-          sales.forEach(s => { methods[s.payment_method] = (methods[s.payment_method] || 0) + parseFloat(s.amount); });
+          monthSales.forEach(s => { methods[s.payment_method] = (methods[s.payment_method] || 0) + parseFloat(s.amount); });
           // Group sales by date for breakdown
           const byDate = {};
-          sales.forEach(s => { byDate[s.date] = (byDate[s.date] || 0) + parseFloat(s.amount); });
+          monthSales.forEach(s => { byDate[s.date] = (byDate[s.date] || 0) + parseFloat(s.amount); });
           const sortedDates = Object.entries(byDate).sort((a, b) => b[0].localeCompare(a[0]));
           // Today's methods
           const todayMethods = {};
@@ -314,11 +319,11 @@ export default function SalesPage() {
                 </button>
                 <button onClick={() => setExpandedStat(expandedStat === "total" ? null : "total")} className={`text-left bg-gradient-to-br from-blue-950 to-gray-800 rounded-xl p-4 border transition hover:brightness-110 active:scale-[0.98] ${expandedStat === "total" ? "border-blue-400 ring-1 ring-blue-400/50" : "border-blue-800/50"}`}>
                   <div className="flex items-center justify-between">
-                    <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold">Total Revenue</p>
+                    <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold">{monthName} Revenue</p>
                     <svg className={`w-3 h-3 text-blue-400/60 transition-transform ${expandedStat === "total" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                   </div>
                   <p className="text-3xl font-extrabold text-blue-400 mt-1">{totalRev.toLocaleString()}</p>
-                  <p className="text-[11px] text-blue-300/50 mt-1 font-medium">{currency} from {sales.length} sales</p>
+                  <p className="text-[11px] text-blue-300/50 mt-1 font-medium">{currency} from {monthSales.length} sales</p>
                 </button>
                 <button onClick={() => setExpandedStat(expandedStat === "avg" ? null : "avg")} className={`text-left bg-gradient-to-br from-purple-950 to-gray-800 rounded-xl p-4 border transition hover:brightness-110 active:scale-[0.98] ${expandedStat === "avg" ? "border-purple-400 ring-1 ring-purple-400/50" : "border-purple-800/50"}`}>
                   <div className="flex items-center justify-between">
@@ -398,12 +403,13 @@ export default function SalesPage() {
                       </div>
                     ))}
                   </div>
-                  <p className="text-[10px] text-blue-400/40 mt-2 text-center">{sales.length} sales across {sortedDates.length} days</p>
+                  <p className="text-[10px] text-blue-400/40 mt-2 text-center">{monthSales.length} sales across {sortedDates.length} days in {monthName}</p>
                 </div>
               )}
 
               {expandedStat === "avg" && (() => {
-                const amounts = sales.map(s => parseFloat(s.amount)).sort((a, b) => a - b);
+                const amounts = monthSales.map(s => parseFloat(s.amount)).sort((a, b) => a - b);
+                if (amounts.length === 0) return null;
                 const min = amounts[0];
                 const max = amounts[amounts.length - 1];
                 const median = amounts.length % 2 === 0 ? (amounts[amounts.length / 2 - 1] + amounts[amounts.length / 2]) / 2 : amounts[Math.floor(amounts.length / 2)];
@@ -416,7 +422,7 @@ export default function SalesPage() {
                 return (
                   <div className="bg-gradient-to-br from-purple-950/80 to-gray-800 rounded-xl p-4 border border-purple-700/60 animate-in">
                     <div className="flex items-center justify-between mb-3">
-                      <p className="text-xs font-semibold text-purple-300">Sale Distribution</p>
+                      <p className="text-xs font-semibold text-purple-300">{monthName} Sale Distribution</p>
                       <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-purple-900/50 text-purple-400 text-xs hover:bg-purple-800/60">&times;</button>
                     </div>
                     <div className="grid grid-cols-3 gap-2 mb-3">
@@ -438,13 +444,13 @@ export default function SalesPage() {
                         <div key={b.label} className="flex items-center gap-2">
                           <span className="text-[10px] text-purple-400/60 w-24 text-right truncate">{b.label}</span>
                           <div className="flex-1 bg-purple-900/30 rounded-full h-4 overflow-hidden">
-                            <div className="h-full bg-purple-500/60 rounded-full" style={{ width: `${Math.max(4, (b.count / sales.length) * 100)}%` }} />
+                            <div className="h-full bg-purple-500/60 rounded-full" style={{ width: `${Math.max(4, (b.count / monthSales.length) * 100)}%` }} />
                           </div>
                           <span className="text-[10px] font-bold text-purple-300 w-6">{b.count}</span>
                         </div>
                       ))}
                     </div>
-                    <p className="text-[10px] text-purple-400/40 mt-2 text-center">Average: {Math.round(avgSale).toLocaleString()} {currency} from {sales.length} sales</p>
+                    <p className="text-[10px] text-purple-400/40 mt-2 text-center">Average: {Math.round(avgSale).toLocaleString()} {currency} from {monthSales.length} sales in {monthName}</p>
                   </div>
                 );
               })()}
@@ -458,7 +464,7 @@ export default function SalesPage() {
               <p className="text-[11px] text-green-300/50 mt-1 font-medium">No sales yet</p>
             </div>
             <div className="bg-gradient-to-br from-blue-950 to-gray-800 rounded-xl p-4 border border-blue-800/50">
-              <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold mb-1.5">Total Revenue</p>
+              <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold mb-1.5">This Month</p>
               <p className="text-3xl font-extrabold text-blue-400">0</p>
               <p className="text-[11px] text-blue-300/50 mt-1 font-medium">{currency}</p>
             </div>

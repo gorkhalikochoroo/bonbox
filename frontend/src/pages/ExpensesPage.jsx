@@ -573,15 +573,20 @@ export default function ExpensesPage() {
 
       {/* Summary Stats - right side, Inventory Monitor style */}
       {expenses.length > 0 ? (() => {
-        const totalExp = expenses.reduce((s, x) => s + parseFloat(x.amount), 0);
-        const avgExp = totalExp / expenses.length;
-        const todayExp = expenses.filter(e => e.date === new Date().toISOString().split("T")[0]);
+        // Current month filter
+        const now = new Date();
+        const monthPrefix = now.toISOString().slice(0, 7);
+        const monthName = now.toLocaleString("default", { month: "long" });
+        const monthExpenses = expenses.filter(e => e.date?.startsWith(monthPrefix));
+        const totalExp = monthExpenses.reduce((s, x) => s + parseFloat(x.amount), 0);
+        const avgExp = monthExpenses.length > 0 ? totalExp / monthExpenses.length : 0;
+        const todayExp = expenses.filter(e => e.date === now.toISOString().split("T")[0]);
         const todayTotal = todayExp.reduce((s, x) => s + parseFloat(x.amount), 0);
         const cats = {};
-        expenses.forEach(e => { cats[e.category_name || "Other"] = (cats[e.category_name || "Other"] || 0) + parseFloat(e.amount); });
+        monthExpenses.forEach(e => { cats[e.category_name || "Other"] = (cats[e.category_name || "Other"] || 0) + parseFloat(e.amount); });
         // Group by date
         const byDate = {};
-        expenses.forEach(e => { byDate[e.date] = (byDate[e.date] || 0) + parseFloat(e.amount); });
+        monthExpenses.forEach(e => { byDate[e.date] = (byDate[e.date] || 0) + parseFloat(e.amount); });
         const sortedDates = Object.entries(byDate).sort((a, b) => b[0].localeCompare(a[0]));
         // Today's categories
         const todayCats = {};
@@ -599,11 +604,11 @@ export default function ExpensesPage() {
               </button>
               <button onClick={() => setExpandedStat(expandedStat === "total" ? null : "total")} className={`text-left bg-gradient-to-br from-blue-950 to-gray-800 rounded-xl p-4 border transition hover:brightness-110 active:scale-[0.98] ${expandedStat === "total" ? "border-blue-400 ring-1 ring-blue-400/50" : "border-blue-800/50"}`}>
                 <div className="flex items-center justify-between">
-                  <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold">Total Spent</p>
+                  <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold">{monthName} Spent</p>
                   <svg className={`w-3 h-3 text-blue-400/60 transition-transform ${expandedStat === "total" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                 </div>
                 <p className="text-3xl font-extrabold text-blue-400 mt-1">{totalExp.toLocaleString()}</p>
-                <p className="text-[11px] text-blue-300/50 mt-1 font-medium">{currency} from {expenses.length} expenses</p>
+                <p className="text-[11px] text-blue-300/50 mt-1 font-medium">{currency} from {monthExpenses.length} expenses</p>
               </button>
               <button onClick={() => setExpandedStat(expandedStat === "avg" ? null : "avg")} className={`text-left bg-gradient-to-br from-purple-950 to-gray-800 rounded-xl p-4 border transition hover:brightness-110 active:scale-[0.98] ${expandedStat === "avg" ? "border-purple-400 ring-1 ring-purple-400/50" : "border-purple-800/50"}`}>
                 <div className="flex items-center justify-between">
@@ -667,7 +672,7 @@ export default function ExpensesPage() {
             {expandedStat === "total" && (
               <div className="bg-gradient-to-br from-blue-950/80 to-gray-800 rounded-xl p-4 border border-blue-700/60 animate-in">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs font-semibold text-blue-300">All Expenses</p>
+                  <p className="text-xs font-semibold text-blue-300">{monthName} Expenses</p>
                   <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-blue-900/50 text-blue-400 text-xs hover:bg-blue-800/60">&times;</button>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mb-3">
@@ -676,7 +681,7 @@ export default function ExpensesPage() {
                   ))}
                 </div>
                 <div className="space-y-1 max-h-48 overflow-y-auto">
-                  {[...expenses].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 20).map((e, i) => (
+                  {[...monthExpenses].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 20).map((e, i) => (
                     <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-blue-900/20 rounded-lg text-xs">
                       <span className="text-blue-300/50 flex-shrink-0">{e.date.slice(5)}</span>
                       <span className="font-bold text-blue-300 flex-shrink-0">{parseFloat(e.amount).toLocaleString()}</span>
@@ -685,12 +690,13 @@ export default function ExpensesPage() {
                     </div>
                   ))}
                 </div>
-                <p className="text-[10px] text-blue-400/40 mt-2 text-center">{expenses.length} expenses · {sortedDates.length} days · {Object.keys(cats).length} categories</p>
+                <p className="text-[10px] text-blue-400/40 mt-2 text-center">{monthExpenses.length} expenses · {sortedDates.length} days · {Object.keys(cats).length} categories</p>
               </div>
             )}
 
             {expandedStat === "avg" && (() => {
-              const amounts = expenses.map(e => parseFloat(e.amount)).sort((a, b) => a - b);
+              const amounts = monthExpenses.map(e => parseFloat(e.amount)).sort((a, b) => a - b);
+              if (amounts.length === 0) return null;
               const min = amounts[0];
               const max = amounts[amounts.length - 1];
               const median = amounts.length % 2 === 0 ? (amounts[amounts.length / 2 - 1] + amounts[amounts.length / 2]) / 2 : amounts[Math.floor(amounts.length / 2)];
@@ -702,7 +708,7 @@ export default function ExpensesPage() {
               return (
                 <div className="bg-gradient-to-br from-purple-950/80 to-gray-800 rounded-xl p-4 border border-purple-700/60 animate-in">
                   <div className="flex items-center justify-between mb-3">
-                    <p className="text-xs font-semibold text-purple-300">Expense Distribution</p>
+                    <p className="text-xs font-semibold text-purple-300">{monthName} Expense Distribution</p>
                     <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-purple-900/50 text-purple-400 text-xs hover:bg-purple-800/60">&times;</button>
                   </div>
                   <div className="grid grid-cols-3 gap-2 mb-3">
@@ -724,13 +730,13 @@ export default function ExpensesPage() {
                       <div key={b.label} className="flex items-center gap-2">
                         <span className="text-[10px] text-purple-400/60 w-24 text-right truncate">{b.label}</span>
                         <div className="flex-1 bg-purple-900/30 rounded-full h-4 overflow-hidden">
-                          <div className="h-full bg-purple-500/60 rounded-full" style={{ width: `${Math.max(4, (b.count / expenses.length) * 100)}%` }} />
+                          <div className="h-full bg-purple-500/60 rounded-full" style={{ width: `${Math.max(4, (b.count / monthExpenses.length) * 100)}%` }} />
                         </div>
                         <span className="text-[10px] font-bold text-purple-300 w-6">{b.count}</span>
                       </div>
                     ))}
                   </div>
-                  <p className="text-[10px] text-purple-400/40 mt-2 text-center">Average: {Math.round(avgExp).toLocaleString()} {currency} from {expenses.length} expenses</p>
+                  <p className="text-[10px] text-purple-400/40 mt-2 text-center">Average: {Math.round(avgExp).toLocaleString()} {currency} from {monthExpenses.length} expenses</p>
                 </div>
               );
             })()}
@@ -744,7 +750,7 @@ export default function ExpensesPage() {
             <p className="text-[11px] text-red-300/50 mt-1 font-medium">No expenses yet</p>
           </div>
           <div className="bg-gradient-to-br from-blue-950 to-gray-800 rounded-xl p-4 border border-blue-800/50">
-            <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold mb-1.5">Total Spent</p>
+            <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold mb-1.5">This Month</p>
             <p className="text-3xl font-extrabold text-blue-400">0</p>
             <p className="text-[11px] text-blue-300/50 mt-1 font-medium">{currency}</p>
           </div>
