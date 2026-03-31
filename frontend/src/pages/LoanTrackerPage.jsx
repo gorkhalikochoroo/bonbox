@@ -243,7 +243,16 @@ export default function LoanTrackerPage() {
                   <input type="number" placeholder={t("amount")} value={txnForm.amount} onChange={(e) => setTxnForm({ ...txnForm, amount: e.target.value })}
                     className="px-3 py-2 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" min="0" step="0.01" />
                   <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-                    <input type="checkbox" checked={txnForm.is_repayment} onChange={(e) => setTxnForm({ ...txnForm, is_repayment: e.target.checked })}
+                    <input type="checkbox" checked={txnForm.is_repayment} onChange={(e) => {
+                      const checked = e.target.checked;
+                      const updates = { is_repayment: checked };
+                      // Auto-set type to match outstanding balance direction
+                      if (checked && selected) {
+                        if (selected.borrowed_balance > 0 && selected.lent_balance <= 0) updates.type = "borrowed";
+                        else if (selected.lent_balance > 0 && selected.borrowed_balance <= 0) updates.type = "lent";
+                      }
+                      setTxnForm({ ...txnForm, ...updates });
+                    }}
                       className="rounded border-gray-300" />
                     {t("repayment")}
                   </label>
