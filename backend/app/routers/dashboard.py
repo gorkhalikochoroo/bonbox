@@ -194,7 +194,8 @@ def get_summary(
 
     today_change = 0.0
     if yesterday_rev > 0:
-        today_change = round(((float(today_rev) - float(yesterday_rev)) / float(yesterday_rev)) * 100, 1)
+        raw_change = ((float(today_rev) - float(yesterday_rev)) / float(yesterday_rev)) * 100
+        today_change = round(max(-500, min(500, raw_change)), 1)
 
     # This month's revenue
     month_rev = (
@@ -336,6 +337,7 @@ def get_action_items(
         db.query(InventoryItem.name, InventoryItem.quantity, InventoryItem.min_threshold)
         .filter(
             InventoryItem.user_id == user.id,
+            InventoryItem.quantity > 0,
             InventoryItem.quantity <= InventoryItem.min_threshold,
             InventoryItem.min_threshold > 0,
         )

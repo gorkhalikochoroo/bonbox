@@ -33,7 +33,7 @@ export default function SalesPage() {
   const [inventoryItems, setInventoryItems] = useState([]);
   const [expandedStat, setExpandedStat] = useState(null); // "today" | "total" | "avg" | null
 
-  const filtered = sales.filter(s => !search || s.notes?.toLowerCase().includes(search.toLowerCase()) || s.payment_method?.toLowerCase().includes(search.toLowerCase())).sort((a, b) => {
+  const filtered = sales.filter(s => !search || s.notes?.toLowerCase().includes(search.toLowerCase()) || s.payment_method?.toLowerCase().includes(search.toLowerCase()) || String(s.amount).includes(search)).sort((a, b) => {
     const d = b.date.localeCompare(a.date);
     if (d !== 0) return d;
     return (b.created_at || "").localeCompare(a.created_at || "");
@@ -530,7 +530,7 @@ export default function SalesPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search notes, payment..."
+              placeholder="Search amount, notes, payment..."
               className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             {(filterFrom || filterTo) && (

@@ -392,34 +392,44 @@ export default function InventoryPage() {
       )}
 
       {/* Financial overview — auto-calculated from buy/sell prices */}
-      <div className="bg-gradient-to-r from-blue-50 to-emerald-50 dark:from-gray-800 dark:to-gray-800 p-5 rounded-2xl border border-blue-100 dark:border-gray-700">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("stockCost")}</p>
-            <p className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white mt-1">{stats.totalCost.toLocaleString()}</p>
-            <p className="text-xs text-gray-400">{currency} {t("invested")}</p>
-          </div>
-          <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("potentialRevenue")}</p>
-            <p className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">{stats.totalRevenue.toLocaleString()}</p>
-            <p className="text-xs text-gray-400">{currency} {t("ifAllSold")}</p>
-          </div>
-          <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("potentialProfit")}</p>
-            <p className={`text-xl sm:text-2xl font-bold mt-1 ${stats.totalProfit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
-              {stats.totalProfit >= 0 ? "+" : ""}{stats.totalProfit.toLocaleString()}
-            </p>
-            <p className="text-xs text-gray-400">{currency} {t("margin")}</p>
-          </div>
-          <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("avgMargin")}</p>
-            <p className={`text-xl sm:text-2xl font-bold mt-1 ${stats.avgMargin >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
-              {stats.avgMargin}%
-            </p>
-            <p className="text-xs text-gray-400">{stats.itemsWithMargin} {t("itemsPriced")}</p>
+      {stats.itemsWithMargin >= 10 ? (
+        <div className="bg-gradient-to-r from-blue-50 to-emerald-50 dark:from-gray-800 dark:to-gray-800 p-5 rounded-2xl border border-blue-100 dark:border-gray-700">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("stockCost")}</p>
+              <p className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white mt-1">{stats.totalCost.toLocaleString()}</p>
+              <p className="text-xs text-gray-400">{currency} {t("invested")}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("potentialRevenue")}</p>
+              <p className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">{stats.totalRevenue.toLocaleString()}</p>
+              <p className="text-xs text-gray-400">{currency} {t("ifAllSold")}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("potentialProfit")}</p>
+              <p className={`text-xl sm:text-2xl font-bold mt-1 ${stats.totalProfit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
+                {stats.totalProfit >= 0 ? "+" : ""}{stats.totalProfit.toLocaleString()}
+              </p>
+              <p className="text-xs text-gray-400">{currency} {t("margin")}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("avgMargin")}</p>
+              <p className={`text-xl sm:text-2xl font-bold mt-1 ${stats.avgMargin >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
+                {stats.avgMargin}%
+              </p>
+              <p className="text-xs text-gray-400">{stats.itemsWithMargin} {t("itemsPriced")}</p>
+            </div>
           </div>
         </div>
-      </div>
+      ) : items.length > 0 && (
+        <div className="bg-blue-50 dark:bg-gray-800 border border-blue-100 dark:border-gray-700 p-4 rounded-xl flex items-center gap-3">
+          <span className="text-2xl">💡</span>
+          <div>
+            <p className="text-sm font-medium text-blue-800 dark:text-blue-300">Add sell prices to see profit analytics</p>
+            <p className="text-xs text-blue-600/70 dark:text-blue-400/70 mt-0.5">{stats.itemsWithMargin}/{items.length} items priced — need at least 10 for financial overview</p>
+          </div>
+        </div>
+      )}
 
       {/* Summary cards */}
       <div className="space-y-3">
@@ -920,7 +930,7 @@ export default function InventoryPage() {
                         </td>
                         <td className="px-4 py-3 text-right">
                           <div className="inline-flex items-center gap-2">
-                            {item.pour_size && (
+                            {item.pour_size > 0 && (
                               <button onClick={() => { setPourModal(item); setPourCount(1); }} className="bg-amber-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-amber-600 min-w-[48px] min-h-[32px]">Pour</button>
                             )}
                             <button onClick={() => startEdit(item)} className="bg-blue-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-blue-600 min-w-[48px] min-h-[32px]">{t("edit")}</button>

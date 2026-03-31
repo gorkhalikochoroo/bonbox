@@ -123,6 +123,7 @@ def get_alerts(
         db.query(InventoryItem)
         .filter(
             InventoryItem.user_id == user.id,
+            InventoryItem.quantity > 0,
             InventoryItem.quantity <= InventoryItem.min_threshold,
         )
         .all()

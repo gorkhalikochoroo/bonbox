@@ -634,7 +634,8 @@ export default function DashboardPage() {
               { label: "Expenses", thisWeek: weekComparison.this_week_expenses, lastWeek: weekComparison.last_week_expenses, color: "red" },
               { label: "Profit", thisWeek: weekComparison.this_week_profit, lastWeek: weekComparison.last_week_profit, color: "green" },
             ].map((row) => {
-              const diff = row.lastWeek > 0 ? ((row.thisWeek - row.lastWeek) / Math.abs(row.lastWeek)) * 100 : 0;
+              const rawDiff = row.lastWeek > 0 ? ((row.thisWeek - row.lastWeek) / Math.abs(row.lastWeek)) * 100 : 0;
+              const diff = Math.max(-500, Math.min(500, rawDiff));
               const isUp = diff > 0;
               const isGood = row.label === "Expenses" ? !isUp : isUp;
               return (
@@ -1261,10 +1262,12 @@ function HealthScore({ summary, monthlyData }) {
   const consistencyScore = Math.min(Math.round(consistencyPct * 25), 25);
   factors.push({ label: t("consistency"), score: consistencyScore, max: 25, tip: `${daysWithSales}/${totalDays} ${t("daysActive")}` });
 
-  // 3. Revenue growth (0-20 pts)
-  const growthChange = summary.today_revenue_change || 0;
+  // 3. Revenue growth (0-20 pts) — cap display at ±500%
+  const rawGrowth = summary.today_revenue_change || 0;
+  const growthChange = Math.max(-500, Math.min(500, rawGrowth));
   const growthScore = growthChange > 0 ? Math.min(Math.round(growthChange), 20) : growthChange === 0 ? 10 : Math.max(10 + Math.round(growthChange / 2), 0);
-  factors.push({ label: t("growth"), score: growthScore, max: 20, tip: `${growthChange >= 0 ? "+" : ""}${growthChange}% ${t("vsYesterday")}` });
+  const growthTip = Math.abs(rawGrowth) > 500 ? t("newDay") || "New day" : `${growthChange >= 0 ? "+" : ""}${growthChange}% ${t("vsYesterday")}`;
+  factors.push({ label: t("growth"), score: growthScore, max: 20, tip: growthTip });
 
   // 4. Expense control (0-15 pts) — lower expense ratio = better
   const expenseRatio = summary.month_revenue > 0 ? summary.month_expenses / summary.month_revenue : 1;
@@ -1405,9 +1408,13 @@ function KpiCard({ title, value, change, changeLabel, subtitle, alert, numericVa
         ) : value}
       </p>
       {change !== undefined && change !== -100 && (
-        <p className={`text-sm mt-1 ${change >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
-          {change >= 0 ? "+" : ""}{change}% {changeLabel}
-        </p>
+        Math.abs(change) > 500 ? (
+          <p className="text-sm mt-1 text-blue-500 dark:text-blue-400">New day ✨</p>
+        ) : (
+          <p className={`text-sm mt-1 ${change >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+            {change >= 0 ? "+" : ""}{change}% {changeLabel}
+          </p>
+        )
       )}
       {change === -100 && (
         <p className="text-sm mt-1 text-gray-400 dark:text-gray-500">No sales yet today</p>

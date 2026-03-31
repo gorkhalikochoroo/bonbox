@@ -51,7 +51,7 @@ export default function ExpensesPage() {
   const [expandedStat, setExpandedStat] = useState(null); // "today" | "total" | "avg" | null
 
   const filtered = expenses.filter(e => {
-    if (search && !(e.description?.toLowerCase().includes(search.toLowerCase()) || e.notes?.toLowerCase().includes(search.toLowerCase()) || e.payment_method?.toLowerCase().includes(search.toLowerCase()))) return false;
+    if (search && !(e.description?.toLowerCase().includes(search.toLowerCase()) || e.notes?.toLowerCase().includes(search.toLowerCase()) || e.payment_method?.toLowerCase().includes(search.toLowerCase()) || String(e.amount).includes(search))) return false;
     if (showFilter === "personal" && !e.is_personal) return false;
     if (showFilter === "business" && e.is_personal) return false;
     return true;
@@ -800,7 +800,7 @@ export default function ExpensesPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name, category, payment..."
+              placeholder="Search amount, name, category, payment..."
               className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             {(filterFrom || filterTo) && (
