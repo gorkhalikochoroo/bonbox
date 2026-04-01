@@ -288,13 +288,24 @@ export default function SalesPage() {
 
         {/* Summary Stats - right side, Inventory Monitor style */}
         {sales.length > 0 ? (() => {
-          // Current month filter
+          // Derive display month from data when filters are active, otherwise use current month
           const now = new Date();
-          const monthPrefix = now.toISOString().slice(0, 7); // "2026-03"
-          const monthName = now.toLocaleString("default", { month: "long" });
-          const monthSales = sales.filter(s => s.date?.startsWith(monthPrefix));
+          const hasFilter = filterFrom || filterTo;
+          // If filtered, use the most recent sale's month; otherwise current month
+          const refDate = hasFilter && sales.length > 0
+            ? new Date(sales.reduce((latest, s) => s.date > latest ? s.date : latest, sales[0].date) + "T12:00:00")
+            : now;
+          const monthPrefix = refDate.toISOString().slice(0, 7);
+          const monthName = refDate.toLocaleString("default", { month: "long" });
+          // When filtered, show all sales as "month sales" (they're already filtered by the API)
+          const monthSales = hasFilter ? sales : sales.filter(s => s.date?.startsWith(monthPrefix));
           const totalRev = monthSales.reduce((s, x) => s + parseFloat(x.amount), 0);
-          const todaySales = sales.filter(s => s.date === now.toISOString().split("T")[0]);
+          const todayStr = now.toISOString().split("T")[0];
+          // When filtered to past dates, show the latest day in the data as "today" card
+          const latestDate = hasFilter && sales.length > 0
+            ? sales.reduce((latest, s) => s.date > latest ? s.date : latest, sales[0].date)
+            : todayStr;
+          const todaySales = sales.filter(s => s.date === latestDate);
           const todayRev = todaySales.reduce((s, x) => s + parseFloat(x.amount), 0);
           const methods = {};
           monthSales.forEach(s => { methods[s.payment_method] = (methods[s.payment_method] || 0) + parseFloat(s.amount); });
@@ -312,7 +323,7 @@ export default function SalesPage() {
               <div className="grid grid-cols-2 gap-3">
                 <button onClick={() => setExpandedStat(expandedStat === "today" ? null : "today")} className={`text-left bg-gradient-to-br from-green-950 to-gray-800 rounded-xl p-4 border transition hover:brightness-110 active:scale-[0.98] ${expandedStat === "today" ? "border-green-400 ring-1 ring-green-400/50" : "border-green-800/50"}`}>
                   <div className="flex items-center justify-between">
-                    <p className="text-[10px] uppercase tracking-widest text-green-300/70 font-semibold">Today</p>
+                    <p className="text-[10px] uppercase tracking-widest text-green-300/70 font-semibold">{hasFilter ? "Latest Day" : "Today"}</p>
                     <svg className={`w-3 h-3 text-green-400/60 transition-transform ${expandedStat === "today" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                   </div>
                   <p className="text-3xl font-extrabold text-green-400 mt-1">{todayRev.toLocaleString()}</p>
