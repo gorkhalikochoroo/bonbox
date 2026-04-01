@@ -1,5 +1,6 @@
 """Weather-Smart Business — correlate weather with sales, staffing, and sick calls."""
 
+import logging
 import uuid
 from datetime import date, datetime, timedelta
 
@@ -7,6 +8,8 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, extract
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.database import get_db
 from app.models.user import User
@@ -61,13 +64,22 @@ def get_forecast(
     if not lat or not lon:
         raise HTTPException(400, "Set your location first")
 
-    resp = httpx.get(OPEN_METEO_FORECAST, params={
-        "latitude": lat, "longitude": lon,
-        "current": "temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m,precipitation",
-        "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,wind_speed_10m_max",
-        "timezone": "auto",
-    }, timeout=10)
+    try:
+        resp = httpx.get(OPEN_METEO_FORECAST, params={
+            "latitude": lat, "longitude": lon,
+            "current": "temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m,precipitation",
+            "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,wind_speed_10m_max",
+            "timezone": "auto",
+        }, timeout=30)
+    except httpx.TimeoutException:
+        logger.error("Open-Meteo forecast request timed out for lat=%s lon=%s", lat, lon)
+        raise HTTPException(502, "Weather service timed out — try again")
+    except httpx.RequestError as exc:
+        logger.error("Open-Meteo forecast request failed: %s", exc)
+        raise HTTPException(502, "Weather service unavailable")
+
     if resp.status_code != 200:
+        logger.error("Open-Meteo returned %s: %s", resp.status_code, resp.text[:200])
         raise HTTPException(502, "Weather service unavailable")
 
     body = resp.json()

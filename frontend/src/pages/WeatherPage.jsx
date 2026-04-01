@@ -40,30 +40,38 @@ export default function WeatherPage() {
 
   const checkAndFetch = async () => {
     setLoading(true);
-    try {
-      const res = await api.get("/weather/forecast");
-      setHasLocation(true);
-      setForecast(res.data);
-      // Fetch rest in parallel
-      const [insightsRes, impactRes, seasonalRes, sickRes, sickStatsRes] = await Promise.allSettled([
-        api.get("/weather/insights"),
-        api.get("/weather/impact-profile"),
-        api.get("/weather/seasonal"),
-        api.get("/weather/sick-calls"),
-        api.get("/weather/sick-calls/stats"),
-      ]);
-      if (insightsRes.status === "fulfilled") setInsights(insightsRes.value.data.insights || []);
-      if (impactRes.status === "fulfilled") setImpact(impactRes.value.data);
-      if (seasonalRes.status === "fulfilled") setSeasonal(seasonalRes.value.data);
-      if (sickRes.status === "fulfilled") setSickCalls(sickRes.value.data);
-      if (sickStatsRes.status === "fulfilled") setSickStats(sickStatsRes.value.data);
-    } catch (e) {
-      if (e.response?.status === 400) {
-        setHasLocation(false);
-      } else {
-        setError("Could not load weather data");
-      }
+    setError("");
+    // Fetch all endpoints in parallel — don't let one failure block others
+    const [forecastRes, insightsRes, impactRes, seasonalRes, sickRes, sickStatsRes] = await Promise.allSettled([
+      api.get("/weather/forecast"),
+      api.get("/weather/insights"),
+      api.get("/weather/impact-profile"),
+      api.get("/weather/seasonal"),
+      api.get("/weather/sick-calls"),
+      api.get("/weather/sick-calls/stats"),
+    ]);
+
+    // Check if location is set (forecast returns 400 if not)
+    if (forecastRes.status === "rejected" && forecastRes.reason?.response?.status === 400) {
+      setHasLocation(false);
+      setLoading(false);
+      return;
     }
+
+    // Location exists — show main view even if some calls failed
+    setHasLocation(true);
+
+    if (forecastRes.status === "fulfilled") {
+      setForecast(forecastRes.value.data);
+    } else {
+      setError("Weather forecast temporarily unavailable — try Refresh");
+    }
+
+    if (insightsRes.status === "fulfilled") setInsights(insightsRes.value.data.insights || []);
+    if (impactRes.status === "fulfilled") setImpact(impactRes.value.data);
+    if (seasonalRes.status === "fulfilled") setSeasonal(seasonalRes.value.data);
+    if (sickRes.status === "fulfilled") setSickCalls(sickRes.value.data);
+    if (sickStatsRes.status === "fulfilled") setSickStats(sickStatsRes.value.data);
     setLoading(false);
   };
 
