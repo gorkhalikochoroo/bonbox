@@ -273,7 +273,7 @@ export const TAX_RATES = {
   DKK:    { rate: 0.25, inclusive: true,  label: "inkl. moms" },
   SEK:    { rate: 0.25, inclusive: true,  label: "inkl. moms" },
   NOK:    { rate: 0.25, inclusive: true,  label: "inkl. MVA" },
-  EUR:    { rate: 0.20, inclusive: true,  label: "incl. VAT" },
+  EUR:    { rate: 0.21, inclusive: true,  label: "incl. VAT" },
   EUR_DE: { rate: 0.19, inclusive: true,  label: "inkl. MwSt" },
   EUR_FR: { rate: 0.20, inclusive: true,  label: "TTC" },
   EUR_ES: { rate: 0.21, inclusive: true,  label: "con IVA" },
