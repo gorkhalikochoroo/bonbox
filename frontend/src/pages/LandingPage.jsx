@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
+import { useLanguage } from "../hooks/useLanguage";
 
 /* ── Animated counter ── */
 function Counter({ end, duration = 1800, prefix = "", suffix = "" }) {
@@ -56,9 +57,193 @@ function FadeIn({ children, className = "", delay = 0 }) {
   );
 }
 
+/* ── Interactive demo dashboard ── */
+function LiveDemo({ t, currency }) {
+  const [activeTab, setActiveTab] = useState("dashboard");
+  const tabs = [
+    { key: "dashboard", label: t("landingDemoTabDashboard") },
+    { key: "sales", label: t("landingDemoTabSales") },
+    { key: "inventory", label: t("landingDemoTabInventory") },
+  ];
+
+  return (
+    <div className="bg-gray-950/80 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl shadow-green-500/5 p-3 sm:p-5">
+      {/* browser bar */}
+      <div className="flex items-center gap-2 mb-4 px-1">
+        <div className="flex gap-1.5">
+          <div className="w-2.5 h-2.5 rounded-full bg-red-500/80" />
+          <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/80" />
+          <div className="w-2.5 h-2.5 rounded-full bg-green-500/80" />
+        </div>
+        <div className="flex-1 flex justify-center">
+          <div className="px-4 py-1 bg-gray-800/80 rounded-md text-[10px] text-gray-500 font-mono">bonbox.dk/dashboard</div>
+        </div>
+      </div>
+
+      {/* Tab switcher */}
+      <div className="flex gap-1 mb-3 px-1">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`px-3 py-1.5 rounded-lg text-[11px] font-medium transition ${
+              activeTab === tab.key
+                ? "bg-green-500/20 text-green-400 border border-green-500/30"
+                : "text-gray-500 hover:text-gray-300"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="bg-gray-900 rounded-xl p-3 sm:p-5 min-h-[280px]">
+        {activeTab === "dashboard" && (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <p className="text-white text-sm font-semibold">{t("landingDemoWelcome")}</p>
+                <p className="text-gray-500 text-[11px]">{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
+              </div>
+              <div className="hidden sm:flex gap-2">
+                <span className="px-3 py-1.5 bg-green-600 text-white text-[11px] rounded-lg font-semibold flex items-center gap-1">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+                  {t("quickSale")}
+                </span>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-3">
+              {[
+                { label: t("todayRevenue"), val: `24,500 ${currency}`, sub: "+12%", color: "text-white", subColor: "text-green-400", border: "border-green-500/20" },
+                { label: t("profit"), val: `70,097 ${currency}`, sub: "57.8%", color: "text-white", subColor: "text-green-400", border: "border-green-500/20" },
+                { label: t("inventoryAlerts"), val: "3", sub: t("landingDemoLowStock"), color: "text-yellow-400", subColor: "text-yellow-400", border: "border-yellow-500/20" },
+                { label: t("landingDemoKhata"), val: `40,000 ${currency}`, sub: t("landingDemo5Customers"), color: "text-orange-400", subColor: "text-gray-500", border: "border-orange-500/20" },
+              ].map((kpi) => (
+                <div key={kpi.label} className={`bg-gray-800/60 p-2.5 sm:p-3 rounded-lg border ${kpi.border}`}>
+                  <p className="text-gray-500 text-[10px] sm:text-xs">{kpi.label}</p>
+                  <p className={`${kpi.color} text-base sm:text-lg font-bold mt-0.5`}>{kpi.val}</p>
+                  <p className={`${kpi.subColor} text-[10px]`}>{kpi.sub}</p>
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
+              <div className="bg-gray-800/60 rounded-lg border border-gray-700/50 p-3 flex items-center gap-4">
+                <div className="text-center flex-shrink-0">
+                  <div className="w-12 h-12 rounded-full border-[3px] border-green-500 flex items-center justify-center bg-green-500/10">
+                    <span className="text-green-400 font-bold text-base">76</span>
+                  </div>
+                  <p className="text-gray-500 text-[10px] mt-1">{t("businessHealth")}</p>
+                </div>
+                <div className="flex-1 space-y-1.5 hidden sm:block">
+                  {[
+                    { label: t("profitability"), pct: 82, color: "bg-green-500" },
+                    { label: t("consistency"), pct: 95, color: "bg-blue-500" },
+                    { label: t("costControl"), pct: 60, color: "bg-yellow-500" },
+                  ].map((bar) => (
+                    <div key={bar.label} className="flex items-center gap-2">
+                      <span className="text-gray-500 text-[10px] w-20">{bar.label}</span>
+                      <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                        <div className={`h-full ${bar.color} rounded-full`} style={{width: `${bar.pct}%`}} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="bg-gray-800/60 rounded-lg border border-gray-700/50 p-3">
+                <p className="text-gray-400 text-[10px] font-semibold uppercase tracking-wider mb-2">{t("recentSales")}</p>
+                <div className="space-y-1.5">
+                  {[
+                    { name: "Coca-Cola x 10", price: `150 ${currency}`, method: t("cash") },
+                    { name: "Basmati Rice 5kg", price: `1,350 ${currency}`, method: "MobilePay" },
+                    { name: "Bar: 2x Vodka", price: `90 ${currency}`, method: t("card") },
+                  ].map((s, i) => (
+                    <div key={i} className="flex items-center justify-between text-[11px] py-1 border-b border-gray-700/30 last:border-0">
+                      <span className="text-gray-300">{s.name}</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-white font-medium">{s.price}</span>
+                        <span className="text-gray-600 text-[10px]">{s.method}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {activeTab === "sales" && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-white text-sm font-semibold">{t("salesTracker")}</p>
+              <span className="px-3 py-1 bg-green-600 text-white text-[11px] rounded-lg font-semibold">{t("logSale")}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {[100, 250, 500, 1000, 2500, 5000].map((amt) => (
+                <button key={amt} className="bg-gray-800/60 border border-gray-700/50 rounded-lg p-2.5 text-center hover:border-green-500/40 transition">
+                  <p className="text-white font-bold text-sm">{amt.toLocaleString()}</p>
+                  <p className="text-gray-500 text-[10px]">{currency}</p>
+                </button>
+              ))}
+            </div>
+            <div className="bg-gray-800/40 rounded-lg p-3 mt-2">
+              <p className="text-gray-400 text-[10px] font-semibold uppercase mb-2">{t("recentSales")}</p>
+              <div className="space-y-1.5">
+                {[
+                  { date: "Apr 2", amount: "24,500", method: "Cash" },
+                  { date: "Apr 1", amount: "18,200", method: "MobilePay" },
+                  { date: "Mar 31", amount: "31,800", method: "Card" },
+                ].map((s, i) => (
+                  <div key={i} className="flex items-center justify-between text-[11px] py-1.5 border-b border-gray-700/30 last:border-0">
+                    <span className="text-gray-400">{s.date}</span>
+                    <span className="text-white font-bold">{s.amount} {currency}</span>
+                    <span className="text-gray-500 text-[10px]">{s.method}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "inventory" && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-white text-sm font-semibold">{t("inventoryMonitor")}</p>
+              <span className="px-2.5 py-1 bg-yellow-500/20 text-yellow-400 text-[11px] rounded-lg font-medium">3 {t("lowStockAlerts")}</span>
+            </div>
+            <div className="space-y-1.5">
+              {[
+                { name: "Coca-Cola", qty: 4, min: 10, unit: t("pieces"), status: "low" },
+                { name: "Basmati Rice 5kg", qty: 45, min: 10, unit: t("kg"), status: "ok" },
+                { name: "Vodka 750ml", qty: 2, min: 5, unit: t("bottles"), status: "low" },
+                { name: "Tomatoes", qty: 8, min: 3, unit: t("kg"), status: "ok" },
+                { name: "Chicken Breast", qty: 1, min: 5, unit: t("kg"), status: "low" },
+              ].map((item) => (
+                <div key={item.name} className="flex items-center justify-between bg-gray-800/60 rounded-lg p-2.5 border border-gray-700/50">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${item.status === "low" ? "bg-red-400 animate-pulse" : "bg-green-400"}`} />
+                    <span className="text-gray-200 text-[12px] font-medium">{item.name}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`text-[11px] font-bold ${item.status === "low" ? "text-red-400" : "text-green-400"}`}>
+                      {item.qty} {item.unit}
+                    </span>
+                    <span className="text-gray-600 text-[10px]">min: {item.min}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ══════════════════════════════════════════════════════════ */
 export default function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const { t, lang, setLang, LANGUAGES } = useLanguage();
+  const currency = "kr";
 
   return (
     <div className="min-h-screen bg-slate-950 overflow-x-hidden">
@@ -80,11 +265,20 @@ export default function LandingPage() {
           </Link>
 
           <div className="hidden sm:flex items-center gap-3">
+            <select
+              value={lang}
+              onChange={(e) => setLang(e.target.value)}
+              className="bg-white/5 border border-white/10 text-gray-300 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-green-500/50 cursor-pointer"
+            >
+              {LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code} className="bg-gray-900 text-white">{l.flag} {l.label}</option>
+              ))}
+            </select>
             <Link to="/login" className="px-5 py-2 text-sm font-medium text-gray-300 hover:text-white transition">
-              Sign In
+              {t("landingSignIn")}
             </Link>
             <Link to="/register" className="px-5 py-2.5 text-sm font-semibold bg-green-500 text-white rounded-lg hover:bg-green-400 transition shadow-lg shadow-green-500/25">
-              Start Free
+              {t("landingStartFree")}
             </Link>
           </div>
 
@@ -100,15 +294,23 @@ export default function LandingPage() {
         </div>
         {menuOpen && (
           <div className="sm:hidden px-4 pb-4 space-y-2 border-t border-white/10 pt-3">
-            <Link to="/login" className="block w-full text-center px-4 py-3 text-sm font-medium text-white border border-white/20 rounded-lg">Sign In</Link>
-            <Link to="/register" className="block w-full text-center px-4 py-3 text-sm font-semibold bg-green-500 text-white rounded-lg">Start Free</Link>
+            <select
+              value={lang}
+              onChange={(e) => setLang(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 text-gray-300 text-sm rounded-lg px-3 py-2.5 mb-1"
+            >
+              {LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code} className="bg-gray-900 text-white">{l.flag} {l.label}</option>
+              ))}
+            </select>
+            <Link to="/login" className="block w-full text-center px-4 py-3 text-sm font-medium text-white border border-white/20 rounded-lg">{t("landingSignIn")}</Link>
+            <Link to="/register" className="block w-full text-center px-4 py-3 text-sm font-semibold bg-green-500 text-white rounded-lg">{t("landingStartFree")}</Link>
           </div>
         )}
       </nav>
 
       {/* ── Hero ── */}
       <section className="relative pt-32 sm:pt-40 pb-20 sm:pb-32 text-white overflow-hidden">
-        {/* Glow orbs */}
         <div className="absolute top-20 left-1/4 w-[500px] h-[500px] bg-green-600/10 rounded-full blur-[120px]" />
         <div className="absolute top-40 right-1/4 w-[400px] h-[400px] bg-orange-600/8 rounded-full blur-[120px]" />
 
@@ -116,151 +318,54 @@ export default function LandingPage() {
           <FadeIn>
             <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-green-500/10 backdrop-blur-sm rounded-full text-sm font-medium text-green-400 mb-8 border border-green-500/20">
               <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-              100% free — no card, no catch
+              {t("landingBadge")}
             </div>
           </FadeIn>
 
           <FadeIn delay={100}>
             <h1 className="text-4xl sm:text-6xl md:text-7xl font-extrabold leading-[1.08] tracking-tight">
-              Know your business.
+              {t("landingHeroLine1")}
               <br />
               <span className="bg-gradient-to-r from-green-400 via-emerald-400 to-green-300 bg-clip-text text-transparent">
-                Grow your business.
+                {t("landingHeroLine2")}
               </span>
             </h1>
           </FadeIn>
 
           <FadeIn delay={200}>
             <p className="mt-6 text-lg md:text-xl text-gray-400 max-w-2xl mx-auto leading-relaxed">
-              Sales, expenses, inventory, weather, staff — all in one dashboard.
-              <br className="hidden sm:block" />
-              Built for <span className="text-white font-medium">21+ business types</span> who want real numbers, not paperwork.
+              {t("landingHeroSub")}
             </p>
           </FadeIn>
 
           <FadeIn delay={300}>
             <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link to="/register" className="w-full sm:w-auto px-10 py-4 bg-green-500 text-white font-bold rounded-xl hover:bg-green-400 transition shadow-2xl shadow-green-500/25 text-center text-lg">
-                Get Started — It's Free
+                {t("landingCtaPrimary")}
               </Link>
               <a href="https://play.google.com/store/apps/details?id=dk.bonbox.app" target="_blank" rel="noopener noreferrer" className="w-full sm:w-auto px-10 py-4 border border-white/15 text-white font-semibold rounded-xl hover:bg-white/5 transition text-center flex items-center justify-center gap-2">
                 <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 01-.61-.92V2.734a1 1 0 01.609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.199l2.807 1.626a1 1 0 010 1.732l-2.807 1.626L15.206 12l2.492-2.492zM5.864 2.658L16.8 8.99l-2.302 2.302-8.634-8.634z"/></svg>
-                Android App
+                {t("landingAndroidApp")}
               </a>
             </div>
           </FadeIn>
 
           <FadeIn delay={350}>
-            <div className="mt-6 flex items-center justify-center gap-6 text-sm text-gray-500">
-              {["Works on any phone", "60-second setup", "No hidden fees"].map((t) => (
-                <span key={t} className="flex items-center gap-1.5">
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-6 text-sm text-gray-500">
+              {[t("landingCheck1"), t("landingCheck2"), t("landingCheck3")].map((txt) => (
+                <span key={txt} className="flex items-center gap-1.5">
                   <svg className="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
-                  {t}
+                  {txt}
                 </span>
               ))}
             </div>
           </FadeIn>
 
-          {/* ── Dashboard Preview ── */}
+          {/* ── Interactive Demo ── */}
           <FadeIn delay={500}>
             <div className="mt-16 max-w-5xl mx-auto">
-              <div className="bg-gray-950/80 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl shadow-green-500/5 p-3 sm:p-5">
-                {/* browser bar */}
-                <div className="flex items-center gap-2 mb-4 px-1">
-                  <div className="flex gap-1.5">
-                    <div className="w-2.5 h-2.5 rounded-full bg-red-500/80" />
-                    <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/80" />
-                    <div className="w-2.5 h-2.5 rounded-full bg-green-500/80" />
-                  </div>
-                  <div className="flex-1 flex justify-center">
-                    <div className="px-4 py-1 bg-gray-800/80 rounded-md text-[10px] text-gray-500 font-mono">bonbox.dk/dashboard</div>
-                  </div>
-                </div>
-
-                <div className="bg-gray-900 rounded-xl p-3 sm:p-5">
-                  {/* Welcome bar */}
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <p className="text-white text-sm font-semibold">Welcome back, Manoj's Shop</p>
-                      <p className="text-gray-500 text-[11px]">Sunday, 30 March 2026</p>
-                    </div>
-                    <div className="hidden sm:flex gap-2">
-                      <span className="px-3 py-1.5 bg-green-600 text-white text-[11px] rounded-lg font-semibold flex items-center gap-1">
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
-                        Quick Sale
-                      </span>
-                      <span className="px-3 py-1.5 bg-orange-500 text-white text-[11px] rounded-lg font-semibold flex items-center gap-1">
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4"/></svg>
-                        Item Sale
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* KPI Cards */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-3">
-                    {[
-                      { label: "Today's Revenue", val: "24,500 kr", sub: "+12% vs yesterday", color: "text-white", subColor: "text-green-400", border: "border-green-500/20" },
-                      { label: "Profit", val: "70,097 kr", sub: "57.8% margin", color: "text-white", subColor: "text-green-400", border: "border-green-500/20" },
-                      { label: "Stock Value", val: "82,400 kr", sub: "3 low stock items", color: "text-white", subColor: "text-yellow-400", border: "border-yellow-500/20" },
-                      { label: "Khata Receivable", val: "40,000 kr", sub: "5 customers", color: "text-orange-400", subColor: "text-gray-500", border: "border-orange-500/20" },
-                    ].map((kpi) => (
-                      <div key={kpi.label} className={`bg-gray-800/60 p-2.5 sm:p-3 rounded-lg border ${kpi.border}`}>
-                        <p className="text-gray-500 text-[10px] sm:text-xs">{kpi.label}</p>
-                        <p className={`${kpi.color} text-base sm:text-lg font-bold mt-0.5`}>{kpi.val}</p>
-                        <p className={`${kpi.subColor} text-[10px]`}>{kpi.sub}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Health + Inventory row */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
-                    <div className="bg-gray-800/60 rounded-lg border border-gray-700/50 p-3 flex items-center gap-4">
-                      <div className="text-center flex-shrink-0">
-                        <div className="w-12 h-12 rounded-full border-[3px] border-green-500 flex items-center justify-center bg-green-500/10">
-                          <span className="text-green-400 font-bold text-base">76</span>
-                        </div>
-                        <p className="text-gray-500 text-[10px] mt-1">Health</p>
-                      </div>
-                      <div className="flex-1 space-y-1.5 hidden sm:block">
-                        {[
-                          { label: "Profitability", pct: 82, color: "bg-green-500" },
-                          { label: "Consistency", pct: 95, color: "bg-blue-500" },
-                          { label: "Cost Control", pct: 60, color: "bg-yellow-500" },
-                        ].map((bar) => (
-                          <div key={bar.label} className="flex items-center gap-2">
-                            <span className="text-gray-500 text-[10px] w-20">{bar.label}</span>
-                            <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                              <div className={`h-full ${bar.color} rounded-full`} style={{width: `${bar.pct}%`}} />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="bg-gray-800/60 rounded-lg border border-gray-700/50 p-3">
-                      <p className="text-gray-400 text-[10px] font-semibold uppercase tracking-wider mb-2">Recent Sales</p>
-                      <div className="space-y-1.5">
-                        {[
-                          { name: "Coca-Cola x 10", price: "150 kr", method: "Cash", dot: "bg-green-400" },
-                          { name: "Basmati Rice 5kg x 3", price: "1,350 kr", method: "MobilePay", dot: "bg-green-400" },
-                          { name: "Bar: 2x Vodka", price: "90 kr", method: "Card", dot: "bg-orange-400" },
-                        ].map((s, i) => (
-                          <div key={i} className="flex items-center justify-between text-[11px] py-1 border-b border-gray-700/30 last:border-0">
-                            <div className="flex items-center gap-2">
-                              <div className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
-                              <span className="text-gray-300">{s.name}</span>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              <span className="text-white font-medium">{s.price}</span>
-                              <span className="text-gray-600 text-[10px]">{s.method}</span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <p className="text-gray-600 text-xs mt-3 tracking-wide">Live dashboard preview</p>
+              <LiveDemo t={t} currency={currency} />
+              <p className="text-gray-600 text-xs mt-3 tracking-wide">{t("landingDemoCaption")}</p>
             </div>
           </FadeIn>
         </div>
@@ -271,10 +376,10 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
             {[
-              { val: 15, suffix: "+", label: "Features" },
-              { val: 21, suffix: "+", label: "Business Types" },
-              { val: 3, suffix: "", label: "Languages" },
-              { val: 0, suffix: "kr", label: "Price", prefix: "" },
+              { val: 15, suffix: "+", label: t("landingStatFeatures") },
+              { val: 21, suffix: "+", label: t("landingStatBusinessTypes") },
+              { val: 12, suffix: "", label: t("landingStatLanguages") },
+              { val: 0, suffix: "kr", label: t("landingStatPrice"), prefix: "" },
             ].map((s) => (
               <FadeIn key={s.label}>
                 <div>
@@ -289,37 +394,36 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Who it's for ── */}
+      {/* ── Features ── */}
       <section className="py-20 sm:py-28">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <FadeIn>
             <div className="text-center mb-16">
-              <p className="text-green-400 text-sm font-semibold uppercase tracking-wider mb-3">Built for you</p>
+              <p className="text-green-400 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingFeaturesTag")}</p>
               <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-white tracking-tight">
-                One app. Every business need.
+                {t("landingFeaturesTitle")}
               </h2>
               <p className="mt-5 text-gray-400 text-lg max-w-xl mx-auto">
-                Restaurant, bar, grocery, salon, bakery, food truck, thrift store — BonBox has you covered.
+                {t("landingFeaturesSub")}
               </p>
             </div>
           </FadeIn>
 
-          {/* Top 6 features - the convincing ones */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {[
-              { icon: "💰", title: "Sales & Cash Flow", desc: "Log sales in 2 taps. See revenue, profit, and cash flow — auto-synced to your cashbook in real-time.", accent: "from-green-500/20 to-emerald-500/10", border: "border-green-500/20 hover:border-green-500/40" },
-              { icon: "📦", title: "Inventory & Stock", desc: "Track stock levels, get low-stock alerts, sell items with auto-deduction. Pre-built templates for 21+ business types.", accent: "from-blue-500/20 to-cyan-500/10", border: "border-blue-500/20 hover:border-blue-500/40" },
-              { icon: "🍸", title: "Bar Pour System", desc: "Buy bottles in bulk, sell by glass. Auto-track pours, deduct stock, and log sales per drink.", accent: "from-orange-500/20 to-amber-500/10", border: "border-orange-500/20 hover:border-orange-500/40" },
-              { icon: "👥", title: "Smart Staffing", desc: "AI-powered shifts based on your busiest days + weather forecast. See payroll costs. Right people, right time.", accent: "from-violet-500/20 to-purple-500/10", border: "border-violet-500/20 hover:border-violet-500/40" },
-              { icon: "📊", title: "Business Health Score", desc: "Get a score from 0-100. Profitability, consistency, cost control — at a glance.", accent: "from-emerald-500/20 to-green-500/10", border: "border-emerald-500/20 hover:border-emerald-500/40" },
-              { icon: "🗑️", title: "Waste Tracker", desc: "Log expired and wasted stock. See how much you're losing. Reduce waste, increase profit.", accent: "from-red-500/20 to-rose-500/10", border: "border-red-500/20 hover:border-red-500/40" },
-              { icon: "🌦️", title: "Weather Smart", desc: "Rain = less foot traffic. See how weather affects your revenue, plan staff smarter, and track sick calls by condition.", accent: "from-cyan-500/20 to-sky-500/10", border: "border-cyan-500/20 hover:border-cyan-500/40" },
+              { icon: "💰", titleKey: "landingFeature1Title", descKey: "landingFeature1Desc", accent: "from-green-500/20 to-emerald-500/10", border: "border-green-500/20 hover:border-green-500/40" },
+              { icon: "📦", titleKey: "landingFeature2Title", descKey: "landingFeature2Desc", accent: "from-blue-500/20 to-cyan-500/10", border: "border-blue-500/20 hover:border-blue-500/40" },
+              { icon: "🍸", titleKey: "landingFeature3Title", descKey: "landingFeature3Desc", accent: "from-orange-500/20 to-amber-500/10", border: "border-orange-500/20 hover:border-orange-500/40" },
+              { icon: "👥", titleKey: "landingFeature4Title", descKey: "landingFeature4Desc", accent: "from-violet-500/20 to-purple-500/10", border: "border-violet-500/20 hover:border-violet-500/40" },
+              { icon: "📊", titleKey: "landingFeature5Title", descKey: "landingFeature5Desc", accent: "from-emerald-500/20 to-green-500/10", border: "border-emerald-500/20 hover:border-emerald-500/40" },
+              { icon: "🗑️", titleKey: "landingFeature6Title", descKey: "landingFeature6Desc", accent: "from-red-500/20 to-rose-500/10", border: "border-red-500/20 hover:border-red-500/40" },
+              { icon: "🌦️", titleKey: "landingFeature7Title", descKey: "landingFeature7Desc", accent: "from-cyan-500/20 to-sky-500/10", border: "border-cyan-500/20 hover:border-cyan-500/40" },
             ].map((f, i) => (
-              <FadeIn key={f.title} delay={i * 80}>
+              <FadeIn key={f.titleKey} delay={i * 80}>
                 <div className={`bg-gradient-to-br ${f.accent} rounded-2xl p-6 border ${f.border} transition-all duration-300 h-full group`}>
                   <div className="text-3xl mb-4">{f.icon}</div>
-                  <h3 className="text-lg font-bold text-white mb-2">{f.title}</h3>
-                  <p className="text-gray-400 text-sm leading-relaxed">{f.desc}</p>
+                  <h3 className="text-lg font-bold text-white mb-2">{t(f.titleKey)}</h3>
+                  <p className="text-gray-400 text-sm leading-relaxed">{t(f.descKey)}</p>
                 </div>
               </FadeIn>
             ))}
@@ -328,7 +432,12 @@ export default function LandingPage() {
           {/* Extra features ribbon */}
           <FadeIn delay={200}>
             <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
-              {["Cash Book", "Khata Credit Book", "VAT Reports", "PDF Export", "Loan Tracker", "Personal Finance", "Dark Mode", "Seasonal Patterns", "Sick Call Tracker", "Multi-currency", "Multi-language"].map((f) => (
+              {[
+                t("landingTagCashBook"), t("landingTagKhata"), t("landingTagVat"),
+                t("landingTagPdf"), t("landingTagLoan"), t("landingTagPersonal"),
+                t("landingTagDark"), t("landingTagSeasonal"), t("landingTagMultiCurrency"),
+                t("landingTagMultiLang"),
+              ].map((f) => (
                 <span key={f} className="px-4 py-2 bg-white/5 border border-white/10 text-gray-400 text-sm font-medium rounded-full">
                   {f}
                 </span>
@@ -343,11 +452,11 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <FadeIn>
             <div className="text-center mb-12">
-              <p className="text-orange-400 text-sm font-semibold uppercase tracking-wider mb-3">For bars & restaurants</p>
+              <p className="text-orange-400 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingBarTag")}</p>
               <h2 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight">
-                Buy in bulk. Sell by glass.
+                {t("landingBarTitle1")}
                 <br />
-                <span className="text-orange-400">Track everything.</span>
+                <span className="text-orange-400">{t("landingBarTitle2")}</span>
               </h2>
             </div>
           </FadeIn>
@@ -356,22 +465,22 @@ export default function LandingPage() {
             <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-6 sm:p-10">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6 text-center">
                 {[
-                  { icon: "🍾", title: "Buy Bottle", sub: "750ml Vodka", color: "text-white" },
-                  { icon: "🥃", title: "Pour Glass", sub: "30ml per shot", color: "text-white" },
-                  { icon: "📉", title: "Auto Deduct", sub: "Stock updates live", color: "text-green-400" },
-                  { icon: "💵", title: "Sale Logged", sub: "45 DKK per glass", color: "text-orange-400" },
+                  { icon: "🍾", titleKey: "landingBarStep1", subKey: "landingBarStep1Sub", color: "text-white" },
+                  { icon: "🥃", titleKey: "landingBarStep2", subKey: "landingBarStep2Sub", color: "text-white" },
+                  { icon: "📉", titleKey: "landingBarStep3", subKey: "landingBarStep3Sub", color: "text-green-400" },
+                  { icon: "💵", titleKey: "landingBarStep4", subKey: "landingBarStep4Sub", color: "text-orange-400" },
                 ].map((step, i) => (
-                  <div key={step.title} className="relative">
+                  <div key={step.titleKey} className="relative">
                     <div className="text-4xl mb-3">{step.icon}</div>
-                    <p className={`font-bold text-sm ${step.color}`}>{step.title}</p>
-                    <p className="text-gray-500 text-xs mt-1">{step.sub}</p>
+                    <p className={`font-bold text-sm ${step.color}`}>{t(step.titleKey)}</p>
+                    <p className="text-gray-500 text-xs mt-1">{t(step.subKey)}</p>
                     {i < 3 && (
                       <span className="hidden sm:block absolute top-8 -right-3 sm:-right-4 text-orange-500 text-lg font-bold">→</span>
                     )}
                   </div>
                 ))}
               </div>
-              <p className="text-center text-green-400 font-semibold text-sm mt-8">One bottle = 25 drinks = 1,125 DKK revenue. BonBox tracks every pour.</p>
+              <p className="text-center text-green-400 font-semibold text-sm mt-8">{t("landingBarBottom")}</p>
             </div>
           </FadeIn>
         </div>
@@ -382,18 +491,18 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <FadeIn>
             <div className="text-center mb-16">
-              <p className="text-green-400 text-sm font-semibold uppercase tracking-wider mb-3">Get started</p>
+              <p className="text-green-400 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingHowTag")}</p>
               <h2 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight">
-                Up and running in 60 seconds
+                {t("landingHowTitle")}
               </h2>
             </div>
           </FadeIn>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl mx-auto">
             {[
-              { num: "1", title: "Sign up free", sub: "Name + email. That's it.", icon: "👤" },
-              { num: "2", title: "Log your first sale", sub: "Tap, type, or speak.", icon: "✏️" },
-              { num: "3", title: "See your numbers", sub: "Dashboard lights up instantly.", icon: "⚡" },
+              { num: "1", titleKey: "landingStep1Title", subKey: "landingStep1Sub", icon: "👤" },
+              { num: "2", titleKey: "landingStep2Title", subKey: "landingStep2Sub", icon: "✏️" },
+              { num: "3", titleKey: "landingStep3Title", subKey: "landingStep3Sub", icon: "⚡" },
             ].map((step, i) => (
               <FadeIn key={step.num} delay={i * 120}>
                 <div className="text-center relative">
@@ -403,9 +512,9 @@ export default function LandingPage() {
                   <div className="relative z-10 w-16 h-16 bg-green-500/10 border border-green-500/30 text-3xl rounded-2xl flex items-center justify-center mx-auto mb-5">
                     {step.icon}
                   </div>
-                  <div className="text-green-400 text-xs font-bold mb-2">STEP {step.num}</div>
-                  <h3 className="text-lg font-bold text-white mb-1">{step.title}</h3>
-                  <p className="text-gray-500 text-sm">{step.sub}</p>
+                  <div className="text-green-400 text-xs font-bold mb-2">{t("landingStepLabel")} {step.num}</div>
+                  <h3 className="text-lg font-bold text-white mb-1">{t(step.titleKey)}</h3>
+                  <p className="text-gray-500 text-sm">{t(step.subKey)}</p>
                 </div>
               </FadeIn>
             ))}
@@ -413,27 +522,88 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Social proof / credibility ── */}
+      {/* ── Testimonials ── */}
+      <section className="py-20 sm:py-28 bg-gradient-to-b from-slate-950 via-slate-900/50 to-slate-950">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <FadeIn>
+            <div className="text-center mb-14">
+              <p className="text-green-400 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingTestimonialsTag")}</p>
+              <h2 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight">
+                {t("landingTestimonialsTitle")}
+              </h2>
+            </div>
+          </FadeIn>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              {
+                quoteKey: "landingTestimonial1",
+                name: "Aarav P.",
+                roleKey: "landingTestimonial1Role",
+                flag: "🇳🇵",
+                accent: "border-green-500/30",
+              },
+              {
+                quoteKey: "landingTestimonial2",
+                name: "Mette K.",
+                roleKey: "landingTestimonial2Role",
+                flag: "🇩🇰",
+                accent: "border-blue-500/30",
+              },
+              {
+                quoteKey: "landingTestimonial3",
+                name: "Raj S.",
+                roleKey: "landingTestimonial3Role",
+                flag: "🇮🇳",
+                accent: "border-orange-500/30",
+              },
+            ].map((testimonial, i) => (
+              <FadeIn key={testimonial.name} delay={i * 100}>
+                <div className={`bg-white/[0.03] border ${testimonial.accent} rounded-2xl p-6 h-full flex flex-col`}>
+                  <div className="flex items-center gap-1 mb-4">
+                    {[...Array(5)].map((_, j) => (
+                      <svg key={j} className="w-4 h-4 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                      </svg>
+                    ))}
+                  </div>
+                  <p className="text-gray-300 text-sm leading-relaxed flex-1 italic">"{t(testimonial.quoteKey)}"</p>
+                  <div className="flex items-center gap-3 mt-5 pt-4 border-t border-white/5">
+                    <span className="text-2xl">{testimonial.flag}</span>
+                    <div>
+                      <p className="text-white text-sm font-semibold">{testimonial.name}</p>
+                      <p className="text-gray-500 text-xs">{t(testimonial.roleKey)}</p>
+                    </div>
+                  </div>
+                </div>
+              </FadeIn>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Global reach ── */}
       <section className="py-16 border-y border-white/5 bg-slate-900/30">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <FadeIn>
             <div className="text-center">
               <h2 className="text-2xl md:text-3xl font-bold text-white mb-4">
-                Works where you work
+                {t("landingGlobalTitle")}
               </h2>
               <p className="text-gray-400 text-lg mb-8 max-w-lg mx-auto">
-                3 languages, 17+ currencies, 21+ business types, and growing.
+                {t("landingGlobalSub")}
               </p>
               <div className="flex flex-wrap justify-center gap-3 mb-10">
                 {[
-                  { flag: "🇩🇰", name: "Denmark" },
-                  { flag: "🇳🇵", name: "Nepal" },
-                  { flag: "🇬🇧", name: "UK" },
-                  { flag: "🇪🇺", name: "Europe" },
-                  { flag: "🇮🇳", name: "India" },
-                  { flag: "🇯🇵", name: "Japan" },
+                  { flag: "🇩🇰", name: "Denmark" }, { flag: "🇳🇵", name: "Nepal" },
+                  { flag: "🇩🇪", name: "Germany" }, { flag: "🇫🇷", name: "France" },
+                  { flag: "🇪🇸", name: "Spain" }, { flag: "🇬🇧", name: "UK" },
+                  { flag: "🇳🇱", name: "Netherlands" }, { flag: "🇸🇪", name: "Sweden" },
+                  { flag: "🇳🇴", name: "Norway" }, { flag: "🇵🇹", name: "Portugal" },
+                  { flag: "🇮🇹", name: "Italy" }, { flag: "🇯🇵", name: "Japan" },
+                  { flag: "🇮🇳", name: "India" }, { flag: "🇪🇺", name: "Europe" },
                 ].map((c) => (
-                  <span key={c.name} className="inline-flex items-center gap-2 px-5 py-2.5 bg-white/5 border border-white/10 text-gray-300 text-sm font-medium rounded-full">
+                  <span key={c.name} className="inline-flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 text-gray-300 text-sm font-medium rounded-full">
                     <span className="text-lg">{c.flag}</span>
                     {c.name}
                   </span>
@@ -441,13 +611,13 @@ export default function LandingPage() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl mx-auto">
                 {[
-                  { icon: "🎓", text: "Built by Manoj — MSc Data-Driven Business, 3rd semester, SDU Denmark" },
-                  { icon: "📱", text: "Available on web + Android (Google Play)" },
-                  { icon: "🔒", text: "Your data is yours. Always encrypted. Never sold." },
+                  { icon: "🎓", textKey: "landingCredibility1" },
+                  { icon: "📱", textKey: "landingCredibility2" },
+                  { icon: "🔒", textKey: "landingCredibility3" },
                 ].map((item) => (
-                  <div key={item.text} className="bg-white/[0.03] border border-white/10 rounded-xl p-4 text-center">
+                  <div key={item.textKey} className="bg-white/[0.03] border border-white/10 rounded-xl p-4 text-center">
                     <div className="text-2xl mb-2">{item.icon}</div>
-                    <p className="text-gray-400 text-sm">{item.text}</p>
+                    <p className="text-gray-400 text-sm">{t(item.textKey)}</p>
                   </div>
                 ))}
               </div>
@@ -465,23 +635,23 @@ export default function LandingPage() {
         <div className="relative max-w-3xl mx-auto px-4 sm:px-6">
           <FadeIn>
             <h2 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold mb-5 tracking-tight">
-              Your business deserves
+              {t("landingCtaTitle1")}
               <br />
-              <span className="bg-gradient-to-r from-green-400 to-emerald-300 bg-clip-text text-transparent">better than guesswork</span>
+              <span className="bg-gradient-to-r from-green-400 to-emerald-300 bg-clip-text text-transparent">{t("landingCtaTitle2")}</span>
             </h2>
             <p className="text-gray-400 text-lg mb-10 max-w-lg mx-auto">
-              Join BonBox and finally see your business clearly — sales, stock, staff, weather, cash, all in one place.
+              {t("landingCtaSub")}
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link to="/register" className="w-full sm:w-auto px-12 py-4 bg-green-500 text-white font-bold rounded-xl hover:bg-green-400 transition shadow-2xl shadow-green-500/25 text-lg">
-                Get Started Free
+                {t("landingCtaButton")}
               </Link>
               <a href="https://play.google.com/store/apps/details?id=dk.bonbox.app" target="_blank" rel="noopener noreferrer" className="w-full sm:w-auto px-8 py-4 border border-white/15 text-white font-semibold rounded-xl hover:bg-white/5 transition flex items-center justify-center gap-2">
                 <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 01-.61-.92V2.734a1 1 0 01.609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.199l2.807 1.626a1 1 0 010 1.732l-2.807 1.626L15.206 12l2.492-2.492zM5.864 2.658L16.8 8.99l-2.302 2.302-8.634-8.634z"/></svg>
-                Get on Android
+                {t("landingGetAndroid")}
               </a>
             </div>
-            <p className="mt-5 text-gray-600 text-sm">No credit card. No monthly fees. No catch.</p>
+            <p className="mt-5 text-gray-600 text-sm">{t("landingNoCard")}</p>
           </FadeIn>
         </div>
       </section>
@@ -500,11 +670,11 @@ export default function LandingPage() {
             <span className="text-white font-bold text-sm">Bon<span className="text-green-400">Box</span></span>
           </div>
           <p className="text-gray-600 text-xs text-center">
-            &copy; 2026 BonBox &middot; Smart analytics for small businesses
+            &copy; 2026 BonBox &middot; {t("landingFooterTagline")}
           </p>
           <div className="flex items-center gap-4">
-            <Link to="/contact" className="text-gray-500 text-sm hover:text-gray-300 transition">Contact</Link>
-            <Link to="/privacy" className="text-gray-500 text-sm hover:text-gray-300 transition">Privacy</Link>
+            <Link to="/contact" className="text-gray-500 text-sm hover:text-gray-300 transition">{t("landingFooterContact")}</Link>
+            <Link to="/privacy" className="text-gray-500 text-sm hover:text-gray-300 transition">{t("landingFooterPrivacy")}</Link>
           </div>
         </div>
       </footer>
