@@ -8,6 +8,7 @@ class SaleCreate(BaseModel):
     amount: float | None = None  # optional for item sales (auto-calculated)
     payment_method: str = "mixed"
     notes: str | None = None
+    is_tax_exempt: bool = False
     # Item sale fields
     inventory_item_id: uuid.UUID | None = None
     quantity_sold: float | None = None
@@ -26,6 +27,7 @@ class SaleUpdate(BaseModel):
     amount: float | None = None
     payment_method: str | None = None
     notes: str | None = None
+    is_tax_exempt: bool | None = None
 
     @field_validator("payment_method", mode="before")
     @classmethod
@@ -41,6 +43,7 @@ class SaleResponse(BaseModel):
     amount: float
     payment_method: str
     notes: str | None
+    is_tax_exempt: bool = False
     is_deleted: bool = False
     deleted_at: datetime.datetime | None = None
     created_at: datetime.datetime | None = None

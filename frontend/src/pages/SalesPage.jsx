@@ -31,6 +31,7 @@ export default function SalesPage() {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(new Set());
   const [listening, setListening] = useState(false);
+  const [isTaxExempt, setIsTaxExempt] = useState(false);
   const [showItemSale, setShowItemSale] = useState(false);
   const [inventoryItems, setInventoryItems] = useState([]);
   const [expandedStat, setExpandedStat] = useState(null); // "today" | "total" | "avg" | null
@@ -114,10 +115,12 @@ export default function SalesPage() {
         amount: value,
         payment_method: method,
         notes: notes || null,
+        is_tax_exempt: isTaxExempt,
       });
       const isBackdated = saleDate !== new Date().toISOString().split("T")[0];
       setAmount("");
       setNotes("");
+      setIsTaxExempt(false);
       setSaleDate(new Date().toISOString().split("T")[0]);
       trackEvent("sale_logged", "sales", `${value} ${currency} via ${method}`);
       setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${saleDate})` : ""}!`);
@@ -135,6 +138,7 @@ export default function SalesPage() {
       amount: parseFloat(sale.amount),
       payment_method: sale.payment_method,
       notes: sale.notes || "",
+      is_tax_exempt: sale.is_tax_exempt || false,
     });
   };
 
@@ -249,7 +253,7 @@ export default function SalesPage() {
           </div>
 
           {/* Tax breakdown */}
-          <TaxBreakdown amount={amount} currencyCode={user?.currency} />
+          <TaxBreakdown amount={amount} currencyCode={user?.currency} isTaxExempt={isTaxExempt} onTaxExemptChange={setIsTaxExempt} />
 
           {/* Payment method */}
           <div className="flex flex-wrap gap-1.5 mt-2">

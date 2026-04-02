@@ -8,8 +8,12 @@ import { getVatTerms } from "../utils/currency";
  *
  * @param {{ amount: string|number, currencyCode: string, type?: "sales"|"expenses" }} props
  */
-export default function TaxBreakdown({ amount, currencyCode, type = "sales" }) {
-  const [includeTax, setIncludeTax] = useState(true);
+export default function TaxBreakdown({ amount, currencyCode, type = "sales", isTaxExempt = false, onTaxExemptChange }) {
+  const [localIncludeTax, setLocalIncludeTax] = useState(true);
+  const includeTax = onTaxExemptChange ? !isTaxExempt : localIncludeTax;
+  const setIncludeTax = onTaxExemptChange
+    ? (val) => onTaxExemptChange(!val)
+    : setLocalIncludeTax;
   const num = parseFloat(amount);
   const tax = getTaxConfig(currencyCode);
   const vat = getVatTerms(currencyCode);

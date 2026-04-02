@@ -805,19 +805,19 @@ def _get_vat_data(db, user, start, end):
     """Shared helper to calculate VAT data for a period."""
     sales_total = float(
         db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date >= start, Sale.date < end, Sale.is_deleted.isnot(True))
+        .filter(Sale.user_id == user.id, Sale.date >= start, Sale.date < end, Sale.is_deleted.isnot(True), Sale.is_tax_exempt.isnot(True))
         .scalar()
     )
     expenses_total = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
-        .filter(Expense.user_id == user.id, Expense.date >= start, Expense.date < end, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date >= start, Expense.date < end, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), Expense.is_tax_exempt.isnot(True))
         .scalar()
     )
     # Expense breakdown by category
     expense_breakdown = (
         db.query(ExpenseCategory.name, func.sum(Expense.amount).label("total"))
         .join(Expense, Expense.category_id == ExpenseCategory.id)
-        .filter(Expense.user_id == user.id, Expense.date >= start, Expense.date < end, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date >= start, Expense.date < end, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), Expense.is_tax_exempt.isnot(True))
         .group_by(ExpenseCategory.name)
         .order_by(func.sum(Expense.amount).desc())
         .all()

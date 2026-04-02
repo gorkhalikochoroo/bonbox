@@ -24,6 +24,7 @@ class Sale(Base):
     unit_price: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     cost_at_sale: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     item_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_tax_exempt: Mapped[bool] = mapped_column(Boolean, default=False)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

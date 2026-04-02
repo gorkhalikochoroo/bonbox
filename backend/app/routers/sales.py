@@ -188,6 +188,7 @@ def repeat_yesterday(
         amount=last_sale.amount,
         payment_method=last_sale.payment_method,
         notes="Repeated from yesterday",
+        is_tax_exempt=last_sale.is_tax_exempt,
     )
     db.add(sale)
     db.commit()

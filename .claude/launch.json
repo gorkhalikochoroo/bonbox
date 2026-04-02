@@ -9,8 +9,8 @@
     },
     {
       "name": "frontend",
-      "runtimeExecutable": "/bin/sh",
-      "runtimeArgs": ["-c", "PATH=/usr/local/bin:$PATH npm run dev --prefix /Users/nova/Downloads/Project_CHL/smallbiz-dashboard/frontend"],
+      "runtimeExecutable": "/bin/zsh",
+      "runtimeArgs": ["-c", "source ~/.zshrc && npm run dev --prefix /Users/nova/Downloads/Project_CHL/smallbiz-dashboard/frontend"],
       "port": 5173
     }
   ]

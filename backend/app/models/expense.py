@@ -37,6 +37,7 @@ class Expense(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_personal: Mapped[bool] = mapped_column(Boolean, default=False)
     reference_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_tax_exempt: Mapped[bool] = mapped_column(Boolean, default=False)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

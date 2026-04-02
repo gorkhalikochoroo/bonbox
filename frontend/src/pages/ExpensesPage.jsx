@@ -46,6 +46,7 @@ export default function ExpensesPage() {
   const customCatRef = useRef(null);
   const [listening, setListening] = useState(false);
   const [isPersonal, setIsPersonal] = useState(false);
+  const [isTaxExempt, setIsTaxExempt] = useState(false);
   const [showFilter, setShowFilter] = useState("business"); // "all", "business", "personal"
   const [suggestion, setSuggestion] = useState(null);
   const suggestTimer = useRef(null);
@@ -228,6 +229,7 @@ export default function ExpensesPage() {
         payment_method: method,
         notes: notes || null,
         is_personal: isPersonal,
+        is_tax_exempt: isTaxExempt,
       });
       const isBackdated = expDate !== new Date().toISOString().split("T")[0];
       setAmount("");
@@ -236,6 +238,7 @@ export default function ExpensesPage() {
       setNotes("");
       setCustomCat("");
       setIsPersonal(false);
+      setIsTaxExempt(false);
       setExpDate(new Date().toISOString().split("T")[0]);
       trackEvent("expense_logged", "expenses", `${value} ${currency}`);
       setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${expDate})` : ""}!`);
@@ -256,6 +259,7 @@ export default function ExpensesPage() {
       payment_method: exp.payment_method || "card",
       notes: exp.notes || "",
       is_personal: exp.is_personal || false,
+      is_tax_exempt: exp.is_tax_exempt || false,
     });
   };
 
@@ -524,7 +528,7 @@ export default function ExpensesPage() {
         </div>
 
         {/* Tax breakdown */}
-        <TaxBreakdown amount={amount} currencyCode={user?.currency} type="expenses" />
+        <TaxBreakdown amount={amount} currencyCode={user?.currency} type="expenses" isTaxExempt={isTaxExempt} onTaxExemptChange={setIsTaxExempt} />
 
         {/* Payment method */}
         <div className="flex flex-wrap gap-1.5 mt-2">

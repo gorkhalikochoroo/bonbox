@@ -25,6 +25,7 @@ class ExpenseCreate(BaseModel):
     payment_method: str = "card"
     notes: str | None = None
     is_personal: bool = False
+    is_tax_exempt: bool = False
 
     @field_validator("payment_method", mode="before")
     @classmethod
@@ -43,6 +44,7 @@ class ExpenseUpdate(BaseModel):
     payment_method: str | None = None
     notes: str | None = None
     is_personal: bool | None = None
+    is_tax_exempt: bool | None = None
 
     @field_validator("payment_method", mode="before")
     @classmethod
@@ -62,6 +64,7 @@ class ExpenseResponse(BaseModel):
     payment_method: str | None
     notes: str | None
     is_personal: bool = False
+    is_tax_exempt: bool = False
     is_deleted: bool = False
     deleted_at: datetime.datetime | None = None
     created_at: datetime.datetime | None = None
