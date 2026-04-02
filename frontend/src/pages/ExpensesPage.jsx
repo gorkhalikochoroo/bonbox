@@ -4,7 +4,8 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, getTaxConfig } from "../utils/currency";
+import TaxBreakdown from "../components/TaxBreakdown";
 
 const QUICK_AMOUNTS = [100, 250, 500, 1000, 2500, 5000];
 const DEFAULT_CATEGORIES = ["Ingredients", "Rent", "Wages", "Utilities", "Supplies", "Other"];
@@ -509,7 +510,7 @@ export default function ExpensesPage() {
             type="number"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            placeholder={t("customAmount")}
+            placeholder={`${t("customAmount")} ${getTaxConfig(user?.currency).rate > 0 ? `(${getTaxConfig(user?.currency).label})` : ""}`}
             className="flex-1 px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
@@ -521,6 +522,9 @@ export default function ExpensesPage() {
             {t("add")}
           </button>
         </div>
+
+        {/* Tax breakdown */}
+        <TaxBreakdown amount={amount} currencyCode={user?.currency} />
 
         {/* Payment method */}
         <div className="flex flex-wrap gap-1.5 mt-2">

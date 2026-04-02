@@ -263,6 +263,68 @@ const VAT_TERMS = {
   },
 };
 
+/**
+ * Tax rates by currency/country.
+ * rate = standard VAT/GST/tax rate as decimal (0.25 = 25%)
+ * inclusive = whether prices typically include tax (true for most countries except US)
+ * label = how to describe the amount field
+ */
+export const TAX_RATES = {
+  DKK:    { rate: 0.25, inclusive: true,  label: "inkl. moms" },
+  SEK:    { rate: 0.25, inclusive: true,  label: "inkl. moms" },
+  NOK:    { rate: 0.25, inclusive: true,  label: "inkl. MVA" },
+  EUR:    { rate: 0.20, inclusive: true,  label: "incl. VAT" },
+  EUR_DE: { rate: 0.19, inclusive: true,  label: "inkl. MwSt" },
+  EUR_FR: { rate: 0.20, inclusive: true,  label: "TTC" },
+  EUR_ES: { rate: 0.21, inclusive: true,  label: "con IVA" },
+  EUR_PT: { rate: 0.23, inclusive: true,  label: "com IVA" },
+  EUR_IT: { rate: 0.22, inclusive: true,  label: "IVA inclusa" },
+  EUR_NL: { rate: 0.21, inclusive: true,  label: "incl. BTW" },
+  GBP:    { rate: 0.20, inclusive: true,  label: "incl. VAT" },
+  NPR:    { rate: 0.13, inclusive: true,  label: "incl. VAT" },
+  INR:    { rate: 0.18, inclusive: true,  label: "incl. GST" },
+  AUD:    { rate: 0.10, inclusive: true,  label: "incl. GST" },
+  CHF:    { rate: 0.081, inclusive: true, label: "inkl. MWST" },
+  USD:    { rate: 0,    inclusive: false, label: "excl. Tax" },
+  CAD:    { rate: 0.05, inclusive: false, label: "excl. GST" },
+  JPY:    { rate: 0.10, inclusive: true,  label: "税込" },
+};
+
+/**
+ * Get tax config for a currency.
+ * @param {string} currencyCode
+ * @returns {{ rate: number, inclusive: boolean, label: string }}
+ */
+export function getTaxConfig(currencyCode) {
+  if (!currencyCode) return TAX_RATES.DKK;
+  return TAX_RATES[currencyCode] || { rate: 0, inclusive: false, label: "excl. Tax" };
+}
+
+/**
+ * Calculate tax breakdown from an amount.
+ * @param {number} amount - The entered amount
+ * @param {string} currencyCode - User's currency
+ * @returns {{ amountInclTax: number, amountExclTax: number, taxAmount: number, rate: number, taxName: string }}
+ */
+export function calcTaxBreakdown(amount, currencyCode) {
+  const tax = getTaxConfig(currencyCode);
+  const vat = getVatTerms(currencyCode);
+  const rate = tax.rate;
+  if (!amount || rate === 0) {
+    return { amountInclTax: amount || 0, amountExclTax: amount || 0, taxAmount: 0, rate: 0, taxName: vat.vatName };
+  }
+  if (tax.inclusive) {
+    // Amount includes tax → extract tax
+    const exclTax = amount / (1 + rate);
+    const taxAmt = amount - exclTax;
+    return { amountInclTax: amount, amountExclTax: exclTax, taxAmount: taxAmt, rate, taxName: vat.vatName };
+  } else {
+    // Amount excludes tax → add tax
+    const taxAmt = amount * rate;
+    return { amountInclTax: amount + taxAmt, amountExclTax: amount, taxAmount: taxAmt, rate, taxName: vat.vatName };
+  }
+}
+
 // Default English/USD fallback
 const DEFAULT_VAT_TERMS = {
   vatName: "Sales Tax",
