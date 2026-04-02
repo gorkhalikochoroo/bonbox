@@ -68,7 +68,7 @@ export default function KhataPage() {
   };
 
   const handleDeleteCustomer = async (id) => {
-    if (!confirm("Delete this customer?")) return;
+    if (!confirm(t("deleteCustomerConfirm"))) return;
     await api.delete(`/khata/customers/${id}`);
     if (selectedCustomer?.id === id) { setSelectedCustomer(null); setTransactions([]); }
     fetchCustomers();
@@ -102,12 +102,12 @@ export default function KhataPage() {
       if (selectedItems.length > 0) api.get("/inventory").then((r) => setInventoryItems(r.data)).catch(() => {});
       window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed");
+      setError(err.response?.data?.detail || t("failedToSave"));
     }
   };
 
   const handleDeleteTxn = async (id) => {
-    if (!confirm("Delete this transaction?")) return;
+    if (!confirm(t("deleteTransactionConfirm"))) return;
     await api.delete(`/khata/transactions/${id}`);
     fetchTransactions(selectedCustomer.id);
     fetchCustomers();
@@ -125,7 +125,7 @@ export default function KhataPage() {
         date: new Date().toISOString().slice(0, 10),
         purchase_amount: 0,
         paid_amount: val,
-        notes: "Payment received",
+        notes: t("paymentReceived"),
       });
       setPayAmount("");
       setShowPayForm(false);
@@ -133,7 +133,7 @@ export default function KhataPage() {
       fetchCustomers();
       window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to record payment");
+      setError(err.response?.data?.detail || t("failedToRecordPayment"));
     }
   };
 
@@ -212,11 +212,11 @@ export default function KhataPage() {
 
           {showAddCustomer && (
             <form onSubmit={handleAddCustomer} className="p-4 border-b border-gray-100 dark:border-gray-700 space-y-2 bg-blue-50 dark:bg-blue-900/20">
-              <input type="text" placeholder="Name *" value={custForm.name} onChange={(e) => setCustForm({ ...custForm, name: e.target.value })}
+              <input type="text" placeholder={`${t("name")} *`} value={custForm.name} onChange={(e) => setCustForm({ ...custForm, name: e.target.value })}
                 className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" required />
-              <input type="text" placeholder="Phone" value={custForm.phone} onChange={(e) => setCustForm({ ...custForm, phone: e.target.value })}
+              <input type="text" placeholder={t("phone")} value={custForm.phone} onChange={(e) => setCustForm({ ...custForm, phone: e.target.value })}
                 className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-              <input type="text" placeholder="Address" value={custForm.address} onChange={(e) => setCustForm({ ...custForm, address: e.target.value })}
+              <input type="text" placeholder={t("address")} value={custForm.address} onChange={(e) => setCustForm({ ...custForm, address: e.target.value })}
                 className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
               <div className="flex gap-2">
                 <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">{editCust ? t("update") : t("save")}</button>
@@ -300,7 +300,7 @@ export default function KhataPage() {
                   <form onSubmit={handleQuickPay} className="mt-3 flex gap-2">
                     <input
                       type="number"
-                      placeholder={`Amount (remaining: ${fmt(customerRemaining)})`}
+                      placeholder={`${t("amount")} (${t("remaining")}: ${fmt(customerRemaining)})`}
                       value={payAmount}
                       onChange={(e) => setPayAmount(e.target.value)}
                       className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-white"
@@ -355,12 +355,12 @@ export default function KhataPage() {
                     <button type="button" onClick={() => setShowItemPicker(!showItemPicker)}
                       className="text-sm text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1">
                       <span>{showItemPicker ? "▾" : "▸"}</span>
-                      {t("linkInventory") || "Link inventory items"} {selectedItems.length > 0 && `(${selectedItems.length})`}
+                      {t("linkInventory")} {selectedItems.length > 0 && `(${selectedItems.length})`}
                     </button>
 
                     {showItemPicker && (
                       <div className="mt-2 border border-gray-200 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-800 max-h-48 overflow-y-auto">
-                        <input type="text" placeholder={t("searchItems") || "Search items..."} value={itemSearch}
+                        <input type="text" placeholder={t("searchItems")} value={itemSearch}
                           onChange={(e) => setItemSearch(e.target.value)}
                           className="w-full px-3 py-1.5 border rounded-lg text-xs dark:bg-gray-700 dark:border-gray-600 dark:text-white mb-2" />
                         {inventoryItems

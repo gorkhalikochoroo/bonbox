@@ -61,7 +61,7 @@ export default function VatReportPage() {
       a.click();
       window.URL.revokeObjectURL(url);
     } catch {
-      setError("Failed to download PDF");
+      setError(t("vatDownloadFailed"));
       setTimeout(() => setError(null), 3000);
     } finally {
       setDownloading(false);
@@ -72,15 +72,15 @@ export default function VatReportPage() {
     val != null ? val.toLocaleString(vat.locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
 
   const months = [
-    "Januar", "Februar", "Marts", "April", "Maj", "Juni",
-    "Juli", "August", "September", "Oktober", "November", "December",
+    t("vatMonthJan"), t("vatMonthFeb"), t("vatMonthMar"), t("vatMonthApr"), t("vatMonthMay"), t("vatMonthJun"),
+    t("vatMonthJul"), t("vatMonthAug"), t("vatMonthSep"), t("vatMonthOct"), t("vatMonthNov"), t("vatMonthDec"),
   ];
 
   const quarters = [
-    { value: 1, label: "Q1 (Jan-Mar)" },
-    { value: 2, label: "Q2 (Apr-Jun)" },
-    { value: 3, label: "Q3 (Jul-Sep)" },
-    { value: 4, label: "Q4 (Oct-Dec)" },
+    { value: 1, label: t("vatQ1") },
+    { value: 2, label: t("vatQ2") },
+    { value: 3, label: t("vatQ3") },
+    { value: 4, label: t("vatQ4") },
   ];
 
   const yearOptions = [];
@@ -101,7 +101,7 @@ export default function VatReportPage() {
                 : "text-gray-500 dark:text-gray-400"
             }`}
           >
-            Monthly
+            {t("vatMonthly")}
           </button>
           <button
             onClick={() => setMode("quarterly")}
@@ -111,7 +111,7 @@ export default function VatReportPage() {
                 : "text-gray-500 dark:text-gray-400"
             }`}
           >
-            Quarterly
+            {t("vatQuarterly")}
           </button>
         </div>
 
@@ -155,7 +155,7 @@ export default function VatReportPage() {
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
-          {downloading ? "Downloading..." : "Download PDF"}
+          {downloading ? t("vatDownloading") : t("vatDownloadPdf")}
         </button>
       </div>
 
@@ -167,11 +167,11 @@ export default function VatReportPage() {
           <div className="text-center mb-6">
             <p className="text-sm text-gray-400 dark:text-gray-500 uppercase tracking-wide">{vat.reportTitle}</p>
             <h1 className="text-xl font-bold text-gray-800 dark:text-white mt-1">
-              {report.business_name || "My Business"}
+              {report.business_name || t("vatMyBusiness")}
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{report.period}</p>
             {report.vat_rate_pct !== undefined && (
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{vat.vatName} Rate: {report.vat_rate_pct}%</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{vat.vatName} {t("vatRateLabel")}: {report.vat_rate_pct}%</p>
             )}
           </div>
 
@@ -210,7 +210,7 @@ export default function VatReportPage() {
           {/* Expense breakdown */}
           {report.expense_breakdown?.length > 0 && (
             <div className="mb-6">
-              <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">{vat.expensesSection} {vat.vatName} Breakdown</h2>
+              <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">{vat.expensesSection} {vat.vatName} {t("vatBreakdown")}</h2>
               <div className="space-y-2">
                 {report.expense_breakdown.map(([name, total]) => {
                   const catVat = report.vat_rate > 0 ? total * report.vat_rate / (1 + report.vat_rate) : 0;
@@ -240,7 +240,7 @@ export default function VatReportPage() {
           </div>
 
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-4 text-center">
-            ⚠️ This is an estimate for reference only. Consult your accountant before submitting to {vat.taxAuthority}.
+            {t("vatDisclaimer")} {vat.taxAuthority}.
           </p>
         </div>
       )}

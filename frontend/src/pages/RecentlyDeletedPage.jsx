@@ -41,18 +41,18 @@ export default function RecentlyDeletedPage() {
       await api.put(endpoint);
       fetchDeleted();
     } catch (err) {
-      alert("Failed to restore");
+      alert(t("failedToRestore"));
     }
   };
 
   const permanentDelete = async (id) => {
-    if (!confirm("Permanently delete? This cannot be undone.")) return;
+    if (!confirm(t("permanentDeleteConfirm"))) return;
     try {
       const endpoint = tab === "cashbook" ? `/cashbook/${id}/permanent` : `/${tab}/${id}/permanent`;
       await api.delete(endpoint);
       fetchDeleted();
     } catch (err) {
-      alert("Failed to delete");
+      alert(t("failedToDelete"));
     }
   };
 
@@ -83,7 +83,7 @@ export default function RecentlyDeletedPage() {
       <div key={item.id} className="flex items-center justify-between p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
         <div className="flex-1">
           <p className="text-sm font-medium text-gray-900 dark:text-white">{info}</p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">Amount: {amount} · Deleted: {deletedAt}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{t("amount")}: {amount} · {t("deleted")}: {deletedAt}</p>
         </div>
         <div className="flex gap-2">
           <button onClick={() => restore(item.id)}

@@ -64,7 +64,7 @@ export default function ExpensesPage() {
 
   const startVoice = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) { setError("Voice input not supported in this browser"); return; }
+    if (!SpeechRecognition) { setError(t("voiceNotSupported")); return; }
     const recognition = new SpeechRecognition();
     recognition.lang = "en-US";
     recognition.interimResults = false;
@@ -93,7 +93,7 @@ export default function ExpensesPage() {
         setTimeout(() => setError(""), 3000);
       }
     };
-    recognition.onerror = () => { setListening(false); setError("Voice recognition failed"); setTimeout(() => setError(""), 3000); };
+    recognition.onerror = () => { setListening(false); setError(t("voiceRecognitionFailed")); setTimeout(() => setError(""), 3000); };
     recognition.start();
   };
 
@@ -127,13 +127,13 @@ export default function ExpensesPage() {
     if (to) params.to = to;
     api.get("/expenses", { params })
       .then((res) => setExpenses(res.data))
-      .catch((err) => setError(err.response?.data?.detail || "Failed to load expenses"));
+      .catch((err) => setError(err.response?.data?.detail || t("failedToLoadExpenses")));
     api.get("/expenses/categories")
       .then((res) => {
         setCategories(res.data);
         if (res.data.length === 0) setShowSetup(true);
       })
-      .catch((err) => setError(err.response?.data?.detail || "Failed to load categories"));
+      .catch((err) => setError(err.response?.data?.detail || t("failedToLoadCategories")));
   };
 
   useEffect(() => {
@@ -151,7 +151,7 @@ export default function ExpensesPage() {
       setShowSetup(false);
       fetchData();
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to set up categories");
+      setError(err.response?.data?.detail || t("failedToSetupCategories"));
     }
   };
 
@@ -178,7 +178,7 @@ export default function ExpensesPage() {
         category_id: otherCat.id,
         date: quickDate,
         amount: value,
-        description: quickNotes || "Quick expense",
+        description: quickNotes || t("quickExpense"),
         is_recurring: false,
         payment_method: quickMethod,
         notes: quickNotes || null,
@@ -194,7 +194,7 @@ export default function ExpensesPage() {
       fetchData(filterFrom, filterTo);
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to add expense");
+      setError(err.response?.data?.detail || t("failedToAddExpense"));
     }
   };
 
@@ -242,7 +242,7 @@ export default function ExpensesPage() {
       fetchData(filterFrom, filterTo);
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to add expense");
+      setError(err.response?.data?.detail || t("failedToAddExpense"));
     }
   };
 
@@ -265,23 +265,23 @@ export default function ExpensesPage() {
       setEditId(null);
       setEditData({});
       fetchData(filterFrom, filterTo);
-      setSuccess("Expense updated!");
+      setSuccess(t("expenseUpdated"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to update expense");
+      setError(err.response?.data?.detail || t("failedToUpdateExpense"));
     }
   };
 
   const bulkDelete = async () => {
-    if (!confirm(`Move ${selected.size} items to trash?`)) return;
+    if (!confirm(`${t("moveToTrash")} ${selected.size}?`)) return;
     try {
       await Promise.all([...selected].map(id => api.delete(`/expenses/${id}`)));
       setSelected(new Set());
       fetchData(filterFrom, filterTo);
-      setSuccess(`${selected.size} items moved to trash`);
+      setSuccess(t("movedToRecentlyDeleted"));
       setTimeout(() => setSuccess(""), 2500);
     } catch {
-      setError("Failed to delete some items");
+      setError(t("failedToDeleteSome"));
     }
   };
 
@@ -290,10 +290,10 @@ export default function ExpensesPage() {
       await api.delete(`/expenses/${id}`);
       setDeleteConfirm(null);
       fetchData(filterFrom, filterTo);
-      setSuccess("Moved to recently deleted");
+      setSuccess(t("movedToRecentlyDeleted"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to delete expense");
+      setError(err.response?.data?.detail || t("failedToDeleteExpense"));
     }
   };
 
@@ -331,20 +331,20 @@ export default function ExpensesPage() {
               onClick={() => setQuickMode(false)}
               className={`px-3 py-1 rounded-md text-xs font-medium transition ${!quickMode ? "bg-white dark:bg-gray-600 text-gray-800 dark:text-white shadow-sm" : "text-gray-500 dark:text-gray-400"}`}
             >
-              Detailed
+              {t("detailed")}
             </button>
             <button
               onClick={() => setQuickMode(true)}
               className={`px-3 py-1 rounded-md text-xs font-medium transition ${quickMode ? "bg-white dark:bg-gray-600 text-gray-800 dark:text-white shadow-sm" : "text-gray-500 dark:text-gray-400"}`}
             >
-              Quick
+              {t("quickMode")}
             </button>
           </div>
         </div>
 
         {quickMode ? (
           <div>
-            <p className="text-xs text-gray-400 dark:text-gray-400 mb-3">Amount, payment & go — saved as "Other"</p>
+            <p className="text-xs text-gray-400 dark:text-gray-400 mb-3">{t("quickAmountAndGo")}</p>
             <div className="flex flex-wrap gap-1.5 mb-3">
               {QUICK_AMOUNTS.map((amt) => (
                 <button
@@ -383,7 +383,7 @@ export default function ExpensesPage() {
             </div>
             <div className="flex items-center gap-2">
               <input type="text" value={quickNotes} onChange={(e) => setQuickNotes(e.target.value)}
-                placeholder="Notes (optional)" className="flex-1 px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                placeholder={t("notesOptional")} className="flex-1 px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
               <input
                 type="date"
                 value={quickDate}
@@ -393,7 +393,7 @@ export default function ExpensesPage() {
               />
             </div>
             {quickDate !== new Date().toISOString().split("T")[0] && (
-              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 font-medium">Backdated</p>
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 font-medium">{t("backdated")}</p>
             )}
           </div>
         ) : (
@@ -429,14 +429,14 @@ export default function ExpensesPage() {
           ))}
         </div>
         <div className="flex items-center gap-2 mb-2 relative">
-          <span className="text-xs text-gray-400 dark:text-gray-500">or</span>
+          <span className="text-xs text-gray-400 dark:text-gray-500">{t("or")}</span>
           <div className="flex-1 relative">
             <input
               ref={customCatRef}
               type="text"
               value={customCat}
               onChange={(e) => { setCustomCat(e.target.value); if (e.target.value) setCatId(""); }}
-              placeholder="Custom category..."
+              placeholder={t("customCategoryPlaceholder")}
               className="w-full px-2.5 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
             />
             {customCat.length >= 1 && (() => {
@@ -500,7 +500,7 @@ export default function ExpensesPage() {
                 ? "bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-600 text-red-600 dark:text-red-400 animate-pulse"
                 : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600"
             }`}
-            title="Voice input"
+            title={t("voiceInput")}
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
@@ -539,7 +539,7 @@ export default function ExpensesPage() {
         {/* Notes + Date row */}
         <div className="mt-2 flex items-center gap-2">
           <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)}
-            placeholder="Notes (optional)" className="flex-1 px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+            placeholder={t("notesOptional")} className="flex-1 px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
           <input
             type="date"
             value={expDate}
@@ -549,7 +549,7 @@ export default function ExpensesPage() {
           />
         </div>
         {expDate !== new Date().toISOString().split("T")[0] && (
-          <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 font-medium">Backdated entry</p>
+          <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 font-medium">{t("backdatedEntry")}</p>
         )}
 
         {/* Personal toggle */}
@@ -564,10 +564,10 @@ export default function ExpensesPage() {
             <span className={`inline-block h-4 w-4 rounded-full bg-white transition transform ${isPersonal ? "translate-x-6" : "translate-x-1"}`} />
           </button>
           <span className={`text-sm font-medium ${isPersonal ? "text-purple-600 dark:text-purple-400" : "text-gray-500 dark:text-gray-400"}`}>
-            {isPersonal ? "Personal expense" : "Business expense"}
+            {isPersonal ? t("personalExpense") : t("businessExpense")}
           </span>
           {isPersonal && (
-            <span className="text-xs text-purple-500 dark:text-purple-400">Excluded from reports & VAT</span>
+            <span className="text-xs text-purple-500 dark:text-purple-400">{t("excludedFromReports")}</span>
           )}
         </div>
           </div>
@@ -608,30 +608,30 @@ export default function ExpensesPage() {
             <div className="grid grid-cols-2 gap-3">
               <button onClick={() => setExpandedStat(expandedStat === "today" ? null : "today")} className={`text-left bg-gradient-to-br from-red-950 to-gray-800 rounded-xl p-4 border transition hover:brightness-110 active:scale-[0.98] ${expandedStat === "today" ? "border-red-400 ring-1 ring-red-400/50" : "border-red-800/50"}`}>
                 <div className="flex items-center justify-between">
-                  <p className="text-[10px] uppercase tracking-widest text-red-300/70 font-semibold">{hasFilter ? "Latest Day" : "Today"}</p>
+                  <p className="text-[10px] uppercase tracking-widest text-red-300/70 font-semibold">{hasFilter ? t("latestDay") : t("today")}</p>
                   <svg className={`w-3 h-3 text-red-400/60 transition-transform ${expandedStat === "today" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                 </div>
                 <p className="text-3xl font-extrabold text-red-400 mt-1">{todayTotal.toLocaleString()}</p>
-                <p className="text-[11px] text-red-300/50 mt-1 font-medium">{todayExp.length} expense{todayExp.length !== 1 ? "s" : ""} today</p>
+                <p className="text-[11px] text-red-300/50 mt-1 font-medium">{todayExp.length} {t("expenses")} {t("today").toLowerCase()}</p>
               </button>
               <button onClick={() => setExpandedStat(expandedStat === "total" ? null : "total")} className={`text-left bg-gradient-to-br from-blue-950 to-gray-800 rounded-xl p-4 border transition hover:brightness-110 active:scale-[0.98] ${expandedStat === "total" ? "border-blue-400 ring-1 ring-blue-400/50" : "border-blue-800/50"}`}>
                 <div className="flex items-center justify-between">
-                  <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold">{monthName} Spent</p>
+                  <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold">{monthName} {t("spent")}</p>
                   <svg className={`w-3 h-3 text-blue-400/60 transition-transform ${expandedStat === "total" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                 </div>
                 <p className="text-3xl font-extrabold text-blue-400 mt-1">{totalExp.toLocaleString()}</p>
-                <p className="text-[11px] text-blue-300/50 mt-1 font-medium">{currency} from {monthExpenses.length} expenses</p>
+                <p className="text-[11px] text-blue-300/50 mt-1 font-medium">{currency} · {monthExpenses.length} {t("expenses")}</p>
               </button>
               <button onClick={() => setExpandedStat(expandedStat === "avg" ? null : "avg")} className={`text-left bg-gradient-to-br from-purple-950 to-gray-800 rounded-xl p-4 border transition hover:brightness-110 active:scale-[0.98] ${expandedStat === "avg" ? "border-purple-400 ring-1 ring-purple-400/50" : "border-purple-800/50"}`}>
                 <div className="flex items-center justify-between">
-                  <p className="text-[10px] uppercase tracking-widest text-purple-300/70 font-semibold">Avg Expense</p>
+                  <p className="text-[10px] uppercase tracking-widest text-purple-300/70 font-semibold">{t("avgExpense")}</p>
                   <svg className={`w-3 h-3 text-purple-400/60 transition-transform ${expandedStat === "avg" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                 </div>
                 <p className="text-3xl font-extrabold text-purple-400 mt-1">{Math.round(avgExp).toLocaleString()}</p>
-                <p className="text-[11px] text-purple-300/50 mt-1 font-medium">{currency}/day · {daysWithExpenses} days</p>
+                <p className="text-[11px] text-purple-300/50 mt-1 font-medium">{currency}/{t("day").toLowerCase()} · {daysWithExpenses} {t("days")}</p>
               </button>
               <div className="bg-gradient-to-br from-orange-950 to-gray-800 rounded-xl p-4 border border-orange-800/50">
-                <p className="text-[10px] uppercase tracking-widest text-orange-300/70 font-semibold mb-1.5">By Category</p>
+                <p className="text-[10px] uppercase tracking-widest text-orange-300/70 font-semibold mb-1.5">{t("byCategory")}</p>
                 <div className="flex flex-wrap gap-1.5 mt-1.5">
                   {Object.entries(cats).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([cat, amt]) => (
                     <button
@@ -647,7 +647,7 @@ export default function ExpensesPage() {
                     </button>
                   ))}
                 </div>
-                <p className="text-[11px] text-orange-300/50 mt-2 font-medium">{Object.keys(cats).length} categor{Object.keys(cats).length !== 1 ? "ies" : "y"}</p>
+                <p className="text-[11px] text-orange-300/50 mt-2 font-medium">{Object.keys(cats).length} {t("categories")}</p>
               </div>
             </div>
 
@@ -655,7 +655,7 @@ export default function ExpensesPage() {
             {expandedStat === "today" && (
               <div className="bg-gradient-to-br from-red-950/80 to-gray-800 rounded-xl p-4 border border-red-700/60 animate-in">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs font-semibold text-red-300">Today's Breakdown</p>
+                  <p className="text-xs font-semibold text-red-300">{t("todaysBreakdown")}</p>
                   <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-red-900/50 text-red-400 text-xs hover:bg-red-800/60">&times;</button>
                 </div>
                 {todayExp.length > 0 ? (
@@ -677,14 +677,14 @@ export default function ExpensesPage() {
                       ))}
                     </div>
                   </>
-                ) : <p className="text-xs text-red-400/50 text-center py-2">No expenses today</p>}
+                ) : <p className="text-xs text-red-400/50 text-center py-2">{t("noExpensesToday")}</p>}
               </div>
             )}
 
             {expandedStat === "total" && (
               <div className="bg-gradient-to-br from-blue-950/80 to-gray-800 rounded-xl p-4 border border-blue-700/60 animate-in">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs font-semibold text-blue-300">{monthName} Expenses</p>
+                  <p className="text-xs font-semibold text-blue-300">{monthName} {t("expenses")}</p>
                   <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-blue-900/50 text-blue-400 text-xs hover:bg-blue-800/60">&times;</button>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mb-3">
@@ -702,7 +702,7 @@ export default function ExpensesPage() {
                     </div>
                   ))}
                 </div>
-                <p className="text-[10px] text-blue-400/40 mt-2 text-center">{monthExpenses.length} expenses · {sortedDates.length} days · {Object.keys(cats).length} categories</p>
+                <p className="text-[10px] text-blue-400/40 mt-2 text-center">{monthExpenses.length} {t("expenses")} · {sortedDates.length} {t("days")} · {Object.keys(cats).length} {t("categories")}</p>
               </div>
             )}
 
@@ -720,20 +720,20 @@ export default function ExpensesPage() {
               return (
                 <div className="bg-gradient-to-br from-purple-950/80 to-gray-800 rounded-xl p-4 border border-purple-700/60 animate-in">
                   <div className="flex items-center justify-between mb-3">
-                    <p className="text-xs font-semibold text-purple-300">{monthName} Expense Distribution</p>
+                    <p className="text-xs font-semibold text-purple-300">{monthName} {t("expenseDistribution")}</p>
                     <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-purple-900/50 text-purple-400 text-xs hover:bg-purple-800/60">&times;</button>
                   </div>
                   <div className="grid grid-cols-3 gap-2 mb-3">
                     <div className="text-center p-2 bg-purple-900/30 rounded-lg">
-                      <p className="text-[10px] text-purple-400/60 font-semibold">Min</p>
+                      <p className="text-[10px] text-purple-400/60 font-semibold">{t("min")}</p>
                       <p className="text-sm font-extrabold text-purple-300">{min.toLocaleString()}</p>
                     </div>
                     <div className="text-center p-2 bg-purple-900/30 rounded-lg">
-                      <p className="text-[10px] text-purple-400/60 font-semibold">Median</p>
+                      <p className="text-[10px] text-purple-400/60 font-semibold">{t("median")}</p>
                       <p className="text-sm font-extrabold text-purple-300">{Math.round(median).toLocaleString()}</p>
                     </div>
                     <div className="text-center p-2 bg-purple-900/30 rounded-lg">
-                      <p className="text-[10px] text-purple-400/60 font-semibold">Max</p>
+                      <p className="text-[10px] text-purple-400/60 font-semibold">{t("max")}</p>
                       <p className="text-sm font-extrabold text-purple-300">{max.toLocaleString()}</p>
                     </div>
                   </div>
@@ -748,7 +748,7 @@ export default function ExpensesPage() {
                       </div>
                     ))}
                   </div>
-                  <p className="text-[10px] text-purple-400/40 mt-2 text-center">{totalExp.toLocaleString()} ÷ {daysWithExpenses} days = {Math.round(avgExp).toLocaleString()} {currency}/day</p>
+                  <p className="text-[10px] text-purple-400/40 mt-2 text-center">{totalExp.toLocaleString()} ÷ {daysWithExpenses} {t("days")} = {Math.round(avgExp).toLocaleString()} {currency}/{t("day").toLowerCase()}</p>
                 </div>
               );
             })()}
@@ -757,24 +757,24 @@ export default function ExpensesPage() {
       })() : (
         <div className="lg:col-span-2 grid grid-cols-2 gap-3 content-start">
           <div className="bg-gradient-to-br from-red-950 to-gray-800 rounded-xl p-4 border border-red-800/50">
-            <p className="text-[10px] uppercase tracking-widest text-red-300/70 font-semibold mb-1.5">Today</p>
+            <p className="text-[10px] uppercase tracking-widest text-red-300/70 font-semibold mb-1.5">{t("today")}</p>
             <p className="text-3xl font-extrabold text-red-400">0</p>
-            <p className="text-[11px] text-red-300/50 mt-1 font-medium">No expenses yet</p>
+            <p className="text-[11px] text-red-300/50 mt-1 font-medium">{t("noExpensesYet")}</p>
           </div>
           <div className="bg-gradient-to-br from-blue-950 to-gray-800 rounded-xl p-4 border border-blue-800/50">
-            <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold mb-1.5">This Month</p>
+            <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold mb-1.5">{t("thisMonth")}</p>
             <p className="text-3xl font-extrabold text-blue-400">0</p>
             <p className="text-[11px] text-blue-300/50 mt-1 font-medium">{currency}</p>
           </div>
           <div className="bg-gradient-to-br from-purple-950 to-gray-800 rounded-xl p-4 border border-purple-800/50">
-            <p className="text-[10px] uppercase tracking-widest text-purple-300/70 font-semibold mb-1.5">Avg Expense</p>
+            <p className="text-[10px] uppercase tracking-widest text-purple-300/70 font-semibold mb-1.5">{t("avgExpense")}</p>
             <p className="text-3xl font-extrabold text-purple-400">—</p>
-            <p className="text-[11px] text-purple-300/50 mt-1 font-medium">Log your first expense</p>
+            <p className="text-[11px] text-purple-300/50 mt-1 font-medium">{t("logFirstExpense")}</p>
           </div>
           <div className="bg-gradient-to-br from-orange-950 to-gray-800 rounded-xl p-4 border border-orange-800/50">
-            <p className="text-[10px] uppercase tracking-widest text-orange-300/70 font-semibold mb-1.5">By Category</p>
+            <p className="text-[10px] uppercase tracking-widest text-orange-300/70 font-semibold mb-1.5">{t("byCategory")}</p>
             <p className="text-lg font-extrabold text-orange-400 mt-1">—</p>
-            <p className="text-[11px] text-orange-300/50 mt-1 font-medium">No data yet</p>
+            <p className="text-[11px] text-orange-300/50 mt-1 font-medium">{t("noDataYet")}</p>
           </div>
         </div>
       )}
@@ -789,7 +789,7 @@ export default function ExpensesPage() {
                 <button key={f} onClick={() => setShowFilter(f)}
                   className={`px-2 py-0.5 rounded text-xs font-medium transition ${
                     showFilter === f ? "bg-green-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
-                  }`}>{f.charAt(0).toUpperCase() + f.slice(1)}</button>
+                  }`}>{f === "all" ? t("all") : f === "business" ? t("businessMode") : t("personalMode")}</button>
               ))}
             </div>
           </div>
@@ -811,7 +811,7 @@ export default function ExpensesPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search amount, name, category, payment..."
+              placeholder={t("searchExpensesPlaceholder")}
               className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             {(filterFrom || filterTo) && (
@@ -819,7 +819,7 @@ export default function ExpensesPage() {
                 onClick={() => { setFilterFrom(""); setFilterTo(""); fetchData(); }}
                 className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 font-medium"
               >
-                Clear
+                {t("clear")}
               </button>
             )}
             <button
@@ -827,14 +827,14 @@ export default function ExpensesPage() {
                 ...exp,
                 category_name: getCatName(exp.category_id),
               })), [
-                { key: "date", label: "Date" },
-                { key: "description", label: "Description" },
-                { key: "category_name", label: "Category" },
-                { key: "amount", label: "Amount" },
+                { key: "date", label: t("date") },
+                { key: "description", label: t("description") },
+                { key: "category_name", label: t("category") },
+                { key: "amount", label: t("amount") },
               ])}
               className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
             >
-              Export CSV
+              {t("exportCsv")}
             </button>
           </div>
         </div>
@@ -849,12 +849,12 @@ export default function ExpensesPage() {
                 }} checked={selected.size === filtered.length && filtered.length > 0} />
               </th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("description")}</th>
-              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Category</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("category")}</th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("amount")}</th>
-              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Payment</th>
-              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Notes</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("payment")}</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("notes")}</th>
               <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">{t("date")}</th>
-              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">Actions</th>
+              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">{t("actions")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -925,15 +925,15 @@ export default function ExpensesPage() {
                       />
                     </td>
                     <td className="px-6 py-3 text-right space-x-2">
-                      <button onClick={saveEdit} className="text-green-600 dark:text-green-400 text-sm font-medium hover:underline">Save</button>
-                      <button onClick={() => setEditId(null)} className="text-gray-400 dark:text-gray-500 text-sm hover:underline">Cancel</button>
+                      <button onClick={saveEdit} className="text-green-600 dark:text-green-400 text-sm font-medium hover:underline">{t("save")}</button>
+                      <button onClick={() => setEditId(null)} className="text-gray-400 dark:text-gray-500 text-sm hover:underline">{t("cancel")}</button>
                     </td>
                   </>
                 ) : (
                   <>
                     <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
                       {exp.description}
-                      {exp.is_personal && <span className="ml-2 px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 text-xs rounded font-medium">Personal</span>}
+                      {exp.is_personal && <span className="ml-2 px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 text-xs rounded font-medium">{t("personalMode")}</span>}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{getCatName(exp.category_id)}</td>
                     <td className="px-6 py-4 text-sm font-semibold text-gray-800 dark:text-white">{parseFloat(exp.amount).toLocaleString()} {currency}</td>
@@ -941,14 +941,14 @@ export default function ExpensesPage() {
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{exp.notes || "-"}</td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 text-right">{exp.date}</td>
                     <td className="px-6 py-4 text-right space-x-3">
-                      <button onClick={() => startEdit(exp)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">Edit</button>
+                      <button onClick={() => startEdit(exp)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">{t("edit")}</button>
                       {deleteConfirm === exp.id ? (
                         <>
-                          <button onClick={() => deleteExpense(exp.id)} className="text-red-600 dark:text-red-400 text-sm font-medium hover:underline">Yes, move</button>
-                          <button onClick={() => setDeleteConfirm(null)} className="text-gray-400 text-sm hover:underline">No</button>
+                          <button onClick={() => deleteExpense(exp.id)} className="text-red-600 dark:text-red-400 text-sm font-medium hover:underline">{t("yesMove")}</button>
+                          <button onClick={() => setDeleteConfirm(null)} className="text-gray-400 text-sm hover:underline">{t("cancel")}</button>
                         </>
                       ) : (
-                        <button onClick={() => setDeleteConfirm(exp.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">Move to trash</button>
+                        <button onClick={() => setDeleteConfirm(exp.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">{t("moveToTrash")}</button>
                       )}
                     </td>
                   </>
@@ -977,9 +977,9 @@ export default function ExpensesPage() {
                 &times;
               </button>
               <p className="text-sm font-semibold flex-1">
-                {selected.size} selected &middot; {total.toLocaleString()} {currency}
+                {selected.size} {t("selected")} &middot; {total.toLocaleString()} {currency}
               </p>
-              <span className="text-xs opacity-75">Avg: {Math.round(avg).toLocaleString()}</span>
+              <span className="text-xs opacity-75">{t("avg")}: {Math.round(avg).toLocaleString()}</span>
             </div>
             {Object.keys(byCat).length > 0 && (
               <div className="flex flex-wrap gap-1.5 mb-2">
@@ -995,15 +995,15 @@ export default function ExpensesPage() {
                 onClick={() => {
                   const text = `${selected.size} expenses | Total: ${total.toLocaleString()} ${currency} | Avg: ${Math.round(avg).toLocaleString()} ${currency}`;
                   navigator.clipboard?.writeText(text);
-                  setSuccess("Copied to clipboard!");
+                  setSuccess(t("copiedToClipboard"));
                   setTimeout(() => setSuccess(""), 2000);
                 }}
                 className="px-3 py-1.5 bg-white/20 rounded-lg text-xs font-medium hover:bg-white/30 transition"
               >
-                Copy Summary
+                {t("copySummary")}
               </button>
               <button onClick={bulkDelete} className="px-3 py-1.5 bg-red-500/80 rounded-lg text-xs font-medium hover:bg-red-500 transition">
-                Move to trash
+                {t("moveToTrash")}
               </button>
             </div>
           </div>

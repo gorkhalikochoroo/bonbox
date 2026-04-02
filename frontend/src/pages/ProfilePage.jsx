@@ -51,8 +51,8 @@ export default function ProfilePage() {
     setEmailMsg("");
     try {
       const res = await api.post("/email/test-digest");
-      setEmailMsg(res.data.sent ? `Digest sent to ${res.data.to}!` : "Failed to send");
-    } catch { setEmailMsg("Failed to send test"); }
+      setEmailMsg(res.data.sent ? `${t("digestSentTo")} ${res.data.to}!` : t("digestFailedToSend"));
+    } catch { setEmailMsg(t("failedToSendTest")); }
     setSendingTest(false);
     setTimeout(() => setEmailMsg(""), 4000);
   };
@@ -64,10 +64,10 @@ export default function ProfilePage() {
     try {
       const res = await api.post("/whatsapp/link-phone", null, { params: { phone: waPhone } });
       setWaCode(res.data.code || "");
-      setWaMsg(res.data.code ? "" : "Code sent! Check WhatsApp and reply with the code.");
+      setWaMsg(res.data.code ? "" : t("codeSentCheckWhatsapp"));
       setWaStatus({ linked: true, phone: waPhone, verified: false });
     } catch (err) {
-      setWaMsg(err.response?.data?.detail || "Failed to link");
+      setWaMsg(err.response?.data?.detail || t("failedToLink"));
     }
     setWaLinking(false);
   };
@@ -77,7 +77,7 @@ export default function ProfilePage() {
       await api.delete("/whatsapp/unlink");
       setWaStatus({ linked: false, phone: null, verified: false });
       setWaPhone("");
-      setWaMsg("WhatsApp unlinked");
+      setWaMsg(t("whatsappUnlinked"));
       setTimeout(() => setWaMsg(""), 3000);
     } catch { /* ignore */ }
   };
@@ -96,10 +96,10 @@ export default function ProfilePage() {
         const parsed = JSON.parse(stored);
         localStorage.setItem("bonbox_user", JSON.stringify({ ...parsed, ...res.data }));
       }
-      setSuccess("Profile updated!");
+      setSuccess(t("profileUpdated"));
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to update profile");
+      setError(err.response?.data?.detail || t("failedToUpdateProfile"));
     }
     setSaving(false);
   };
@@ -109,11 +109,11 @@ export default function ProfilePage() {
     setPwError("");
     setPwSuccess("");
     if (passwords.new_password !== passwords.confirm_password) {
-      setPwError("New passwords don't match");
+      setPwError(t("passwordsDontMatch"));
       return;
     }
     if (passwords.new_password.length < 8) {
-      setPwError("Password must be at least 8 characters");
+      setPwError(t("passwordMinLength"));
       return;
     }
     setChangingPw(true);
@@ -122,23 +122,23 @@ export default function ProfilePage() {
         current_password: passwords.current_password,
         new_password: passwords.new_password,
       });
-      setPwSuccess("Password changed!");
+      setPwSuccess(t("passwordChanged"));
       setPasswords({ current_password: "", new_password: "", confirm_password: "" });
       setTimeout(() => setPwSuccess(""), 3000);
     } catch (err) {
-      setPwError(err.response?.data?.detail || "Failed to change password");
+      setPwError(err.response?.data?.detail || t("failedToChangePassword"));
     }
     setChangingPw(false);
   };
 
-  if (!user) return <div className="p-6 text-center text-gray-500">Loading...</div>;
+  if (!user) return <div className="p-6 text-center text-gray-500">{t("loading")}</div>;
 
   const inputClass = "w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
   const labelClass = "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1";
 
   return (
     <div className="p-4 sm:p-6 max-w-2xl mx-auto space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Profile</h1>
+      <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t("profile")}</h1>
 
       {/* Account Info */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
@@ -154,32 +154,32 @@ export default function ProfilePage() {
 
         <form onSubmit={saveProfile} className="space-y-4">
           <div>
-            <label className={labelClass}>Email</label>
+            <label className={labelClass}>{t("emailLabel")}</label>
             <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={inputClass} />
           </div>
           <div>
-            <label className={labelClass}>Business Name</label>
+            <label className={labelClass}>{t("businessNameLabel")}</label>
             <input type="text" value={form.business_name} onChange={(e) => setForm({ ...form, business_name: e.target.value })} className={inputClass} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className={labelClass}>Business Type</label>
+              <label className={labelClass}>{t("businessTypeLabel")}</label>
               <select value={form.business_type} onChange={(e) => setForm({ ...form, business_type: e.target.value })} className={inputClass}>
-                <option value="restaurant">Restaurant</option>
-                <option value="cafe">Cafe</option>
-                <option value="bar">Bar</option>
-                <option value="bakery">Bakery</option>
-                <option value="food_truck">Food Truck</option>
-                <option value="retail">Retail / Shop</option>
-                <option value="clothing">Clothing Store</option>
-                <option value="grocery">Grocery Store</option>
-                <option value="salon">Salon / Beauty</option>
-                <option value="pharmacy">Pharmacy</option>
-                <option value="other">Other</option>
+                <option value="restaurant">{t("restaurantType")}</option>
+                <option value="cafe">{t("cafeType")}</option>
+                <option value="bar">{t("barType")}</option>
+                <option value="bakery">{t("bakeryType")}</option>
+                <option value="food_truck">{t("foodTruckType")}</option>
+                <option value="retail">{t("retailShopType")}</option>
+                <option value="clothing">{t("clothingStoreType")}</option>
+                <option value="grocery">{t("groceryStoreType")}</option>
+                <option value="salon">{t("salonBeautyType")}</option>
+                <option value="pharmacy">{t("pharmacyType")}</option>
+                <option value="other">{t("otherType")}</option>
               </select>
             </div>
             <div>
-              <label className={labelClass}>Currency</label>
+              <label className={labelClass}>{t("currencyLabel")}</label>
               <select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} className={inputClass}>
                 <option value="DKK">DKK - Danish Krone (Moms 25%)</option>
                 <option value="SEK">SEK - Swedish Krona (Moms 25%)</option>
@@ -208,29 +208,29 @@ export default function ProfilePage() {
 
           <button type="submit" disabled={saving}
             className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl transition disabled:opacity-50">
-            {saving ? "Saving..." : "Save Changes"}
+            {saving ? t("saving") : t("saveChanges")}
           </button>
         </form>
       </div>
 
       {/* Change Password */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Change Password</h2>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">{t("changePassword")}</h2>
         <form onSubmit={changePassword} className="space-y-4">
           <div>
-            <label className={labelClass}>Current Password</label>
+            <label className={labelClass}>{t("currentPassword")}</label>
             <input type="password" value={passwords.current_password}
               onChange={(e) => setPasswords({ ...passwords, current_password: e.target.value })}
               className={inputClass} required />
           </div>
           <div>
-            <label className={labelClass}>New Password</label>
+            <label className={labelClass}>{t("newPassword")}</label>
             <input type="password" value={passwords.new_password}
               onChange={(e) => setPasswords({ ...passwords, new_password: e.target.value })}
               className={inputClass} required />
           </div>
           <div>
-            <label className={labelClass}>Confirm New Password</label>
+            <label className={labelClass}>{t("confirmNewPassword")}</label>
             <input type="password" value={passwords.confirm_password}
               onChange={(e) => setPasswords({ ...passwords, confirm_password: e.target.value })}
               className={inputClass} required />
@@ -241,19 +241,19 @@ export default function ProfilePage() {
 
           <button type="submit" disabled={changingPw}
             className="w-full py-3 bg-gray-800 dark:bg-gray-600 hover:bg-gray-900 dark:hover:bg-gray-500 text-white font-semibold rounded-xl transition disabled:opacity-50">
-            {changingPw ? "Changing..." : "Change Password"}
+            {changingPw ? t("changing") : t("changePassword")}
           </button>
         </form>
       </div>
 
       {/* Email Notifications */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Email Notifications</h2>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">{t("emailNotifications")}</h2>
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Daily Digest</p>
-              <p className="text-xs text-gray-400 dark:text-gray-500">Morning email with yesterday's revenue, expenses & profit</p>
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("dailyDigestLabel")}</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">{t("dailyDigestDesc")}</p>
             </div>
             <button
               onClick={() => toggleEmailPref("daily_digest_enabled")}
@@ -264,8 +264,8 @@ export default function ProfilePage() {
           </div>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Expense Alerts</p>
-              <p className="text-xs text-gray-400 dark:text-gray-500">Get alerted when spending spikes 25%+ above your average</p>
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("expenseAlertsLabel")}</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">{t("expenseAlertsDesc")}</p>
             </div>
             <button
               onClick={() => toggleEmailPref("expense_alerts_enabled")}
@@ -280,7 +280,7 @@ export default function ProfilePage() {
               disabled={sendingTest}
               className="px-4 py-2 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg text-sm font-medium hover:bg-blue-100 dark:hover:bg-blue-900/50 transition disabled:opacity-50"
             >
-              {sendingTest ? "Sending..." : "Send Test Digest"}
+              {sendingTest ? t("sending") : t("sendTestDigest")}
             </button>
             {emailMsg && <span className="ml-3 text-sm text-green-600 dark:text-green-400">{emailMsg}</span>}
           </div>
@@ -294,8 +294,8 @@ export default function ProfilePage() {
             <svg className="w-6 h-6 text-green-600" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">WhatsApp Bot</h2>
-            <p className="text-xs text-gray-400 dark:text-gray-500">Log sales & check stats via WhatsApp</p>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t("whatsappBot")}</h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500">{t("whatsappBotDesc")}</p>
           </div>
         </div>
 
@@ -303,10 +303,10 @@ export default function ProfilePage() {
           <div className="space-y-3">
             <div className="flex items-center gap-2 px-4 py-3 bg-green-50 dark:bg-green-900/20 rounded-xl">
               <span className="w-2 h-2 bg-green-500 rounded-full" />
-              <span className="text-sm font-medium text-green-700 dark:text-green-400">Connected: {waStatus.phone}</span>
+              <span className="text-sm font-medium text-green-700 dark:text-green-400">{t("connectedLabel")}: {waStatus.phone}</span>
             </div>
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
-              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Quick commands:</p>
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">{t("quickCommandsLabel")}:</p>
               <div className="grid grid-cols-2 gap-1 text-xs text-gray-600 dark:text-gray-300">
                 <span><code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">14500</code> → Log revenue</span>
                 <span><code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">expense 2500 food</code> → Log expense</span>
@@ -316,27 +316,27 @@ export default function ProfilePage() {
                 <span><code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">help</code> → All commands</span>
               </div>
             </div>
-            <button onClick={unlinkWhatsApp} className="text-xs text-red-500 hover:underline">Unlink WhatsApp</button>
+            <button onClick={unlinkWhatsApp} className="text-xs text-red-500 hover:underline">{t("unlinkWhatsapp")}</button>
           </div>
         ) : waStatus?.linked ? (
           <div className="space-y-3">
             <div className="flex items-center gap-2 px-4 py-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl">
               <span className="w-2 h-2 bg-yellow-500 rounded-full" />
-              <span className="text-sm text-yellow-700 dark:text-yellow-400">Verification pending for {waStatus.phone}</span>
+              <span className="text-sm text-yellow-700 dark:text-yellow-400">{t("verificationPendingFor")} {waStatus.phone}</span>
             </div>
             {waCode && (
               <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 text-center">
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Your verification code:</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t("yourVerificationCode")}:</p>
                 <p className="text-3xl font-bold tracking-widest text-blue-600 dark:text-blue-400">{waCode}</p>
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">Send this code to the BonBox WhatsApp number</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">{t("sendCodeToBonbox")}</p>
               </div>
             )}
-            {!waCode && <p className="text-xs text-gray-400">Send the 6-digit code to the BonBox WhatsApp number to verify.</p>}
-            <button onClick={unlinkWhatsApp} className="text-xs text-red-500 hover:underline">Unlink & try again</button>
+            {!waCode && <p className="text-xs text-gray-400">{t("sendCodeToBonbox")}</p>}
+            <button onClick={unlinkWhatsApp} className="text-xs text-red-500 hover:underline">{t("unlinkWhatsapp")}</button>
           </div>
         ) : (
           <div className="space-y-3">
-            <p className="text-sm text-gray-600 dark:text-gray-300">Link your phone to log sales and check stats via WhatsApp.</p>
+            <p className="text-sm text-gray-600 dark:text-gray-300">{t("linkPhoneDesc")}</p>
             <div className="flex gap-2">
               <input
                 type="tel"
@@ -350,7 +350,7 @@ export default function ProfilePage() {
                 disabled={waLinking || !waPhone.trim()}
                 className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 transition disabled:opacity-50"
               >
-                {waLinking ? "Sending..." : "Link"}
+                {waLinking ? t("sending") : t("link")}
               </button>
             </div>
             {waMsg && <p className="text-sm text-green-600 dark:text-green-400">{waMsg}</p>}
@@ -360,10 +360,10 @@ export default function ProfilePage() {
 
       {/* Account Details */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Account Details</h2>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">{t("accountDetailsTitle")}</h2>
         <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
-          <p>Account ID: <span className="font-mono text-xs">{user.id}</span></p>
-          <p>Daily Goal: {user.daily_goal > 0 ? `${Number(user.daily_goal).toLocaleString()} ${form.currency}` : "Not set"}</p>
+          <p>{t("accountIdLabel")}: <span className="font-mono text-xs">{user.id}</span></p>
+          <p>{t("dailyGoal")}: {user.daily_goal > 0 ? `${Number(user.daily_goal).toLocaleString()} ${form.currency}` : t("notSetLabel")}</p>
         </div>
       </div>
     </div>

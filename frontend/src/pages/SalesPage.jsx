@@ -43,7 +43,7 @@ export default function SalesPage() {
 
   const startVoice = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) { setError("Voice input not supported in this browser"); return; }
+    if (!SpeechRecognition) { setError(t("voiceNotSupported")); return; }
     const recognition = new SpeechRecognition();
     recognition.lang = "en-US";
     recognition.interimResults = false;
@@ -64,15 +64,15 @@ export default function SalesPage() {
           // Extract notes (everything after the number and method)
           const remaining = text.replace(numMatch[0], "").replace(/cash|card|mobilepay|mixed|dankort/g, "").trim();
           if (remaining.length > 2) setNotes(remaining);
-          setSuccess(`Voice: "${text}" → ${val.toLocaleString()} ${currency}`);
+          setSuccess(`${t("voiceParsed")}: "${text}" → ${val.toLocaleString()} ${currency}`);
           setTimeout(() => setSuccess(""), 3000);
         }
       } else {
-        setError(`Couldn't parse amount from: "${text}"`);
+        setError(`${t("couldntParseAmount")}: "${text}"`);
         setTimeout(() => setError(""), 3000);
       }
     };
-    recognition.onerror = () => { setListening(false); setError("Voice recognition failed"); setTimeout(() => setError(""), 3000); };
+    recognition.onerror = () => { setListening(false); setError(t("voiceRecognitionFailed")); setTimeout(() => setError(""), 3000); };
     recognition.start();
   };
 
@@ -85,7 +85,7 @@ export default function SalesPage() {
       const res = await api.get("/sales", { params });
       setSales(res.data);
     } catch (err) {
-      setFetchError(err.response?.data?.detail || "Failed to load sales");
+      setFetchError(err.response?.data?.detail || t("failedToLoadSales"));
     }
   };
   const fetchInventory = () => {
@@ -104,7 +104,7 @@ export default function SalesPage() {
     const value = amt || parseFloat(amount);
     if (!value) return;
     const duplicate = sales.find(s => s.date === saleDate && parseFloat(s.amount) === value);
-    if (duplicate && !confirm(`A sale of ${value.toLocaleString()} ${currency} on ${saleDate} already exists. Add another?`)) {
+    if (duplicate && !confirm(`${t("aSaleOf")} ${value.toLocaleString()} ${currency} ${t("on")} ${saleDate} ${t("duplicateSaleConfirm")}`)) {
       return;
     }
     setError("");
@@ -124,7 +124,7 @@ export default function SalesPage() {
       fetchSales(filterFrom, filterTo);
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to add sale");
+      setError(err.response?.data?.detail || t("failedToAddSale"));
     }
   };
 
@@ -144,23 +144,23 @@ export default function SalesPage() {
       setEditId(null);
       setEditData({});
       fetchSales(filterFrom, filterTo);
-      setSuccess("Sale updated!");
+      setSuccess(t("saleUpdated"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to update sale");
+      setError(err.response?.data?.detail || t("failedToUpdateSale"));
     }
   };
 
   const bulkDelete = async () => {
-    if (!confirm(`Move ${selected.size} items to trash?`)) return;
+    if (!confirm(`${t("moveToTrash")} ${selected.size}?`)) return;
     try {
       await Promise.all([...selected].map(id => api.delete(`/sales/${id}`)));
       setSelected(new Set());
       fetchSales(filterFrom, filterTo);
-      setSuccess(`${selected.size} items moved to trash`);
+      setSuccess(`${selected.size} ${t("movedToDeleted")}`);
       setTimeout(() => setSuccess(""), 2500);
     } catch {
-      setError("Failed to delete some items");
+      setError(t("failedToDeleteSome"));
     }
   };
 
@@ -169,10 +169,10 @@ export default function SalesPage() {
       await api.delete(`/sales/${id}`);
       setDeleteConfirm(null);
       fetchSales(filterFrom, filterTo);
-      setSuccess("Moved to recently deleted");
+      setSuccess(t("movedToDeleted"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to delete sale");
+      setError(err.response?.data?.detail || t("failedToDeleteSale"));
     }
   };
 
@@ -185,7 +185,7 @@ export default function SalesPage() {
             onClick={() => setShowItemSale(true)}
             className="px-4 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition"
           >
-            + Item Sale
+            + {t("itemSale")}
           </button>
           <ReceiptCapture onSaleCreated={fetchSales} />
         </div>
@@ -225,7 +225,7 @@ export default function SalesPage() {
                   ? "bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-600 text-red-600 dark:text-red-400 animate-pulse"
                   : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600"
               }`}
-              title="Voice input"
+              title={t("voiceInput")}
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
@@ -274,7 +274,7 @@ export default function SalesPage() {
               type="text"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Add a note (optional)"
+              placeholder={t("addNoteOptional")}
               className="flex-1 px-2.5 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
             />
             <input
@@ -286,7 +286,7 @@ export default function SalesPage() {
             />
           </div>
           {saleDate !== new Date().toISOString().split("T")[0] && (
-            <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 font-medium">Backdated entry</p>
+            <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 font-medium">{t("backdatedEntry")}</p>
           )}
           </div>
         </div>
@@ -328,30 +328,30 @@ export default function SalesPage() {
               <div className="grid grid-cols-2 gap-3">
                 <button onClick={() => setExpandedStat(expandedStat === "today" ? null : "today")} className={`text-left bg-gradient-to-br from-green-950 to-gray-800 rounded-xl p-4 border transition hover:brightness-110 active:scale-[0.98] ${expandedStat === "today" ? "border-green-400 ring-1 ring-green-400/50" : "border-green-800/50"}`}>
                   <div className="flex items-center justify-between">
-                    <p className="text-[10px] uppercase tracking-widest text-green-300/70 font-semibold">{hasFilter ? "Latest Day" : "Today"}</p>
+                    <p className="text-[10px] uppercase tracking-widest text-green-300/70 font-semibold">{hasFilter ? t("latestDay") : t("today")}</p>
                     <svg className={`w-3 h-3 text-green-400/60 transition-transform ${expandedStat === "today" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                   </div>
                   <p className="text-3xl font-extrabold text-green-400 mt-1">{todayRev.toLocaleString()}</p>
-                  <p className="text-[11px] text-green-300/50 mt-1 font-medium">{todaySales.length} sale{todaySales.length !== 1 ? "s" : ""} today</p>
+                  <p className="text-[11px] text-green-300/50 mt-1 font-medium">{todaySales.length} {todaySales.length !== 1 ? t("salesCount") : t("saleCount")} {t("today").toLowerCase()}</p>
                 </button>
                 <button onClick={() => setExpandedStat(expandedStat === "total" ? null : "total")} className={`text-left bg-gradient-to-br from-blue-950 to-gray-800 rounded-xl p-4 border transition hover:brightness-110 active:scale-[0.98] ${expandedStat === "total" ? "border-blue-400 ring-1 ring-blue-400/50" : "border-blue-800/50"}`}>
                   <div className="flex items-center justify-between">
-                    <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold">{monthName} Revenue</p>
+                    <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold">{monthName} {t("revenue")}</p>
                     <svg className={`w-3 h-3 text-blue-400/60 transition-transform ${expandedStat === "total" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                   </div>
                   <p className="text-3xl font-extrabold text-blue-400 mt-1">{totalRev.toLocaleString()}</p>
-                  <p className="text-[11px] text-blue-300/50 mt-1 font-medium">{currency} from {monthSales.length} sales</p>
+                  <p className="text-[11px] text-blue-300/50 mt-1 font-medium">{currency} · {monthSales.length} {t("salesCount")}</p>
                 </button>
                 <button onClick={() => setExpandedStat(expandedStat === "avg" ? null : "avg")} className={`text-left bg-gradient-to-br from-purple-950 to-gray-800 rounded-xl p-4 border transition hover:brightness-110 active:scale-[0.98] ${expandedStat === "avg" ? "border-purple-400 ring-1 ring-purple-400/50" : "border-purple-800/50"}`}>
                   <div className="flex items-center justify-between">
-                    <p className="text-[10px] uppercase tracking-widest text-purple-300/70 font-semibold">Avg Sale</p>
+                    <p className="text-[10px] uppercase tracking-widest text-purple-300/70 font-semibold">{t("avgSale")}</p>
                     <svg className={`w-3 h-3 text-purple-400/60 transition-transform ${expandedStat === "avg" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                   </div>
                   <p className="text-3xl font-extrabold text-purple-400 mt-1">{Math.round(avgSale).toLocaleString()}</p>
-                  <p className="text-[11px] text-purple-300/50 mt-1 font-medium">{currency}/day · {daysWithSales} days</p>
+                  <p className="text-[11px] text-purple-300/50 mt-1 font-medium">{currency}/{t("day")} · {daysWithSales} {t("days")}</p>
                 </button>
                 <div className="bg-gradient-to-br from-orange-950 to-gray-800 rounded-xl p-4 border border-orange-800/50">
-                  <p className="text-[10px] uppercase tracking-widest text-orange-300/70 font-semibold mb-1.5">By Payment</p>
+                  <p className="text-[10px] uppercase tracking-widest text-orange-300/70 font-semibold mb-1.5">{t("byPayment")}</p>
                   <div className="flex flex-wrap gap-1.5 mt-1.5">
                     {Object.entries(methods).sort((a, b) => b[1] - a[1]).map(([m, amt]) => (
                       <button
@@ -367,7 +367,7 @@ export default function SalesPage() {
                       </button>
                     ))}
                   </div>
-                  <p className="text-[11px] text-orange-300/50 mt-2 font-medium">{Object.keys(methods).length} method{Object.keys(methods).length !== 1 ? "s" : ""} used</p>
+                  <p className="text-[11px] text-orange-300/50 mt-2 font-medium">{Object.keys(methods).length} {Object.keys(methods).length !== 1 ? t("methodsUsed") : t("methodUsed")}</p>
                 </div>
               </div>
 
@@ -375,7 +375,7 @@ export default function SalesPage() {
               {expandedStat === "today" && (
                 <div className="bg-gradient-to-br from-green-950/80 to-gray-800 rounded-xl p-4 border border-green-700/60 animate-in">
                   <div className="flex items-center justify-between mb-3">
-                    <p className="text-xs font-semibold text-green-300">Today's Breakdown</p>
+                    <p className="text-xs font-semibold text-green-300">{t("todaysBreakdown")}</p>
                     <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-green-900/50 text-green-400 text-xs hover:bg-green-800/60">&times;</button>
                   </div>
                   {todaySales.length > 0 ? (
@@ -397,14 +397,14 @@ export default function SalesPage() {
                         ))}
                       </div>
                     </>
-                  ) : <p className="text-xs text-green-400/50 text-center py-2">No sales today yet</p>}
+                  ) : <p className="text-xs text-green-400/50 text-center py-2">{t("noSalesTodayYet")}</p>}
                 </div>
               )}
 
               {expandedStat === "total" && (
                 <div className="bg-gradient-to-br from-blue-950/80 to-gray-800 rounded-xl p-4 border border-blue-700/60 animate-in">
                   <div className="flex items-center justify-between mb-3">
-                    <p className="text-xs font-semibold text-blue-300">Revenue by Day</p>
+                    <p className="text-xs font-semibold text-blue-300">{t("revenueByDay")}</p>
                     <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-blue-900/50 text-blue-400 text-xs hover:bg-blue-800/60">&times;</button>
                   </div>
                   <div className="flex flex-wrap gap-1.5 mb-3">
@@ -420,7 +420,7 @@ export default function SalesPage() {
                       </div>
                     ))}
                   </div>
-                  <p className="text-[10px] text-blue-400/40 mt-2 text-center">{monthSales.length} sales across {sortedDates.length} days in {monthName}</p>
+                  <p className="text-[10px] text-blue-400/40 mt-2 text-center">{monthSales.length} {t("salesCount")} · {sortedDates.length} {t("days")} · {monthName}</p>
                 </div>
               )}
 
@@ -439,20 +439,20 @@ export default function SalesPage() {
                 return (
                   <div className="bg-gradient-to-br from-purple-950/80 to-gray-800 rounded-xl p-4 border border-purple-700/60 animate-in">
                     <div className="flex items-center justify-between mb-3">
-                      <p className="text-xs font-semibold text-purple-300">{monthName} Sale Distribution</p>
+                      <p className="text-xs font-semibold text-purple-300">{monthName} {t("saleDistribution")}</p>
                       <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-purple-900/50 text-purple-400 text-xs hover:bg-purple-800/60">&times;</button>
                     </div>
                     <div className="grid grid-cols-3 gap-2 mb-3">
                       <div className="text-center p-2 bg-purple-900/30 rounded-lg">
-                        <p className="text-[10px] text-purple-400/60 font-semibold">Min</p>
+                        <p className="text-[10px] text-purple-400/60 font-semibold">{t("min")}</p>
                         <p className="text-sm font-extrabold text-purple-300">{min.toLocaleString()}</p>
                       </div>
                       <div className="text-center p-2 bg-purple-900/30 rounded-lg">
-                        <p className="text-[10px] text-purple-400/60 font-semibold">Median</p>
+                        <p className="text-[10px] text-purple-400/60 font-semibold">{t("median")}</p>
                         <p className="text-sm font-extrabold text-purple-300">{Math.round(median).toLocaleString()}</p>
                       </div>
                       <div className="text-center p-2 bg-purple-900/30 rounded-lg">
-                        <p className="text-[10px] text-purple-400/60 font-semibold">Max</p>
+                        <p className="text-[10px] text-purple-400/60 font-semibold">{t("max")}</p>
                         <p className="text-sm font-extrabold text-purple-300">{max.toLocaleString()}</p>
                       </div>
                     </div>
@@ -467,7 +467,7 @@ export default function SalesPage() {
                         </div>
                       ))}
                     </div>
-                    <p className="text-[10px] text-purple-400/40 mt-2 text-center">{totalRev.toLocaleString()} ÷ {daysWithSales} days = {Math.round(avgSale).toLocaleString()} {currency}/day</p>
+                    <p className="text-[10px] text-purple-400/40 mt-2 text-center">{totalRev.toLocaleString()} ÷ {daysWithSales} {t("days")} = {Math.round(avgSale).toLocaleString()} {currency}/{t("day")}</p>
                   </div>
                 );
               })()}
@@ -476,24 +476,24 @@ export default function SalesPage() {
         })() : (
           <div className="lg:col-span-2 grid grid-cols-2 gap-3 content-start">
             <div className="bg-gradient-to-br from-green-950 to-gray-800 rounded-xl p-4 border border-green-800/50">
-              <p className="text-[10px] uppercase tracking-widest text-green-300/70 font-semibold mb-1.5">Today</p>
+              <p className="text-[10px] uppercase tracking-widest text-green-300/70 font-semibold mb-1.5">{t("today")}</p>
               <p className="text-3xl font-extrabold text-green-400">0</p>
-              <p className="text-[11px] text-green-300/50 mt-1 font-medium">No sales yet</p>
+              <p className="text-[11px] text-green-300/50 mt-1 font-medium">{t("noSalesYet")}</p>
             </div>
             <div className="bg-gradient-to-br from-blue-950 to-gray-800 rounded-xl p-4 border border-blue-800/50">
-              <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold mb-1.5">This Month</p>
+              <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold mb-1.5">{t("thisMonth")}</p>
               <p className="text-3xl font-extrabold text-blue-400">0</p>
               <p className="text-[11px] text-blue-300/50 mt-1 font-medium">{currency}</p>
             </div>
             <div className="bg-gradient-to-br from-purple-950 to-gray-800 rounded-xl p-4 border border-purple-800/50">
-              <p className="text-[10px] uppercase tracking-widest text-purple-300/70 font-semibold mb-1.5">Avg Sale</p>
+              <p className="text-[10px] uppercase tracking-widest text-purple-300/70 font-semibold mb-1.5">{t("avgSale")}</p>
               <p className="text-3xl font-extrabold text-purple-400">—</p>
-              <p className="text-[11px] text-purple-300/50 mt-1 font-medium">Log your first sale</p>
+              <p className="text-[11px] text-purple-300/50 mt-1 font-medium">{t("logFirstSale")}</p>
             </div>
             <div className="bg-gradient-to-br from-orange-950 to-gray-800 rounded-xl p-4 border border-orange-800/50">
-              <p className="text-[10px] uppercase tracking-widest text-orange-300/70 font-semibold mb-1.5">By Payment</p>
+              <p className="text-[10px] uppercase tracking-widest text-orange-300/70 font-semibold mb-1.5">{t("byPayment")}</p>
               <p className="text-lg font-extrabold text-orange-400 mt-1">—</p>
-              <p className="text-[11px] text-orange-300/50 mt-1 font-medium">No data yet</p>
+              <p className="text-[11px] text-orange-300/50 mt-1 font-medium">{t("noDataYet")}</p>
             </div>
           </div>
         )}
@@ -511,10 +511,10 @@ export default function SalesPage() {
               setShowItemSale(false);
               fetchSales(filterFrom, filterTo);
               fetchInventory();
-              setSuccess(`Item sale: ${saleData.item_name || "item"} × ${saleData.quantity_sold} = ${(saleData.quantity_sold * saleData.unit_price).toLocaleString()} ${currency}`);
+              setSuccess(`${t("itemSale")}: ${saleData.item_name || t("item")} × ${saleData.quantity_sold} = ${(saleData.quantity_sold * saleData.unit_price).toLocaleString()} ${currency}`);
               setTimeout(() => setSuccess(""), 3000);
             } catch (err) {
-              setError(err.response?.data?.detail || "Failed to create item sale");
+              setError(err.response?.data?.detail || t("failedToCreateItemSale"));
               setTimeout(() => setError(""), 4000);
             }
           }}
@@ -546,7 +546,7 @@ export default function SalesPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search amount, notes, payment..."
+              placeholder={t("searchSalesPlaceholder")}
               className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             {(filterFrom || filterTo) && (
@@ -554,15 +554,15 @@ export default function SalesPage() {
                 onClick={() => { setFilterFrom(""); setFilterTo(""); fetchSales(); }}
                 className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 font-medium"
               >
-                Clear
+                {t("clear")}
               </button>
             )}
             <button
               onClick={() => exportToCsv("sales.csv", sales, [
-                { key: "date", label: "Date" },
-                { key: "amount", label: "Amount" },
-                { key: "payment_method", label: "Payment Method" },
-                { key: "notes", label: "Notes" },
+                { key: "date", label: t("date") },
+                { key: "amount", label: t("amount") },
+                { key: "payment_method", label: t("payment") },
+                { key: "notes", label: t("notes") },
               ])}
               className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
             >
@@ -624,7 +624,7 @@ export default function SalesPage() {
                         type="text"
                         value={editData.notes || ""}
                         onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
-                        placeholder="Notes"
+                        placeholder={t("notes")}
                         className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-32"
                       />
                     </td>
@@ -637,8 +637,8 @@ export default function SalesPage() {
                       />
                     </td>
                     <td className="px-6 py-3 text-right space-x-2">
-                      <button onClick={saveEdit} className="text-green-600 dark:text-green-400 text-sm font-medium hover:underline">Save</button>
-                      <button onClick={() => setEditId(null)} className="text-gray-400 dark:text-gray-500 text-sm hover:underline">Cancel</button>
+                      <button onClick={saveEdit} className="text-green-600 dark:text-green-400 text-sm font-medium hover:underline">{t("save")}</button>
+                      <button onClick={() => setEditId(null)} className="text-gray-400 dark:text-gray-500 text-sm hover:underline">{t("cancel")}</button>
                     </td>
                   </>
                 ) : (
@@ -650,7 +650,7 @@ export default function SalesPage() {
                           {sale.item_name} × {sale.quantity_sold} @ {parseFloat(sale.unit_price).toLocaleString()}/{currency}
                           {sale.cost_at_sale != null && (
                             <span className="ml-1.5 text-green-600 dark:text-green-400">
-                              +{Math.round((sale.unit_price - sale.cost_at_sale) * sale.quantity_sold).toLocaleString()} profit
+                              +{Math.round((sale.unit_price - sale.cost_at_sale) * sale.quantity_sold).toLocaleString()} {t("profit")}
                             </span>
                           )}
                         </div>
@@ -697,9 +697,9 @@ export default function SalesPage() {
                 &times;
               </button>
               <p className="text-sm font-semibold flex-1">
-                {selected.size} selected &middot; {total.toLocaleString()} {currency}
+                {selected.size} {t("selected")} &middot; {total.toLocaleString()} {currency}
               </p>
-              <span className="text-xs opacity-75">Avg: {Math.round(avg).toLocaleString()}</span>
+              <span className="text-xs opacity-75">{t("avg")}: {Math.round(avg).toLocaleString()}</span>
             </div>
             {Object.keys(byMethod).length > 1 && (
               <div className="flex flex-wrap gap-1.5 mb-2">
@@ -715,12 +715,12 @@ export default function SalesPage() {
                 onClick={() => {
                   const text = `${selected.size} sales | Total: ${total.toLocaleString()} ${currency} | Avg: ${Math.round(avg).toLocaleString()} ${currency}`;
                   navigator.clipboard?.writeText(text);
-                  setSuccess("Copied to clipboard!");
+                  setSuccess(t("copiedToClipboard"));
                   setTimeout(() => setSuccess(""), 2000);
                 }}
                 className="px-3 py-1.5 bg-white/20 rounded-lg text-xs font-medium hover:bg-white/30 transition"
               >
-                Copy Summary
+                {t("copySummary")}
               </button>
               <button onClick={bulkDelete} className="px-3 py-1.5 bg-red-500/80 rounded-lg text-xs font-medium hover:bg-red-500 transition">
                 {t("moveToTrash")}
@@ -770,8 +770,8 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-1">Item Sale</h3>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Pick item from inventory, set qty & price</p>
+        <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-1">{t("itemSale")}</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{t("pickItemDesc")}</p>
 
         {!selectedItem ? (
           <>
@@ -779,7 +779,7 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search inventory..."
+              placeholder={t("searchInventory")}
               className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white mb-3"
               autoFocus
             />
@@ -795,7 +795,7 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
                 >
                   <div>
                     <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{item.name}</p>
-                    <p className="text-xs text-gray-400">{item.category} · Cost: {parseFloat(item.cost_per_unit)} {currency}</p>
+                    <p className="text-xs text-gray-400">{item.category} · {t("cost")}: {parseFloat(item.cost_per_unit)} {currency}</p>
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-semibold text-gray-600 dark:text-gray-300">{parseFloat(item.quantity)} {item.unit}</p>
@@ -803,7 +803,7 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
                 </button>
               ))}
               {filtered.length === 0 && (
-                <p className="text-center text-gray-400 py-4 text-sm">No items with stock found</p>
+                <p className="text-center text-gray-400 py-4 text-sm">{t("noItemsWithStock")}</p>
               )}
             </div>
           </>
@@ -814,16 +814,16 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
                 <div>
                   <p className="font-semibold text-gray-800 dark:text-white">{selectedItem.name}</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Cost: {cost} {currency}/{selectedItem.unit} · Stock: {available} {selectedItem.unit}
+                    {t("cost")}: {cost} {currency}/{selectedItem.unit} · {t("stock")}: {available} {selectedItem.unit}
                   </p>
                 </div>
-                <button onClick={() => { setSelectedItem(null); setQty(""); setPrice(""); }} className="text-xs text-blue-600 hover:underline">Change</button>
+                <button onClick={() => { setSelectedItem(null); setQty(""); setPrice(""); }} className="text-xs text-blue-600 hover:underline">{t("change")}</button>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3 mb-3">
               <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Quantity ({selectedItem.unit})</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">{t("quantity")} ({selectedItem.unit})</label>
                 <input
                   type="number"
                   value={qty}
@@ -834,11 +834,11 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
                   autoFocus
                 />
                 {qtyNum > available && (
-                  <p className="text-xs text-red-500 mt-1">Only {available} {selectedItem.unit} available</p>
+                  <p className="text-xs text-red-500 mt-1">{available} {selectedItem.unit}</p>
                 )}
               </div>
               <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Sell Price ({currency}/{selectedItem.unit})</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">{t("sellPrice")} ({currency}/{selectedItem.unit})</label>
                 <input
                   type="number"
                   value={price}
@@ -870,22 +870,22 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
             {qtyNum > 0 && priceNum > 0 && (
               <div className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg mb-4 space-y-1">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Total</span>
+                  <span className="text-gray-500">{t("total")}</span>
                   <span className="font-bold text-gray-800 dark:text-white">{total.toLocaleString()} {currency}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Cost</span>
+                  <span className="text-gray-500">{t("cost")}</span>
                   <span className="text-gray-600 dark:text-gray-300">{(qtyNum * cost).toLocaleString()} {currency}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Profit</span>
+                  <span className="text-gray-500">{t("profit")}</span>
                   <span className={`font-bold ${profit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
                     {profit >= 0 ? "+" : ""}{profit.toLocaleString()} {currency}
                   </span>
                 </div>
                 {cost > 0 && (
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Margin</span>
+                    <span className="text-gray-500">{t("margin")}</span>
                     <span className="text-green-600 dark:text-green-400">{Math.round(((priceNum - cost) / cost) * 100)}%</span>
                   </div>
                 )}
@@ -897,14 +897,14 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
                 onClick={onClose}
                 className="flex-1 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
               >
-                Cancel
+                {t("cancel")}
               </button>
               <button
                 onClick={handleSubmit}
                 disabled={!qtyNum || !priceNum || qtyNum > available}
                 className="flex-1 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition disabled:opacity-40"
               >
-                Sell {total > 0 ? `(${total.toLocaleString()} ${currency})` : ""}
+                {t("sell")} {total > 0 ? `(${total.toLocaleString()} ${currency})` : ""}
               </button>
             </div>
           </>
@@ -930,7 +930,7 @@ function CsvUpload({ onDone }) {
       setResult(res.data);
       onDone();
     } catch (err) {
-      setResult({ imported: 0, errors: [err.response?.data?.detail || "Upload failed"] });
+      setResult({ imported: 0, errors: [err.response?.data?.detail || t("uploadFailed")] });
     }
     setUploading(false);
     e.target.value = "";

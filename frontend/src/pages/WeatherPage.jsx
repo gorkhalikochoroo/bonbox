@@ -64,7 +64,7 @@ export default function WeatherPage() {
     if (forecastRes.status === "fulfilled") {
       setForecast(forecastRes.value.data);
     } else {
-      setError("Weather forecast temporarily unavailable — try Refresh");
+      setError(t("weatherForecastUnavailable"));
     }
 
     if (insightsRes.status === "fulfilled") setInsights(insightsRes.value.data.insights || []);
@@ -84,17 +84,17 @@ export default function WeatherPage() {
       setHasLocation(true);
       await checkAndFetch();
     } catch (e) {
-      setError("Could not save location");
+      setError(t("couldNotSaveLocation"));
     }
     setLocationLoading(false);
   };
 
   const useMyLocation = () => {
-    if (!navigator.geolocation) { setError("Geolocation not supported"); return; }
+    if (!navigator.geolocation) { setError(t("geolocationNotSupported")); return; }
     setLocationLoading(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => saveLocation(pos.coords.latitude, pos.coords.longitude),
-      () => { setError("Location access denied. Try entering your city."); setLocationLoading(false); }
+      () => { setError(t("locationAccessDenied")); setLocationLoading(false); }
     );
   };
 
@@ -109,12 +109,12 @@ export default function WeatherPage() {
         notes: sickForm.notes || null,
       });
       setSickForm({ staff_name: "", date: new Date().toISOString().split("T")[0], weather_condition: "", notes: "" });
-      setSickSuccess("Sick call logged");
+      setSickSuccess(t("sickCallLogged"));
       setTimeout(() => setSickSuccess(""), 2000);
       const [res, statsRes] = await Promise.all([api.get("/weather/sick-calls"), api.get("/weather/sick-calls/stats")]);
       setSickCalls(res.data);
       setSickStats(statsRes.data);
-    } catch { setError("Could not log sick call"); }
+    } catch { setError(t("couldNotLogSickCall")); }
   };
 
   // ─── LOADING ───
@@ -123,7 +123,7 @@ export default function WeatherPage() {
       <div className="p-4 md:p-8 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <div className="text-4xl mb-3 animate-pulse">🌤️</div>
-          <p className="text-gray-500 dark:text-gray-400">Loading weather insights...</p>
+          <p className="text-gray-500 dark:text-gray-400">{t("loadingWeather")}</p>
         </div>
       </div>
     );
@@ -135,9 +135,9 @@ export default function WeatherPage() {
       <div className="p-4 md:p-8 max-w-lg mx-auto">
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-lg text-center">
           <div className="text-6xl mb-4">🌦️</div>
-          <h1 className="text-2xl font-bold text-gray-800 dark:text-white mb-2">Weather Smart</h1>
+          <h1 className="text-2xl font-bold text-gray-800 dark:text-white mb-2">{t("weatherSmart")}</h1>
           <p className="text-gray-500 dark:text-gray-400 mb-6">
-            Set your business location to get weather-powered insights — know when rain will slow business, plan staff smarter, spot seasonal patterns.
+            {t("weatherLocationDesc")}
           </p>
           {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
           <button
@@ -145,10 +145,10 @@ export default function WeatherPage() {
             disabled={locationLoading}
             className="w-full bg-green-600 text-white py-3 rounded-xl hover:bg-green-700 transition font-semibold mb-3 disabled:opacity-50"
           >
-            {locationLoading ? "Detecting..." : "📍 Use My Current Location"}
+            {locationLoading ? t("detecting") : t("useMyLocation")}
           </button>
           <p className="text-xs text-gray-400 dark:text-gray-500">
-            We only use your location for weather data. It's stored securely and never shared.
+            {t("weatherLocationPrivacy")}
           </p>
         </div>
       </div>
@@ -184,8 +184,8 @@ export default function WeatherPage() {
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">🌦️ Weather Smart</h1>
-        <button onClick={fetchAll} className="text-sm text-green-600 dark:text-green-400 hover:underline">Refresh</button>
+        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("weatherSmart")}</h1>
+        <button onClick={fetchAll} className="text-sm text-green-600 dark:text-green-400 hover:underline">{t("refresh")}</button>
       </div>
 
       {/* ─── TODAY'S WEATHER ─── */}
@@ -193,13 +193,13 @@ export default function WeatherPage() {
         <div className="bg-gradient-to-r from-slate-800 to-slate-900 rounded-2xl p-6 text-white">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-300">Right Now</p>
+              <p className="text-sm text-gray-300">{t("rightNow")}</p>
               <div className="flex items-center gap-3 mt-1">
                 <span className="text-5xl">{WEATHER_ICONS[current?.condition || todayForecast?.condition] || "🌡️"}</span>
                 <div>
                   <p className="text-3xl font-bold">{current ? formatTemp(current.temperature) : formatTemp(todayForecast?.temp_max)}</p>
                   {current?.feels_like != null && (
-                    <p className="text-sm text-gray-400">Feels like {formatTemp(current.feels_like)}</p>
+                    <p className="text-sm text-gray-400">{t("feelsLike")} {formatTemp(current.feels_like)}</p>
                   )}
                   <p className="text-gray-400 capitalize">{current?.condition || todayForecast?.condition}</p>
                 </div>
@@ -208,15 +208,15 @@ export default function WeatherPage() {
             <div className="text-right space-y-1">
               {current?.humidity != null && (
                 <>
-                  <p className="text-sm text-gray-400">Humidity</p>
+                  <p className="text-sm text-gray-400">{t("humidity")}</p>
                   <p className="text-lg font-semibold">{current.humidity}%</p>
                 </>
               )}
-              <p className="text-sm text-gray-400">Wind</p>
+              <p className="text-sm text-gray-400">{t("wind")}</p>
               <p className="text-lg">{(current?.wind_speed || todayForecast?.wind_speed)?.toFixed(0) || 0} km/h</p>
               {todayForecast && (
                 <>
-                  <p className="text-sm text-gray-400">High / Low</p>
+                  <p className="text-sm text-gray-400">{t("highLow")}</p>
                   <p className="text-sm">{formatTemp(todayForecast.temp_max)} / {formatTemp(todayForecast.temp_min)}</p>
                 </>
               )}
@@ -228,13 +228,13 @@ export default function WeatherPage() {
       {/* ─── 7-DAY FORECAST ─── */}
       {days.length > 1 && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-4">📅 7-Day Outlook</h2>
+          <h2 className="font-bold text-gray-800 dark:text-white mb-4">{t("sevenDayOutlook")}</h2>
           <div className="grid grid-cols-7 gap-2 text-center">
             {days.slice(0, 7).map((d, i) => {
               const dayName = new Date(d.date + "T12:00:00").toLocaleDateString("en", { weekday: "short" });
               return (
                 <div key={i} className="py-3 rounded-xl bg-gray-50 dark:bg-gray-700/50">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{i === 0 ? "Today" : dayName}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{i === 0 ? t("today") : dayName}</p>
                   <p className="text-2xl my-1">{WEATHER_ICONS[d.condition] || "🌡️"}</p>
                   <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">{formatTemp(d.temp_max)}</p>
                   <p className="text-xs text-gray-400">{formatTemp(d.temp_min)}</p>
@@ -251,7 +251,7 @@ export default function WeatherPage() {
       {/* ─── SMART INSIGHTS ─── */}
       {insights.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-4">💡 Smart Insights</h2>
+          <h2 className="font-bold text-gray-800 dark:text-white mb-4">{t("smartInsights")}</h2>
           <div className="space-y-3">
             {insights.map((ins, i) => (
               <div key={i} className={`p-4 rounded-xl border-l-4 ${
@@ -271,8 +271,8 @@ export default function WeatherPage() {
       {/* ─── WEATHER IMPACT PROFILE ─── */}
       {conditions.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-1">📊 Your Weather Impact Profile</h2>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">How weather affects your revenue based on your sales history</p>
+          <h2 className="font-bold text-gray-800 dark:text-white mb-1">{t("weatherImpactProfile")}</h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">{t("weatherImpactDesc")}</p>
           <div className="space-y-3">
             {conditions.map((c, i) => {
               const pct = Math.round((c.multiplier - 1) * 100);
@@ -292,7 +292,7 @@ export default function WeatherPage() {
                       <div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${barWidth}%` }} />
                     </div>
                     <p className="text-xs text-gray-400 mt-0.5">
-                      Avg: {Math.round(c.average_revenue)} {currency} / day  •  {c.sample_days} days analyzed
+                      {t("avg")}: {Math.round(c.average_revenue)} {currency} / {t("day")}  •  {c.sample_days} {t("daysAnalyzed")}
                     </p>
                   </div>
                 </div>
@@ -300,7 +300,7 @@ export default function WeatherPage() {
             })}
             {avgDaily > 0 && (
               <p className="text-xs text-gray-500 dark:text-gray-400 pt-2 border-t border-gray-100 dark:border-gray-700">
-                Overall average: {Math.round(avgDaily)} {currency} / day
+                {t("overallAverage")}: {Math.round(avgDaily)} {currency} / {t("day")}
               </p>
             )}
           </div>
@@ -310,7 +310,7 @@ export default function WeatherPage() {
       {/* ─── SEASONAL PATTERNS ─── */}
       {hasSeasonalData && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-4">📈 Seasonal Patterns</h2>
+          <h2 className="font-bold text-gray-800 dark:text-white mb-4">{t("seasonalPatterns")}</h2>
           <div className="grid grid-cols-6 md:grid-cols-12 gap-1 text-center">
             {months.map((m, i) => {
               const maxRev = Math.max(...months.map(x => x.average));
@@ -332,22 +332,22 @@ export default function WeatherPage() {
 
       {/* ─── SICK CALL TRACKER ─── */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
-        <h2 className="font-bold text-gray-800 dark:text-white mb-4">🤒 Sick Call Tracker</h2>
+        <h2 className="font-bold text-gray-800 dark:text-white mb-4">{t("sickCallTracker")}</h2>
 
         {/* Stats */}
         {sickStats && (
           <div className="grid grid-cols-3 gap-3 mb-4">
             <div className="bg-red-50 dark:bg-red-900/20 p-3 rounded-xl text-center">
               <p className="text-2xl font-bold text-red-600">{sickStats.this_month}</p>
-              <p className="text-xs text-gray-500">This Month</p>
+              <p className="text-xs text-gray-500">{t("thisMonth")}</p>
             </div>
             <div className="bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded-xl text-center">
               <p className="text-2xl font-bold text-yellow-600">{sickStats.last_month}</p>
-              <p className="text-xs text-gray-500">Last Month</p>
+              <p className="text-xs text-gray-500">{t("lastMonth")}</p>
             </div>
             <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-xl text-center">
               <p className="text-2xl font-bold text-blue-600">{sickStats.weather_related || 0}</p>
-              <p className="text-xs text-gray-500">Weather Days</p>
+              <p className="text-xs text-gray-500">{t("weatherDays")}</p>
             </div>
           </div>
         )}
@@ -355,7 +355,7 @@ export default function WeatherPage() {
         {/* Add form */}
         <form onSubmit={logSickCall} className="flex flex-wrap gap-2 mb-4">
           <input
-            placeholder="Staff name"
+            placeholder={t("staffName")}
             value={sickForm.staff_name}
             onChange={e => setSickForm(f => ({ ...f, staff_name: e.target.value }))}
             className="flex-1 min-w-[120px] px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white"
@@ -371,15 +371,15 @@ export default function WeatherPage() {
             onChange={e => setSickForm(f => ({ ...f, weather_condition: e.target.value }))}
             className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white"
           >
-            <option value="">Reason...</option>
-            <option value="rain">Rain/Weather</option>
-            <option value="snow">Snow</option>
-            <option value="storm">Storm</option>
-            <option value="clear">Sick (good weather)</option>
-            <option value="cloudy">Sick (bad weather)</option>
+            <option value="">{t("reason")}</option>
+            <option value="rain">{t("rainWeather")}</option>
+            <option value="snow">{t("snowOption")}</option>
+            <option value="storm">{t("stormOption")}</option>
+            <option value="clear">{t("sickGoodWeather")}</option>
+            <option value="cloudy">{t("sickBadWeather")}</option>
           </select>
           <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition">
-            Log
+            {t("log")}
           </button>
         </form>
         {sickSuccess && <p className="text-green-500 text-sm mb-2">{sickSuccess}</p>}
@@ -400,7 +400,7 @@ export default function WeatherPage() {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-gray-400 text-center py-4">No sick calls logged yet</p>
+          <p className="text-sm text-gray-400 text-center py-4">{t("noSickCalls")}</p>
         )}
       </div>
 

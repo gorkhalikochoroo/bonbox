@@ -53,12 +53,12 @@ export default function LoanTrackerPage() {
       setEditPerson(null);
       fetchPersons();
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed");
+      setError(err.response?.data?.detail || t("failedToSave"));
     }
   };
 
   const handleDeletePerson = async (id) => {
-    if (!confirm("Delete this person?")) return;
+    if (!confirm(t("deletePersonConfirm"))) return;
     await api.delete(`/loans/persons/${id}`);
     if (selected?.id === id) { setSelected(null); setTransactions([]); }
     fetchPersons();
@@ -86,12 +86,12 @@ export default function LoanTrackerPage() {
       fetchTxns(selected.id);
       fetchPersons();
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed");
+      setError(err.response?.data?.detail || t("failedToSave"));
     }
   };
 
   const handleDeleteTxn = async (id) => {
-    if (!confirm("Delete?")) return;
+    if (!confirm(t("deleteConfirm"))) return;
     await api.delete(`/loans/transactions/${id}`);
     fetchTxns(selected.id);
     fetchPersons();
@@ -158,9 +158,9 @@ export default function LoanTrackerPage() {
 
           {showAdd && (
             <form onSubmit={handleAddPerson} className="p-4 border-b border-gray-100 dark:border-gray-700 space-y-2 bg-purple-50 dark:bg-purple-900/20">
-              <input type="text" placeholder="Name *" value={personForm.name} onChange={(e) => setPersonForm({ ...personForm, name: e.target.value })}
+              <input type="text" placeholder={`${t("name")} *`} value={personForm.name} onChange={(e) => setPersonForm({ ...personForm, name: e.target.value })}
                 className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" required />
-              <input type="text" placeholder="Phone" value={personForm.phone} onChange={(e) => setPersonForm({ ...personForm, phone: e.target.value })}
+              <input type="text" placeholder={t("phone")} value={personForm.phone} onChange={(e) => setPersonForm({ ...personForm, phone: e.target.value })}
                 className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
               <input type="text" placeholder={t("notes")} value={personForm.notes} onChange={(e) => setPersonForm({ ...personForm, notes: e.target.value })}
                 className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
@@ -224,7 +224,7 @@ export default function LoanTrackerPage() {
                       <p className="text-xs text-blue-600">{t("owesMe")}: {fmt(selected.lent_balance)} {currency}</p>
                     )}
                     <p className={`text-xl font-bold ${selected.net_balance >= 0 ? "text-green-600" : "text-red-600"}`}>
-                      Net: {selected.net_balance >= 0 ? "+" : ""}{fmt(selected.net_balance)} {currency}
+                      {t("netBalance")}: {selected.net_balance >= 0 ? "+" : ""}{fmt(selected.net_balance)} {currency}
                     </p>
                   </div>
                 </div>

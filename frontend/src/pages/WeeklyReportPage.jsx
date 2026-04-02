@@ -28,7 +28,7 @@ export default function WeeklyReportPage() {
         <div className="text-center mb-6">
           <p className="text-sm text-gray-400 dark:text-gray-500 uppercase tracking-wide">{t("weeklySalesReport")}</p>
           <h1 className="text-xl font-bold text-gray-800 dark:text-white mt-1">
-            {report.business_name || "My Business"}
+            {report.business_name || t("myBusiness")}
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             {report.week_start} &mdash; {report.week_end}

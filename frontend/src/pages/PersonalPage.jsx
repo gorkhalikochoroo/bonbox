@@ -68,10 +68,10 @@ export default function PersonalPage() {
         await api.post("/expenses/categories", { name });
       }
       fetchData();
-      setSuccess("Personal categories created!");
+      setSuccess(t("personalCategoriesCreated"));
       setTimeout(() => setSuccess(""), 2500);
     } catch {
-      setError("Failed to create categories");
+      setError(t("failedToCreateCategories"));
     }
   };
 
@@ -219,11 +219,11 @@ export default function PersonalPage() {
       setNotes("");
       setCatId("");
       setCustomCat("");
-      setSuccess(`${value.toLocaleString()} ${currency} logged!`);
+      setSuccess(`${value.toLocaleString()} ${currency} ${t("logged")}`);
       fetchData();
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to add entry");
+      setError(err.response?.data?.detail || t("failedToAddEntry"));
     }
   };
 
@@ -284,9 +284,9 @@ export default function PersonalPage() {
           {balance.toLocaleString()} <span className="text-lg font-medium text-gray-400">{currency}</span>
         </p>
         <div className="flex items-center justify-center gap-4 mt-3 text-sm">
-          <span className="text-green-600 dark:text-green-400">+{totalIncome.toLocaleString()} in</span>
+          <span className="text-green-600 dark:text-green-400">+{totalIncome.toLocaleString()} {t("in")}</span>
           <span className="text-gray-300 dark:text-gray-600">|</span>
-          <span className="text-red-500 dark:text-red-400">-{totalSpent.toLocaleString()} out</span>
+          <span className="text-red-500 dark:text-red-400">-{totalSpent.toLocaleString()} {t("out")}</span>
         </div>
         {/* Progress bar */}
         {totalIncome > 0 && (
@@ -369,7 +369,7 @@ export default function PersonalPage() {
               style={{ width: `${Math.min(totalBudgetUsed, 100)}%` }} />
           </div>
           {totalBudgetUsed > 100 && (
-            <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium">You've exceeded your monthly budget by {(totalSpent - totalBudget).toLocaleString()} {currency}</p>
+            <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium">{t("youveExceededMonthlyBudgetBy")} {(totalSpent - totalBudget).toLocaleString()} {currency}</p>
           )}
         </div>
       )}
@@ -396,7 +396,7 @@ export default function PersonalPage() {
               placeholder="e.g. 15000" className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-40" />
             <span className="text-sm text-gray-400">{currency}</span>
           </div>
-          <p className="text-xs text-gray-400">Set limits per spending category (leave empty for no limit):</p>
+          <p className="text-xs text-gray-400">{t("setLimitsPerCategory")}</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             {spendingCats.map((cat) => (
               <div key={cat} className="flex items-center gap-2">
@@ -594,12 +594,12 @@ export default function PersonalPage() {
         </div>
 
         <div className="flex items-center gap-2 mb-3">
-          <span className="text-sm text-gray-400">or</span>
+          <span className="text-sm text-gray-400">{t("or")}</span>
           <input
             type="text"
             value={customCat}
             onChange={(e) => { setCustomCat(e.target.value); if (e.target.value) setCatId(""); }}
-            placeholder="Type custom category..."
+            placeholder={t("typeCustomCategory")}
             className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white"
           />
         </div>
@@ -608,7 +608,7 @@ export default function PersonalPage() {
           type="text"
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
-          placeholder="Description (optional)"
+          placeholder={t("descriptionOptional")}
           className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white"
         />
 
@@ -629,7 +629,7 @@ export default function PersonalPage() {
             type="number"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            placeholder="Custom amount"
+            placeholder={t("customAmount")}
             className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white"
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
@@ -638,7 +638,7 @@ export default function PersonalPage() {
             disabled={!amount || (!catId && !customCat.trim())}
             className="px-5 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-semibold text-sm disabled:opacity-40"
           >
-            Add
+            {t("add")}
           </button>
         </div>
 
@@ -660,11 +660,11 @@ export default function PersonalPage() {
         </div>
 
         <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)}
-          placeholder={LEND_BORROW_CATS.includes(getCatName(catId)) ? "Who? (e.g., Ram, John)" : "Notes (optional)"}
+          placeholder={LEND_BORROW_CATS.includes(getCatName(catId)) ? t("whoEgName") : t("notesOptional")}
           className="mt-3 w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
         {LEND_BORROW_CATS.includes(getCatName(catId)) && (
           <p className="mt-1 text-xs text-purple-500 dark:text-purple-400">
-            Tip: Add the person's name so you can track who owes what
+            {t("tipAddPersonName")}
           </p>
         )}
       </div>
@@ -673,13 +673,13 @@ export default function PersonalPage() {
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">History</h2>
+            <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">{t("history")}</h2>
             <div className="flex gap-1 ml-2">
-              {["all", "income", "spent"].map((f) => (
-                <button key={f} onClick={() => setTab(f)}
+              {[{ key: "all", label: "all" }, { key: "income", label: "income" }, { key: "spent", label: "expense" }].map(({ key, label }) => (
+                <button key={key} onClick={() => setTab(key)}
                   className={`px-2.5 py-1 rounded text-xs font-medium transition ${
-                    tab === f ? "bg-purple-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
-                  }`}>{f.charAt(0).toUpperCase() + f.slice(1)}</button>
+                    tab === key ? "bg-purple-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
+                  }`}>{t(label)}</button>
               ))}
             </div>
           </div>
@@ -694,13 +694,13 @@ export default function PersonalPage() {
           <table className="w-full text-left min-w-[500px]">
             <thead className="bg-gray-50 dark:bg-gray-700/50">
               <tr>
-                <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Date</th>
-                <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Category</th>
-                <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Description</th>
-                <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Amount</th>
-                <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Payment</th>
-                <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Notes</th>
-                <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">Action</th>
+                <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("date")}</th>
+                <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("category")}</th>
+                <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("description")}</th>
+                <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("amount")}</th>
+                <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("payment")}</th>
+                <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("notes")}</th>
+                <th className="px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">{t("actions")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -724,13 +724,13 @@ export default function PersonalPage() {
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 capitalize">{e.payment_method?.replace("_", " ") || "-"}</td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{e.notes || "-"}</td>
                     <td className="px-6 py-4 text-right">
-                      <button onClick={() => deleteEntry(e.id)} className="text-red-400 text-sm hover:underline">Delete</button>
+                      <button onClick={() => deleteEntry(e.id)} className="text-red-400 text-sm hover:underline">{t("delete")}</button>
                     </td>
                   </tr>
                 );
               })}
               {filteredEntries.length === 0 && (
-                <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">No entries yet</td></tr>
+                <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noEntriesYet")}</td></tr>
               )}
             </tbody>
           </table>

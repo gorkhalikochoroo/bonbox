@@ -9,6 +9,7 @@ import { displayCurrency } from "../utils/currency";
 const IN_CATEGORIES = ["Sales", "Tips", "Loan", "Other"];
 const OUT_CATEGORIES = ["Purchase", "Wages", "Supplies", "Rent", "Other"];
 const QUICK_AMOUNTS = [100, 500, 1000, 2500, 5000];
+const CATEGORY_KEYS = { Sales: "catSales", Tips: "catTips", Loan: "catLoan", Other: "catOther", Purchase: "catPurchase", Wages: "catWages", Supplies: "catSupplies", Rent: "catRent" };
 
 export default function CashBookPage() {
   const { user } = useAuth();
@@ -61,7 +62,7 @@ export default function CashBookPage() {
       fetchData(filterFrom, filterTo);
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to add transaction");
+      setError(err.response?.data?.detail || t("failedToAddTransaction"));
     }
   };
 
@@ -84,7 +85,7 @@ export default function CashBookPage() {
       setSuccess(t("updated"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to update");
+      setError(err.response?.data?.detail || t("failedToUpdate"));
     }
   };
 
@@ -96,7 +97,7 @@ export default function CashBookPage() {
       setSuccess(t("movedToDeleted"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to delete");
+      setError(err.response?.data?.detail || t("failedToDelete"));
     }
   };
 
@@ -173,7 +174,7 @@ export default function CashBookPage() {
                   : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50"
               }`}
             >
-              {c}
+              {t(CATEGORY_KEYS[c]) || c}
             </button>
           ))}
         </div>
@@ -277,11 +278,11 @@ export default function CashBookPage() {
             )}
             <button
               onClick={() => exportToCsv("cashbook.csv", transactions, [
-                { key: "date", label: "Date" },
-                { key: "type", label: "Type" },
-                { key: "description", label: "Description" },
-                { key: "category", label: "Category" },
-                { key: "amount", label: "Amount" },
+                { key: "date", label: t("date") },
+                { key: "type", label: t("type") },
+                { key: "description", label: t("description") },
+                { key: "category", label: t("category") },
+                { key: "amount", label: t("amount") },
               ])}
               className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
             >
@@ -341,7 +342,7 @@ export default function CashBookPage() {
                       <td className={`px-4 py-3 text-sm ${txn.reference_id ? "text-gray-400 dark:text-gray-500" : "text-gray-700 dark:text-gray-300"}`}>{txn.date}</td>
                       <td className={`px-4 py-3 text-sm ${txn.reference_id ? "text-gray-400 dark:text-gray-500" : "text-gray-700 dark:text-gray-300"}`}>
                         {txn.description}
-                        {txn.reference_id && <span className="ml-1.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded">(auto)</span>}
+                        {txn.reference_id && <span className="ml-1.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded">({t("autoTag")})</span>}
                       </td>
                       <td className={`px-4 py-3 text-sm ${txn.reference_id ? "text-gray-400 dark:text-gray-500" : "text-gray-500 dark:text-gray-400"}`}>{txn.category || "-"}</td>
                       <td className={`px-4 py-3 text-sm text-right font-semibold ${txn.reference_id ? "text-green-400 dark:text-green-600" : "text-green-600 dark:text-green-400"}`}>

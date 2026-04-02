@@ -86,7 +86,7 @@ export default function QuickAdd() {
       showSuccess(t("saleLogged"));
       window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
-      showError(err.response?.data?.detail || "Failed to log sale");
+      showError(err.response?.data?.detail || t("failedToLogSale"));
     }
   };
 
@@ -107,7 +107,7 @@ export default function QuickAdd() {
       showSuccess(t("expenseAdded"));
       window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
-      showError(err.response?.data?.detail || "Failed to add expense");
+      showError(err.response?.data?.detail || t("failedToAddExpense"));
     }
   };
 
@@ -119,7 +119,7 @@ export default function QuickAdd() {
         category_id: pCatId,
         date: pDate,
         amount: parseFloat(pAmount),
-        description: cat?.name || "Entry",
+        description: cat?.name || t("entry"),
         is_recurring: false,
         payment_method: "cash",
         notes: pNotes || null,
@@ -132,7 +132,7 @@ export default function QuickAdd() {
       showSuccess(INCOME_CATS.includes(cat?.name) ? t("incomeLogged") : t("expenseLogged"));
       window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
-      showError(err.response?.data?.detail || "Failed to add entry");
+      showError(err.response?.data?.detail || t("failedToAddEntry"));
     }
   };
 
@@ -148,7 +148,7 @@ export default function QuickAdd() {
         +
       </button>
 
-      <Modal open={open} onClose={() => setOpen(false)} title={mode === "personal" ? "Personal Entry" : t("quickEntry")}>
+      <Modal open={open} onClose={() => setOpen(false)} title={mode === "personal" ? t("personalEntry") : t("quickEntry")}>
         {success && (
           <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-4 py-2.5 rounded-lg mb-4 text-sm font-medium text-center">
             {success}
@@ -402,7 +402,7 @@ export default function QuickAdd() {
             />
 
             <div className="flex items-center gap-3">
-              <label className="text-xs text-gray-500 dark:text-gray-400">Date:</label>
+              <label className="text-xs text-gray-500 dark:text-gray-400">{t("date")}:</label>
               <input
                 type="date"
                 value={pDate}
@@ -483,7 +483,7 @@ export default function QuickAdd() {
             />
 
             <div className="flex items-center gap-3">
-              <label className="text-xs text-gray-500 dark:text-gray-400">Date:</label>
+              <label className="text-xs text-gray-500 dark:text-gray-400">{t("date")}:</label>
               <input
                 type="date"
                 value={pDate}

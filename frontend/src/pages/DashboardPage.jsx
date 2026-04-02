@@ -109,12 +109,12 @@ export default function DashboardPage() {
         amount,
         date: new Date().toISOString().split("T")[0],
         payment_method: "cash",
-        description: "Quick sale",
+        description: t("quickSaleDesc"),
       });
-      showToast(`Sale logged: ${amount.toLocaleString()} ${currency}`, "success");
+      showToast(`${t("saleLogged")} ${amount.toLocaleString()} ${currency}`, "success");
       fetchAll();
     } catch {
-      showToast("Failed to log sale", "error");
+      showToast(t("failedToLogSale"), "error");
     }
   };
 
@@ -368,7 +368,7 @@ export default function DashboardPage() {
           currency={currency}
           change={period === "today" ? summary.today_revenue_change : undefined}
           changeLabel={period === "today" ? t("vsYesterday") : undefined}
-          subtitle={periodStats ? `${periodStats.salesCount} sales` : undefined}
+          subtitle={periodStats ? `${periodStats.salesCount} ${t("sales").toLowerCase()}` : undefined}
           expanded={expandedKpi === "revenue"}
           onToggle={() => setExpandedKpi(expandedKpi === "revenue" ? null : "revenue")}
         />
@@ -415,9 +415,9 @@ export default function DashboardPage() {
         return (
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-green-200 dark:border-green-800 p-4 sm:p-5 shadow-sm animate-in">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Revenue Breakdown</h3>
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("revenueBreakdown")}</h3>
               <div className="flex items-center gap-2">
-                <button onClick={() => navigate("/sales")} className="text-xs text-blue-500 hover:underline font-medium">View all sales →</button>
+                <button onClick={() => navigate("/sales")} className="text-xs text-blue-500 hover:underline font-medium">{t("viewAllSales")}</button>
                 <button onClick={() => setExpandedKpi(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
               </div>
             </div>
@@ -439,7 +439,7 @@ export default function DashboardPage() {
                   </div>
                   <span className="text-xs text-gray-400">{s.notes || "—"}</span>
                 </div>
-              )) : <p className="text-sm text-gray-400 text-center py-3">No sales today yet</p>}
+              )) : <p className="text-sm text-gray-400 text-center py-3">{t("noSalesTodayYet")}</p>}
             </div>
           </div>
         );
@@ -452,28 +452,28 @@ export default function DashboardPage() {
         return (
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-blue-200 dark:border-blue-800 p-4 sm:p-5 shadow-sm animate-in">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Profit Breakdown</h3>
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("profitBreakdown")}</h3>
               <div className="flex items-center gap-2">
-                <button onClick={() => navigate("/reports")} className="text-xs text-blue-500 hover:underline font-medium">Full reports →</button>
+                <button onClick={() => navigate("/reports")} className="text-xs text-blue-500 hover:underline font-medium">{t("fullReports")}</button>
                 <button onClick={() => setExpandedKpi(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-3">
               <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 text-center">
-                <p className="text-[10px] uppercase tracking-wide text-green-600 dark:text-green-400 font-semibold">Revenue</p>
+                <p className="text-[10px] uppercase tracking-wide text-green-600 dark:text-green-400 font-semibold">{t("revenue")}</p>
                 <p className="text-lg font-extrabold text-green-600 dark:text-green-400">{rev.toLocaleString()}</p>
               </div>
               <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-3 text-center">
-                <p className="text-[10px] uppercase tracking-wide text-red-500 dark:text-red-400 font-semibold">Expenses</p>
+                <p className="text-[10px] uppercase tracking-wide text-red-500 dark:text-red-400 font-semibold">{t("expenses")}</p>
                 <p className="text-lg font-extrabold text-red-500 dark:text-red-400">−{exp.toLocaleString()}</p>
               </div>
               <div className={`rounded-lg p-3 text-center ${profit >= 0 ? "bg-emerald-50 dark:bg-emerald-900/20" : "bg-orange-50 dark:bg-orange-900/20"}`}>
-                <p className={`text-[10px] uppercase tracking-wide font-semibold ${profit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-orange-600 dark:text-orange-400"}`}>Profit</p>
+                <p className={`text-[10px] uppercase tracking-wide font-semibold ${profit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-orange-600 dark:text-orange-400"}`}>{t("profit")}</p>
                 <p className={`text-lg font-extrabold ${profit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-orange-600 dark:text-orange-400"}`}>{profit >= 0 ? "+" : ""}{profit.toLocaleString()}</p>
               </div>
             </div>
             <div className="mt-3 bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3 flex items-center justify-between">
-              <span className="text-xs text-gray-500 dark:text-gray-400">Profit Margin</span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">{t("profitMargin")}</span>
               <span className={`text-sm font-bold ${(periodStats?.margin || summary.profit_margin) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
                 {periodStats ? periodStats.margin : summary.profit_margin}%
               </span>
@@ -488,9 +488,9 @@ export default function DashboardPage() {
         return (
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-red-200 dark:border-red-800 p-4 sm:p-5 shadow-sm animate-in">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Expense Breakdown</h3>
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("expenseBreakdown")}</h3>
               <div className="flex items-center gap-2">
-                <button onClick={() => navigate("/expenses")} className="text-xs text-blue-500 hover:underline font-medium">View all expenses →</button>
+                <button onClick={() => navigate("/expenses")} className="text-xs text-blue-500 hover:underline font-medium">{t("viewAllExpenses")}</button>
                 <button onClick={() => setExpandedKpi(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
               </div>
             </div>
@@ -512,7 +512,7 @@ export default function DashboardPage() {
                   </div>
                   <span className="text-xs text-gray-400 capitalize">{e.payment_method || "—"}</span>
                 </div>
-              )) : <p className="text-sm text-gray-400 text-center py-3">No expenses today</p>}
+              )) : <p className="text-sm text-gray-400 text-center py-3">{t("noExpensesToday")}</p>}
             </div>
           </div>
         );
@@ -521,23 +521,23 @@ export default function DashboardPage() {
       {expandedKpi === "alerts" && (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-yellow-200 dark:border-yellow-800 p-4 sm:p-5 shadow-sm animate-in">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">{summary.khata_receivable > 0 ? "Khata Details" : "Inventory Alerts"}</h3>
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">{summary.khata_receivable > 0 ? t("khataDetails") : t("inventoryAlerts")}</h3>
             <div className="flex items-center gap-2">
               <button onClick={() => navigate(summary.khata_receivable > 0 ? "/khata" : "/inventory")} className="text-xs text-blue-500 hover:underline font-medium">
-                {summary.khata_receivable > 0 ? "View Khata →" : "View Inventory →"}
+                {summary.khata_receivable > 0 ? t("viewKhata") : t("viewInventory")}
               </button>
               <button onClick={() => setExpandedKpi(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
             </div>
           </div>
           {summary.khata_receivable > 0 ? (
             <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3 text-center">
-              <p className="text-xs text-yellow-600 dark:text-yellow-400 font-semibold">Outstanding Credit</p>
+              <p className="text-xs text-yellow-600 dark:text-yellow-400 font-semibold">{t("outstandingCredit")}</p>
               <p className="text-2xl font-extrabold text-yellow-600 dark:text-yellow-400">{summary.khata_receivable.toLocaleString()} {currency}</p>
             </div>
           ) : (
             <div className="flex items-center gap-3 bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3">
               <span className={`text-2xl font-extrabold ${summary.inventory_alerts > 0 ? "text-red-500" : "text-green-500"}`}>{summary.inventory_alerts}</span>
-              <span className="text-sm text-gray-600 dark:text-gray-300">{summary.inventory_alerts > 0 ? "items below minimum stock level" : "All stock levels healthy"}</span>
+              <span className="text-sm text-gray-600 dark:text-gray-300">{summary.inventory_alerts > 0 ? t("itemsBelowMinimum") : t("allStockHealthy")}</span>
             </div>
           )}
         </div>
@@ -552,9 +552,9 @@ export default function DashboardPage() {
               <div className="w-8 h-8 bg-orange-100 dark:bg-orange-900/30 rounded-lg flex items-center justify-center">
                 <svg className="w-4 h-4 text-orange-600 dark:text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
               </div>
-              <h2 className="text-base font-semibold text-gray-700 dark:text-gray-200">Action Items</h2>
+              <h2 className="text-base font-semibold text-gray-700 dark:text-gray-200">{t("actionItems")}</h2>
               <span className="text-xs bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 px-2 py-0.5 rounded-full font-medium">{actionItems.length}</span>
-              <button onClick={() => navigate("/inventory")} className="ml-auto text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 font-medium hover:underline">View Inventory →</button>
+              <button onClick={() => navigate("/inventory")} className="ml-auto text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 font-medium hover:underline">{t("viewInventory")}</button>
             </div>
             <div className="space-y-2">
               {actionItems.map((item, i) => (
@@ -583,9 +583,9 @@ export default function DashboardPage() {
               <div className="w-8 h-8 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
                 <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
               </div>
-              <h2 className="text-base font-semibold text-gray-700 dark:text-gray-200">Top Sellers</h2>
-              <span className="text-xs text-gray-400">Last 30 days</span>
-              <button onClick={() => navigate("/sales")} className="ml-auto text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 font-medium hover:underline">View Sales →</button>
+              <h2 className="text-base font-semibold text-gray-700 dark:text-gray-200">{t("topSellers")}</h2>
+              <span className="text-xs text-gray-400">{t("last30Days")}</span>
+              <button onClick={() => navigate("/sales")} className="ml-auto text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 font-medium hover:underline">{t("viewSales")}</button>
             </div>
             <div className="space-y-1.5">
               {topSellers.slice(0, 5).map((item, i) => (
@@ -600,7 +600,7 @@ export default function DashboardPage() {
                     <span className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate">{item.name}</span>
                   </div>
                   <div className="flex items-center gap-4 flex-shrink-0">
-                    <span className="text-xs text-gray-400">{item.sales} sales</span>
+                    <span className="text-xs text-gray-400">{item.sales} {t("sales").toLowerCase()}</span>
                     <span className="text-sm font-bold text-green-600 dark:text-green-400">{item.revenue.toLocaleString()} {currency}</span>
                   </div>
                 </div>
@@ -617,7 +617,7 @@ export default function DashboardPage() {
             <div className="w-8 h-8 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg flex items-center justify-center">
               <svg className="w-4 h-4 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
             </div>
-            <h2 className="text-base font-semibold text-gray-700 dark:text-gray-200">Week vs Last Week</h2>
+            <h2 className="text-base font-semibold text-gray-700 dark:text-gray-200">{t("weekVsLastWeek")}</h2>
             {weekComparison.change_pct !== 0 && (
               <span className={`ml-auto text-sm font-bold px-2.5 py-0.5 rounded-full ${
                 weekComparison.change_pct > 0
@@ -630,26 +630,26 @@ export default function DashboardPage() {
           </div>
           <div className="space-y-3">
             {[
-              { label: "Revenue", thisWeek: weekComparison.this_week_revenue, lastWeek: weekComparison.last_week_revenue, color: "blue" },
-              { label: "Expenses", thisWeek: weekComparison.this_week_expenses, lastWeek: weekComparison.last_week_expenses, color: "red" },
-              { label: "Profit", thisWeek: weekComparison.this_week_profit, lastWeek: weekComparison.last_week_profit, color: "green" },
+              { label: t("revenue"), thisWeek: weekComparison.this_week_revenue, lastWeek: weekComparison.last_week_revenue, color: "blue" },
+              { label: t("expenses"), thisWeek: weekComparison.this_week_expenses, lastWeek: weekComparison.last_week_expenses, color: "red" },
+              { label: t("profit"), thisWeek: weekComparison.this_week_profit, lastWeek: weekComparison.last_week_profit, color: "green" },
             ].map((row) => {
               const rawDiff = row.lastWeek > 0 ? ((row.thisWeek - row.lastWeek) / Math.abs(row.lastWeek)) * 100 : 0;
               const diff = Math.max(-500, Math.min(500, rawDiff));
               const isUp = diff > 0;
-              const isGood = row.label === "Expenses" ? !isUp : isUp;
+              const isGood = row.label === t("expenses") ? !isUp : isUp;
               return (
                 <div key={row.label} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
                   <span className="text-sm font-medium text-gray-600 dark:text-gray-300 w-20">{row.label}</span>
                   <div className="flex items-center gap-4 flex-1 justify-end">
                     <div className="text-right">
-                      <p className="text-xs text-gray-400 dark:text-gray-500">This week</p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500">{t("thisWeekLabel")}</p>
                       <p className={`text-sm font-bold ${row.color === "blue" ? "text-blue-600 dark:text-blue-400" : row.color === "red" ? "text-red-500 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}>
                         {Math.round(row.thisWeek).toLocaleString()} {currency}
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="text-xs text-gray-400 dark:text-gray-500">Last week</p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500">{t("lastWeekLabel")}</p>
                       <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
                         {Math.round(row.lastWeek).toLocaleString()} {currency}
                       </p>
@@ -684,9 +684,9 @@ export default function DashboardPage() {
               <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
                 <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
               </div>
-              <h2 className="text-base font-semibold text-gray-700 dark:text-gray-200">Payment Methods</h2>
-              <span className="text-xs text-gray-400 dark:text-gray-500">This month</span>
-              <button onClick={() => navigate("/sales")} className="ml-auto text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 font-medium hover:underline">View Sales →</button>
+              <h2 className="text-base font-semibold text-gray-700 dark:text-gray-200">{t("paymentMethods")}</h2>
+              <span className="text-xs text-gray-400 dark:text-gray-500">{t("thisMonthLabel")}</span>
+              <button onClick={() => navigate("/sales")} className="ml-auto text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 font-medium hover:underline">{t("viewSales")}</button>
             </div>
             <div className="space-y-3">
               {paymentBreakdown
@@ -701,7 +701,7 @@ export default function DashboardPage() {
                         <div className="flex items-center gap-2">
                           <span className={`w-2.5 h-2.5 rounded-full ${cfg.color}`}></span>
                           <span className="text-sm font-medium text-gray-700 dark:text-gray-200">{label}</span>
-                          <span className="text-xs text-gray-400 dark:text-gray-500">{p.count} sales</span>
+                          <span className="text-xs text-gray-400 dark:text-gray-500">{p.count} {t("sales").toLowerCase()}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={`text-sm font-bold ${cfg.textColor}`}>{Math.round(p.amount).toLocaleString()} {currency}</span>
@@ -720,7 +720,7 @@ export default function DashboardPage() {
             </div>
             {total > 0 && (
               <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 flex justify-between">
-                <span className="text-sm text-gray-500 dark:text-gray-400">Total</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">{t("total")}</span>
                 <span className="text-sm font-bold text-gray-700 dark:text-gray-200">{Math.round(total).toLocaleString()} {currency}</span>
               </div>
             )}
@@ -747,54 +747,54 @@ export default function DashboardPage() {
               <div className="w-8 h-8 bg-blue-600/10 dark:bg-blue-500/20 rounded-lg flex items-center justify-center">
                 <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
               </div>
-              <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200">Inventory Overview</h2>
+              <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200">{t("inventoryOverview")}</h2>
             </div>
             <button
               onClick={() => navigate("/inventory")}
               className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
             >
-              View all →
+              {t("viewAll")}
             </button>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
             <div className="p-3 bg-white/70 dark:bg-gray-700/50 rounded-xl">
-              <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide">Stock Cost</p>
+              <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("stockCost")}</p>
               <p className="text-xl font-bold text-gray-800 dark:text-white mt-1">{invStats.totalCost.toLocaleString()}</p>
-              <p className="text-[10px] text-gray-400">{currency} invested</p>
+              <p className="text-[10px] text-gray-400">{currency} {t("invested")}</p>
             </div>
             <div className="p-3 bg-white/70 dark:bg-gray-700/50 rounded-xl">
-              <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide">Potential Revenue</p>
+              <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("potentialRevenue")}</p>
               <p className="text-xl font-bold text-blue-600 dark:text-blue-400 mt-1">{invStats.totalRevenue.toLocaleString()}</p>
-              <p className="text-[10px] text-gray-400">{currency} if all sold</p>
+              <p className="text-[10px] text-gray-400">{currency} {t("ifAllSold")}</p>
             </div>
             <div className="p-3 bg-white/70 dark:bg-gray-700/50 rounded-xl">
-              <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide">Potential Profit</p>
+              <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("potentialProfit")}</p>
               <p className={`text-xl font-bold mt-1 ${invStats.totalProfit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
                 {invStats.totalProfit >= 0 ? "+" : ""}{invStats.totalProfit.toLocaleString()}
               </p>
-              <p className="text-[10px] text-gray-400">{currency} margin</p>
+              <p className="text-[10px] text-gray-400">{currency} {t("margin")}</p>
             </div>
             <div className="p-3 bg-white/70 dark:bg-gray-700/50 rounded-xl">
-              <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide">Avg Margin</p>
+              <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("avgMargin")}</p>
               <p className={`text-xl font-bold mt-1 ${invStats.avgMargin >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
                 {invStats.avgMargin}%
               </p>
-              <p className="text-[10px] text-gray-400">{invStats.topMargin.length > 0 ? `${invStats.topMargin.length}+ items priced` : "no items priced"}</p>
+              <p className="text-[10px] text-gray-400">{invStats.topMargin.length > 0 ? `${invStats.topMargin.length}+ ${t("itemsPriced")}` : t("noItemsPriced")}</p>
             </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
             <div className="text-center p-2.5 bg-white/50 dark:bg-gray-700/30 rounded-lg">
-              <p className="text-[10px] text-gray-500 dark:text-gray-400">Total Items</p>
+              <p className="text-[10px] text-gray-500 dark:text-gray-400">{t("totalItems")}</p>
               <p className="text-lg font-bold text-gray-800 dark:text-white">{invStats.count}</p>
             </div>
             <div className={`text-center p-2.5 rounded-lg ${invStats.lowStock > 0 ? "bg-red-50/80 dark:bg-red-900/20" : "bg-white/50 dark:bg-gray-700/30"}`}>
-              <p className="text-[10px] text-gray-500 dark:text-gray-400">Low Stock</p>
+              <p className="text-[10px] text-gray-500 dark:text-gray-400">{t("lowStock")}</p>
               <p className={`text-lg font-bold ${invStats.lowStock > 0 ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}>{invStats.lowStock}</p>
             </div>
           </div>
           {invStats.topMargin.length > 0 && (
             <div>
-              <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">Top Margin Items</p>
+              <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">{t("topMarginItems")}</p>
               <div className="space-y-1.5">
                 {invStats.topMargin.map((item, i) => (
                   <div key={i} className="flex items-center justify-between px-3 py-2 bg-white/60 dark:bg-gray-700/50 rounded-lg">
@@ -827,11 +827,11 @@ export default function DashboardPage() {
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip formatter={(value, name) => [
                   `${value.toLocaleString()} ${currency}`,
-                  name === "amount" ? "Revenue" : name === "profit" ? "Profit" : name,
+                  name === "amount" ? t("revenue") : name === "profit" ? t("profit") : name,
                 ]} />
-                <Line type="monotone" dataKey="amount" stroke="#22C55E" strokeWidth={2} dot={false} name="Revenue" />
+                <Line type="monotone" dataKey="amount" stroke="#22C55E" strokeWidth={2} dot={false} name={t("revenue")} />
                 {(periodStats?.dailyRevenue?.[0]?.profit !== undefined) && (
-                  <Line type="monotone" dataKey="profit" stroke="#10B981" strokeWidth={2} dot={false} name="Profit" strokeDasharray="5 3" />
+                  <Line type="monotone" dataKey="profit" stroke="#10B981" strokeWidth={2} dot={false} name={t("profit")} strokeDasharray="5 3" />
                 )}
                 <ReferenceLine y={0} stroke="#9CA3AF" strokeDasharray="3 3" />
               </LineChart>
@@ -863,7 +863,7 @@ export default function DashboardPage() {
                     <Cell key={i} fill={COLORS[i % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(value) => [`${value.toLocaleString()} ${currency}`, "Amount"]} />
+                <Tooltip formatter={(value) => [`${value.toLocaleString()} ${currency}`, t("amount")]} />
                 <Legend
                   formatter={(value) => <span className="text-sm text-gray-600 dark:text-gray-300">{value}</span>}
                 />
@@ -877,7 +877,7 @@ export default function DashboardPage() {
 
       {/* Revenue vs Expenses Comparison */}
       <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-        <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">Revenue vs Expenses</h2>
+        <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">{t("revenueVsExpenses")}</h2>
         {(() => {
           // Build comparison data from period stats (daily) or monthly summary
           const dailyData = periodStats?.dailyRevenue?.filter((d) => d.expenses > 0 || d.amount > 0);
@@ -890,9 +890,9 @@ export default function DashboardPage() {
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => v.toLocaleString()} />
                   <Tooltip formatter={(value, name) => [
                     `${value.toLocaleString()} ${currency}`,
-                    name === "amount" ? "Revenue" : name === "expenses" ? "Expenses" : name,
+                    name === "amount" ? t("revenue") : name === "expenses" ? t("expenses") : name,
                   ]} />
-                  <Legend formatter={(value) => value === "amount" ? "Revenue" : value === "expenses" ? "Expenses" : value} />
+                  <Legend formatter={(value) => value === "amount" ? t("revenue") : value === "expenses" ? t("expenses") : value} />
                   <Bar dataKey="amount" fill="#22C55E" radius={[4, 4, 0, 0]} name="amount" />
                   <Bar dataKey="expenses" fill="#EF4444" radius={[4, 4, 0, 0]} name="expenses" />
                 </BarChart>
@@ -901,9 +901,9 @@ export default function DashboardPage() {
           }
           // Fallback: show monthly totals as a simple comparison
           const compData = [
-            { label: "Revenue", value: summary.month_revenue, fill: "#22C55E" },
-            { label: "Expenses", value: summary.month_expenses, fill: "#EF4444" },
-            { label: "Profit", value: summary.month_profit, fill: summary.month_profit >= 0 ? "#10B981" : "#F59E0B" },
+            { label: t("revenue"), value: summary.month_revenue, fill: "#22C55E" },
+            { label: t("expenses"), value: summary.month_expenses, fill: "#EF4444" },
+            { label: t("profit"), value: summary.month_profit, fill: summary.month_profit >= 0 ? "#10B981" : "#F59E0B" },
           ];
           return (
             <ResponsiveContainer width="100%" height={280}>

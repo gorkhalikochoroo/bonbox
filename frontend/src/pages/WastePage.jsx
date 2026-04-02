@@ -69,7 +69,7 @@ export default function WastePage() {
       fetchData(filterFrom, filterTo);
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to log waste");
+      setError(err.response?.data?.detail || t("failedToLogWaste"));
     }
   };
 
@@ -90,23 +90,23 @@ export default function WastePage() {
       await api.put(`/waste/${editId}`, editData);
       setEditId(null);
       fetchData(filterFrom, filterTo);
-      setSuccess("Updated!");
+      setSuccess(t("updated"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to update");
+      setError(err.response?.data?.detail || t("failedToUpdate"));
     }
   };
 
   const bulkDelete = async () => {
-    if (!confirm(`Move ${selected.size} items to trash?`)) return;
+    if (!confirm(`${selected.size} ${t("moveToTrash")}?`)) return;
     try {
       await Promise.all([...selected].map(id => api.delete(`/waste/${id}`)));
       setSelected(new Set());
       fetchData(filterFrom, filterTo);
-      setSuccess(`${selected.size} items moved to trash`);
+      setSuccess(`${selected.size} ${t("itemsMovedToTrash")}`);
       setTimeout(() => setSuccess(""), 2500);
     } catch {
-      setError("Failed to delete some items");
+      setError(t("failedToDeleteSome"));
     }
   };
 
@@ -115,10 +115,10 @@ export default function WastePage() {
       await api.delete(`/waste/${id}`);
       setDeleteConfirm(null);
       fetchData(filterFrom, filterTo);
-      setSuccess("Moved to recently deleted");
+      setSuccess(t("movedToRecentlyDeleted"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to delete");
+      setError(err.response?.data?.detail || t("failedToDelete"));
     }
   };
 
@@ -227,7 +227,7 @@ export default function WastePage() {
             className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           {wasteDate !== new Date().toISOString().split("T")[0] && (
-            <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Backdated entry</span>
+            <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">{t("backdatedEntry")}</span>
           )}
         </div>
       </div>
@@ -253,7 +253,7 @@ export default function WastePage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search..."
+              placeholder={t("search")}
               className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             {(filterFrom || filterTo) && (
@@ -261,29 +261,29 @@ export default function WastePage() {
                 onClick={() => { setFilterFrom(""); setFilterTo(""); fetchData(); }}
                 className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 font-medium"
               >
-                Clear
+                {t("clear")}
               </button>
             )}
             <button
               onClick={() => exportToCsv("waste.csv", logs, [
-                { key: "date", label: "Date" },
-                { key: "item_name", label: "Item" },
-                { key: "quantity", label: "Quantity" },
-                { key: "unit", label: "Unit" },
-                { key: "reason", label: "Reason" },
-                { key: "estimated_cost", label: "Cost" },
+                { key: "date", label: t("date") },
+                { key: "item_name", label: t("item") },
+                { key: "quantity", label: t("quantity") },
+                { key: "unit", label: t("unit") },
+                { key: "reason", label: t("reason") },
+                { key: "estimated_cost", label: t("cost") },
               ])}
               className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
             >
-              Export CSV
+              {t("exportCsv")}
             </button>
           </div>
         </div>
         {selected.size > 0 && (
           <div className="px-6 py-3 bg-blue-50 dark:bg-blue-900/20 flex items-center justify-between">
-            <span className="text-sm text-blue-700 dark:text-blue-400">{selected.size} selected</span>
+            <span className="text-sm text-blue-700 dark:text-blue-400">{selected.size} {t("selected")}</span>
             <button onClick={bulkDelete} className="text-sm text-red-600 dark:text-red-400 font-medium hover:underline">
-              Move to trash
+              {t("moveToTrash")}
             </button>
           </div>
         )}
@@ -302,7 +302,7 @@ export default function WastePage() {
                 <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("qty")}</th>
                 <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("reason")}</th>
                 <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("cost")}</th>
-                <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">Actions</th>
+                <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">{t("actions")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -332,17 +332,17 @@ export default function WastePage() {
                             className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-sm dark:bg-gray-700 dark:text-white w-16" />
                           <select value={editData.unit} onChange={(e) => setEditData({ ...editData, unit: e.target.value })}
                             className="px-1 py-1 border border-gray-200 dark:border-gray-600 rounded text-xs dark:bg-gray-700 dark:text-white">
-                            <option value="kg">kg</option>
-                            <option value="liters">L</option>
-                            <option value="pieces">pcs</option>
-                            <option value="portions">port</option>
+                            <option value="kg">{t("kg")}</option>
+                            <option value="liters">{t("liters")}</option>
+                            <option value="pieces">{t("pieces")}</option>
+                            <option value="portions">{t("portions")}</option>
                           </select>
                         </div>
                       </td>
                       <td className="px-4 py-3">
                         <select value={editData.reason} onChange={(e) => setEditData({ ...editData, reason: e.target.value })}
                           className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-sm dark:bg-gray-700 dark:text-white">
-                          {REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                          {REASONS.map((r) => <option key={r} value={r}>{t(r)}</option>)}
                         </select>
                       </td>
                       <td className="px-4 py-3">
@@ -350,8 +350,8 @@ export default function WastePage() {
                           className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-sm dark:bg-gray-700 dark:text-white w-20" />
                       </td>
                       <td className="px-4 py-3 text-right space-x-2">
-                        <button onClick={saveEdit} className="text-green-600 dark:text-green-400 text-sm font-medium hover:underline">Save</button>
-                        <button onClick={() => setEditId(null)} className="text-gray-400 text-sm hover:underline">Cancel</button>
+                        <button onClick={saveEdit} className="text-green-600 dark:text-green-400 text-sm font-medium hover:underline">{t("save")}</button>
+                        <button onClick={() => setEditId(null)} className="text-gray-400 text-sm hover:underline">{t("cancel")}</button>
                       </td>
                     </>
                   ) : (
@@ -369,14 +369,14 @@ export default function WastePage() {
                       </td>
                       <td className="px-4 py-3 text-sm font-semibold text-red-600 dark:text-red-400">{parseFloat(log.estimated_cost).toLocaleString()} {currency}</td>
                       <td className="px-4 py-3 text-right space-x-2">
-                        <button onClick={() => startEdit(log)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">Edit</button>
+                        <button onClick={() => startEdit(log)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">{t("edit")}</button>
                         {deleteConfirm === log.id ? (
                           <>
-                            <button onClick={() => deleteWaste(log.id)} className="text-red-600 dark:text-red-400 text-sm font-medium hover:underline">Yes, move</button>
-                            <button onClick={() => setDeleteConfirm(null)} className="text-gray-400 text-sm hover:underline">No</button>
+                            <button onClick={() => deleteWaste(log.id)} className="text-red-600 dark:text-red-400 text-sm font-medium hover:underline">{t("yesMove")}</button>
+                            <button onClick={() => setDeleteConfirm(null)} className="text-gray-400 text-sm hover:underline">{t("cancel")}</button>
                           </>
                         ) : (
-                          <button onClick={() => setDeleteConfirm(log.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">Move to trash</button>
+                          <button onClick={() => setDeleteConfirm(log.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">{t("moveToTrash")}</button>
                         )}
                       </td>
                     </>

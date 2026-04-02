@@ -54,7 +54,7 @@ export default function StaffingPage() {
       setRuleForm({ label: "Normal", revenue_min: "", revenue_max: "", recommended_staff: "" });
       fetchData();
     } catch (err) {
-      setError(err?.response?.data?.message || err.message || "Failed to add rule");
+      setError(err?.response?.data?.message || err.message || t("failedToAddRule"));
     }
   };
 
@@ -64,7 +64,7 @@ export default function StaffingPage() {
       await api.delete(`/staffing/rules/${id}`);
       fetchData();
     } catch (err) {
-      setError(err?.response?.data?.message || err.message || "Failed to delete rule");
+      setError(err?.response?.data?.message || err.message || t("failedToDeleteRule"));
     }
   };
 
