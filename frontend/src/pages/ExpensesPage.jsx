@@ -524,7 +524,7 @@ export default function ExpensesPage() {
         </div>
 
         {/* Tax breakdown */}
-        <TaxBreakdown amount={amount} currencyCode={user?.currency} />
+        <TaxBreakdown amount={amount} currencyCode={user?.currency} type="expenses" />
 
         {/* Payment method */}
         <div className="flex flex-wrap gap-1.5 mt-2">
