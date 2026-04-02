@@ -1023,18 +1023,19 @@ export default function DashboardPage() {
 
 function MotivationalStats({ summary, monthlyData }) {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const dailyGoal = user?.daily_goal || 0;
 
   const messages = [];
 
-  if (summary.today_revenue > 0) {
-    messages.push({ icon: "check", text: "You've logged sales today", color: "text-blue-600 dark:text-blue-400" });
+  if ((summary?.today_revenue || 0) > 0) {
+    messages.push({ icon: "check", text: t("loggedSalesToday"), color: "text-blue-600 dark:text-blue-400" });
   }
-  if (dailyGoal > 0 && summary.today_revenue >= dailyGoal) {
-    messages.push({ icon: "star", text: "You've hit your daily goal!", color: "text-yellow-600 dark:text-yellow-400" });
+  if (dailyGoal > 0 && (summary?.today_revenue || 0) >= dailyGoal) {
+    messages.push({ icon: "star", text: t("hitDailyGoal"), color: "text-yellow-600 dark:text-yellow-400" });
   }
-  if (summary.month_profit > 0) {
-    messages.push({ icon: "trending", text: "You're profitable this month", color: "text-green-600 dark:text-green-400" });
+  if ((summary?.month_profit || 0) > 0) {
+    messages.push({ icon: "trending", text: t("profitableThisMonth"), color: "text-green-600 dark:text-green-400" });
   }
 
   // Streak: count consecutive days with sales from daily_revenue (most recent backwards)
@@ -1193,6 +1194,7 @@ function GoalTracker({ todayRevenue, monthRevenue }) {
 
 function DailySummary({ summary, monthlyData }) {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const currency = displayCurrency(user?.currency);
   const dailyRevenue = monthlyData?.daily_revenue || [];
 
@@ -1214,25 +1216,25 @@ function DailySummary({ summary, monthlyData }) {
 
   return (
     <div className="bg-white dark:bg-gray-800 p-5 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-      <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">Daily Summary</h2>
+      <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">{t("dailySummary")}</h2>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="text-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Today</p>
-          <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{summary.today_revenue.toLocaleString()}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{t("today")}</p>
+          <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{(summary?.today_revenue || 0).toLocaleString()}</p>
           <p className="text-xs text-gray-400">{currency}</p>
         </div>
         <div className="text-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Yesterday</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{t("yesterday")}</p>
           <p className="text-lg font-bold text-gray-700 dark:text-gray-200">{yesterdayData ? yesterdayData.amount.toLocaleString() : "—"}</p>
           <p className="text-xs text-gray-400">{currency}</p>
         </div>
         <div className="text-center p-3 bg-green-50 dark:bg-green-900/20 rounded-xl">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Week Avg</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{t("weekAvg")}</p>
           <p className="text-lg font-bold text-green-600 dark:text-green-400">{weekAvg.toLocaleString()}</p>
-          <p className="text-xs text-gray-400">{currency}/day</p>
+          <p className="text-xs text-gray-400">{currency}/{t("day").toLowerCase()}</p>
         </div>
         <div className="text-center p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Best Day</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{t("bestDay")}</p>
           <p className="text-lg font-bold text-yellow-600 dark:text-yellow-400">{bestDay ? bestDay.amount.toLocaleString() : "—"}</p>
           <p className="text-xs text-gray-400">{bestDay ? bestDay.date.slice(5) : ""}</p>
         </div>
@@ -1250,7 +1252,7 @@ function HealthScore({ summary, monthlyData }) {
   const factors = [];
 
   // 1. Profitability (0-30 pts)
-  const margin = summary.profit_margin || 0;
+  const margin = summary?.profit_margin || 0;
   const profitScore = Math.min(Math.round(margin * 1.5), 30); // 20% margin = 30 pts
   factors.push({ label: t("profitability"), score: profitScore, max: 30, tip: margin > 0 ? `${margin}% ${t("margin")}` : t("notProfitableYet") });
 
@@ -1263,20 +1265,20 @@ function HealthScore({ summary, monthlyData }) {
   factors.push({ label: t("consistency"), score: consistencyScore, max: 25, tip: `${daysWithSales}/${totalDays} ${t("daysActive")}` });
 
   // 3. Revenue growth (0-20 pts) — cap display at ±500%
-  const rawGrowth = summary.today_revenue_change || 0;
+  const rawGrowth = summary?.today_revenue_change || 0;
   const growthChange = Math.max(-500, Math.min(500, rawGrowth));
   const growthScore = growthChange > 0 ? Math.min(Math.round(growthChange), 20) : growthChange === 0 ? 10 : Math.max(10 + Math.round(growthChange / 2), 0);
   const growthTip = Math.abs(rawGrowth) > 500 ? t("newDay") || "New day" : `${growthChange >= 0 ? "+" : ""}${growthChange}% ${t("vsYesterday")}`;
   factors.push({ label: t("growth"), score: growthScore, max: 20, tip: growthTip });
 
   // 4. Expense control (0-15 pts) — lower expense ratio = better
-  const expenseRatio = summary.month_revenue > 0 ? summary.month_expenses / summary.month_revenue : 1;
+  const expenseRatio = (summary?.month_revenue || 0) > 0 ? (summary?.month_expenses || 0) / summary.month_revenue : 1;
   const expenseScore = Math.round(Math.max(0, (1 - expenseRatio)) * 15);
   factors.push({ label: t("costControl"), score: expenseScore, max: 15, tip: `${Math.round(expenseRatio * 100)}% ${t("ofRevenue")}` });
 
   // 5. Activity (0-10 pts) — logged today?
-  const activityScore = summary.today_revenue > 0 ? 10 : 0;
-  factors.push({ label: t("activity"), score: activityScore, max: 10, tip: summary.today_revenue > 0 ? t("activeToday") : t("noSalesToday") });
+  const activityScore = (summary?.today_revenue || 0) > 0 ? 10 : 0;
+  factors.push({ label: t("activity"), score: activityScore, max: 10, tip: (summary?.today_revenue || 0) > 0 ? t("activeToday") : t("noSalesToday") });
 
   const total = factors.reduce((s, f) => s + f.score, 0);
   const color = total >= 75 ? "text-green-500" : total >= 50 ? "text-yellow-500" : total >= 25 ? "text-orange-500" : "text-red-500";

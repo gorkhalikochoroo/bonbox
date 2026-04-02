@@ -314,4 +314,7 @@ export const es = {
   deleteCustomerConfirm: "¿Eliminar este cliente y todas sus transacciones?",
   deleteTransactionConfirm: "¿Eliminar esta transacción?",
   currency: "Moneda",
+  dailySummary: "Resumen diario", yesterday: "Ayer", weekAvg: "Prom. semana",
+  loggedSalesToday: "Has registrado ventas hoy", hitDailyGoal: "¡Meta diaria alcanzada!",
+  profitableThisMonth: "Rentable este mes",
 };

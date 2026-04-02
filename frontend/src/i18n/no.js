@@ -314,4 +314,7 @@ export const no_ = {
   deleteCustomerConfirm: "Slette denne kunden og alle transaksjoner?",
   deleteTransactionConfirm: "Slette denne transaksjonen?",
   currency: "Valuta",
+  dailySummary: "Daglig sammendrag", yesterday: "I går", weekAvg: "Uke-snitt",
+  loggedSalesToday: "Du har registrert salg i dag", hitDailyGoal: "Dagsmålet nådd!",
+  profitableThisMonth: "Lønnsom denne måneden",
 };

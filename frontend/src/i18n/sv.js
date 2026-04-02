@@ -314,4 +314,7 @@ export const sv = {
   deleteCustomerConfirm: "Ta bort denna kund och alla transaktioner?",
   deleteTransactionConfirm: "Ta bort denna transaktion?",
   currency: "Valuta",
+  dailySummary: "Daglig sammanfattning", yesterday: "Igår", weekAvg: "Vecko-snitt",
+  loggedSalesToday: "Du har registrerat försäljning idag", hitDailyGoal: "Dagsmålet uppnått!",
+  profitableThisMonth: "Lönsam denna månad",
 };

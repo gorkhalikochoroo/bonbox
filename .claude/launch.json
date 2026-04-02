@@ -2,15 +2,15 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "Backend (FastAPI)",
+      "name": "backend",
       "runtimeExecutable": "uvicorn",
       "runtimeArgs": ["app.main:app", "--reload", "--port", "8000"],
       "port": 8000
     },
     {
-      "name": "Frontend (Vite)",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "name": "frontend",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": ["-c", "PATH=/usr/local/bin:$PATH npm run dev --prefix /Users/nova/Downloads/Project_CHL/smallbiz-dashboard/frontend"],
       "port": 5173
     }
   ]

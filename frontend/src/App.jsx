@@ -24,21 +24,27 @@ class ErrorBoundary extends Component {
   static getDerivedStateFromError() { return { hasError: true }; }
   componentDidCatch(err, info) {
     console.error("BonBox error:", err, info);
-    // Auto-clear cache and reload on first crash (stale cache fix)
-    if (!sessionStorage.getItem("error_recovered")) {
-      sessionStorage.setItem("error_recovered", "1");
+    // Auto-recover from chunk loading failures (stale deploy / slow network)
+    const isChunkError = err?.message?.includes("Loading chunk") || err?.message?.includes("Failed to fetch dynamically imported");
+    const retryCount = parseInt(sessionStorage.getItem("error_retry_count") || "0", 10);
+    if (retryCount < 2) {
+      sessionStorage.setItem("error_retry_count", String(retryCount + 1));
       if ("caches" in window) {
         caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k)))).then(() => {
           window.location.reload();
         });
+      } else {
+        window.location.reload();
       }
     }
+    // Clear retry count after 60s so future crashes can auto-recover again
+    setTimeout(() => sessionStorage.removeItem("error_retry_count"), 60000);
   }
   handleClearAndReload = () => {
     this.setState({ retrying: true });
+    sessionStorage.removeItem("error_retry_count");
     if ("caches" in window) {
       caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k)))).then(() => {
-        sessionStorage.removeItem("error_recovered");
         window.location.reload();
       });
     } else {
@@ -48,17 +54,17 @@ class ErrorBoundary extends Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-900 px-4">
           <div className="text-center max-w-md">
             <div className="text-5xl mb-4">📦</div>
-            <h1 className="text-2xl font-bold text-gray-800 mb-2">Something went wrong</h1>
-            <p className="text-gray-500 mb-6">This might be a connection issue. Try refreshing.</p>
+            <h1 className="text-2xl font-bold text-gray-800 dark:text-white mb-2">Something went wrong</h1>
+            <p className="text-gray-500 dark:text-gray-400 mb-6">This might be a connection issue. Try refreshing.</p>
             <button onClick={this.handleClearAndReload} disabled={this.state.retrying}
               className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold disabled:opacity-60">
               {this.state.retrying ? "Refreshing..." : "Refresh & Try Again"}
             </button>
             <button onClick={() => { this.setState({ hasError: false }); window.location.href = "/login"; }}
-              className="ml-3 px-6 py-3 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition font-semibold">
+              className="ml-3 px-6 py-3 border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition font-semibold">
               Sign In
             </button>
           </div>

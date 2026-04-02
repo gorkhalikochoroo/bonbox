@@ -461,6 +461,10 @@ const translations = {
     linkInventory: "Link Inventory Items", deleteCustomerConfirm: "Delete this customer and all their transactions?",
     deleteTransactionConfirm: "Delete this transaction?",
     currency: "Currency",
+    // Dashboard sub-component keys
+    dailySummary: "Daily Summary", yesterday: "Yesterday", weekAvg: "Week Avg",
+    loggedSalesToday: "You've logged sales today", hitDailyGoal: "You've hit your daily goal!",
+    profitableThisMonth: "You're profitable this month",
   },
   da: {
     dashboard: "Oversigt", sales: "Salg", expenses: "Udgifter", inventory: "Lager",
@@ -903,6 +907,9 @@ const translations = {
     linkInventory: "Tilknyt lagervarer", deleteCustomerConfirm: "Slet denne kunde og alle transaktioner?",
     deleteTransactionConfirm: "Slet denne transaktion?",
     currency: "Valuta",
+    dailySummary: "Daglig oversigt", yesterday: "I går", weekAvg: "Uge gns.",
+    loggedSalesToday: "Du har registreret salg i dag", hitDailyGoal: "Du har nået dit daglige mål!",
+    profitableThisMonth: "Du er profitabel denne måned",
   },
   np: {
     dashboard: "ड्यासबोर्ड", sales: "बिक्री", expenses: "खर्च", inventory: "स्टक",
@@ -1345,6 +1352,9 @@ const translations = {
     linkInventory: "स्टक वस्तुहरू जोड्नुहोस्", deleteCustomerConfirm: "यो ग्राहक र सबै कारोबार मेटाउने?",
     deleteTransactionConfirm: "यो कारोबार मेटाउने?",
     currency: "मुद्रा",
+    dailySummary: "दैनिक सारांश", yesterday: "हिजो", weekAvg: "हप्ता औसत",
+    loggedSalesToday: "आज बिक्री दर्ता भएको छ", hitDailyGoal: "दैनिक लक्ष्य पुग्यो!",
+    profitableThisMonth: "यो महिना नाफामा छ",
   },
 };
 

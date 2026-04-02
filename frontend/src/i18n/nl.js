@@ -314,4 +314,7 @@ export const nl = {
   deleteCustomerConfirm: "Deze klant en alle transacties verwijderen?",
   deleteTransactionConfirm: "Deze transactie verwijderen?",
   currency: "Valuta",
+  dailySummary: "Dagelijks overzicht", yesterday: "Gisteren", weekAvg: "Week gem.",
+  loggedSalesToday: "Je hebt vandaag verkopen geregistreerd", hitDailyGoal: "Dagdoel behaald!",
+  profitableThisMonth: "Winstgevend deze maand",
 };

@@ -314,4 +314,7 @@ export const ja = {
   deleteCustomerConfirm: "この顧客とすべての取引を削除しますか？",
   deleteTransactionConfirm: "この取引を削除しますか？",
   currency: "通貨",
+  dailySummary: "日次サマリー", yesterday: "昨日", weekAvg: "週平均",
+  loggedSalesToday: "今日の売上を記録しました", hitDailyGoal: "日次目標達成！",
+  profitableThisMonth: "今月は黒字です",
 };
