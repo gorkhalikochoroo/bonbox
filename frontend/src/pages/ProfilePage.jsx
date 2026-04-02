@@ -181,24 +181,24 @@ export default function ProfilePage() {
             <div>
               <label className={labelClass}>Currency</label>
               <select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} className={inputClass}>
-                <option value="DKK">DKK - Danish Krone</option>
-                <option value="SEK">SEK - Swedish Krona</option>
-                <option value="NOK">NOK - Norwegian Krone</option>
-                <option value="EUR">EUR - Euro (General)</option>
+                <option value="DKK">DKK - Danish Krone (Moms 25%)</option>
+                <option value="SEK">SEK - Swedish Krona (Moms 25%)</option>
+                <option value="NOK">NOK - Norwegian Krone (MVA 25%)</option>
+                <option value="EUR">EUR - Euro (General, VAT 20%)</option>
                 <option value="EUR_PT">EUR - Portugal (IVA 23%)</option>
                 <option value="EUR_DE">EUR - Germany (MwSt 19%)</option>
                 <option value="EUR_FR">EUR - France (TVA 20%)</option>
                 <option value="EUR_ES">EUR - Spain (IVA 21%)</option>
                 <option value="EUR_IT">EUR - Italy (IVA 22%)</option>
                 <option value="EUR_NL">EUR - Netherlands (BTW 21%)</option>
-                <option value="USD">USD - US Dollar</option>
-                <option value="GBP">GBP - British Pound</option>
-                <option value="NPR">NPR - Nepalese Rupee</option>
-                <option value="INR">INR - Indian Rupee</option>
-                <option value="JPY">JPY - Japanese Yen</option>
-                <option value="AUD">AUD - Australian Dollar</option>
-                <option value="CAD">CAD - Canadian Dollar</option>
-                <option value="CHF">CHF - Swiss Franc</option>
+                <option value="USD">USD - US Dollar (Sales Tax varies)</option>
+                <option value="GBP">GBP - British Pound (VAT 20%)</option>
+                <option value="NPR">NPR - Nepalese Rupee (VAT 13%)</option>
+                <option value="INR">INR - Indian Rupee (GST 18%)</option>
+                <option value="JPY">JPY - Japanese Yen (税 10%)</option>
+                <option value="AUD">AUD - Australian Dollar (GST 10%)</option>
+                <option value="CAD">CAD - Canadian Dollar (GST 5%)</option>
+                <option value="CHF">CHF - Swiss Franc (MWST 8.1%)</option>
               </select>
             </div>
           </div>
