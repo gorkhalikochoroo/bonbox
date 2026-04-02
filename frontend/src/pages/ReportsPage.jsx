@@ -251,6 +251,7 @@ function DailyKasserapport() {
   const { user } = useAuth();
   const { t } = useLanguage();
   const currency = displayCurrency(user?.currency);
+  const vat = getVatTerms(user?.currency);
   const [reportDate, setReportDate] = useState(new Date().toISOString().split("T")[0]);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -284,7 +285,7 @@ function DailyKasserapport() {
           <div className="text-center py-6 border-b border-dashed border-gray-200 dark:border-gray-700">
             <h2 className="text-lg font-bold text-gray-800 dark:text-white tracking-wide">{t("kasserapport")}</h2>
             <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mt-1">{data.business_name}</p>
-            <p className="text-xs text-gray-400 mt-1">{new Date(data.date).toLocaleDateString("da-DK", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</p>
+            <p className="text-xs text-gray-400 mt-1">{new Date(data.date).toLocaleDateString(vat.locale || "en", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</p>
           </div>
 
           {data.transaction_count === 0 ? (
