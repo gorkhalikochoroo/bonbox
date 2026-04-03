@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { getVatTerms } from "../utils/currency";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
+import { formatDate } from "../utils/dateFormat";
 
 const currentDate = new Date();
 
@@ -150,6 +151,8 @@ export default function ReportsPage() {
           <OverviewCard label={t("khataOutstanding")} value={fmt(overview.khata_outstanding)} sub={t("creditOwed")} color="orange" />
           <OverviewCard label={t("cashIn")} value={fmt(overview.cash_in)} color="emerald" />
           <OverviewCard label={t("cashOut")} value={fmt(overview.cash_out)} color="rose" />
+          <OverviewCard label={t("avgPerSale") || "Avg/Sale"} value={fmt(overview.avg_per_sale)} sub={`${fmt(overview.total_sales_count)} ${t("sales")}`} color="cyan" />
+          <OverviewCard label={t("avgDailySales") || "Avg/Day"} value={fmt(overview.avg_daily_sales)} sub={`${overview.days_with_sales || 0} ${t("days") || "days"}`} color="teal" />
         </div>
       )}
 
@@ -286,7 +289,7 @@ function DailyKasserapport() {
           <div className="text-center py-6 border-b border-dashed border-gray-200 dark:border-gray-700">
             <h2 className="text-lg font-bold text-gray-800 dark:text-white tracking-wide">{t("kasserapport")}</h2>
             <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mt-1">{data.business_name}</p>
-            <p className="text-xs text-gray-400 mt-1">{new Date(data.date).toLocaleDateString(vat.locale || "en", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</p>
+            <p className="text-xs text-gray-400 mt-1">{formatDate(data.date)}</p>
           </div>
 
           {data.transaction_count === 0 ? (
@@ -371,6 +374,8 @@ function OverviewCard({ label, value, sub, color = "blue" }) {
     orange: "text-orange-600 dark:text-orange-400",
     emerald: "text-emerald-600 dark:text-emerald-400",
     rose: "text-rose-600 dark:text-rose-400",
+    cyan: "text-cyan-600 dark:text-cyan-400",
+    teal: "text-teal-600 dark:text-teal-400",
   };
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700">

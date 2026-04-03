@@ -5,6 +5,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { displayCurrency, getTaxConfig } from "../utils/currency";
+import { formatDate, formatDateShort } from "../utils/dateFormat";
 import TaxBreakdown from "../components/TaxBreakdown";
 
 const QUICK_AMOUNTS = [100, 250, 500, 1000, 2500, 5000];
@@ -241,7 +242,7 @@ export default function ExpensesPage() {
       setIsTaxExempt(false);
       setExpDate(new Date().toISOString().split("T")[0]);
       trackEvent("expense_logged", "expenses", `${value} ${currency}`);
-      setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${expDate})` : ""}!`);
+      setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${formatDate(expDate)})` : ""}!`);
       fetchData(filterFrom, filterTo);
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
@@ -699,7 +700,7 @@ export default function ExpensesPage() {
                 <div className="space-y-1 max-h-48 overflow-y-auto">
                   {[...monthExpenses].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 20).map((e, i) => (
                     <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-blue-900/20 rounded-lg text-xs">
-                      <span className="text-blue-300/50 flex-shrink-0">{e.date.slice(5)}</span>
+                      <span className="text-blue-300/50 flex-shrink-0">{formatDateShort(e.date)}</span>
                       <span className="font-bold text-blue-300 flex-shrink-0">{parseFloat(e.amount).toLocaleString()}</span>
                       <span className="text-blue-200 truncate">{e.description || e.category_name || "—"}</span>
                       <span className="text-blue-400/40 ml-auto flex-shrink-0 capitalize">{e.payment_method || ""}</span>
@@ -943,7 +944,7 @@ export default function ExpensesPage() {
                     <td className="px-6 py-4 text-sm font-semibold text-gray-800 dark:text-white">{parseFloat(exp.amount).toLocaleString()} {currency}</td>
                     <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 capitalize">{exp.payment_method || "-"}</td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{exp.notes || "-"}</td>
-                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 text-right">{exp.date}</td>
+                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 text-right">{formatDate(exp.date)}</td>
                     <td className="px-6 py-4 text-right space-x-3">
                       <button onClick={() => startEdit(exp)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">{t("edit")}</button>
                       {deleteConfirm === exp.id ? (

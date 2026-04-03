@@ -5,6 +5,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { displayCurrency } from "../utils/currency";
+import { formatDate, formatDateShort } from "../utils/dateFormat";
 
 const IN_CATEGORIES = ["Sales", "Tips", "Loan", "Other"];
 const OUT_CATEGORIES = ["Purchase", "Wages", "Supplies", "Rent", "Other"];
@@ -339,7 +340,7 @@ export default function CashBookPage() {
                     </>
                   ) : (
                     <>
-                      <td className={`px-4 py-3 text-sm ${txn.reference_id ? "text-gray-400 dark:text-gray-500" : "text-gray-700 dark:text-gray-300"}`}>{txn.date}</td>
+                      <td className={`px-4 py-3 text-sm ${txn.reference_id ? "text-gray-400 dark:text-gray-500" : "text-gray-700 dark:text-gray-300"}`}>{formatDate(txn.date)}</td>
                       <td className={`px-4 py-3 text-sm ${txn.reference_id ? "text-gray-400 dark:text-gray-500" : "text-gray-700 dark:text-gray-300"}`}>
                         {txn.description}
                         {txn.reference_id && <span className="ml-1.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded">({t("autoTag")})</span>}

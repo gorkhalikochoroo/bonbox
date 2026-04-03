@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { formatDate, formatDateShort } from "../utils/dateFormat";
 
 const CATEGORIES = ["bugReport", "featureRequest", "generalFeedback", "complaint", "praise"];
 
@@ -153,7 +154,7 @@ export default function FeedbackPage() {
                     </span>
                   </div>
                   {fb.date && (
-                    <span className="text-xs text-gray-400 dark:text-gray-500">{fb.date}</span>
+                    <span className="text-xs text-gray-400 dark:text-gray-500">{formatDate(fb.date)}</span>
                   )}
                 </div>
                 <p className="text-sm text-gray-700 dark:text-gray-300">{fb.message}</p>

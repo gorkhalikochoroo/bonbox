@@ -22,6 +22,7 @@ import {
   BarChart, Bar, ReferenceLine,
 } from "recharts";
 import { displayCurrency } from "../utils/currency";
+import { formatDate, formatDateShort } from "../utils/dateFormat";
 
 const COLORS = ["#22C55E", "#EF4444", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316", "#6366F1", "#84CC16"];
 
@@ -1002,7 +1003,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs px-2 py-1 rounded-b-lg">
                   <p className="font-semibold">{r.amount.toLocaleString()} {currency}</p>
-                  <p className="text-gray-300">{r.date}</p>
+                  <p className="text-gray-300">{formatDate(r.date)}</p>
                 </div>
               </div>
             ))}
@@ -1236,7 +1237,7 @@ function DailySummary({ summary, monthlyData }) {
         <div className="text-center p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl">
           <p className="text-xs text-gray-500 dark:text-gray-400">{t("bestDay")}</p>
           <p className="text-lg font-bold text-yellow-600 dark:text-yellow-400">{bestDay ? bestDay.amount.toLocaleString() : "—"}</p>
-          <p className="text-xs text-gray-400">{bestDay ? bestDay.date.slice(5) : ""}</p>
+          <p className="text-xs text-gray-400">{bestDay ? formatDateShort(bestDay.date) : ""}</p>
         </div>
       </div>
     </div>

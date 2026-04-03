@@ -269,12 +269,28 @@ def monthly_report(
     best_day = max(daily_revenue, key=lambda r: r.total, default=None)
     worst_day = min(daily_revenue, key=lambda r: r.total, default=None)
 
+    # Average daily sales (based on days with sales)
+    days_with_sales = len(daily_revenue)
+    avg_daily_sales = round(float(total_revenue) / days_with_sales, 2) if days_with_sales > 0 else 0
+
+    # Sale count for average per sale
+    sale_count = (
+        db.query(func.count(Sale.id))
+        .filter(Sale.user_id == user.id, Sale.date.between(start, end), Sale.is_deleted.isnot(True))
+        .scalar()
+    )
+    avg_per_sale = round(float(total_revenue) / sale_count, 2) if sale_count > 0 else 0
+
     return {
         "month": month,
         "year": year,
         "total_revenue": float(total_revenue),
         "total_expenses": float(total_expenses),
         "net_profit": float(total_revenue) - float(total_expenses),
+        "sale_count": sale_count,
+        "avg_daily_sales": avg_daily_sales,
+        "avg_per_sale": avg_per_sale,
+        "days_with_sales": days_with_sales,
         "expense_breakdown": [
             {"category": name, "color": color, "amount": float(total)}
             for name, color, total in expense_breakdown
@@ -1126,6 +1142,16 @@ def report_overview(
         .scalar()
     )
 
+    # Average sales
+    avg_per_sale = round(total_revenue / total_sales_count, 2) if total_sales_count > 0 else 0
+    # Days with sales for daily average
+    days_with_sales = (
+        db.query(func.count(func.distinct(Sale.date)))
+        .filter(Sale.user_id == user.id, Sale.date.between(start, end), Sale.is_deleted.isnot(True))
+        .scalar()
+    )
+    avg_daily_sales = round(total_revenue / days_with_sales, 2) if days_with_sales > 0 else 0
+
     return {
         "month": month,
         "year": year,
@@ -1142,6 +1168,9 @@ def report_overview(
         "currency": cur,
         "total_sales_count": total_sales_count,
         "total_expense_count": total_expense_count,
+        "avg_per_sale": avg_per_sale,
+        "avg_daily_sales": avg_daily_sales,
+        "days_with_sales": days_with_sales,
     }
 
 

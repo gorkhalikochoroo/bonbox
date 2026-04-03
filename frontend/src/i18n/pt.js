@@ -125,7 +125,7 @@ export const pt = {
   recentlyDeleted: "Excluídos recentemente",
   profile: "Perfil",
   cashBalance: "Saldo de caixa", totalCashIn: "Total de entradas", totalCashOut: "Total de saídas",
-  cashIn: "Entradas", cashOut: "Saídas", addIn: "Adicionar entrada", addOut: "Adicionar saída",
+  cashIn: "Entradas", cashOut: "Saídas", avgPerSale: "Méd./Venda", avgDailySales: "Méd./Dia", days: "dias", addIn: "Adicionar entrada", addOut: "Adicionar saída",
   whatWasItFor: "Para que foi?", transactionHistory: "Histórico de transações",
   noCashTransactionsYet: "Ainda não há transações em dinheiro", autoSynced: "Sincronizado automaticamente",
   updated: "Atualizado!", movedToDeleted: "Movido para excluídos recentemente",

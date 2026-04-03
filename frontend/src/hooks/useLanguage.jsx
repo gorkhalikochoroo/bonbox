@@ -180,6 +180,7 @@ const translations = {
     // Cash Book page
     cashBalance: "Cash Balance", totalCashIn: "Total Cash In", totalCashOut: "Total Cash Out",
     cashIn: "Cash In", cashOut: "Cash Out", addIn: "Add In", addOut: "Add Out",
+    avgPerSale: "Avg/Sale", avgDailySales: "Avg/Day", days: "days",
     whatWasItFor: "What was it for?", transactionHistory: "Transaction History",
     noCashTransactionsYet: "No cash transactions yet", autoSynced: "Auto-synced",
     updated: "Updated!", movedToDeleted: "Moved to recently deleted",
@@ -687,6 +688,7 @@ const translations = {
     // Cash Book page
     cashBalance: "Kassebeholdning", totalCashIn: "Total indgående", totalCashOut: "Total udgående",
     cashIn: "Indgående", cashOut: "Udgående", addIn: "Tilføj ind", addOut: "Tilføj ud",
+    avgPerSale: "Gns/Salg", avgDailySales: "Gns/Dag", days: "dage",
     whatWasItFor: "Hvad var det til?", transactionHistory: "Transaktionshistorik",
     noCashTransactionsYet: "Ingen kontanttransaktioner endnu", autoSynced: "Auto-synkroniseret",
     updated: "Opdateret!", movedToDeleted: "Flyttet til nyligt slettet",
@@ -1186,6 +1188,7 @@ const translations = {
     // Cash Book page
     cashBalance: "नगद मौज्दात", totalCashIn: "कुल नगद आउने", totalCashOut: "कुल नगद जाने",
     cashIn: "नगद आउने", cashOut: "नगद जाने", addIn: "आउने थप्नुहोस्", addOut: "जाने थप्नुहोस्",
+    avgPerSale: "औसत/बिक्री", avgDailySales: "औसत/दिन", days: "दिन",
     whatWasItFor: "के को लागि थियो?", transactionHistory: "कारोबार इतिहास",
     noCashTransactionsYet: "अहिलेसम्म नगद कारोबार छैन", autoSynced: "स्वचालित",
     updated: "अपडेट भयो!", movedToDeleted: "हालै मेटाइएकोमा सारियो",

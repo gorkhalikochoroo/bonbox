@@ -3,6 +3,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
+import { formatDate, formatDateShort } from "../utils/dateFormat";
 
 const WEATHER_ICONS = {
   clear: "☀️", cloudy: "⛅", rain: "🌧️", drizzle: "🌦️",
@@ -391,7 +392,7 @@ export default function WeatherPage() {
               <div key={i} className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700 last:border-0">
                 <div>
                   <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{sc.staff_name}</p>
-                  <p className="text-xs text-gray-500">{sc.weather_condition || "—"} • {new Date(sc.date).toLocaleDateString()}</p>
+                  <p className="text-xs text-gray-500">{sc.weather_condition || "—"} • {formatDate(sc.date)}</p>
                 </div>
                 {sc.weather_condition && (
                   <span className="text-lg">{WEATHER_ICONS[sc.weather_condition] || ""}</span>

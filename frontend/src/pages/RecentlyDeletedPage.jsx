@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useDarkMode } from "../hooks/useDarkMode";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
+import { formatDate, formatDateShort } from "../utils/dateFormat";
 
 export default function RecentlyDeletedPage() {
   const { user } = useAuth();
@@ -61,23 +62,23 @@ export default function RecentlyDeletedPage() {
     let amount = "";
     switch (tab) {
       case "sales":
-        info = `${item.date} — ${item.payment_method || "mixed"}`;
+        info = `${formatDate(item.date)} — ${item.payment_method || "mixed"}`;
         amount = `${Number(item.amount).toLocaleString()} ${currency}`;
         break;
       case "expenses":
-        info = `${item.date} — ${item.description}`;
+        info = `${formatDate(item.date)} — ${item.description}`;
         amount = `${Number(item.amount).toLocaleString()} ${currency}`;
         break;
       case "waste":
-        info = `${item.date} — ${item.item_name} (${item.quantity} ${item.unit})`;
+        info = `${formatDate(item.date)} — ${item.item_name} (${item.quantity} ${item.unit})`;
         amount = `${Number(item.estimated_cost).toLocaleString()} ${currency}`;
         break;
       case "cashbook":
-        info = `${item.date} — ${item.description} (${item.type})`;
+        info = `${formatDate(item.date)} — ${item.description} (${item.type})`;
         amount = `${Number(item.amount).toLocaleString()} ${currency}`;
         break;
     }
-    const deletedAt = item.deleted_at ? new Date(item.deleted_at).toLocaleDateString() : "";
+    const deletedAt = item.deleted_at ? formatDate(item.deleted_at.split("T")[0]) : "";
 
     return (
       <div key={item.id} className="flex items-center justify-between p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">

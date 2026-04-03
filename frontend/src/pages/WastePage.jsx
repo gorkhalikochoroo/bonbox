@@ -6,6 +6,7 @@ import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { displayCurrency } from "../utils/currency";
+import { formatDate, formatDateShort } from "../utils/dateFormat";
 
 const REASONS = ["expired", "overcooked", "damaged", "other"];
 const REASON_COLORS = { expired: "#ef4444", overcooked: "#f97316", damaged: "#eab308", other: "#6b7280" };
@@ -356,7 +357,7 @@ export default function WastePage() {
                     </>
                   ) : (
                     <>
-                      <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{log.date}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{formatDate(log.date)}</td>
                       <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 font-medium">{log.item_name}</td>
                       <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{parseFloat(log.quantity)} {log.unit}</td>
                       <td className="px-4 py-3">

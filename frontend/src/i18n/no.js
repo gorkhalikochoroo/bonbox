@@ -125,7 +125,7 @@ export const no_ = {
   recentlyDeleted: "Nylig slettet",
   profile: "Profil",
   cashBalance: "Kassebeholdning", totalCashIn: "Totalt innkommende", totalCashOut: "Totalt utgående",
-  cashIn: "Innkommende", cashOut: "Utgående", addIn: "Legg til inn", addOut: "Legg til ut",
+  cashIn: "Innkommende", cashOut: "Utgående", avgPerSale: "Snitt/Salg", avgDailySales: "Snitt/Dag", days: "dager", addIn: "Legg til inn", addOut: "Legg til ut",
   whatWasItFor: "Hva var det til?", transactionHistory: "Transaksjonshistorikk",
   noCashTransactionsYet: "Ingen kontanttransaksjoner ennå", autoSynced: "Automatisk synkronisert",
   updated: "Oppdatert!", movedToDeleted: "Flyttet til nylig slettet",

@@ -6,6 +6,7 @@ import ReceiptCapture from "../components/ReceiptCapture";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { displayCurrency, getTaxConfig } from "../utils/currency";
+import { formatDate, formatDateShort } from "../utils/dateFormat";
 import { getVatTerms } from "../utils/currency";
 import TaxBreakdown from "../components/TaxBreakdown";
 
@@ -105,7 +106,7 @@ export default function SalesPage() {
     const value = amt || parseFloat(amount);
     if (!value) return;
     const duplicate = sales.find(s => s.date === saleDate && parseFloat(s.amount) === value);
-    if (duplicate && !confirm(`${t("aSaleOf")} ${value.toLocaleString()} ${currency} ${t("on")} ${saleDate} ${t("duplicateSaleConfirm")}`)) {
+    if (duplicate && !confirm(`${t("aSaleOf")} ${value.toLocaleString()} ${currency} ${t("on")} ${formatDate(saleDate)} ${t("duplicateSaleConfirm")}`)) {
       return;
     }
     setError("");
@@ -123,7 +124,7 @@ export default function SalesPage() {
       setIsTaxExempt(false);
       setSaleDate(new Date().toISOString().split("T")[0]);
       trackEvent("sale_logged", "sales", `${value} ${currency} via ${method}`);
-      setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${saleDate})` : ""}!`);
+      setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${formatDate(saleDate)})` : ""}!`);
       fetchSales(filterFrom, filterTo);
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
@@ -662,7 +663,7 @@ export default function SalesPage() {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 capitalize">{sale.payment_method}</td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{sale.notes || "—"}</td>
-                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 text-right">{sale.date}</td>
+                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 text-right">{formatDate(sale.date)}</td>
                     <td className="px-6 py-4 text-right space-x-3">
                       <button onClick={() => startEdit(sale)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">{t("edit")}</button>
                       {deleteConfirm === sale.id ? (

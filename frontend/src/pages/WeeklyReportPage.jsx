@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { formatDate, formatDateShort } from "../utils/dateFormat";
 
 export default function WeeklyReportPage() {
   const { t } = useLanguage();
@@ -92,7 +93,7 @@ export default function WeeklyReportPage() {
               {report.daily_breakdown.map((d) => (
                 <tr key={d.date} className="border-t border-gray-50 dark:border-gray-700">
                   <td className="py-2 text-gray-700 dark:text-gray-300 font-medium">{d.day}</td>
-                  <td className="py-2 text-gray-500 dark:text-gray-400">{d.date}</td>
+                  <td className="py-2 text-gray-500 dark:text-gray-400">{formatDate(d.date)}</td>
                   <td className="py-2 text-right font-semibold text-gray-800 dark:text-white">
                     {d.amount.toLocaleString()} {currency}
                   </td>

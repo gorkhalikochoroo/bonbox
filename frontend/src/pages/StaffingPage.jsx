@@ -7,6 +7,7 @@ import {
   LineChart, Line, Legend,
 } from "recharts";
 import { displayCurrency } from "../utils/currency";
+import { formatDate, formatDateShort } from "../utils/dateFormat";
 
 const LEVEL_COLORS = {
   Slow: "bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-700",
@@ -186,7 +187,7 @@ export default function StaffingPage() {
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {recs.map((r) => (
                   <tr key={r.date}>
-                    <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{r.date}</td>
+                    <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{formatDate(r.date)}</td>
                     <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{r.day}</td>
                     <td className="px-6 py-4 text-sm font-medium text-gray-800 dark:text-white">{r.predicted_revenue.toLocaleString()} {currency}</td>
                     <td className="px-6 py-4">

@@ -125,7 +125,7 @@ export const ja = {
   recentlyDeleted: "最近削除した項目",
   profile: "プロフィール",
   cashBalance: "現金残高", totalCashIn: "入金合計", totalCashOut: "出金合計",
-  cashIn: "入金", cashOut: "出金", addIn: "入金を追加", addOut: "出金を追加",
+  cashIn: "入金", cashOut: "出金", avgPerSale: "平均/売上", avgDailySales: "平均/日", days: "日間", addIn: "入金を追加", addOut: "出金を追加",
   whatWasItFor: "何のためですか？", transactionHistory: "取引履歴",
   noCashTransactionsYet: "まだ現金取引がありません", autoSynced: "自動同期",
   updated: "更新しました！", movedToDeleted: "最近削除した項目に移動しました",

@@ -3,6 +3,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { displayCurrency } from "../utils/currency";
 import { useLanguage } from "../hooks/useLanguage";
+import { formatDate, formatDateShort } from "../utils/dateFormat";
 
 export default function LoanTrackerPage() {
   const { user } = useAuth();
@@ -286,7 +287,7 @@ export default function LoanTrackerPage() {
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                     {displayTxns.map((txn) => (
                       <tr key={txn.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{txn.date}</td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{formatDate(txn.date)}</td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                             txn.is_repayment

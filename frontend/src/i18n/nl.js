@@ -125,7 +125,7 @@ export const nl = {
   recentlyDeleted: "Recent verwijderd",
   profile: "Profiel",
   cashBalance: "Kassaldo", totalCashIn: "Totaal inkomend", totalCashOut: "Totaal uitgaand",
-  cashIn: "Inkomend", cashOut: "Uitgaand", addIn: "Inkomend toevoegen", addOut: "Uitgaand toevoegen",
+  cashIn: "Inkomend", cashOut: "Uitgaand", avgPerSale: "Gem./Verkoop", avgDailySales: "Gem./Dag", days: "dagen", addIn: "Inkomend toevoegen", addOut: "Uitgaand toevoegen",
   whatWasItFor: "Waarvoor was het?", transactionHistory: "Transactiegeschiedenis",
   noCashTransactionsYet: "Nog geen contante transacties", autoSynced: "Automatisch gesynchroniseerd",
   updated: "Bijgewerkt!", movedToDeleted: "Verplaatst naar recent verwijderd",

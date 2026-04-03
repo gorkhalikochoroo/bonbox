@@ -3,6 +3,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
+import { formatDate, formatDateShort } from "../utils/dateFormat";
 
 const PERSONAL_CATEGORIES = [
   "Salary", "Freelance", "Side Income", "Gift Received",
@@ -709,7 +710,7 @@ export default function PersonalPage() {
                 const income = isIncome(catName);
                 return (
                   <tr key={e.id}>
-                    <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{e.date}</td>
+                    <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{formatDate(e.date)}</td>
                     <td className="px-6 py-4 text-sm">
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                         income ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400" : "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"

@@ -125,7 +125,7 @@ export const sv = {
   recentlyDeleted: "Nyligen raderat",
   profile: "Profil",
   cashBalance: "Kassabehållning", totalCashIn: "Totalt inkommande", totalCashOut: "Totalt utgående",
-  cashIn: "Inkommande", cashOut: "Utgående", addIn: "Lägg till in", addOut: "Lägg till ut",
+  cashIn: "Inkommande", cashOut: "Utgående", avgPerSale: "Snitt/Försäljning", avgDailySales: "Snitt/Dag", days: "dagar", addIn: "Lägg till in", addOut: "Lägg till ut",
   whatWasItFor: "Vad var det för?", transactionHistory: "Transaktionshistorik",
   noCashTransactionsYet: "Inga kontanttransaktioner ännu", autoSynced: "Automatiskt synkad",
   updated: "Uppdaterad!", movedToDeleted: "Flyttad till nyligen raderat",
