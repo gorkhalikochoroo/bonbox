@@ -5,6 +5,7 @@ import { useDarkMode } from "../hooks/useDarkMode";
 import { useLanguage } from "../hooks/useLanguage";
 import { getVatTerms } from "../utils/currency";
 import QuickAdd from "./QuickAdd";
+import BonBoxAgent from "./BonBoxAgent";
 import { usePageTracking } from "../hooks/useEventLog";
 
 const businessNav = [
@@ -209,6 +210,8 @@ export default function Layout() {
 
       {/* Floating quick-add button */}
       <QuickAdd />
+      {/* AI Agent chat widget */}
+      <BonBoxAgent />
     </div>
   );
 }
