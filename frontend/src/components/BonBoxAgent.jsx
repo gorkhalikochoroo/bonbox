@@ -408,6 +408,14 @@ export default function BonBoxAgent() {
         }
       `}</style>
 
+      {/* Hidden trigger — always in DOM so dashboard "Ask anything" can open the agent */}
+      <button
+        data-bonbox-agent-toggle
+        onClick={handleOpen}
+        aria-hidden="true"
+        className="hidden"
+      />
+
       {/* ============== ORB BUTTON (collapsed state) ============== */}
       {!isOpen && (
         <button
