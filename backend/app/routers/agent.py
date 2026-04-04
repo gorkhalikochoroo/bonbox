@@ -73,6 +73,35 @@ NO_PARAM_TOOLS = {"business_overview"}
 # LOCAL INTENT PARSER — keyword-based tool routing (no API needed)
 # ---------------------------------------------------------------------------
 
+# Features that exist as dashboard pages but don't have chat tools yet.
+# Returns a helpful redirect message instead of confusing the user.
+UNSUPPORTED_FEATURES = [
+    {
+        "keywords": [
+            "weather", "weather smart", "weather-smart", "weathersmart",
+            "forecast", "temperature", "rain", "sunny", "vejr",
+            "mausam",
+        ],
+        "message": (
+            "**Weather Smart** data isn't available through chat yet.\n\n"
+            "Head to the **Weather Smart** page in the sidebar to see weather-based "
+            "demand forecasts, temperature impact on sales, and recommended prep adjustments."
+        ),
+    },
+    {
+        "keywords": [
+            "staffing", "smart staffing", "staff", "schedule", "shift",
+            "employee", "worker", "rota", "roster", "personnel",
+            "vagtplan", "medarbejder", "karmachari",
+        ],
+        "message": (
+            "**Smart Staffing** data isn't available through chat yet.\n\n"
+            "Head to the **Smart Staffing** page in the sidebar to see shift planning, "
+            "staffing recommendations, and labor cost optimization."
+        ),
+    },
+]
+
 # Each pattern maps to: (tool_name, kwargs_extractor)
 INTENT_PATTERNS = [
     # --- Revenue / Sales ---
@@ -138,14 +167,24 @@ PERIOD_PATTERNS = [
 ]
 
 
-def _detect_intent(message: str) -> tuple[str, dict]:
+def _detect_intent(message: str) -> tuple[str | None, dict | str]:
     """
     Parse user message and return (tool_name, kwargs).
-    Falls back to business_overview for general/greeting messages.
+
+    Returns:
+        (tool_name, kwargs_dict)  — matched a database tool
+        (None, redirect_message)  — matched an unsupported feature → return the message
+        ("business_overview", {}) — fallback for greetings / general questions
     """
     msg_lower = message.lower().strip()
 
-    # Detect which tool to use
+    # 1️⃣ Check unsupported features FIRST (weather, staffing, etc.)
+    for feat in UNSUPPORTED_FEATURES:
+        for kw in feat["keywords"]:
+            if kw in msg_lower:
+                return None, feat["message"]
+
+    # 2️⃣ Detect which database tool to use
     matched_tool = None
     for pattern in INTENT_PATTERNS:
         for kw in pattern["keywords"]:
@@ -355,6 +394,18 @@ async def agent_chat(
         try:
             msg = req.message.strip()
             tool_name, kwargs = _detect_intent(msg)
+
+            # ── Unsupported feature → just stream a redirect message ──
+            if tool_name is None:
+                redirect_msg = kwargs  # kwargs holds the message string
+                chunk_size = 4
+                for i in range(0, len(redirect_msg), chunk_size):
+                    chunk = redirect_msg[i : i + chunk_size]
+                    yield f"event: text\ndata: {json.dumps({'delta': chunk})}\n\n"
+                yield f"event: done\ndata: {json.dumps({})}\n\n"
+                return
+
+            # ── Supported tool → run DB query ──
 
             # Notify frontend which tool is running
             yield (
