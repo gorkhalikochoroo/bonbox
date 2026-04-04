@@ -713,39 +713,87 @@ function ExpenseBreakdown({ breakdown, currency, onNavigate }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   TOP SELLERS — ranked list
+   TOP SELLERS — full-width with Qty / Revenue toggle + bars
    ═══════════════════════════════════════════════════════════ */
 
+const TOP_BAR_COLORS = ["#22C55E", "#3B82F6", "#8B5CF6", "#F59E0B", "#EF4444", "#EC4899", "#14B8A6", "#F97316"];
+
 function TopSellersCard({ topSellers, currency, onNavigate }) {
+  const [mode, setMode] = useState("revenue"); // "revenue" | "qty"
   if (!topSellers || topSellers.length === 0) return null;
 
   const medals = ["🥇", "🥈", "🥉"];
 
+  const sorted = [...topSellers].sort((a, b) =>
+    mode === "revenue" ? b.revenue - a.revenue : b.sales - a.sales
+  );
+  const maxVal = mode === "revenue"
+    ? Math.max(...sorted.map((s) => s.revenue), 1)
+    : Math.max(...sorted.map((s) => s.sales), 1);
+  const totalRev = topSellers.reduce((s, i) => s + i.revenue, 0);
+  const totalQty = topSellers.reduce((s, i) => s + i.sales, 0);
+
   return (
     <div
+      className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
       onClick={onNavigate}
-      className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow flex-1"
     >
-      <div className="flex items-center justify-between mb-4">
+      {/* Header with toggle */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         <div>
           <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Top Sellers</h3>
-          <p className="text-xs text-gray-400 mt-0.5">Last 30 days</p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {topSellers.length} products &bull; {mode === "revenue" ? `${totalRev.toLocaleString()} ${currency}` : `${totalQty.toLocaleString()} sold`}
+          </p>
         </div>
-        <span className="text-xs text-blue-500 dark:text-blue-400 font-medium">View all →</span>
+        <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700/50 rounded-lg p-0.5">
+          {[
+            { k: "revenue", label: `Revenue (${currency})` },
+            { k: "qty", label: "Qty Sold" },
+          ].map((opt) => (
+            <button
+              key={opt.k}
+              onClick={(e) => { e.stopPropagation(); setMode(opt.k); }}
+              className={`text-xs font-medium px-3 py-1.5 rounded-md transition-all
+                ${mode === opt.k
+                  ? "bg-white dark:bg-gray-600 text-gray-800 dark:text-white shadow-sm"
+                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
       </div>
-      <div className="space-y-1.5">
-        {topSellers.slice(0, 5).map((item, i) => (
-          <div key={i} className="flex items-center justify-between px-3 py-2.5 bg-gray-50 dark:bg-gray-700/20 rounded-xl">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <span className="text-sm w-5 text-center">{medals[i] || `${i + 1}`}</span>
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate">{item.name}</span>
+
+      {/* Items with horizontal bars */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
+        {sorted.slice(0, 8).map((item, i) => {
+          const val = mode === "revenue" ? item.revenue : item.sales;
+          const barW = Math.max((val / maxVal) * 100, 4);
+          const color = TOP_BAR_COLORS[i % TOP_BAR_COLORS.length];
+          return (
+            <div key={i} className="flex items-center gap-3">
+              <span className="text-sm w-6 text-center flex-shrink-0">{medals[i] || <span className="text-xs text-gray-400 font-medium">{i + 1}</span>}</span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-baseline justify-between mb-1">
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate">{item.name}</span>
+                  <span className="text-sm font-bold flex-shrink-0 ml-2" style={{ color }}>
+                    {mode === "revenue" ? `${item.revenue.toLocaleString()}` : item.sales}
+                  </span>
+                </div>
+                <div className="h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full transition-all duration-500" style={{ width: `${barW}%`, background: color }} />
+                </div>
+                {mode === "revenue" ? (
+                  <span className="text-[10px] text-gray-400 mt-0.5 block">{item.sales} sold</span>
+                ) : (
+                  <span className="text-[10px] text-gray-400 mt-0.5 block">{item.revenue.toLocaleString()} {currency}</span>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-3 flex-shrink-0">
-              <span className="text-xs text-gray-400">{item.sales} sales</span>
-              <span className="text-sm font-bold text-green-600 dark:text-green-400">{item.revenue.toLocaleString()}</span>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -1288,9 +1336,9 @@ export default function DashboardPage() {
         </div>
 
         {/* ═══════════════════════════════════════════════════
-           ROW 2: REVENUE TREND (full width)
+           ROW 2: TOP SELLERS — Qty / Revenue toggle (full width)
            ═══════════════════════════════════════════════════ */}
-        <RevenueTrendChart data={dailyRevData} currency={currency} onNavigate={() => navigate("/reports")} />
+        <TopSellersCard topSellers={topSellers} currency={currency} onNavigate={() => navigate("/sales")} />
 
         {/* ═══════════════════════════════════════════════════
            ROW 3: FORECAST+WEATHER+STAFFING + P&L side by side
@@ -1301,44 +1349,36 @@ export default function DashboardPage() {
         </div>
 
         {/* ═══════════════════════════════════════════════════
-           ROW 4: EXPENSE BREAKDOWN + ALERTS
+           ROW 4: SALES (payments) + EXPENSES together
            ═══════════════════════════════════════════════════ */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <PaymentBreakdownCard paymentBreakdown={paymentBreakdown} currency={currency} onNavigate={() => navigate("/sales")} />
           <ExpenseBreakdown breakdown={monthlyData?.expense_breakdown} currency={currency} onNavigate={() => navigate("/expenses")} />
-          <AlertsPanel actionItems={actionItems} summary={summary} weekComparison={weekComparison} onNavigate={navigate} />
         </div>
 
         {/* ═══════════════════════════════════════════════════
-           ROW 4b: INVENTORY + ASK AGENT
+           ROW 5: INVENTORY + ALERTS
            ═══════════════════════════════════════════════════ */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <InventoryPanel items={inventoryItems} currency={currency} onNavigate={() => navigate("/inventory")} />
-          <div className="flex flex-col gap-4">
-            {/* Ask Agent CTA */}
-            <button
-              onClick={() => {
-                const agentBtn = document.querySelector("[data-bonbox-agent-toggle]");
-                if (agentBtn) agentBtn.click();
-              }}
-              className="w-full flex items-center gap-3 px-5 py-4 bg-gradient-to-r from-blue-500/5 via-purple-500/5 to-pink-500/5 dark:from-blue-500/10 dark:via-purple-500/10 dark:to-pink-500/10 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] active:scale-[0.99] transition-all"
-            >
-              <span className="text-2xl">💬</span>
-              <div className="text-left flex-1 min-w-0">
-                <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Ask anything about your business...</p>
-                <p className="text-xs text-gray-400 mt-0.5">Powered by BonBox Agent</p>
-              </div>
-              <span className="text-[10px] font-bold text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-0.5 rounded-full uppercase tracking-wider flex-shrink-0">Live</span>
-            </button>
-          </div>
+          <AlertsPanel actionItems={actionItems} summary={summary} weekComparison={weekComparison} onNavigate={navigate} />
         </div>
 
-        {/* ═══════════════════════════════════════════════════
-           ROW 5: TOP SELLERS + PAYMENT METHODS
-           ═══════════════════════════════════════════════════ */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <TopSellersCard topSellers={topSellers} currency={currency} onNavigate={() => navigate("/sales")} />
-          <PaymentBreakdownCard paymentBreakdown={paymentBreakdown} currency={currency} onNavigate={() => navigate("/sales")} />
-        </div>
+        {/* Ask Agent CTA */}
+        <button
+          onClick={() => {
+            const agentBtn = document.querySelector("[data-bonbox-agent-toggle]");
+            if (agentBtn) agentBtn.click();
+          }}
+          className="w-full flex items-center gap-3 px-5 py-4 bg-gradient-to-r from-blue-500/5 via-purple-500/5 to-pink-500/5 dark:from-blue-500/10 dark:via-purple-500/10 dark:to-pink-500/10 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] active:scale-[0.99] transition-all"
+        >
+          <span className="text-2xl">💬</span>
+          <div className="text-left flex-1 min-w-0">
+            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Ask anything about your business...</p>
+            <p className="text-xs text-gray-400 mt-0.5">Powered by BonBox Agent</p>
+          </div>
+          <span className="text-[10px] font-bold text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-0.5 rounded-full uppercase tracking-wider flex-shrink-0">Live</span>
+        </button>
 
         {/* ═══════════════════════════════════════════════════
            ROW 6: WEEK COMPARISON + HEALTH SCORE
@@ -1352,6 +1392,11 @@ export default function DashboardPage() {
            ROW 7: GOALS
            ═══════════════════════════════════════════════════ */}
         <GoalTracker todayRevenue={summary.today_revenue} monthRevenue={summary.month_revenue} />
+
+        {/* ═══════════════════════════════════════════════════
+           ROW 8: REVENUE TREND (detailed chart)
+           ═══════════════════════════════════════════════════ */}
+        <RevenueTrendChart data={dailyRevData} currency={currency} onNavigate={() => navigate("/reports")} />
 
         {/* ═══════════════════════════════════════════════════
            ROW 8: RECEIPTS (if any)
