@@ -223,8 +223,9 @@ async def agent_chat(
             logger.exception("Anthropic rate limit hit")
             yield f"event: error\ndata: {json.dumps({'message': 'AI service is busy. Please wait a moment and try again.'})}\n\n"
         except anthropic.APIStatusError as e:
-            logger.exception("Anthropic API status error: %s", e.status_code)
-            yield f"event: error\ndata: {json.dumps({'message': f'AI service error ({e.status_code}). Please try again later.'})}\n\n"
+            detail = str(e.message) if hasattr(e, 'message') else str(e)
+            logger.exception("Anthropic API status error %s: %s", e.status_code, detail)
+            yield f"event: error\ndata: {json.dumps({'message': f'AI error ({e.status_code}): {detail[:200]}'})}\n\n"
         except Exception as e:
             logger.exception("Unexpected error in agent chat")
             yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
