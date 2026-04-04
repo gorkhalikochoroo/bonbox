@@ -202,6 +202,14 @@ export default function BonBoxAgent() {
                   { tool: data.tool, data: data.result.data },
                 ];
               }
+            } else if (event === "error") {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  role: "assistant",
+                  content: data.message || "Something went wrong. Please try again.",
+                },
+              ]);
             }
             // event === "done" handled by the loop ending
           }
