@@ -334,11 +334,12 @@ async def agent_chat(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    use_claude = bool(settings.ANTHROPIC_API_KEY)
+    # Set USE_CLAUDE_API=true in env vars to enable Claude mode (requires API credits)
+    use_claude = settings.ANTHROPIC_API_KEY and getattr(settings, "USE_CLAUDE_API", False)
     currency = user.currency or "DKK"
 
     # ------------------------------------------------------------------
-    # Claude API mode (if API key is set and has credits)
+    # Claude API mode (only when explicitly enabled + has credits)
     # ------------------------------------------------------------------
     if use_claude:
         try:
