@@ -9,7 +9,6 @@ import {
   AnimatedCounter,
   SkeletonCard,
   SkeletonChart,
-  SkeletonWrapper,
   useToast,
   useKeyboardShortcuts,
   ShortcutsHelp,
@@ -18,56 +17,779 @@ import {
 } from "../components/BonBoxPolishKit";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
-  BarChart, Bar, ReferenceLine,
+  AreaChart, Area,
+  BarChart, Bar, Cell, ReferenceLine,
 } from "recharts";
 import { displayCurrency } from "../utils/currency";
-import { formatDate, formatDateShort } from "../utils/dateFormat";
+import { formatDateShort } from "../utils/dateFormat";
 
-const COLORS = ["#22C55E", "#EF4444", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316", "#6366F1", "#84CC16"];
+/* ═══════════════════════════════════════════════════════════
+   CONSTANTS
+   ═══════════════════════════════════════════════════════════ */
 
 const PERIODS = ["today", "thisWeek", "thisMonth", "last30"];
-
-const PERIOD_LABELS = {
-  today: { revenue: "Today's Revenue", profit: "Today's Profit" },
-  thisWeek: { revenue: "This Week's Revenue", profit: "This Week's Profit" },
-  thisMonth: { revenue: "This Month's Revenue", profit: "This Month's Profit" },
-  last30: { revenue: "Last 30 Days Revenue", profit: "Last 30 Days Profit" },
-};
 
 function getDateRange(period) {
   const now = new Date();
   const fmt = (d) => d.toISOString().split("T")[0];
   const today = fmt(now);
-
   switch (period) {
-    case "today":
-      return { from: today, to: today };
-    case "thisWeek": {
-      const d = new Date(now);
-      const day = d.getDay();
-      // Monday-based week: Sunday (0) goes back 6 days, Mon (1) stays, Tue (2) goes back 1, etc.
-      d.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
-      return { from: fmt(d), to: today };
-    }
-    case "thisMonth": {
-      const d = new Date(now.getFullYear(), now.getMonth(), 1);
-      return { from: fmt(d), to: today };
-    }
-    case "last30": {
-      const d = new Date(now);
-      d.setDate(d.getDate() - 30);
-      return { from: fmt(d), to: today };
-    }
-    default:
-      return { from: "", to: "" };
+    case "today": return { from: today, to: today };
+    case "thisWeek": { const d = new Date(now); d.setDate(d.getDate() - (d.getDay() === 0 ? 6 : d.getDay() - 1)); return { from: fmt(d), to: today }; }
+    case "thisMonth": return { from: fmt(new Date(now.getFullYear(), now.getMonth(), 1)), to: today };
+    case "last30": { const d = new Date(now); d.setDate(d.getDate() - 30); return { from: fmt(d), to: today }; }
+    default: return { from: "", to: "" };
   }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   MINI SPARKLINE — tiny inline chart for KPI cards
+   ═══════════════════════════════════════════════════════════ */
+
+function MiniSparkline({ data, color = "#22C55E", height = 32 }) {
+  if (!data || data.length < 2) return null;
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <AreaChart data={data.map((v, i) => ({ v, i }))}>
+        <defs>
+          <linearGradient id={`spark-${color.replace("#", "")}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity={0.3} />
+            <stop offset="100%" stopColor={color} stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <Area type="monotone" dataKey="v" stroke={color} strokeWidth={1.5} fill={`url(#spark-${color.replace("#", "")})`} dot={false} isAnimationActive={false} />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   KPI CARD — polished card with sparkline + change indicator
+   ═══════════════════════════════════════════════════════════ */
+
+function KpiCard({ title, numericValue, value, currency: cur, change, changeLabel, subtitle, alert, sparkData, onClick, highlight }) {
+  const isPositive = change >= 0;
+  const showChange = change !== undefined && change !== null && Math.abs(change) <= 500;
+  const isNew = change !== undefined && (change === -100 || Math.abs(change) > 500);
+
+  return (
+    <button
+      onClick={onClick}
+      className={`relative overflow-hidden rounded-2xl p-4 sm:p-5 text-left w-full transition-all duration-200 cursor-pointer group
+        hover:scale-[1.02] hover:shadow-lg active:scale-[0.98]
+        ${highlight
+          ? "bg-gradient-to-br from-green-500/10 to-emerald-500/5 dark:from-green-500/15 dark:to-emerald-500/5 border-2 border-green-400/30 dark:border-green-500/20"
+          : alert
+            ? "bg-white dark:bg-gray-800 border-2 border-red-300/50 dark:border-red-500/30"
+            : "bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700/60"
+        } shadow-sm`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">{title}</p>
+        <svg className="w-4 h-4 text-gray-300 dark:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+      </div>
+
+      <div className="flex items-baseline gap-1.5 mt-2">
+        <span className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
+          {numericValue !== undefined ? <AnimatedCounter value={numericValue} /> : value}
+        </span>
+        {cur && <span className="text-sm font-medium text-gray-400 dark:text-gray-500">{cur}</span>}
+      </div>
+
+      <div className="flex items-center gap-2 mt-2">
+        {showChange && (
+          <span className={`inline-flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded-md
+            ${isPositive
+              ? "text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30"
+              : "text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-900/30"
+            }`}>
+            {isPositive ? "▲" : "▼"} {Math.abs(change)}%
+          </span>
+        )}
+        {isNew && <span className="text-xs text-blue-500 dark:text-blue-400 font-medium">New day ✨</span>}
+        {changeLabel && <span className="text-xs text-gray-400 dark:text-gray-500">{changeLabel}</span>}
+        {subtitle && !changeLabel && <span className="text-xs text-gray-400 dark:text-gray-500">{subtitle}</span>}
+      </div>
+
+      {/* Sparkline */}
+      {sparkData && sparkData.length > 1 && (
+        <div className="mt-2 -mx-1">
+          <MiniSparkline data={sparkData} color={isPositive || change === undefined ? "#22C55E" : "#EF4444"} height={28} />
+        </div>
+      )}
+    </button>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   REVENUE TREND — gradient filled line with avg reference
+   ═══════════════════════════════════════════════════════════ */
+
+function RevenueTrendChart({ data, currency, onNavigate }) {
+  if (!data || data.length === 0) return null;
+  const avg = Math.round(data.reduce((s, d) => s + d.amount, 0) / data.length);
+
+  return (
+    <div
+      onClick={onNavigate}
+      className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+    >
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Revenue Trend</h3>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Daily revenue with average reference</p>
+        </div>
+        <div className="flex items-center gap-4 text-xs text-gray-400">
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-0.5 bg-green-500 rounded-full inline-block" /> Daily
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-0 border-t border-dashed border-gray-400 inline-block" style={{ width: 12 }} /> Avg {avg.toLocaleString()}
+          </span>
+        </div>
+      </div>
+      <ResponsiveContainer width="100%" height={240}>
+        <AreaChart data={data}>
+          <defs>
+            <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#22C55E" stopOpacity={0.15} />
+              <stop offset="100%" stopColor="#22C55E" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(156,163,175,0.15)" />
+          <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#9CA3AF" }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fontSize: 11, fill: "#9CA3AF" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+          <Tooltip
+            contentStyle={{ background: "rgba(17,24,39,0.95)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, color: "#f1f1f1", fontSize: 13 }}
+            formatter={(v) => [`${v.toLocaleString()} ${currency}`, "Revenue"]}
+          />
+          <ReferenceLine y={avg} stroke="rgba(156,163,175,0.4)" strokeDasharray="5 5" />
+          <Area type="monotone" dataKey="amount" stroke="#22C55E" strokeWidth={2} fill="url(#revenueGrad)" dot={false} activeDot={{ r: 4, fill: "#22C55E" }} />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   FORECAST BARS — 7-day forecast with weekend highlight
+   ═══════════════════════════════════════════════════════════ */
+
+function ForecastPanel({ forecast, currency, onNavigate }) {
+  if (!forecast?.forecast?.length) return null;
+  const data = forecast.forecast;
+  const total = forecast.total_predicted || data.reduce((s, f) => s + f.predicted_revenue, 0);
+  const avgDaily = forecast.avg_daily_predicted || Math.round(total / data.length);
+  const weekendDays = ["Fri", "Sat", "Sun", "Friday", "Saturday", "Sunday"];
+
+  return (
+    <div
+      onClick={onNavigate}
+      className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow flex-1"
+    >
+      <div className="flex items-start justify-between mb-1">
+        <div>
+          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Revenue Forecast</h3>
+          <p className="text-xs text-gray-400 mt-0.5">
+            Next 7 days &bull; Confidence: {forecast.confidence || 95}%
+            &bull; {forecast.trend_direction === "up" ? "📈" : forecast.trend_direction === "down" ? "📉" : "📊"}{" "}
+            {forecast.trend_direction === "up" ? "Trending up" : forecast.trend_direction === "down" ? "Trending down" : "Stable"}
+          </p>
+        </div>
+        <div className="text-right flex-shrink-0">
+          <p className="text-xl font-bold text-blue-600 dark:text-blue-400">{total.toLocaleString()} {currency}</p>
+          <p className="text-xs text-gray-400">Avg/Day: {avgDaily.toLocaleString()} {currency}</p>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <ResponsiveContainer width="100%" height={160}>
+          <BarChart data={data} barSize={undefined}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(156,163,175,0.1)" vertical={false} />
+            <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#9CA3AF" }} axisLine={false} tickLine={false} tickFormatter={(v) => v.slice(0, 3)} />
+            <YAxis tick={{ fontSize: 10, fill: "#9CA3AF" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+            <Tooltip
+              contentStyle={{ background: "rgba(17,24,39,0.95)", border: "none", borderRadius: 10, color: "#f1f1f1", fontSize: 13 }}
+              formatter={(v) => [`${v.toLocaleString()} ${currency}`, "Predicted"]}
+            />
+            <Bar dataKey="predicted_revenue" radius={[6, 6, 0, 0]}>
+              {data.map((entry, i) => (
+                <Cell key={i} fill={weekendDays.some((d) => entry.day?.startsWith(d)) ? "#3B82F6" : "rgba(59,130,246,0.4)"} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div className="grid grid-cols-7 gap-1 mt-2">
+        {data.map((f, i) => (
+          <div key={i} className="text-center">
+            <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-400">{(f.day || "").slice(0, 3)}</p>
+            <p className="text-xs font-bold text-gray-800 dark:text-white">{(f.predicted_revenue / 1000).toFixed(1)}k</p>
+            <p className="text-[10px] text-gray-400">{f.confidence || 95}%</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   P&L SUMMARY — compact profit/loss card
+   ═══════════════════════════════════════════════════════════ */
+
+function PLCard({ revenue, expenses, profit, margin, currency, onNavigate }) {
+  const isProfit = profit >= 0;
+  return (
+    <div
+      onClick={onNavigate}
+      className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow flex-1"
+    >
+      <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Profit & Loss</h3>
+      <p className="text-xs text-gray-400 mt-0.5 mb-4">This month</p>
+
+      <div className="border-b border-gray-100 dark:border-gray-700 pb-3 mb-3 space-y-2">
+        <div className="flex justify-between">
+          <span className="text-sm text-gray-500 dark:text-gray-400">Revenue</span>
+          <span className="text-sm font-semibold text-green-600 dark:text-green-400">+{revenue.toLocaleString()} {currency}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-sm text-gray-500 dark:text-gray-400">Expenses</span>
+          <span className="text-sm font-semibold text-red-500 dark:text-red-400">-{expenses.toLocaleString()} {currency}</span>
+        </div>
+      </div>
+
+      <div className="flex justify-between items-baseline">
+        <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Net Profit</span>
+        <div className="text-right">
+          <p className={`text-xl font-bold ${isProfit ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400"}`}>
+            {isProfit ? "+" : ""}{profit.toLocaleString()} {currency}
+          </p>
+          <p className="text-xs text-gray-400">Margin: {margin}%</p>
+        </div>
+      </div>
+
+      <div className={`mt-3 px-3 py-2.5 rounded-xl text-xs leading-relaxed
+        ${isProfit
+          ? "bg-green-50 dark:bg-green-900/15 text-green-700 dark:text-green-400 border border-green-200/50 dark:border-green-800/30"
+          : "bg-red-50 dark:bg-red-900/15 text-red-600 dark:text-red-400 border border-red-200/50 dark:border-red-800/30"
+        }`}>
+        {isProfit
+          ? "On track for profitability this month. Keep up the momentum!"
+          : "Expenses are exceeding revenue. Consider reviewing your top cost categories."}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   EXPENSE BREAKDOWN — horizontal bars (replaces donut)
+   ═══════════════════════════════════════════════════════════ */
+
+const EXPENSE_COLORS = ["#EF4444", "#F59E0B", "#22C55E", "#3B82F6", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316"];
+
+function ExpenseBreakdown({ breakdown, currency, onNavigate }) {
+  if (!breakdown || breakdown.length === 0) return null;
+
+  const total = breakdown.reduce((s, e) => s + e.amount, 0);
+  const sorted = [...breakdown].sort((a, b) => b.amount - a.amount);
+  const maxAmount = sorted[0]?.amount || 1;
+
+  return (
+    <div
+      onClick={onNavigate}
+      className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow flex-1"
+    >
+      <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Expense Breakdown</h3>
+      <p className="text-xs text-gray-400 mt-0.5 mb-4">This month by category</p>
+
+      <div className="space-y-3">
+        {sorted.slice(0, 6).map((e, i) => {
+          const pct = total > 0 ? Math.round((e.amount / total) * 100) : 0;
+          const barWidth = Math.max((e.amount / maxAmount) * 100, 4);
+          const color = EXPENSE_COLORS[i % EXPENSE_COLORS.length];
+          return (
+            <div key={i}>
+              <div className="flex justify-between items-baseline mb-1">
+                <span className="text-sm text-gray-700 dark:text-gray-200">{e.category}</span>
+                <span className="text-sm text-gray-400">
+                  {Math.round(e.amount).toLocaleString()} {currency} &middot; {pct}%
+                </span>
+              </div>
+              <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-700"
+                  style={{ width: `${barWidth}%`, background: color }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {total > 0 && (
+        <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700 flex justify-between">
+          <span className="text-sm text-gray-500 dark:text-gray-400">Total</span>
+          <span className="text-sm font-bold text-gray-700 dark:text-gray-200">{Math.round(total).toLocaleString()} {currency}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   AI INSIGHTS — connected to the BonBox Agent
+   ═══════════════════════════════════════════════════════════ */
+
+function AIInsightsPanel({ actionItems, summary, weekComparison, onNavigate }) {
+  // Build insights from real data
+  const insights = [];
+
+  // Action items from API
+  if (actionItems?.length > 0) {
+    actionItems.slice(0, 2).forEach((item) => {
+      const typeMap = { restock: "warning", expiring: "alert", cost: "alert", tip: "info" };
+      const iconMap = { restock: "📦", expiring: "⏰", cost: "💸", tip: "💡" };
+      insights.push({
+        type: typeMap[item.type] || "info",
+        icon: iconMap[item.type] || "💡",
+        text: `${item.title} — ${item.detail}`,
+        action: item.type === "restock" ? "View Inventory" : item.type === "cost" ? "Check Expenses" : "View Details",
+        route: item.type === "restock" ? "/inventory" : item.type === "cost" ? "/expenses" : "/reports",
+      });
+    });
+  }
+
+  // Week comparison insight
+  if (weekComparison && weekComparison.change_pct !== 0) {
+    const up = weekComparison.change_pct > 0;
+    insights.push({
+      type: up ? "success" : "alert",
+      icon: up ? "📈" : "📉",
+      text: `Weekly revenue ${up ? "up" : "down"} ${Math.abs(weekComparison.change_pct)}% vs last week`,
+      action: "View Details",
+      route: "/reports",
+    });
+  }
+
+  // Profit margin insight
+  if (summary) {
+    const margin = summary.profit_margin || 0;
+    if (margin > 0 && margin < 15) {
+      insights.push({
+        type: "warning",
+        icon: "⚡",
+        text: `Profit margin is ${margin}% — below the 15% healthy threshold`,
+        action: "Review Expenses",
+        route: "/expenses",
+      });
+    } else if (margin >= 15) {
+      insights.push({
+        type: "success",
+        icon: "💪",
+        text: `Healthy ${margin}% profit margin this month`,
+        action: "View Reports",
+        route: "/reports",
+      });
+    }
+  }
+
+  // Inventory alerts
+  if (summary?.inventory_alerts > 0) {
+    insights.push({
+      type: "warning",
+      icon: "📦",
+      text: `${summary.inventory_alerts} items below minimum stock level`,
+      action: "View Inventory",
+      route: "/inventory",
+    });
+  }
+
+  if (insights.length === 0) {
+    insights.push({
+      type: "success",
+      icon: "✅",
+      text: "Everything looks good! No alerts right now.",
+      action: "View Reports",
+      route: "/reports",
+    });
+  }
+
+  const colors = {
+    warning: { bg: "bg-amber-50 dark:bg-amber-900/10", border: "border-amber-200/60 dark:border-amber-800/30", text: "text-amber-600 dark:text-amber-400" },
+    alert: { bg: "bg-red-50 dark:bg-red-900/10", border: "border-red-200/60 dark:border-red-800/30", text: "text-red-600 dark:text-red-400" },
+    success: { bg: "bg-green-50 dark:bg-green-900/10", border: "border-green-200/60 dark:border-green-800/30", text: "text-green-600 dark:text-green-400" },
+    info: { bg: "bg-blue-50 dark:bg-blue-900/10", border: "border-blue-200/60 dark:border-blue-800/30", text: "text-blue-600 dark:text-blue-400" },
+  };
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm flex-1">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">AI Insights</h3>
+          <p className="text-xs text-gray-400 mt-0.5">Powered by BonBox Agent</p>
+        </div>
+        <span className="text-[10px] font-bold text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-0.5 rounded-full uppercase tracking-wider">Live</span>
+      </div>
+
+      <div className="space-y-2">
+        {insights.slice(0, 4).map((ins, i) => {
+          const c = colors[ins.type] || colors.info;
+          return (
+            <div
+              key={i}
+              onClick={(e) => { e.stopPropagation(); onNavigate(ins.route); }}
+              className={`${c.bg} border ${c.border} rounded-xl px-3 py-2.5 flex items-start gap-2.5 cursor-pointer hover:opacity-80 transition`}
+            >
+              <span className="text-sm mt-0.5">{ins.icon}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-gray-700 dark:text-gray-200 leading-relaxed">{ins.text}</p>
+                <button className={`text-[11px] font-semibold ${c.text} mt-1`}>{ins.action} →</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Ask Agent CTA */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          // Trigger the BonBox Agent chat
+          const agentBtn = document.querySelector("[data-bonbox-agent-toggle]");
+          if (agentBtn) agentBtn.click();
+        }}
+        className="mt-3 w-full flex items-center gap-2 px-3 py-2.5 bg-gray-50 dark:bg-gray-700/30 rounded-xl border border-gray-100 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50 transition"
+      >
+        <span className="text-sm">💬</span>
+        <span className="text-xs text-gray-400">Ask anything about your business...</span>
+      </button>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TOP SELLERS — ranked list
+   ═══════════════════════════════════════════════════════════ */
+
+function TopSellersCard({ topSellers, currency, onNavigate }) {
+  if (!topSellers || topSellers.length === 0) return null;
+
+  const medals = ["🥇", "🥈", "🥉"];
+
+  return (
+    <div
+      onClick={onNavigate}
+      className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow flex-1"
+    >
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Top Sellers</h3>
+          <p className="text-xs text-gray-400 mt-0.5">Last 30 days</p>
+        </div>
+        <span className="text-xs text-blue-500 dark:text-blue-400 font-medium">View all →</span>
+      </div>
+      <div className="space-y-1.5">
+        {topSellers.slice(0, 5).map((item, i) => (
+          <div key={i} className="flex items-center justify-between px-3 py-2.5 bg-gray-50 dark:bg-gray-700/20 rounded-xl">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="text-sm w-5 text-center">{medals[i] || `${i + 1}`}</span>
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate">{item.name}</span>
+            </div>
+            <div className="flex items-center gap-3 flex-shrink-0">
+              <span className="text-xs text-gray-400">{item.sales} sales</span>
+              <span className="text-sm font-bold text-green-600 dark:text-green-400">{item.revenue.toLocaleString()}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PAYMENT METHODS — horizontal bar summary
+   ═══════════════════════════════════════════════════════════ */
+
+function PaymentBreakdownCard({ paymentBreakdown, currency, onNavigate }) {
+  if (!paymentBreakdown || paymentBreakdown.length === 0) return null;
+  const total = paymentBreakdown.reduce((s, p) => s + p.amount, 0);
+  const methodColors = { cash: "#22C55E", card: "#3B82F6", mobilepay: "#8B5CF6" };
+
+  return (
+    <div
+      onClick={onNavigate}
+      className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow flex-1"
+    >
+      <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Payment Methods</h3>
+      <p className="text-xs text-gray-400 mt-0.5 mb-4">This month</p>
+
+      {/* Stacked bar */}
+      {total > 0 && (
+        <div className="flex h-3 rounded-full overflow-hidden mb-4">
+          {paymentBreakdown.sort((a, b) => b.amount - a.amount).map((p, i) => (
+            <div
+              key={i}
+              className="h-full transition-all duration-500"
+              style={{ width: `${(p.amount / total) * 100}%`, background: methodColors[p.method] || "#9CA3AF" }}
+            />
+          ))}
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {paymentBreakdown.sort((a, b) => b.amount - a.amount).map((p) => {
+          const pct = total > 0 ? Math.round((p.amount / total) * 100) : 0;
+          const color = methodColors[p.method] || "#9CA3AF";
+          const label = p.method.charAt(0).toUpperCase() + p.method.slice(1);
+          return (
+            <div key={p.method} className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: color }} />
+                <span className="text-sm text-gray-700 dark:text-gray-200">{label}</span>
+                <span className="text-xs text-gray-400">{p.count} sales</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">{Math.round(p.amount).toLocaleString()}</span>
+                <span className="text-xs text-gray-400 w-8 text-right">{pct}%</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   WEEK COMPARISON — clean side-by-side
+   ═══════════════════════════════════════════════════════════ */
+
+function WeekComparisonCard({ weekComparison, currency, onNavigate }) {
+  if (!weekComparison) return null;
+
+  const rows = [
+    { label: "Revenue", thisWeek: weekComparison.this_week_revenue, lastWeek: weekComparison.last_week_revenue, goodUp: true },
+    { label: "Expenses", thisWeek: weekComparison.this_week_expenses, lastWeek: weekComparison.last_week_expenses, goodUp: false },
+    { label: "Profit", thisWeek: weekComparison.this_week_profit, lastWeek: weekComparison.last_week_profit, goodUp: true },
+  ];
+
+  return (
+    <div
+      onClick={onNavigate}
+      className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+    >
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Week vs Last Week</h3>
+          <p className="text-xs text-gray-400 mt-0.5">Performance comparison</p>
+        </div>
+        {weekComparison.change_pct !== 0 && (
+          <span className={`text-sm font-bold px-2.5 py-1 rounded-lg
+            ${weekComparison.change_pct > 0
+              ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+              : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
+            }`}>
+            {weekComparison.change_pct > 0 ? "↑" : "↓"} {Math.abs(weekComparison.change_pct)}%
+          </span>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        {rows.map((row) => {
+          const diff = row.lastWeek > 0 ? Math.round(((row.thisWeek - row.lastWeek) / Math.abs(row.lastWeek)) * 100) : 0;
+          const clampedDiff = Math.max(-500, Math.min(500, diff));
+          const isUp = clampedDiff > 0;
+          const isGood = row.goodUp ? isUp : !isUp;
+          return (
+            <div key={row.label} className="flex items-center justify-between py-2.5 px-3 bg-gray-50 dark:bg-gray-700/20 rounded-xl">
+              <span className="text-sm font-medium text-gray-600 dark:text-gray-300 w-20">{row.label}</span>
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <p className="text-xs text-gray-400">This week</p>
+                  <p className="text-sm font-bold text-gray-800 dark:text-white">{Math.round(row.thisWeek).toLocaleString()}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-gray-400">Last week</p>
+                  <p className="text-sm text-gray-500">{Math.round(row.lastWeek).toLocaleString()}</p>
+                </div>
+                {clampedDiff !== 0 && (
+                  <span className={`text-xs font-bold px-1.5 py-0.5 rounded-md
+                    ${isGood
+                      ? "text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30"
+                      : "text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-900/30"
+                    }`}>
+                    {isUp ? "↑" : "↓"}{Math.abs(clampedDiff)}%
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   BUSINESS HEALTH SCORE — circular gauge
+   ═══════════════════════════════════════════════════════════ */
+
+function HealthScore({ summary, monthlyData, onNavigate }) {
+  const factors = [];
+
+  const margin = summary?.profit_margin || 0;
+  factors.push({ label: "Profitability", score: Math.min(Math.round(margin * 1.5), 30), max: 30 });
+
+  const dailyRevenue = monthlyData?.daily_revenue || [];
+  const daysWithSales = dailyRevenue.filter((d) => d.amount > 0).length;
+  const totalDays = Math.max(dailyRevenue.length, 1);
+  factors.push({ label: "Consistency", score: Math.min(Math.round((daysWithSales / totalDays) * 25), 25), max: 25 });
+
+  const growthChange = Math.max(-500, Math.min(500, summary?.today_revenue_change || 0));
+  const growthScore = growthChange > 0 ? Math.min(Math.round(growthChange), 20) : growthChange === 0 ? 10 : Math.max(10 + Math.round(growthChange / 2), 0);
+  factors.push({ label: "Growth", score: growthScore, max: 20 });
+
+  const expenseRatio = (summary?.month_revenue || 0) > 0 ? (summary?.month_expenses || 0) / summary.month_revenue : 1;
+  factors.push({ label: "Cost Control", score: Math.round(Math.max(0, (1 - expenseRatio)) * 15), max: 15 });
+
+  factors.push({ label: "Activity", score: (summary?.today_revenue || 0) > 0 ? 10 : 0, max: 10 });
+
+  const total = factors.reduce((s, f) => s + f.score, 0);
+  const color = total >= 75 ? "#22C55E" : total >= 50 ? "#F59E0B" : total >= 25 ? "#F97316" : "#EF4444";
+  const label = total >= 75 ? "Excellent" : total >= 50 ? "Good" : total >= 25 ? "Needs Work" : "Critical";
+
+  const circumference = 2 * Math.PI * 34;
+  const filled = (total / 100) * circumference;
+
+  return (
+    <div
+      onClick={onNavigate}
+      className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+    >
+      <div className="flex flex-col sm:flex-row sm:items-center gap-5">
+        {/* Gauge */}
+        <div className="flex items-center sm:flex-col gap-4 sm:gap-2">
+          <div className="relative w-20 h-20 flex-shrink-0">
+            <svg className="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
+              <circle cx="40" cy="40" r="34" fill="none" stroke="currentColor" strokeWidth="5" className="text-gray-100 dark:text-gray-700" />
+              <circle cx="40" cy="40" r="34" fill="none" strokeWidth="5" strokeLinecap="round" stroke={color}
+                strokeDasharray={`${filled} ${circumference}`}
+                style={{ transition: "stroke-dasharray 1s ease" }}
+              />
+            </svg>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="text-xl font-bold" style={{ color }}>{total}</span>
+            </div>
+          </div>
+          <div className="sm:text-center">
+            <p className="text-sm font-semibold text-gray-800 dark:text-white">Business Health</p>
+            <p className="text-xs font-medium" style={{ color }}>{label}</p>
+          </div>
+        </div>
+
+        {/* Factor bars */}
+        <div className="flex-1 space-y-2">
+          {factors.map((f) => (
+            <div key={f.label} className="flex items-center gap-3">
+              <span className="text-xs text-gray-500 dark:text-gray-400 w-20 shrink-0">{f.label}</span>
+              <div className="flex-1 h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                <div className="h-full rounded-full transition-all duration-700" style={{ width: `${(f.score / f.max) * 100}%`, background: color }} />
+              </div>
+              <span className="text-xs text-gray-400 w-8 text-right">{f.score}/{f.max}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   GOAL TRACKER — daily + monthly progress bars
+   ═══════════════════════════════════════════════════════════ */
+
+function GoalTracker({ todayRevenue, monthRevenue }) {
+  const { user } = useAuth();
+  const currency = displayCurrency(user?.currency);
+  const { t } = useLanguage();
+  const [dailyGoal, setDailyGoal] = useState(user?.daily_goal || 0);
+  const [monthlyGoal, setMonthlyGoal] = useState(user?.monthly_goal || 0);
+  const [editing, setEditing] = useState(null);
+  const [inputVal, setInputVal] = useState("");
+
+  const saveGoal = async (type) => {
+    const val = parseFloat(inputVal);
+    if (!val || val <= 0) return;
+    try {
+      if (type === "daily") { await api.patch("/auth/daily-goal", null, { params: { goal: val } }); setDailyGoal(val); }
+      else { await api.patch("/auth/monthly-goal", null, { params: { goal: val } }); setMonthlyGoal(val); }
+      setEditing(null);
+    } catch { /* ignore */ }
+  };
+
+  const GoalBar = ({ label, current, goal, type, color }) => {
+    const pct = goal > 0 ? Math.min(Math.round((current / goal) * 100), 100) : 0;
+    const hit = pct >= 100;
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-1.5">
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
+            {label} {hit && <span className="text-green-600 text-xs ml-1">🎯 {t("reached")}</span>}
+          </p>
+          {editing === type ? (
+            <div className="flex gap-1.5">
+              <input type="number" value={inputVal} onChange={(e) => setInputVal(e.target.value)} placeholder={String(goal)}
+                className="w-24 px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-xs bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                autoFocus onKeyDown={(e) => e.key === "Enter" && saveGoal(type)} />
+              <button onClick={() => saveGoal(type)} className="px-2 py-1 bg-blue-600 text-white rounded-lg text-xs font-medium">{t("save")}</button>
+              <button onClick={() => setEditing(null)} className="text-gray-400 text-xs">✕</button>
+            </div>
+          ) : goal > 0 ? (
+            <button onClick={() => { setEditing(type); setInputVal(String(goal)); }} className="text-xs text-blue-500 hover:underline">{t("edit")}</button>
+          ) : (
+            <button onClick={() => { setEditing(type); setInputVal(""); }} className="text-xs text-blue-600 font-medium hover:underline">{t("setGoal")}</button>
+          )}
+        </div>
+        {goal > 0 ? (
+          <>
+            <div className="flex items-baseline justify-between mb-1">
+              <span className="text-xs text-gray-500 dark:text-gray-400">{current.toLocaleString()} / {goal.toLocaleString()} {currency}</span>
+              <span className={`text-xs font-semibold ${hit ? "text-green-600" : "text-gray-500"}`}>{pct}%</span>
+            </div>
+            <div className="w-full h-2.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div className={`h-full rounded-full transition-all duration-500 ${hit ? "bg-green-500" : color}`} style={{ width: `${pct}%` }} />
+            </div>
+          </>
+        ) : (
+          <p className="text-xs text-gray-400">{t("trackProgress")}</p>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm space-y-4">
+      <GoalBar label={t("dailyGoal")} current={todayRevenue} goal={dailyGoal} type="daily" color="bg-blue-500" />
+      <GoalBar label={t("monthlyGoal")} current={monthRevenue} goal={monthlyGoal} type="monthly" color="bg-purple-500" />
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MAIN DASHBOARD
+   ═══════════════════════════════════════════════════════════ */
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
+  const navigate = useNavigate();
+  const { showToast, ToastContainer } = useToast();
+
+  // ── State ──
   const [summary, setSummary] = useState(null);
   const [monthlyData, setMonthlyData] = useState(null);
   const [lastSale, setLastSale] = useState(null);
@@ -88,12 +810,8 @@ export default function DashboardPage() {
   const [saleModal, setSaleModal] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [lightboxImg, setLightboxImg] = useState(null);
-  const [expandedKpi, setExpandedKpi] = useState(null); // "revenue" | "profit" | "expense" | "alerts"
-  const [todaySales, setTodaySales] = useState([]);
-  const [todayExpenses, setTodayExpenses] = useState([]);
-  const navigate = useNavigate();
-  const { showToast, ToastContainer } = useToast();
 
+  // ── Keyboard shortcuts ──
   useKeyboardShortcuts({
     s: () => setSaleModal(true),
     e: () => navigate("/expenses"),
@@ -104,131 +822,64 @@ export default function DashboardPage() {
     escape: () => { setSaleModal(false); setHelpOpen(false); },
   });
 
-  const handleQuickSale = async (amount) => {
-    try {
-      await api.post("/sales", {
-        amount,
-        date: new Date().toISOString().split("T")[0],
-        payment_method: "cash",
-        description: t("quickSaleDesc"),
-      });
-      showToast(`${t("saleLogged")} ${amount.toLocaleString()} ${currency}`, "success");
-      fetchAll();
-    } catch {
-      showToast(t("failedToLogSale"), "error");
-    }
-  };
-
-  const invStats = useMemo(() => {
-    let totalCost = 0, totalRevenue = 0, lowStock = 0, itemsWithMargin = 0, totalMarginPct = 0;
-    const marginItems = [];
-    inventoryItems.forEach((i) => {
-      const qty = parseFloat(i.quantity);
-      const buy = parseFloat(i.cost_per_unit);
-      const sell = i.sell_price != null ? parseFloat(i.sell_price) : null;
-      totalCost += qty * buy;
-      if (qty <= parseFloat(i.min_threshold)) lowStock++;
-      if (sell != null) {
-        totalRevenue += qty * sell;
-        if (buy > 0) {
-          const marginPct = ((sell - buy) / buy) * 100;
-          totalMarginPct += marginPct;
-          itemsWithMargin++;
-          marginItems.push({ name: i.name, margin: Math.round(marginPct), profit: Math.round((sell - buy) * qty) });
-        }
-      }
-    });
-    const totalProfit = totalRevenue - totalCost;
-    const avgMargin = itemsWithMargin > 0 ? Math.round(totalMarginPct / itemsWithMargin) : 0;
-    const topMargin = marginItems.sort((a, b) => b.margin - a.margin).slice(0, 4);
-    return { totalCost, totalRevenue, totalProfit, avgMargin, lowStock, topMargin, count: inventoryItems.length };
-  }, [inventoryItems]);
-
+  // ── Derived data ──
   const dateRange = useMemo(() => {
     if (period === "custom") return { from: customFrom, to: customTo };
     return getDateRange(period);
   }, [period, customFrom, customTo]);
 
+  const invStats = useMemo(() => {
+    let lowStock = 0;
+    inventoryItems.forEach((i) => {
+      if (parseFloat(i.quantity) <= parseFloat(i.min_threshold)) lowStock++;
+    });
+    return { lowStock, count: inventoryItems.length };
+  }, [inventoryItems]);
+
+  // ── Data fetching ──
   const fetchAll = () => {
-    api.get("/dashboard/summary").then((res) => setSummary(res.data)).catch(() => {});
+    api.get("/dashboard/summary").then((r) => setSummary(r.data)).catch(() => {});
     const now = new Date();
-    api
-      .get("/reports/monthly", { params: { month: now.getMonth() + 1, year: now.getFullYear() } })
-      .then((res) => setMonthlyData(res.data)).catch(() => {});
-    api.get("/sales/latest").then((res) => setLastSale(res.data)).catch(() => {});
-    api.get("/sales/receipts").then((res) => setReceipts(res.data)).catch(() => {});
-    api.get("/reports/forecast", { params: { days: 7 } }).then((res) => setForecast(res.data)).catch(() => {});
-    api.get("/expenses/categories").then((res) => setCategories(res.data)).catch(() => {});
-    api.get("/dashboard/benchmarks").then((res) => setBenchmarks(res.data)).catch(() => {});
-    api.get("/inventory").then((res) => setInventoryItems(res.data)).catch(() => {});
-    api.get("/dashboard/top-sellers").then((res) => setTopSellers(res.data)).catch(() => {});
-    api.get("/dashboard/action-items").then((res) => setActionItems(res.data)).catch(() => {});
-    api.get("/dashboard/week-comparison").then((res) => setWeekComparison(res.data)).catch(() => {});
-    api.get("/dashboard/payment-breakdown").then((res) => setPaymentBreakdown(res.data)).catch(() => {});
-    const today = new Date().toISOString().split("T")[0];
-    api.get("/sales", { params: { from: today, to: today } }).then((res) => setTodaySales(res.data)).catch(() => {});
-    api.get("/expenses", { params: { from: today, to: today } }).then((res) => setTodayExpenses(res.data)).catch(() => {});
+    api.get("/reports/monthly", { params: { month: now.getMonth() + 1, year: now.getFullYear() } }).then((r) => setMonthlyData(r.data)).catch(() => {});
+    api.get("/sales/latest").then((r) => setLastSale(r.data)).catch(() => {});
+    api.get("/sales/receipts").then((r) => setReceipts(r.data)).catch(() => {});
+    api.get("/reports/forecast", { params: { days: 7 } }).then((r) => setForecast(r.data)).catch(() => {});
+    api.get("/expenses/categories").then((r) => setCategories(r.data)).catch(() => {});
+    api.get("/dashboard/benchmarks").then((r) => setBenchmarks(r.data)).catch(() => {});
+    api.get("/inventory").then((r) => setInventoryItems(r.data)).catch(() => {});
+    api.get("/dashboard/top-sellers").then((r) => setTopSellers(r.data)).catch(() => {});
+    api.get("/dashboard/action-items").then((r) => setActionItems(r.data)).catch(() => {});
+    api.get("/dashboard/week-comparison").then((r) => setWeekComparison(r.data)).catch(() => {});
+    api.get("/dashboard/payment-breakdown").then((r) => setPaymentBreakdown(r.data)).catch(() => {});
   };
 
-  // Fetch period-specific data
+  // Fetch period-specific stats
   useEffect(() => {
     if (!dateRange.from || !dateRange.to) return;
     if (period === "today") { setPeriodStats(null); return; }
     const params = { from: dateRange.from, to: dateRange.to };
-    Promise.all([
-      api.get("/sales", { params }),
-      api.get("/expenses", { params }),
-    ]).then(([salesRes, expRes]) => {
+    Promise.all([api.get("/sales", { params }), api.get("/expenses", { params })]).then(([salesRes, expRes]) => {
       const sales = salesRes.data;
       const expenses = expRes.data;
       const totalRevenue = sales.reduce((s, x) => s + parseFloat(x.amount), 0);
       const totalExpenses = expenses.reduce((s, x) => s + parseFloat(x.amount), 0);
-
-      // Group expenses by category (use description as fallback)
       const catMap = {};
-      expenses.forEach((e) => {
-        const key = e.category_id || "other";
-        catMap[key] = (catMap[key] || 0) + parseFloat(e.amount);
-      });
+      expenses.forEach((e) => { catMap[e.category_id || "other"] = (catMap[e.category_id || "other"] || 0) + parseFloat(e.amount); });
       const topCat = Object.entries(catMap).sort((a, b) => b[1] - a[1])[0];
-
-      // Resolve top expense category name
       let topExpenseCategoryName = null;
-      if (topCat) {
-        const catObj = categories.find((c) => c.id === topCat[0]);
-        topExpenseCategoryName = catObj ? catObj.name : "Other";
-      }
-
-      // Daily revenue for chart
-      const dailyMap = {};
-      sales.forEach((s) => {
-        dailyMap[s.date] = (dailyMap[s.date] || 0) + parseFloat(s.amount);
-      });
-      // Daily expenses for chart
-      const dailyExpMap = {};
-      expenses.forEach((e) => {
-        dailyExpMap[e.date] = (dailyExpMap[e.date] || 0) + parseFloat(e.amount);
-      });
-      // Merge into combined daily data
+      if (topCat) { const catObj = categories.find((c) => c.id === topCat[0]); topExpenseCategoryName = catObj ? catObj.name : "Other"; }
+      const dailyMap = {}, dailyExpMap = {};
+      sales.forEach((s) => { dailyMap[s.date] = (dailyMap[s.date] || 0) + parseFloat(s.amount); });
+      expenses.forEach((e) => { dailyExpMap[e.date] = (dailyExpMap[e.date] || 0) + parseFloat(e.amount); });
       const allDates = new Set([...Object.keys(dailyMap), ...Object.keys(dailyExpMap)]);
-      const dailyRevenue = [...allDates]
-        .sort((a, b) => a.localeCompare(b))
-        .map((date) => ({
-          date,
-          amount: Math.round(dailyMap[date] || 0),
-          expenses: Math.round(dailyExpMap[date] || 0),
-          profit: Math.round((dailyMap[date] || 0) - (dailyExpMap[date] || 0)),
-        }));
-
+      const dailyRevenue = [...allDates].sort().map((date) => ({
+        date, amount: Math.round(dailyMap[date] || 0), expenses: Math.round(dailyExpMap[date] || 0), profit: Math.round((dailyMap[date] || 0) - (dailyExpMap[date] || 0)),
+      }));
       setPeriodStats({
-        totalRevenue: Math.round(totalRevenue),
-        totalExpenses: Math.round(totalExpenses),
+        totalRevenue: Math.round(totalRevenue), totalExpenses: Math.round(totalExpenses),
         profit: Math.round(totalRevenue - totalExpenses),
         margin: totalRevenue > 0 ? Math.round(((totalRevenue - totalExpenses) / totalRevenue) * 100) : 0,
-        topExpenseAmount: topCat ? Math.round(topCat[1]) : 0,
-        topExpenseCategoryName,
-        dailyRevenue,
-        salesCount: sales.length,
+        topExpenseAmount: topCat ? Math.round(topCat[1]) : 0, topExpenseCategoryName, dailyRevenue, salesCount: sales.length,
       });
     }).catch(() => {});
   }, [dateRange.from, dateRange.to, period, categories]);
@@ -240,1189 +891,232 @@ export default function DashboardPage() {
     return () => window.removeEventListener("bonbox-data-changed", onDataChanged);
   }, []);
 
-  const downloadPdf = async () => {
+  // ── Quick actions ──
+  const handleQuickSale = async (amount) => {
     try {
-      const now = new Date();
-      const res = await api.get("/reports/monthly/pdf", {
-        params: { month: now.getMonth() + 1, year: now.getFullYear() },
-        responseType: "blob",
-      });
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `report_${now.getFullYear()}_${now.getMonth() + 1}.pdf`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-    } catch {
-      setQuickMsg(t("downloadPdf") + " failed");
-      setTimeout(() => setQuickMsg(""), 3000);
-    }
+      await api.post("/sales", { amount, date: new Date().toISOString().split("T")[0], payment_method: "cash", description: t("quickSaleDesc") });
+      showToast(`${t("saleLogged")} ${amount.toLocaleString()} ${currency}`, "success");
+      fetchAll();
+    } catch { showToast(t("failedToLogSale"), "error"); }
   };
 
   const repeatYesterday = async () => {
-    try {
-      await api.post("/sales/repeat-yesterday");
-      setQuickMsg(t("yesterdayCopied"));
-      fetchAll();
-      setTimeout(() => setQuickMsg(""), 3000);
-    } catch {
-      setQuickMsg(t("noYesterdaySale"));
-      setTimeout(() => setQuickMsg(""), 3000);
-    }
+    try { await api.post("/sales/repeat-yesterday"); setQuickMsg(t("yesterdayCopied")); fetchAll(); setTimeout(() => setQuickMsg(""), 3000); }
+    catch { setQuickMsg(t("noYesterdaySale")); setTimeout(() => setQuickMsg(""), 3000); }
   };
 
+  const downloadPdf = async () => {
+    try {
+      const now = new Date();
+      const res = await api.get("/reports/monthly/pdf", { params: { month: now.getMonth() + 1, year: now.getFullYear() }, responseType: "blob" });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement("a"); a.href = url; a.download = `report_${now.getFullYear()}_${now.getMonth() + 1}.pdf`; a.click();
+      window.URL.revokeObjectURL(url);
+    } catch { setQuickMsg(t("downloadPdf") + " failed"); setTimeout(() => setQuickMsg(""), 3000); }
+  };
+
+  // ── Computed values ──
+  const dailyRevData = periodStats?.dailyRevenue || monthlyData?.daily_revenue || [];
+  const weekSparkData = dailyRevData.slice(-7).map((d) => d.amount);
+  const monthSparkData = dailyRevData.slice(-14).map((d) => d.amount);
+  const revenue = periodStats ? periodStats.totalRevenue : summary?.month_revenue || 0;
+  const expenses = periodStats ? periodStats.totalExpenses : summary?.month_expenses || 0;
+  const profit = periodStats ? periodStats.profit : summary?.month_profit || 0;
+  const marginPct = periodStats ? periodStats.margin : summary?.profit_margin || 0;
+
+  // ── Yesterday's revenue for daily summary ──
+  const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayKey = yesterday.toISOString().split("T")[0];
+  const yesterdayData = dailyRevData.find((d) => d.date === yesterdayKey);
+  const yesterdayRev = yesterdayData ? yesterdayData.amount : 0;
+
+  // ── Week avg ──
+  const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - (weekStart.getDay() === 0 ? 6 : weekStart.getDay() - 1));
+  const weekDays = dailyRevData.filter((d) => d.date >= weekStart.toISOString().split("T")[0]);
+  const weekAvg = weekDays.length > 0 ? Math.round(weekDays.reduce((s, d) => s + d.amount, 0) / weekDays.length) : 0;
+
+  // ── Best day ──
+  const bestDay = dailyRevData.length > 0 ? dailyRevData.reduce((best, d) => d.amount > best.amount ? d : best, dailyRevData[0]) : null;
+
+  // ── Loading state ──
   if (!summary) {
     return (
       <div className="p-4 sm:p-6 space-y-6">
-        <div className="flex justify-between items-center">
-          <div>
-            <SkeletonCard />
-          </div>
-        </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-          <SkeletonCard /><SkeletonCard /><SkeletonCard /><SkeletonCard />
-        </div>
+        <SkeletonCard />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3"><SkeletonCard /><SkeletonCard /><SkeletonCard /><SkeletonCard /></div>
         <SkeletonChart />
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <SkeletonChart /><SkeletonChart />
-        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6"><SkeletonChart /><SkeletonChart /></div>
       </div>
     );
   }
 
   return (
     <PullToRefresh onRefresh={async () => fetchAll()}>
-    <div className="p-4 sm:p-6 space-y-6 page-enter">
-      <ToastContainer />
-      <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
-      <QuickSaleModal open={saleModal} onClose={() => setSaleModal(false)} onSubmit={handleQuickSale} currency={currency} />
-      {/* Header + Quick Actions */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100">
-            {t("welcome")}, {user?.business_name}
-          </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-          </p>
-        </div>
+      <div className="p-4 sm:p-6 space-y-5 max-w-[1400px] mx-auto">
+        <ToastContainer />
+        <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
+        <QuickSaleModal open={saleModal} onClose={() => setSaleModal(false)} onSubmit={handleQuickSale} currency={currency} />
 
-        {/* One-tap actions */}
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => setSaleModal(true)}
-            className="px-4 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition"
-          >
-            + {t("quickSale")}
-          </button>
-          <ReceiptCapture onSaleCreated={fetchAll} />
-          <button
-            onClick={repeatYesterday}
-            className="px-4 py-2.5 bg-green-50 text-green-700 border border-green-200 rounded-lg text-sm font-medium hover:bg-green-100 transition"
-          >
-            {t("repeatYesterday")}
-            {lastSale && (
-              <span className="ml-1 text-green-500">({parseFloat(lastSale.amount).toLocaleString()} {currency})</span>
-            )}
-          </button>
-          <button
-            onClick={downloadPdf}
-            className="px-4 py-2.5 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg text-sm font-medium hover:bg-purple-100 transition"
-          >
-            {t("downloadPdf")}
-          </button>
-        </div>
-      </div>
-
-      {/* Quick message toast */}
-      {quickMsg && (
-        <div className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-4 py-2.5 rounded-lg text-sm font-medium">
-          {quickMsg}
-        </div>
-      )}
-
-      {/* Period Selector */}
-      <div className="flex flex-wrap items-center gap-2">
-        {PERIODS.map((p) => (
-          <button
-            key={p}
-            onClick={() => setPeriod(p)}
-            className={`px-4 py-1.5 rounded-full text-sm font-medium transition ${
-              period === p
-                ? "bg-green-600 text-white"
-                : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
-            }`}
-          >
-            {p === "today" ? t("today") : p === "thisWeek" ? t("thisWeek") : p === "thisMonth" ? t("thisMonth") : t("last30Days")}
-          </button>
-        ))}
-      </div>
-
-      {/* Onboarding for new users */}
-      <Onboarding summary={summary} />
-
-      {/* KPI Cards — clickable to expand details */}
-      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 stagger-cards">
-        <KpiCard
-          title={period === "today" ? t("todayRevenue") : period === "thisWeek" ? t("thisWeekRevenue") : period === "thisMonth" ? t("thisMonthRevenue") : t("last30Revenue")}
-          numericValue={periodStats ? periodStats.totalRevenue : summary.today_revenue}
-          currency={currency}
-          change={period === "today" ? summary.today_revenue_change : undefined}
-          changeLabel={period === "today" ? t("vsYesterday") : undefined}
-          subtitle={periodStats ? `${periodStats.salesCount} ${t("sales").toLowerCase()}` : undefined}
-          expanded={expandedKpi === "revenue"}
-          onToggle={() => setExpandedKpi(expandedKpi === "revenue" ? null : "revenue")}
-        />
-        <KpiCard
-          title={period === "today" ? t("todaysProfit") : period === "thisWeek" ? t("thisWeekProfit") : period === "thisMonth" ? t("thisMonthProfit") : t("last30Profit")}
-          numericValue={periodStats ? periodStats.profit : summary.month_profit}
-          currency={currency}
-          subtitle={`${periodStats ? periodStats.margin : summary.profit_margin}% ${t("margin")}`}
-          expanded={expandedKpi === "profit"}
-          onToggle={() => setExpandedKpi(expandedKpi === "profit" ? null : "profit")}
-        />
-        <KpiCard
-          title={t("topExpense")}
-          value={periodStats ? (periodStats.topExpenseCategoryName || t("none")) : (summary.top_expense_category || t("none"))}
-          subtitle={periodStats ? (periodStats.topExpenseAmount > 0 ? `${periodStats.topExpenseAmount.toLocaleString()} ${currency}` : "") : (summary.top_expense_amount > 0 ? `${summary.top_expense_amount.toLocaleString()} ${currency}` : "")}
-          expanded={expandedKpi === "expense"}
-          onToggle={() => setExpandedKpi(expandedKpi === "expense" ? null : "expense")}
-        />
-        {summary.khata_receivable > 0 ? (
-          <KpiCard
-            title={t("khataReceivable")}
-            numericValue={summary.khata_receivable}
-            currency={currency}
-            alert={true}
-            subtitle={t("outstandingCredit")}
-            expanded={expandedKpi === "alerts"}
-            onToggle={() => setExpandedKpi(expandedKpi === "alerts" ? null : "alerts")}
-          />
-        ) : (
-          <KpiCard
-            title={t("inventoryAlerts")}
-            value={summary.inventory_alerts}
-            alert={summary.inventory_alerts > 0}
-            expanded={expandedKpi === "alerts"}
-            onToggle={() => setExpandedKpi(expandedKpi === "alerts" ? null : "alerts")}
-          />
-        )}
-      </div>
-
-      {/* Expanded KPI detail panel */}
-      {expandedKpi === "revenue" && (() => {
-        const byMethod = {};
-        todaySales.forEach(s => { byMethod[s.payment_method || "other"] = (byMethod[s.payment_method || "other"] || 0) + parseFloat(s.amount); });
-        return (
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-green-200 dark:border-green-800 p-4 sm:p-5 shadow-sm animate-in">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("revenueBreakdown")}</h3>
-              <div className="flex items-center gap-2">
-                <button onClick={() => navigate("/sales")} className="text-xs text-blue-500 hover:underline font-medium">{t("viewAllSales")}</button>
-                <button onClick={() => setExpandedKpi(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
-              </div>
-            </div>
-            {Object.keys(byMethod).length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-3">
-                {Object.entries(byMethod).sort((a, b) => b[1] - a[1]).map(([m, amt]) => (
-                  <span key={m} className="px-3 py-1.5 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-xs font-bold text-green-700 dark:text-green-400 capitalize">
-                    {t(m)} · {amt.toLocaleString()} {currency}
-                  </span>
-                ))}
-              </div>
-            )}
-            <div className="space-y-1.5 max-h-48 overflow-y-auto">
-              {todaySales.length > 0 ? todaySales.slice(0, 10).map((s, i) => (
-                <div key={i} className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg text-sm">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-gray-800 dark:text-white">{parseFloat(s.amount).toLocaleString()} {currency}</span>
-                    <span className="text-xs text-gray-400 capitalize">{s.payment_method}</span>
-                  </div>
-                  <span className="text-xs text-gray-400">{s.notes || "—"}</span>
-                </div>
-              )) : <p className="text-sm text-gray-400 text-center py-3">{t("noSalesTodayYet")}</p>}
-            </div>
-          </div>
-        );
-      })()}
-
-      {expandedKpi === "profit" && (() => {
-        const rev = periodStats ? periodStats.totalRevenue : summary.today_revenue;
-        const exp = periodStats ? periodStats.totalExpenses : summary.month_expenses;
-        const profit = periodStats ? periodStats.profit : summary.month_profit;
-        return (
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-blue-200 dark:border-blue-800 p-4 sm:p-5 shadow-sm animate-in">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("profitBreakdown")}</h3>
-              <div className="flex items-center gap-2">
-                <button onClick={() => navigate("/reports")} className="text-xs text-blue-500 hover:underline font-medium">{t("fullReports")}</button>
-                <button onClick={() => setExpandedKpi(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 text-center">
-                <p className="text-[10px] uppercase tracking-wide text-green-600 dark:text-green-400 font-semibold">{t("revenue")}</p>
-                <p className="text-lg font-extrabold text-green-600 dark:text-green-400">{rev.toLocaleString()}</p>
-              </div>
-              <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-3 text-center">
-                <p className="text-[10px] uppercase tracking-wide text-red-500 dark:text-red-400 font-semibold">{t("expenses")}</p>
-                <p className="text-lg font-extrabold text-red-500 dark:text-red-400">−{exp.toLocaleString()}</p>
-              </div>
-              <div className={`rounded-lg p-3 text-center ${profit >= 0 ? "bg-emerald-50 dark:bg-emerald-900/20" : "bg-orange-50 dark:bg-orange-900/20"}`}>
-                <p className={`text-[10px] uppercase tracking-wide font-semibold ${profit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-orange-600 dark:text-orange-400"}`}>{t("profit")}</p>
-                <p className={`text-lg font-extrabold ${profit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-orange-600 dark:text-orange-400"}`}>{profit >= 0 ? "+" : ""}{profit.toLocaleString()}</p>
-              </div>
-            </div>
-            <div className="mt-3 bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3 flex items-center justify-between">
-              <span className="text-xs text-gray-500 dark:text-gray-400">{t("profitMargin")}</span>
-              <span className={`text-sm font-bold ${(periodStats?.margin || summary.profit_margin) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
-                {periodStats ? periodStats.margin : summary.profit_margin}%
-              </span>
-            </div>
-          </div>
-        );
-      })()}
-
-      {expandedKpi === "expense" && (() => {
-        const byCat = {};
-        todayExpenses.forEach(e => { byCat[e.category_name || e.description || "Other"] = (byCat[e.category_name || e.description || "Other"] || 0) + parseFloat(e.amount); });
-        return (
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-red-200 dark:border-red-800 p-4 sm:p-5 shadow-sm animate-in">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("expenseBreakdown")}</h3>
-              <div className="flex items-center gap-2">
-                <button onClick={() => navigate("/expenses")} className="text-xs text-blue-500 hover:underline font-medium">{t("viewAllExpenses")}</button>
-                <button onClick={() => setExpandedKpi(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
-              </div>
-            </div>
-            {Object.keys(byCat).length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-3">
-                {Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([cat, amt]) => (
-                  <span key={cat} className="px-3 py-1.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-xs font-bold text-red-600 dark:text-red-400">
-                    {cat} · {amt.toLocaleString()} {currency}
-                  </span>
-                ))}
-              </div>
-            )}
-            <div className="space-y-1.5 max-h-48 overflow-y-auto">
-              {todayExpenses.length > 0 ? todayExpenses.slice(0, 10).map((e, i) => (
-                <div key={i} className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg text-sm">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-gray-800 dark:text-white">{parseFloat(e.amount).toLocaleString()} {currency}</span>
-                    <span className="text-xs text-gray-400">{e.description || e.category_name || "—"}</span>
-                  </div>
-                  <span className="text-xs text-gray-400 capitalize">{e.payment_method || "—"}</span>
-                </div>
-              )) : <p className="text-sm text-gray-400 text-center py-3">{t("noExpensesToday")}</p>}
-            </div>
-          </div>
-        );
-      })()}
-
-      {expandedKpi === "alerts" && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-yellow-200 dark:border-yellow-800 p-4 sm:p-5 shadow-sm animate-in">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">{summary.khata_receivable > 0 ? t("khataDetails") : t("inventoryAlerts")}</h3>
-            <div className="flex items-center gap-2">
-              <button onClick={() => navigate(summary.khata_receivable > 0 ? "/khata" : "/inventory")} className="text-xs text-blue-500 hover:underline font-medium">
-                {summary.khata_receivable > 0 ? t("viewKhata") : t("viewInventory")}
-              </button>
-              <button onClick={() => setExpandedKpi(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
-            </div>
-          </div>
-          {summary.khata_receivable > 0 ? (
-            <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3 text-center">
-              <p className="text-xs text-yellow-600 dark:text-yellow-400 font-semibold">{t("outstandingCredit")}</p>
-              <p className="text-2xl font-extrabold text-yellow-600 dark:text-yellow-400">{summary.khata_receivable.toLocaleString()} {currency}</p>
-            </div>
-          ) : (
-            <div className="flex items-center gap-3 bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3">
-              <span className={`text-2xl font-extrabold ${summary.inventory_alerts > 0 ? "text-red-500" : "text-green-500"}`}>{summary.inventory_alerts}</span>
-              <span className="text-sm text-gray-600 dark:text-gray-300">{summary.inventory_alerts > 0 ? t("itemsBelowMinimum") : t("allStockHealthy")}</span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Action Items + Top Sellers — what owners actually care about */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-        {/* Action Items */}
-        {actionItems.length > 0 && (
-          <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 bg-orange-100 dark:bg-orange-900/30 rounded-lg flex items-center justify-center">
-                <svg className="w-4 h-4 text-orange-600 dark:text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-              </div>
-              <h2 className="text-base font-semibold text-gray-700 dark:text-gray-200">{t("actionItems")}</h2>
-              <span className="text-xs bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 px-2 py-0.5 rounded-full font-medium">{actionItems.length}</span>
-              <button onClick={() => navigate("/inventory")} className="ml-auto text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 font-medium hover:underline">{t("viewInventory")}</button>
-            </div>
-            <div className="space-y-2">
-              {actionItems.map((item, i) => (
-                <div key={i} className={`flex items-start gap-3 p-3 rounded-lg ${
-                  item.priority === "high" ? "bg-red-50 dark:bg-red-900/15 border border-red-100 dark:border-red-900/30" :
-                  item.priority === "medium" ? "bg-yellow-50 dark:bg-yellow-900/15 border border-yellow-100 dark:border-yellow-900/30" :
-                  "bg-gray-50 dark:bg-gray-700/30 border border-gray-100 dark:border-gray-700"
-                }`}>
-                  <span className="text-lg mt-0.5">
-                    {item.type === "restock" ? "📦" : item.type === "expiring" ? "⏰" : item.type === "cost" ? "💸" : "💡"}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{item.title}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{item.detail}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Top Sellers */}
-        {topSellers.length > 0 && (
-          <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
-                <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
-              </div>
-              <h2 className="text-base font-semibold text-gray-700 dark:text-gray-200">{t("topSellers")}</h2>
-              <span className="text-xs text-gray-400">{t("last30Days")}</span>
-              <button onClick={() => navigate("/sales")} className="ml-auto text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 font-medium hover:underline">{t("viewSales")}</button>
-            </div>
-            <div className="space-y-1.5">
-              {topSellers.slice(0, 5).map((item, i) => (
-                <div key={i} className="flex items-center justify-between px-3 py-2.5 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className={`text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center ${
-                      i === 0 ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-400" :
-                      i === 1 ? "bg-gray-200 text-gray-600 dark:bg-gray-600 dark:text-gray-300" :
-                      i === 2 ? "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400" :
-                      "bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400"
-                    }`}>{i + 1}</span>
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate">{item.name}</span>
-                  </div>
-                  <div className="flex items-center gap-4 flex-shrink-0">
-                    <span className="text-xs text-gray-400">{item.sales} {t("sales").toLowerCase()}</span>
-                    <span className="text-sm font-bold text-green-600 dark:text-green-400">{item.revenue.toLocaleString()} {currency}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Week vs Last Week Comparison */}
-      {weekComparison && (
-        <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-8 h-8 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg flex items-center justify-center">
-              <svg className="w-4 h-4 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
-            </div>
-            <h2 className="text-base font-semibold text-gray-700 dark:text-gray-200">{t("weekVsLastWeek")}</h2>
-            {weekComparison.change_pct !== 0 && (
-              <span className={`ml-auto text-sm font-bold px-2.5 py-0.5 rounded-full ${
-                weekComparison.change_pct > 0
-                  ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
-                  : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
-              }`}>
-                {weekComparison.change_pct > 0 ? "\u2191" : "\u2193"} {Math.abs(weekComparison.change_pct)}%
-              </span>
-            )}
-          </div>
-          <div className="space-y-3">
-            {[
-              { label: t("revenue"), thisWeek: weekComparison.this_week_revenue, lastWeek: weekComparison.last_week_revenue, color: "blue" },
-              { label: t("expenses"), thisWeek: weekComparison.this_week_expenses, lastWeek: weekComparison.last_week_expenses, color: "red" },
-              { label: t("profit"), thisWeek: weekComparison.this_week_profit, lastWeek: weekComparison.last_week_profit, color: "green" },
-            ].map((row) => {
-              const rawDiff = row.lastWeek > 0 ? ((row.thisWeek - row.lastWeek) / Math.abs(row.lastWeek)) * 100 : 0;
-              const diff = Math.max(-500, Math.min(500, rawDiff));
-              const isUp = diff > 0;
-              const isGood = row.label === t("expenses") ? !isUp : isUp;
-              return (
-                <div key={row.label} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
-                  <span className="text-sm font-medium text-gray-600 dark:text-gray-300 w-20">{row.label}</span>
-                  <div className="flex items-center gap-4 flex-1 justify-end">
-                    <div className="text-right">
-                      <p className="text-xs text-gray-400 dark:text-gray-500">{t("thisWeekLabel")}</p>
-                      <p className={`text-sm font-bold ${row.color === "blue" ? "text-blue-600 dark:text-blue-400" : row.color === "red" ? "text-red-500 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}>
-                        {Math.round(row.thisWeek).toLocaleString()} {currency}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-gray-400 dark:text-gray-500">{t("lastWeekLabel")}</p>
-                      <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
-                        {Math.round(row.lastWeek).toLocaleString()} {currency}
-                      </p>
-                    </div>
-                    {diff !== 0 && (
-                      <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
-                        isGood ? "text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30" : "text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-900/30"
-                      }`}>
-                        {isUp ? "\u2191" : "\u2193"}{Math.abs(Math.round(diff))}%
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Payment Method Breakdown */}
-      {paymentBreakdown.length > 0 && (() => {
-        const total = paymentBreakdown.reduce((s, p) => s + p.amount, 0);
-        const methodConfig = {
-          cash: { label: "Cash", color: "bg-green-500", textColor: "text-green-600 dark:text-green-400", bgLight: "bg-green-100 dark:bg-green-900/30" },
-          card: { label: "Card", color: "bg-blue-500", textColor: "text-blue-600 dark:text-blue-400", bgLight: "bg-blue-100 dark:bg-blue-900/30" },
-          mobilepay: { label: "MobilePay", color: "bg-purple-500", textColor: "text-purple-600 dark:text-purple-400", bgLight: "bg-purple-100 dark:bg-purple-900/30" },
-        };
-        const defaultConfig = { label: null, color: "bg-gray-400", textColor: "text-gray-600 dark:text-gray-400", bgLight: "bg-gray-100 dark:bg-gray-700/30" };
-        return (
-          <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
-                <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
-              </div>
-              <h2 className="text-base font-semibold text-gray-700 dark:text-gray-200">{t("paymentMethods")}</h2>
-              <span className="text-xs text-gray-400 dark:text-gray-500">{t("thisMonthLabel")}</span>
-              <button onClick={() => navigate("/sales")} className="ml-auto text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 font-medium hover:underline">{t("viewSales")}</button>
-            </div>
-            <div className="space-y-3">
-              {paymentBreakdown
-                .sort((a, b) => b.amount - a.amount)
-                .map((p) => {
-                  const pct = total > 0 ? (p.amount / total) * 100 : 0;
-                  const cfg = methodConfig[p.method] || defaultConfig;
-                  const label = cfg.label || (p.method.charAt(0).toUpperCase() + p.method.slice(1));
-                  return (
-                    <div key={p.method}>
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-2">
-                          <span className={`w-2.5 h-2.5 rounded-full ${cfg.color}`}></span>
-                          <span className="text-sm font-medium text-gray-700 dark:text-gray-200">{label}</span>
-                          <span className="text-xs text-gray-400 dark:text-gray-500">{p.count} {t("sales").toLowerCase()}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-sm font-bold ${cfg.textColor}`}>{Math.round(p.amount).toLocaleString()} {currency}</span>
-                          <span className="text-xs text-gray-400 dark:text-gray-500 w-10 text-right">{Math.round(pct)}%</span>
-                        </div>
-                      </div>
-                      <div className="w-full h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${cfg.color} transition-all duration-500`}
-                          style={{ width: `${pct}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-            {total > 0 && (
-              <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 flex justify-between">
-                <span className="text-sm text-gray-500 dark:text-gray-400">{t("total")}</span>
-                <span className="text-sm font-bold text-gray-700 dark:text-gray-200">{Math.round(total).toLocaleString()} {currency}</span>
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
-      {/* Goal Progress */}
-      <GoalTracker todayRevenue={summary.today_revenue} monthRevenue={summary.month_revenue} />
-
-      {/* Business Health Score */}
-      <HealthScore summary={summary} monthlyData={monthlyData} />
-
-      {/* Benchmark Cards */}
-      {benchmarks && benchmarks.metrics?.length > 0 && (
-        <BenchmarkCards benchmarks={benchmarks} currency={currency} />
-      )}
-
-      {/* Inventory Overview */}
-      {invStats.count > 0 && (
-        <div className="bg-gradient-to-r from-blue-50 to-emerald-50 dark:from-gray-800 dark:to-gray-800 p-5 sm:p-6 rounded-2xl border border-blue-100 dark:border-gray-700">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-blue-600/10 dark:bg-blue-500/20 rounded-lg flex items-center justify-center">
-                <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
-              </div>
-              <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200">{t("inventoryOverview")}</h2>
-            </div>
-            <button
-              onClick={() => navigate("/inventory")}
-              className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
-            >
-              {t("viewAll")}
-            </button>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-            <div className="p-3 bg-white/70 dark:bg-gray-700/50 rounded-xl">
-              <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("stockCost")}</p>
-              <p className="text-xl font-bold text-gray-800 dark:text-white mt-1">{invStats.totalCost.toLocaleString()}</p>
-              <p className="text-[10px] text-gray-400">{currency} {t("invested")}</p>
-            </div>
-            <div className="p-3 bg-white/70 dark:bg-gray-700/50 rounded-xl">
-              <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("potentialRevenue")}</p>
-              <p className="text-xl font-bold text-blue-600 dark:text-blue-400 mt-1">{invStats.totalRevenue.toLocaleString()}</p>
-              <p className="text-[10px] text-gray-400">{currency} {t("ifAllSold")}</p>
-            </div>
-            <div className="p-3 bg-white/70 dark:bg-gray-700/50 rounded-xl">
-              <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("potentialProfit")}</p>
-              <p className={`text-xl font-bold mt-1 ${invStats.totalProfit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
-                {invStats.totalProfit >= 0 ? "+" : ""}{invStats.totalProfit.toLocaleString()}
-              </p>
-              <p className="text-[10px] text-gray-400">{currency} {t("margin")}</p>
-            </div>
-            <div className="p-3 bg-white/70 dark:bg-gray-700/50 rounded-xl">
-              <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("avgMargin")}</p>
-              <p className={`text-xl font-bold mt-1 ${invStats.avgMargin >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
-                {invStats.avgMargin}%
-              </p>
-              <p className="text-[10px] text-gray-400">{invStats.topMargin.length > 0 ? `${invStats.topMargin.length}+ ${t("itemsPriced")}` : t("noItemsPriced")}</p>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-            <div className="text-center p-2.5 bg-white/50 dark:bg-gray-700/30 rounded-lg">
-              <p className="text-[10px] text-gray-500 dark:text-gray-400">{t("totalItems")}</p>
-              <p className="text-lg font-bold text-gray-800 dark:text-white">{invStats.count}</p>
-            </div>
-            <div className={`text-center p-2.5 rounded-lg ${invStats.lowStock > 0 ? "bg-red-50/80 dark:bg-red-900/20" : "bg-white/50 dark:bg-gray-700/30"}`}>
-              <p className="text-[10px] text-gray-500 dark:text-gray-400">{t("lowStock")}</p>
-              <p className={`text-lg font-bold ${invStats.lowStock > 0 ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}>{invStats.lowStock}</p>
-            </div>
-          </div>
-          {invStats.topMargin.length > 0 && (
-            <div>
-              <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">{t("topMarginItems")}</p>
-              <div className="space-y-1.5">
-                {invStats.topMargin.map((item, i) => (
-                  <div key={i} className="flex items-center justify-between px-3 py-2 bg-white/60 dark:bg-gray-700/50 rounded-lg">
-                    <span className="text-sm text-gray-700 dark:text-gray-200 font-medium">{item.name}</span>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-semibold text-green-600 dark:text-green-400">+{item.margin}%</span>
-                      <span className="text-xs text-gray-500 font-medium">{item.profit.toLocaleString()} {currency}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Motivational Stats */}
-      <MotivationalStats summary={summary} monthlyData={monthlyData} />
-
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fadeIn">
-        {/* Revenue Trend + Profit Line */}
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 card-hover">
-          <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">{t("revenueTrend")}</h2>
-          {(periodStats?.dailyRevenue?.length > 0 || monthlyData?.daily_revenue?.length > 0) ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={periodStats?.dailyRevenue || monthlyData.daily_revenue}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip formatter={(value, name) => [
-                  `${value.toLocaleString()} ${currency}`,
-                  name === "amount" ? t("revenue") : name === "profit" ? t("profit") : name,
-                ]} />
-                <Line type="monotone" dataKey="amount" stroke="#22C55E" strokeWidth={2} dot={false} name={t("revenue")} />
-                {(periodStats?.dailyRevenue?.[0]?.profit !== undefined) && (
-                  <Line type="monotone" dataKey="profit" stroke="#10B981" strokeWidth={2} dot={false} name={t("profit")} strokeDasharray="5 3" />
-                )}
-                <ReferenceLine y={0} stroke="#9CA3AF" strokeDasharray="3 3" />
-              </LineChart>
-            </ResponsiveContainer>
-          ) : (
-            <p className="text-gray-400 dark:text-gray-500 text-center py-12">{t("noRevenueData")}</p>
-          )}
-        </div>
-
-        {/* Expense Breakdown (Donut) */}
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 card-hover">
-          <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">{t("expenseBreakdown")}</h2>
-          {monthlyData?.expense_breakdown?.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={monthlyData.expense_breakdown}
-                  dataKey="amount"
-                  nameKey="category"
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={55}
-                  outerRadius={100}
-                  paddingAngle={2}
-                  label={({ category, percent }) => `${category} (${(percent * 100).toFixed(0)}%)`}
-                  labelLine={{ strokeWidth: 1 }}
-                >
-                  {monthlyData.expense_breakdown.map((entry, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value) => [`${value.toLocaleString()} ${currency}`, t("amount")]} />
-                <Legend
-                  formatter={(value) => <span className="text-sm text-gray-600 dark:text-gray-300">{value}</span>}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : (
-            <p className="text-gray-400 dark:text-gray-500 text-center py-12">{t("noExpenseData")}</p>
-          )}
-        </div>
-      </div>
-
-      {/* Revenue vs Expenses Comparison */}
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-        <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">{t("revenueVsExpenses")}</h2>
-        {(() => {
-          // Build comparison data from period stats (daily) or monthly summary
-          const dailyData = periodStats?.dailyRevenue?.filter((d) => d.expenses > 0 || d.amount > 0);
-          if (dailyData && dailyData.length > 0) {
-            return (
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={dailyData} barGap={2}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => v.toLocaleString()} />
-                  <Tooltip formatter={(value, name) => [
-                    `${value.toLocaleString()} ${currency}`,
-                    name === "amount" ? t("revenue") : name === "expenses" ? t("expenses") : name,
-                  ]} />
-                  <Legend formatter={(value) => value === "amount" ? t("revenue") : value === "expenses" ? t("expenses") : value} />
-                  <Bar dataKey="amount" fill="#22C55E" radius={[4, 4, 0, 0]} name="amount" />
-                  <Bar dataKey="expenses" fill="#EF4444" radius={[4, 4, 0, 0]} name="expenses" />
-                </BarChart>
-              </ResponsiveContainer>
-            );
-          }
-          // Fallback: show monthly totals as a simple comparison
-          const compData = [
-            { label: t("revenue"), value: summary.month_revenue, fill: "#22C55E" },
-            { label: t("expenses"), value: summary.month_expenses, fill: "#EF4444" },
-            { label: t("profit"), value: summary.month_profit, fill: summary.month_profit >= 0 ? "#10B981" : "#F59E0B" },
-          ];
-          return (
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={compData} barSize={60}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => v.toLocaleString()} />
-                <Tooltip formatter={(value) => [`${value.toLocaleString()} ${currency}`]} />
-                <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                  {compData.map((entry, i) => (
-                    <Cell key={i} fill={entry.fill} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          );
-        })()}
-      </div>
-
-      {/* Daily Summary */}
-      <DailySummary summary={summary} monthlyData={monthlyData} />
-
-      {/* Revenue Forecast */}
-      {forecast && forecast.forecast?.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200">
-                {t("revenueForecastTitle")}
-              </h2>
-              <p className="text-xs text-gray-400 mt-0.5">
-                {t("nextDays")} &bull; {t("forecastConfidence")}: {forecast.confidence}%
-                &bull; {forecast.trend_direction === "up" ? "📈" : forecast.trend_direction === "down" ? "📉" : "📊"}{" "}
-                {forecast.trend_direction === "up" ? t("trendUp") : forecast.trend_direction === "down" ? t("trendDown") : t("trendStable")}
-              </p>
-            </div>
-            <div className="text-left sm:text-right">
-              <p className="text-sm text-gray-500">{t("predictedTotal")}</p>
-              <p className="text-xl font-bold text-blue-600">{forecast.total_predicted?.toLocaleString()} {currency}</p>
-              <p className="text-xs text-gray-400">{t("avgDaily")}: {forecast.avg_daily_predicted?.toLocaleString()} {currency}</p>
-            </div>
-          </div>
-
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={forecast.forecast}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="day" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => v.toLocaleString()} />
-              <Tooltip
-                formatter={(v) => [`${v.toLocaleString()} ${currency}`, t("predicted")]}
-                labelFormatter={(label) => label}
-              />
-              <Bar dataKey="predicted_revenue" radius={[6, 6, 0, 0]}>
-                {forecast.forecast.map((entry, i) => (
-                  <Cell
-                    key={i}
-                    fill={entry.trend === "up" ? "#22c55e" : entry.trend === "down" ? "#ef4444" : "#3b82f6"}
-                  />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-
-          <div className="grid grid-cols-4 sm:grid-cols-7 gap-1 mt-3">
-            {forecast.forecast.map((f, i) => (
-              <div key={i} className="text-center">
-                <p className="text-xs font-medium text-gray-600 dark:text-gray-300">{f.day.slice(0, 3)}</p>
-                <p className="text-sm font-bold text-gray-800 dark:text-white">{f.predicted_revenue.toLocaleString()}</p>
-                <p className="text-xs text-gray-400">{f.confidence}%</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Receipt History */}
-      {receipts.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">{t("recentReceipts")}</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-            {receipts.map((r) => (
-              <div key={r.id} className="group relative cursor-pointer" onClick={() => r.receipt_photo && setLightboxImg(r.receipt_photo)}>
-                {r.receipt_photo ? (
-                  <img
-                    src={r.receipt_photo}
-                    alt={`Receipt ${r.date}`}
-                    className="w-full h-28 object-cover rounded-lg border border-gray-200 dark:border-gray-600"
-                    onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
-                  />
-                ) : null}
-                <div
-                  className="w-full h-28 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 flex items-center justify-center"
-                  style={{ display: r.receipt_photo ? 'none' : 'flex' }}
-                >
-                  <span className="text-3xl">🧾</span>
-                </div>
-                <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs px-2 py-1 rounded-b-lg">
-                  <p className="font-semibold">{r.amount.toLocaleString()} {currency}</p>
-                  <p className="text-gray-300">{formatDate(r.date)}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {lightboxImg && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => setLightboxImg(null)}>
-          <button onClick={() => setLightboxImg(null)} className="absolute top-4 right-4 text-white text-3xl font-bold hover:text-gray-300">&times;</button>
-          <img src={lightboxImg} alt="Receipt" className="max-w-full max-h-[90vh] rounded-xl shadow-2xl object-contain" onClick={(e) => e.stopPropagation()} />
-        </div>
-      )}
-    </div>
-    </PullToRefresh>
-  );
-}
-
-function MotivationalStats({ summary, monthlyData }) {
-  const { user } = useAuth();
-  const { t } = useLanguage();
-  const dailyGoal = user?.daily_goal || 0;
-
-  const messages = [];
-
-  if ((summary?.today_revenue || 0) > 0) {
-    messages.push({ icon: "check", text: t("loggedSalesToday"), color: "text-blue-600 dark:text-blue-400" });
-  }
-  if (dailyGoal > 0 && (summary?.today_revenue || 0) >= dailyGoal) {
-    messages.push({ icon: "star", text: t("hitDailyGoal"), color: "text-yellow-600 dark:text-yellow-400" });
-  }
-  if ((summary?.month_profit || 0) > 0) {
-    messages.push({ icon: "trending", text: t("profitableThisMonth"), color: "text-green-600 dark:text-green-400" });
-  }
-
-  // Streak: count consecutive days with sales from daily_revenue (most recent backwards)
-  const dailyRevenue = monthlyData?.daily_revenue || [];
-  let streak = 0;
-  if (dailyRevenue.length > 0) {
-    // daily_revenue is sorted by date ascending; walk backwards
-    const today = new Date().toISOString().split("T")[0];
-    const salesDates = new Set(dailyRevenue.map((d) => d.date));
-    const d = new Date();
-    // Check from today backwards
-    for (let i = 0; i < 60; i++) {
-      const key = d.toISOString().split("T")[0];
-      if (salesDates.has(key)) {
-        streak++;
-        d.setDate(d.getDate() - 1);
-      } else {
-        break;
-      }
-    }
-  }
-
-  if (streak > 1) {
-    messages.push({ icon: "fire", text: `${streak}-day sales streak!`, color: "text-orange-600 dark:text-orange-400" });
-  }
-
-  if (messages.length === 0) return null;
-
-  const iconMap = {
-    check: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-      </svg>
-    ),
-    star: (
-      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-      </svg>
-    ),
-    trending: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-      </svg>
-    ),
-    fire: (
-      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-        <path fillRule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A2.99 2.99 0 0113 13a2.99 2.99 0 01-.879 2.121z" clipRule="evenodd" />
-      </svg>
-    ),
-  };
-
-  return (
-    <div className="flex flex-wrap gap-3">
-      {messages.map((msg, i) => (
-        <div
-          key={i}
-          className={`inline-flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-sm font-medium ${msg.color}`}
-        >
-          {iconMap[msg.icon]}
-          {msg.text}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function GoalTracker({ todayRevenue, monthRevenue }) {
-  const { user } = useAuth();
-  const currency = displayCurrency(user?.currency);
-  const { t } = useLanguage();
-  const [dailyGoal, setDailyGoal] = useState(user?.daily_goal || 0);
-  const [monthlyGoal, setMonthlyGoal] = useState(user?.monthly_goal || 0);
-  const [editing, setEditing] = useState(null); // "daily" | "monthly" | null
-  const [inputVal, setInputVal] = useState("");
-
-  const saveGoal = async (type) => {
-    const val = parseFloat(inputVal);
-    if (!val || val <= 0) return;
-    try {
-      if (type === "daily") {
-        await api.patch("/auth/daily-goal", null, { params: { goal: val } });
-        setDailyGoal(val);
-      } else {
-        await api.patch("/auth/monthly-goal", null, { params: { goal: val } });
-        setMonthlyGoal(val);
-      }
-      setEditing(null);
-    } catch {
-      // silently handle
-    }
-  };
-
-  const GoalBar = ({ label, current, goal, type, color }) => {
-    const pct = goal > 0 ? Math.min(Math.round((current / goal) * 100), 100) : 0;
-    const hit = pct >= 100;
-
-    return (
-      <div>
-        <div className="flex items-center justify-between mb-1.5">
-          <div className="flex items-center gap-2">
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
-              {label} {hit && <span className="text-green-600 text-xs ml-1">{t("reached")}</span>}
+        {/* ── HEADER ── */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100">
+              {t("welcome")}, {user?.business_name}
+            </h1>
+            <p className="text-sm text-gray-400 mt-0.5">
+              {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
             </p>
           </div>
-          {editing === type ? (
-            <div className="flex gap-1.5">
-              <input
-                type="number"
-                value={inputVal}
-                onChange={(e) => setInputVal(e.target.value)}
-                placeholder={String(goal)}
-                className="w-24 px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-xs bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                autoFocus
-                onKeyDown={(e) => e.key === "Enter" && saveGoal(type)}
-              />
-              <button onClick={() => saveGoal(type)} className="px-2 py-1 bg-blue-600 text-white rounded-lg text-xs font-medium">{t("save")}</button>
-              <button onClick={() => setEditing(null)} className="text-gray-400 text-xs">✕</button>
-            </div>
-          ) : goal > 0 ? (
-            <button onClick={() => { setEditing(type); setInputVal(String(goal)); }}
-              className="text-xs text-blue-500 hover:underline">{t("edit")}</button>
-          ) : (
-            <button onClick={() => { setEditing(type); setInputVal(""); }}
-              className="text-xs text-blue-600 font-medium hover:underline">{t("setGoal")}</button>
-          )}
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setSaleModal(true)} className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 transition-colors shadow-sm">
+              + {t("quickSale")}
+            </button>
+            <ReceiptCapture onSaleCreated={fetchAll} />
+            <button onClick={repeatYesterday} className="px-4 py-2 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
+              {t("repeatYesterday")}
+              {lastSale && <span className="ml-1 text-green-600 dark:text-green-400">({parseFloat(lastSale.amount).toLocaleString()})</span>}
+            </button>
+            <button onClick={downloadPdf} className="px-4 py-2 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
+              📄 {t("downloadPdf")}
+            </button>
+          </div>
         </div>
-        {goal > 0 ? (
-          <>
-            <div className="flex items-baseline justify-between mb-1">
-              <span className="text-xs text-gray-500 dark:text-gray-400">
-                {current.toLocaleString()} / {goal.toLocaleString()} {currency}
-              </span>
-              <span className={`text-xs font-semibold ${hit ? "text-green-600" : "text-gray-500"}`}>{pct}%</span>
-            </div>
-            <div className="w-full h-3 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${hit ? "bg-green-500" : color}`}
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-          </>
-        ) : (
-          <p className="text-xs text-gray-400">{t("trackProgress")}</p>
+
+        {quickMsg && (
+          <div className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-4 py-2.5 rounded-xl text-sm font-medium">{quickMsg}</div>
         )}
-      </div>
-    );
-  };
 
-  return (
-    <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 space-y-4">
-      <GoalBar label={t("dailyGoal")} current={todayRevenue} goal={dailyGoal} type="daily" color="bg-blue-500" />
-      <GoalBar label={t("monthlyGoal")} current={monthRevenue} goal={monthlyGoal} type="monthly" color="bg-purple-500" />
-    </div>
-  );
-}
-
-function DailySummary({ summary, monthlyData }) {
-  const { user } = useAuth();
-  const { t } = useLanguage();
-  const currency = displayCurrency(user?.currency);
-  const dailyRevenue = monthlyData?.daily_revenue || [];
-
-  // Yesterday's data
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayKey = yesterday.toISOString().split("T")[0];
-  const yesterdayData = dailyRevenue.find(d => d.date === yesterdayKey);
-
-  // This week average
-  const now = new Date();
-  const weekStart = new Date(now);
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
-  const weekDays = dailyRevenue.filter(d => d.date >= weekStart.toISOString().split("T")[0]);
-  const weekAvg = weekDays.length > 0 ? Math.round(weekDays.reduce((s, d) => s + d.amount, 0) / weekDays.length) : 0;
-
-  // Best day this month
-  const bestDay = dailyRevenue.length > 0 ? dailyRevenue.reduce((best, d) => d.amount > best.amount ? d : best, dailyRevenue[0]) : null;
-
-  return (
-    <div className="bg-white dark:bg-gray-800 p-5 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-      <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-4">{t("dailySummary")}</h2>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="text-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
-          <p className="text-xs text-gray-500 dark:text-gray-400">{t("today")}</p>
-          <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{(summary?.today_revenue || 0).toLocaleString()}</p>
-          <p className="text-xs text-gray-400">{currency}</p>
-        </div>
-        <div className="text-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
-          <p className="text-xs text-gray-500 dark:text-gray-400">{t("yesterday")}</p>
-          <p className="text-lg font-bold text-gray-700 dark:text-gray-200">{yesterdayData ? yesterdayData.amount.toLocaleString() : "—"}</p>
-          <p className="text-xs text-gray-400">{currency}</p>
-        </div>
-        <div className="text-center p-3 bg-green-50 dark:bg-green-900/20 rounded-xl">
-          <p className="text-xs text-gray-500 dark:text-gray-400">{t("weekAvg")}</p>
-          <p className="text-lg font-bold text-green-600 dark:text-green-400">{weekAvg.toLocaleString()}</p>
-          <p className="text-xs text-gray-400">{currency}/{t("day").toLowerCase()}</p>
-        </div>
-        <div className="text-center p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl">
-          <p className="text-xs text-gray-500 dark:text-gray-400">{t("bestDay")}</p>
-          <p className="text-lg font-bold text-yellow-600 dark:text-yellow-400">{bestDay ? bestDay.amount.toLocaleString() : "—"}</p>
-          <p className="text-xs text-gray-400">{bestDay ? formatDateShort(bestDay.date) : ""}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function HealthScore({ summary, monthlyData }) {
-  const { user } = useAuth();
-  const { t } = useLanguage();
-  const currency = displayCurrency(user?.currency);
-
-  // Calculate score 0-100 from existing data
-  const factors = [];
-
-  // 1. Profitability (0-30 pts)
-  const margin = summary?.profit_margin || 0;
-  const profitScore = Math.min(Math.round(margin * 1.5), 30); // 20% margin = 30 pts
-  factors.push({ label: t("profitability"), score: profitScore, max: 30, tip: margin > 0 ? `${margin}% ${t("margin")}` : t("notProfitableYet") });
-
-  // 2. Revenue consistency (0-25 pts) — how many days had sales this month
-  const dailyRevenue = monthlyData?.daily_revenue || [];
-  const daysWithSales = dailyRevenue.filter(d => d.amount > 0).length;
-  const totalDays = Math.max(dailyRevenue.length, 1);
-  const consistencyPct = daysWithSales / totalDays;
-  const consistencyScore = Math.min(Math.round(consistencyPct * 25), 25);
-  factors.push({ label: t("consistency"), score: consistencyScore, max: 25, tip: `${daysWithSales}/${totalDays} ${t("daysActive")}` });
-
-  // 3. Revenue growth (0-20 pts) — cap display at ±500%
-  const rawGrowth = summary?.today_revenue_change || 0;
-  const growthChange = Math.max(-500, Math.min(500, rawGrowth));
-  const growthScore = growthChange > 0 ? Math.min(Math.round(growthChange), 20) : growthChange === 0 ? 10 : Math.max(10 + Math.round(growthChange / 2), 0);
-  const growthTip = Math.abs(rawGrowth) > 500 ? t("newDay") || "New day" : `${growthChange >= 0 ? "+" : ""}${growthChange}% ${t("vsYesterday")}`;
-  factors.push({ label: t("growth"), score: growthScore, max: 20, tip: growthTip });
-
-  // 4. Expense control (0-15 pts) — lower expense ratio = better
-  const expenseRatio = (summary?.month_revenue || 0) > 0 ? (summary?.month_expenses || 0) / summary.month_revenue : 1;
-  const expenseScore = Math.round(Math.max(0, (1 - expenseRatio)) * 15);
-  factors.push({ label: t("costControl"), score: expenseScore, max: 15, tip: `${Math.round(expenseRatio * 100)}% ${t("ofRevenue")}` });
-
-  // 5. Activity (0-10 pts) — logged today?
-  const activityScore = (summary?.today_revenue || 0) > 0 ? 10 : 0;
-  factors.push({ label: t("activity"), score: activityScore, max: 10, tip: (summary?.today_revenue || 0) > 0 ? t("activeToday") : t("noSalesToday") });
-
-  const total = factors.reduce((s, f) => s + f.score, 0);
-  const color = total >= 75 ? "text-green-500" : total >= 50 ? "text-yellow-500" : total >= 25 ? "text-orange-500" : "text-red-500";
-  const bgColor = total >= 75 ? "bg-green-500" : total >= 50 ? "bg-yellow-500" : total >= 25 ? "bg-orange-500" : "bg-red-500";
-  const label = total >= 75 ? t("excellent") : total >= 50 ? t("good") : total >= 25 ? t("needsWork") : t("critical");
-
-  return (
-    <div className="bg-white dark:bg-gray-800 p-5 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-      <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
-        {/* Score circle */}
-        <div className="flex items-center gap-4 sm:gap-0 sm:flex-col sm:items-center">
-          <div className="relative w-20 h-20 flex-shrink-0">
-            <svg className="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
-              <circle cx="40" cy="40" r="34" fill="none" stroke="currentColor" strokeWidth="6" className="text-gray-100 dark:text-gray-700" />
-              <circle cx="40" cy="40" r="34" fill="none" strokeWidth="6" strokeLinecap="round"
-                className={color}
-                strokeDasharray={`${(total / 100) * 213.6} 213.6`}
-              />
-            </svg>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className={`text-xl font-bold ${color}`}>{total}</span>
-            </div>
-          </div>
-          <div className="sm:text-center sm:mt-1">
-            <p className="text-sm font-semibold text-gray-800 dark:text-white">{t("businessHealth")}</p>
-            <p className={`text-xs font-medium ${color}`}>{label}</p>
-          </div>
-        </div>
-
-        {/* Factor bars */}
-        <div className="flex-1 space-y-2">
-          {factors.map((f) => (
-            <div key={f.label} className="flex items-center gap-3">
-              <span className="text-xs text-gray-500 dark:text-gray-400 w-20 shrink-0">{f.label}</span>
-              <div className="flex-1 h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                <div className={`h-full rounded-full ${bgColor} transition-all duration-500`} style={{ width: `${(f.score / f.max) * 100}%` }} />
-              </div>
-              <span className="text-xs text-gray-400 dark:text-gray-500 w-16 text-right">{f.tip}</span>
-            </div>
+        {/* ── PERIOD SELECTOR ── */}
+        <div className="flex flex-wrap items-center gap-2">
+          {PERIODS.map((p) => (
+            <button key={p} onClick={() => setPeriod(p)}
+              className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all
+                ${period === p
+                  ? "bg-green-600 text-white shadow-sm"
+                  : "bg-gray-100 dark:bg-gray-700/60 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+                }`}>
+              {p === "today" ? t("today") : p === "thisWeek" ? t("thisWeek") : p === "thisMonth" ? t("thisMonth") : t("last30Days")}
+            </button>
           ))}
         </div>
-      </div>
-    </div>
-  );
-}
 
-function BenchmarkCards({ benchmarks, currency }) {
-  const statusColors = {
-    good: { bg: "bg-green-50 dark:bg-green-900/20", border: "border-green-200 dark:border-green-800", text: "text-green-700 dark:text-green-400", bar: "bg-green-500", badge: "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400" },
-    average: { bg: "bg-yellow-50 dark:bg-yellow-900/20", border: "border-yellow-200 dark:border-yellow-800", text: "text-yellow-700 dark:text-yellow-400", bar: "bg-yellow-500", badge: "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-400" },
-    attention: { bg: "bg-red-50 dark:bg-red-900/20", border: "border-red-200 dark:border-red-800", text: "text-red-700 dark:text-red-400", bar: "bg-red-500", badge: "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400" },
-  };
-  const statusLabels = { good: "On Track", average: "Average", attention: "Needs Attention" };
-  const statusIcons = {
-    good: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>,
-    average: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M12 3a9 9 0 100 18 9 9 0 000-18z" /></svg>,
-    attention: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
-  };
+        <Onboarding summary={summary} />
 
-  return (
-    <div className="bg-white dark:bg-gray-800 p-5 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200">Industry Benchmarks</h2>
-          <p className="text-xs text-gray-400 mt-0.5">
-            {benchmarks.period} • {benchmarks.business_type.charAt(0).toUpperCase() + benchmarks.business_type.slice(1).replace("_", " ")}
-          </p>
+        {/* ═══════════════════════════════════════════════════
+           ROW 1: KPI CARDS — 4 columns with sparklines
+           ═══════════════════════════════════════════════════ */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <KpiCard
+            title={period === "today" ? t("todayRevenue") : period === "thisWeek" ? t("thisWeekRevenue") : period === "thisMonth" ? t("thisMonthRevenue") : t("last30Revenue")}
+            numericValue={periodStats ? periodStats.totalRevenue : summary.today_revenue}
+            currency={currency}
+            change={period === "today" ? summary.today_revenue_change : undefined}
+            changeLabel={period === "today" ? t("vsYesterday") : periodStats ? `${periodStats.salesCount} sales` : undefined}
+            sparkData={weekSparkData}
+            onClick={() => navigate("/sales")}
+            highlight
+          />
+          <KpiCard
+            title="Yesterday"
+            numericValue={yesterdayRev}
+            currency={currency}
+            subtitle={yesterdayRev > 0 ? formatDateShort(yesterdayKey) : "No sales"}
+            onClick={() => navigate("/sales")}
+          />
+          <KpiCard
+            title="Week Avg"
+            numericValue={weekAvg}
+            currency={currency}
+            subtitle={`${currency}/day`}
+            sparkData={weekSparkData}
+            onClick={() => navigate("/reports")}
+          />
+          <KpiCard
+            title="Best Day"
+            numericValue={bestDay ? bestDay.amount : 0}
+            currency={currency}
+            subtitle={bestDay ? formatDateShort(bestDay.date) : "—"}
+            sparkData={monthSparkData}
+            onClick={() => navigate("/reports")}
+          />
         </div>
-        <div className="text-xs text-gray-400">📊 vs industry avg</div>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        {benchmarks.metrics.map((m) => {
-          const c = statusColors[m.status];
-          // Calculate marker position on the range bar (0-100%)
-          const barMax = Math.max(m.range_high * 1.5, m.user_value * 1.2, 50);
-          const userPos = Math.min((m.user_value / barMax) * 100, 100);
-          const rangeLowPos = (m.range_low / barMax) * 100;
-          const rangeHighPos = (m.range_high / barMax) * 100;
 
-          return (
-            <div key={m.name} className={`p-4 rounded-xl border ${c.border} ${c.bg}`}>
-              <p className="text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">{m.label}</p>
-              <div className="flex items-baseline gap-2 mb-2">
-                <span className={`text-2xl font-bold ${c.text}`}>{m.user_value}%</span>
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium inline-flex items-center gap-1 ${c.badge}`}>
-                  {statusIcons[m.status]}
-                  {statusLabels[m.status]}
-                </span>
-              </div>
-              {/* Range bar */}
-              <div className="relative h-2 bg-gray-200 dark:bg-gray-600 rounded-full mb-1.5">
-                {/* Industry average range */}
-                <div
-                  className="absolute h-full bg-gray-300 dark:bg-gray-500 rounded-full opacity-60"
-                  style={{ left: `${rangeLowPos}%`, width: `${rangeHighPos - rangeLowPos}%` }}
-                />
-                {/* User marker */}
-                <div
-                  className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 border-white dark:border-gray-800 shadow ${c.bar}`}
-                  style={{ left: `${Math.max(userPos - 2, 0)}%` }}
-                />
-              </div>
-              <p className="text-xs text-gray-400">
-                Avg: {m.range_low}-{m.range_high}% • {m.tip}
-              </p>
+        {/* ═══════════════════════════════════════════════════
+           ROW 2: REVENUE TREND (full width)
+           ═══════════════════════════════════════════════════ */}
+        <RevenueTrendChart data={dailyRevData} currency={currency} onNavigate={() => navigate("/reports")} />
+
+        {/* ═══════════════════════════════════════════════════
+           ROW 3: FORECAST + P&L side by side
+           ═══════════════════════════════════════════════════ */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <ForecastPanel forecast={forecast} currency={currency} onNavigate={() => navigate("/weather")} />
+          <PLCard revenue={revenue} expenses={expenses} profit={profit} margin={marginPct} currency={currency} onNavigate={() => navigate("/reports")} />
+        </div>
+
+        {/* ═══════════════════════════════════════════════════
+           ROW 4: EXPENSE BREAKDOWN + AI INSIGHTS
+           ═══════════════════════════════════════════════════ */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <ExpenseBreakdown breakdown={monthlyData?.expense_breakdown} currency={currency} onNavigate={() => navigate("/expenses")} />
+          <AIInsightsPanel actionItems={actionItems} summary={summary} weekComparison={weekComparison} onNavigate={navigate} />
+        </div>
+
+        {/* ═══════════════════════════════════════════════════
+           ROW 5: TOP SELLERS + PAYMENT METHODS
+           ═══════════════════════════════════════════════════ */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <TopSellersCard topSellers={topSellers} currency={currency} onNavigate={() => navigate("/sales")} />
+          <PaymentBreakdownCard paymentBreakdown={paymentBreakdown} currency={currency} onNavigate={() => navigate("/sales")} />
+        </div>
+
+        {/* ═══════════════════════════════════════════════════
+           ROW 6: WEEK COMPARISON + HEALTH SCORE
+           ═══════════════════════════════════════════════════ */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <WeekComparisonCard weekComparison={weekComparison} currency={currency} onNavigate={() => navigate("/reports")} />
+          <HealthScore summary={summary} monthlyData={monthlyData} onNavigate={() => navigate("/reports")} />
+        </div>
+
+        {/* ═══════════════════════════════════════════════════
+           ROW 7: GOALS
+           ═══════════════════════════════════════════════════ */}
+        <GoalTracker todayRevenue={summary.today_revenue} monthRevenue={summary.month_revenue} />
+
+        {/* ═══════════════════════════════════════════════════
+           ROW 8: RECEIPTS (if any)
+           ═══════════════════════════════════════════════════ */}
+        {receipts.length > 0 && (
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm">
+            <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100 mb-4">{t("recentReceipts")}</h3>
+            <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-7 gap-3">
+              {receipts.map((r) => (
+                <div key={r.id} className="group relative cursor-pointer rounded-xl overflow-hidden" onClick={() => r.receipt_photo && setLightboxImg(r.receipt_photo)}>
+                  {r.receipt_photo ? (
+                    <img src={r.receipt_photo} alt={`Receipt ${r.date}`}
+                      className="w-full h-24 object-cover"
+                      onError={(e) => { e.target.style.display = "none"; e.target.nextSibling.style.display = "flex"; }} />
+                  ) : null}
+                  <div className="w-full h-24 bg-gray-50 dark:bg-gray-700 flex items-center justify-center" style={{ display: r.receipt_photo ? "none" : "flex" }}>
+                    <span className="text-2xl">🧾</span>
+                  </div>
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent text-white text-[10px] px-2 py-1.5">
+                    <p className="font-semibold">{r.amount.toLocaleString()} {currency}</p>
+                  </div>
+                </div>
+              ))}
             </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+          </div>
+        )}
 
-function KpiCard({ title, value, change, changeLabel, subtitle, alert, numericValue, currency: cur, expanded, onToggle }) {
-  return (
-    <button
-      onClick={onToggle}
-      className={`bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border card-hover text-left w-full transition cursor-pointer hover:ring-2 hover:ring-green-400/50 hover:border-green-300 dark:hover:border-green-600 active:scale-[0.98] ${expanded ? "ring-2 ring-green-400/50 border-green-300 dark:border-green-600" : ""} ${alert ? "border-red-300 dark:border-red-600" : !expanded ? "border-gray-100 dark:border-gray-700" : ""}`}
-    >
-      <div className="flex items-center justify-between">
-        <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">{title}</p>
-        <svg className={`w-3.5 h-3.5 text-gray-300 dark:text-gray-600 transition-transform ${expanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
+        {/* Lightbox */}
+        {lightboxImg && (
+          <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => setLightboxImg(null)}>
+            <button onClick={() => setLightboxImg(null)} className="absolute top-4 right-4 text-white text-3xl font-bold hover:text-gray-300">&times;</button>
+            <img src={lightboxImg} alt="Receipt" className="max-w-full max-h-[90vh] rounded-xl shadow-2xl object-contain" onClick={(e) => e.stopPropagation()} />
+          </div>
+        )}
       </div>
-      <p className="text-lg sm:text-2xl font-bold text-gray-800 dark:text-gray-100 mt-1 break-words">
-        {numericValue !== undefined ? (
-          <AnimatedCounter value={numericValue} suffix={cur ? ` ${cur}` : ""} />
-        ) : value}
-      </p>
-      {change !== undefined && change !== -100 && (
-        Math.abs(change) > 500 ? (
-          <p className="text-sm mt-1 text-blue-500 dark:text-blue-400">New day ✨</p>
-        ) : (
-          <p className={`text-sm mt-1 ${change >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
-            {change >= 0 ? "+" : ""}{change}% {changeLabel}
-          </p>
-        )
-      )}
-      {change === -100 && (
-        <p className="text-sm mt-1 text-gray-400 dark:text-gray-500">No sales yet today</p>
-      )}
-      {subtitle && <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{subtitle}</p>}
-    </button>
+    </PullToRefresh>
   );
 }
