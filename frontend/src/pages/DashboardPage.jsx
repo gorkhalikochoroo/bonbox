@@ -174,63 +174,436 @@ function RevenueTrendChart({ data, currency, onNavigate }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   FORECAST BARS — 7-day forecast with weekend highlight
+   UNIFIED FORECAST + WEATHER + STAFFING — the killer panel
    ═══════════════════════════════════════════════════════════ */
 
-function ForecastPanel({ forecast, currency, onNavigate }) {
+const WEATHER_ICONS = { clear: "☀️", cloudy: "☁️", rain: "🌧️", drizzle: "🌦️", snow: "❄️", storm: "⛈️", fog: "🌫️" };
+const CONDITION_ICON = (c) => WEATHER_ICONS[c] || "⛅";
+
+function ForecastWeatherStaffing({ forecast, weather, staffing, currency, onNavigate }) {
+  const [sel, setSel] = useState(null);
   if (!forecast?.forecast?.length) return null;
+
   const data = forecast.forecast;
   const total = forecast.total_predicted || data.reduce((s, f) => s + f.predicted_revenue, 0);
-  const avgDaily = forecast.avg_daily_predicted || Math.round(total / data.length);
   const weekendDays = ["Fri", "Sat", "Sun", "Friday", "Saturday", "Sunday"];
+  const maxRev = Math.max(...data.map((f) => f.predicted_revenue));
+
+  // Match weather/staffing by day index
+  const weatherDays = weather?.days || [];
+  const staffDays = staffing?.recommendations || [];
+
+  const selected = sel !== null ? data[sel] : null;
+  const selWeather = sel !== null ? weatherDays[sel] : null;
+  const selStaff = sel !== null ? staffDays[sel] : null;
 
   return (
-    <div
-      onClick={onNavigate}
-      className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow flex-1"
-    >
-      <div className="flex items-start justify-between mb-1">
-        <div>
-          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Revenue Forecast</h3>
-          <p className="text-xs text-gray-400 mt-0.5">
-            Next 7 days &bull; Confidence: {forecast.confidence || 95}%
-            &bull; {forecast.trend_direction === "up" ? "📈" : forecast.trend_direction === "down" ? "📉" : "📊"}{" "}
-            {forecast.trend_direction === "up" ? "Trending up" : forecast.trend_direction === "down" ? "Trending down" : "Stable"}
+    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-sm overflow-hidden">
+      {/* Header + Bars */}
+      <div className="p-5 sm:p-6 pb-0">
+        <div className="flex items-start justify-between mb-2">
+          <div>
+            <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Revenue Forecast</h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Next 7 days &bull; {forecast.confidence || 95}% confidence
+              &bull; {forecast.trend_direction === "up" ? "📈 Up" : forecast.trend_direction === "down" ? "📉 Down" : "📊 Stable"}
+            </p>
+          </div>
+          <div className="text-right flex-shrink-0">
+            <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{total.toLocaleString()} {currency}</p>
+          </div>
+        </div>
+
+        {/* Interactive bars */}
+        <div className="flex items-end gap-1.5 sm:gap-2 mt-4" style={{ height: 100 }}>
+          {data.map((f, i) => {
+            const isActive = sel === i;
+            const isWeekend = weekendDays.some((d) => f.day?.startsWith(d));
+            const barH = maxRev > 0 ? (f.predicted_revenue / maxRev) * 85 : 10;
+            return (
+              <div key={i} onClick={() => setSel(isActive ? null : i)}
+                className="flex-1 flex flex-col items-center gap-1 cursor-pointer group">
+                <span className={`text-[10px] font-medium transition-colors ${isActive ? "text-white dark:text-white" : "text-gray-400"}`}>
+                  {(f.predicted_revenue / 1000).toFixed(1)}k
+                </span>
+                <div
+                  className="w-full rounded-t-md transition-all duration-200"
+                  style={{
+                    height: barH,
+                    background: isActive ? "#3B82F6" : isWeekend ? "rgba(59,130,246,0.6)" : "rgba(59,130,246,0.25)",
+                    boxShadow: isActive ? "0 -4px 14px rgba(59,130,246,0.3)" : "none",
+                    transform: isActive ? "scaleY(1.05)" : "scaleY(1)",
+                    transformOrigin: "bottom",
+                  }}
+                />
+                <span className={`text-[11px] font-medium ${isActive ? "text-blue-400" : isWeekend ? "text-blue-500 dark:text-blue-400" : "text-gray-500 dark:text-gray-400"}`}>
+                  {(f.day || "").slice(0, 3)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Weather row */}
+      {weatherDays.length > 0 && (
+        <div className="px-5 sm:px-6 py-2 border-t border-gray-100 dark:border-gray-700/40">
+          <div className="flex gap-1">
+            {weatherDays.slice(0, 7).map((w, i) => {
+              const isActive = sel === i;
+              const temp = Math.round(w.temp_max || w.temp || 0);
+              return (
+                <div key={i} onClick={() => setSel(isActive ? null : i)}
+                  className={`flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-lg cursor-pointer transition ${isActive ? "bg-gray-100 dark:bg-gray-700/40" : ""}`}>
+                  <span className="text-sm">{CONDITION_ICON(w.condition)}</span>
+                  <span className={`text-[11px] font-semibold ${temp >= 14 ? "text-green-500" : temp <= 8 ? "text-blue-400" : "text-gray-300"}`}>{temp}°</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Staffing row */}
+      {staffDays.length > 0 && (
+        <div className="px-5 sm:px-6 py-2.5 border-t border-gray-100 dark:border-gray-700/40">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">Smart Staffing</span>
+            <span className="text-[10px] text-gray-400">Recommended headcount</span>
+          </div>
+          <div className="flex gap-1">
+            {staffDays.slice(0, 7).map((s, i) => {
+              const isActive = sel === i;
+              const level = s.business_level || "Normal";
+              const color = level === "Busy" ? "#EF4444" : level === "Normal" ? "#F59E0B" : "#3B82F6";
+              return (
+                <div key={i} onClick={() => setSel(isActive ? null : i)}
+                  className={`flex-1 flex flex-col items-center gap-1 py-1.5 rounded-lg cursor-pointer transition ${isActive ? "bg-gray-100 dark:bg-gray-700/40" : ""}`}>
+                  <div className="flex flex-col items-center gap-0.5">
+                    {Array.from({ length: s.recommended_staff || 3 }, (_, j) => (
+                      <div key={j} className="w-1.5 h-1.5 rounded-full" style={{ background: color, opacity: 0.5 + (j / (s.recommended_staff || 3)) * 0.5 }} />
+                    ))}
+                  </div>
+                  <span className="text-[11px] font-bold" style={{ color }}>{s.recommended_staff || 3}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Detail panel when a day is selected */}
+      {selected && (
+        <div className="px-5 sm:px-6 py-3 border-t border-gray-100 dark:border-gray-700/40 bg-gray-50/50 dark:bg-gray-700/10">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-bold text-gray-800 dark:text-white">{selected.day}</span>
+              {selWeather && <span className="text-sm">{CONDITION_ICON(selWeather.condition)} {Math.round(selWeather.temp_max || 0)}°</span>}
+            </div>
+            {selStaff && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md uppercase"
+                style={{
+                  background: selStaff.business_level === "Busy" ? "rgba(239,68,68,0.1)" : "rgba(59,130,246,0.1)",
+                  color: selStaff.business_level === "Busy" ? "#EF4444" : "#3B82F6",
+                }}>{selStaff.business_level || "Normal"}</span>
+            )}
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <p className="text-[10px] text-gray-400">Revenue</p>
+              <p className="text-sm font-bold text-gray-800 dark:text-white">{selected.predicted_revenue.toLocaleString()}</p>
+            </div>
+            {selStaff && (
+              <div>
+                <p className="text-[10px] text-gray-400">Staff</p>
+                <p className="text-sm font-bold text-blue-500">{selStaff.recommended_staff} ppl</p>
+              </div>
+            )}
+            {selWeather && (
+              <div>
+                <p className="text-[10px] text-gray-400">Precip</p>
+                <p className="text-sm font-bold text-gray-600 dark:text-gray-300">{selWeather.precipitation || 0}mm</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!selected && (
+        <div className="px-5 sm:px-6 py-2 border-t border-gray-100 dark:border-gray-700/40">
+          <p className="text-center text-[11px] text-gray-400 py-1 border border-dashed border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer" onClick={onNavigate}>
+            Tap any day for details &bull; View full forecast →
           </p>
         </div>
-        <div className="text-right flex-shrink-0">
-          <p className="text-xl font-bold text-blue-600 dark:text-blue-400">{total.toLocaleString()} {currency}</p>
-          <p className="text-xs text-gray-400">Avg/Day: {avgDaily.toLocaleString()} {currency}</p>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   INVENTORY PANEL — with days-left, expiry, reorder
+   ═══════════════════════════════════════════════════════════ */
+
+function InventoryPanel({ items, currency, onNavigate }) {
+  const [filter, setFilter] = useState("all");
+  if (!items || items.length === 0) return null;
+
+  // Process items
+  const processed = items.map((it) => {
+    const qty = parseFloat(it.quantity) || 0;
+    const min = parseFloat(it.min_threshold) || 0;
+    const cost = parseFloat(it.cost_per_unit) || 0;
+    const isLow = qty <= min;
+    const stockPct = min > 0 ? (qty / (min * 2)) * 100 : 100;
+    // Expiry
+    let daysToExpiry = 999;
+    if (it.expiry_date) {
+      const exp = new Date(it.expiry_date);
+      daysToExpiry = Math.ceil((exp - new Date()) / 86400000);
+    }
+    const isExpiring = daysToExpiry <= 3;
+    const urgency = isLow ? (qty <= min * 0.5 ? 3 : 2) : isExpiring ? 2 : 0;
+    const status = urgency >= 2 ? "critical" : isLow || isExpiring ? "warning" : "ok";
+    return { ...it, qty, min, cost, isLow, stockPct, daysToExpiry, isExpiring, urgency, status };
+  });
+
+  let list = [...processed];
+  if (filter === "low") list = list.filter((i) => i.isLow);
+  if (filter === "exp") list = list.filter((i) => i.isExpiring);
+  list.sort((a, b) => b.urgency - a.urgency || a.qty - b.qty);
+
+  const lowCount = processed.filter((i) => i.isLow).length;
+  const expCount = processed.filter((i) => i.isExpiring).length;
+  const totalValue = Math.round(processed.reduce((s, i) => s + i.qty * i.cost, 0));
+
+  const statusStyles = {
+    critical: "bg-red-50 dark:bg-red-900/10 border-red-200/60 dark:border-red-800/30",
+    warning: "bg-amber-50 dark:bg-amber-900/10 border-amber-200/60 dark:border-amber-800/30",
+    ok: "bg-transparent border-gray-100 dark:border-gray-700/40",
+  };
+  const barColors = { critical: "#EF4444", warning: "#F59E0B", ok: "#22C55E" };
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm">
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Inventory</h3>
+          <p className="text-xs text-gray-400 mt-0.5">{items.length} items</p>
+        </div>
+        <div className="text-right">
+          <p className="text-sm font-bold text-gray-800 dark:text-white">{totalValue.toLocaleString()}</p>
+          <p className="text-[10px] text-gray-400">{currency} stock value</p>
         </div>
       </div>
 
-      <div className="mt-4">
-        <ResponsiveContainer width="100%" height={160}>
-          <BarChart data={data} barSize={undefined}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(156,163,175,0.1)" vertical={false} />
-            <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#9CA3AF" }} axisLine={false} tickLine={false} tickFormatter={(v) => v.slice(0, 3)} />
-            <YAxis tick={{ fontSize: 10, fill: "#9CA3AF" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
-            <Tooltip
-              contentStyle={{ background: "rgba(17,24,39,0.95)", border: "none", borderRadius: 10, color: "#f1f1f1", fontSize: 13 }}
-              formatter={(v) => [`${v.toLocaleString()} ${currency}`, "Predicted"]}
-            />
-            <Bar dataKey="predicted_revenue" radius={[6, 6, 0, 0]}>
-              {data.map((entry, i) => (
-                <Cell key={i} fill={weekendDays.some((d) => entry.day?.startsWith(d)) ? "#3B82F6" : "rgba(59,130,246,0.4)"} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+      {/* Filter pills */}
+      <div className="flex gap-1.5 mb-3">
+        {[
+          { k: "all", label: `All (${items.length})`, color: "#3B82F6" },
+          { k: "low", label: `Low (${lowCount})`, color: "#EF4444" },
+          { k: "exp", label: `Expiring (${expCount})`, color: "#F59E0B" },
+        ].map((f) => (
+          <button key={f.k} onClick={() => setFilter(f.k)}
+            className={`text-[11px] font-medium px-2.5 py-1 rounded-md border transition
+              ${filter === f.k
+                ? "border-current"
+                : "border-transparent bg-gray-100 dark:bg-gray-700/40 text-gray-500 dark:text-gray-400"
+              }`}
+            style={filter === f.k ? { color: f.color, background: `${f.color}15` } : {}}>
+            {f.label}
+          </button>
+        ))}
       </div>
 
-      <div className="grid grid-cols-7 gap-1 mt-2">
-        {data.map((f, i) => (
-          <div key={i} className="text-center">
-            <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-400">{(f.day || "").slice(0, 3)}</p>
-            <p className="text-xs font-bold text-gray-800 dark:text-white">{(f.predicted_revenue / 1000).toFixed(1)}k</p>
-            <p className="text-[10px] text-gray-400">{f.confidence || 95}%</p>
+      {/* Item list */}
+      <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
+        {list.slice(0, 8).map((it, i) => (
+          <div key={i} className={`px-3 py-2 rounded-xl border ${statusStyles[it.status]}`}>
+            <div className="flex items-center justify-between mb-1">
+              <span className={`text-sm text-gray-700 dark:text-gray-200 ${it.status !== "ok" ? "font-semibold" : ""}`}>{it.name}</span>
+              {it.status !== "ok" && (
+                <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded
+                  ${it.status === "critical" ? "text-red-600 bg-red-100 dark:bg-red-900/20" : "text-amber-600 bg-amber-100 dark:bg-amber-900/20"}`}>
+                  {it.status === "critical" ? "Critical" : "Low"}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, it.stockPct)}%`, background: barColors[it.status] }} />
+              </div>
+              <span className="text-xs font-semibold min-w-[40px] text-right" style={{ color: barColors[it.status] }}>
+                {it.qty} {it.unit || ""}
+              </span>
+            </div>
+            <div className="flex gap-3 mt-1 text-[10px] text-gray-400">
+              <span>Min: {it.min}</span>
+              {it.daysToExpiry < 999 && (
+                <span className={it.daysToExpiry <= 3 ? "text-amber-500 font-semibold" : ""}>
+                  Exp: {it.daysToExpiry}d
+                </span>
+              )}
+            </div>
           </div>
         ))}
+      </div>
+
+      {/* Reorder banner */}
+      {lowCount > 0 && (
+        <div className="mt-3 px-3 py-2.5 rounded-xl bg-red-50 dark:bg-red-900/10 border border-red-200/50 dark:border-red-800/30">
+          <p className="text-xs font-semibold text-red-600 dark:text-red-400 mb-1">
+            📦 Reorder needed ({lowCount} items)
+          </p>
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-2">
+            {processed.filter((i) => i.isLow).map((i) => i.name).slice(0, 4).join(", ")}
+          </p>
+          <button onClick={(e) => { e.stopPropagation(); onNavigate(); }}
+            className="text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-red-500 text-white hover:bg-red-600 transition">
+            View Inventory
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DISMISSABLE ALERTS — actionable alerts with dismiss
+   ═══════════════════════════════════════════════════════════ */
+
+function AlertsPanel({ actionItems, summary, weekComparison, onNavigate }) {
+  const [dismissed, setDismissed] = useState(new Set());
+  const [filter, setFilter] = useState("all");
+
+  // Build alerts from real data
+  const alerts = [];
+
+  // Action items from API
+  if (actionItems?.length > 0) {
+    actionItems.forEach((item) => {
+      const typeMap = { restock: "critical", expiring: "warning", cost: "warning", tip: "info" };
+      const iconMap = { restock: "📦", expiring: "⏰", cost: "💸", tip: "💡" };
+      alerts.push({
+        type: typeMap[item.type] || "info",
+        icon: iconMap[item.type] || "💡",
+        title: item.title,
+        desc: item.detail,
+        action: item.type === "restock" ? "View Inventory" : item.type === "cost" ? "Check Expenses" : "View Details",
+        route: item.type === "restock" ? "/inventory" : item.type === "cost" ? "/expenses" : "/reports",
+        id: `action-${item.title}`,
+      });
+    });
+  }
+
+  // Week comparison
+  if (weekComparison && weekComparison.change_pct !== 0) {
+    const up = weekComparison.change_pct > 0;
+    alerts.push({
+      type: up ? "success" : "warning",
+      icon: up ? "📈" : "📉",
+      title: `Weekly revenue ${up ? "up" : "down"} ${Math.abs(weekComparison.change_pct)}%`,
+      desc: `This week: ${Math.round(weekComparison.this_week_revenue).toLocaleString()} vs last: ${Math.round(weekComparison.last_week_revenue).toLocaleString()}`,
+      action: "View Reports", route: "/reports", id: "week-change",
+    });
+  }
+
+  // Margin alert
+  if (summary) {
+    const margin = summary.profit_margin || 0;
+    if (margin > 0 && margin < 15) {
+      alerts.push({
+        type: "warning", icon: "⚡",
+        title: `Profit margin at ${margin}%`,
+        desc: "Below the 15% healthy threshold. Review expense categories.",
+        action: "Review Expenses", route: "/expenses", id: "margin-low",
+      });
+    } else if (margin >= 15) {
+      alerts.push({
+        type: "success", icon: "💪",
+        title: `Healthy ${margin}% profit margin`,
+        desc: "On track for profitability this month.",
+        action: "View Reports", route: "/reports", id: "margin-ok",
+      });
+    }
+    if (summary.inventory_alerts > 0) {
+      alerts.push({
+        type: "critical", icon: "📦",
+        title: `${summary.inventory_alerts} items below minimum`,
+        desc: "Stock levels critically low on some items.",
+        action: "View Inventory", route: "/inventory", id: "inv-alerts",
+      });
+    }
+  }
+
+  if (alerts.length === 0) {
+    alerts.push({ type: "success", icon: "✅", title: "All clear", desc: "No alerts right now.", action: "View Reports", route: "/reports", id: "all-clear" });
+  }
+
+  const visible = alerts.filter((a) => !dismissed.has(a.id) && (filter === "all" || a.type === filter || (filter === "info" && a.type === "success")));
+  const critCount = alerts.filter((a) => a.type === "critical" && !dismissed.has(a.id)).length;
+
+  const typeStyles = {
+    critical: "bg-red-50 dark:bg-red-900/10 border-red-200/60 dark:border-red-800/30",
+    warning: "bg-amber-50 dark:bg-amber-900/10 border-amber-200/60 dark:border-amber-800/30",
+    info: "bg-blue-50 dark:bg-blue-900/10 border-blue-200/60 dark:border-blue-800/30",
+    success: "bg-green-50 dark:bg-green-900/10 border-green-200/60 dark:border-green-800/30",
+  };
+  const typeColors = { critical: "#EF4444", warning: "#F59E0B", info: "#3B82F6", success: "#22C55E" };
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Alerts</h3>
+          {critCount > 0 && (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-500 text-white animate-pulse">{critCount}</span>
+          )}
+        </div>
+        <span className="text-[11px] text-gray-400">{visible.length} active</span>
+      </div>
+
+      {/* Filter pills */}
+      <div className="flex gap-1.5 mb-3 overflow-x-auto">
+        {[
+          { k: "all", label: "All", color: "#f1f1f1" },
+          { k: "critical", label: `Critical (${critCount})`, color: "#EF4444" },
+          { k: "warning", label: "Warnings", color: "#F59E0B" },
+          { k: "info", label: "Info", color: "#3B82F6" },
+        ].map((f) => (
+          <button key={f.k} onClick={() => setFilter(f.k)}
+            className={`text-[11px] font-medium px-2.5 py-1 rounded-md border whitespace-nowrap transition
+              ${filter === f.k ? "border-current" : "border-transparent bg-gray-100 dark:bg-gray-700/40 text-gray-500 dark:text-gray-400"}`}
+            style={filter === f.k ? { color: f.color, background: `${f.color}15` } : {}}>
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Alert cards */}
+      <div className="space-y-2 max-h-[320px] overflow-y-auto">
+        {visible.map((a) => (
+          <div key={a.id} className={`px-3 py-2.5 rounded-xl border ${typeStyles[a.type]}`}>
+            <div className="flex items-start gap-2">
+              <span className="text-sm mt-0.5">{a.icon}</span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2 mb-0.5">
+                  <span className="text-xs font-semibold text-gray-800 dark:text-gray-100">{a.title}</span>
+                  <button onClick={() => setDismissed(new Set([...dismissed, a.id]))}
+                    className="text-gray-400 hover:text-gray-600 text-sm leading-none flex-shrink-0">&times;</button>
+                </div>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed mb-1.5">{a.desc}</p>
+                <button onClick={() => onNavigate(a.route)}
+                  className="text-[11px] font-semibold px-2.5 py-1 rounded-md border transition"
+                  style={{ color: typeColors[a.type], background: `${typeColors[a.type]}10`, borderColor: `${typeColors[a.type]}30` }}>
+                  {a.action}
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {visible.length === 0 && (
+          <p className="text-center py-4 text-sm text-gray-400">✅ All clear — no active alerts</p>
+        )}
       </div>
     </div>
   );
@@ -335,137 +708,6 @@ function ExpenseBreakdown({ breakdown, currency, onNavigate }) {
           <span className="text-sm font-bold text-gray-700 dark:text-gray-200">{Math.round(total).toLocaleString()} {currency}</span>
         </div>
       )}
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   AI INSIGHTS — connected to the BonBox Agent
-   ═══════════════════════════════════════════════════════════ */
-
-function AIInsightsPanel({ actionItems, summary, weekComparison, onNavigate }) {
-  // Build insights from real data
-  const insights = [];
-
-  // Action items from API
-  if (actionItems?.length > 0) {
-    actionItems.slice(0, 2).forEach((item) => {
-      const typeMap = { restock: "warning", expiring: "alert", cost: "alert", tip: "info" };
-      const iconMap = { restock: "📦", expiring: "⏰", cost: "💸", tip: "💡" };
-      insights.push({
-        type: typeMap[item.type] || "info",
-        icon: iconMap[item.type] || "💡",
-        text: `${item.title} — ${item.detail}`,
-        action: item.type === "restock" ? "View Inventory" : item.type === "cost" ? "Check Expenses" : "View Details",
-        route: item.type === "restock" ? "/inventory" : item.type === "cost" ? "/expenses" : "/reports",
-      });
-    });
-  }
-
-  // Week comparison insight
-  if (weekComparison && weekComparison.change_pct !== 0) {
-    const up = weekComparison.change_pct > 0;
-    insights.push({
-      type: up ? "success" : "alert",
-      icon: up ? "📈" : "📉",
-      text: `Weekly revenue ${up ? "up" : "down"} ${Math.abs(weekComparison.change_pct)}% vs last week`,
-      action: "View Details",
-      route: "/reports",
-    });
-  }
-
-  // Profit margin insight
-  if (summary) {
-    const margin = summary.profit_margin || 0;
-    if (margin > 0 && margin < 15) {
-      insights.push({
-        type: "warning",
-        icon: "⚡",
-        text: `Profit margin is ${margin}% — below the 15% healthy threshold`,
-        action: "Review Expenses",
-        route: "/expenses",
-      });
-    } else if (margin >= 15) {
-      insights.push({
-        type: "success",
-        icon: "💪",
-        text: `Healthy ${margin}% profit margin this month`,
-        action: "View Reports",
-        route: "/reports",
-      });
-    }
-  }
-
-  // Inventory alerts
-  if (summary?.inventory_alerts > 0) {
-    insights.push({
-      type: "warning",
-      icon: "📦",
-      text: `${summary.inventory_alerts} items below minimum stock level`,
-      action: "View Inventory",
-      route: "/inventory",
-    });
-  }
-
-  if (insights.length === 0) {
-    insights.push({
-      type: "success",
-      icon: "✅",
-      text: "Everything looks good! No alerts right now.",
-      action: "View Reports",
-      route: "/reports",
-    });
-  }
-
-  const colors = {
-    warning: { bg: "bg-amber-50 dark:bg-amber-900/10", border: "border-amber-200/60 dark:border-amber-800/30", text: "text-amber-600 dark:text-amber-400" },
-    alert: { bg: "bg-red-50 dark:bg-red-900/10", border: "border-red-200/60 dark:border-red-800/30", text: "text-red-600 dark:text-red-400" },
-    success: { bg: "bg-green-50 dark:bg-green-900/10", border: "border-green-200/60 dark:border-green-800/30", text: "text-green-600 dark:text-green-400" },
-    info: { bg: "bg-blue-50 dark:bg-blue-900/10", border: "border-blue-200/60 dark:border-blue-800/30", text: "text-blue-600 dark:text-blue-400" },
-  };
-
-  return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm flex-1">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">AI Insights</h3>
-          <p className="text-xs text-gray-400 mt-0.5">Powered by BonBox Agent</p>
-        </div>
-        <span className="text-[10px] font-bold text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-0.5 rounded-full uppercase tracking-wider">Live</span>
-      </div>
-
-      <div className="space-y-2">
-        {insights.slice(0, 4).map((ins, i) => {
-          const c = colors[ins.type] || colors.info;
-          return (
-            <div
-              key={i}
-              onClick={(e) => { e.stopPropagation(); onNavigate(ins.route); }}
-              className={`${c.bg} border ${c.border} rounded-xl px-3 py-2.5 flex items-start gap-2.5 cursor-pointer hover:opacity-80 transition`}
-            >
-              <span className="text-sm mt-0.5">{ins.icon}</span>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-gray-700 dark:text-gray-200 leading-relaxed">{ins.text}</p>
-                <button className={`text-[11px] font-semibold ${c.text} mt-1`}>{ins.action} →</button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Ask Agent CTA */}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          // Trigger the BonBox Agent chat
-          const agentBtn = document.querySelector("[data-bonbox-agent-toggle]");
-          if (agentBtn) agentBtn.click();
-        }}
-        className="mt-3 w-full flex items-center gap-2 px-3 py-2.5 bg-gray-50 dark:bg-gray-700/30 rounded-xl border border-gray-100 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50 transition"
-      >
-        <span className="text-sm">💬</span>
-        <span className="text-xs text-gray-400">Ask anything about your business...</span>
-      </button>
     </div>
   );
 }
@@ -807,6 +1049,8 @@ export default function DashboardPage() {
   const [actionItems, setActionItems] = useState([]);
   const [weekComparison, setWeekComparison] = useState(null);
   const [paymentBreakdown, setPaymentBreakdown] = useState([]);
+  const [weather, setWeather] = useState(null);
+  const [staffing, setStaffing] = useState(null);
   const [saleModal, setSaleModal] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [lightboxImg, setLightboxImg] = useState(null);
@@ -851,6 +1095,8 @@ export default function DashboardPage() {
     api.get("/dashboard/action-items").then((r) => setActionItems(r.data)).catch(() => {});
     api.get("/dashboard/week-comparison").then((r) => setWeekComparison(r.data)).catch(() => {});
     api.get("/dashboard/payment-breakdown").then((r) => setPaymentBreakdown(r.data)).catch(() => {});
+    api.get("/weather/forecast").then((r) => setWeather(r.data)).catch(() => {});
+    api.get("/staffing/forecast").then((r) => setStaffing(r.data)).catch(() => {});
   };
 
   // Fetch period-specific stats
@@ -1047,19 +1293,43 @@ export default function DashboardPage() {
         <RevenueTrendChart data={dailyRevData} currency={currency} onNavigate={() => navigate("/reports")} />
 
         {/* ═══════════════════════════════════════════════════
-           ROW 3: FORECAST + P&L side by side
+           ROW 3: FORECAST+WEATHER+STAFFING + P&L side by side
            ═══════════════════════════════════════════════════ */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <ForecastPanel forecast={forecast} currency={currency} onNavigate={() => navigate("/weather")} />
+          <ForecastWeatherStaffing forecast={forecast} weather={weather} staffing={staffing} currency={currency} onNavigate={() => navigate("/weather")} />
           <PLCard revenue={revenue} expenses={expenses} profit={profit} margin={marginPct} currency={currency} onNavigate={() => navigate("/reports")} />
         </div>
 
         {/* ═══════════════════════════════════════════════════
-           ROW 4: EXPENSE BREAKDOWN + AI INSIGHTS
+           ROW 4: EXPENSE BREAKDOWN + ALERTS
            ═══════════════════════════════════════════════════ */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <ExpenseBreakdown breakdown={monthlyData?.expense_breakdown} currency={currency} onNavigate={() => navigate("/expenses")} />
-          <AIInsightsPanel actionItems={actionItems} summary={summary} weekComparison={weekComparison} onNavigate={navigate} />
+          <AlertsPanel actionItems={actionItems} summary={summary} weekComparison={weekComparison} onNavigate={navigate} />
+        </div>
+
+        {/* ═══════════════════════════════════════════════════
+           ROW 4b: INVENTORY + ASK AGENT
+           ═══════════════════════════════════════════════════ */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <InventoryPanel items={inventoryItems} currency={currency} onNavigate={() => navigate("/inventory")} />
+          <div className="flex flex-col gap-4">
+            {/* Ask Agent CTA */}
+            <button
+              onClick={() => {
+                const agentBtn = document.querySelector("[data-bonbox-agent-toggle]");
+                if (agentBtn) agentBtn.click();
+              }}
+              className="w-full flex items-center gap-3 px-5 py-4 bg-gradient-to-r from-blue-500/5 via-purple-500/5 to-pink-500/5 dark:from-blue-500/10 dark:via-purple-500/10 dark:to-pink-500/10 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] active:scale-[0.99] transition-all"
+            >
+              <span className="text-2xl">💬</span>
+              <div className="text-left flex-1 min-w-0">
+                <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Ask anything about your business...</p>
+                <p className="text-xs text-gray-400 mt-0.5">Powered by BonBox Agent</p>
+              </div>
+              <span className="text-[10px] font-bold text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-0.5 rounded-full uppercase tracking-wider flex-shrink-0">Live</span>
+            </button>
+          </div>
         </div>
 
         {/* ═══════════════════════════════════════════════════
