@@ -9,6 +9,7 @@ import { displayCurrency, getTaxConfig } from "../utils/currency";
 import { formatDate, formatDateShort } from "../utils/dateFormat";
 import { getVatTerms } from "../utils/currency";
 import TaxBreakdown from "../components/TaxBreakdown";
+import { FadeIn, StaggerGrid, StaggerGridItem, AnimatedList, AnimatedListItem, TabContent, motion, AnimatePresence } from "../components/AnimationKit";
 
 const QUICK_AMOUNTS = [500, 1000, 2500, 5000, 7500, 10000, 15000];
 
@@ -244,7 +245,7 @@ export default function SalesPage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <FadeIn className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("salesTracker")}</h1>
         <div className="flex items-center gap-2">
           <button
@@ -255,7 +256,7 @@ export default function SalesPage() {
           </button>
           <ReceiptCapture onSaleCreated={fetchSales} />
         </div>
-      </div>
+      </FadeIn>
 
       {success && <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
       {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">{error}</div>}

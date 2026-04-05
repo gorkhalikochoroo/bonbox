@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { formatDate, formatDateShort } from "../utils/dateFormat";
+import { FadeIn } from "../components/AnimationKit";
 
 const WEATHER_ICONS = {
   clear: "☀️", cloudy: "⛅", rain: "🌧️", drizzle: "🌦️",
@@ -185,7 +186,7 @@ export default function WeatherPage() {
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("weatherSmart")}</h1>
+        <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("weatherSmart")}</h1></FadeIn>
         <button onClick={fetchAll} className="text-sm text-green-600 dark:text-green-400 hover:underline">{t("refresh")}</button>
       </div>
 

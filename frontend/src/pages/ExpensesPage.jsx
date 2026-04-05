@@ -7,6 +7,7 @@ import { exportToCsv } from "../utils/exportCsv";
 import { displayCurrency, getTaxConfig } from "../utils/currency";
 import { formatDate, formatDateShort } from "../utils/dateFormat";
 import TaxBreakdown from "../components/TaxBreakdown";
+import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
 
 const QUICK_AMOUNTS = [100, 250, 500, 1000, 2500, 5000];
 const DEFAULT_CATEGORIES = ["Ingredients", "Rent", "Wages", "Utilities", "Supplies", "Other"];
@@ -309,7 +310,7 @@ export default function ExpensesPage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("expenseTracker")}</h1>
+      <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("expenseTracker")}</h1></FadeIn>
 
       {success && <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
       {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-300 px-4 py-3 rounded-xl text-sm">{error}</div>}

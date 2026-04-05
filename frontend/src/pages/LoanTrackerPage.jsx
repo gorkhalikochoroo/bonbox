@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { displayCurrency } from "../utils/currency";
 import { useLanguage } from "../hooks/useLanguage";
 import { formatDate, formatDateShort } from "../utils/dateFormat";
+import { FadeIn } from "../components/AnimationKit";
 
 export default function LoanTrackerPage() {
   const { user } = useAuth();
@@ -117,7 +118,7 @@ export default function LoanTrackerPage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("loanTrackerTitle")}</h1>
+      <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("loanTrackerTitle")}</h1></FadeIn>
       <p className="text-sm text-gray-500 dark:text-gray-400">{t("loanTrackerSubtitle")}</p>
 
       {error && <p className="bg-red-50 text-red-600 p-3 rounded-lg text-sm">{error}</p>}

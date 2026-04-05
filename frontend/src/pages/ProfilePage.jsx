@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useDarkMode } from "../hooks/useDarkMode";
 import { useLanguage } from "../hooks/useLanguage";
+import { FadeIn } from "../components/AnimationKit";
 
 export default function ProfilePage() {
   const [dark] = useDarkMode();
@@ -138,7 +139,7 @@ export default function ProfilePage() {
 
   return (
     <div className="p-4 sm:p-6 max-w-2xl mx-auto space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t("profile")}</h1>
+      <FadeIn><h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t("profile")}</h1></FadeIn>
 
       {/* Account Info */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">

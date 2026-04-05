@@ -3,6 +3,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
+import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
 
 const TEMPLATES = [
   // Food & Drink
@@ -326,7 +327,7 @@ export default function InventoryPage() {
   return (
     <div className="p-4 sm:p-6 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("inventoryMonitor")}</h1>
+        <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("inventoryMonitor")}</h1></FadeIn>
         <div className="flex items-center gap-3">
           <button
             onClick={() => setShowTemplateModal(true)}

@@ -6,6 +6,7 @@ import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { displayCurrency } from "../utils/currency";
 import { formatDate, formatDateShort } from "../utils/dateFormat";
+import { FadeIn } from "../components/AnimationKit";
 
 const IN_CATEGORIES = ["Sales", "Tips", "Loan", "Other"];
 const OUT_CATEGORIES = ["Purchase", "Wages", "Supplies", "Rent", "Other"];
@@ -115,7 +116,7 @@ export default function CashBookPage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("cashBook")}</h1>
+      <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("cashBook")}</h1></FadeIn>
 
       {success && <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
       {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">{error}</div>}

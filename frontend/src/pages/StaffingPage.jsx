@@ -8,6 +8,7 @@ import {
 } from "recharts";
 import { displayCurrency } from "../utils/currency";
 import { formatDate, formatDateShort } from "../utils/dateFormat";
+import { FadeIn } from "../components/AnimationKit";
 
 const LEVEL_COLORS = {
   Slow: "bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-700",
@@ -90,7 +91,7 @@ export default function StaffingPage() {
   return (
     <div className="p-4 sm:p-6 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("smartStaffing")}</h1>
+        <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("smartStaffing")}</h1></FadeIn>
         <select
           value={days}
           onChange={(e) => setDays(parseInt(e.target.value))}

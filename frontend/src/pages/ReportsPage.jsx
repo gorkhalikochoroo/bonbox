@@ -5,6 +5,7 @@ import { getVatTerms } from "../utils/currency";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { formatDate } from "../utils/dateFormat";
+import { FadeIn } from "../components/AnimationKit";
 
 const currentDate = new Date();
 
@@ -110,7 +111,7 @@ export default function ReportsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("reportBuilder")}</h1>
+          <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("reportBuilder")}</h1></FadeIn>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             {t("buildCustomReport")}
           </p>

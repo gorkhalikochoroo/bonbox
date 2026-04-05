@@ -15,6 +15,7 @@ import {
   QuickSaleModal,
   PullToRefresh,
 } from "../components/BonBoxPolishKit";
+import { FadeIn, StaggerGrid, StaggerGridItem, AnimatedCard, TabContent } from "../components/AnimationKit";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   AreaChart, Area,
@@ -1252,7 +1253,7 @@ export default function DashboardPage() {
         <QuickSaleModal open={saleModal} onClose={() => setSaleModal(false)} onSubmit={handleQuickSale} currency={currency} />
 
         {/* ── HEADER ── */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <FadeIn className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100">
               {t("welcome")}, {user?.business_name}
@@ -1274,7 +1275,7 @@ export default function DashboardPage() {
               📄 {t("downloadPdf")}
             </button>
           </div>
-        </div>
+        </FadeIn>
 
         {quickMsg && (
           <div className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-4 py-2.5 rounded-xl text-sm font-medium">{quickMsg}</div>
@@ -1299,104 +1300,136 @@ export default function DashboardPage() {
         {/* ═══════════════════════════════════════════════════
            ROW 1: KPI CARDS — 4 columns with sparklines
            ═══════════════════════════════════════════════════ */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-          <KpiCard
-            title={period === "today" ? t("todayRevenue") : period === "thisWeek" ? t("thisWeekRevenue") : period === "thisMonth" ? t("thisMonthRevenue") : t("last30Revenue")}
-            numericValue={periodStats ? periodStats.totalRevenue : summary.today_revenue}
-            currency={currency}
-            change={period === "today" ? summary.today_revenue_change : undefined}
-            changeLabel={period === "today" ? t("vsYesterday") : periodStats ? `${periodStats.salesCount} sales` : undefined}
-            sparkData={weekSparkData}
-            onClick={() => navigate("/sales")}
-            highlight
-          />
-          <KpiCard
-            title="Yesterday"
-            numericValue={yesterdayRev}
-            currency={currency}
-            subtitle={yesterdayRev > 0 ? formatDateShort(yesterdayKey) : "No sales"}
-            onClick={() => navigate("/sales")}
-          />
-          <KpiCard
-            title="Week Avg"
-            numericValue={weekAvg}
-            currency={currency}
-            subtitle={`${currency}/day`}
-            sparkData={weekSparkData}
-            onClick={() => navigate("/reports")}
-          />
-          <KpiCard
-            title="Best Day"
-            numericValue={bestDay ? bestDay.amount : 0}
-            currency={currency}
-            subtitle={bestDay ? formatDateShort(bestDay.date) : "—"}
-            sparkData={monthSparkData}
-            onClick={() => navigate("/reports")}
-          />
-        </div>
+        <StaggerGrid className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <StaggerGridItem>
+            <KpiCard
+              title={period === "today" ? t("todayRevenue") : period === "thisWeek" ? t("thisWeekRevenue") : period === "thisMonth" ? t("thisMonthRevenue") : t("last30Revenue")}
+              numericValue={periodStats ? periodStats.totalRevenue : summary.today_revenue}
+              currency={currency}
+              change={period === "today" ? summary.today_revenue_change : undefined}
+              changeLabel={period === "today" ? t("vsYesterday") : periodStats ? `${periodStats.salesCount} sales` : undefined}
+              sparkData={weekSparkData}
+              onClick={() => navigate("/sales")}
+              highlight
+            />
+          </StaggerGridItem>
+          <StaggerGridItem>
+            <KpiCard
+              title="Yesterday"
+              numericValue={yesterdayRev}
+              currency={currency}
+              subtitle={yesterdayRev > 0 ? formatDateShort(yesterdayKey) : "No sales"}
+              onClick={() => navigate("/sales")}
+            />
+          </StaggerGridItem>
+          <StaggerGridItem>
+            <KpiCard
+              title="Week Avg"
+              numericValue={weekAvg}
+              currency={currency}
+              subtitle={`${currency}/day`}
+              sparkData={weekSparkData}
+              onClick={() => navigate("/reports")}
+            />
+          </StaggerGridItem>
+          <StaggerGridItem>
+            <KpiCard
+              title="Best Day"
+              numericValue={bestDay ? bestDay.amount : 0}
+              currency={currency}
+              subtitle={bestDay ? formatDateShort(bestDay.date) : "—"}
+              sparkData={monthSparkData}
+              onClick={() => navigate("/reports")}
+            />
+          </StaggerGridItem>
+        </StaggerGrid>
 
         {/* ═══════════════════════════════════════════════════
            ROW 2: TOP SELLERS — Qty / Revenue toggle (full width)
            ═══════════════════════════════════════════════════ */}
-        <TopSellersCard topSellers={topSellers} currency={currency} onNavigate={() => navigate("/sales")} />
+        <FadeIn delay={0.15}>
+          <TopSellersCard topSellers={topSellers} currency={currency} onNavigate={() => navigate("/sales")} />
+        </FadeIn>
 
         {/* ═══════════════════════════════════════════════════
            ROW 3: FORECAST+WEATHER+STAFFING + P&L side by side
            ═══════════════════════════════════════════════════ */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <ForecastWeatherStaffing forecast={forecast} weather={weather} staffing={staffing} currency={currency} onNavigate={() => navigate("/weather")} />
-          <PLCard revenue={revenue} expenses={expenses} profit={profit} margin={marginPct} currency={currency} onNavigate={() => navigate("/reports")} />
-        </div>
+        <StaggerGrid className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <StaggerGridItem>
+            <ForecastWeatherStaffing forecast={forecast} weather={weather} staffing={staffing} currency={currency} onNavigate={() => navigate("/weather")} />
+          </StaggerGridItem>
+          <StaggerGridItem>
+            <PLCard revenue={revenue} expenses={expenses} profit={profit} margin={marginPct} currency={currency} onNavigate={() => navigate("/reports")} />
+          </StaggerGridItem>
+        </StaggerGrid>
 
         {/* ═══════════════════════════════════════════════════
            ROW 4: SALES (payments) + EXPENSES together
            ═══════════════════════════════════════════════════ */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <PaymentBreakdownCard paymentBreakdown={paymentBreakdown} currency={currency} onNavigate={() => navigate("/sales")} />
-          <ExpenseBreakdown breakdown={monthlyData?.expense_breakdown} currency={currency} onNavigate={() => navigate("/expenses")} />
-        </div>
+        <StaggerGrid className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <StaggerGridItem>
+            <PaymentBreakdownCard paymentBreakdown={paymentBreakdown} currency={currency} onNavigate={() => navigate("/sales")} />
+          </StaggerGridItem>
+          <StaggerGridItem>
+            <ExpenseBreakdown breakdown={monthlyData?.expense_breakdown} currency={currency} onNavigate={() => navigate("/expenses")} />
+          </StaggerGridItem>
+        </StaggerGrid>
 
         {/* ═══════════════════════════════════════════════════
            ROW 5: INVENTORY + ALERTS
            ═══════════════════════════════════════════════════ */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <InventoryPanel items={inventoryItems} currency={currency} onNavigate={() => navigate("/inventory")} />
-          <AlertsPanel actionItems={actionItems} summary={summary} weekComparison={weekComparison} onNavigate={navigate} />
-        </div>
+        <StaggerGrid className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <StaggerGridItem>
+            <InventoryPanel items={inventoryItems} currency={currency} onNavigate={() => navigate("/inventory")} />
+          </StaggerGridItem>
+          <StaggerGridItem>
+            <AlertsPanel actionItems={actionItems} summary={summary} weekComparison={weekComparison} onNavigate={navigate} />
+          </StaggerGridItem>
+        </StaggerGrid>
 
         {/* Ask Agent CTA */}
-        <button
-          onClick={() => {
-            const agentBtn = document.querySelector("[data-bonbox-agent-toggle]");
-            if (agentBtn) agentBtn.click();
-          }}
-          className="w-full flex items-center gap-3 px-5 py-4 bg-gradient-to-r from-blue-500/5 via-purple-500/5 to-pink-500/5 dark:from-blue-500/10 dark:via-purple-500/10 dark:to-pink-500/10 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] active:scale-[0.99] transition-all"
-        >
-          <span className="text-2xl">💬</span>
-          <div className="text-left flex-1 min-w-0">
-            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Ask anything about your business...</p>
-            <p className="text-xs text-gray-400 mt-0.5">Powered by BonBox Agent</p>
-          </div>
-          <span className="text-[10px] font-bold text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-0.5 rounded-full uppercase tracking-wider flex-shrink-0">Live</span>
-        </button>
+        <FadeIn delay={0.2}>
+          <button
+            onClick={() => {
+              const agentBtn = document.querySelector("[data-bonbox-agent-toggle]");
+              if (agentBtn) agentBtn.click();
+            }}
+            className="w-full flex items-center gap-3 px-5 py-4 bg-gradient-to-r from-blue-500/5 via-purple-500/5 to-pink-500/5 dark:from-blue-500/10 dark:via-purple-500/10 dark:to-pink-500/10 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] active:scale-[0.99] transition-all"
+          >
+            <span className="text-2xl">💬</span>
+            <div className="text-left flex-1 min-w-0">
+              <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Ask anything about your business...</p>
+              <p className="text-xs text-gray-400 mt-0.5">Powered by BonBox Agent</p>
+            </div>
+            <span className="text-[10px] font-bold text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-0.5 rounded-full uppercase tracking-wider flex-shrink-0">Live</span>
+          </button>
+        </FadeIn>
 
         {/* ═══════════════════════════════════════════════════
            ROW 6: WEEK COMPARISON + HEALTH SCORE
            ═══════════════════════════════════════════════════ */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <WeekComparisonCard weekComparison={weekComparison} currency={currency} onNavigate={() => navigate("/reports")} />
-          <HealthScore summary={summary} monthlyData={monthlyData} onNavigate={() => navigate("/reports")} />
-        </div>
+        <StaggerGrid className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <StaggerGridItem>
+            <WeekComparisonCard weekComparison={weekComparison} currency={currency} onNavigate={() => navigate("/reports")} />
+          </StaggerGridItem>
+          <StaggerGridItem>
+            <HealthScore summary={summary} monthlyData={monthlyData} onNavigate={() => navigate("/reports")} />
+          </StaggerGridItem>
+        </StaggerGrid>
 
         {/* ═══════════════════════════════════════════════════
            ROW 7: GOALS
            ═══════════════════════════════════════════════════ */}
-        <GoalTracker todayRevenue={summary.today_revenue} monthRevenue={summary.month_revenue} />
+        <FadeIn delay={0.1}>
+          <GoalTracker todayRevenue={summary.today_revenue} monthRevenue={summary.month_revenue} />
+        </FadeIn>
 
         {/* ═══════════════════════════════════════════════════
            ROW 8: REVENUE TREND (detailed chart)
            ═══════════════════════════════════════════════════ */}
-        <RevenueTrendChart data={dailyRevData} currency={currency} onNavigate={() => navigate("/reports")} />
+        <FadeIn delay={0.15}>
+          <RevenueTrendChart data={dailyRevData} currency={currency} onNavigate={() => navigate("/reports")} />
+        </FadeIn>
 
         {/* ═══════════════════════════════════════════════════
            ROW 8: RECEIPTS (if any)
