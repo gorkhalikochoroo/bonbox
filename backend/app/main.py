@@ -43,6 +43,12 @@ _migrations = [
     "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS sell_price_per_pour NUMERIC(12,2)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS latitude NUMERIC(10,6)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS longitude NUMERIC(10,6)",
+    # Returns / exchange tracking on sales
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'completed'",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS return_reason TEXT",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS return_action VARCHAR(20)",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS return_amount NUMERIC(12,2)",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS returned_at TIMESTAMP",
 ]
 
 try:

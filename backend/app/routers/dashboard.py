@@ -375,7 +375,24 @@ def get_action_items(
             "detail": "Today!" if days_left == 0 else f"In {days_left} day{'s' if days_left != 1 else ''}"
         })
 
-    # 3. No sales today
+    # 3. Pending returns
+    try:
+        pending_returns = (
+            db.query(func.count(Sale.id))
+            .filter(Sale.user_id == user.id, Sale.status == "return-pending", Sale.is_deleted.isnot(True))
+            .scalar()
+        )
+        if pending_returns and pending_returns > 0:
+            items.append({
+                "type": "return",
+                "priority": "high",
+                "title": f"{pending_returns} return{'s' if pending_returns > 1 else ''} pending",
+                "detail": "Customer returns need your action — refund, replace, or restock",
+            })
+    except Exception:
+        pass  # status column may not exist yet
+
+    # 4. No sales today
     today_sales = (
         db.query(func.count(Sale.id))
         .filter(Sale.user_id == user.id, Sale.date == today, Sale.is_deleted.isnot(True))

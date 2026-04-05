@@ -25,6 +25,13 @@ class Sale(Base):
     cost_at_sale: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     item_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_tax_exempt: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Return / exchange tracking
+    status: Mapped[str] = mapped_column(String(20), default="completed")  # completed | returned | exchanged | return-pending
+    return_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    return_action: Mapped[str | None] = mapped_column(String(20), nullable=True)  # refund | replace | exchange | restock
+    return_amount: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    returned_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Soft delete
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

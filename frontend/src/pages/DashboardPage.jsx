@@ -481,15 +481,15 @@ function AlertsPanel({ actionItems, summary, weekComparison, onNavigate }) {
   // Action items from API
   if (actionItems?.length > 0) {
     actionItems.forEach((item) => {
-      const typeMap = { restock: "critical", expiring: "warning", cost: "warning", tip: "info" };
-      const iconMap = { restock: "📦", expiring: "⏰", cost: "💸", tip: "💡" };
+      const typeMap = { restock: "critical", expiring: "warning", cost: "warning", tip: "info", return: "critical" };
+      const iconMap = { restock: "📦", expiring: "⏰", cost: "💸", tip: "💡", return: "↩️" };
       alerts.push({
         type: typeMap[item.type] || "info",
         icon: iconMap[item.type] || "💡",
         title: item.title,
         desc: item.detail,
-        action: item.type === "restock" ? "View Inventory" : item.type === "cost" ? "Check Expenses" : "View Details",
-        route: item.type === "restock" ? "/inventory" : item.type === "cost" ? "/expenses" : "/reports",
+        action: item.type === "restock" ? "View Inventory" : item.type === "cost" ? "Check Expenses" : item.type === "return" ? "View Sales" : "View Details",
+        route: item.type === "restock" ? "/inventory" : item.type === "cost" ? "/expenses" : item.type === "return" ? "/sales" : "/reports",
         id: `action-${item.title}`,
       });
     });

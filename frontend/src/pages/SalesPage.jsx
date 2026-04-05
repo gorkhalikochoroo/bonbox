@@ -36,12 +36,31 @@ export default function SalesPage() {
   const [showItemSale, setShowItemSale] = useState(false);
   const [inventoryItems, setInventoryItems] = useState([]);
   const [expandedStat, setExpandedStat] = useState(null); // "today" | "total" | "avg" | null
+  // Return / exchange state
+  const [statusFilter, setStatusFilter] = useState("all"); // all | completed | returns
+  const [returnMode, setReturnMode] = useState(null); // sale id being returned
+  const [returnData, setReturnData] = useState({ reason: "", action: "" });
+  const [returnSummary, setReturnSummary] = useState(null);
 
-  const filtered = sales.filter(s => !search || s.notes?.toLowerCase().includes(search.toLowerCase()) || s.payment_method?.toLowerCase().includes(search.toLowerCase()) || String(s.amount).includes(search)).sort((a, b) => {
+  const filtered = sales.filter(s => {
+    // Status filter
+    if (statusFilter === "completed" && (s.status || "completed") !== "completed") return false;
+    if (statusFilter === "returns" && !["returned", "exchanged", "return-pending"].includes(s.status || "completed")) return false;
+    // Search
+    if (search && !(s.notes?.toLowerCase().includes(search.toLowerCase()) || s.payment_method?.toLowerCase().includes(search.toLowerCase()) || String(s.amount).includes(search) || (s.item_name || "").toLowerCase().includes(search.toLowerCase()))) return false;
+    return true;
+  }).sort((a, b) => {
+    // Pending returns always first
+    const aPend = (a.status === "return-pending") ? 0 : 1;
+    const bPend = (b.status === "return-pending") ? 0 : 1;
+    if (aPend !== bPend) return aPend - bPend;
     const d = b.date.localeCompare(a.date);
     if (d !== 0) return d;
     return (b.created_at || "").localeCompare(a.created_at || "");
   });
+
+  const pendingReturnCount = sales.filter(s => s.status === "return-pending").length;
+  const returnCount = sales.filter(s => ["returned", "exchanged", "return-pending"].includes(s.status || "completed")).length;
 
   const startVoice = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -93,11 +112,53 @@ export default function SalesPage() {
   const fetchInventory = () => {
     api.get("/inventory").then((res) => setInventoryItems(res.data)).catch(() => {});
   };
+  const fetchReturnSummary = () => {
+    api.get("/sales/returns/summary").then((r) => setReturnSummary(r.data)).catch(() => {});
+  };
+
+  // Process return/exchange
+  const processReturn = async (saleId) => {
+    if (!returnData.reason || !returnData.action) return;
+    try {
+      await api.post(`/sales/${saleId}/return`, {
+        reason: returnData.reason,
+        action: returnData.action,
+      });
+      setReturnMode(null);
+      setReturnData({ reason: "", action: "" });
+      setSuccess(t("returnProcessed") || "Return processed successfully");
+      setTimeout(() => setSuccess(""), 3000);
+      fetchSales(filterFrom, filterTo);
+      fetchInventory();
+      fetchReturnSummary();
+      window.dispatchEvent(new CustomEvent("bonbox-data-changed"));
+    } catch (err) {
+      setError(err.response?.data?.detail || "Failed to process return");
+      setTimeout(() => setError(""), 4000);
+    }
+  };
+
+  // Request a return (mark as pending)
+  const requestReturn = async (saleId, reason) => {
+    try {
+      await api.post(`/sales/${saleId}/request-return`, null, { params: { reason } });
+      setReturnMode(null);
+      setReturnData({ reason: "", action: "" });
+      setSuccess("Return request created");
+      setTimeout(() => setSuccess(""), 3000);
+      fetchSales(filterFrom, filterTo);
+      fetchReturnSummary();
+    } catch (err) {
+      setError(err.response?.data?.detail || "Failed to request return");
+      setTimeout(() => setError(""), 4000);
+    }
+  };
 
   useEffect(() => {
     fetchSales();
     fetchInventory();
-    const onDataChanged = () => { fetchSales(); fetchInventory(); };
+    fetchReturnSummary();
+    const onDataChanged = () => { fetchSales(); fetchInventory(); fetchReturnSummary(); };
     window.addEventListener("bonbox-data-changed", onDataChanged);
     return () => window.removeEventListener("bonbox-data-changed", onDataChanged);
   }, []);
@@ -529,10 +590,68 @@ export default function SalesPage() {
       {/* CSV Import */}
       <CsvUpload onDone={fetchSales} />
 
+      {/* Pending returns banner */}
+      {pendingReturnCount > 0 && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-900/15 border border-amber-200/60 dark:border-amber-800/30">
+          <span className="text-lg">&#x26A0;&#xFE0F;</span>
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+              {pendingReturnCount} return{pendingReturnCount > 1 ? "s" : ""} pending
+            </p>
+            <p className="text-xs text-amber-600/70 dark:text-amber-400/60">Needs your action — refund, replace, or restock</p>
+          </div>
+          <button onClick={() => setStatusFilter("returns")} className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition">
+            View returns
+          </button>
+        </div>
+      )}
+
+      {/* Return summary */}
+      {returnSummary && returnSummary.total_returns > 0 && statusFilter === "returns" && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700 text-center">
+            <p className="text-[10px] uppercase text-gray-400 font-semibold">Returns</p>
+            <p className="text-lg font-bold text-red-500">{returnSummary.total_returns}</p>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700 text-center">
+            <p className="text-[10px] uppercase text-gray-400 font-semibold">Refunded</p>
+            <p className="text-lg font-bold text-red-500">{Math.round(returnSummary.total_refunded).toLocaleString()} {currency}</p>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700 text-center">
+            <p className="text-[10px] uppercase text-gray-400 font-semibold">Pending</p>
+            <p className="text-lg font-bold text-amber-500">{returnSummary.pending_count}</p>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700 text-center">
+            <p className="text-[10px] uppercase text-gray-400 font-semibold">Exchanged</p>
+            <p className="text-lg font-bold text-blue-500">{returnSummary.by_action?.exchange || 0}</p>
+          </div>
+        </div>
+      )}
+
       {/* Sales History */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">{t("recentSales")}</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">{t("recentSales")}</h2>
+            {/* Status filter pills */}
+            <div className="flex gap-1">
+              {[
+                { k: "all", label: "All" },
+                { k: "completed", label: "Completed" },
+                { k: "returns", label: `Returns${returnCount > 0 ? ` (${returnCount})` : ""}` },
+              ].map((f) => (
+                <button key={f.k} onClick={() => setStatusFilter(f.k)}
+                  className={`text-[11px] font-medium px-2.5 py-1 rounded-md border transition
+                    ${statusFilter === f.k
+                      ? f.k === "returns" ? "border-red-400/30 bg-red-50 dark:bg-red-900/15 text-red-600 dark:text-red-400"
+                        : "border-green-400/30 bg-green-50 dark:bg-green-900/15 text-green-600 dark:text-green-400"
+                      : "border-transparent bg-gray-100 dark:bg-gray-700/40 text-gray-500 dark:text-gray-400"
+                    }`}>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="flex items-center gap-2 flex-wrap">
             <input
               type="date"
@@ -593,8 +712,19 @@ export default function SalesPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {filtered.slice(0, 50).map((sale) => (
-              <tr key={sale.id}>
+            {filtered.slice(0, 50).map((sale) => {
+              const st = sale.status || "completed";
+              const statusCfg = {
+                completed: { label: "Completed", cls: "text-green-600 bg-green-50 dark:bg-green-900/20 dark:text-green-400" },
+                returned: { label: "Returned", cls: "text-red-600 bg-red-50 dark:bg-red-900/20 dark:text-red-400" },
+                exchanged: { label: "Exchanged", cls: "text-blue-600 bg-blue-50 dark:bg-blue-900/20 dark:text-blue-400" },
+                "return-pending": { label: "Return pending", cls: "text-amber-600 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-400 animate-pulse" },
+              };
+              const sc = statusCfg[st] || statusCfg.completed;
+              const isReturnForm = returnMode === sale.id;
+
+              return (
+              <tr key={sale.id} className={st === "return-pending" ? "bg-amber-50/30 dark:bg-amber-900/5" : ""}>
                 <td className="px-4 sm:px-6 py-4">
                   <input type="checkbox" checked={selected.has(sale.id)} onChange={(e) => {
                     const next = new Set(selected);
@@ -606,40 +736,24 @@ export default function SalesPage() {
                 {editId === sale.id ? (
                   <>
                     <td className="px-6 py-3">
-                      <input
-                        type="number"
-                        value={editData.amount}
-                        onChange={(e) => setEditData({ ...editData, amount: parseFloat(e.target.value) || 0 })}
-                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-28"
-                      />
+                      <input type="number" value={editData.amount} onChange={(e) => setEditData({ ...editData, amount: parseFloat(e.target.value) || 0 })}
+                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-28" />
                     </td>
                     <td className="px-6 py-3">
-                      <select
-                        value={editData.payment_method}
-                        onChange={(e) => setEditData({ ...editData, payment_method: e.target.value })}
-                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
-                      >
+                      <select value={editData.payment_method} onChange={(e) => setEditData({ ...editData, payment_method: e.target.value })}
+                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white">
                         {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
                           <option key={m} value={m}>{t(m)}</option>
                         ))}
                       </select>
                     </td>
                     <td className="px-6 py-3">
-                      <input
-                        type="text"
-                        value={editData.notes || ""}
-                        onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
-                        placeholder={t("notes")}
-                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-32"
-                      />
+                      <input type="text" value={editData.notes || ""} onChange={(e) => setEditData({ ...editData, notes: e.target.value })} placeholder={t("notes")}
+                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-32" />
                     </td>
                     <td className="px-6 py-3 text-right">
-                      <input
-                        type="date"
-                        value={editData.date}
-                        onChange={(e) => setEditData({ ...editData, date: e.target.value })}
-                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-36"
-                      />
+                      <input type="date" value={editData.date} onChange={(e) => setEditData({ ...editData, date: e.target.value })}
+                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-36" />
                     </td>
                     <td className="px-6 py-3 text-right space-x-2">
                       <button onClick={saveEdit} className="text-green-600 dark:text-green-400 text-sm font-medium hover:underline">{t("save")}</button>
@@ -648,38 +762,132 @@ export default function SalesPage() {
                   </>
                 ) : (
                   <>
-                    <td className="px-6 py-4 text-sm font-semibold text-gray-800 dark:text-white">
-                      {parseFloat(sale.amount).toLocaleString()} {currency}
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-sm font-semibold ${st === "returned" ? "text-red-400 line-through" : "text-gray-800 dark:text-white"}`}>
+                          {parseFloat(sale.amount).toLocaleString()} {currency}
+                        </span>
+                        {st !== "completed" && (
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${sc.cls}`}>{sc.label}</span>
+                        )}
+                      </div>
                       {sale.item_name && (
                         <div className="text-xs font-normal text-gray-400 mt-0.5">
-                          {sale.item_name} × {sale.quantity_sold} @ {parseFloat(sale.unit_price).toLocaleString()}/{currency}
-                          {sale.cost_at_sale != null && (
+                          {sale.item_name} {sale.quantity_sold ? `x ${sale.quantity_sold}` : ""} {sale.unit_price ? `@ ${parseFloat(sale.unit_price).toLocaleString()}/${currency}` : ""}
+                          {sale.cost_at_sale != null && sale.unit_price && sale.quantity_sold && (
                             <span className="ml-1.5 text-green-600 dark:text-green-400">
                               +{Math.round((sale.unit_price - sale.cost_at_sale) * sale.quantity_sold).toLocaleString()} {t("profit")}
                             </span>
                           )}
                         </div>
                       )}
+                      {/* Return info banner */}
+                      {sale.return_reason && (
+                        <div className={`mt-1.5 px-2 py-1 rounded-md text-[11px] ${sc.cls}`}>
+                          {sale.return_action === "refund" ? "💸" : sale.return_action === "exchange" ? "↔️" : sale.return_action === "restock" ? "📦" : "🔄"}{" "}
+                          {sale.return_reason}
+                          {sale.return_action && <span className="font-semibold"> — {sale.return_action}</span>}
+                          {sale.return_amount > 0 && <span> ({Math.round(sale.return_amount).toLocaleString()} {currency} refunded)</span>}
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 capitalize">{sale.payment_method}</td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{sale.notes || "—"}</td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 text-right">{formatDate(sale.date)}</td>
-                    <td className="px-6 py-4 text-right space-x-3">
-                      <button onClick={() => startEdit(sale)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">{t("edit")}</button>
-                      {deleteConfirm === sale.id ? (
-                        <span className="inline-flex items-center gap-1.5 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded-lg">
-                          <span className="text-xs text-red-600 dark:text-red-400">{t("delete")}?</span>
-                          <button onClick={() => deleteSale(sale.id)} className="text-red-600 dark:text-red-400 text-xs font-bold hover:underline">✓</button>
-                          <button onClick={() => setDeleteConfirm(null)} className="text-gray-400 text-xs font-bold hover:underline">✕</button>
-                        </span>
-                      ) : (
-                        <button onClick={() => setDeleteConfirm(sale.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">{t("moveToTrash")}</button>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2 flex-wrap">
+                        {/* Return/Exchange button for completed sales */}
+                        {st === "completed" && !isReturnForm && (
+                          <button onClick={() => { setReturnMode(sale.id); setReturnData({ reason: "", action: "" }); }}
+                            className="text-[11px] font-semibold px-2 py-1 rounded-md bg-red-50 dark:bg-red-900/15 text-red-500 dark:text-red-400 border border-red-200/40 dark:border-red-800/30 hover:bg-red-100 dark:hover:bg-red-900/30 transition">
+                            ↩️ Return
+                          </button>
+                        )}
+                        {/* Process pending return */}
+                        {st === "return-pending" && !isReturnForm && (
+                          <button onClick={() => { setReturnMode(sale.id); setReturnData({ reason: sale.return_reason || "", action: "" }); }}
+                            className="text-[11px] font-bold px-2 py-1 rounded-md bg-amber-500 text-white hover:bg-amber-600 transition">
+                            Process return
+                          </button>
+                        )}
+                        {st === "completed" && (
+                          <button onClick={() => startEdit(sale)} className="text-blue-500 dark:text-blue-400 text-xs hover:underline">{t("edit")}</button>
+                        )}
+                        {deleteConfirm === sale.id ? (
+                          <span className="inline-flex items-center gap-1.5 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded-lg">
+                            <span className="text-xs text-red-600 dark:text-red-400">{t("delete")}?</span>
+                            <button onClick={() => deleteSale(sale.id)} className="text-red-600 dark:text-red-400 text-xs font-bold hover:underline">✓</button>
+                            <button onClick={() => setDeleteConfirm(null)} className="text-gray-400 text-xs font-bold hover:underline">✕</button>
+                          </span>
+                        ) : (
+                          <button onClick={() => setDeleteConfirm(sale.id)} className="text-red-400 dark:text-red-500 text-xs hover:underline">{t("moveToTrash")}</button>
+                        )}
+                      </div>
+
+                      {/* ── RETURN FORM (inline, below actions) ── */}
+                      {isReturnForm && (
+                        <div onClick={(e) => e.stopPropagation()} className="mt-3 text-left p-4 rounded-xl bg-red-50/50 dark:bg-red-900/10 border border-red-200/40 dark:border-red-800/30">
+                          <p className="text-sm font-semibold text-gray-800 dark:text-white mb-3">↩️ Process return</p>
+
+                          {/* Reason pills */}
+                          <p className="text-[11px] text-gray-400 mb-1.5">Reason</p>
+                          <div className="flex flex-wrap gap-1.5 mb-3">
+                            {["Wrong order", "Cold/bad quality", "Changed mind", "Defective", "Size issue", "Other"].map((r) => (
+                              <button key={r} onClick={() => setReturnData({ ...returnData, reason: r })}
+                                className={`text-[11px] font-medium px-2.5 py-1 rounded-md border transition
+                                  ${returnData.reason === r
+                                    ? "border-red-400/50 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
+                                    : "border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-500 dark:text-gray-400"
+                                  }`}>
+                                {r}
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* Action buttons */}
+                          <p className="text-[11px] text-gray-400 mb-1.5">Action</p>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+                            {[
+                              { id: "refund", icon: "💸", label: "Refund", sub: `${parseFloat(sale.amount).toLocaleString()} ${currency}`, color: "red" },
+                              { id: "replace", icon: "🔄", label: "Replace", sub: "Send new item", color: "blue" },
+                              { id: "exchange", icon: "↔️", label: "Exchange", sub: "Swap for another", color: "purple" },
+                              { id: "restock", icon: "📦", label: "Restock", sub: "Back to inventory", color: "green" },
+                            ].map((a) => {
+                              const sel = returnData.action === a.id;
+                              const colors = { red: "border-red-400 bg-red-50 dark:bg-red-900/20 text-red-600", blue: "border-blue-400 bg-blue-50 dark:bg-blue-900/20 text-blue-600", purple: "border-purple-400 bg-purple-50 dark:bg-purple-900/20 text-purple-600", green: "border-green-400 bg-green-50 dark:bg-green-900/20 text-green-600" };
+                              return (
+                                <button key={a.id} onClick={() => setReturnData({ ...returnData, action: a.id })}
+                                  className={`p-2 rounded-lg border-2 text-center transition ${sel ? colors[a.color] : "border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-500"}`}>
+                                  <span className="text-base block">{a.icon}</span>
+                                  <span className="text-[11px] font-semibold block">{a.label}</span>
+                                  <span className="text-[10px] block opacity-60">{a.sub}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {/* Confirm / Cancel */}
+                          <div className="flex gap-2">
+                            <button onClick={() => { setReturnMode(null); setReturnData({ reason: "", action: "" }); }}
+                              className="flex-1 px-3 py-2 rounded-lg text-xs font-medium text-gray-500 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600 transition">
+                              Cancel
+                            </button>
+                            <button onClick={() => processReturn(sale.id)}
+                              disabled={!returnData.reason || !returnData.action}
+                              className={`flex-[2] px-3 py-2 rounded-lg text-xs font-semibold text-white transition
+                                ${returnData.reason && returnData.action ? "bg-red-500 hover:bg-red-600 cursor-pointer" : "bg-gray-300 dark:bg-gray-600 cursor-not-allowed opacity-50"}`}>
+                              Confirm return
+                            </button>
+                          </div>
+                          <p className="text-[10px] text-gray-400 mt-2 text-center">Inventory & P&L update automatically</p>
+                        </div>
                       )}
                     </td>
                   </>
                 )}
               </tr>
-            ))}
+            );
+            })}
             {filtered.length === 0 && (
               <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noSalesYet")}</td></tr>
             )}

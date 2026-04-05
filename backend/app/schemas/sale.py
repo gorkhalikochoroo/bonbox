@@ -37,6 +37,12 @@ class SaleUpdate(BaseModel):
         return v
 
 
+class SaleReturnRequest(BaseModel):
+    reason: str
+    action: str  # refund | replace | exchange | restock
+    amount: float | None = None  # override refund amount (defaults to sale.amount for refunds)
+
+
 class SaleResponse(BaseModel):
     id: uuid.UUID
     date: datetime.date
@@ -53,5 +59,11 @@ class SaleResponse(BaseModel):
     unit_price: float | None = None
     cost_at_sale: float | None = None
     item_name: str | None = None
+    # Return fields
+    status: str = "completed"
+    return_reason: str | None = None
+    return_action: str | None = None
+    return_amount: float | None = None
+    returned_at: datetime.datetime | None = None
 
     model_config = {"from_attributes": True}

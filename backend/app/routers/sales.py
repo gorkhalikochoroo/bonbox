@@ -16,7 +16,7 @@ from app.database import get_db
 from app.models.user import User
 from app.models.sale import Sale
 from app.models.inventory import InventoryItem, InventoryLog
-from app.schemas.sale import SaleCreate, SaleUpdate, SaleResponse
+from app.schemas.sale import SaleCreate, SaleUpdate, SaleResponse, SaleReturnRequest
 from app.services.auth import get_current_user
 from app.services.receipt_ocr import extract_amount_from_image, save_receipt_photo
 from app.services.cash_sync import sync_cash_in_for_sale, delete_cash_entry_by_ref, update_cash_entry_for_ref
@@ -198,6 +198,143 @@ def repeat_yesterday(
         db.commit()
         db.refresh(sale)
     return sale
+
+
+@router.post("/{sale_id}/return", response_model=SaleResponse)
+def process_return(
+    sale_id: uuid.UUID,
+    data: SaleReturnRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Process a return or exchange for a sale.
+
+    Actions:
+    - refund: marks sale as returned, records refund amount
+    - replace: marks sale as returned, no refund (new item sent)
+    - exchange: marks sale as exchanged, no refund
+    - restock: marks sale as returned, adds quantity back to inventory
+    """
+    sale = db.query(Sale).filter(Sale.id == sale_id, Sale.user_id == user.id).first()
+    if not sale:
+        raise HTTPException(status_code=404, detail="Sale not found")
+    if getattr(sale, "status", "completed") in ("returned", "exchanged"):
+        raise HTTPException(status_code=400, detail="Sale already returned/exchanged")
+    if data.action not in ("refund", "replace", "exchange", "restock"):
+        raise HTTPException(status_code=400, detail="Invalid action. Use: refund, replace, exchange, restock")
+
+    # Determine return amount
+    refund_amount = 0.0
+    if data.action == "refund":
+        refund_amount = data.amount if data.amount is not None else float(sale.amount)
+
+    # Update sale record
+    status_map = {"refund": "returned", "replace": "returned", "exchange": "exchanged", "restock": "returned"}
+    sale.status = status_map[data.action]
+    sale.return_reason = data.reason
+    sale.return_action = data.action
+    sale.return_amount = refund_amount
+    sale.returned_at = datetime.utcnow()
+
+    # If the sale was linked to an inventory item and action is restock/exchange,
+    # add the quantity back to inventory
+    if sale.inventory_item_id and data.action in ("restock", "exchange"):
+        item = db.query(InventoryItem).filter(
+            InventoryItem.id == sale.inventory_item_id,
+            InventoryItem.user_id == user.id,
+        ).first()
+        if item and sale.quantity_sold:
+            item.quantity = float(item.quantity) + float(sale.quantity_sold)
+            log = InventoryLog(
+                item_id=item.id,
+                change_qty=float(sale.quantity_sold),
+                reason=f"return_{data.action}",
+                date=date.today(),
+            )
+            db.add(log)
+
+    # Sync cashbook if it was a cash sale refund
+    if data.action == "refund" and sale.payment_method == "cash":
+        delete_cash_entry_by_ref(db, f"sale_{sale.id}", user.id)
+
+    db.commit()
+    db.refresh(sale)
+    return sale
+
+
+@router.post("/{sale_id}/request-return", response_model=SaleResponse)
+def request_return(
+    sale_id: uuid.UUID,
+    reason: str = Query(..., description="Reason for the return request"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Mark a sale as pending return (needs owner action later)."""
+    sale = db.query(Sale).filter(Sale.id == sale_id, Sale.user_id == user.id).first()
+    if not sale:
+        raise HTTPException(status_code=404, detail="Sale not found")
+    if getattr(sale, "status", "completed") != "completed":
+        raise HTTPException(status_code=400, detail="Only completed sales can be marked for return")
+
+    sale.status = "return-pending"
+    sale.return_reason = reason
+    db.commit()
+    db.refresh(sale)
+    return sale
+
+
+@router.get("/returns/pending")
+def get_pending_returns(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """List all sales with pending returns."""
+    pending = (
+        db.query(Sale)
+        .filter(Sale.user_id == user.id, Sale.status == "return-pending", Sale.is_deleted.isnot(True))
+        .order_by(Sale.created_at.desc())
+        .all()
+    )
+    return [SaleResponse.model_validate(s) for s in pending]
+
+
+@router.get("/returns/summary")
+def returns_summary(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Summary of returns for the current month."""
+    today = date.today()
+    month_start = today.replace(day=1)
+
+    returned = (
+        db.query(Sale)
+        .filter(
+            Sale.user_id == user.id,
+            Sale.status.in_(["returned", "exchanged"]),
+            Sale.returned_at >= month_start,
+            Sale.is_deleted.isnot(True),
+        )
+        .all()
+    )
+    pending_count = (
+        db.query(func.count(Sale.id))
+        .filter(Sale.user_id == user.id, Sale.status == "return-pending", Sale.is_deleted.isnot(True))
+        .scalar()
+    )
+
+    total_refunded = sum(float(s.return_amount or 0) for s in returned)
+    return {
+        "total_returns": len(returned),
+        "total_refunded": total_refunded,
+        "pending_count": pending_count,
+        "by_action": {
+            "refund": len([s for s in returned if s.return_action == "refund"]),
+            "replace": len([s for s in returned if s.return_action == "replace"]),
+            "exchange": len([s for s in returned if s.return_action == "exchange"]),
+            "restock": len([s for s in returned if s.return_action == "restock"]),
+        },
+    }
 
 
 @router.post("/import-csv")
