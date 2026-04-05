@@ -30,12 +30,12 @@ export function PageTransition({ children }) {
 // ═══════════════════════════════════════════════════
 // FADE IN — simple opacity + optional slide
 // ═══════════════════════════════════════════════════
-export function FadeIn({ children, delay = 0, duration = 0.4, y = 10, className = "" }) {
+export function FadeIn({ children, delay = 0, duration = 0.2, y = 6, className = "" }) {
   return (
     <motion.div
       initial={{ opacity: 0, y }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration, delay, ease: [0.25, 0.1, 0.25, 1] }}
+      transition={{ duration, delay, ease: "easeOut" }}
       className={className}
     >
       {children}
@@ -46,7 +46,7 @@ export function FadeIn({ children, delay = 0, duration = 0.4, y = 10, className 
 // ═══════════════════════════════════════════════════
 // FADE IN ON SCROLL — animates when element enters viewport
 // ═══════════════════════════════════════════════════
-export function FadeInView({ children, delay = 0, y = 20, className = "", once = true }) {
+export function FadeInView({ children, delay = 0, y = 12, className = "", once = true }) {
   const ref = useRef(null);
   const isInView = useInView(ref, { once, margin: "-50px" });
 
@@ -55,7 +55,7 @@ export function FadeInView({ children, delay = 0, y = 20, className = "", once =
       ref={ref}
       initial={{ opacity: 0, y }}
       animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y }}
-      transition={{ duration: 0.5, delay, ease: [0.25, 0.1, 0.25, 1] }}
+      transition={{ duration: 0.25, delay, ease: "easeOut" }}
       className={className}
     >
       {children}
@@ -71,18 +71,18 @@ const staggerContainer = {
   show: {
     opacity: 1,
     transition: {
-      staggerChildren: 0.06,
-      delayChildren: 0.05,
+      staggerChildren: 0.04,
+      delayChildren: 0,
     },
   },
 };
 
 const staggerItem = {
-  hidden: { opacity: 0, y: 16 },
+  hidden: { opacity: 0, y: 8 },
   show: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.35, ease: [0.25, 0.1, 0.25, 1] },
+    transition: { duration: 0.2, ease: "easeOut" },
   },
 };
 
@@ -115,7 +115,7 @@ export function StaggerGrid({ children, className = "" }) {
         hidden: { opacity: 0 },
         show: {
           opacity: 1,
-          transition: { staggerChildren: 0.07, delayChildren: 0.1 },
+          transition: { staggerChildren: 0.04, delayChildren: 0 },
         },
       }}
       initial="hidden"
@@ -131,12 +131,11 @@ export function StaggerGridItem({ children, className = "" }) {
   return (
     <motion.div
       variants={{
-        hidden: { opacity: 0, y: 20, scale: 0.97 },
+        hidden: { opacity: 0, y: 8 },
         show: {
           opacity: 1,
           y: 0,
-          scale: 1,
-          transition: { duration: 0.4, ease: [0.25, 0.1, 0.25, 1] },
+          transition: { duration: 0.2, ease: "easeOut" },
         },
       }}
       className={className}
@@ -152,9 +151,9 @@ export function StaggerGridItem({ children, className = "" }) {
 export function AnimatedCard({ children, className = "", delay = 0, hover = true }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 16 }}
+      initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, delay, ease: [0.25, 0.1, 0.25, 1] }}
+      transition={{ duration: 0.2, delay, ease: "easeOut" }}
       whileHover={hover ? { y: -2, boxShadow: "0 8px 25px rgba(0,0,0,0.08)" } : undefined}
       whileTap={hover ? { scale: 0.995 } : undefined}
       className={className}
@@ -187,15 +186,15 @@ export function AnimatedListItem({ children, className = "", layout = true }) {
   return (
     <motion.div
       variants={{
-        hidden: { opacity: 0, x: -10 },
+        hidden: { opacity: 0, x: -6 },
         show: {
           opacity: 1,
           x: 0,
-          transition: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1] },
+          transition: { duration: 0.15, ease: "easeOut" },
         },
       }}
       layout={layout}
-      exit={{ opacity: 0, x: 10, transition: { duration: 0.2 } }}
+      exit={{ opacity: 0, transition: { duration: 0.1 } }}
       className={className}
     >
       {children}

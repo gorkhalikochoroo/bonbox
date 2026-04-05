@@ -1347,7 +1347,7 @@ export default function DashboardPage() {
         {/* ═══════════════════════════════════════════════════
            ROW 2: TOP SELLERS — Qty / Revenue toggle (full width)
            ═══════════════════════════════════════════════════ */}
-        <FadeIn delay={0.15}>
+        <FadeIn>
           <TopSellersCard topSellers={topSellers} currency={currency} onNavigate={() => navigate("/sales")} />
         </FadeIn>
 
@@ -1388,7 +1388,7 @@ export default function DashboardPage() {
         </StaggerGrid>
 
         {/* Ask Agent CTA */}
-        <FadeIn delay={0.2}>
+        <FadeIn>
           <button
             onClick={() => {
               const agentBtn = document.querySelector("[data-bonbox-agent-toggle]");
@@ -1420,14 +1420,14 @@ export default function DashboardPage() {
         {/* ═══════════════════════════════════════════════════
            ROW 7: GOALS
            ═══════════════════════════════════════════════════ */}
-        <FadeIn delay={0.1}>
+        <FadeIn>
           <GoalTracker todayRevenue={summary.today_revenue} monthRevenue={summary.month_revenue} />
         </FadeIn>
 
         {/* ═══════════════════════════════════════════════════
            ROW 8: REVENUE TREND (detailed chart)
            ═══════════════════════════════════════════════════ */}
-        <FadeIn delay={0.15}>
+        <FadeIn>
           <RevenueTrendChart data={dailyRevData} currency={currency} onNavigate={() => navigate("/reports")} />
         </FadeIn>
 
