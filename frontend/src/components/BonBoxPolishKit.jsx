@@ -228,7 +228,9 @@ export function QuickSaleModal({ open, onClose, onSubmit, currency = "DKK" }) {
 
   function handleSubmit(e) {
     e.preventDefault();
-    const num = parseFloat(amount.replace(/,/g, ""));
+    // Strip all non-numeric chars except decimal comma/period, then parse
+    const cleaned = amount.replace(/\./g, "").replace(/,/g, ".");
+    const num = parseFloat(cleaned);
     if (num > 0) {
       onSubmit(num);
       onClose();
