@@ -8,6 +8,7 @@ import QuickAdd from "./QuickAdd";
 import BonBoxAgent from "./BonBoxAgent";
 import { usePageTracking } from "../hooks/useEventLog";
 import { motion, AnimatePresence } from "framer-motion";
+import NotificationCenter from "./NotificationCenter";
 
 const businessNav = [
   { to: "/dashboard", labelKey: "dashboard" },
@@ -21,6 +22,7 @@ const businessNav = [
   { to: "/staffing", labelKey: "smartStaffing" },
   { to: "/khata", labelKey: "khata" },
   { to: "/bank-import", labelKey: "bankImport" },
+  { to: "/budgets", labelKey: "budgetOverview" },
 ];
 
 const moreNav = [
@@ -79,7 +81,7 @@ export default function Layout() {
           </svg>
         </button>
         <h1 className="text-base font-bold text-green-600 dark:text-green-400">BonBox</h1>
-        <div className="w-6" />
+        <NotificationCenter />
       </div>
 
       {/* Overlay */}

@@ -2,7 +2,7 @@ import re
 import uuid
 from datetime import date, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -370,3 +370,50 @@ def delete_expense(
     expense.is_deleted = True
     expense.deleted_at = datetime.utcnow()
     db.commit()
+
+
+# ── Receipt OCR for Expenses ────────────────────────────
+@router.post("/upload-receipt")
+async def upload_expense_receipt(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    """Upload a receipt image and OCR-extract the amount for expense creation."""
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(400, "Please upload an image file")
+    raw = await file.read()
+    if len(raw) > 5 * 1024 * 1024:
+        raise HTTPException(400, "Image too large (max 5 MB)")
+
+    try:
+        from app.services.receipt_ocr import process_receipt
+        result = process_receipt(raw, user_id=str(user.id))
+        return result
+    except Exception as e:
+        raise HTTPException(500, f"OCR failed: {str(e)}")
+
+
+@router.post("/from-receipt", response_model=ExpenseResponse, status_code=201)
+def create_expense_from_receipt(
+    data: ExpenseCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Create an expense from a confirmed receipt scan."""
+    expense = Expense(user_id=user.id, **data.model_dump())
+    db.add(expense)
+    db.commit()
+    db.refresh(expense)
+    if expense.payment_method == "cash" and not expense.is_personal:
+        sync_cash_out_for_expense(db, expense)
+        db.commit()
+        db.refresh(expense)
+    if expense.description and expense.category_id:
+        cat = db.query(ExpenseCategory).filter(ExpenseCategory.id == expense.category_id).first()
+        if cat:
+            try:
+                learn_category(expense.description, cat.name, user.id, db)
+                db.commit()
+            except Exception:
+                db.rollback()
+    return expense

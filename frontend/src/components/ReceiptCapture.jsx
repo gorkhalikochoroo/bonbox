@@ -4,16 +4,29 @@ import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 
-export default function ReceiptCapture({ onSaleCreated }) {
+/**
+ * ReceiptCapture — supports both sale and expense mode.
+ *
+ * Props:
+ *  - mode: "sale" (default) | "expense"
+ *  - onSaleCreated: callback after sale is logged (sale mode)
+ *  - onClose: callback to close externally (expense mode)
+ *  - onSaved: callback after expense/sale is saved (expense mode)
+ */
+export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, onSaved }) {
   const { t } = useLanguage();
-  const [open, setOpen] = useState(false);
+  const isExpense = mode === "expense";
+  const [open, setOpen] = useState(isExpense); // auto-open in expense mode
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState(null);
   const [amount, setAmount] = useState("");
-  const [method, setMethod] = useState("mixed");
+  const [method, setMethod] = useState(isExpense ? "card" : "mixed");
   const [preview, setPreview] = useState(null);
   const [success, setSuccess] = useState("");
+  const [desc, setDesc] = useState("");
   const fileRef = useRef();
+
+  const uploadEndpoint = isExpense ? "/expenses/upload-receipt" : "/sales/upload-receipt";
 
   const handleFile = async (e) => {
     const file = e.target.files[0];
@@ -26,17 +39,17 @@ export default function ReceiptCapture({ onSaleCreated }) {
     formData.append("file", file);
 
     try {
-      const res = await api.post("/sales/upload-receipt", formData, { timeout: 60000 });
+      const res = await api.post(uploadEndpoint, formData, { timeout: 60000 });
       setResult(res.data);
       if (res.data.suggested_amount) {
         setAmount(String(res.data.suggested_amount));
-        trackEvent("receipt_scanned", "receipt", `detected ${res.data.suggested_amount} DKK`);
+        trackEvent("receipt_scanned", mode, `detected ${res.data.suggested_amount}`);
       } else {
-        trackEvent("receipt_scan_failed", "receipt", res.data.ocr_available ? "no amount found" : "ocr unavailable");
+        trackEvent("receipt_scan_failed", mode, res.data.ocr_available ? "no amount found" : "ocr unavailable");
       }
     } catch (err) {
       setResult({ suggested_amount: null, all_amounts_found: [], ocr_available: false });
-      trackEvent("receipt_scan_error", "receipt", err.message);
+      trackEvent("receipt_scan_error", mode, err.message);
     }
     setUploading(false);
   };
@@ -52,25 +65,47 @@ export default function ReceiptCapture({ onSaleCreated }) {
     });
     setSuccess(t("saleLoggedReceipt"));
     onSaleCreated?.();
-    setTimeout(() => {
-      setSuccess("");
-      setOpen(false);
-      setResult(null);
-      setPreview(null);
-      setAmount("");
-    }, 2000);
+    setTimeout(() => { setSuccess(""); closeModal(); }, 2000);
   };
+
+  const confirmExpense = async () => {
+    if (!amount) return;
+    const today = new Date().toISOString().split("T")[0];
+    await api.post("/expenses", {
+      amount: parseFloat(amount),
+      description: desc || "Receipt scan",
+      date: today,
+      payment_method: method,
+    });
+    setSuccess("Expense added from receipt");
+    onSaved?.();
+    setTimeout(() => { setSuccess(""); closeModal(); }, 2000);
+  };
+
+  const closeModal = () => {
+    setOpen(false);
+    setResult(null);
+    setPreview(null);
+    setAmount("");
+    setDesc("");
+    onClose?.();
+  };
+
+  const modalTitle = isExpense ? "Scan Expense Receipt" : t("uploadReceipt");
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        className="px-4 py-2.5 bg-orange-50 text-orange-700 border border-orange-200 rounded-lg text-sm font-medium hover:bg-orange-100 transition"
-      >
-        {t("snapReceipt")}
-      </button>
+      {/* Only show the trigger button in sale mode */}
+      {!isExpense && (
+        <button
+          onClick={() => setOpen(true)}
+          className="px-4 py-2.5 bg-orange-50 text-orange-700 border border-orange-200 rounded-lg text-sm font-medium hover:bg-orange-100 transition"
+        >
+          {t("snapReceipt")}
+        </button>
+      )}
 
-      <Modal open={open} onClose={() => setOpen(false)} title={t("uploadReceipt")}>
+      <Modal open={open} onClose={closeModal} title={modalTitle}>
         {success ? (
           <div className="bg-green-50 text-green-700 px-4 py-6 rounded-xl text-center font-medium">
             {success}
@@ -164,9 +199,20 @@ export default function ReceiptCapture({ onSaleCreated }) {
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder={t("enterTotal")}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
+                  className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
                   autoFocus
                 />
+
+                {/* Description field for expense mode */}
+                {isExpense && (
+                  <input
+                    type="text"
+                    value={desc}
+                    onChange={(e) => setDesc(e.target.value)}
+                    placeholder="Description (optional)"
+                    className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
+                  />
+                )}
 
                 <div className="flex flex-wrap gap-1.5 mb-4">
                   {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
@@ -185,11 +231,11 @@ export default function ReceiptCapture({ onSaleCreated }) {
                 </div>
 
                 <button
-                  onClick={confirmSale}
+                  onClick={isExpense ? confirmExpense : confirmSale}
                   disabled={!amount}
                   className="w-full bg-blue-600 text-white py-3.5 rounded-xl hover:bg-blue-700 transition font-semibold disabled:opacity-40"
                 >
-                  {t("confirmLog")}
+                  {isExpense ? "Add Expense" : t("confirmLog")}
                 </button>
               </div>
             )}

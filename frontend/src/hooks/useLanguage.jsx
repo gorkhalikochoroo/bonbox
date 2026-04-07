@@ -137,6 +137,7 @@ const translations = {
     // Layout / Nav
     businessMode: "Business Mode", personalMode: "Personal Mode",
     reports: "Reports", khata: "Khata", loanTracker: "Loan Tracker", bankImport: "Bank Import",
+    budgetOverview: "Budget", notifications: "Notifications", setBudget: "Set Budgets",
     // Common actions
     delete: "Delete", edit: "Edit", or: "or",
     search: "Search...", exportCsv: "Export CSV", clear: "Clear",
@@ -646,6 +647,7 @@ const translations = {
     // Layout / Nav
     businessMode: "Virksomhed", personalMode: "Personlig",
     reports: "Rapporter", khata: "Khata", loanTracker: "Lånoversigt", bankImport: "Bank Import",
+    budgetOverview: "Budget", notifications: "Notifikationer", setBudget: "Sæt budget",
     // Common actions
     delete: "Slet", edit: "Rediger", or: "eller",
     search: "Søg...", exportCsv: "Eksporter CSV", clear: "Ryd",
@@ -1145,6 +1147,7 @@ const translations = {
     // Layout / Nav
     businessMode: "व्यापार मोड", personalMode: "व्यक्तिगत मोड",
     reports: "रिपोर्टहरू", khata: "खाता", loanTracker: "ऋण ट्र्याकर", bankImport: "बैंक आयात",
+    budgetOverview: "बजेट", notifications: "सूचनाहरू", setBudget: "बजेट सेट गर्नुहोस्",
     // Common actions
     delete: "मेट्नुहोस्", edit: "सम्पादन", or: "वा",
     search: "खोज्नुहोस्...", exportCsv: "CSV निर्यात", clear: "खाली गर्नुहोस्",

@@ -1103,6 +1103,7 @@ export default function DashboardPage() {
   const [saleModal, setSaleModal] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [lightboxImg, setLightboxImg] = useState(null);
+  const [budgetSummary, setBudgetSummary] = useState(null);
 
   // ── Keyboard shortcuts ──
   useKeyboardShortcuts({
@@ -1146,6 +1147,8 @@ export default function DashboardPage() {
     api.get("/dashboard/payment-breakdown").then((r) => setPaymentBreakdown(r.data)).catch(() => {});
     api.get("/weather/forecast").then((r) => setWeather(r.data)).catch(() => {});
     api.get("/staffing/forecast").then((r) => setStaffing(r.data)).catch(() => {});
+    const budMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+    api.get(`/budgets/summary?month=${budMonth}&mode=business`).then((r) => setBudgetSummary(r.data)).catch(() => {});
   };
 
   // Fetch period-specific stats
@@ -1423,6 +1426,48 @@ export default function DashboardPage() {
         <FadeIn>
           <GoalTracker todayRevenue={summary.today_revenue} monthRevenue={summary.month_revenue} />
         </FadeIn>
+
+        {/* ═══════════════════════════════════════════════════
+           BUDGET SNAPSHOT
+           ═══════════════════════════════════════════════════ */}
+        {budgetSummary && budgetSummary.categories.length > 0 && (
+          <FadeIn>
+            <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition" onClick={() => navigate("/budgets")}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Budget Snapshot</h3>
+                {budgetSummary.total_budget > 0 && (
+                  <span className={`text-sm font-bold ${budgetSummary.total_pct > 100 ? "text-red-500" : budgetSummary.total_pct >= 80 ? "text-amber-500" : "text-green-500"}`}>
+                    {budgetSummary.total_pct}% used
+                  </span>
+                )}
+              </div>
+              {budgetSummary.total_budget > 0 && (
+                <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden mb-4">
+                  <div className={`h-full rounded-full transition-all duration-500 ${budgetSummary.total_pct > 100 ? "bg-red-500" : budgetSummary.total_pct >= 80 ? "bg-amber-500" : "bg-green-500"}`} style={{ width: `${Math.min(budgetSummary.total_pct, 100)}%` }} />
+                </div>
+              )}
+              <div className="space-y-2">
+                {budgetSummary.categories
+                  .filter((c) => c.status === "red" || c.status === "yellow")
+                  .slice(0, 4)
+                  .map((c) => (
+                    <div key={c.category} className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full ${c.status === "red" ? "bg-red-500" : "bg-amber-500"}`} />
+                        <span className="text-gray-700 dark:text-gray-300">{c.category}</span>
+                      </div>
+                      <span className={`font-semibold ${c.status === "red" ? "text-red-500" : "text-amber-500"}`}>{c.pct}%</span>
+                    </div>
+                  ))}
+                {budgetSummary.categories.filter((c) => c.status === "green").length > 0 && (
+                  <p className="text-xs text-green-500 dark:text-green-400 pt-1">
+                    {budgetSummary.categories.filter((c) => c.status === "green").length} categories on track
+                  </p>
+                )}
+              </div>
+            </div>
+          </FadeIn>
+        )}
 
         {/* ═══════════════════════════════════════════════════
            ROW 8: REVENUE TREND (detailed chart)

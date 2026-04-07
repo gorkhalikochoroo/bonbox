@@ -55,10 +55,11 @@ def upsert_budgets(
 @router.get("/summary", response_model=BudgetSummaryResponse)
 def get_budget_summary(
     month: str,
+    mode: str = "personal",
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Get budget vs actual spending for a month."""
+    """Get budget vs actual spending for a month. mode=personal|business"""
     # Get budgets for this month
     budget_rows = db.query(Budget).filter(
         Budget.user_id == user.id,
@@ -73,14 +74,15 @@ def get_budget_summary(
         else:
             budget_map[b.category] = float(b.limit_amount)
 
-    # Get personal spending by category for this month
+    # Get spending by category for this month
     year, mo = month.split("-")
+    personal_filter = Expense.is_personal == True if mode == "personal" else Expense.is_personal == False
     spending_rows = (
         db.query(ExpenseCategory.name, func.sum(Expense.amount))
         .join(ExpenseCategory, Expense.category_id == ExpenseCategory.id)
         .filter(
             Expense.user_id == user.id,
-            Expense.is_personal == True,
+            personal_filter,
             Expense.is_deleted == False,
             extract("year", Expense.date) == int(year),
             extract("month", Expense.date) == int(mo),

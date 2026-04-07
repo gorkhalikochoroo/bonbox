@@ -8,6 +8,7 @@ import { displayCurrency, getTaxConfig } from "../utils/currency";
 import { formatDate, formatDateShort } from "../utils/dateFormat";
 import TaxBreakdown from "../components/TaxBreakdown";
 import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
+import ReceiptCapture from "../components/ReceiptCapture";
 
 const QUICK_AMOUNTS = [100, 250, 500, 1000, 2500, 5000];
 const DEFAULT_CATEGORIES = ["Ingredients", "Rent", "Wages", "Utilities", "Supplies", "Other"];
@@ -48,6 +49,7 @@ export default function ExpensesPage() {
   const customCatRef = useRef(null);
   const [listening, setListening] = useState(false);
   const [isPersonal, setIsPersonal] = useState(false);
+  const [receiptOpen, setReceiptOpen] = useState(false);
   const [isTaxExempt, setIsTaxExempt] = useState(false);
   const [showFilter, setShowFilter] = useState("business"); // "all", "business", "personal"
   const [suggestion, setSuggestion] = useState(null);
@@ -331,7 +333,12 @@ export default function ExpensesPage() {
       <div className="lg:col-span-3 bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
         <div className="max-w-md">
         <div className="flex items-center justify-between mb-2">
-          <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">{t("addExpense")}</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">{t("addExpense")}</h2>
+            <button onClick={() => setReceiptOpen(true)} className="px-2.5 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 rounded-lg text-xs font-medium hover:bg-purple-200 dark:hover:bg-purple-800/40 transition" title="Scan receipt">
+              📷 Scan
+            </button>
+          </div>
           <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
             <button
               onClick={() => setQuickMode(false)}
@@ -1015,6 +1022,15 @@ export default function ExpensesPage() {
           </div>
         );
       })()}
+
+      {/* Receipt capture modal for expenses */}
+      {receiptOpen && (
+        <ReceiptCapture
+          mode="expense"
+          onClose={() => setReceiptOpen(false)}
+          onSaved={() => { setReceiptOpen(false); fetchData(filterFrom, filterTo); setSuccess("Expense added from receipt"); setTimeout(() => setSuccess(""), 2000); }}
+        />
+      )}
     </div>
   );
 }

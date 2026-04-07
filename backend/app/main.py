@@ -67,6 +67,7 @@ _migrations = [
     "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'General'",
     # Expenses
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS is_tax_exempt BOOLEAN DEFAULT false",
+    "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS receipt_photo VARCHAR(500)",
     # Inventory logs
     "ALTER TABLE inventory_logs ADD COLUMN IF NOT EXISTS batch_id TEXT",
     # Users
@@ -156,6 +157,7 @@ def _run_migrations():
             ok += _add("inventory_items", "category", "TEXT DEFAULT 'General'")
             # Expenses
             ok += _add("expenses", "is_tax_exempt", "BOOLEAN DEFAULT 0")
+            ok += _add("expenses", "receipt_photo", "VARCHAR(500)")
             # Inventory logs
             ok += _add("inventory_logs", "batch_id", "TEXT")
             # Users
