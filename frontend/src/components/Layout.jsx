@@ -1,14 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useDarkMode } from "../hooks/useDarkMode";
 import { useLanguage } from "../hooks/useLanguage";
 import { getVatTerms } from "../utils/currency";
-import QuickAdd from "./QuickAdd";
-import BonBoxAgent from "./BonBoxAgent";
 import { usePageTracking } from "../hooks/useEventLog";
-import { motion, AnimatePresence } from "framer-motion";
 import NotificationCenter from "./NotificationCenter";
+
+// Lazy-load heavy floating widgets — only parsed when opened
+const QuickAdd = lazy(() => import("./QuickAdd"));
+const BonBoxAgent = lazy(() => import("./BonBoxAgent"));
 
 const businessNav = [
   { to: "/dashboard", labelKey: "dashboard" },
@@ -209,25 +210,16 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* Main content */}
+      {/* Main content — no AnimatePresence, instant page switches */}
       <main className="md:ml-56 pt-14 md:pt-0 pb-20">
-        <AnimatePresence mode="popLayout" initial={false}>
-          <motion.div
-            key={location.pathname}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15, ease: "easeOut" }}
-          >
-            <Outlet />
-          </motion.div>
-        </AnimatePresence>
+        <Outlet />
       </main>
 
-      {/* Floating quick-add button */}
-      <QuickAdd />
-      {/* AI Agent chat widget */}
-      <BonBoxAgent />
+      {/* Floating widgets — lazy-loaded, only parsed when first rendered */}
+      <Suspense fallback={null}>
+        <QuickAdd />
+        <BonBoxAgent />
+      </Suspense>
     </div>
   );
 }
