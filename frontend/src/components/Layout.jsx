@@ -20,6 +20,7 @@ const businessNav = [
   { to: "/waste", labelKey: "wasteTracker" },
   { to: "/staffing", labelKey: "smartStaffing" },
   { to: "/khata", labelKey: "khata" },
+  { to: "/bank-import", labelKey: "bankImport" },
 ];
 
 const moreNav = [

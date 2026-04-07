@@ -136,7 +136,7 @@ const translations = {
     today: "Today", thisWeek: "This Week", thisMonth: "This Month", last30Days: "Last 30 Days",
     // Layout / Nav
     businessMode: "Business Mode", personalMode: "Personal Mode",
-    reports: "Reports", khata: "Khata", loanTracker: "Loan Tracker",
+    reports: "Reports", khata: "Khata", loanTracker: "Loan Tracker", bankImport: "Bank Import",
     // Common actions
     delete: "Delete", edit: "Edit", or: "or",
     search: "Search...", exportCsv: "Export CSV", clear: "Clear",
@@ -645,7 +645,7 @@ const translations = {
     today: "I dag", thisWeek: "Denne uge", thisMonth: "Denne måned", last30Days: "Sidste 30 dage",
     // Layout / Nav
     businessMode: "Virksomhed", personalMode: "Personlig",
-    reports: "Rapporter", khata: "Khata", loanTracker: "Lånoversigt",
+    reports: "Rapporter", khata: "Khata", loanTracker: "Lånoversigt", bankImport: "Bank Import",
     // Common actions
     delete: "Slet", edit: "Rediger", or: "eller",
     search: "Søg...", exportCsv: "Eksporter CSV", clear: "Ryd",
@@ -1144,7 +1144,7 @@ const translations = {
     today: "आज", thisWeek: "यो हप्ता", thisMonth: "यो महिना", last30Days: "गत ३० दिन",
     // Layout / Nav
     businessMode: "व्यापार मोड", personalMode: "व्यक्तिगत मोड",
-    reports: "रिपोर्टहरू", khata: "खाता", loanTracker: "ऋण ट्र्याकर",
+    reports: "रिपोर्टहरू", khata: "खाता", loanTracker: "ऋण ट्र्याकर", bankImport: "बैंक आयात",
     // Common actions
     delete: "मेट्नुहोस्", edit: "सम्पादन", or: "वा",
     search: "खोज्नुहोस्...", exportCsv: "CSV निर्यात", clear: "खाली गर्नुहोस्",
