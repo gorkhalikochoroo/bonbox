@@ -34,6 +34,7 @@ from app.schemas.auth import (
 )
 from app.services.auth import hash_password, verify_password, create_access_token, get_current_user
 from app.services.email_service import send_email
+from app.config import settings
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -43,7 +44,7 @@ def _welcome_email_html(name: str) -> str:
     return f"""\
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#ffffff">
   <div style="text-align:center;margin-bottom:24px">
-    <div style="display:inline-block;background:#2563eb;border-radius:14px;padding:12px 14px">
+    <div style="display:inline-block;background:#16a34a;border-radius:14px;padding:12px 14px">
       <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="2" width="20" height="24" rx="3" stroke="white" stroke-width="2"/><path d="M9 8h10M9 12h10M9 16h6" stroke="white" stroke-width="1.5" stroke-linecap="round"/><path d="M4 20h20" stroke="#FCD34D" stroke-width="2"/></svg>
     </div>
     <h1 style="font-size:22px;color:#1e293b;margin:12px 0 4px">Welcome to BonBox!</h1>
@@ -63,10 +64,33 @@ def _welcome_email_html(name: str) -> str:
     <li>Snap receipts with your camera</li>
   </ul>
   <div style="text-align:center;margin:28px 0">
-    <a href="https://bonbox.dk/dashboard" style="background:#2563eb;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px;display:inline-block">Open BonBox →</a>
+    <a href="https://bonbox.dk/dashboard" style="background:#16a34a;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px;display:inline-block">Open BonBox →</a>
   </div>
   <p style="font-size:13px;color:#94a3b8;text-align:center;margin-top:32px;border-top:1px solid #e2e8f0;padding-top:16px">
-    Questions? Reply to this email or visit <a href="https://bonbox.dk/contact" style="color:#2563eb;text-decoration:none">bonbox.dk/contact</a>
+    Questions? Reply to this email or visit <a href="https://bonbox.dk/contact" style="color:#16a34a;text-decoration:none">bonbox.dk/contact</a>
+  </p>
+</div>"""
+
+
+def _admin_signup_email_html(email: str, business_name: str, business_type: str) -> str:
+    from datetime import datetime
+    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    return f"""\
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#ffffff">
+  <div style="text-align:center;margin-bottom:20px">
+    <div style="display:inline-block;background:#16a34a;border-radius:14px;padding:12px 14px">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="2" width="20" height="24" rx="3" stroke="white" stroke-width="2"/><path d="M9 8h10M9 12h10M9 16h6" stroke="white" stroke-width="1.5" stroke-linecap="round"/><path d="M4 20h20" stroke="#FCD34D" stroke-width="2"/></svg>
+    </div>
+    <h1 style="font-size:20px;color:#1e293b;margin:12px 0 4px">New Signup!</h1>
+  </div>
+  <table style="width:100%;font-size:14px;color:#334155;border-collapse:collapse">
+    <tr><td style="padding:8px 0;color:#64748b;width:120px">Email</td><td style="padding:8px 0;font-weight:600">{email}</td></tr>
+    <tr><td style="padding:8px 0;color:#64748b;border-top:1px solid #f1f5f9">Business</td><td style="padding:8px 0;font-weight:600;border-top:1px solid #f1f5f9">{business_name or '(not set)'}</td></tr>
+    <tr><td style="padding:8px 0;color:#64748b;border-top:1px solid #f1f5f9">Type</td><td style="padding:8px 0;border-top:1px solid #f1f5f9">{business_type or '(not set)'}</td></tr>
+    <tr><td style="padding:8px 0;color:#64748b;border-top:1px solid #f1f5f9">Time</td><td style="padding:8px 0;border-top:1px solid #f1f5f9">{now}</td></tr>
+  </table>
+  <p style="font-size:12px;color:#94a3b8;text-align:center;margin-top:24px;border-top:1px solid #e2e8f0;padding-top:12px">
+    BonBox admin notification
   </p>
 </div>"""
 
@@ -101,6 +125,17 @@ def register(request: Request, data: UserRegister, db: Session = Depends(get_db)
         )
     except Exception:
         pass
+
+    # Notify admin about new signup
+    if settings.ADMIN_EMAIL:
+        try:
+            send_email(
+                settings.ADMIN_EMAIL,
+                f"New BonBox signup: {user.business_name or user.email}",
+                _admin_signup_email_html(user.email, user.business_name, user.business_type),
+            )
+        except Exception:
+            pass
 
     token = create_access_token(str(user.id))
     return Token(access_token=token, user=UserResponse.model_validate(user))

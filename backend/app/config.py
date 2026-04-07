@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     SUPABASE_ANON_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
     COMPANIES_HOUSE_API_KEY: str = ""
+    ADMIN_EMAIL: str = ""  # Get notified on new signups
     ENVIRONMENT: str = "development"  # "production" in deployed env
 
     class Config:
