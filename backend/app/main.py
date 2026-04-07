@@ -51,7 +51,7 @@ _migrations = [
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS return_amount NUMERIC(12,2)",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS returned_at TIMESTAMP",
     # Item-sale columns
-    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS inventory_item_id UUID REFERENCES inventory_items(id) ON DELETE SET NULL",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS inventory_item_id VARCHAR(36) REFERENCES inventory_items(id) ON DELETE SET NULL",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS quantity_sold NUMERIC(10,2)",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS unit_price NUMERIC(12,2)",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS cost_at_sale NUMERIC(12,2)",
@@ -74,7 +74,7 @@ _migrations = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS business_type VARCHAR(50) DEFAULT 'restaurant'",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_goal NUMERIC(12,2) DEFAULT 0",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'owner'",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS owner_id UUID REFERENCES users(id)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS owner_id VARCHAR(36) REFERENCES users(id)",
     # Khata / Loans soft-delete
     "ALTER TABLE khata_customers ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false",
     "ALTER TABLE loan_persons ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false",
