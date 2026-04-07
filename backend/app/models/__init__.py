@@ -12,8 +12,8 @@ from app.models.budget import Budget
 from app.models.loan import LoanPerson, LoanTransaction
 from app.models.category_mapping import CategoryMapping
 from app.models.whatsapp import WhatsAppUser, WhatsAppMessage
-from app.models.weather import SickCall
+from app.models.weather import SickCall, DailyWeather
 from app.models.business_profile import BusinessProfile
 from app.models.payment_connection import PaymentConnection
 
-__all__ = ["User", "Sale", "ExpenseCategory", "Expense", "InventoryItem", "InventoryLog", "StaffingRule", "WasteLog", "Feedback", "CashTransaction", "EventLog", "KhataCustomer", "KhataTransaction", "Budget", "LoanPerson", "LoanTransaction", "CategoryMapping", "WhatsAppUser", "WhatsAppMessage", "SickCall", "BusinessProfile", "PaymentConnection"]
+__all__ = ["User", "Sale", "ExpenseCategory", "Expense", "InventoryItem", "InventoryLog", "StaffingRule", "WasteLog", "Feedback", "CashTransaction", "EventLog", "KhataCustomer", "KhataTransaction", "Budget", "LoanPerson", "LoanTransaction", "CategoryMapping", "WhatsAppUser", "WhatsAppMessage", "SickCall", "DailyWeather", "BusinessProfile", "PaymentConnection"]

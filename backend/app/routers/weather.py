@@ -14,9 +14,15 @@ logger = logging.getLogger(__name__)
 from app.database import get_db
 from app.models.user import User
 from app.models.sale import Sale
-from app.models.weather import SickCall
+from app.models.weather import SickCall, DailyWeather
 from app.schemas.weather import LocationUpdate, SickCallCreate, SickCallResponse
 from app.services.auth import get_current_user
+from app.services.weather_intelligence import (
+    sync_historical_weather,
+    get_correlation,
+    get_prediction,
+    get_smart_alerts,
+)
 
 router = APIRouter()
 
@@ -369,3 +375,82 @@ def get_insights(
         })
 
     return {"insights": insights}
+
+
+# ─── INTELLIGENCE LAYER ─────────────────────────────────────────
+
+@router.post("/sync")
+def sync_weather_data(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Backfill daily_weather table with historical weather for all sales dates."""
+    result = sync_historical_weather(user, db)
+    return result
+
+
+@router.get("/correlation")
+def weather_sales_correlation(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Get weather × sales correlation analysis (requires 30+ days)."""
+    return get_correlation(user, db)
+
+
+@router.get("/prediction")
+def revenue_prediction(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Predict next 3 days revenue based on forecast + historical weather-sales correlation."""
+    return get_prediction(user, db)
+
+
+@router.get("/alerts")
+def weather_alerts(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Smart predictive alerts combining weather forecast with business history."""
+    alerts = get_smart_alerts(user, db)
+    return {"alerts": alerts}
+
+
+@router.get("/intelligence-status")
+def intelligence_status(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Check how much intelligence data we have and what's ready."""
+    lat = getattr(user, "latitude", None)
+    lon = getattr(user, "longitude", None)
+
+    weather_days = db.query(func.count(DailyWeather.id)).filter(
+        DailyWeather.user_id == user.id
+    ).scalar() or 0
+
+    sales_days = db.query(func.count(func.distinct(Sale.date))).filter(
+        Sale.user_id == user.id, Sale.is_deleted == False
+    ).scalar() or 0
+
+    # Paired days (both weather and sales exist)
+    paired = 0
+    if weather_days > 0:
+        from sqlalchemy import and_
+        paired = db.query(func.count(DailyWeather.id)).filter(
+            DailyWeather.user_id == user.id,
+            DailyWeather.date.in_(
+                db.query(Sale.date).filter(Sale.user_id == user.id, Sale.is_deleted == False).distinct()
+            ),
+        ).scalar() or 0
+
+    return {
+        "has_location": bool(lat and lon),
+        "sales_days": sales_days,
+        "weather_days": weather_days,
+        "paired_days": paired,
+        "correlation_ready": paired >= 30,
+        "prediction_ready": paired >= 30 and bool(lat and lon),
+        "progress_pct": min(100, round(paired / 30 * 100)),
+    }

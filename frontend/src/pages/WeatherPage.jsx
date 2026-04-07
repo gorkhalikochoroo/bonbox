@@ -31,53 +31,91 @@ export default function WeatherPage() {
   const [error, setError] = useState("");
   const [hasLocation, setHasLocation] = useState(false);
 
+  // Intelligence state
+  const [intelStatus, setIntelStatus] = useState(null);
+  const [prediction, setPrediction] = useState(null);
+  const [correlation, setCorrelation] = useState(null);
+  const [alerts, setAlerts] = useState([]);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
+
   // Sick call form
   const [sickForm, setSickForm] = useState({ staff_name: "", date: new Date().toISOString().split("T")[0], weather_condition: "", notes: "" });
   const [sickSuccess, setSickSuccess] = useState("");
 
+  // Active tab for intelligence section
+  const [intelTab, setIntelTab] = useState("predictions");
+
   useEffect(() => {
-    // Try fetching forecast — if it fails with 400 "Set your location", we know no location is set
     checkAndFetch();
   }, []);
 
   const checkAndFetch = async () => {
     setLoading(true);
     setError("");
-    // Fetch all endpoints in parallel — don't let one failure block others
-    const [forecastRes, insightsRes, impactRes, seasonalRes, sickRes, sickStatsRes] = await Promise.allSettled([
+    const [forecastRes, insightsRes, impactRes, seasonalRes, sickRes, sickStatsRes, statusRes, predRes, corrRes, alertsRes] = await Promise.allSettled([
       api.get("/weather/forecast"),
       api.get("/weather/insights"),
       api.get("/weather/impact-profile"),
       api.get("/weather/seasonal"),
       api.get("/weather/sick-calls"),
       api.get("/weather/sick-calls/stats"),
+      api.get("/weather/intelligence-status"),
+      api.get("/weather/prediction"),
+      api.get("/weather/correlation"),
+      api.get("/weather/alerts"),
     ]);
 
-    // Check if location is set (forecast returns 400 if not)
     if (forecastRes.status === "rejected" && forecastRes.reason?.response?.status === 400) {
       setHasLocation(false);
       setLoading(false);
       return;
     }
 
-    // Location exists — show main view even if some calls failed
     setHasLocation(true);
 
-    if (forecastRes.status === "fulfilled") {
-      setForecast(forecastRes.value.data);
-    } else {
-      setError(t("weatherForecastUnavailable"));
-    }
+    if (forecastRes.status === "fulfilled") setForecast(forecastRes.value.data);
+    else setError(t("weatherForecastUnavailable"));
 
     if (insightsRes.status === "fulfilled") setInsights(insightsRes.value.data.insights || []);
     if (impactRes.status === "fulfilled") setImpact(impactRes.value.data);
     if (seasonalRes.status === "fulfilled") setSeasonal(seasonalRes.value.data);
     if (sickRes.status === "fulfilled") setSickCalls(sickRes.value.data);
     if (sickStatsRes.status === "fulfilled") setSickStats(sickStatsRes.value.data);
+
+    // Intelligence endpoints
+    if (statusRes.status === "fulfilled") setIntelStatus(statusRes.value.data);
+    if (predRes.status === "fulfilled") setPrediction(predRes.value.data);
+    if (corrRes.status === "fulfilled") setCorrelation(corrRes.value.data);
+    if (alertsRes.status === "fulfilled") setAlerts(alertsRes.value.data.alerts || []);
+
     setLoading(false);
   };
 
   const fetchAll = () => checkAndFetch();
+
+  const syncWeather = async () => {
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const res = await api.post("/weather/sync");
+      setSyncResult(res.data);
+      // Refresh intelligence data
+      const [predRes, corrRes, alertsRes, statusRes] = await Promise.allSettled([
+        api.get("/weather/prediction"),
+        api.get("/weather/correlation"),
+        api.get("/weather/alerts"),
+        api.get("/weather/intelligence-status"),
+      ]);
+      if (predRes.status === "fulfilled") setPrediction(predRes.value.data);
+      if (corrRes.status === "fulfilled") setCorrelation(corrRes.value.data);
+      if (alertsRes.status === "fulfilled") setAlerts(alertsRes.value.data.alerts || []);
+      if (statusRes.status === "fulfilled") setIntelStatus(statusRes.value.data);
+    } catch (e) {
+      setSyncResult({ error: "Sync failed" });
+    }
+    setSyncing(false);
+  };
 
   const saveLocation = async (lat, lon) => {
     setLocationLoading(true);
@@ -162,7 +200,6 @@ export default function WeatherPage() {
   const current = forecast?.current || null;
   const todayForecast = days[0] || null;
 
-  // Build conditions array from impact object
   const conditionsObj = impact?.conditions || {};
   const conditions = Object.entries(conditionsObj).map(([cond, data]) => ({
     condition: cond,
@@ -172,7 +209,6 @@ export default function WeatherPage() {
   })).sort((a, b) => b.multiplier - a.multiplier);
   const avgDaily = impact?.average_daily || 0;
 
-  // Build months array from seasonal object
   const monthsObj = seasonal?.months || {};
   const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const months = Array.from({ length: 12 }, (_, i) => ({
@@ -182,13 +218,145 @@ export default function WeatherPage() {
   }));
   const hasSeasonalData = months.some(m => m.average > 0);
 
+  // Intelligence data
+  const preds = prediction?.predictions || [];
+  const corrConditions = correlation?.conditions || {};
+  const corrReady = correlation?.ready || false;
+  const progressPct = intelStatus?.progress_pct || 0;
+
   return (
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("weatherSmart")}</h1></FadeIn>
+        <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">🧠 {t("weatherSmart")}</h1></FadeIn>
         <button onClick={fetchAll} className="text-sm text-green-600 dark:text-green-400 hover:underline">{t("refresh")}</button>
       </div>
+
+      {/* ─── INTELLIGENCE ALERTS (Top Priority) ─── */}
+      {alerts.length > 0 && (
+        <div className="space-y-3">
+          {alerts.map((alert, i) => (
+            <div key={i} className={`p-4 rounded-2xl border-l-4 ${
+              alert.severity === "high" ? "border-red-500 bg-red-50 dark:bg-red-900/20" :
+              alert.severity === "medium" ? "border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20" :
+              alert.severity === "positive" ? "border-green-500 bg-green-50 dark:bg-green-900/20" :
+              alert.severity === "info" ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20" :
+              "border-gray-300 bg-gray-50 dark:bg-gray-700/30"
+            }`}>
+              <div className="flex items-start gap-3">
+                <span className="text-2xl">{alert.icon || "💡"}</span>
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{alert.title}</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{alert.detail}</p>
+                  {alert.action && (
+                    <p className="text-xs text-green-700 dark:text-green-400 mt-2 font-medium">💡 {alert.action}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ─── REVENUE PREDICTIONS (Hero Card) ─── */}
+      {preds.length > 0 && prediction?.available && (
+        <div className="bg-gradient-to-br from-green-600 to-emerald-700 rounded-2xl p-6 text-white shadow-lg">
+          <h2 className="font-bold text-lg mb-4 flex items-center gap-2">
+            <span>🔮</span> Revenue Predictions
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {preds.map((p, i) => {
+              const isUp = p.impact_pct >= 0;
+              return (
+                <div key={i} className="bg-white/15 backdrop-blur-sm rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium opacity-90">{p.day_label}</span>
+                    <span className="text-2xl">{p.emoji}</span>
+                  </div>
+                  <p className="text-3xl font-bold">{Math.round(p.predicted_revenue)} <span className="text-lg opacity-80">{currency}</span></p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className={`text-sm font-semibold px-2 py-0.5 rounded-full ${isUp ? "bg-green-400/30" : "bg-red-400/30"}`}>
+                      {isUp ? "▲" : "▼"} {Math.abs(p.impact_pct)}%
+                    </span>
+                    <span className="text-xs opacity-70">vs avg {Math.round(p.overall_average)} {currency}</span>
+                  </div>
+                  <div className="flex items-center gap-2 mt-2 text-xs opacity-70">
+                    <span className="capitalize">{p.condition}</span>
+                    <span>•</span>
+                    <span>{formatTemp(p.temp_max)}</span>
+                    {p.rain_mm > 0 && <><span>•</span><span>{p.rain_mm}mm</span></>}
+                  </div>
+                  <div className="mt-2">
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${
+                      p.confidence === "high" ? "bg-green-400/30" :
+                      p.confidence === "medium" ? "bg-yellow-400/30" : "bg-gray-400/30"
+                    }`}>
+                      {p.confidence === "high" ? "🎯" : p.confidence === "medium" ? "📊" : "🔄"} {p.confidence} confidence ({p.sample_days} days)
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ─── INTELLIGENCE SYNC & PROGRESS ─── */}
+      {intelStatus && !intelStatus.correlation_ready && (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
+              <span>📊</span> Intelligence Progress
+            </h2>
+            <button
+              onClick={syncWeather}
+              disabled={syncing}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition disabled:opacity-50"
+            >
+              {syncing ? "Syncing..." : "⚡ Sync Weather Data"}
+            </button>
+          </div>
+          <div className="mb-2">
+            <div className="flex justify-between text-sm mb-1">
+              <span className="text-gray-600 dark:text-gray-400">
+                {intelStatus.paired_days || 0} / 30 days paired
+              </span>
+              <span className="text-green-600 font-medium">{progressPct}%</span>
+            </div>
+            <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full transition-all duration-500"
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            {intelStatus.sales_days || 0} sales days logged • {intelStatus.weather_days || 0} weather days stored
+          </p>
+          {syncResult && (
+            <div className={`mt-3 p-3 rounded-lg text-sm ${syncResult.error ? "bg-red-50 dark:bg-red-900/20 text-red-600" : "bg-green-50 dark:bg-green-900/20 text-green-600"}`}>
+              {syncResult.error || `✅ Synced ${syncResult.synced} new days! (${syncResult.skipped} already existed)`}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Sync button even when ready (for refreshing) */}
+      {intelStatus && intelStatus.correlation_ready && (
+        <div className="flex items-center justify-between bg-green-50 dark:bg-green-900/20 rounded-xl p-3">
+          <div className="flex items-center gap-2 text-sm text-green-700 dark:text-green-400">
+            <span>✅</span>
+            <span>Intelligence active — {intelStatus.paired_days} days of data</span>
+          </div>
+          <button
+            onClick={syncWeather}
+            disabled={syncing}
+            className="px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50"
+          >
+            {syncing ? "..." : "↻ Sync"}
+          </button>
+        </div>
+      )}
 
       {/* ─── TODAY'S WEATHER ─── */}
       {(current || todayForecast) && (
@@ -250,8 +418,136 @@ export default function WeatherPage() {
         </div>
       )}
 
-      {/* ─── SMART INSIGHTS ─── */}
-      {insights.length > 0 && (
+      {/* ─── WEATHER × REVENUE CORRELATION (Intelligence Tab) ─── */}
+      {corrReady && (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-lg">🧠</span>
+            <h2 className="font-bold text-gray-800 dark:text-white">Weather × Revenue Intelligence</h2>
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+            Based on {correlation.days_collected} days of weather + sales data
+          </p>
+
+          {/* Tab switcher */}
+          <div className="flex gap-2 mb-4">
+            {["conditions", "temperature", "rain"].map(tab => (
+              <button
+                key={tab}
+                onClick={() => setIntelTab(tab)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${
+                  intelTab === tab
+                    ? "bg-green-600 text-white"
+                    : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
+                }`}
+              >
+                {tab === "conditions" ? "☁️ By Condition" : tab === "temperature" ? "🌡️ By Temperature" : "💧 By Rainfall"}
+              </button>
+            ))}
+          </div>
+
+          {/* By Condition */}
+          {intelTab === "conditions" && (
+            <div className="space-y-3">
+              {Object.entries(corrConditions)
+                .sort(([,a], [,b]) => b.multiplier - a.multiplier)
+                .map(([cond, data], i) => {
+                  const pct = data.impact_pct;
+                  const barWidth = Math.min(100, Math.max(10, data.multiplier * 100));
+                  const color = pct >= 0 ? "bg-green-500" : pct > -15 ? "bg-yellow-500" : "bg-red-500";
+                  return (
+                    <div key={i} className="flex items-center gap-3">
+                      <span className="text-2xl w-8">{WEATHER_ICONS[cond] || "🌡️"}</span>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-medium capitalize text-gray-700 dark:text-gray-300">{cond}</span>
+                          <span className={`text-sm font-bold ${pct >= 0 ? "text-green-600" : pct > -15 ? "text-yellow-600" : "text-red-600"}`}>
+                            {pct >= 0 ? "+" : ""}{pct}%
+                          </span>
+                        </div>
+                        <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                          <div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${barWidth}%` }} />
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-gray-400 mt-0.5">
+                          <span>{t("avg")}: {Math.round(data.average_revenue)} {currency} / {t("day")}</span>
+                          <span>{data.sample_days} days • Best: {Math.round(data.best_day)} {currency}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              {correlation.overall_average > 0 && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 pt-2 border-t border-gray-100 dark:border-gray-700">
+                  Overall average: {Math.round(correlation.overall_average)} {currency} / day
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* By Temperature */}
+          {intelTab === "temperature" && correlation.temperature_analysis && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {[
+                { key: "cold_below_5", label: "Cold (<5°C)", icon: "🥶", bg: "bg-blue-50 dark:bg-blue-900/20" },
+                { key: "mild_5_to_20", label: "Mild (5-20°C)", icon: "😊", bg: "bg-yellow-50 dark:bg-yellow-900/20" },
+                { key: "warm_20plus", label: "Warm (>20°C)", icon: "🔥", bg: "bg-red-50 dark:bg-red-900/20" },
+              ].map(({ key, label, icon, bg }) => {
+                const d = correlation.temperature_analysis[key];
+                if (!d) return null;
+                const avg = correlation.overall_average;
+                const pct = avg ? Math.round((d.avg_revenue / avg - 1) * 100) : 0;
+                return (
+                  <div key={key} className={`p-4 rounded-xl ${bg} text-center`}>
+                    <span className="text-3xl">{icon}</span>
+                    <p className="text-sm font-medium mt-2 text-gray-700 dark:text-gray-300">{label}</p>
+                    <p className="text-2xl font-bold text-gray-800 dark:text-white mt-1">{Math.round(d.avg_revenue)} {currency}</p>
+                    <p className={`text-sm font-semibold mt-1 ${pct >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      {pct >= 0 ? "+" : ""}{pct}% vs avg
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">{d.days} days analyzed</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {intelTab === "temperature" && !correlation.temperature_analysis && (
+            <p className="text-sm text-gray-500 text-center py-4">Not enough temperature data yet</p>
+          )}
+
+          {/* By Rainfall */}
+          {intelTab === "rain" && correlation.rain_analysis && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {[
+                { key: "dry", label: "Dry (<1mm)", icon: "☀️", bg: "bg-green-50 dark:bg-green-900/20" },
+                { key: "light_rain", label: "Light (1-5mm)", icon: "🌦️", bg: "bg-yellow-50 dark:bg-yellow-900/20" },
+                { key: "heavy_rain", label: "Heavy (>5mm)", icon: "🌧️", bg: "bg-red-50 dark:bg-red-900/20" },
+              ].map(({ key, label, icon, bg }) => {
+                const d = correlation.rain_analysis[key];
+                if (!d) return null;
+                const avg = correlation.overall_average;
+                const pct = avg ? Math.round((d.avg_revenue / avg - 1) * 100) : 0;
+                return (
+                  <div key={key} className={`p-4 rounded-xl ${bg} text-center`}>
+                    <span className="text-3xl">{icon}</span>
+                    <p className="text-sm font-medium mt-2 text-gray-700 dark:text-gray-300">{label}</p>
+                    <p className="text-2xl font-bold text-gray-800 dark:text-white mt-1">{Math.round(d.avg_revenue)} {currency}</p>
+                    <p className={`text-sm font-semibold mt-1 ${pct >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      {pct >= 0 ? "+" : ""}{pct}% vs avg
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">{d.days} days analyzed</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {intelTab === "rain" && !correlation.rain_analysis && (
+            <p className="text-sm text-gray-500 text-center py-4">Not enough rainfall data yet</p>
+          )}
+        </div>
+      )}
+
+      {/* ─── SMART INSIGHTS (Legacy — still useful when no intelligence) ─── */}
+      {insights.length > 0 && !corrReady && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
           <h2 className="font-bold text-gray-800 dark:text-white mb-4">{t("smartInsights")}</h2>
           <div className="space-y-3">
@@ -270,8 +566,8 @@ export default function WeatherPage() {
         </div>
       )}
 
-      {/* ─── WEATHER IMPACT PROFILE ─── */}
-      {conditions.length > 0 && (
+      {/* ─── WEATHER IMPACT PROFILE (Legacy fallback) ─── */}
+      {conditions.length > 0 && !corrReady && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
           <h2 className="font-bold text-gray-800 dark:text-white mb-1">{t("weatherImpactProfile")}</h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">{t("weatherImpactDesc")}</p>
