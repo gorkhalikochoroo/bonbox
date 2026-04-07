@@ -265,10 +265,11 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
 
 
 /* ─── Connected Provider Card ────────────────────────────── */
-function ConnectedCard({ conn, provider, onDisconnect, onSync, syncing, syncResult, onConfirmImport, confirming, importResult, t }) {
+function ConnectedCard({ conn, provider, onDisconnect, onSync, onToggleAutoSync, syncing, syncResult, onConfirmImport, confirming, importResult, t }) {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [selected, setSelected] = useState(new Set());
+  const [showManual, setShowManual] = useState(false);
   const fmt = (v) => Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
   const isSyncing = syncing === conn.id;
@@ -299,11 +300,11 @@ function ConnectedCard({ conn, provider, onDisconnect, onSync, syncing, syncResu
           <div>
             <p className="text-sm font-semibold text-gray-800 dark:text-white">{conn.label}</p>
             <p className="text-xs text-gray-400 flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
+              <span className={`w-1.5 h-1.5 rounded-full inline-block ${conn.auto_sync ? "bg-green-400" : "bg-gray-300"}`} />
               {provider?.name || conn.provider}
               {conn.last_synced_at && (
                 <span className="ml-1">
-                  &middot; Last synced {new Date(conn.last_synced_at).toLocaleDateString()}
+                  &middot; Synced {new Date(conn.last_synced_at).toLocaleDateString()}
                 </span>
               )}
             </p>
@@ -317,9 +318,59 @@ function ConnectedCard({ conn, provider, onDisconnect, onSync, syncing, syncResu
         </button>
       </div>
 
-      {/* Sync controls */}
+      {/* Auto-sync status */}
+      <div className="px-5 pb-3">
+        <div className="flex items-center justify-between py-2.5 px-4 rounded-xl bg-gray-50 dark:bg-gray-700/40">
+          <div className="flex items-center gap-2.5">
+            <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${conn.auto_sync ? "bg-green-100 dark:bg-green-900/30" : "bg-gray-200 dark:bg-gray-600"}`}>
+              {conn.auto_sync ? (
+                <svg className="w-3.5 h-3.5 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              ) : (
+                <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              )}
+            </div>
+            <div>
+              <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                {conn.auto_sync ? "Auto-importing new transactions" : "Auto-import paused"}
+              </p>
+              <p className="text-[11px] text-gray-400">
+                {conn.auto_sync
+                  ? conn.last_auto_imported > 0
+                    ? `${conn.last_auto_imported} new last sync`
+                    : "Checks every 6 hours"
+                  : "Turn on to import automatically"}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => onToggleAutoSync(conn.id, !conn.auto_sync)}
+            className={`relative w-10 h-5.5 rounded-full transition-colors ${conn.auto_sync ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600"}`}
+            style={{ minWidth: "40px", height: "22px" }}
+          >
+            <span
+              className={`absolute top-[2px] w-[18px] h-[18px] rounded-full bg-white shadow-sm transition-transform ${conn.auto_sync ? "left-[20px]" : "left-[2px]"}`}
+            />
+          </button>
+        </div>
+      </div>
+
+      {/* Manual sync (collapsible) */}
       <div className="px-5 pb-4">
-        <div className="flex flex-wrap items-end gap-2.5">
+        <button
+          onClick={() => setShowManual(!showManual)}
+          className="text-xs text-blue-500 hover:text-blue-600 font-medium flex items-center gap-1 mb-2"
+        >
+          <svg className={`w-3 h-3 transition-transform ${showManual ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+          Manual fetch for specific dates
+        </button>
+        {showManual && (
+          <div className="flex flex-wrap items-end gap-2.5">
           <div className="flex-1 min-w-[120px]">
             <label className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">From</label>
             <input
@@ -351,6 +402,7 @@ function ConnectedCard({ conn, provider, onDisconnect, onSync, syncing, syncResu
             ) : (t("syncNow") || "Fetch Transactions")}
           </button>
         </div>
+        )}
       </div>
 
       {/* Sync result — transaction list */}
@@ -518,6 +570,15 @@ export default function PaymentImportsPage() {
     setConfirming(false);
   };
 
+  const handleToggleAutoSync = async (connId, enabled) => {
+    try {
+      await api.patch(`/payment-import/connections/${connId}/auto-sync?enabled=${enabled}`);
+      setConnections((prev) =>
+        prev.map((c) => (c.id === connId ? { ...c, auto_sync: enabled } : c))
+      );
+    } catch { /* ignore */ }
+  };
+
   if (loading) {
     return (
       <div className="p-6 flex justify-center">
@@ -570,6 +631,7 @@ export default function PaymentImportsPage() {
               provider={providers.find((p) => p.id === conn.provider)}
               onDisconnect={handleDisconnect}
               onSync={handleSync}
+              onToggleAutoSync={handleToggleAutoSync}
               syncing={syncing}
               syncResult={syncResults[conn.id]}
               onConfirmImport={handleConfirmImport}

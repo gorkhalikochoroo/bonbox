@@ -27,7 +27,9 @@ class ConnectionResponse(BaseModel):
     provider: str
     label: str
     is_active: bool
+    auto_sync: bool = True
     last_synced_at: datetime | None = None
+    last_auto_imported: int = 0
     created_at: datetime
 
     model_config = {"from_attributes": True}

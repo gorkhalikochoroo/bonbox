@@ -78,6 +78,9 @@ _migrations = [
     # Khata / Loans soft-delete
     "ALTER TABLE khata_customers ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false",
     "ALTER TABLE loan_persons ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false",
+    # Payment connections — auto-sync
+    "ALTER TABLE payment_connections ADD COLUMN IF NOT EXISTS auto_sync BOOLEAN DEFAULT true",
+    "ALTER TABLE payment_connections ADD COLUMN IF NOT EXISTS last_auto_imported INTEGER DEFAULT 0",
 ]
 
 def _run_migrations():
@@ -170,6 +173,9 @@ def _run_migrations():
             # Khata / Loans soft-delete
             ok += _add("khata_customers", "is_deleted", "BOOLEAN DEFAULT 0")
             ok += _add("loan_persons", "is_deleted", "BOOLEAN DEFAULT 0")
+            # Payment connections — auto-sync
+            ok += _add("payment_connections", "auto_sync", "BOOLEAN DEFAULT 1")
+            ok += _add("payment_connections", "last_auto_imported", "INTEGER DEFAULT 0")
             conn.commit()
             print(f"Schema migrations (SQLite): {ok} new columns added")
         else:
@@ -353,6 +359,31 @@ def serve_receipt(filename: str, request: Request):
         media_type="image/jpeg",
         headers={"Cache-Control": "private, max-age=3600"},
     )
+
+
+# --- Background scheduler: auto-sync payment providers ---
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.interval import IntervalTrigger
+    from app.services.payment_autosync import run_auto_sync
+
+    _scheduler = BackgroundScheduler()
+    _scheduler.add_job(
+        run_auto_sync,
+        trigger=IntervalTrigger(hours=6),
+        id="payment_autosync",
+        name="Auto-sync payment providers",
+        replace_existing=True,
+    )
+    _scheduler.start()
+    print("Payment auto-sync scheduler started (every 6 hours)")
+
+    @app.on_event("shutdown")
+    def _shutdown_scheduler():
+        _scheduler.shutdown(wait=False)
+
+except Exception as e:
+    print(f"Scheduler warning: {e}")
 
 
 @app.api_route("/api/health", methods=["GET", "HEAD"])

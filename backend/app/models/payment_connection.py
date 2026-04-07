@@ -21,5 +21,7 @@ class PaymentConnection(Base):
     credentials: Mapped[str] = mapped_column(Text, default="{}")
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    auto_sync: Mapped[bool] = mapped_column(Boolean, default=True)  # auto-import daily
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_auto_imported: Mapped[int] = mapped_column(default=0)  # count from last auto-run
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

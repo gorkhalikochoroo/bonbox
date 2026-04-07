@@ -121,6 +121,27 @@ def disconnect_provider(
     return {"message": f"{conn.label} disconnected"}
 
 
+@router.patch("/connections/{connection_id}/auto-sync")
+def toggle_auto_sync(
+    connection_id: uuid.UUID,
+    enabled: bool = Query(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Toggle auto-sync on/off for a connection."""
+    conn = db.query(PaymentConnection).filter(
+        PaymentConnection.id == connection_id,
+        PaymentConnection.user_id == user.id,
+    ).first()
+    if not conn:
+        raise HTTPException(404, "Connection not found")
+
+    conn.auto_sync = enabled
+    db.commit()
+    db.refresh(conn)
+    return {"auto_sync": conn.auto_sync}
+
+
 # ── Sync transactions ──────────────────────────────────────
 
 @router.post("/sync/{connection_id}", response_model=SyncResponse)
