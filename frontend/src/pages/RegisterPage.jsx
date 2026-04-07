@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { GoogleLogin } from "@react-oauth/google";
 
 /* Inline SVG — growth / rocket scene for registration */
 function RegisterIllustration() {
@@ -53,7 +54,8 @@ const inputCls = "w-full pl-11 pr-4 py-3 border border-gray-200 dark:border-gray
 const selectCls = "w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent text-base text-gray-800 dark:text-gray-200 transition appearance-none";
 
 export default function RegisterPage() {
-  const { register } = useAuth();
+  const { register, googleLogin } = useAuth();
+  const hasGoogle = !!import.meta.env.VITE_GOOGLE_CLIENT_ID;
   const { t, lang, setLang, LANGUAGES } = useLanguage();
   const navigate = useNavigate();
   const [form, setForm] = useState({
@@ -263,6 +265,33 @@ export default function RegisterPage() {
                 ) : t("createAccount")}
               </button>
             </form>
+
+            {/* Google Sign-Up */}
+            {hasGoogle && (
+              <>
+                <div className="flex items-center gap-3 my-5">
+                  <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                  <span className="text-xs text-gray-400 dark:text-gray-500 font-medium">or</span>
+                  <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                </div>
+                <div className="flex justify-center [&>div]:w-full">
+                  <GoogleLogin
+                    onSuccess={(res) => {
+                      setError("");
+                      googleLogin(res.credential)
+                        .then(() => navigate("/dashboard"))
+                        .catch((err) => setError(err.response?.data?.detail || "Google sign-up failed"));
+                    }}
+                    onError={() => setError("Google sign-up failed")}
+                    shape="rectangular"
+                    size="large"
+                    width="400"
+                    text="signup_with"
+                    theme="outline"
+                  />
+                </div>
+              </>
+            )}
 
             <p className="mt-5 text-center text-sm text-gray-500 dark:text-gray-400">
               {t("alreadyHaveAccount")}{" "}

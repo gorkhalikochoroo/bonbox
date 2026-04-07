@@ -141,6 +141,73 @@ def register(request: Request, data: UserRegister, db: Session = Depends(get_db)
     return Token(access_token=token, user=UserResponse.model_validate(user))
 
 
+class GoogleAuthRequest(BaseModel):
+    credential: str  # Google ID token
+
+
+@router.post("/google", response_model=Token)
+@limiter.limit("15/minute")
+def google_auth(request: Request, data: GoogleAuthRequest, db: Session = Depends(get_db)):
+    """Sign in or register with Google. Verifies the ID token and creates/logs in the user."""
+    from google.oauth2 import id_token as google_id_token
+    from google.auth.transport import requests as google_requests
+
+    if not settings.GOOGLE_CLIENT_ID:
+        raise HTTPException(status_code=503, detail="Google sign-in not configured")
+
+    try:
+        idinfo = google_id_token.verify_oauth2_token(
+            data.credential,
+            google_requests.Request(),
+            settings.GOOGLE_CLIENT_ID,
+        )
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid Google token")
+
+    email = idinfo.get("email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Google account has no email")
+
+    # Check if user exists
+    user = db.query(User).filter(User.email == email).first()
+    is_new = False
+
+    if not user:
+        # Auto-register
+        is_new = True
+        name = idinfo.get("name", "")
+        user = User(
+            email=email,
+            password_hash=hash_password(secrets.token_urlsafe(32)),  # random password (won't be used)
+            business_name=name,
+            business_type="",
+            currency="DKK",
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+        # Welcome email
+        try:
+            send_email(user.email, "Welcome to BonBox! 🎉", _welcome_email_html(name or "there"))
+        except Exception:
+            pass
+
+        # Admin notification
+        if settings.ADMIN_EMAIL:
+            try:
+                send_email(
+                    settings.ADMIN_EMAIL,
+                    f"New BonBox signup (Google): {name or email}",
+                    _admin_signup_email_html(email, name, "google-oauth"),
+                )
+            except Exception:
+                pass
+
+    token = create_access_token(str(user.id))
+    return Token(access_token=token, user=UserResponse.model_validate(user))
+
+
 @router.post("/login", response_model=Token)
 @limiter.limit("10/minute")
 def login(request: Request, data: UserLogin, db: Session = Depends(get_db)):

@@ -2,6 +2,9 @@ import { Component, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
 import { LanguageProvider } from "./hooks/useLanguage";
+import { GoogleOAuthProvider } from "@react-oauth/google";
+
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 
 // Loading spinner for lazy-loaded pages
 function PageLoader() {
@@ -180,7 +183,7 @@ function AppRoutes() {
   );
 }
 
-export default function App() {
+function AppInner() {
   return (
     <ErrorBoundary>
       <BrowserRouter>
@@ -191,5 +194,14 @@ export default function App() {
         </LanguageProvider>
       </BrowserRouter>
     </ErrorBoundary>
+  );
+}
+
+export default function App() {
+  if (!GOOGLE_CLIENT_ID) return <AppInner />;
+  return (
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      <AppInner />
+    </GoogleOAuthProvider>
   );
 }

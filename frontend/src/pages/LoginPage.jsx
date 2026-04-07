@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { GoogleLogin } from "@react-oauth/google";
 
 /* Inline SVG illustration — a fun receipt-and-boxes scene */
 function HeroIllustration() {
@@ -63,7 +64,7 @@ function HeroIllustration() {
 }
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, googleLogin } = useAuth();
   const { lang, setLang, LANGUAGES } = useLanguage();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -71,6 +72,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPass, setShowPass] = useState(false);
+  const hasGoogle = !!import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -214,7 +216,34 @@ export default function LoginPage() {
               </button>
             </form>
 
-            <p className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
+            {/* Google Sign-In */}
+            {hasGoogle && (
+              <>
+                <div className="flex items-center gap-3 my-5">
+                  <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                  <span className="text-xs text-gray-400 dark:text-gray-500 font-medium">or</span>
+                  <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                </div>
+                <div className="flex justify-center [&>div]:w-full">
+                  <GoogleLogin
+                    onSuccess={(res) => {
+                      setError("");
+                      googleLogin(res.credential)
+                        .then(() => navigate("/dashboard"))
+                        .catch((err) => setError(err.response?.data?.detail || "Google sign-in failed"));
+                    }}
+                    onError={() => setError("Google sign-in failed")}
+                    shape="rectangular"
+                    size="large"
+                    width="400"
+                    text="signin_with"
+                    theme="outline"
+                  />
+                </div>
+              </>
+            )}
+
+            <p className="mt-5 text-center text-sm text-gray-500 dark:text-gray-400">
               Don't have an account?{" "}
               <Link to="/register" className="text-green-600 dark:text-green-400 hover:underline font-semibold">
                 Create one free
