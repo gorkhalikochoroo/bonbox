@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     SUPABASE_URL: str = ""
     SUPABASE_ANON_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
+    COMPANIES_HOUSE_API_KEY: str = ""
     ENVIRONMENT: str = "development"  # "production" in deployed env
 
     class Config:

@@ -22,6 +22,7 @@ const businessNav = [
   { to: "/staffing", labelKey: "smartStaffing" },
   { to: "/khata", labelKey: "khata" },
   { to: "/bank-import", labelKey: "bankImport" },
+  { to: "/payment-imports", labelKey: "paymentImports" },
   { to: "/budgets", labelKey: "budgetOverview" },
 ];
 

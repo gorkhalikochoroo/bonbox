@@ -169,6 +169,16 @@ export default function VatReportPage() {
             <h1 className="text-xl font-bold text-gray-800 dark:text-white mt-1">
               {report.business_name || t("vatMyBusiness")}
             </h1>
+            {report.org_number && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                {report.org_number}{report.vat_number && report.vat_number !== report.org_number ? ` / VAT: ${report.vat_number}` : ""}
+              </p>
+            )}
+            {report.business_address && (
+              <p className="text-xs text-gray-400 mt-0.5">
+                {report.business_address}{report.business_zipcode ? `, ${report.business_zipcode}` : ""}{report.business_city ? ` ${report.business_city}` : ""}
+              </p>
+            )}
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{report.period}</p>
             {report.vat_rate_pct !== undefined && (
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{vat.vatName} {t("vatRateLabel")}: {report.vat_rate_pct}%</p>

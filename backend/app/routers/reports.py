@@ -26,9 +26,58 @@ from app.models.waste import WasteLog
 from app.models.khata import KhataCustomer, KhataTransaction
 from app.models.cashbook import CashTransaction
 from app.models.staffing import StaffingRule
+from app.models.business_profile import BusinessProfile
 from app.services.auth import get_current_user
 from pydantic import BaseModel
 from typing import List
+
+
+def _get_business_profile(db: Session, user_id) -> dict:
+    """Fetch business profile for PDF headers. Returns dict with company details."""
+    bp = db.query(BusinessProfile).filter(BusinessProfile.user_id == user_id).first()
+    if not bp:
+        return {}
+    return {
+        "company_name": bp.company_name or "",
+        "org_number": bp.org_number or "",
+        "vat_number": bp.vat_number or "",
+        "address": bp.address or "",
+        "city": bp.city or "",
+        "zipcode": bp.zipcode or "",
+        "country": bp.country or "",
+        "phone": bp.phone or "",
+        "email": bp.email or "",
+        "industry": bp.industry or "",
+    }
+
+
+def _pdf_business_header(elements, bp: dict, user, title_style, subtitle_style, small_style, report_title: str, period_label: str, extra_line: str = ""):
+    """Build a professional PDF header block with business profile info."""
+    biz_name = bp.get("company_name") or user.business_name or "My Business"
+    elements.append(Paragraph(biz_name, title_style))
+    elements.append(Paragraph(report_title + f" &mdash; {period_label}", subtitle_style))
+
+    # Business registration details line
+    details_parts = []
+    if bp.get("org_number"):
+        # Show localized label based on country
+        reg_labels = {"DK": "CVR", "NO": "Org.nr", "GB": "Company No.", "SE": "Org.nr"}
+        label = reg_labels.get(bp.get("country", ""), "Reg. No.")
+        details_parts.append(f"{label}: {bp['org_number']}")
+    if bp.get("address"):
+        addr = bp["address"]
+        if bp.get("zipcode"):
+            addr += f", {bp['zipcode']}"
+        if bp.get("city"):
+            addr += f" {bp['city']}"
+        details_parts.append(addr)
+    if bp.get("phone"):
+        details_parts.append(f"Tel: {bp['phone']}")
+
+    if details_parts:
+        elements.append(Paragraph(" | ".join(details_parts), small_style))
+    if extra_line:
+        elements.append(Paragraph(extra_line, small_style))
 
 router = APIRouter()
 
@@ -200,9 +249,19 @@ def daily_kasserapport(
         .scalar()
     )
 
+    # Business profile for header info
+    bp = _get_business_profile(db, user.id)
+
     return {
         "date": d.isoformat(),
-        "business_name": user.business_name or "BonBox",
+        "business_name": bp.get("company_name") or user.business_name or "BonBox",
+        "org_number": bp.get("org_number", ""),
+        "vat_number": bp.get("vat_number", ""),
+        "business_address": bp.get("address", ""),
+        "business_city": bp.get("city", ""),
+        "business_zipcode": bp.get("zipcode", ""),
+        "business_phone": bp.get("phone", ""),
+        "business_country": bp.get("country", ""),
         "currency": display_cur,
         "transaction_count": len(sales),
         "subtotal": subtotal,
@@ -499,11 +558,14 @@ def monthly_report_pdf(
     elements = []
 
     # ============================================================
-    # HEADER
+    # HEADER (with business profile)
     # ============================================================
-    elements.append(Paragraph(f"{user.business_name or 'My Business'}", title_style))
-    elements.append(Paragraph(f"Monthly Financial Report &mdash; {month_name} {year}", subtitle_style))
-    elements.append(Paragraph(f"Generated on {date.today().strftime('%d %B %Y')}", small_style))
+    bp = _get_business_profile(db, user.id)
+    _pdf_business_header(
+        elements, bp, user, title_style, subtitle_style, small_style,
+        "Monthly Financial Report", f"{month_name} {year}",
+        extra_line=f"Generated on {date.today().strftime('%d %B %Y')}",
+    )
     elements.append(Spacer(1, 3 * mm))
     elements.append(HRFlowable(width="100%", thickness=1, color=BLUE, spaceAfter=8))
 
@@ -844,6 +906,9 @@ def _get_vat_data(db, user, start, end):
     input_vat = round(expenses_total * vat_rate / (1 + vat_rate), 2) if vat_rate > 0 else 0
     vat_payable = round(output_vat - input_vat, 2)
 
+    # Include business profile for VAT report headers
+    bp = _get_business_profile(db, user.id)
+
     return {
         "vat_rate": vat_rate,
         "vat_rate_pct": round(vat_rate * 100, 1),
@@ -855,7 +920,12 @@ def _get_vat_data(db, user, start, end):
         "input_vat": input_vat,
         "vat_payable": vat_payable,
         "currency": get_display_currency(user.currency),
-        "business_name": user.business_name,
+        "business_name": bp.get("company_name") or user.business_name,
+        "org_number": bp.get("org_number", ""),
+        "vat_number": bp.get("vat_number", ""),
+        "business_address": bp.get("address", ""),
+        "business_city": bp.get("city", ""),
+        "business_zipcode": bp.get("zipcode", ""),
         "expense_breakdown": [(name, float(total)) for name, total in expense_breakdown],
     }
 
@@ -937,10 +1007,13 @@ def vat_export_pdf(
 
     elements = []
 
-    # Header
-    elements.append(Paragraph(f"{data['business_name'] or 'My Business'}", title_style))
-    elements.append(Paragraph(f"{terms['report']} &mdash; {period_label}", subtitle_style))
-    elements.append(Paragraph(f"{terms['name']} Rate: {data['vat_rate_pct']}% | Currency: {cur} | Generated: {date.today().strftime('%d %B %Y')}", small_style))
+    # Header (with business profile for official tax reporting)
+    bp = _get_business_profile(db, user.id)
+    _pdf_business_header(
+        elements, bp, user, title_style, subtitle_style, small_style,
+        terms["report"], period_label,
+        extra_line=f"{terms['name']} Rate: {data['vat_rate_pct']}% | Currency: {cur} | Generated: {date.today().strftime('%d %B %Y')}",
+    )
     elements.append(Spacer(1, 3 * mm))
     elements.append(HRFlowable(width="100%", thickness=1.5, color=PURPLE, spaceAfter=10))
 
@@ -1240,11 +1313,14 @@ def custom_report_pdf(
     elements = []
 
     # ================================================================
-    # HEADER + OVERVIEW SUMMARY (always included)
+    # HEADER + OVERVIEW SUMMARY (always included, with business profile)
     # ================================================================
-    elements.append(Paragraph(f"{user.business_name or 'My Business'}", title_style))
-    elements.append(Paragraph(f"Custom Report &mdash; {month_name} {year}", subtitle_style))
-    elements.append(Paragraph(f"Generated on {date.today().strftime('%d %B %Y')}", small_style))
+    bp = _get_business_profile(db, user.id)
+    _pdf_business_header(
+        elements, bp, user, title_style, subtitle_style, small_style,
+        "Custom Report", f"{month_name} {year}",
+        extra_line=f"Generated on {date.today().strftime('%d %B %Y')}",
+    )
     elements.append(Spacer(1, 3 * mm))
     elements.append(HRFlowable(width="100%", thickness=1, color=BLUE, spaceAfter=8))
 

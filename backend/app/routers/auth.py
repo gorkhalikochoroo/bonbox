@@ -1,13 +1,33 @@
+import io
+import csv
 import secrets
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from app.database import get_db
 from app.models.user import User
+from app.models.sale import Sale
+from app.models.expense import Expense, ExpenseCategory
+from app.models.inventory import InventoryItem, InventoryLog
+from app.models.cashbook import CashTransaction
+from app.models.waste import WasteLog
+from app.models.khata import KhataCustomer, KhataTransaction
+from app.models.budget import Budget
+from app.models.loan import LoanPerson, LoanTransaction
+from app.models.staffing import StaffingRule
+from app.models.feedback import Feedback
+from app.models.event_log import EventLog
+from app.models.category_mapping import CategoryMapping
+from app.models.whatsapp import WhatsAppUser
+from app.models.weather import SickCall
+from app.models.business_profile import BusinessProfile
+from app.models.payment_connection import PaymentConnection
 from app.schemas.auth import (
     UserRegister, UserLogin, Token, UserResponse, UserUpdate, PasswordChange,
     ForgotPasswordRequest, ResetPasswordRequest,
@@ -215,3 +235,275 @@ def set_monthly_goal(
     db.commit()
     db.refresh(current_user)
     return current_user
+
+
+# ============================================================
+# GDPR: Right to Data Portability (Article 20)
+# ============================================================
+def _write_csv_section(writer, title: str, headers: list, rows: list):
+    """Write a labeled section into the CSV export."""
+    writer.writerow([])
+    writer.writerow([f"=== {title} ==="])
+    writer.writerow(headers)
+    for row in rows:
+        writer.writerow(row)
+
+
+@router.get("/export-data")
+def export_all_data(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """GDPR Article 20 — Export all user data as a single CSV file.
+
+    Returns every piece of data BonBox stores about the user:
+    profile, sales, expenses, inventory, cash book, waste logs,
+    khata, loans, budgets, staffing rules, business profile, etc.
+    """
+    uid = current_user.id
+    buf = io.StringIO()
+    w = csv.writer(buf)
+
+    # --- Profile ---
+    w.writerow(["BonBox Data Export"])
+    w.writerow([f"User: {current_user.email}"])
+    w.writerow([f"Exported: {datetime.utcnow().isoformat()}"])
+    _write_csv_section(w, "Profile", [
+        "id", "email", "business_name", "business_type", "currency",
+        "daily_goal", "monthly_goal", "role", "created_at",
+    ], [[
+        str(current_user.id), current_user.email, current_user.business_name,
+        current_user.business_type, current_user.currency,
+        current_user.daily_goal, current_user.monthly_goal,
+        current_user.role, str(current_user.created_at),
+    ]])
+
+    # --- Business Profile ---
+    bp = db.query(BusinessProfile).filter(BusinessProfile.user_id == uid).first()
+    if bp:
+        _write_csv_section(w, "Business Profile", [
+            "company_name", "org_number", "vat_number", "country",
+            "address", "city", "zipcode", "industry", "phone", "email", "source",
+        ], [[
+            bp.company_name, bp.org_number, bp.vat_number, bp.country,
+            bp.address, bp.city, bp.zipcode, bp.industry, bp.phone, bp.email, bp.source,
+        ]])
+
+    # --- Sales ---
+    sales = db.query(Sale).filter(Sale.user_id == uid).order_by(Sale.date.desc()).all()
+    _write_csv_section(w, "Sales", [
+        "date", "amount", "payment_method", "notes", "item_name",
+        "quantity_sold", "unit_price", "status", "is_tax_exempt",
+    ], [[
+        str(s.date), float(s.amount), s.payment_method, s.notes or "",
+        s.item_name or "", s.quantity_sold or "", s.unit_price or "",
+        s.status or "completed", s.is_tax_exempt,
+    ] for s in sales])
+
+    # --- Expense Categories ---
+    cats = db.query(ExpenseCategory).filter(ExpenseCategory.user_id == uid).all()
+    _write_csv_section(w, "Expense Categories", ["name", "color"], [
+        [c.name, c.color] for c in cats
+    ])
+
+    # --- Expenses ---
+    expenses = db.query(Expense).filter(Expense.user_id == uid).order_by(Expense.date.desc()).all()
+    _write_csv_section(w, "Expenses", [
+        "date", "amount", "description", "payment_method", "is_personal",
+        "is_recurring", "is_tax_exempt", "notes",
+    ], [[
+        str(e.date), float(e.amount), e.description, e.payment_method,
+        e.is_personal, e.is_recurring, e.is_tax_exempt, e.notes or "",
+    ] for e in expenses])
+
+    # --- Inventory ---
+    items = db.query(InventoryItem).filter(InventoryItem.user_id == uid).all()
+    _write_csv_section(w, "Inventory Items", [
+        "name", "quantity", "unit", "cost_per_unit", "sell_price",
+        "category", "barcode", "min_threshold", "is_perishable", "expiry_date",
+    ], [[
+        i.name, float(i.quantity), i.unit, float(i.cost_per_unit),
+        float(i.sell_price) if i.sell_price else "",
+        i.category or "", i.barcode or "", float(i.min_threshold),
+        i.is_perishable, str(i.expiry_date) if i.expiry_date else "",
+    ] for i in items])
+
+    # --- Inventory Logs (via items) ---
+    item_ids = [i.id for i in items]
+    if item_ids:
+        logs = db.query(InventoryLog).filter(InventoryLog.item_id.in_(item_ids)).order_by(InventoryLog.date.desc()).all()
+        _write_csv_section(w, "Inventory Logs", [
+            "date", "item_id", "change_qty", "reason", "batch_id",
+        ], [[
+            str(lg.date), str(lg.item_id), float(lg.change_qty),
+            lg.reason, lg.batch_id or "",
+        ] for lg in logs])
+
+    # --- Cash Book ---
+    cash = db.query(CashTransaction).filter(CashTransaction.user_id == uid).order_by(CashTransaction.date.desc()).all()
+    _write_csv_section(w, "Cash Book", [
+        "date", "type", "amount", "description", "category", "reference_id",
+    ], [[
+        str(ct.date), ct.type, float(ct.amount),
+        ct.description, ct.category or "", ct.reference_id or "",
+    ] for ct in cash])
+
+    # --- Waste Logs ---
+    waste = db.query(WasteLog).filter(WasteLog.user_id == uid).order_by(WasteLog.date.desc()).all()
+    _write_csv_section(w, "Waste Logs", [
+        "date", "item_name", "quantity", "unit", "estimated_cost", "reason", "notes",
+    ], [[
+        str(wl.date), wl.item_name, float(wl.quantity), wl.unit,
+        float(wl.estimated_cost), wl.reason, wl.notes or "",
+    ] for wl in waste])
+
+    # --- Khata Customers & Transactions ---
+    khata_custs = db.query(KhataCustomer).filter(KhataCustomer.user_id == uid).all()
+    _write_csv_section(w, "Khata Customers", ["name", "phone", "address"], [
+        [kc.name, kc.phone or "", kc.address or ""] for kc in khata_custs
+    ])
+    khata_txns = db.query(KhataTransaction).filter(KhataTransaction.user_id == uid).order_by(KhataTransaction.date.desc()).all()
+    _write_csv_section(w, "Khata Transactions", [
+        "date", "customer_id", "purchase_amount", "paid_amount", "notes",
+    ], [[
+        str(kt.date), str(kt.customer_id), float(kt.purchase_amount),
+        float(kt.paid_amount), kt.notes or "",
+    ] for kt in khata_txns])
+
+    # --- Loans ---
+    loan_persons = db.query(LoanPerson).filter(LoanPerson.user_id == uid).all()
+    _write_csv_section(w, "Loan Contacts", ["name", "phone", "notes"], [
+        [lp.name, lp.phone or "", lp.notes or ""] for lp in loan_persons
+    ])
+    loan_txns = db.query(LoanTransaction).filter(LoanTransaction.user_id == uid).order_by(LoanTransaction.date.desc()).all()
+    _write_csv_section(w, "Loan Transactions", [
+        "date", "person_id", "type", "amount", "is_repayment", "notes",
+    ], [[
+        str(lt.date), str(lt.person_id), lt.type, float(lt.amount),
+        lt.is_repayment, lt.notes or "",
+    ] for lt in loan_txns])
+
+    # --- Budgets ---
+    budgets = db.query(Budget).filter(Budget.user_id == uid).all()
+    _write_csv_section(w, "Budgets", ["month", "category", "limit_amount"], [
+        [b.month, b.category, float(b.limit_amount)] for b in budgets
+    ])
+
+    # --- Staffing Rules ---
+    rules = db.query(StaffingRule).filter(StaffingRule.user_id == uid).all()
+    _write_csv_section(w, "Staffing Rules", [
+        "label", "revenue_min", "revenue_max", "recommended_staff",
+    ], [[
+        sr.label, float(sr.revenue_min), float(sr.revenue_max), sr.recommended_staff,
+    ] for sr in rules])
+
+    # --- Sick Calls ---
+    sick = db.query(SickCall).filter(SickCall.user_id == uid).all()
+    if sick:
+        _write_csv_section(w, "Sick Calls", [
+            "date", "staff_name", "weather_condition", "notes",
+        ], [[
+            str(sc.date), sc.staff_name, sc.weather_condition or "", sc.notes or "",
+        ] for sc in sick])
+
+    # --- Feedback ---
+    fb = db.query(Feedback).filter(Feedback.user_id == uid).all()
+    if fb:
+        _write_csv_section(w, "Feedback", ["rating", "category", "message", "created_at"], [
+            [f.rating, f.category or "", f.message or "", str(f.created_at)] for f in fb
+        ])
+
+    # --- Payment Connections ---
+    pay_conns = db.query(PaymentConnection).filter(PaymentConnection.user_id == uid).all()
+    if pay_conns:
+        _write_csv_section(w, "Payment Connections", [
+            "provider", "label", "is_active", "last_synced_at", "created_at",
+        ], [[
+            pc.provider, pc.label, pc.is_active,
+            str(pc.last_synced_at) if pc.last_synced_at else "",
+            str(pc.created_at),
+        ] for pc in pay_conns])
+
+    # Return as downloadable CSV
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=bonbox_export_{current_user.email}_{datetime.utcnow().strftime('%Y%m%d')}.csv"},
+    )
+
+
+# ============================================================
+# GDPR: Right to Erasure (Article 17)
+# ============================================================
+class DeleteAccountRequest(BaseModel):
+    password: str
+
+
+@router.delete("/delete-account")
+def delete_account(
+    data: DeleteAccountRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """GDPR Article 17 — Permanently delete user account and ALL associated data.
+
+    Requires password confirmation. This action is irreversible.
+    Deletes: sales, expenses, inventory, cash book, waste logs, khata,
+    loans, budgets, staffing rules, business profile, WhatsApp data,
+    feedback, event logs, category mappings, sick calls, and the user account.
+    """
+    # Verify password to prevent accidental/unauthorized deletion
+    if not verify_password(data.password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Incorrect password")
+
+    uid = current_user.id
+
+    # Check if user has team members — must remove them first
+    team_members = db.query(User).filter(User.owner_id == uid).count()
+    if team_members > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"You have {team_members} team member(s). Remove all team members before deleting your account.",
+        )
+
+    # Delete all user data in dependency order (children first)
+    # --- Inventory logs (via inventory items) ---
+    item_ids = [i.id for i in db.query(InventoryItem.id).filter(InventoryItem.user_id == uid).all()]
+    if item_ids:
+        db.query(InventoryLog).filter(InventoryLog.item_id.in_(item_ids)).delete(synchronize_session=False)
+
+    # --- Khata transactions, then customers ---
+    db.query(KhataTransaction).filter(KhataTransaction.user_id == uid).delete(synchronize_session=False)
+    db.query(KhataCustomer).filter(KhataCustomer.user_id == uid).delete(synchronize_session=False)
+
+    # --- Loan transactions, then persons ---
+    db.query(LoanTransaction).filter(LoanTransaction.user_id == uid).delete(synchronize_session=False)
+    db.query(LoanPerson).filter(LoanPerson.user_id == uid).delete(synchronize_session=False)
+
+    # --- Expenses (before categories) ---
+    db.query(Expense).filter(Expense.user_id == uid).delete(synchronize_session=False)
+    db.query(ExpenseCategory).filter(ExpenseCategory.user_id == uid).delete(synchronize_session=False)
+
+    # --- Sales ---
+    db.query(Sale).filter(Sale.user_id == uid).delete(synchronize_session=False)
+
+    # --- Everything else (no child dependencies) ---
+    db.query(InventoryItem).filter(InventoryItem.user_id == uid).delete(synchronize_session=False)
+    db.query(CashTransaction).filter(CashTransaction.user_id == uid).delete(synchronize_session=False)
+    db.query(WasteLog).filter(WasteLog.user_id == uid).delete(synchronize_session=False)
+    db.query(Budget).filter(Budget.user_id == uid).delete(synchronize_session=False)
+    db.query(StaffingRule).filter(StaffingRule.user_id == uid).delete(synchronize_session=False)
+    db.query(Feedback).filter(Feedback.user_id == uid).delete(synchronize_session=False)
+    db.query(EventLog).filter(EventLog.user_id == uid).delete(synchronize_session=False)
+    db.query(CategoryMapping).filter(CategoryMapping.user_id == uid).delete(synchronize_session=False)
+    db.query(SickCall).filter(SickCall.user_id == uid).delete(synchronize_session=False)
+    db.query(WhatsAppUser).filter(WhatsAppUser.user_id == uid).delete(synchronize_session=False)
+    db.query(BusinessProfile).filter(BusinessProfile.user_id == uid).delete(synchronize_session=False)
+    db.query(PaymentConnection).filter(PaymentConnection.user_id == uid).delete(synchronize_session=False)
+
+    # --- Finally, delete the user ---
+    db.delete(current_user)
+    db.commit()
+
+    return {"message": "Account and all data permanently deleted. We're sorry to see you go."}

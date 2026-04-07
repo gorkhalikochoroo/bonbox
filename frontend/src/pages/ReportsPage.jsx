@@ -290,6 +290,19 @@ function DailyKasserapport() {
           <div className="text-center py-6 border-b border-dashed border-gray-200 dark:border-gray-700">
             <h2 className="text-lg font-bold text-gray-800 dark:text-white tracking-wide">{t("kasserapport")}</h2>
             <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mt-1">{data.business_name}</p>
+            {data.org_number && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                {data.business_country === "DK" ? "CVR" : data.business_country === "NO" ? "Org.nr" : data.business_country === "GB" ? "Co. No." : "Reg."}: {data.org_number}
+              </p>
+            )}
+            {data.business_address && (
+              <p className="text-xs text-gray-400 mt-0.5">
+                {data.business_address}{data.business_zipcode ? `, ${data.business_zipcode}` : ""}{data.business_city ? ` ${data.business_city}` : ""}
+              </p>
+            )}
+            {data.business_phone && (
+              <p className="text-xs text-gray-400 mt-0.5">Tel: {data.business_phone}</p>
+            )}
             <p className="text-xs text-gray-400 mt-1">{formatDate(data.date)}</p>
           </div>
 

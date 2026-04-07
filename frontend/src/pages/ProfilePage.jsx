@@ -4,6 +4,7 @@ import { useDarkMode } from "../hooks/useDarkMode";
 import { useLanguage } from "../hooks/useLanguage";
 import { FadeIn } from "../components/AnimationKit";
 import usePushNotifications from "../hooks/usePushNotifications";
+import BusinessLookup from "../components/BusinessLookup";
 
 export default function ProfilePage() {
   const [dark] = useDarkMode();
@@ -20,12 +21,20 @@ export default function ProfilePage() {
   const [emailPrefs, setEmailPrefs] = useState({ daily_digest_enabled: false, expense_alerts_enabled: true });
   const [emailMsg, setEmailMsg] = useState("");
   const { permission: pushPerm, supported: pushSupported, requestPermission: requestPush } = usePushNotifications();
+  const [businessProfile, setBusinessProfile] = useState(null);
   const [sendingTest, setSendingTest] = useState(false);
   const [waStatus, setWaStatus] = useState(null);
   const [waPhone, setWaPhone] = useState("");
   const [waMsg, setWaMsg] = useState("");
   const [waLinking, setWaLinking] = useState(false);
   const [waCode, setWaCode] = useState("");
+
+  // GDPR: Export & Delete
+  const [exporting, setExporting] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
     api.get("/auth/me").then((res) => {
@@ -39,6 +48,7 @@ export default function ProfilePage() {
     });
     api.get("/email/preferences").then((res) => setEmailPrefs(res.data)).catch(() => {});
     api.get("/whatsapp/status").then((res) => setWaStatus(res.data)).catch(() => {});
+    api.get("/business").then((res) => setBusinessProfile(res.data)).catch(() => {});
   }, []);
 
   const toggleEmailPref = async (key) => {
@@ -216,6 +226,43 @@ export default function ProfilePage() {
         </form>
       </div>
 
+      {/* Business Registration */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900/30 rounded-xl flex items-center justify-center">
+            <svg className="w-5 h-5 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t("businessRegistration") || "Business Registration"}</h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500">{t("businessRegistrationDesc") || "Look up and save your company details from public registers"}</p>
+          </div>
+        </div>
+
+        {businessProfile && (
+          <div className="mb-4 px-4 py-3 bg-green-50 dark:bg-green-900/20 rounded-xl flex items-center gap-2">
+            <span className="text-green-500">&#10003;</span>
+            <span className="text-sm font-medium text-green-700 dark:text-green-400">
+              {businessProfile.company_name}
+              {businessProfile.org_number && <span className="text-green-600/70 dark:text-green-500/70 ml-2">({businessProfile.org_number})</span>}
+            </span>
+          </div>
+        )}
+
+        <BusinessLookup
+          onSave={(profile) => {
+            setBusinessProfile(profile);
+            // Also refresh user data since business_name syncs
+            api.get("/auth/me").then((res) => {
+              setUser(res.data);
+              setForm(f => ({ ...f, business_name: res.data.business_name || "" }));
+            });
+          }}
+          initialProfile={businessProfile}
+        />
+      </div>
+
       {/* Change Password */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">{t("changePassword")}</h2>
@@ -388,6 +435,111 @@ export default function ProfilePage() {
         <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
           <p>{t("accountIdLabel")}: <span className="font-mono text-xs">{user.id}</span></p>
           <p>{t("dailyGoal")}: {user.daily_goal > 0 ? `${Number(user.daily_goal).toLocaleString()} ${form.currency}` : t("notSetLabel")}</p>
+        </div>
+      </div>
+
+      {/* GDPR: Your Data */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-red-200 dark:border-red-900/50 p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 bg-red-100 dark:bg-red-900/30 rounded-xl flex items-center justify-center">
+            <svg className="w-5 h-5 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t("yourData") || "Your Data"}</h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500">{t("gdprRights") || "GDPR: Right to data portability & right to erasure"}</p>
+          </div>
+        </div>
+
+        {/* Export Data */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+            <div>
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("exportAllData") || "Export All Data"}</p>
+              <p className="text-xs text-gray-400">{t("exportAllDataDesc") || "Download everything BonBox stores about you as a CSV file"}</p>
+            </div>
+            <button
+              onClick={async () => {
+                setExporting(true);
+                try {
+                  const res = await api.get("/auth/export-data", { responseType: "blob" });
+                  const url = window.URL.createObjectURL(new Blob([res.data]));
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `bonbox_export_${new Date().toISOString().slice(0, 10)}.csv`;
+                  a.click();
+                  window.URL.revokeObjectURL(url);
+                } catch { /* ignore */ }
+                setExporting(false);
+              }}
+              disabled={exporting}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition disabled:opacity-50 shrink-0"
+            >
+              {exporting ? t("exporting") || "Exporting..." : t("downloadCsv") || "Download CSV"}
+            </button>
+          </div>
+
+          {/* Delete Account */}
+          <div className="p-4 bg-red-50 dark:bg-red-900/10 rounded-xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-red-700 dark:text-red-400">{t("deleteAccount") || "Delete Account"}</p>
+                <p className="text-xs text-red-500/70 dark:text-red-400/60">{t("deleteAccountDesc") || "Permanently delete your account and all data. This cannot be undone."}</p>
+              </div>
+              {!deleteConfirm && (
+                <button
+                  onClick={() => setDeleteConfirm(true)}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition shrink-0"
+                >
+                  {t("deleteMyAccount") || "Delete My Account"}
+                </button>
+              )}
+            </div>
+
+            {deleteConfirm && (
+              <div className="mt-4 pt-4 border-t border-red-200 dark:border-red-800/50 space-y-3">
+                <p className="text-sm text-red-600 dark:text-red-400 font-medium">
+                  {t("deleteConfirmWarning") || "This will permanently delete ALL your data: sales, expenses, inventory, reports, everything. Enter your password to confirm."}
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={deletePassword}
+                    onChange={(e) => { setDeletePassword(e.target.value); setDeleteError(""); }}
+                    placeholder={t("enterPassword") || "Enter your password"}
+                    className="flex-1 px-3 py-2 rounded-lg border border-red-300 dark:border-red-700 bg-white dark:bg-gray-800 text-sm text-gray-800 dark:text-gray-200"
+                  />
+                  <button
+                    onClick={async () => {
+                      if (!deletePassword) return;
+                      setDeleting(true);
+                      setDeleteError("");
+                      try {
+                        await api.delete("/auth/delete-account", { data: { password: deletePassword } });
+                        localStorage.clear();
+                        window.location.href = "/login";
+                      } catch (err) {
+                        setDeleteError(err.response?.data?.detail || t("deleteFailed") || "Failed to delete account");
+                      }
+                      setDeleting(false);
+                    }}
+                    disabled={deleting || !deletePassword}
+                    className="px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-bold hover:bg-red-800 transition disabled:opacity-50"
+                  >
+                    {deleting ? t("deleting") || "Deleting..." : t("confirmDelete") || "Confirm Delete"}
+                  </button>
+                  <button
+                    onClick={() => { setDeleteConfirm(false); setDeletePassword(""); setDeleteError(""); }}
+                    className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition"
+                  >
+                    {t("cancel") || "Cancel"}
+                  </button>
+                </div>
+                {deleteError && <p className="text-sm text-red-500">{deleteError}</p>}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
