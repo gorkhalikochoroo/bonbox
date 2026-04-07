@@ -264,6 +264,21 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+
+# --- Catch-all exception handler (shows real errors instead of generic 500) ---
+import traceback as _tb
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    tb_str = "".join(_tb.format_exception(type(exc), exc, exc.__traceback__))
+    print(f"UNHANDLED ERROR on {request.method} {request.url.path}:\n{tb_str}")
+    # Temporarily show details for debugging (TODO: remove after fixing)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc)[:500], "type": type(exc).__name__},
+    )
+
+
 # --- CORS (tightened) ---
 origins = [
     settings.FRONTEND_URL,
@@ -349,3 +364,40 @@ def serve_receipt(filename: str, request: Request):
 @app.api_route("/api/health", methods=["GET", "HEAD"])
 def health_check():
     return {"status": "ok"}
+
+
+@app.get("/api/health/db")
+def health_db():
+    """Temporary diagnostic endpoint — test DB connectivity and tables."""
+    from sqlalchemy import inspect as sa_inspect
+    results = {}
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+            results["connection"] = "ok"
+    except Exception as e:
+        results["connection"] = f"FAIL: {e}"
+        return results
+
+    try:
+        insp = sa_inspect(engine)
+        results["tables"] = sorted(insp.get_table_names())
+    except Exception as e:
+        results["tables"] = f"FAIL: {e}"
+
+    # Test querying the users table
+    try:
+        from app.database import SessionLocal
+        db = SessionLocal()
+        try:
+            from app.models.user import User
+            count = db.query(User).count()
+            results["users_count"] = count
+        except Exception as e:
+            results["users_query"] = f"FAIL: {e}"
+        finally:
+            db.close()
+    except Exception as e:
+        results["session"] = f"FAIL: {e}"
+
+    return results
