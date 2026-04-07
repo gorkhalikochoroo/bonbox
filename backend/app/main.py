@@ -273,15 +273,6 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
-# --- Debug exception handler ---
-@app.exception_handler(Exception)
-async def _debug_exception_handler(request: Request, exc: Exception):
-    import traceback
-    tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-    print(f"ERROR {request.method} {request.url.path}: {tb}")
-    return JSONResponse(status_code=500, content={"detail": str(exc)[:500], "error_type": type(exc).__name__})
-
-
 # --- CORS (tightened) ---
 origins = [
     settings.FRONTEND_URL,
@@ -371,23 +362,10 @@ def health_check():
 
 @app.get("/api/health/db")
 def health_db():
-    """Check database connectivity, columns, and migration status."""
-    from sqlalchemy import inspect as sa_inspect
-    results = {"status": "ok", "database": "connected"}
+    """Check database connectivity."""
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-    except Exception as e:
-        return JSONResponse(status_code=503, content={"status": "error", "database": str(e)[:200]})
-
-    try:
-        insp = sa_inspect(engine)
-        user_cols = [c["name"] for c in insp.get_columns("users")]
-        results["users_columns"] = user_cols
-        results["has_role"] = "role" in user_cols
-        results["has_owner_id"] = "owner_id" in user_cols
-        results["tables_count"] = len(insp.get_table_names())
-    except Exception as e:
-        results["inspect_error"] = str(e)[:200]
-
-    return results
+        return {"status": "ok", "database": "connected"}
+    except Exception:
+        return JSONResponse(status_code=503, content={"status": "error", "database": "unreachable"})
