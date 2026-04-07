@@ -10,7 +10,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team
 from app.database import engine, Base
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -73,6 +73,8 @@ _migrations = [
     # Users
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS business_type VARCHAR(50) DEFAULT 'restaurant'",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_goal NUMERIC(12,2) DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'owner'",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS owner_id UUID REFERENCES users(id)",
     # Khata / Loans soft-delete
     "ALTER TABLE khata_customers ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false",
     "ALTER TABLE loan_persons ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false",
@@ -163,6 +165,8 @@ def _run_migrations():
             # Users
             ok += _add("users", "business_type", "VARCHAR(50) DEFAULT 'restaurant'")
             ok += _add("users", "daily_goal", "NUMERIC(12,2) DEFAULT 0")
+            ok += _add("users", "role", "VARCHAR(20) DEFAULT 'owner'")
+            ok += _add("users", "owner_id", "VARCHAR(36)")
             # Khata / Loans soft-delete
             ok += _add("khata_customers", "is_deleted", "BOOLEAN DEFAULT 0")
             ok += _add("loan_persons", "is_deleted", "BOOLEAN DEFAULT 0")
@@ -314,6 +318,7 @@ app.include_router(whatsapp.router, prefix="/api/whatsapp", tags=["WhatsApp"])
 app.include_router(weather.router, prefix="/api/weather", tags=["Weather"])
 app.include_router(agent.router, prefix="/api/agent", tags=["AI Agent"])
 app.include_router(bank_import.router, prefix="/api/bank-import", tags=["Bank Import"])
+app.include_router(team.router, prefix="/api/team", tags=["Team"])
 
 
 # --- Protected Uploads (user can only access own receipts) ---

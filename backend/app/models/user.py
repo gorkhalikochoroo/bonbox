@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, Numeric, Boolean
+from sqlalchemy import String, DateTime, Numeric, Boolean, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
@@ -22,6 +22,8 @@ class User(Base):
     expense_alerts_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     latitude: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
     longitude: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
+    role: Mapped[str] = mapped_column(String(20), default="owner")  # owner | manager | cashier | viewer
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True)  # NULL for owners
     reset_token: Mapped[str | None] = mapped_column(String(100), nullable=True)
     reset_token_expires: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

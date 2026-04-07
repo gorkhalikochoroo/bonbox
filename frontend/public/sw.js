@@ -26,6 +26,37 @@ self.addEventListener("message", (event) => {
   }
 });
 
+// Push: show native notification when backend sends a push event
+self.addEventListener("push", (event) => {
+  let data = { title: "BonBox", body: "You have a new notification", icon: "/icon-192.png" };
+  try {
+    if (event.data) data = { ...data, ...event.data.json() };
+  } catch {}
+  event.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: data.icon || "/icon-192.png",
+      badge: "/icon-192.png",
+      data: data.url || "/dashboard",
+      vibrate: [100, 50, 100],
+    })
+  );
+});
+
+// Notification click: focus or open the app
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = event.notification.data || "/dashboard";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window" }).then((clients) => {
+      for (const client of clients) {
+        if (client.url.includes(self.location.origin) && "focus" in client) return client.focus();
+      }
+      return self.clients.openWindow(url);
+    })
+  );
+});
+
 // Fetch: network-first for everything, cache only for offline fallback
 self.addEventListener("fetch", (event) => {
   const { request } = event;

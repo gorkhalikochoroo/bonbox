@@ -34,6 +34,7 @@ class UserResponse(BaseModel):
     currency: str
     daily_goal: float = 0
     monthly_goal: float = 0
+    role: str = "owner"
 
     model_config = {"from_attributes": True}
 

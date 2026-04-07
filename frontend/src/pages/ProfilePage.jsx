@@ -3,6 +3,7 @@ import api from "../services/api";
 import { useDarkMode } from "../hooks/useDarkMode";
 import { useLanguage } from "../hooks/useLanguage";
 import { FadeIn } from "../components/AnimationKit";
+import usePushNotifications from "../hooks/usePushNotifications";
 
 export default function ProfilePage() {
   const [dark] = useDarkMode();
@@ -18,6 +19,7 @@ export default function ProfilePage() {
   const [changingPw, setChangingPw] = useState(false);
   const [emailPrefs, setEmailPrefs] = useState({ daily_digest_enabled: false, expense_alerts_enabled: true });
   const [emailMsg, setEmailMsg] = useState("");
+  const { permission: pushPerm, supported: pushSupported, requestPermission: requestPush } = usePushNotifications();
   const [sendingTest, setSendingTest] = useState(false);
   const [waStatus, setWaStatus] = useState(null);
   const [waPhone, setWaPhone] = useState("");
@@ -275,6 +277,27 @@ export default function ProfilePage() {
               <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${emailPrefs.expense_alerts_enabled ? "translate-x-5" : ""}`} />
             </button>
           </div>
+          {/* Push notifications */}
+          {pushSupported && (
+            <div className="flex items-center justify-between py-2">
+              <div>
+                <p className="text-sm font-medium text-gray-800 dark:text-gray-200">Push Notifications</p>
+                <p className="text-xs text-gray-400">Get browser alerts for budget & stock warnings</p>
+              </div>
+              {pushPerm === "granted" ? (
+                <span className="text-xs font-medium text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 px-2.5 py-1 rounded-full">Enabled</span>
+              ) : pushPerm === "denied" ? (
+                <span className="text-xs text-red-500">Blocked in browser settings</span>
+              ) : (
+                <button
+                  onClick={requestPush}
+                  className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 transition"
+                >
+                  Enable
+                </button>
+              )}
+            </div>
+          )}
           <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
             <button
               onClick={sendTestDigest}

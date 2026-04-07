@@ -26,6 +26,7 @@ const businessNav = [
 ];
 
 const moreNav = [
+  { to: "/team", labelKey: "team" },
   { to: "/feedback", labelKey: "feedback" },
   { to: "/recently-deleted", labelKey: "recentlyDeleted" },
   { to: "/contact", labelKey: "contact" },

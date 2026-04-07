@@ -116,6 +116,7 @@ const LoanTrackerPage = lazyRetry(() => import("./pages/LoanTrackerPage"));
 const WeatherPage = lazyRetry(() => import("./pages/WeatherPage"));
 const BankImportPage = lazyRetry(() => import("./pages/BankImportPage"));
 const BudgetPage = lazyRetry(() => import("./pages/BudgetPage"));
+const TeamPage = lazyRetry(() => import("./pages/TeamPage"));
 const PrivacyPolicyPage = lazyRetry(() => import("./pages/PrivacyPolicyPage"));
 
 function ProtectedRoute({ children }) {
@@ -170,6 +171,7 @@ function AppRoutes() {
           <Route path="/loans" element={<LoanTrackerPage />} />
           <Route path="/bank-import" element={<BankImportPage />} />
           <Route path="/budgets" element={<BudgetPage />} />
+          <Route path="/team" element={<TeamPage />} />
         </Route>
       </Routes>
     </Suspense>
