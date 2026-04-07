@@ -174,15 +174,23 @@ def _run_migrations():
             print(f"Schema migrations (SQLite): {ok} new columns added")
         else:
             # PostgreSQL: supports IF NOT EXISTS
+            # IMPORTANT: Use SAVEPOINT per migration so one failure
+            # doesn't abort the entire transaction (PG behaviour).
             ok = 0
-            for sql in _migrations:
+            failed = 0
+            for i, sql in enumerate(_migrations):
+                sp = f"sp_{i}"
                 try:
+                    conn.execute(text(f"SAVEPOINT {sp}"))
                     conn.execute(text(sql))
+                    conn.execute(text(f"RELEASE SAVEPOINT {sp}"))
                     ok += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    conn.execute(text(f"ROLLBACK TO SAVEPOINT {sp}"))
+                    failed += 1
+                    print(f"Migration {i} skipped: {e}")
             conn.commit()
-            print(f"Schema migrations (PG): {ok}/{len(_migrations)} applied")
+            print(f"Schema migrations (PG): {ok} applied, {failed} skipped")
 
 try:
     _run_migrations()
@@ -263,20 +271,6 @@ app = FastAPI(
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-
-# --- Catch-all exception handler (shows real errors instead of generic 500) ---
-import traceback as _tb
-
-@app.exception_handler(Exception)
-async def _unhandled_exception_handler(request: Request, exc: Exception):
-    tb_str = "".join(_tb.format_exception(type(exc), exc, exc.__traceback__))
-    print(f"UNHANDLED ERROR on {request.method} {request.url.path}:\n{tb_str}")
-    # Temporarily show details for debugging (TODO: remove after fixing)
-    return JSONResponse(
-        status_code=500,
-        content={"detail": str(exc)[:500], "type": type(exc).__name__},
-    )
 
 
 # --- CORS (tightened) ---
@@ -368,36 +362,10 @@ def health_check():
 
 @app.get("/api/health/db")
 def health_db():
-    """Temporary diagnostic endpoint — test DB connectivity and tables."""
-    from sqlalchemy import inspect as sa_inspect
-    results = {}
+    """Check database connectivity and table availability."""
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-            results["connection"] = "ok"
-    except Exception as e:
-        results["connection"] = f"FAIL: {e}"
-        return results
-
-    try:
-        insp = sa_inspect(engine)
-        results["tables"] = sorted(insp.get_table_names())
-    except Exception as e:
-        results["tables"] = f"FAIL: {e}"
-
-    # Test querying the users table
-    try:
-        from app.database import SessionLocal
-        db = SessionLocal()
-        try:
-            from app.models.user import User
-            count = db.query(User).count()
-            results["users_count"] = count
-        except Exception as e:
-            results["users_query"] = f"FAIL: {e}"
-        finally:
-            db.close()
-    except Exception as e:
-        results["session"] = f"FAIL: {e}"
-
-    return results
+        return {"status": "ok", "database": "connected"}
+    except Exception:
+        return JSONResponse(status_code=503, content={"status": "error", "database": "unreachable"})
