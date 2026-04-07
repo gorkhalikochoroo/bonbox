@@ -2,6 +2,51 @@ import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 
+/* Hero floating illustration — receipt + boxes scene */
+function HeroFloat() {
+  return (
+    <svg viewBox="0 0 360 320" fill="none" className="w-full max-w-md mx-auto">
+      {/* Big receipt */}
+      <g style={{ animation: "heroFloat 3s ease-in-out infinite" }}>
+        <rect x="120" y="40" width="100" height="180" rx="10" fill="white" fillOpacity="0.95" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" />
+        <rect x="138" y="62" width="65" height="6" rx="3" fill="rgba(255,255,255,0.15)" />
+        <rect x="138" y="78" width="48" height="6" rx="3" fill="rgba(255,255,255,0.15)" />
+        <rect x="138" y="94" width="56" height="6" rx="3" fill="rgba(255,255,255,0.15)" />
+        <line x1="138" y1="116" x2="210" y2="116" stroke="rgba(255,255,255,0.1)" strokeWidth="1" strokeDasharray="4 3" />
+        <rect x="138" y="128" width="38" height="10" rx="5" fill="#22c55e" fillOpacity="0.9" />
+        <text x="142" y="137" fontSize="7" fill="white" fontWeight="bold">PAID</text>
+        <path d="M120 220 l8-9 8 9 8-9 8 9 8-9 8 9 8-9 8 9 8-9 8 9 8-9 8 9 8-9 v0 h-100 z" fill="white" fillOpacity="0.95" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" strokeLinejoin="round" />
+      </g>
+      {/* Coin */}
+      <g style={{ animation: "heroFloat 2.5s ease-in-out infinite 0.4s" }}>
+        <circle cx="280" cy="80" r="26" fill="#FCD34D" stroke="#F59E0B" strokeWidth="2" />
+        <text x="280" y="87" fontSize="18" fill="#92400E" fontWeight="bold" textAnchor="middle">$</text>
+      </g>
+      {/* Green box */}
+      <g style={{ animation: "heroFloat 3.5s ease-in-out infinite 0.8s" }}>
+        <rect x="255" y="160" width="58" height="58" rx="12" fill="#22c55e" fillOpacity="0.85" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" />
+        <path d="M268 182 h32 M284 170 v22" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
+      </g>
+      {/* Purple box */}
+      <g style={{ animation: "heroFloat 4s ease-in-out infinite 0.2s" }}>
+        <rect x="50" y="130" width="50" height="50" rx="12" fill="#A78BFA" fillOpacity="0.85" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" />
+        <path d="M63 155 l9 9 15-18" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      </g>
+      {/* Mini chart */}
+      <g style={{ animation: "heroFloat 3s ease-in-out infinite 0.6s" }}>
+        <rect x="60" y="60" width="45" height="55" rx="8" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.15)" strokeWidth="1.5" />
+        <polyline points="70,98 78,86 88,92 98,74" stroke="#22c55e" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+      </g>
+      {/* Sparkles */}
+      <g fill="#FCD34D" fillOpacity="0.8">
+        <path d="M310 45 l3-8 3 8 -8-3 8-3z" style={{ animation: "heroTwinkle 2s ease-in-out infinite" }} />
+        <path d="M40 100 l2-6 2 6 -6-2 6-2z" style={{ animation: "heroTwinkle 2s ease-in-out infinite 0.7s" }} />
+        <path d="M330 230 l2-6 2 6 -6-2 6-2z" style={{ animation: "heroTwinkle 2s ease-in-out infinite 1.4s" }} />
+      </g>
+    </svg>
+  );
+}
+
 /* ── Animated counter ── */
 function Counter({ end, duration = 1800, prefix = "", suffix = "" }) {
   const [val, setVal] = useState(0);
@@ -247,6 +292,10 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 overflow-x-hidden">
+      <style>{`
+        @keyframes heroFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
+        @keyframes heroTwinkle { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.2; transform: scale(0.5); } }
+      `}</style>
 
       {/* ── Navigation ── */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-slate-950/80 backdrop-blur-xl border-b border-white/5">
@@ -314,52 +363,63 @@ export default function LandingPage() {
         <div className="absolute top-20 left-1/4 w-[500px] h-[500px] bg-green-600/10 rounded-full blur-[120px]" />
         <div className="absolute top-40 right-1/4 w-[400px] h-[400px] bg-orange-600/8 rounded-full blur-[120px]" />
 
-        <div className="relative max-w-6xl mx-auto px-4 sm:px-6 text-center">
-          <FadeIn>
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-green-500/10 backdrop-blur-sm rounded-full text-sm font-medium text-green-400 mb-8 border border-green-500/20">
-              <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-              {t("landingBadge")}
+        <div className="relative max-w-6xl mx-auto px-4 sm:px-6">
+          {/* Split hero: text left, illustration right */}
+          <div className="flex flex-col lg:flex-row items-center gap-12 lg:gap-16">
+            {/* Left — text */}
+            <div className="flex-1 text-center lg:text-left">
+              <FadeIn>
+                <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-green-500/10 backdrop-blur-sm rounded-full text-sm font-medium text-green-400 mb-8 border border-green-500/20">
+                  <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                  {t("landingBadge")}
+                </div>
+              </FadeIn>
+
+              <FadeIn delay={100}>
+                <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.08] tracking-tight">
+                  {t("landingHeroLine1")}
+                  <br />
+                  <span className="bg-gradient-to-r from-green-400 via-emerald-400 to-green-300 bg-clip-text text-transparent">
+                    {t("landingHeroLine2")}
+                  </span>
+                </h1>
+              </FadeIn>
+
+              <FadeIn delay={200}>
+                <p className="mt-6 text-lg text-gray-400 max-w-lg mx-auto lg:mx-0 leading-relaxed">
+                  {t("landingHeroSub")}
+                </p>
+              </FadeIn>
+
+              <FadeIn delay={300}>
+                <div className="mt-10 flex flex-col sm:flex-row items-center lg:items-start justify-center lg:justify-start gap-4">
+                  <Link to="/register" className="w-full sm:w-auto px-10 py-4 bg-green-500 text-white font-bold rounded-xl hover:bg-green-400 transition shadow-2xl shadow-green-500/25 text-center text-lg">
+                    {t("landingCtaPrimary")}
+                  </Link>
+                  <a href="https://play.google.com/store/apps/details?id=dk.bonbox.app" target="_blank" rel="noopener noreferrer" className="w-full sm:w-auto px-10 py-4 border border-white/15 text-white font-semibold rounded-xl hover:bg-white/5 transition text-center flex items-center justify-center gap-2">
+                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 01-.61-.92V2.734a1 1 0 01.609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.199l2.807 1.626a1 1 0 010 1.732l-2.807 1.626L15.206 12l2.492-2.492zM5.864 2.658L16.8 8.99l-2.302 2.302-8.634-8.634z"/></svg>
+                    {t("landingAndroidApp")}
+                  </a>
+                </div>
+              </FadeIn>
+
+              <FadeIn delay={350}>
+                <div className="mt-6 flex flex-wrap items-center justify-center lg:justify-start gap-6 text-sm text-gray-500">
+                  {[t("landingCheck1"), t("landingCheck2"), t("landingCheck3")].map((txt) => (
+                    <span key={txt} className="flex items-center gap-1.5">
+                      <svg className="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
+                      {txt}
+                    </span>
+                  ))}
+                </div>
+              </FadeIn>
             </div>
-          </FadeIn>
 
-          <FadeIn delay={100}>
-            <h1 className="text-4xl sm:text-6xl md:text-7xl font-extrabold leading-[1.08] tracking-tight">
-              {t("landingHeroLine1")}
-              <br />
-              <span className="bg-gradient-to-r from-green-400 via-emerald-400 to-green-300 bg-clip-text text-transparent">
-                {t("landingHeroLine2")}
-              </span>
-            </h1>
-          </FadeIn>
-
-          <FadeIn delay={200}>
-            <p className="mt-6 text-lg md:text-xl text-gray-400 max-w-2xl mx-auto leading-relaxed">
-              {t("landingHeroSub")}
-            </p>
-          </FadeIn>
-
-          <FadeIn delay={300}>
-            <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Link to="/register" className="w-full sm:w-auto px-10 py-4 bg-green-500 text-white font-bold rounded-xl hover:bg-green-400 transition shadow-2xl shadow-green-500/25 text-center text-lg">
-                {t("landingCtaPrimary")}
-              </Link>
-              <a href="https://play.google.com/store/apps/details?id=dk.bonbox.app" target="_blank" rel="noopener noreferrer" className="w-full sm:w-auto px-10 py-4 border border-white/15 text-white font-semibold rounded-xl hover:bg-white/5 transition text-center flex items-center justify-center gap-2">
-                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 01-.61-.92V2.734a1 1 0 01.609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.199l2.807 1.626a1 1 0 010 1.732l-2.807 1.626L15.206 12l2.492-2.492zM5.864 2.658L16.8 8.99l-2.302 2.302-8.634-8.634z"/></svg>
-                {t("landingAndroidApp")}
-              </a>
-            </div>
-          </FadeIn>
-
-          <FadeIn delay={350}>
-            <div className="mt-6 flex flex-wrap items-center justify-center gap-6 text-sm text-gray-500">
-              {[t("landingCheck1"), t("landingCheck2"), t("landingCheck3")].map((txt) => (
-                <span key={txt} className="flex items-center gap-1.5">
-                  <svg className="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
-                  {txt}
-                </span>
-              ))}
-            </div>
-          </FadeIn>
+            {/* Right — floating illustration */}
+            <FadeIn delay={400} className="flex-1 hidden md:block">
+              <HeroFloat />
+            </FadeIn>
+          </div>
 
           {/* ── Interactive Demo ── */}
           <FadeIn delay={500}>
