@@ -8,6 +8,8 @@ Supported:
 """
 import httpx
 import base64
+import time
+from collections import OrderedDict
 
 from app.config import settings
 
@@ -18,24 +20,65 @@ CVRAPI_USER_AGENT = "BonBox - bonbox.dk"
 COMPANIES_HOUSE_URL = "https://api.companieshouse.gov.uk"
 
 
+# ── Simple LRU cache (avoids repeated API calls) ──────────
+_cache: OrderedDict[str, tuple[float, list[dict]]] = OrderedDict()
+_CACHE_MAX = 200
+_CACHE_TTL = 3600 * 6  # 6 hours
+
+
+def _cache_get(key: str) -> list[dict] | None:
+    """Get from cache if present and not expired."""
+    if key in _cache:
+        ts, data = _cache[key]
+        if time.time() - ts < _CACHE_TTL:
+            _cache.move_to_end(key)
+            return data
+        else:
+            del _cache[key]
+    return None
+
+
+def _cache_set(key: str, data: list[dict]):
+    """Set cache entry, evict oldest if full."""
+    _cache[key] = (time.time(), data)
+    if len(_cache) > _CACHE_MAX:
+        _cache.popitem(last=False)
+
+
+class LookupError(Exception):
+    """Raised when lookup API returns an error the user should see."""
+    pass
+
+
 async def lookup_dk_no(query: str, country: str = "dk") -> list[dict]:
     """
     Search Danish or Norwegian business register via cvrapi.dk.
     Returns list of matching companies.
+    Raises LookupError with a user-friendly message on API errors.
     """
     country = country.lower()
     if country not in ("dk", "no"):
         return []
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(
-            CVRAPI_URL,
-            params={"search": query, "country": country},
-            headers={"User-Agent": CVRAPI_USER_AGENT},
-        )
+    cache_key = f"cvr:{country}:{query.lower().strip()}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                CVRAPI_URL,
+                params={"search": query, "country": country},
+                headers={"User-Agent": CVRAPI_USER_AGENT},
+            )
+    except httpx.TimeoutException:
+        raise LookupError("CVR search timed out. Try again or enter manually.")
+    except httpx.HTTPError:
+        raise LookupError("Could not reach CVR register. Try again or enter manually.")
 
     if resp.status_code != 200:
-        return []
+        raise LookupError(f"CVR register returned error ({resp.status_code}). Try again or enter manually.")
 
     data = resp.json()
 
@@ -43,12 +86,18 @@ async def lookup_dk_no(query: str, country: str = "dk") -> list[dict]:
     # or an error object. Normalize to list.
     if isinstance(data, dict):
         if "error" in data:
-            return []
-        # Single company result
-        return [_parse_cvrapi(data, country)]
+            error_type = data.get("error", "")
+            if "QUOTA" in error_type.upper():
+                raise LookupError("CVR search limit reached. Please enter your business details manually for now.")
+            raise LookupError(data.get("message", "CVR lookup failed. Enter manually."))
+        result = [_parse_cvrapi(data, country)]
+        _cache_set(cache_key, result)
+        return result
 
     if isinstance(data, list):
-        return [_parse_cvrapi(item, country) for item in data[:10]]
+        result = [_parse_cvrapi(item, country) for item in data[:10]]
+        _cache_set(cache_key, result)
+        return result
 
     return []
 
@@ -138,6 +187,7 @@ def _build_uk_address(addr: dict) -> str:
 async def lookup_business(query: str, country: str) -> list[dict]:
     """
     Main dispatcher — route lookup to the correct provider based on country.
+    Raises LookupError with a user-friendly message on API failures.
     """
     country = country.upper()
 

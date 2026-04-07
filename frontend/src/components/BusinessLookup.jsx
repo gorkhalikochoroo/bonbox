@@ -13,6 +13,7 @@ export default function BusinessLookup({ onSave, initialProfile }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [manual, setManual] = useState(!AUTO_LOOKUP_COUNTRIES.has(initialProfile?.country || "DK"));
+  const [lookupError, setLookupError] = useState("");
   const searchTimer = useRef(null);
 
   // Manual form state
@@ -43,11 +44,20 @@ export default function BusinessLookup({ onSave, initialProfile }) {
     clearTimeout(searchTimer.current);
     searchTimer.current = setTimeout(async () => {
       setSearching(true);
+      setLookupError("");
       try {
         const res = await api.get("/business/lookup", { params: { q: query, country } });
         setResults(res.data);
-      } catch {
+      } catch (err) {
         setResults([]);
+        const msg = err.response?.data?.detail || "";
+        if (msg) {
+          setLookupError(msg);
+          // Auto-switch to manual form if API is unavailable
+          if (msg.includes("limit") || msg.includes("manually")) {
+            setManual(true);
+          }
+        }
       }
       setSearching(false);
     }, 400);
@@ -155,8 +165,14 @@ export default function BusinessLookup({ onSave, initialProfile }) {
             </div>
           )}
 
+          {lookupError && (
+            <p className="mt-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 rounded-lg">
+              {lookupError}
+            </p>
+          )}
+
           <button
-            onClick={() => setManual(true)}
+            onClick={() => { setManual(true); setLookupError(""); }}
             className="mt-1 text-xs text-blue-500 hover:underline"
           >
             Enter manually instead

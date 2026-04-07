@@ -13,7 +13,7 @@ from app.schemas.business_profile import (
     BusinessLookupResult,
 )
 from app.services.auth import get_current_user
-from app.services.business_lookup import lookup_business, get_supported_countries
+from app.services.business_lookup import lookup_business, get_supported_countries, LookupError
 
 router = APIRouter()
 
@@ -31,8 +31,11 @@ async def search_business(
     user: User = Depends(get_current_user),
 ):
     """Search public business registers. Auto-lookup for DK, NO, GB."""
-    results = await lookup_business(q, country)
-    return results
+    try:
+        results = await lookup_business(q, country)
+        return results
+    except LookupError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
 
 @router.get("", response_model=BusinessProfileResponse | None)
