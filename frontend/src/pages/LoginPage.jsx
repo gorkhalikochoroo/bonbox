@@ -82,7 +82,19 @@ export default function LoginPage() {
       await login(email, password);
       navigate("/dashboard");
     } catch (err) {
-      const msg = err.response?.data?.detail || (err.code === "ECONNABORTED" ? "Server is waking up — please try again" : "Invalid email or password");
+      let msg;
+      if (err.response?.data?.detail) {
+        // Server returned a specific error message
+        msg = err.response.data.detail;
+      } else if (err.code === "ECONNABORTED") {
+        msg = "Server is waking up — please wait 30s and try again";
+      } else if (err.code === "ERR_NETWORK" || !err.response) {
+        msg = "Cannot reach server — check your connection or try again in a moment";
+      } else if (err.response?.status >= 500) {
+        msg = "Server error — please try again in a moment";
+      } else {
+        msg = "Invalid email or password";
+      }
       setError(msg);
     } finally {
       setLoading(false);

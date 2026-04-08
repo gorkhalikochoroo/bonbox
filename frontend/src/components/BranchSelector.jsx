@@ -25,13 +25,21 @@ const BranchContext = createContext({
 export function BranchProvider({ children }) {
   const [branches, setBranches] = useState([]);
   const [branchId, setBranchId] = useState(() => localStorage.getItem("bonbox_branch") || null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   const fetchBranches = useCallback(async () => {
+    // Only fetch if user is logged in (token exists)
+    const token = localStorage.getItem("token");
+    if (!token) {
+      setBranches([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
     try {
       const res = await api.get("/branches/list");
       setBranches(res.data.branches || []);
-    } catch { /* silent */ }
+    } catch { /* silent — user may not have branches */ }
     setLoading(false);
   }, []);
 
