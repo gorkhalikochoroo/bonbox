@@ -193,6 +193,7 @@ const translations = {
     // Cash Book
     cashBook: "Cash Book",
     cashFlow: "Cash Flow",
+    taxAutopilot: "Tax Autopilot",
     // Contact
     contact: "Contact",
     // Recently Deleted
@@ -724,6 +725,7 @@ const translations = {
     // Cash Book
     cashBook: "Kassebog",
     cashFlow: "Pengestrøm",
+    taxAutopilot: "Skat Autopilot",
     // Contact
     contact: "Kontakt",
     // Recently Deleted
@@ -1245,6 +1247,7 @@ const translations = {
     // Cash Book
     cashBook: "खाता",
     cashFlow: "नगद प्रवाह",
+    taxAutopilot: "कर स्वचालित",
     // Contact
     contact: "सम्पर्क",
     // Recently Deleted
