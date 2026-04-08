@@ -192,6 +192,7 @@ const translations = {
     actions: "Actions", notes: "Notes",
     // Cash Book
     cashBook: "Cash Book",
+    cashFlow: "Cash Flow",
     // Contact
     contact: "Contact",
     // Recently Deleted
@@ -722,6 +723,7 @@ const translations = {
     actions: "Handlinger", notes: "Noter",
     // Cash Book
     cashBook: "Kassebog",
+    cashFlow: "Pengestrøm",
     // Contact
     contact: "Kontakt",
     // Recently Deleted
@@ -1242,6 +1244,7 @@ const translations = {
     actions: "कार्य", notes: "टिप्पणी",
     // Cash Book
     cashBook: "खाता",
+    cashFlow: "नगद प्रवाह",
     // Contact
     contact: "सम्पर्क",
     // Recently Deleted

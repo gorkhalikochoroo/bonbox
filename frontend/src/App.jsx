@@ -121,6 +121,7 @@ const BankImportPage = lazyRetry(() => import("./pages/BankImportPage"));
 const PaymentImportsPage = lazyRetry(() => import("./pages/PaymentImportsPage"));
 const BudgetPage = lazyRetry(() => import("./pages/BudgetPage"));
 const TeamPage = lazyRetry(() => import("./pages/TeamPage"));
+const CashFlowPage = lazyRetry(() => import("./pages/CashFlowPage"));
 const PrivacyPolicyPage = lazyRetry(() => import("./pages/PrivacyPolicyPage"));
 
 function ProtectedRoute({ children }) {
@@ -168,6 +169,7 @@ function AppRoutes() {
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/feedback" element={<FeedbackPage />} />
           <Route path="/cashbook" element={<CashBookPage />} />
+          <Route path="/cashflow" element={<CashFlowPage />} />
           <Route path="/recently-deleted" element={<RecentlyDeletedPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/personal" element={<PersonalPage />} />
