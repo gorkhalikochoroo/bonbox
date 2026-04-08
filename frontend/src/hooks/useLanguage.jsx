@@ -194,6 +194,12 @@ const translations = {
     cashBook: "Cash Book",
     cashFlow: "Cash Flow",
     taxAutopilot: "Tax Autopilot",
+    priceOptimization: "Price Optimization",
+    customerRetention: "Customer Retention",
+    expiryForecasting: "Expiry Forecast",
+    crossOutlet: "Cross-Outlet",
+    competitorScan: "Competitor Scan",
+    branches: "Branches",
     // Contact
     contact: "Contact",
     // Recently Deleted
@@ -726,6 +732,12 @@ const translations = {
     cashBook: "Kassebog",
     cashFlow: "Pengestrøm",
     taxAutopilot: "Skat Autopilot",
+    priceOptimization: "Prisoptimering",
+    customerRetention: "Kundefastholdelse",
+    expiryForecasting: "Udløbsprognose",
+    crossOutlet: "Filialsammenligning",
+    competitorScan: "Konkurrentscan",
+    branches: "Filialer",
     // Contact
     contact: "Kontakt",
     // Recently Deleted
@@ -1248,6 +1260,12 @@ const translations = {
     cashBook: "खाता",
     cashFlow: "नगद प्रवाह",
     taxAutopilot: "कर स्वचालित",
+    priceOptimization: "मूल्य अनुकूलन",
+    customerRetention: "ग्राहक निरन्तरता",
+    expiryForecasting: "म्याद पूर्वानुमान",
+    crossOutlet: "शाखा तुलना",
+    competitorScan: "प्रतिस्पर्धी स्क्यान",
+    branches: "शाखाहरू",
     // Contact
     contact: "सम्पर्क",
     // Recently Deleted

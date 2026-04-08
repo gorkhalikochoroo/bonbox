@@ -6,6 +6,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { getVatTerms } from "../utils/currency";
 import { usePageTracking } from "../hooks/useEventLog";
 import NotificationCenter from "./NotificationCenter";
+import BranchSelector from "./BranchSelector";
 
 // Lazy-load heavy floating widgets — only parsed when opened
 const QuickAdd = lazy(() => import("./QuickAdd"));
@@ -20,6 +21,12 @@ const businessNav = [
   { to: "/inventory", labelKey: "inventory" },
   { to: "/reports", labelKey: "reports" },
   { to: "/tax", labelKey: "taxAutopilot" },
+  { to: "/pricing", labelKey: "priceOptimization" },
+  { to: "/retention", labelKey: "customerRetention" },
+  { to: "/expiry", labelKey: "expiryForecasting" },
+  { to: "/competitors", labelKey: "competitorScan" },
+  { to: "/outlets", labelKey: "crossOutlet" },
+  { to: "/branches", labelKey: "branches" },
   { to: "/weather", labelKey: "weatherSmart" },
   { to: "/waste", labelKey: "wasteTracker" },
   { to: "/staffing", labelKey: "smartStaffing" },
@@ -102,6 +109,7 @@ export default function Layout() {
           <div>
             <h1 className="text-lg font-bold text-green-600 dark:text-green-400">BonBox</h1>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 truncate">{user?.business_name}</p>
+            <BranchSelector compact />
           </div>
           <button onClick={closeSidebar} className="md:hidden text-gray-400 hover:text-gray-600 text-xl">&times;</button>
         </div>

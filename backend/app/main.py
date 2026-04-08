@@ -10,7 +10,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch
 from app.database import engine, Base
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -81,6 +81,12 @@ _migrations = [
     # Payment connections — auto-sync
     "ALTER TABLE payment_connections ADD COLUMN IF NOT EXISTS auto_sync BOOLEAN DEFAULT true",
     "ALTER TABLE payment_connections ADD COLUMN IF NOT EXISTS last_auto_imported INTEGER DEFAULT 0",
+    # Branch-based bookkeeping — nullable branch_id on core tables
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS branch_id VARCHAR(36)",
+    "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS branch_id VARCHAR(36)",
+    "ALTER TABLE cash_transactions ADD COLUMN IF NOT EXISTS branch_id VARCHAR(36)",
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS branch_id VARCHAR(36)",
+    "ALTER TABLE waste_logs ADD COLUMN IF NOT EXISTS branch_id VARCHAR(36)",
 ]
 
 def _run_migrations():
@@ -176,6 +182,12 @@ def _run_migrations():
             # Payment connections — auto-sync
             ok += _add("payment_connections", "auto_sync", "BOOLEAN DEFAULT 1")
             ok += _add("payment_connections", "last_auto_imported", "INTEGER DEFAULT 0")
+            # Branch-based bookkeeping
+            ok += _add("sales", "branch_id", "VARCHAR(36)")
+            ok += _add("expenses", "branch_id", "VARCHAR(36)")
+            ok += _add("cash_transactions", "branch_id", "VARCHAR(36)")
+            ok += _add("inventory_items", "branch_id", "VARCHAR(36)")
+            ok += _add("waste_logs", "branch_id", "VARCHAR(36)")
             conn.commit()
             print(f"Schema migrations (SQLite): {ok} new columns added")
         else:
@@ -338,6 +350,12 @@ app.include_router(team.router, prefix="/api/team", tags=["Team"])
 app.include_router(business_profile.router, prefix="/api/business", tags=["Business Profile"])
 app.include_router(cashflow.router, prefix="/api/cashflow", tags=["Cash Flow"])
 app.include_router(tax.router, prefix="/api/tax", tags=["Tax Autopilot"])
+app.include_router(pricing.router, prefix="/api/pricing", tags=["Price Optimization"])
+app.include_router(retention.router, prefix="/api/retention", tags=["Customer Retention"])
+app.include_router(expiry.router, prefix="/api/expiry", tags=["Expiry Forecasting"])
+app.include_router(outlet.router, prefix="/api/outlets", tags=["Cross-Outlet Intelligence"])
+app.include_router(competitor.router, prefix="/api/competitors", tags=["Competitor Scan"])
+app.include_router(branch.router, prefix="/api/branches", tags=["Branch Bookkeeping"])
 
 
 # --- Protected Uploads (user can only access own receipts) ---

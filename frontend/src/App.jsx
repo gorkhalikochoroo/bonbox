@@ -1,6 +1,7 @@
 import { Component, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
+import { BranchProvider } from "./components/BranchSelector";
 import { LanguageProvider } from "./hooks/useLanguage";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 
@@ -123,6 +124,12 @@ const BudgetPage = lazyRetry(() => import("./pages/BudgetPage"));
 const TeamPage = lazyRetry(() => import("./pages/TeamPage"));
 const CashFlowPage = lazyRetry(() => import("./pages/CashFlowPage"));
 const TaxAutopilotPage = lazyRetry(() => import("./pages/TaxAutopilotPage"));
+const PricingPage = lazyRetry(() => import("./pages/PricingPage"));
+const RetentionPage = lazyRetry(() => import("./pages/RetentionPage"));
+const ExpiryPage = lazyRetry(() => import("./pages/ExpiryPage"));
+const OutletPage = lazyRetry(() => import("./pages/OutletPage"));
+const CompetitorPage = lazyRetry(() => import("./pages/CompetitorPage"));
+const BranchPage = lazyRetry(() => import("./pages/BranchPage"));
 const PrivacyPolicyPage = lazyRetry(() => import("./pages/PrivacyPolicyPage"));
 
 function ProtectedRoute({ children }) {
@@ -172,6 +179,12 @@ function AppRoutes() {
           <Route path="/cashbook" element={<CashBookPage />} />
           <Route path="/cashflow" element={<CashFlowPage />} />
           <Route path="/tax" element={<TaxAutopilotPage />} />
+          <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/retention" element={<RetentionPage />} />
+          <Route path="/expiry" element={<ExpiryPage />} />
+          <Route path="/outlets" element={<OutletPage />} />
+          <Route path="/competitors" element={<CompetitorPage />} />
+          <Route path="/branches" element={<BranchPage />} />
           <Route path="/recently-deleted" element={<RecentlyDeletedPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/personal" element={<PersonalPage />} />
@@ -193,7 +206,9 @@ function AppInner() {
       <BrowserRouter>
         <LanguageProvider>
           <AuthProvider>
-            <AppRoutes />
+            <BranchProvider>
+              <AppRoutes />
+            </BranchProvider>
           </AuthProvider>
         </LanguageProvider>
       </BrowserRouter>

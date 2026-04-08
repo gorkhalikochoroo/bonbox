@@ -12,6 +12,7 @@ class CashTransaction(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
+    branch_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("branches.id", ondelete="SET NULL"), nullable=True)
     date: Mapped[date] = mapped_column(Date)
     type: Mapped[str] = mapped_column(String(10))  # "cash_in" or "cash_out"
     amount: Mapped[float] = mapped_column(Numeric(12, 2))

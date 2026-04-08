@@ -13,6 +13,7 @@ class InventoryItem(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
+    branch_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("branches.id", ondelete="SET NULL"), nullable=True)
     name: Mapped[str] = mapped_column(String(255))
     quantity: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
     unit: Mapped[str] = mapped_column(String(20), default="pieces")

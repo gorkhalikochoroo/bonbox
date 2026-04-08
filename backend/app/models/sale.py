@@ -12,6 +12,7 @@ class Sale(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
+    branch_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("branches.id", ondelete="SET NULL"), nullable=True)
     date: Mapped[date] = mapped_column(Date)
     amount: Mapped[float] = mapped_column(Numeric(12, 2))
     payment_method: Mapped[str] = mapped_column(String(20), default="mixed")
