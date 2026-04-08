@@ -436,7 +436,7 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
             {[
-              { val: 15, suffix: "+", label: t("landingStatFeatures") },
+              { val: 20, suffix: "+", label: t("landingStatFeatures") },
               { val: 21, suffix: "+", label: t("landingStatBusinessTypes") },
               { val: 12, suffix: "", label: t("landingStatLanguages") },
               { val: 0, suffix: "kr", label: t("landingStatPrice"), prefix: "" },
@@ -496,11 +496,52 @@ export default function LandingPage() {
                 t("landingTagCashBook"), t("landingTagKhata"), t("landingTagVat"),
                 t("landingTagPdf"), t("landingTagLoan"), t("landingTagPersonal"),
                 t("landingTagDark"), t("landingTagSeasonal"), t("landingTagMultiCurrency"),
-                t("landingTagMultiLang"),
+                t("landingTagMultiLang"), t("landingTagTax"), t("landingTagBudget"),
+                t("landingTagExpiry"), t("landingTagCompetitor"), t("landingTagBranch"),
               ].map((f) => (
                 <span key={f} className="px-4 py-2 bg-white/5 border border-white/10 text-gray-400 text-sm font-medium rounded-full">
                   {f}
                 </span>
+              ))}
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+
+      {/* ── Intelligence Suite ── */}
+      <section className="py-20 sm:py-28 bg-gradient-to-b from-slate-950 via-purple-950/20 to-slate-950 border-y border-white/5">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
+          <FadeIn>
+            <div className="text-center mb-12">
+              <p className="text-purple-400 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingIntelTag")}</p>
+              <h2 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight">
+                {t("landingIntelTitle1")}
+                <br />
+                <span className="text-purple-400">{t("landingIntelTitle2")}</span>
+              </h2>
+              <p className="mt-5 text-gray-400 text-lg max-w-xl mx-auto">
+                {t("landingIntelSub")}
+              </p>
+            </div>
+          </FadeIn>
+
+          <FadeIn delay={100}>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              {[
+                { icon: "💲", titleKey: "landingIntel1", subKey: "landingIntel1Sub", color: "hover:border-green-500/30" },
+                { icon: "🤝", titleKey: "landingIntel2", subKey: "landingIntel2Sub", color: "hover:border-pink-500/30" },
+                { icon: "🔍", titleKey: "landingIntel3", subKey: "landingIntel3Sub", color: "hover:border-blue-500/30" },
+                { icon: "⏰", titleKey: "landingIntel4", subKey: "landingIntel4Sub", color: "hover:border-amber-500/30" },
+                { icon: "🏢", titleKey: "landingIntel5", subKey: "landingIntel5Sub", color: "hover:border-slate-400/30" },
+                { icon: "🧾", titleKey: "landingIntel6", subKey: "landingIntel6Sub", color: "hover:border-emerald-500/30" },
+              ].map((f, i) => (
+                <FadeIn key={f.titleKey} delay={i * 80}>
+                  <div className={`bg-white/[0.03] border border-white/10 rounded-2xl p-5 text-center transition-all duration-300 ${f.color}`}>
+                    <div className="text-3xl mb-3">{f.icon}</div>
+                    <p className="text-white font-bold text-sm">{t(f.titleKey)}</p>
+                    <p className="text-gray-500 text-xs mt-1.5 leading-relaxed">{t(f.subKey)}</p>
+                  </div>
+                </FadeIn>
               ))}
             </div>
           </FadeIn>

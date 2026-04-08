@@ -206,14 +206,14 @@ export default function CompetitorPage() {
               <h2 className="font-bold text-gray-800 dark:text-white mb-3">📈 We're Priced Higher</h2>
               <div className="space-y-2">
                 {overpriced_items.map((p, i) => (
-                  <div key={i} className="flex items-center justify-between bg-yellow-50 dark:bg-yellow-900/10 rounded-xl px-4 py-3">
-                    <div>
-                      <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{p.item}</p>
+                  <div key={i} className="flex items-center justify-between gap-3 bg-yellow-50 dark:bg-yellow-900/10 rounded-xl px-3 sm:px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{p.item}</p>
                       <p className="text-xs text-gray-500">vs {p.competitor}</p>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right shrink-0">
                       <p className="text-sm font-bold text-red-600">+{p.diff_pct}%</p>
-                      <p className="text-xs text-gray-400">Ours: {fmt(p.our_price)} | Theirs: {fmt(p.their_price)}</p>
+                      <p className="text-[10px] sm:text-xs text-gray-400">{fmt(p.our_price)} vs {fmt(p.their_price)}</p>
                     </div>
                   </div>
                 ))}
@@ -227,14 +227,14 @@ export default function CompetitorPage() {
               <h2 className="font-bold text-gray-800 dark:text-white mb-3">💡 Room to Raise Prices</h2>
               <div className="space-y-2">
                 {underpriced_items.map((p, i) => (
-                  <div key={i} className="flex items-center justify-between bg-green-50 dark:bg-green-900/10 rounded-xl px-4 py-3">
-                    <div>
-                      <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{p.item}</p>
+                  <div key={i} className="flex items-center justify-between gap-3 bg-green-50 dark:bg-green-900/10 rounded-xl px-3 sm:px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{p.item}</p>
                       <p className="text-xs text-gray-500">vs {p.competitor}</p>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right shrink-0">
                       <p className="text-sm font-bold text-green-600">{p.diff_pct}%</p>
-                      <p className="text-xs text-gray-400">Ours: {fmt(p.our_price)} | Theirs: {fmt(p.their_price)}</p>
+                      <p className="text-[10px] sm:text-xs text-gray-400">{fmt(p.our_price)} vs {fmt(p.their_price)}</p>
                     </div>
                   </div>
                 ))}

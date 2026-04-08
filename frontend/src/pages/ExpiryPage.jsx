@@ -157,7 +157,38 @@ export default function ExpiryPage() {
       {allExpiring.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
           <h2 className="font-bold text-gray-800 dark:text-white mb-4">📅 Expiry Timeline</h2>
-          <div className="overflow-x-auto">
+          {/* Mobile: card layout */}
+          <div className="space-y-2 md:hidden">
+            {allExpiring.map((item, i) => {
+              const cfg = STATUS_CONFIG[item.status] || STATUS_CONFIG.upcoming;
+              return (
+                <div key={i} className={`p-3 rounded-xl border ${
+                  item.status === "expired" ? "bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800" :
+                  item.status === "critical" ? "bg-orange-50 dark:bg-orange-900/10 border-orange-200 dark:border-orange-800" :
+                  "bg-white dark:bg-gray-700/30 border-gray-200 dark:border-gray-700"
+                }`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate flex-1">{item.name}</p>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ml-2 ${cfg.color}`}>{cfg.label}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-gray-500">
+                    <span>{item.quantity} {item.unit} | {item.category}</span>
+                    <span className={`font-bold ${
+                      item.days_left < 0 ? "text-red-600" : item.days_left <= 7 ? "text-orange-600" : "text-gray-600"
+                    }`}>
+                      {item.days_left < 0 ? `${Math.abs(item.days_left)}d overdue` : `${item.days_left}d left`}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs mt-1">
+                    <span className="text-gray-400">Expires: {item.expiry_date}</span>
+                    <span className="text-gray-600 dark:text-gray-400 font-medium">{fmt(item.cost_at_risk)} {currency}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {/* Desktop: table layout */}
+          <div className="overflow-x-auto hidden md:block">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs text-gray-500 border-b dark:border-gray-700">

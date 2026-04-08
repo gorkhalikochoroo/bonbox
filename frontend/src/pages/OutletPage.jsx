@@ -198,8 +198,44 @@ export default function OutletPage() {
             </div>
           )}
 
-          {/* Outlet detail table */}
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+          {/* Outlet details — mobile cards */}
+          <div className="space-y-3 md:hidden">
+            {outlets.map((o, i) => (
+              <div key={o.id} className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm">
+                <div className="flex items-center gap-2 mb-3">
+                  {i === 0 && outlets.length > 1 && <span className="text-yellow-500">🏆</span>}
+                  <span className="font-bold text-gray-800 dark:text-white">{o.name}</span>
+                  <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 px-1.5 py-0.5 rounded">{o.role}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-bold ml-auto ${
+                    o.margin >= 30 ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300" :
+                    o.margin >= 10 ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300" :
+                    "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                  }`}>{o.margin}%</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                  <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2">
+                    <p className="text-gray-500">Revenue</p>
+                    <p className="font-bold text-green-600">{fmt(o.revenue)}</p>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2">
+                    <p className="text-gray-500">Expenses</p>
+                    <p className="font-bold text-red-500">{fmt(o.expenses)}</p>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2">
+                    <p className="text-gray-500">Txns / Avg</p>
+                    <p className="font-bold text-gray-700 dark:text-gray-300">{o.transactions} / {fmt(o.avg_ticket)}</p>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2">
+                    <p className="text-gray-500">Inventory</p>
+                    <p className="font-bold text-blue-600">{o.inventory_items} items</p>
+                    {o.low_stock_count > 0 && <p className="text-red-500 text-[10px]">{o.low_stock_count} low</p>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Outlet detail table — desktop */}
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm hidden md:block">
             <h2 className="font-bold text-gray-800 dark:text-white mb-4">📋 Outlet Details</h2>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

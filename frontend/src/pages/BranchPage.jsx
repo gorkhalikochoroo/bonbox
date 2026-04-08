@@ -114,20 +114,20 @@ export default function BranchPage() {
         <div className="bg-gradient-to-br from-green-600 to-emerald-700 rounded-2xl p-6 text-white shadow-lg">
           <h2 className="font-bold text-lg mb-1">📊 Consolidated View — This Month</h2>
           <p className="text-sm opacity-80 mb-4">All branches combined</p>
-          <div className="grid grid-cols-3 gap-4">
-            <div className="bg-white/10 rounded-xl p-4 text-center">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+            <div className="bg-white/10 rounded-xl p-3 sm:p-4 text-center">
               <p className="text-xs opacity-70">Total Revenue</p>
-              <p className="text-2xl font-bold mt-1">{fmt(summary.consolidated.month_revenue)}</p>
+              <p className="text-xl sm:text-2xl font-bold mt-1">{fmt(summary.consolidated.month_revenue)}</p>
               <p className="text-xs opacity-60">{currency}</p>
             </div>
-            <div className="bg-white/10 rounded-xl p-4 text-center">
+            <div className="bg-white/10 rounded-xl p-3 sm:p-4 text-center">
               <p className="text-xs opacity-70">Total Expenses</p>
-              <p className="text-2xl font-bold mt-1">{fmt(summary.consolidated.month_expenses)}</p>
+              <p className="text-xl sm:text-2xl font-bold mt-1">{fmt(summary.consolidated.month_expenses)}</p>
               <p className="text-xs opacity-60">{currency}</p>
             </div>
-            <div className="bg-white/10 rounded-xl p-4 text-center">
+            <div className="bg-white/10 rounded-xl p-3 sm:p-4 text-center">
               <p className="text-xs opacity-70">Total Profit</p>
-              <p className="text-2xl font-bold mt-1">{fmt(summary.consolidated.month_profit)}</p>
+              <p className="text-xl sm:text-2xl font-bold mt-1">{fmt(summary.consolidated.month_profit)}</p>
               <p className="text-xs opacity-60">{currency}</p>
             </div>
           </div>
@@ -205,15 +205,15 @@ export default function BranchPage() {
                   <div className="grid grid-cols-3 gap-2 text-center">
                     <div>
                       <p className="text-xs text-gray-500">Revenue</p>
-                      <p className="text-lg font-bold text-green-600">{fmt(b.month_revenue)}</p>
+                      <p className="text-base sm:text-lg font-bold text-green-600">{fmt(b.month_revenue)}</p>
                     </div>
                     <div>
                       <p className="text-xs text-gray-500">Expenses</p>
-                      <p className="text-lg font-bold text-red-500">{fmt(b.month_expenses)}</p>
+                      <p className="text-base sm:text-lg font-bold text-red-500">{fmt(b.month_expenses)}</p>
                     </div>
                     <div>
                       <p className="text-xs text-gray-500">Profit</p>
-                      <p className={`text-lg font-bold ${b.month_profit >= 0 ? "text-blue-600" : "text-red-600"}`}>{fmt(b.month_profit)}</p>
+                      <p className={`text-base sm:text-lg font-bold ${b.month_profit >= 0 ? "text-blue-600" : "text-red-600"}`}>{fmt(b.month_profit)}</p>
                     </div>
                   </div>
                 </div>
@@ -244,18 +244,21 @@ export default function BranchPage() {
                     className="text-xs text-green-600 hover:underline">Set as default</button>
                 )}
               </div>
-              <div className="grid grid-cols-3 gap-3 mt-4">
-                <div className="bg-gray-50 dark:bg-gray-700/30 rounded-xl p-3 text-center">
-                  <p className="text-xs text-gray-500">Revenue</p>
-                  <p className="text-lg font-bold text-green-600">{fmt(b.total_revenue)} {currency}</p>
+              <div className="grid grid-cols-3 gap-2 sm:gap-3 mt-4">
+                <div className="bg-gray-50 dark:bg-gray-700/30 rounded-xl p-2 sm:p-3 text-center">
+                  <p className="text-[10px] sm:text-xs text-gray-500">Revenue</p>
+                  <p className="text-sm sm:text-lg font-bold text-green-600">{fmt(b.total_revenue)}</p>
+                  <p className="text-[10px] text-gray-400 sm:hidden">{currency}</p>
                 </div>
-                <div className="bg-gray-50 dark:bg-gray-700/30 rounded-xl p-3 text-center">
-                  <p className="text-xs text-gray-500">Expenses</p>
-                  <p className="text-lg font-bold text-red-500">{fmt(b.total_expenses)} {currency}</p>
+                <div className="bg-gray-50 dark:bg-gray-700/30 rounded-xl p-2 sm:p-3 text-center">
+                  <p className="text-[10px] sm:text-xs text-gray-500">Expenses</p>
+                  <p className="text-sm sm:text-lg font-bold text-red-500">{fmt(b.total_expenses)}</p>
+                  <p className="text-[10px] text-gray-400 sm:hidden">{currency}</p>
                 </div>
-                <div className="bg-gray-50 dark:bg-gray-700/30 rounded-xl p-3 text-center">
-                  <p className="text-xs text-gray-500">Inventory</p>
-                  <p className="text-lg font-bold text-blue-600">{b.inventory_items} items</p>
+                <div className="bg-gray-50 dark:bg-gray-700/30 rounded-xl p-2 sm:p-3 text-center">
+                  <p className="text-[10px] sm:text-xs text-gray-500">Inventory</p>
+                  <p className="text-sm sm:text-lg font-bold text-blue-600">{b.inventory_items}</p>
+                  <p className="text-[10px] text-gray-400 sm:hidden">items</p>
                 </div>
               </div>
             </div>

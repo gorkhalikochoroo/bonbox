@@ -294,31 +294,35 @@ export default function RetentionPage() {
 function CustomerCard({ customer: c, rank, currency, showUrgency }) {
   const cfg = STATUS_CONFIG[c.status];
   return (
-    <div className="flex items-center gap-4 bg-gray-50 dark:bg-gray-700/30 rounded-xl px-4 py-3">
-      {rank && (
-        <span className={`text-lg font-bold ${rank <= 3 ? "text-yellow-500" : "text-gray-400"}`}>
-          #{rank}
-        </span>
-      )}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{c.name}</p>
-          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cfg.bg} ${cfg.text}`}>
-            {cfg.label}
+    <div className="bg-gray-50 dark:bg-gray-700/30 rounded-xl px-4 py-3">
+      <div className="flex items-center gap-3">
+        {rank && (
+          <span className={`text-lg font-bold ${rank <= 3 ? "text-yellow-500" : "text-gray-400"}`}>
+            #{rank}
           </span>
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{c.name}</p>
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${cfg.bg} ${cfg.text}`}>
+              {cfg.label}
+            </span>
+          </div>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {c.txn_count} visits | Last: {c.last_visit}
+            {showUrgency && <span className="text-red-500 font-medium"> ({c.days_since_last}d ago)</span>}
+          </p>
         </div>
-        <p className="text-xs text-gray-500 mt-0.5">
-          {c.txn_count} visits | Last: {c.last_visit}
-          {showUrgency && <span className="text-red-500 font-medium"> ({c.days_since_last}d ago)</span>}
-        </p>
       </div>
-      <div className="text-right">
-        <p className="text-sm font-bold text-purple-600">{fmt(c.clv)} {currency}</p>
-        <p className="text-xs text-gray-400">CLV</p>
-      </div>
-      <div className="text-right">
-        <p className="text-sm font-bold text-gray-700 dark:text-gray-300">{fmt(c.monthly_avg)} {currency}</p>
-        <p className="text-xs text-gray-400">/month</p>
+      <div className="flex items-center gap-4 mt-2 pl-0 sm:pl-8">
+        <div>
+          <p className="text-sm font-bold text-purple-600">{fmt(c.clv)} {currency}</p>
+          <p className="text-[10px] text-gray-400">CLV</p>
+        </div>
+        <div>
+          <p className="text-sm font-bold text-gray-700 dark:text-gray-300">{fmt(c.monthly_avg)} {currency}</p>
+          <p className="text-[10px] text-gray-400">/month</p>
+        </div>
       </div>
     </div>
   );

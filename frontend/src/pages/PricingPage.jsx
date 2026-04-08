@@ -168,14 +168,14 @@ export default function PricingPage() {
 
         {sim && (
           <div className="grid grid-cols-2 gap-4">
-            <div className="bg-white/10 rounded-xl p-4 text-center">
+            <div className="bg-white/10 rounded-xl p-3 sm:p-4 text-center">
               <p className="text-xs opacity-70">Monthly Impact</p>
-              <p className="text-3xl font-bold mt-1">+{fmt(sim.monthly_impact)}</p>
+              <p className="text-xl sm:text-3xl font-bold mt-1">+{fmt(sim.monthly_impact)}</p>
               <p className="text-xs opacity-70 mt-1">{currency}/month</p>
             </div>
-            <div className="bg-white/10 rounded-xl p-4 text-center">
+            <div className="bg-white/10 rounded-xl p-3 sm:p-4 text-center">
               <p className="text-xs opacity-70">Annual Impact</p>
-              <p className="text-3xl font-bold mt-1">+{fmt(sim.annual_impact)}</p>
+              <p className="text-xl sm:text-3xl font-bold mt-1">+{fmt(sim.annual_impact)}</p>
               <p className="text-xs opacity-70 mt-1">{currency}/year</p>
             </div>
           </div>
@@ -191,10 +191,10 @@ export default function PricingPage() {
           <h2 className="font-bold text-gray-800 dark:text-white mb-4">📊 Item Margins</h2>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={top_items.slice(0, 10)} layout="vertical" margin={{ left: 80, right: 20, top: 5, bottom: 5 }}>
+              <BarChart data={top_items.slice(0, 10)} layout="vertical" margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
                 <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                <YAxis type="category" dataKey="name" width={75} tick={{ fontSize: 12 }} />
+                <YAxis type="category" dataKey="name" width={70} tick={{ fontSize: 11 }} />
                 <Tooltip
                   formatter={(val, name) => {
                     if (name === "margin_pct") return [`${val.toFixed(1)}%`, "Margin"];
