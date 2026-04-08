@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import String, DateTime, Numeric, Integer, ForeignKey
+from sqlalchemy import String, Date, DateTime, Numeric, Integer, Text, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
@@ -20,3 +20,20 @@ class StaffingRule(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     user: Mapped["User"] = relationship()
+
+
+class DailyStaffing(Base):
+    """Log actual staff count per day for revenue-per-staff analysis."""
+    __tablename__ = "daily_staffing"
+    __table_args__ = (
+        UniqueConstraint("user_id", "date", name="uq_daily_staffing_user_date"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    staff_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_hours: Mapped[float | None] = mapped_column(Numeric(6, 1), nullable=True)
+    labor_cost: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

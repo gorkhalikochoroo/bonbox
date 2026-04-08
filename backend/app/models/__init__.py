@@ -2,7 +2,7 @@ from app.models.user import User
 from app.models.sale import Sale
 from app.models.expense import ExpenseCategory, Expense
 from app.models.inventory import InventoryItem, InventoryLog
-from app.models.staffing import StaffingRule
+from app.models.staffing import StaffingRule, DailyStaffing
 from app.models.waste import WasteLog
 from app.models.feedback import Feedback
 from app.models.cashbook import CashTransaction
@@ -16,4 +16,4 @@ from app.models.weather import SickCall, DailyWeather
 from app.models.business_profile import BusinessProfile
 from app.models.payment_connection import PaymentConnection
 
-__all__ = ["User", "Sale", "ExpenseCategory", "Expense", "InventoryItem", "InventoryLog", "StaffingRule", "WasteLog", "Feedback", "CashTransaction", "EventLog", "KhataCustomer", "KhataTransaction", "Budget", "LoanPerson", "LoanTransaction", "CategoryMapping", "WhatsAppUser", "WhatsAppMessage", "SickCall", "DailyWeather", "BusinessProfile", "PaymentConnection"]
+__all__ = ["User", "Sale", "ExpenseCategory", "Expense", "InventoryItem", "InventoryLog", "StaffingRule", "DailyStaffing", "WasteLog", "Feedback", "CashTransaction", "EventLog", "KhataCustomer", "KhataTransaction", "Budget", "LoanPerson", "LoanTransaction", "CategoryMapping", "WhatsAppUser", "WhatsAppMessage", "SickCall", "DailyWeather", "BusinessProfile", "PaymentConnection"]
