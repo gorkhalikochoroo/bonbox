@@ -27,11 +27,13 @@ router = APIRouter()
 class BranchCreate(BaseModel):
     name: str
     address: Optional[str] = None
+    business_type: Optional[str] = "general"  # restaurant | workshop | retail | service | general
 
 
 class BranchUpdate(BaseModel):
     name: Optional[str] = None
     address: Optional[str] = None
+    business_type: Optional[str] = None
     is_active: Optional[bool] = None
 
 
@@ -69,6 +71,7 @@ def list_branches(
             "id": str(b.id),
             "name": b.name,
             "address": b.address,
+            "business_type": b.business_type or "general",
             "is_default": b.is_default,
             "total_revenue": round(float(rev), 2),
             "total_expenses": round(float(exp), 2),
@@ -95,6 +98,7 @@ def create_branch(
         user_id=current_user.id,
         name=body.name,
         address=body.address,
+        business_type=body.business_type or "general",
         is_default=(existing == 0),
     )
     db.add(branch)
@@ -103,6 +107,7 @@ def create_branch(
     return {
         "id": str(branch.id),
         "name": branch.name,
+        "business_type": branch.business_type,
         "is_default": branch.is_default,
         "message": f"Branch '{branch.name}' created",
     }
@@ -126,6 +131,8 @@ def update_branch(
         branch.name = body.name
     if body.address is not None:
         branch.address = body.address
+    if body.business_type is not None:
+        branch.business_type = body.business_type
     if body.is_active is not None:
         branch.is_active = body.is_active
 
@@ -197,6 +204,7 @@ def branch_summary(
         branch_summaries.append({
             "id": str(b.id),
             "name": b.name,
+            "business_type": b.business_type or "general",
             "is_default": b.is_default,
             "month_revenue": round(rev, 2),
             "month_expenses": round(exp, 2),

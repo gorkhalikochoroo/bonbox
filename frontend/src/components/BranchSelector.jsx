@@ -13,10 +13,20 @@
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import api from "../services/api";
 
+const BTYPE_ICONS = {
+  restaurant: "🍽️",
+  workshop: "🔧",
+  retail: "🛒",
+  service: "💼",
+  general: "🏢",
+};
+
 const BranchContext = createContext({
   branches: [],
   branchId: null,
   branchName: "All",
+  branchType: null,       // active branch's business_type (null = all)
+  businessTypes: [],      // unique types across all branches
   setBranchId: () => {},
   loading: false,
   hasBranches: false,
@@ -53,13 +63,14 @@ export function BranchProvider({ children }) {
     }
   }, [branchId]);
 
-  const branchName = branchId
-    ? branches.find(b => b.id === branchId)?.name || "Branch"
-    : "All Branches";
+  const activeBranch = branchId ? branches.find(b => b.id === branchId) : null;
+  const branchName = activeBranch?.name || "All Branches";
+  const branchType = activeBranch?.business_type || null;
+  const businessTypes = [...new Set(branches.map(b => b.business_type || "general"))];
 
   return (
     <BranchContext.Provider value={{
-      branches, branchId, branchName,
+      branches, branchId, branchName, branchType, businessTypes,
       setBranchId, loading,
       hasBranches: branches.length > 0,
       refresh: fetchBranches,
@@ -87,7 +98,7 @@ export default function BranchSelector({ compact = false }) {
       >
         <option value="">All Branches</option>
         {branches.map((b) => (
-          <option key={b.id} value={b.id}>{b.name}</option>
+          <option key={b.id} value={b.id}>{BTYPE_ICONS[b.business_type] || "🏢"} {b.name}</option>
         ))}
       </select>
     );
@@ -104,7 +115,7 @@ export default function BranchSelector({ compact = false }) {
         <option value="">All Branches</option>
         {branches.map((b) => (
           <option key={b.id} value={b.id}>
-            {b.name} {b.is_default ? "(Default)" : ""}
+            {BTYPE_ICONS[b.business_type] || "🏢"} {b.name} {b.is_default ? "(Default)" : ""}
           </option>
         ))}
       </select>

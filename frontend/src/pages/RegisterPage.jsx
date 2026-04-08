@@ -137,7 +137,7 @@ export default function RegisterPage() {
                 <span className="text-xl font-bold text-gray-800 dark:text-white">BonBox</span>
               </div>
               <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t("createYourAccount")}</h1>
-              <p className="text-gray-500 dark:text-gray-400 mt-1.5">Free forever. Set up in 30 seconds.</p>
+              <p className="text-gray-500 dark:text-gray-400 mt-1.5">Set up in 30 seconds. Start tracking today.</p>
             </div>
 
             {alreadyExists && (

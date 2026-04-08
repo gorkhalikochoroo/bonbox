@@ -949,8 +949,9 @@ function HealthScore({ summary, monthlyData, onNavigate }) {
   factors.push({ label: "Activity", score: (summary?.today_revenue || 0) > 0 ? 10 : 0, max: 10 });
 
   const total = factors.reduce((s, f) => s + f.score, 0);
-  const color = total >= 75 ? "#22C55E" : total >= 50 ? "#F59E0B" : total >= 25 ? "#F97316" : "#EF4444";
-  const label = total >= 75 ? "Excellent" : total >= 50 ? "Good" : total >= 25 ? "Needs Work" : "Critical";
+  const hasData = (summary?.month_revenue || 0) > 0 || daysWithSales > 0;
+  const color = !hasData ? "#6B7280" : total >= 75 ? "#22C55E" : total >= 50 ? "#F59E0B" : total >= 25 ? "#F97316" : "#EF4444";
+  const label = !hasData ? "Getting Started" : total >= 75 ? "Excellent" : total >= 50 ? "Good" : total >= 25 ? "Needs Work" : "Critical";
 
   const circumference = 2 * Math.PI * 34;
   const filled = (total / 100) * circumference;

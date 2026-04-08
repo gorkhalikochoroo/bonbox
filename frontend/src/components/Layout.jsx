@@ -6,16 +6,21 @@ import { useLanguage } from "../hooks/useLanguage";
 import { getVatTerms } from "../utils/currency";
 import { usePageTracking } from "../hooks/useEventLog";
 import NotificationCenter from "./NotificationCenter";
-import BranchSelector from "./BranchSelector";
+import BranchSelector, { useBranch } from "./BranchSelector";
 
 // Lazy-load heavy floating widgets — only parsed when opened
 const QuickAdd = lazy(() => import("./QuickAdd"));
 const BonBoxAgent = lazy(() => import("./BonBoxAgent"));
 
-/* ─── Grouped sidebar navigation ─── */
+/* ─── Grouped sidebar navigation ───
+   visibleFor: array of business_types that see this group.
+   null = always visible regardless of branch type.
+   Items with visibleFor on individual items are filtered too.
+*/
 const navGroups = [
   {
     id: "core",
+    visibleFor: null, // always
     items: [
       { to: "/dashboard", icon: "📊", labelKey: "dashboard" },
       { to: "/sales", icon: "💰", labelKey: "sales" },
@@ -26,6 +31,7 @@ const navGroups = [
     id: "money",
     label: "Money",
     icon: "💳",
+    visibleFor: null,
     items: [
       { to: "/cashbook", icon: "📒", labelKey: "cashBook" },
       { to: "/cashflow", icon: "📈", labelKey: "cashFlow" },
@@ -38,16 +44,18 @@ const navGroups = [
     id: "stock",
     label: "Stock",
     icon: "📦",
+    visibleFor: null,
     items: [
       { to: "/inventory", icon: "📦", labelKey: "inventory" },
-      { to: "/expiry", icon: "⏰", labelKey: "expiryForecasting" },
-      { to: "/waste", icon: "🗑️", labelKey: "wasteTracker" },
+      { to: "/expiry", icon: "⏰", labelKey: "expiryForecasting", visibleFor: ["restaurant", "retail", "general"] },
+      { to: "/waste", icon: "🗑️", labelKey: "wasteTracker", visibleFor: ["restaurant", "retail", "general"] },
     ],
   },
   {
     id: "intel",
     label: "Intelligence",
     icon: "🧠",
+    visibleFor: ["restaurant", "retail", "service", "general"],
     items: [
       { to: "/weather", icon: "🌦️", labelKey: "weatherSmart" },
       { to: "/staffing", icon: "👥", labelKey: "smartStaffing" },
@@ -60,15 +68,27 @@ const navGroups = [
     id: "reports",
     label: "Reports",
     icon: "📋",
+    visibleFor: null,
     items: [
       { to: "/reports", icon: "📋", labelKey: "reports" },
-      { to: "/tax", icon: "🧾", labelKey: "taxAutopilot" },
+      { to: "/daily-close", icon: "🧾", labelKey: "dailyClose" },
+      { to: "/tax", icon: "💰", labelKey: "taxAutopilot" },
+    ],
+  },
+  {
+    id: "workshop",
+    label: "Workshop",
+    icon: "🔧",
+    visibleFor: ["workshop"],
+    items: [
+      { to: "/workshop", icon: "🔧", labelKey: "workshop" },
     ],
   },
   {
     id: "manage",
     label: "Manage",
     icon: "⚙️",
+    visibleFor: null,
     items: [
       { to: "/branches", icon: "🏢", labelKey: "branches" },
       { to: "/outlets", icon: "🏪", labelKey: "crossOutlet" },
@@ -80,6 +100,33 @@ const navGroups = [
     ],
   },
 ];
+
+/** Filter nav groups based on active branch business_type.
+ *  branchType=null means "All Branches" → show everything the user has access to.
+ *  businessTypes = all unique types across user's branches.
+ */
+function filterNavGroups(groups, branchType, businessTypes) {
+  // "All branches" or no branches at all → show everything
+  if (!branchType && businessTypes.length <= 1) return groups;
+
+  // Determine which types to check against
+  const activeTypes = branchType ? [branchType] : businessTypes;
+
+  return groups
+    .filter((g) => {
+      if (!g.visibleFor) return true; // always visible
+      return g.visibleFor.some((t) => activeTypes.includes(t));
+    })
+    .map((g) => {
+      // Also filter individual items within a group
+      const filteredItems = g.items.filter((item) => {
+        if (!item.visibleFor) return true;
+        return item.visibleFor.some((t) => activeTypes.includes(t));
+      });
+      return filteredItems.length > 0 ? { ...g, items: filteredItems } : null;
+    })
+    .filter(Boolean);
+}
 
 const personalNav = [
   { to: "/personal", icon: "📊", labelKey: "dashboard" },
@@ -98,8 +145,12 @@ export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const { branchType, businessTypes } = useBranch();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mode, setMode] = useState(localStorage.getItem("bonbox_mode") || "business");
+
+  // Filter sidebar groups based on active branch business type
+  const visibleGroups = filterNavGroups(navGroups, branchType, businessTypes);
 
   // Track which groups are expanded
   const [openGroups, setOpenGroups] = useState(() => {
@@ -220,9 +271,9 @@ export default function Layout() {
               ))}
             </div>
           ) : (
-            /* Business mode — grouped navigation */
+            /* Business mode — grouped navigation (filtered by branch type) */
             <div className="space-y-0.5 py-1">
-              {navGroups.map((group) => {
+              {visibleGroups.map((group) => {
                 const isOpen = openGroups[group.id] !== false; // default open for core
                 const hasActiveChild = group.items.some((i) => location.pathname.startsWith(i.to));
 

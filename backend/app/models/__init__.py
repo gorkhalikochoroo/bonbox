@@ -17,5 +17,7 @@ from app.models.business_profile import BusinessProfile
 from app.models.payment_connection import PaymentConnection
 from app.models.branch import Branch
 from app.models.competitor import Competitor, CompetitorPrice
+from app.models.daily_close import DailyClose
+from app.models.workshop import Vehicle, JobCard, JobCardPart, JobCardLabor
 
-__all__ = ["User", "Sale", "ExpenseCategory", "Expense", "InventoryItem", "InventoryLog", "StaffingRule", "DailyStaffing", "WasteLog", "Feedback", "CashTransaction", "EventLog", "KhataCustomer", "KhataTransaction", "Budget", "LoanPerson", "LoanTransaction", "CategoryMapping", "WhatsAppUser", "WhatsAppMessage", "SickCall", "DailyWeather", "BusinessProfile", "PaymentConnection", "Branch", "Competitor", "CompetitorPrice"]
+__all__ = ["User", "Sale", "ExpenseCategory", "Expense", "InventoryItem", "InventoryLog", "StaffingRule", "DailyStaffing", "WasteLog", "Feedback", "CashTransaction", "EventLog", "KhataCustomer", "KhataTransaction", "Budget", "LoanPerson", "LoanTransaction", "CategoryMapping", "WhatsAppUser", "WhatsAppMessage", "SickCall", "DailyWeather", "BusinessProfile", "PaymentConnection", "Branch", "Competitor", "CompetitorPrice", "DailyClose", "Vehicle", "JobCard", "JobCardPart", "JobCardLabor"]

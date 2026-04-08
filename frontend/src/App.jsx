@@ -130,6 +130,10 @@ const ExpiryPage = lazyRetry(() => import("./pages/ExpiryPage"));
 const OutletPage = lazyRetry(() => import("./pages/OutletPage"));
 const CompetitorPage = lazyRetry(() => import("./pages/CompetitorPage"));
 const BranchPage = lazyRetry(() => import("./pages/BranchPage"));
+const DailyClosePage = lazyRetry(() => import("./pages/DailyClosePage"));
+const WorkshopPage = lazyRetry(() => import("./pages/WorkshopPage"));
+const JobCardPage = lazyRetry(() => import("./pages/JobCardPage"));
+const NewJobPage = lazyRetry(() => import("./pages/JobCardPage").then(m => ({ default: m.NewJobPage })));
 const PrivacyPolicyPage = lazyRetry(() => import("./pages/PrivacyPolicyPage"));
 
 function ProtectedRoute({ children }) {
@@ -185,6 +189,10 @@ function AppRoutes() {
           <Route path="/outlets" element={<OutletPage />} />
           <Route path="/competitors" element={<CompetitorPage />} />
           <Route path="/branches" element={<BranchPage />} />
+          <Route path="/daily-close" element={<DailyClosePage />} />
+          <Route path="/workshop" element={<WorkshopPage />} />
+          <Route path="/workshop/job/:id" element={<JobCardPage />} />
+          <Route path="/workshop/new-job" element={<NewJobPage />} />
           <Route path="/recently-deleted" element={<RecentlyDeletedPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/personal" element={<PersonalPage />} />

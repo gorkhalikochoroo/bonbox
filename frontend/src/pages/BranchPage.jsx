@@ -24,6 +24,7 @@ export default function BranchPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
   const [newAddress, setNewAddress] = useState("");
+  const [newType, setNewType] = useState("restaurant");
 
   useEffect(() => { fetchData(); }, []);
 
@@ -44,8 +45,8 @@ export default function BranchPage() {
     e.preventDefault();
     if (!newName.trim()) return;
     try {
-      await api.post("/branches/create", { name: newName.trim(), address: newAddress.trim() || null });
-      setNewName(""); setNewAddress(""); setShowCreate(false);
+      await api.post("/branches/create", { name: newName.trim(), address: newAddress.trim() || null, business_type: newType });
+      setNewName(""); setNewAddress(""); setNewType("restaurant"); setShowCreate(false);
       fetchData();
     } catch { /* silent */ }
   };
@@ -101,6 +102,14 @@ export default function BranchPage() {
               className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 text-sm" required />
             <input value={newAddress} onChange={(e) => setNewAddress(e.target.value)} placeholder="Address (optional)"
               className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 text-sm" />
+            <select value={newType} onChange={(e) => setNewType(e.target.value)}
+              className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 text-sm dark:text-gray-200">
+              <option value="restaurant">🍽️ Restaurant / Cafe</option>
+              <option value="workshop">🔧 Workshop / Garage</option>
+              <option value="retail">🛒 Retail / Shop</option>
+              <option value="service">💼 Service</option>
+              <option value="general">🏢 General</option>
+            </select>
           </div>
           <div className="flex gap-2">
             <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium">Create</button>
@@ -197,6 +206,11 @@ export default function BranchPage() {
                           Default
                         </span>
                       )}
+                      {b.business_type && b.business_type !== "general" && (
+                        <span className="text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 px-2 py-0.5 rounded-full">
+                          {{ restaurant: "🍽️", workshop: "🔧", retail: "🛒", service: "💼" }[b.business_type] || ""} {b.business_type}
+                        </span>
+                      )}
                     </div>
                     <span className={`text-sm font-bold ${margin >= 20 ? "text-green-600" : margin >= 0 ? "text-yellow-600" : "text-red-600"}`}>
                       {margin}% margin
@@ -230,10 +244,15 @@ export default function BranchPage() {
             <div key={b.id} className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
               <div className="flex items-start justify-between">
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-lg font-bold text-gray-800 dark:text-white">{b.name}</p>
                     {b.is_default && (
                       <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full">Default</span>
+                    )}
+                    {b.business_type && b.business_type !== "general" && (
+                      <span className="text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 px-2 py-0.5 rounded-full">
+                        {{ restaurant: "🍽️", workshop: "🔧", retail: "🛒", service: "💼" }[b.business_type] || ""} {b.business_type}
+                      </span>
                     )}
                   </div>
                   {b.address && <p className="text-sm text-gray-500 mt-1">📍 {b.address}</p>}
@@ -287,11 +306,11 @@ export default function BranchPage() {
         <div className="bg-blue-50 dark:bg-blue-900/20 rounded-2xl p-5">
           <h3 className="font-bold text-blue-800 dark:text-blue-200 mb-3">How Branch Bookkeeping Works</h3>
           <div className="space-y-2 text-sm text-blue-700 dark:text-blue-300">
-            <p>1. <strong>Create branches</strong> for each location (e.g. "Downtown", "Mall Branch")</p>
-            <p>2. <strong>Select active branch</strong> when logging sales, expenses, or inventory</p>
-            <p>3. <strong>View separately</strong> — each branch has its own financial data</p>
-            <p>4. <strong>See consolidated</strong> — combined view across all branches for the big picture</p>
-            <p>5. <strong>Compare performance</strong> — see which branch is doing better</p>
+            <p>1. <strong>Name your locations</strong> — like "Downtown" or "Mall Branch"</p>
+            <p>2. <strong>Pick the active branch</strong> before logging sales, expenses, or stock</p>
+            <p>3. Each branch <strong>keeps its own books</strong> automatically</p>
+            <p>4. Get the <strong>big picture</strong> with a combined view across all branches</p>
+            <p>5. <strong>Compare side by side</strong> to see which branch is performing best</p>
           </div>
         </div>
       )}
