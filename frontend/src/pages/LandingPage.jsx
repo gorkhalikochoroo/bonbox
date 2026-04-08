@@ -439,7 +439,7 @@ export default function LandingPage() {
               { val: 20, suffix: "+", label: t("landingStatFeatures") },
               { val: 21, suffix: "+", label: t("landingStatBusinessTypes") },
               { val: 12, suffix: "", label: t("landingStatLanguages") },
-              { val: 0, suffix: "kr", label: t("landingStatPrice"), prefix: "" },
+              { val: 5, suffix: "", label: t("landingStatSetup"), prefix: "" },
             ].map((s) => (
               <FadeIn key={s.label}>
                 <div>
@@ -478,6 +478,8 @@ export default function LandingPage() {
               { icon: "📊", titleKey: "landingFeature5Title", descKey: "landingFeature5Desc", accent: "from-emerald-500/20 to-green-500/10", border: "border-emerald-500/20 hover:border-emerald-500/40" },
               { icon: "🗑️", titleKey: "landingFeature6Title", descKey: "landingFeature6Desc", accent: "from-red-500/20 to-rose-500/10", border: "border-red-500/20 hover:border-red-500/40" },
               { icon: "🌦️", titleKey: "landingFeature7Title", descKey: "landingFeature7Desc", accent: "from-cyan-500/20 to-sky-500/10", border: "border-cyan-500/20 hover:border-cyan-500/40" },
+              { icon: "🔧", titleKey: "landingFeature8Title", descKey: "landingFeature8Desc", accent: "from-amber-500/20 to-yellow-500/10", border: "border-amber-500/20 hover:border-amber-500/40" },
+              { icon: "🏢", titleKey: "landingFeature9Title", descKey: "landingFeature9Desc", accent: "from-indigo-500/20 to-violet-500/10", border: "border-indigo-500/20 hover:border-indigo-500/40" },
             ].map((f, i) => (
               <FadeIn key={f.titleKey} delay={i * 80}>
                 <div className={`bg-gradient-to-br ${f.accent} rounded-2xl p-6 border ${f.border} transition-all duration-300 h-full group`}>
@@ -498,6 +500,7 @@ export default function LandingPage() {
                 t("landingTagDark"), t("landingTagSeasonal"), t("landingTagMultiCurrency"),
                 t("landingTagMultiLang"), t("landingTagTax"), t("landingTagBudget"),
                 t("landingTagExpiry"), t("landingTagCompetitor"), t("landingTagBranch"),
+                t("landingTagWorkshop"), t("landingTagDailyClose"), t("landingTagMultiBiz"),
               ].map((f) => (
                 <span key={f} className="px-4 py-2 bg-white/5 border border-white/10 text-gray-400 text-sm font-medium rounded-full">
                   {f}
