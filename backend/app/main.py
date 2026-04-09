@@ -89,6 +89,9 @@ _migrations = [
     "ALTER TABLE cash_transactions ADD COLUMN IF NOT EXISTS branch_id VARCHAR(36)",
     "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS branch_id VARCHAR(36)",
     "ALTER TABLE waste_logs ADD COLUMN IF NOT EXISTS branch_id VARCHAR(36)",
+    # Sell-unit conversion (stock in dozen, sell in pieces)
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS sell_unit VARCHAR(20)",
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS pieces_per_unit NUMERIC(10,2)",
 ]
 
 def _run_migrations():
@@ -190,6 +193,9 @@ def _run_migrations():
             ok += _add("cash_transactions", "branch_id", "VARCHAR(36)")
             ok += _add("inventory_items", "branch_id", "VARCHAR(36)")
             ok += _add("waste_logs", "branch_id", "VARCHAR(36)")
+            # Sell-unit conversion
+            ok += _add("inventory_items", "sell_unit", "VARCHAR(20)")
+            ok += _add("inventory_items", "pieces_per_unit", "NUMERIC(10,2)")
             conn.commit()
             print(f"Schema migrations (SQLite): {ok} new columns added")
         else:

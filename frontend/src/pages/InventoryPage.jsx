@@ -60,6 +60,7 @@ export default function InventoryPage() {
   const [form, setForm] = useState({
     name: "", quantity: "", unit: "pieces", cost_per_unit: "",
     min_threshold: "", category: "General", sell_price: "", is_perishable: false,
+    sell_unit: "", pieces_per_unit: "",
   });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -104,9 +105,11 @@ export default function InventoryPage() {
         cost_per_unit: parseFloat(form.cost_per_unit),
         min_threshold: parseFloat(form.min_threshold),
         sell_price: form.sell_price ? parseFloat(form.sell_price) : null,
+        sell_unit: form.sell_unit || null,
+        pieces_per_unit: form.pieces_per_unit ? parseFloat(form.pieces_per_unit) : null,
         category: form.category || "General",
       });
-      setForm({ name: "", quantity: "", unit: "pieces", cost_per_unit: "", min_threshold: "", category: "General", sell_price: "", is_perishable: false });
+      setForm({ name: "", quantity: "", unit: "pieces", cost_per_unit: "", min_threshold: "", category: "General", sell_price: "", is_perishable: false, sell_unit: "", pieces_per_unit: "" });
       fetchData();
       setSuccess(t("itemAdded"));
       setTimeout(() => setSuccess(""), 2500);
@@ -753,6 +756,26 @@ export default function InventoryPage() {
           <input type="text" placeholder={t("categoryPlaceholder")} value={form.category}
             onChange={(e) => setForm({ ...form, category: e.target.value })}
             className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" />
+
+          {/* Sell unit conversion — show when stocked in bulk units */}
+          {["dozen", "boxes", "bundle"].includes(form.unit) && (
+            <>
+              <select value={form.sell_unit} onChange={(e) => {
+                const su = e.target.value;
+                const auto = su === "pieces" && form.unit === "dozen" ? "12" : form.pieces_per_unit;
+                setForm({ ...form, sell_unit: su, pieces_per_unit: auto });
+              }} className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg">
+                <option value="">Sell as ({form.unit})</option>
+                <option value="pieces">Sell as pieces</option>
+              </select>
+              {form.sell_unit === "pieces" && (
+                <input type="number" step="1" placeholder={`Pieces per ${form.unit}`} value={form.pieces_per_unit}
+                  onChange={(e) => setForm({ ...form, pieces_per_unit: e.target.value })}
+                  className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" />
+              )}
+            </>
+          )}
+
           <input type="number" step="0.01" placeholder={`${t("cost")} (${currency})`} value={form.cost_per_unit}
             onChange={(e) => setForm({ ...form, cost_per_unit: e.target.value })}
             className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" required />

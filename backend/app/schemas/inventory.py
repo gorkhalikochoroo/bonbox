@@ -11,6 +11,8 @@ class InventoryItemCreate(BaseModel):
     min_threshold: float = 0
     category: str = "General"
     sell_price: float | None = None
+    sell_unit: str | None = None          # e.g. "pieces" when stocked in "dozen"
+    pieces_per_unit: float | None = None  # e.g. 12 for dozen→pieces
     barcode: str | None = None
     expiry_date: datetime.date | None = None
     is_perishable: bool = False
@@ -28,6 +30,8 @@ class InventoryItemUpdate(BaseModel):
     min_threshold: float | None = None
     category: str | None = None
     sell_price: float | None = None
+    sell_unit: str | None = None
+    pieces_per_unit: float | None = None
     barcode: str | None = None
     expiry_date: datetime.date | None = None
     is_perishable: bool | None = None
@@ -46,6 +50,8 @@ class InventoryItemResponse(BaseModel):
     min_threshold: float
     category: str | None = "General"
     sell_price: float | None = None
+    sell_unit: str | None = None
+    pieces_per_unit: float | None = None
     barcode: str | None = None
     expiry_date: datetime.date | None = None
     is_perishable: bool = False

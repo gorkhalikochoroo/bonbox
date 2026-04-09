@@ -95,19 +95,33 @@ def create_sale(
         ).first()
         if not item:
             raise HTTPException(status_code=404, detail="Inventory item not found")
-        if float(item.quantity) < data.quantity_sold:
-            raise HTTPException(status_code=400, detail=f"Not enough stock. Available: {float(item.quantity)} {item.unit}")
 
-        sale_data["cost_at_sale"] = float(item.cost_per_unit)
+        # Unit conversion: if item is stocked in bulk (dozen/boxes) but sold in pieces
+        ppu = float(item.pieces_per_unit or 0)
+        has_conversion = item.sell_unit and ppu > 0 and item.sell_unit != item.unit
+        if has_conversion:
+            # quantity_sold is in sell_unit (pieces), convert to stock_unit (dozen)
+            stock_deduct = data.quantity_sold / ppu
+            cost_per_sell_unit = float(item.cost_per_unit) / ppu
+        else:
+            stock_deduct = data.quantity_sold
+            cost_per_sell_unit = float(item.cost_per_unit)
+
+        if float(item.quantity) < stock_deduct:
+            avail_sell = float(item.quantity) * ppu if has_conversion else float(item.quantity)
+            sell_u = item.sell_unit if has_conversion else item.unit
+            raise HTTPException(status_code=400, detail=f"Not enough stock. Available: {avail_sell:.0f} {sell_u}")
+
+        sale_data["cost_at_sale"] = round(cost_per_sell_unit, 2)
         sale_data["item_name"] = item.name
         sale_data["amount"] = round(data.quantity_sold * data.unit_price, 2)
 
-        # Deduct inventory
-        item.quantity = float(item.quantity) - data.quantity_sold
-        # Log the deduction
+        # Deduct inventory in stock units
+        item.quantity = float(item.quantity) - stock_deduct
+        # Log deduction (in stock units for consistency)
         log = InventoryLog(
             item_id=item.id,
-            change_qty=-data.quantity_sold,
+            change_qty=-round(stock_deduct, 4),
             reason="sale",
             date=data.date,
         )

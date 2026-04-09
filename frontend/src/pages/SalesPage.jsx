@@ -962,12 +962,19 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
       .slice(0, 20);
   }, [items, search]);
 
-  const cost = selectedItem ? parseFloat(selectedItem.cost_per_unit) : 0;
+  // Unit conversion: if item stocks in dozen but sells in pieces
+  const ppu = selectedItem ? parseFloat(selectedItem.pieces_per_unit || 0) : 0;
+  const hasConversion = selectedItem && selectedItem.sell_unit && ppu > 0 && selectedItem.sell_unit !== selectedItem.unit;
+  const sellUnit = hasConversion ? selectedItem.sell_unit : (selectedItem?.unit || "");
+  const costPerSellUnit = hasConversion ? parseFloat(selectedItem.cost_per_unit) / ppu : (selectedItem ? parseFloat(selectedItem.cost_per_unit) : 0);
+  const availableSellUnits = selectedItem ? (hasConversion ? parseFloat(selectedItem.quantity) * ppu : parseFloat(selectedItem.quantity)) : 0;
+
+  const cost = costPerSellUnit;
   const qtyNum = parseFloat(qty) || 0;
   const priceNum = parseFloat(price) || 0;
   const total = qtyNum * priceNum;
   const profit = qtyNum * (priceNum - cost);
-  const available = selectedItem ? parseFloat(selectedItem.quantity) : 0;
+  const available = availableSellUnits;
 
   const handleSubmit = () => {
     if (!selectedItem || !qtyNum || !priceNum) return;
@@ -1003,16 +1010,25 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
                   key={item.id}
                   onClick={() => {
                     setSelectedItem(item);
-                    if (item.sell_price) setPrice(String(parseFloat(item.sell_price)));
+                    const ippu = parseFloat(item.pieces_per_unit || 0);
+                    const iHasConv = item.sell_unit && ippu > 0 && item.sell_unit !== item.unit;
+                    if (item.sell_price) {
+                      // If sell_price is per stock unit and we sell in pieces, divide it
+                      setPrice(iHasConv ? String(Math.round((parseFloat(item.sell_price) / ippu) * 100) / 100) : String(parseFloat(item.sell_price)));
+                    }
                   }}
                   className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition flex items-center justify-between"
                 >
                   <div>
                     <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{item.name}</p>
-                    <p className="text-xs text-gray-400">{item.category} · {t("cost")}: {parseFloat(item.cost_per_unit)} {currency}</p>
+                    <p className="text-xs text-gray-400">{item.category} · {t("cost")}: {parseFloat(item.cost_per_unit)} {currency}/{item.unit}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300">{parseFloat(item.quantity)} {item.unit}</p>
+                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300">
+                      {item.sell_unit && parseFloat(item.pieces_per_unit || 0) > 0 && item.sell_unit !== item.unit
+                        ? `${Math.floor(parseFloat(item.quantity) * parseFloat(item.pieces_per_unit))} ${item.sell_unit}`
+                        : `${parseFloat(item.quantity)} ${item.unit}`}
+                    </p>
                   </div>
                 </button>
               ))}
@@ -1028,7 +1044,8 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
                 <div>
                   <p className="font-semibold text-gray-800 dark:text-white">{selectedItem.name}</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {t("cost")}: {cost} {currency}/{selectedItem.unit} · {t("stock")}: {available} {selectedItem.unit}
+                    {t("cost")}: {cost.toFixed(2)} {currency}/{sellUnit} · {t("stock")}: {Math.floor(available)} {sellUnit}
+                    {hasConversion && <span className="text-blue-500 ml-1">({parseFloat(selectedItem.quantity)} {selectedItem.unit})</span>}
                   </p>
                 </div>
                 <button onClick={() => { setSelectedItem(null); setQty(""); setPrice(""); }} className="text-xs text-blue-600 hover:underline">{t("change")}</button>
@@ -1037,7 +1054,7 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
 
             <div className="grid grid-cols-2 gap-3 mb-3">
               <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">{t("quantity")} ({selectedItem.unit})</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">{t("quantity")} ({sellUnit})</label>
                 <input
                   type="number"
                   value={qty}
@@ -1048,11 +1065,11 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
                   autoFocus
                 />
                 {qtyNum > available && (
-                  <p className="text-xs text-red-500 mt-1">{available} {selectedItem.unit}</p>
+                  <p className="text-xs text-red-500 mt-1">{Math.floor(available)} {sellUnit}</p>
                 )}
               </div>
               <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">{t("sellPrice")} ({currency}/{selectedItem.unit})</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">{t("sellPrice")} ({currency}/{sellUnit})</label>
                 <input
                   type="number"
                   value={price}

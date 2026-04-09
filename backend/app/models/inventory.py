@@ -21,6 +21,8 @@ class InventoryItem(Base):
     min_threshold: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
     category: Mapped[Optional[str]] = mapped_column(Text, default="General")
     sell_price: Mapped[Optional[float]] = mapped_column(Numeric(12, 2), nullable=True)
+    sell_unit: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)        # e.g. "pieces" when stocked in "dozen"
+    pieces_per_unit: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)  # e.g. 12 for dozen->pieces
     barcode: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     expiry_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     image_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
