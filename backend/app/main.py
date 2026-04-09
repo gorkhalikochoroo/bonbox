@@ -320,8 +320,8 @@ async def startup_db():
 @app.middleware("http")
 async def db_readiness_gate(request: Request, call_next):
     path = request.url.path
-    # Always allow health check, docs, and CORS preflight through
-    if path in ("/api/health", "/docs", "/redoc", "/openapi.json") or request.method == "OPTIONS":
+    # Always allow health checks, root, docs, and CORS preflight through
+    if path in ("/", "/api/health", "/api/health/db", "/docs", "/redoc", "/openapi.json") or request.method == "OPTIONS":
         return await call_next(request)
     # Return 503 instantly if DB isn't ready yet (non-blocking — won't freeze event loop)
     if not _db_ready.is_set():
@@ -449,6 +449,11 @@ try:
 
 except Exception as e:
     print(f"Scheduler warning: {e}")
+
+
+@app.api_route("/", methods=["GET", "HEAD"])
+def root():
+    return {"status": "ok", "service": "bonbox-api"}
 
 
 @app.api_route("/api/health", methods=["GET", "HEAD"])
