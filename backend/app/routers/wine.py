@@ -1,5 +1,6 @@
 """
-Wine List — catalog, stock, margins, staff cheat sheet, selective PDF menu export.
+Wine List — catalog, stock, margins, staff cheat sheet, selective PDF menu export,
+label scanning (Claude Vision), QR public menu, AI sommelier.
 
 Endpoints:
   POST   /api/wines              — add wine
@@ -10,23 +11,33 @@ Endpoints:
   POST   /api/wines/{id}/sell    — quick sell (decrement stock, log sale)
   DELETE /api/wines/{id}         — soft delete
   POST   /api/wines/pdf          — selective PDF menu export
+  POST   /api/wines/scan         — scan bottle label → AI extracts details
+  GET    /api/wines/menu/{token} — public customer wine menu (no auth)
+  POST   /api/wines/sommelier    — AI sommelier recommendations
 """
 
 import io
+import json
 import uuid
+import base64
+import hashlib
+import logging
 from datetime import datetime, timedelta
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi.responses import StreamingResponse, HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.models.user import User
 from app.models.wine import Wine, WineSale
 from app.services.auth import get_current_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -488,3 +499,305 @@ def export_wine_pdf(
         buf, media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ── Scan Bottle Label (Claude Vision) ───────────────────────
+
+@router.post("/scan")
+async def scan_bottle_label(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    """Upload a photo of a wine label → Claude Vision extracts details."""
+    if not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(400, "AI scanning not configured — add wine manually")
+
+    image_data = await file.read()
+    if len(image_data) > 10 * 1024 * 1024:
+        raise HTTPException(400, "Image too large (max 10 MB)")
+
+    b64 = base64.b64encode(image_data).decode()
+    media_type = file.content_type or "image/jpeg"
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=800,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": media_type, "data": b64},
+                    },
+                    {
+                        "type": "text",
+                        "text": (
+                            "This is a photo of a wine bottle label. Extract the following as JSON:\n"
+                            '{"name": "wine name", "winery": "producer/winery", "vintage": year_int_or_null, '
+                            '"grape_variety": "grape(s)", "region": "wine region", "country": "country", '
+                            '"wine_type": "red|white|rosé|sparkling|natural|dessert|orange", '
+                            '"tasting_notes": "brief 1-sentence tasting note", '
+                            '"food_pairing": "2-3 food suggestions"}\n'
+                            "Return ONLY the JSON object, no explanation."
+                        ),
+                    },
+                ],
+            }],
+        )
+
+        raw = response.content[0].text.strip()
+        # Extract JSON from response (handle markdown code blocks)
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        result = json.loads(raw)
+        return {"success": True, "data": result}
+
+    except json.JSONDecodeError:
+        logger.warning("Claude returned non-JSON for wine scan: %s", raw[:200])
+        return {"success": False, "error": "Could not parse label — try a clearer photo", "raw": raw[:200]}
+    except Exception as e:
+        logger.exception("Wine scan error")
+        return {"success": False, "error": str(e)}
+
+
+# ── Public Customer Wine Menu (no auth) ─────────────────────
+
+def _menu_token(user_id: str) -> str:
+    """Deterministic token from user_id — stable URL for QR code."""
+    return hashlib.sha256(f"bonbox-wine-{user_id}".encode()).hexdigest()[:16]
+
+
+@router.get("/menu-token")
+def get_menu_token(user: User = Depends(get_current_user)):
+    """Get the public menu token + URL for QR code generation."""
+    token = _menu_token(str(user.id))
+    return {"token": token, "url": f"/api/wines/menu/{token}"}
+
+
+@router.get("/menu/{token}")
+def public_wine_menu(token: str, db: Session = Depends(get_db)):
+    """Public-facing HTML wine menu — no auth, shareable via QR."""
+    # Find user by token
+    from app.models.user import User as UserModel
+    users = db.query(UserModel).all()
+    owner = None
+    for u in users:
+        if _menu_token(str(u.id)) == token:
+            owner = u
+            break
+    if not owner:
+        raise HTTPException(404, "Menu not found")
+
+    wines = (
+        db.query(Wine)
+        .filter(Wine.user_id == owner.id, Wine.is_deleted.isnot(True), Wine.stock_qty > 0)
+        .order_by(Wine.wine_type, Wine.name)
+        .all()
+    )
+
+    currency = owner.currency or "DKK"
+    biz_name = owner.business_name or "Wine Menu"
+
+    # Group by type
+    type_labels = {
+        "sparkling": "Sparkling ✨", "white": "White Wines", "rosé": "Rosé",
+        "orange": "Orange Wines", "red": "Red Wines", "natural": "Natural Wines",
+        "dessert": "Dessert Wines",
+    }
+    type_order = ["sparkling", "white", "rosé", "orange", "red", "natural", "dessert"]
+    grouped = {}
+    for w in wines:
+        grouped.setdefault(w.wine_type, []).append(w)
+
+    # Build HTML
+    sections_html = ""
+    for wtype in type_order:
+        if wtype not in grouped:
+            continue
+        sections_html += f'<div class="section"><h2>{type_labels.get(wtype, wtype.title())}</h2>'
+        for w in grouped[wtype]:
+            detail_parts = []
+            if w.grape_variety:
+                detail_parts.append(w.grape_variety)
+            if w.region:
+                detail_parts.append(f"{w.region}, {w.country}" if w.country else w.region)
+            if w.vintage:
+                detail_parts.append(str(w.vintage))
+            detail = " · ".join(detail_parts)
+            notes = f'<p class="notes">"{w.tasting_notes}"</p>' if w.tasting_notes else ""
+            pairing = f'<p class="pair">Pairs with: {w.food_pairing}</p>' if w.food_pairing else ""
+            price = f"{float(w.sell_price):,.0f} {currency}"
+            sections_html += f'''
+            <div class="wine">
+              <div class="wine-header">
+                <div><span class="name">{w.name}</span>
+                {f'<span class="winery"> — {w.winery}</span>' if w.winery else ''}</div>
+                <span class="price">{price}</span>
+              </div>
+              <p class="detail">{detail}</p>
+              {notes}{pairing}
+            </div>'''
+        sections_html += "</div>"
+
+    html = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{biz_name} — Wine Menu</title>
+<style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#faf8f5;color:#1a1a2e;padding:20px;max-width:600px;margin:0 auto}}
+h1{{text-align:center;font-size:28px;margin:20px 0 4px;color:#1a1a2e;letter-spacing:1px}}
+.sub{{text-align:center;color:#888;font-size:13px;margin-bottom:28px;font-style:italic}}
+.section{{margin-bottom:28px}}
+h2{{font-size:15px;color:#722f37;text-transform:uppercase;letter-spacing:2px;border-bottom:1px solid #e8e0d8;padding-bottom:8px;margin-bottom:14px}}
+.wine{{margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #f0ebe4}}
+.wine:last-child{{border:none}}
+.wine-header{{display:flex;justify-content:space-between;align-items:baseline;gap:12px}}
+.name{{font-weight:600;font-size:16px;color:#1a1a2e}}
+.winery{{font-size:12px;color:#888}}
+.price{{font-weight:700;font-size:16px;white-space:nowrap;color:#1a1a2e}}
+.detail{{font-size:12px;color:#777;margin-top:3px}}
+.notes{{font-size:12px;color:#555;font-style:italic;margin-top:4px}}
+.pair{{font-size:11px;color:#888;margin-top:2px}}
+.footer{{text-align:center;color:#bbb;font-size:11px;margin-top:32px;padding-top:16px;border-top:1px solid #e8e0d8}}
+</style></head><body>
+<h1>{biz_name}</h1>
+<p class="sub">Wine Selection</p>
+{sections_html}
+<p class="footer">Powered by BonBox · {len(wines)} wines available</p>
+</body></html>"""
+
+    return HTMLResponse(content=html)
+
+
+# ── AI Sommelier ─────────────────────────────────────────────
+
+class SommelierQuery(BaseModel):
+    query: str  # e.g. "Something fruity under 400 DKK"
+
+
+@router.post("/sommelier")
+def ai_sommelier(
+    body: SommelierQuery,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """AI sommelier — natural language search across current stock."""
+    wines = (
+        db.query(Wine)
+        .filter(Wine.user_id == user.id, Wine.is_deleted.isnot(True), Wine.stock_qty > 0)
+        .all()
+    )
+    if not wines:
+        return {"results": [], "message": "No wines in stock"}
+
+    query = body.query.lower()
+    currency = user.currency or "DKK"
+
+    # If Claude API available, use it for smart matching
+    if settings.ANTHROPIC_API_KEY:
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+            wine_catalog = "\n".join(
+                f"- ID:{w.id} | {w.name} ({w.wine_type}) | {w.grape_variety or '?'} | "
+                f"{w.region or '?'}, {w.country or '?'} | {float(w.sell_price):.0f} {currency} | "
+                f"Stock:{w.stock_qty} | Notes: {w.tasting_notes or 'none'} | Pairs: {w.food_pairing or 'none'}"
+                for w in wines
+            )
+
+            resp = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=600,
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        f"You are a sommelier. A customer asks: \"{body.query}\"\n\n"
+                        f"Here are the available wines:\n{wine_catalog}\n\n"
+                        "Return a JSON array of the top 3 matching wine IDs with a short reason why "
+                        "each is a good match. Format:\n"
+                        '[{"id": "...", "reason": "..."}]\n'
+                        "Return ONLY the JSON array."
+                    ),
+                }],
+            )
+
+            raw = resp.content[0].text.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+            matches = json.loads(raw)
+
+            wine_map = {str(w.id): _wine_dict(w) for w in wines}
+            results = []
+            for m in matches:
+                w = wine_map.get(m.get("id"))
+                if w:
+                    results.append({**w, "recommendation": m.get("reason", "")})
+
+            return {"results": results, "ai": True}
+
+        except Exception as e:
+            logger.warning("Sommelier AI failed, using keyword fallback: %s", e)
+
+    # Keyword-based fallback
+    results = _keyword_sommelier(wines, query, currency)
+    return {"results": [_wine_dict(w) for w in results[:5]], "ai": False}
+
+
+def _keyword_sommelier(wines: list, query: str, currency: str) -> list:
+    """Simple keyword matching when Claude API isn't available."""
+    import re
+
+    # Extract price constraint
+    max_price = None
+    price_match = re.search(r"under\s+(\d+)|below\s+(\d+)|max\s+(\d+)|<\s*(\d+)", query)
+    if price_match:
+        max_price = float(next(g for g in price_match.groups() if g))
+
+    # Keywords for types
+    type_hints = {
+        "red": ["red", "bold", "tannic", "full-bodied"],
+        "white": ["white", "crisp", "light", "refreshing", "citrus"],
+        "rosé": ["rosé", "rose", "pink", "summer"],
+        "sparkling": ["sparkling", "bubbly", "champagne", "prosecco", "celebration"],
+        "natural": ["natural", "organic", "biodynamic", "funky"],
+    }
+
+    # Taste keywords
+    taste_words = ["fruity", "dry", "sweet", "mineral", "oaky", "smooth", "acidic",
+                   "earthy", "floral", "spicy", "buttery", "tropical", "berry"]
+
+    scored = []
+    for w in wines:
+        score = 0
+        searchable = f"{w.name} {w.wine_type} {w.grape_variety or ''} {w.tasting_notes or ''} {w.food_pairing or ''} {w.region or ''}".lower()
+
+        # Price filter
+        if max_price and float(w.sell_price or 0) > max_price:
+            continue
+
+        # Type matching
+        for wtype, hints in type_hints.items():
+            if any(h in query for h in hints):
+                if w.wine_type == wtype:
+                    score += 3
+
+        # Taste matching
+        for tw in taste_words:
+            if tw in query and tw in searchable:
+                score += 2
+
+        # General word overlap
+        for word in query.split():
+            if len(word) > 2 and word in searchable:
+                score += 1
+
+        if score > 0:
+            scored.append((score, w))
+
+    scored.sort(key=lambda x: -x[0])
+    return [w for _, w in scored]
