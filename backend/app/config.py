@@ -9,6 +9,9 @@ def _default_secret() -> str:
     return secrets.token_urlsafe(64)
 
 
+_ENV_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+
+
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/smallbiz"
     SECRET_KEY: str = _default_secret()
@@ -22,13 +25,28 @@ class Settings(BaseSettings):
     COMPANIES_HOUSE_API_KEY: str = ""
     GOOGLE_CLIENT_ID: str = ""  # Google OAuth client ID
     ADMIN_EMAIL: str = ""  # Get notified on new signups
+    USE_CLAUDE_API: bool = False  # Enable full Claude AI mode (requires ANTHROPIC_API_KEY)
     ENVIRONMENT: str = "development"  # "production" in deployed env
 
     class Config:
-        env_file = ".env"
+        env_file = _ENV_FILE
 
 
 settings = Settings()
+
+# Fix: Claude Code sets ANTHROPIC_API_KEY="" in shell env, which overrides .env.
+# Read the real values from .env and override both settings AND os.environ.
+from dotenv import dotenv_values
+_env_vals = dotenv_values(_ENV_FILE)
+if _env_vals.get("ANTHROPIC_API_KEY") and not settings.ANTHROPIC_API_KEY:
+    settings.ANTHROPIC_API_KEY = _env_vals["ANTHROPIC_API_KEY"]
+if _env_vals.get("USE_CLAUDE_API") and not settings.USE_CLAUDE_API:
+    settings.USE_CLAUDE_API = _env_vals["USE_CLAUDE_API"].lower() == "true"
+# Also set os.environ so the anthropic SDK picks it up (it reads env vars internally)
+if settings.ANTHROPIC_API_KEY:
+    os.environ["ANTHROPIC_API_KEY"] = settings.ANTHROPIC_API_KEY
+
+print(f"[Config] ANTHROPIC_API_KEY={'✅ loaded' if settings.ANTHROPIC_API_KEY else '❌ empty'} | USE_CLAUDE={settings.USE_CLAUDE_API}")
 
 # Warn if running with auto-generated secret in production
 if settings.ENVIRONMENT == "production" and settings.SECRET_KEY == _default_secret.__doc__:

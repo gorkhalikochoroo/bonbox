@@ -18,6 +18,7 @@ Endpoints:
 
 import io
 import json
+import os
 import uuid
 import base64
 import hashlib
@@ -520,36 +521,48 @@ async def scan_bottle_label(
     media_type = file.content_type or "image/jpeg"
 
     try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        import httpx
 
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=800,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {"type": "base64", "media_type": media_type, "data": b64},
-                    },
-                    {
-                        "type": "text",
-                        "text": (
-                            "This is a photo of a wine bottle label. Extract the following as JSON:\n"
-                            '{"name": "wine name", "winery": "producer/winery", "vintage": year_int_or_null, '
-                            '"grape_variety": "grape(s)", "region": "wine region", "country": "country", '
-                            '"wine_type": "red|white|rosé|sparkling|natural|dessert|orange", '
-                            '"tasting_notes": "brief 1-sentence tasting note", '
-                            '"food_pairing": "2-3 food suggestions"}\n'
-                            "Return ONLY the JSON object, no explanation."
-                        ),
-                    },
-                ],
-            }],
+        api_key = settings.ANTHROPIC_API_KEY
+        resp = httpx.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 800,
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": media_type, "data": b64},
+                        },
+                        {
+                            "type": "text",
+                            "text": (
+                                "This is a photo of a wine bottle label. Extract the following as JSON:\n"
+                                '{"name": "wine name", "winery": "producer/winery", "vintage": year_int_or_null, '
+                                '"grape_variety": "grape(s)", "region": "wine region", "country": "country", '
+                                '"wine_type": "red|white|rosé|sparkling|natural|dessert|orange", '
+                                '"tasting_notes": "brief 1-sentence tasting note", '
+                                '"food_pairing": "2-3 food suggestions"}\n'
+                                "Return ONLY the JSON object, no explanation."
+                            ),
+                        },
+                    ],
+                }],
+            },
+            timeout=30.0,
         )
 
-        raw = response.content[0].text.strip()
+        if resp.status_code != 200:
+            return {"success": False, "error": f"Anthropic API {resp.status_code}: {resp.text[:200]}", "v": "v4"}
+
+        raw = resp.json()["content"][0]["text"].strip()
         # Extract JSON from response (handle markdown code blocks)
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
@@ -560,8 +573,9 @@ async def scan_bottle_label(
         logger.warning("Claude returned non-JSON for wine scan: %s", raw[:200])
         return {"success": False, "error": "Could not parse label — try a clearer photo", "raw": raw[:200]}
     except Exception as e:
-        logger.exception("Wine scan error")
-        return {"success": False, "error": str(e)}
+        key_len = len(settings.ANTHROPIC_API_KEY)
+        logger.exception("Wine scan error (key=%d chars)", key_len)
+        return {"success": False, "error": str(e), "key_len": key_len, "v": "v3"}
 
 
 # ── Public Customer Wine Menu (no auth) ─────────────────────

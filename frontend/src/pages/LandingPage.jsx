@@ -480,6 +480,7 @@ export default function LandingPage() {
               { icon: "🌦️", titleKey: "landingFeature7Title", descKey: "landingFeature7Desc", accent: "from-cyan-500/20 to-sky-500/10", border: "border-cyan-500/20 hover:border-cyan-500/40" },
               { icon: "🔧", titleKey: "landingFeature8Title", descKey: "landingFeature8Desc", accent: "from-amber-500/20 to-yellow-500/10", border: "border-amber-500/20 hover:border-amber-500/40" },
               { icon: "🏢", titleKey: "landingFeature9Title", descKey: "landingFeature9Desc", accent: "from-indigo-500/20 to-violet-500/10", border: "border-indigo-500/20 hover:border-indigo-500/40" },
+              { icon: "🍷", titleKey: "landingFeature10Title", descKey: "landingFeature10Desc", accent: "from-purple-500/20 to-pink-500/10", border: "border-purple-500/20 hover:border-purple-500/40" },
             ].map((f, i) => (
               <FadeIn key={f.titleKey} delay={i * 80}>
                 <div className={`bg-gradient-to-br ${f.accent} rounded-2xl p-6 border ${f.border} transition-all duration-300 h-full group`}>
@@ -501,6 +502,7 @@ export default function LandingPage() {
                 t("landingTagMultiLang"), t("landingTagTax"), t("landingTagBudget"),
                 t("landingTagExpiry"), t("landingTagCompetitor"), t("landingTagBranch"),
                 t("landingTagWorkshop"), t("landingTagDailyClose"), t("landingTagMultiBiz"),
+                t("landingTagWineList"), t("landingTagScanBottle"), t("landingTagSommelier"),
               ].map((f) => (
                 <span key={f} className="px-4 py-2 bg-white/5 border border-white/10 text-gray-400 text-sm font-medium rounded-full">
                   {f}

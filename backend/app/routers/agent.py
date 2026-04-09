@@ -16,6 +16,7 @@ SSE event types:
 from datetime import date
 import json
 import logging
+import random
 import re
 import time
 
@@ -72,6 +73,40 @@ NO_PARAM_TOOLS = {"business_overview"}
 # ---------------------------------------------------------------------------
 # LOCAL INTENT PARSER — keyword-based tool routing (no API needed)
 # ---------------------------------------------------------------------------
+
+# Greeting patterns — respond conversationally, don't dump data
+GREETING_PATTERNS = [
+    "hey", "hi", "hello", "hola", "hej", "bonjour", "ciao", "yo",
+    "sup", "what's up", "whats up", "howdy", "namaste", "namaskar",
+    "good morning", "good afternoon", "good evening", "good night",
+    "god morgen", "god aften", "godmorgen", "hallo",
+    "thanks", "thank you", "thx", "cheers", "tak", "dhanyabad",
+    "bye", "goodbye", "see you", "later", "farvel", "vi ses",
+]
+
+GREETING_RESPONSES = [
+    "Hey! 👋 I'm your BonBox assistant. Ask me about your **sales**, **expenses**, **stock**, or say **\"how's today?\"** for a quick snapshot.",
+    "Hi there! 🙌 Ready to help with your business. Try asking:\n• \"How's today?\"\n• \"This week's revenue\"\n• \"Low stock items\"\n• \"Who owes us?\"",
+    "Hello! ☕ What would you like to know? I can pull up **revenue**, **expenses**, **inventory**, **waste**, or **credit** data for you.",
+]
+
+HELP_PATTERNS = [
+    "help", "what can you do", "what do you do", "how do you work",
+    "commands", "features", "options", "menu", "guide",
+    "hvad kan du", "hjælp", "sahayog", "ke garna sakchau",
+]
+
+HELP_RESPONSE = (
+    "I can help you with:\n\n"
+    "📊 **Revenue** — \"How's today?\" / \"This week's sales\"\n"
+    "💸 **Expenses** — \"What did I spend this month?\"\n"
+    "📦 **Inventory** — \"Low stock items\" / \"Stock levels\"\n"
+    "🗑️ **Waste** — \"Waste this month\"\n"
+    "📒 **Khata** — \"Who owes us?\" / \"Outstanding credit\"\n"
+    "💰 **Cash Flow** — \"Cash in vs out\"\n"
+    "🏥 **Overview** — \"Business summary\" / \"How's my business?\"\n\n"
+    "Just type naturally — I understand English, Danish, and Nepali!"
+)
 
 # Features that exist as dashboard pages but don't have chat tools yet.
 # Returns a helpful redirect message instead of confusing the user.
@@ -173,12 +208,33 @@ def _detect_intent(message: str) -> tuple[str | None, dict | str]:
 
     Returns:
         (tool_name, kwargs_dict)  — matched a database tool
-        (None, redirect_message)  — matched an unsupported feature → return the message
-        ("business_overview", {}) — fallback for greetings / general questions
+        (None, redirect_message)  — matched an unsupported feature / greeting / help
+        ("business_overview", {}) — fallback for ambiguous business questions
     """
     msg_lower = message.lower().strip()
 
-    # 1️⃣ Check unsupported features FIRST (weather, staffing, etc.)
+    # 0️⃣ Greetings — respond conversationally, NOT with data dump
+    # Use word boundary regex to avoid "hi" matching inside "this"
+    word_count = len(msg_lower.split())
+    words = set(msg_lower.split())
+    if word_count <= 4:
+        for pat in GREETING_PATTERNS:
+            # Multi-word patterns use substring match, single words use exact word match
+            if " " in pat:
+                if pat in msg_lower:
+                    return None, random.choice(GREETING_RESPONSES)
+            elif pat in words:
+                return None, random.choice(GREETING_RESPONSES)
+
+    # 0.5️⃣ Help / what-can-you-do
+    for pat in HELP_PATTERNS:
+        if " " in pat:
+            if pat in msg_lower:
+                return None, HELP_RESPONSE
+        elif pat in words:
+            return None, HELP_RESPONSE
+
+    # 1️⃣ Check unsupported features (weather, staffing, etc.)
     for feat in UNSUPPORTED_FEATURES:
         for kw in feat["keywords"]:
             if kw in msg_lower:
@@ -194,8 +250,17 @@ def _detect_intent(message: str) -> tuple[str | None, dict | str]:
         if matched_tool:
             break
 
-    # If no specific tool matched, use business_overview
+    # If no specific tool matched, use business_overview as a reasonable default
     if not matched_tool:
+        # For very short unclear messages, give a hint instead of dumping data
+        if word_count <= 2 and not any(kw in msg_lower for kw in ["summary", "overview", "status", "report"]):
+            return None, (
+                "I'm not sure what you're asking. Try something like:\n"
+                "• **\"How's today?\"** — daily snapshot\n"
+                "• **\"This week's revenue\"** — sales data\n"
+                "• **\"Low stock items\"** — inventory alerts\n"
+                "• **\"Help\"** — see all I can do"
+            )
         return "business_overview", {}
 
     # Detect period
@@ -463,13 +528,31 @@ async def _claude_chat(req: ChatRequest, db, user):
 
     client = anth.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
+    biz_name = user.business_name or "your business"
+    currency = user.currency or "DKK"
+
     system_prompt = (
-        f"You are BonBox AI — a smart business analytics assistant.\n"
-        f"Business: {user.business_name or 'Restaurant'}\n"
-        f"Currency: {user.currency or 'DKK'}\n"
-        f"Today: {date.today().isoformat()}\n"
-        f"Query real data with tools — never guess numbers.\n"
-        f"Be concise, friendly, data-driven. Match the user's language."
+        f"You are **BonBox AI** — the smart business copilot for {biz_name}.\n"
+        f"Currency: {currency}  |  Today: {date.today().isoformat()}\n\n"
+
+        "## Personality\n"
+        "- Warm, concise, and sharp — like a trusted business partner who knows the numbers.\n"
+        "- Use emojis sparingly (1-2 per message max). Use **bold** for key numbers.\n"
+        "- Match the user's language (English, Danish, Nepali, or whatever they write in).\n"
+        "- Keep responses SHORT — 2-4 sentences for simple queries. No essays.\n\n"
+
+        "## When to use tools\n"
+        "- ONLY call tools when the user asks about real business data (revenue, expenses, stock, etc.).\n"
+        "- For greetings (hi, hey, hello) → respond warmly and offer to help. NO tool calls.\n"
+        "- For small talk or thanks → respond naturally. NO tool calls.\n"
+        "- For 'how's today?' or 'how's my business?' → use business_overview.\n"
+        "- Never guess or make up numbers — always query real data.\n\n"
+
+        "## Response style\n"
+        "- Lead with the key insight, not a wall of numbers.\n"
+        "- If data shows something interesting (spike, drop, trend), call it out.\n"
+        "- Add a short actionable tip when relevant (e.g. 'Might be time to restock X').\n"
+        "- If the user's business has no data yet, be encouraging — 'Start logging sales and I'll track your growth!'\n"
     )
 
     messages = []
