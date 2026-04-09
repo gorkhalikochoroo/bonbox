@@ -906,7 +906,7 @@ function ShiftModal({ modal, staff, weekDates, onClose, onSaved, branchId }) {
     setModalError("");
 
     const payload = {
-      staff_member_id: staffId,
+      staff_id: staffId,
       date,
       start_time: startTime,
       end_time: endTime,
@@ -924,7 +924,8 @@ function ShiftModal({ modal, staff, weekDates, onClose, onSaved, branchId }) {
       }
       onSaved();
     } catch (err) {
-      setModalError(err.response?.data?.detail || `Failed to ${isEdit ? "update" : "create"} shift.`);
+      const d = err.response?.data?.detail;
+      setModalError(typeof d === "string" ? d : Array.isArray(d) ? d.map(e => e.msg || e).join(", ") : `Failed to ${isEdit ? "update" : "create"} shift.`);
     }
     setSaving(false);
   };

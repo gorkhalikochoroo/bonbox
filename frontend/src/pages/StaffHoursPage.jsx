@@ -453,7 +453,7 @@ function QuickLogForm({ staffList, currency, onLogged }) {
     setSuccess("");
     try {
       await api.post("/staff/hours", {
-        staff_id: Number(staffId),
+        staff_id: staffId,
         date,
         total_hours: parseFloat(hours),
         entry_method: "quick",
@@ -554,7 +554,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
   );
 
   // Look up staff rate for preview
-  const selectedStaff = staffList.find(s => s.id === Number(staffId));
+  const selectedStaff = staffList.find(s => s.id === staffId);
   const rate = selectedStaff?.hourly_rate || null;
   const estimated = rate && calcHours > 0 ? (rate * calcHours).toFixed(0) : null;
 
@@ -566,7 +566,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
     setSuccess("");
     try {
       await api.post("/staff/hours", {
-        staff_id: Number(staffId),
+        staff_id: staffId,
         date,
         total_hours: calcHours,
         start_time: startTime,
