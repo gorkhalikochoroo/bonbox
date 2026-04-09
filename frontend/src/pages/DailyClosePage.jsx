@@ -59,7 +59,7 @@ function getPaymentMethods(branchType) {
 export default function DailyClosePage() {
   const { user } = useAuth();
   const { t } = useLanguage();
-  const { branchType } = useBranch();
+  const { branchId, branchType } = useBranch();
   const currency = displayCurrency(user?.currency);
 
   const [tab, setTab] = useState("close"); // close | history | insights
@@ -106,7 +106,7 @@ export default function DailyClosePage() {
         ))}
       </div>
 
-      {tab === "close" && <CloseForm currency={currency} t={t} branchType={branchType} onDone={() => { fetchHistory(); fetchInsights(); setTab("history"); }} />}
+      {tab === "close" && <CloseForm currency={currency} t={t} branchType={branchType} branchId={branchId} onDone={() => { fetchHistory(); fetchInsights(); setTab("history"); }} />}
       {tab === "history" && <HistoryView data={history} currency={currency} t={t} onRefresh={fetchHistory} />}
       {tab === "insights" && <InsightsView data={insights} currency={currency} t={t} />}
     </div>
@@ -117,7 +117,7 @@ export default function DailyClosePage() {
 /* ═══════════════════════════════════════════════════════════
    MULTI-STEP CLOSE FORM
    ═══════════════════════════════════════════════════════════ */
-function CloseForm({ currency, t, branchType, onDone }) {
+function CloseForm({ currency, t, branchType, branchId, onDone }) {
   const defaultRevCats = useMemo(() => getRevenueCats(branchType), [branchType]);
   const defaultPayMethods = useMemo(() => getPaymentMethods(branchType), [branchType]);
   const isWorkshop = branchType === "workshop";
@@ -148,6 +148,56 @@ function CloseForm({ currency, t, branchType, onDone }) {
   const [closedBy, setClosedBy] = useState("");
   const [notes, setNotes] = useState("");
 
+  // Prefill from real data
+  const [prefill, setPrefill] = useState(null);
+  const [prefillLoading, setPrefillLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchPrefill = async () => {
+      setPrefillLoading(true);
+      try {
+        const today = new Date().toISOString().split("T")[0];
+        const params = { date: today };
+        if (branchId) params.branch_id = branchId;
+        const res = await api.get("/daily-close/prefill", { params });
+        if (res.data.has_data) {
+          setPrefill(res.data);
+          // Auto-fill payment methods from sales data
+          const payPrefill = res.data.suggested_prefill?.payment_breakdown || {};
+          if (Object.keys(payPrefill).length > 0) {
+            const newPay = {};
+            // Add any payment methods from data that aren't in the default list
+            const existingKeys = new Set(defaultPayMethods.map(m => m.key));
+            Object.entries(payPrefill).forEach(([k, v]) => {
+              newPay[k] = String(v);
+              if (!existingKeys.has(k) && k !== "other") {
+                setPayMethods(prev => {
+                  if (prev.find(m => m.key === k)) return prev;
+                  return [...prev, { key: k, label: k.charAt(0).toUpperCase() + k.slice(1), icon: "💰" }];
+                });
+              }
+            });
+            setPayAmounts(newPay);
+          }
+          // Auto-fill revenue total into the first category (or "revenue" for general)
+          const salesTotal = res.data.suggested_prefill?.revenue_total || 0;
+          if (salesTotal > 0) {
+            const firstCat = defaultRevCats[0]?.key;
+            if (defaultRevCats.length === 1 || branchType === "general") {
+              setRevAmounts({ [firstCat]: String(salesTotal) });
+            }
+            // For restaurant/workshop with multiple cats, leave revenue blank
+            // so user distributes manually — but show total as hint
+          }
+        }
+      } catch {
+        // Silent — manual entry still works
+      }
+      setPrefillLoading(false);
+    };
+    fetchPrefill();
+  }, [branchId]);
+
   const revenueTotal = useMemo(() => Object.values(revAmounts).reduce((s, v) => s + (parseFloat(v) || 0), 0), [revAmounts]);
   const paymentTotal = useMemo(() => Object.values(payAmounts).reduce((s, v) => s + (parseFloat(v) || 0), 0), [payAmounts]);
   const balanceDiff = revenueTotal - paymentTotal;
@@ -177,6 +227,7 @@ function CloseForm({ currency, t, branchType, onDone }) {
 
       await api.post("/daily-close", {
         date: new Date().toISOString().split("T")[0],
+        branch_id: branchId || null,
         revenue_breakdown,
         payment_breakdown,
         tips_total: tipsTotal ? parseFloat(tipsTotal) : null,
@@ -206,6 +257,29 @@ function CloseForm({ currency, t, branchType, onDone }) {
       </div>
 
       <div className="p-5 sm:p-6">
+        {/* Sync indicator */}
+        {prefillLoading && (
+          <div className="mb-4 px-4 py-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl text-center text-sm text-gray-400">
+            Loading today's records...
+          </div>
+        )}
+        {prefill && !prefillLoading && (
+          <div className="mb-4 px-4 py-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl text-sm text-blue-700 dark:text-blue-300">
+            <div className="flex items-center gap-2 font-medium">
+              <span>🔄</span>
+              <span>
+                Synced from {prefill.sales.count} sale{prefill.sales.count !== 1 ? "s" : ""}
+                {prefill.expenses.count > 0 && ` & ${prefill.expenses.count} expense${prefill.expenses.count !== 1 ? "s" : ""}`}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-3 mt-2 text-xs">
+              <span>Revenue: {prefill.sales.total.toLocaleString()} {currency}</span>
+              {prefill.expenses.total > 0 && <span>Expenses: {prefill.expenses.total.toLocaleString()} {currency}</span>}
+              <span>Net: {(prefill.sales.total - prefill.expenses.total).toLocaleString()} {currency}</span>
+            </div>
+          </div>
+        )}
+
         {/* Step header */}
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-bold dark:text-white">
@@ -221,6 +295,19 @@ function CloseForm({ currency, t, branchType, onDone }) {
         {/* ─── STEP 1: Revenue ─── */}
         {step === 1 && (
           <div className="space-y-4">
+            {/* Hint: show sales total from system if multi-category */}
+            {prefill && prefill.sales.total > 0 && defaultRevCats.length > 1 && (
+              <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-3 text-sm text-green-700 dark:text-green-300">
+                Today's total sales: <strong>{prefill.sales.total.toLocaleString()} {currency}</strong> — distribute across categories below.
+                {Object.keys(prefill.sales.by_item).length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {Object.entries(prefill.sales.by_item).slice(0, 8).map(([name, val]) => (
+                      <span key={name} className="px-2 py-0.5 bg-green-100 dark:bg-green-900/40 rounded text-xs">{name}: {val.toLocaleString()}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {revCats.map(cat => (
               <div key={cat.key}>
                 <label className={labelClass}>{cat.icon} {cat.label}</label>
@@ -370,6 +457,25 @@ function CloseForm({ currency, t, branchType, onDone }) {
                 <div className="flex justify-between text-sm dark:text-gray-300"><span>Counted</span><span>{cashCountedVal.toLocaleString()} {currency}</span></div>
                 <div className={`flex justify-between font-bold pt-2 border-t dark:border-gray-600 mt-2 ${cashDiff < -100 ? "text-red-600" : "dark:text-white"}`}>
                   <span>Difference</span><span>{cashDiff > 0 ? "+" : ""}{cashDiff?.toLocaleString()} {currency}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Expenses (from synced data) */}
+            {prefill && prefill.expenses.total > 0 && (
+              <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4">
+                <h3 className="font-semibold text-sm text-red-500 dark:text-red-400 mb-2">Today's Expenses</h3>
+                {Object.entries(prefill.expenses.by_category).map(([cat, val]) => (
+                  <div key={cat} className="flex justify-between text-sm py-0.5 text-red-700 dark:text-red-300">
+                    <span>{cat}</span>
+                    <span>-{val.toLocaleString()} {currency}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between font-bold pt-2 border-t border-red-200 dark:border-red-800 mt-2 text-red-700 dark:text-red-300">
+                  <span>Total Expenses</span><span>-{prefill.expenses.total.toLocaleString()} {currency}</span>
+                </div>
+                <div className="flex justify-between font-bold pt-2 mt-1 text-green-700 dark:text-green-300">
+                  <span>Net Profit</span><span>{(revenueTotal - prefill.expenses.total).toLocaleString()} {currency}</span>
                 </div>
               </div>
             )}

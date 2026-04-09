@@ -23,6 +23,9 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.models.daily_close import DailyClose, encode_breakdown, decode_breakdown
+from app.models.sale import Sale
+from app.models.expense import Expense, ExpenseCategory
+from app.models.cashbook import CashTransaction
 from app.models.business_profile import BusinessProfile
 from app.schemas.daily_close import DailyCloseCreate, DailyCloseResponse
 from app.services.auth import get_current_user
@@ -303,6 +306,129 @@ def daily_close_insights(
     }
 
     return {"has_data": True, "insights": insights, "summary": summary}
+
+
+# ─── GET — prefill from real sales/expenses/cash data ───
+
+@router.get("/prefill")
+def prefill_daily_close(
+    target_date: date = Query(default=None, alias="date"),
+    branch_id: str = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Pull today's actual sales/expenses/cash to pre-fill the daily close form."""
+    if not target_date:
+        target_date = date.today()
+
+    # ── Sales total + by payment method ──
+    sales_q = db.query(Sale).filter(
+        Sale.user_id == user.id,
+        Sale.date == target_date,
+        Sale.is_deleted.isnot(True),
+        Sale.status == "completed",
+    )
+    if branch_id:
+        sales_q = sales_q.filter(Sale.branch_id == branch_id)
+
+    sales_total = float(
+        sales_q.with_entities(func.coalesce(func.sum(Sale.amount), 0)).scalar()
+    )
+    sales_count = sales_q.count()
+
+    payment_rows = (
+        sales_q.with_entities(Sale.payment_method, func.sum(Sale.amount).label("total"))
+        .group_by(Sale.payment_method)
+        .all()
+    )
+    by_payment = {}
+    for method, total in payment_rows:
+        key = (method or "other").lower()
+        if key == "kontant":
+            key = "cash"
+        elif key == "dankort":
+            key = "card"
+        by_payment[key] = by_payment.get(key, 0) + round(float(total), 2)
+
+    # ── Sales by item_name (for revenue breakdown hints) ──
+    item_rows = (
+        sales_q.filter(Sale.item_name.isnot(None))
+        .with_entities(Sale.item_name, func.sum(Sale.amount).label("total"))
+        .group_by(Sale.item_name)
+        .all()
+    )
+    by_item = {name: round(float(total), 2) for name, total in item_rows}
+
+    # ── Expenses by category ──
+    expense_q = (
+        db.query(ExpenseCategory.name, func.sum(Expense.amount).label("total"))
+        .join(Expense, Expense.category_id == ExpenseCategory.id)
+        .filter(
+            Expense.user_id == user.id,
+            Expense.date == target_date,
+            Expense.is_deleted.isnot(True),
+            Expense.is_personal.isnot(True),
+        )
+    )
+    if branch_id:
+        expense_q = expense_q.filter(Expense.branch_id == branch_id)
+
+    expense_rows = expense_q.group_by(ExpenseCategory.name).all()
+    by_expense_cat = {name: round(float(total), 2) for name, total in expense_rows}
+    expenses_total = sum(by_expense_cat.values())
+
+    expenses_count = db.query(func.count(Expense.id)).filter(
+        Expense.user_id == user.id,
+        Expense.date == target_date,
+        Expense.is_deleted.isnot(True),
+        Expense.is_personal.isnot(True),
+    ).scalar() or 0
+
+    # ── Cash transactions ──
+    cash_q = db.query(CashTransaction).filter(
+        CashTransaction.user_id == user.id,
+        CashTransaction.date == target_date,
+        CashTransaction.is_deleted.isnot(True),
+    )
+    if branch_id:
+        cash_q = cash_q.filter(CashTransaction.branch_id == branch_id)
+
+    cash_in = float(
+        cash_q.filter(CashTransaction.type == "cash_in")
+        .with_entities(func.coalesce(func.sum(CashTransaction.amount), 0)).scalar()
+    )
+    cash_out = float(
+        cash_q.filter(CashTransaction.type == "cash_out")
+        .with_entities(func.coalesce(func.sum(CashTransaction.amount), 0)).scalar()
+    )
+
+    has_data = sales_count > 0 or expenses_count > 0
+
+    return {
+        "date": target_date.isoformat(),
+        "has_data": has_data,
+        "sales": {
+            "total": sales_total,
+            "count": sales_count,
+            "by_payment_method": by_payment,
+            "by_item": by_item,
+        },
+        "expenses": {
+            "total": expenses_total,
+            "count": expenses_count,
+            "by_category": by_expense_cat,
+        },
+        "cash": {
+            "total_in": cash_in,
+            "total_out": cash_out,
+            "net": round(cash_in - cash_out, 2),
+        },
+        "suggested_prefill": {
+            "revenue_total": sales_total,
+            "payment_breakdown": by_payment,
+            "cash_expected": by_payment.get("cash", 0),
+        },
+    }
 
 
 # ─── GET — single close ───
