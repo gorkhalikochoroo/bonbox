@@ -504,7 +504,7 @@ export default function BonBoxAgent() {
           <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-500/30 to-transparent" />
 
           {/* ========= HEADER ========= */}
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/[0.06] shrink-0">
+          <div className="flex items-center justify-between px-5 py-3.5 max-sm:pt-[max(0.875rem,env(safe-area-inset-top))] border-b border-white/[0.06] shrink-0">
             <div className="flex items-center gap-3">
               {/* animated brain icon */}
               <div
@@ -529,17 +529,23 @@ export default function BonBoxAgent() {
               </div>
             </div>
 
-            {/* close button */}
+            {/* close button — larger tap target + back arrow on mobile */}
             <button
               onClick={handleClose}
               aria-label="Close chat"
               className="
-                w-8 h-8 rounded-lg flex items-center justify-center
-                text-gray-400 hover:text-white hover:bg-white/[0.08]
+                w-9 h-9 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center
+                text-gray-300 sm:text-gray-400 hover:text-white
+                hover:bg-white/[0.08] active:bg-white/[0.12]
                 transition-colors duration-200
               "
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              {/* Back arrow on mobile, X on desktop */}
+              <svg className="sm:hidden" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 12H5" />
+                <path d="M12 19l-7-7 7-7" />
+              </svg>
+              <svg className="hidden sm:block" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
