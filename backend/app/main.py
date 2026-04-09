@@ -281,10 +281,9 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
-# --- DB init runs AFTER uvicorn opens port (fixes Render free-tier timeout) ---
-@app.on_event("startup")
-async def startup_db():
-    """Create tables & run migrations after port is open so Render port scan passes."""
+# --- DB init in background thread (fixes Render free-tier port scan timeout) ---
+def _init_db():
+    """Create tables & run migrations in a background thread."""
     try:
         Base.metadata.create_all(bind=engine)
         print("DB tables created")
@@ -298,6 +297,15 @@ async def startup_db():
         _run_data_migration()
     except Exception as e:
         print(f"Data migration warning: {e}")
+    print("DB init complete")
+
+
+@app.on_event("startup")
+async def startup_db():
+    """Kick off DB init in background so uvicorn can bind port immediately."""
+    import threading
+    t = threading.Thread(target=_init_db, daemon=True)
+    t.start()
 
 
 # --- CORS (tightened) ---
