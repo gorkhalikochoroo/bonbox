@@ -14,8 +14,8 @@ from app.routers import auth, sales, expenses, inventory, reports, dashboard, st
 from app.database import engine, Base
 from app.models import *  # noqa: ensure all models are loaded
 
-# Moved to startup event so port opens immediately (fixes Render free-tier timeout)
-# Base.metadata.create_all(bind=engine)  — now runs in @app.on_event("startup")
+# Create tables synchronously at import — DB MUST be ready before serving requests
+Base.metadata.create_all(bind=engine)
 
 # Run schema migrations (idempotent — safe to run multiple times)
 _migrations = [
@@ -281,31 +281,18 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
-# --- DB init in background thread (fixes Render free-tier port scan timeout) ---
-def _init_db():
-    """Create tables & run migrations in a background thread."""
-    try:
-        Base.metadata.create_all(bind=engine)
-        print("DB tables created")
-    except Exception as e:
-        print(f"DB create_all warning: {e}")
-    try:
-        _run_migrations()
-    except Exception as e:
-        print(f"Migration warning: {e}")
-    try:
-        _run_data_migration()
-    except Exception as e:
-        print(f"Data migration warning: {e}")
-    print("DB init complete")
+# --- Run migrations synchronously (DB must be ready before serving requests) ---
+try:
+    _run_migrations()
+except Exception as e:
+    print(f"Migration warning: {e}")
 
+try:
+    _run_data_migration()
+except Exception as e:
+    print(f"Data migration warning: {e}")
 
-@app.on_event("startup")
-async def startup_db():
-    """Kick off DB init in background so uvicorn can bind port immediately."""
-    import threading
-    t = threading.Thread(target=_init_db, daemon=True)
-    t.start()
+print("DB init complete")
 
 
 # --- CORS (tightened) ---
