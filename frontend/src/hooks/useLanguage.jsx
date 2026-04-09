@@ -65,6 +65,9 @@ const translations = {
     totalStaffNeeded: "Total Staff Needed", basedOnPatterns: "Based on predicted revenue patterns",
     minRevenue: "Min revenue", maxRevenue: "Max revenue",
     slow: "Slow", normal: "Normal", busy: "Busy",
+    // Staff Module
+    staffSchedule: "Schedule", staffHours: "Hours", staffTips: "Tips", staffPayroll: "Payroll",
+    addStaff: "Add Staff", staffName: "Staff Name",
     // Waste
     logWaste: "Log Waste", trackWaste: "Track what gets thrown out",
     wasteLogged: "Waste logged!", monthlyWasteCost: "Monthly Waste Cost",
@@ -653,6 +656,9 @@ const translations = {
     totalStaffNeeded: "Samlet personale nødvendigt", basedOnPatterns: "Baseret på forventede omsætningsmønstre",
     minRevenue: "Min. omsætning", maxRevenue: "Maks. omsætning",
     slow: "Rolig", normal: "Normal", busy: "Travl",
+    // Staff Module
+    staffSchedule: "Vagtplan", staffHours: "Timer", staffTips: "Drikkepenge", staffPayroll: "Løn",
+    addStaff: "Tilføj medarbejder", staffName: "Medarbejdernavn",
     // Waste
     logWaste: "Registrer spild", trackWaste: "Hold styr på hvad der smides ud",
     wasteLogged: "Spild registreret!", monthlyWasteCost: "Månedlig spildudgift",
@@ -1229,6 +1235,9 @@ const translations = {
     totalStaffNeeded: "कुल चाहिने कर्मचारी", basedOnPatterns: "अनुमानित आम्दानी ढाँचामा आधारित",
     minRevenue: "न्यूनतम आम्दानी", maxRevenue: "अधिकतम आम्दानी",
     slow: "सुस्त", normal: "सामान्य", busy: "व्यस्त",
+    // Staff Module
+    staffSchedule: "तालिका", staffHours: "घण्टा", staffTips: "टिप्स", staffPayroll: "तलब",
+    addStaff: "कर्मचारी थप्नुहोस्", staffName: "कर्मचारीको नाम",
     // Waste
     logWaste: "फोहोर राख्नुहोस्", trackWaste: "के फालियो ट्र्याक गर्नुहोस्",
     wasteLogged: "फोहोर रेकर्ड भयो!", monthlyWasteCost: "मासिक फोहोर खर्च",

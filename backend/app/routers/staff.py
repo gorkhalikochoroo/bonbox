@@ -1,0 +1,1253 @@
+"""
+Staff Module — members, pay periods, schedules, hours, tips, payroll PDF.
+
+Endpoints:
+  # Members
+  GET    /members                    — list active staff
+  POST   /members                    — create staff member
+  PUT    /members/{id}               — update
+  DELETE /members/{id}               — soft-deactivate
+
+  # Pay Period
+  GET    /pay-period                 — get config (or default)
+  POST   /pay-period                 — upsert config
+  GET    /pay-period/current         — computed current period dates
+
+  # Schedule
+  GET    /schedules                  — shifts for a 7-day week
+  POST   /schedules                  — create shift
+  PUT    /schedules/{id}             — update shift
+  DELETE /schedules/{id}             — delete shift
+  POST   /schedules/copy-week        — copy all shifts from one week to another
+  POST   /schedules/publish          — publish all draft shifts for a week
+
+  # Hours
+  GET    /hours                      — hours for a date range
+  POST   /hours                      — log hours
+  POST   /hours/confirm-schedule     — bulk-create from published schedule
+  PUT    /hours/{id}                 — edit
+  DELETE /hours/{id}                 — remove
+  GET    /hours/summary              — per-staff summary
+
+  # Tips
+  GET    /tips                       — tips with distributions
+  POST   /tips                       — create tip with auto-distribution
+  PUT    /tips/{id}                  — update (before confirmed)
+  POST   /tips/{id}/confirm          — lock distribution
+
+  # Payroll
+  POST   /payroll/pdf                — generate payroll PDF
+"""
+
+import uuid
+import calendar
+from datetime import date, datetime, timedelta
+from io import BytesIO
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+from pydantic import BaseModel
+
+from app.database import get_db
+from app.models.user import User
+from app.models.staff import (
+    StaffMember,
+    PayPeriodConfig,
+    Schedule,
+    HoursLogged,
+    Tip,
+    TipDistribution,
+)
+from app.models.business_profile import BusinessProfile
+from app.schemas.staff import (
+    StaffMemberCreate,
+    StaffMemberUpdate,
+    StaffMemberResponse,
+    PayPeriodConfigCreate,
+    PayPeriodConfigResponse,
+    ScheduleCreate,
+    ScheduleResponse,
+    HoursLogCreate,
+    HoursLogResponse,
+    TipCreate,
+    TipResponse,
+)
+from app.services.auth import get_current_user
+
+router = APIRouter()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Helpers
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _parse_hhmm(t: str) -> float:
+    """Parse 'HH:MM' into fractional hours from midnight."""
+    parts = t.split(":")
+    return int(parts[0]) + int(parts[1]) / 60.0
+
+
+def _calc_shift_hours(start_time: str, end_time: str, break_minutes: int) -> float:
+    """Calculate net hours for a shift, handling overnight spans."""
+    s = _parse_hhmm(start_time)
+    e = _parse_hhmm(end_time)
+    if e <= s:
+        e += 24.0  # overnight shift
+    gross = e - s
+    net = gross - (break_minutes / 60.0)
+    return round(max(net, 0), 1)
+
+
+def _pick_rate(staff: StaffMember, shift_date: date, start_time: Optional[str]) -> float:
+    """Choose dominant rate: weekend > evening > base."""
+    base = float(staff.base_rate or 0)
+    evening = float(staff.evening_rate or base)
+    weekend = float(staff.weekend_rate or base)
+
+    # Weekend check (Saturday=5, Sunday=6)
+    if shift_date.weekday() in (5, 6) and weekend > 0:
+        return weekend
+
+    # Evening check (dominant hours after 18:00)
+    if start_time:
+        start_h = _parse_hhmm(start_time)
+        if start_h >= 18.0 and evening > 0:
+            return evening
+
+    return base
+
+
+def _compute_pay_period(config: PayPeriodConfig, ref_date: date) -> dict:
+    """Compute {start_date, end_date} for the current pay period."""
+    ptype = config.period_type
+
+    if ptype == "monthly_1st":
+        start = ref_date.replace(day=1)
+        last_day = calendar.monthrange(ref_date.year, ref_date.month)[1]
+        end = ref_date.replace(day=last_day)
+
+    elif ptype == "monthly_15th":
+        if ref_date.day >= 15:
+            start = ref_date.replace(day=15)
+            # 14th of next month
+            if ref_date.month == 12:
+                end = date(ref_date.year + 1, 1, 14)
+            else:
+                end = date(ref_date.year, ref_date.month + 1, 14)
+        else:
+            # Before the 15th: period started on 15th of previous month
+            if ref_date.month == 1:
+                start = date(ref_date.year - 1, 12, 15)
+            else:
+                start = date(ref_date.year, ref_date.month - 1, 15)
+            end = ref_date.replace(day=14)
+
+    elif ptype == "biweekly":
+        # Every 2 weeks from epoch Monday 2024-01-01
+        epoch = date(2024, 1, 1)
+        days_since = (ref_date - epoch).days
+        period_start_offset = (days_since // 14) * 14
+        start = epoch + timedelta(days=period_start_offset)
+        end = start + timedelta(days=13)
+
+    elif ptype == "custom":
+        csd = config.custom_start_day or 1
+        if ref_date.day >= csd:
+            start = ref_date.replace(day=csd)
+            # Day before next occurrence
+            if ref_date.month == 12:
+                next_start = date(ref_date.year + 1, 1, csd)
+            else:
+                next_start = date(ref_date.year, ref_date.month + 1, csd)
+            end = next_start - timedelta(days=1)
+        else:
+            if ref_date.month == 1:
+                start = date(ref_date.year - 1, 12, csd)
+            else:
+                start = date(ref_date.year, ref_date.month - 1, csd)
+            end = ref_date.replace(day=csd) - timedelta(days=1)
+
+    else:
+        # Fallback to monthly_1st
+        start = ref_date.replace(day=1)
+        last_day = calendar.monthrange(ref_date.year, ref_date.month)[1]
+        end = ref_date.replace(day=last_day)
+
+    return {"start_date": start.isoformat(), "end_date": end.isoformat()}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  STAFF MEMBERS CRUD
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@router.get("/members", response_model=list[StaffMemberResponse])
+def list_staff_members(
+    include_inactive: bool = Query(False),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    q = db.query(StaffMember).filter(
+        StaffMember.user_id == user.id,
+        StaffMember.is_deleted.isnot(True),
+    )
+    if not include_inactive:
+        q = q.filter(StaffMember.active.is_(True))
+    return q.order_by(StaffMember.name).all()
+
+
+@router.post("/members", response_model=StaffMemberResponse)
+def create_staff_member(
+    data: StaffMemberCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    member = StaffMember(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name=data.name,
+        phone=data.phone,
+        email=data.email,
+        role=data.role,
+        contract_type=data.contract_type,
+        base_rate=data.base_rate,
+        evening_rate=data.evening_rate,
+        weekend_rate=data.weekend_rate,
+        holiday_rate=data.holiday_rate,
+        max_hours_month=data.max_hours_month,
+        max_hours_week=data.max_hours_week,
+    )
+    db.add(member)
+    db.commit()
+    db.refresh(member)
+    return member
+
+
+@router.put("/members/{member_id}", response_model=StaffMemberResponse)
+def update_staff_member(
+    member_id: str,
+    data: StaffMemberUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    member = db.query(StaffMember).filter(
+        StaffMember.id == member_id,
+        StaffMember.user_id == user.id,
+        StaffMember.is_deleted.isnot(True),
+    ).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+
+    updates = data.model_dump(exclude_unset=True)
+    for field, value in updates.items():
+        setattr(member, field, value)
+
+    db.commit()
+    db.refresh(member)
+    return member
+
+
+@router.delete("/members/{member_id}", status_code=204)
+def deactivate_staff_member(
+    member_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    member = db.query(StaffMember).filter(
+        StaffMember.id == member_id,
+        StaffMember.user_id == user.id,
+    ).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+    member.active = False
+    member.updated_at = datetime.utcnow()
+    db.commit()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  PAY PERIOD CONFIG
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@router.get("/pay-period", response_model=PayPeriodConfigResponse)
+def get_pay_period_config(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    config = db.query(PayPeriodConfig).filter(
+        PayPeriodConfig.user_id == user.id,
+    ).first()
+    if not config:
+        # Create default config
+        config = PayPeriodConfig(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            period_type="monthly_1st",
+        )
+        db.add(config)
+        db.commit()
+        db.refresh(config)
+    return config
+
+
+@router.post("/pay-period", response_model=PayPeriodConfigResponse)
+def upsert_pay_period_config(
+    data: PayPeriodConfigCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    config = db.query(PayPeriodConfig).filter(
+        PayPeriodConfig.user_id == user.id,
+    ).first()
+    if config:
+        config.period_type = data.period_type
+        config.custom_start_day = data.custom_start_day
+        config.updated_at = datetime.utcnow()
+    else:
+        config = PayPeriodConfig(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            period_type=data.period_type,
+            custom_start_day=data.custom_start_day,
+        )
+        db.add(config)
+    db.commit()
+    db.refresh(config)
+    return config
+
+
+@router.get("/pay-period/current")
+def get_current_pay_period(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    config = db.query(PayPeriodConfig).filter(
+        PayPeriodConfig.user_id == user.id,
+    ).first()
+    if not config:
+        config = PayPeriodConfig(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            period_type="monthly_1st",
+        )
+        db.add(config)
+        db.commit()
+        db.refresh(config)
+    return _compute_pay_period(config, date.today())
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  SCHEDULES
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class CopyWeekBody(BaseModel):
+    source_week: date
+    target_week: date
+
+
+@router.get("/schedules", response_model=list[ScheduleResponse])
+def list_schedules(
+    week_start: date = Query(..., description="Monday of the target week (YYYY-MM-DD)"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    week_end = week_start + timedelta(days=6)
+    shifts = (
+        db.query(Schedule)
+        .filter(
+            Schedule.user_id == user.id,
+            Schedule.date >= week_start,
+            Schedule.date <= week_end,
+        )
+        .order_by(Schedule.date, Schedule.start_time)
+        .all()
+    )
+    return shifts
+
+
+@router.post("/schedules", response_model=ScheduleResponse)
+def create_schedule(
+    data: ScheduleCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    # Verify staff belongs to user
+    staff = db.query(StaffMember).filter(
+        StaffMember.id == data.staff_id,
+        StaffMember.user_id == user.id,
+        StaffMember.is_deleted.isnot(True),
+    ).first()
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+
+    shift = Schedule(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        staff_id=data.staff_id,
+        date=data.date,
+        start_time=data.start_time,
+        end_time=data.end_time,
+        break_minutes=data.break_minutes,
+        role_on_shift=data.role_on_shift,
+        status=data.status,
+        notes=data.notes,
+    )
+    db.add(shift)
+    db.commit()
+    db.refresh(shift)
+    return shift
+
+
+@router.put("/schedules/{schedule_id}", response_model=ScheduleResponse)
+def update_schedule(
+    schedule_id: str,
+    data: ScheduleCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    shift = db.query(Schedule).filter(
+        Schedule.id == schedule_id,
+        Schedule.user_id == user.id,
+    ).first()
+    if not shift:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    shift.staff_id = data.staff_id
+    shift.date = data.date
+    shift.start_time = data.start_time
+    shift.end_time = data.end_time
+    shift.break_minutes = data.break_minutes
+    shift.role_on_shift = data.role_on_shift
+    shift.status = data.status
+    shift.notes = data.notes
+    db.commit()
+    db.refresh(shift)
+    return shift
+
+
+@router.delete("/schedules/{schedule_id}", status_code=204)
+def delete_schedule(
+    schedule_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    shift = db.query(Schedule).filter(
+        Schedule.id == schedule_id,
+        Schedule.user_id == user.id,
+    ).first()
+    if not shift:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    db.delete(shift)
+    db.commit()
+
+
+@router.post("/schedules/copy-week")
+def copy_week(
+    body: CopyWeekBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    source_end = body.source_week + timedelta(days=6)
+    source_shifts = (
+        db.query(Schedule)
+        .filter(
+            Schedule.user_id == user.id,
+            Schedule.date >= body.source_week,
+            Schedule.date <= source_end,
+        )
+        .all()
+    )
+    if not source_shifts:
+        raise HTTPException(status_code=404, detail="No shifts found in source week")
+
+    day_offset = (body.target_week - body.source_week).days
+    created = []
+    for s in source_shifts:
+        new_shift = Schedule(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            staff_id=s.staff_id,
+            date=s.date + timedelta(days=day_offset),
+            start_time=s.start_time,
+            end_time=s.end_time,
+            break_minutes=s.break_minutes,
+            role_on_shift=s.role_on_shift,
+            status="draft",
+            notes=s.notes,
+        )
+        db.add(new_shift)
+        created.append(new_shift)
+
+    db.commit()
+    return {"copied": len(created), "target_week": body.target_week.isoformat()}
+
+
+@router.post("/schedules/publish")
+def publish_week(
+    week_start: date = Query(..., description="Monday of the week to publish"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    week_end = week_start + timedelta(days=6)
+    updated = (
+        db.query(Schedule)
+        .filter(
+            Schedule.user_id == user.id,
+            Schedule.date >= week_start,
+            Schedule.date <= week_end,
+            Schedule.status == "draft",
+        )
+        .update({"status": "published"})
+    )
+    db.commit()
+    return {"published": updated, "week_start": week_start.isoformat()}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  HOURS
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@router.get("/hours", response_model=list[HoursLogResponse])
+def list_hours(
+    from_date: date = Query(..., alias="from"),
+    to_date: date = Query(..., alias="to"),
+    staff_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    q = db.query(HoursLogged).filter(
+        HoursLogged.user_id == user.id,
+        HoursLogged.date >= from_date,
+        HoursLogged.date <= to_date,
+    )
+    if staff_id:
+        q = q.filter(HoursLogged.staff_id == staff_id)
+    return q.order_by(HoursLogged.date, HoursLogged.staff_id).all()
+
+
+@router.post("/hours", response_model=HoursLogResponse)
+def log_hours(
+    data: HoursLogCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    # Verify staff
+    staff = db.query(StaffMember).filter(
+        StaffMember.id == data.staff_id,
+        StaffMember.user_id == user.id,
+        StaffMember.is_deleted.isnot(True),
+    ).first()
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+
+    total_hours = data.total_hours
+    entry_method = data.entry_method
+
+    # If clock-in/out times provided, calculate hours from them
+    if data.start_time and data.end_time:
+        total_hours = _calc_shift_hours(data.start_time, data.end_time, data.break_minutes)
+        entry_method = "clock"
+
+    # Pick rate and compute earned
+    rate = data.rate_applied if data.rate_applied else _pick_rate(staff, data.date, data.start_time)
+    earned = data.earned if data.earned is not None else round(total_hours * rate, 2)
+
+    entry = HoursLogged(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        staff_id=data.staff_id,
+        date=data.date,
+        start_time=data.start_time,
+        end_time=data.end_time,
+        break_minutes=data.break_minutes,
+        total_hours=total_hours,
+        rate_applied=rate,
+        earned=earned,
+        entry_method=entry_method,
+        is_overtime=data.is_overtime,
+        notes=data.notes,
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
+@router.post("/hours/confirm-schedule")
+def confirm_schedule_hours(
+    week_start: date = Query(..., description="Monday of the week"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Bulk-create hours entries from published schedule shifts for the week."""
+    week_end = week_start + timedelta(days=6)
+    published_shifts = (
+        db.query(Schedule)
+        .filter(
+            Schedule.user_id == user.id,
+            Schedule.date >= week_start,
+            Schedule.date <= week_end,
+            Schedule.status == "published",
+        )
+        .all()
+    )
+    if not published_shifts:
+        raise HTTPException(status_code=404, detail="No published shifts for this week")
+
+    # Pre-load staff members for rate lookup
+    staff_ids = list({s.staff_id for s in published_shifts})
+    staff_map = {}
+    for sid in staff_ids:
+        m = db.query(StaffMember).filter(StaffMember.id == sid).first()
+        if m:
+            staff_map[sid] = m
+
+    created = 0
+    for shift in published_shifts:
+        # Skip if hours already logged for this staff+date+time combo
+        existing = db.query(HoursLogged).filter(
+            HoursLogged.user_id == user.id,
+            HoursLogged.staff_id == shift.staff_id,
+            HoursLogged.date == shift.date,
+            HoursLogged.start_time == shift.start_time,
+            HoursLogged.end_time == shift.end_time,
+        ).first()
+        if existing:
+            continue
+
+        total_hours = _calc_shift_hours(shift.start_time, shift.end_time, shift.break_minutes)
+        staff = staff_map.get(shift.staff_id)
+        rate = _pick_rate(staff, shift.date, shift.start_time) if staff else 0
+        earned = round(total_hours * rate, 2)
+
+        entry = HoursLogged(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            staff_id=shift.staff_id,
+            date=shift.date,
+            start_time=shift.start_time,
+            end_time=shift.end_time,
+            break_minutes=shift.break_minutes,
+            total_hours=total_hours,
+            rate_applied=rate,
+            earned=earned,
+            entry_method="schedule",
+            notes=f"From published schedule",
+        )
+        db.add(entry)
+        created += 1
+
+    db.commit()
+    return {"created": created, "week_start": week_start.isoformat()}
+
+
+@router.put("/hours/{hours_id}", response_model=HoursLogResponse)
+def update_hours(
+    hours_id: str,
+    data: HoursLogCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    entry = db.query(HoursLogged).filter(
+        HoursLogged.id == hours_id,
+        HoursLogged.user_id == user.id,
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Hours entry not found")
+
+    staff = db.query(StaffMember).filter(
+        StaffMember.id == data.staff_id,
+        StaffMember.user_id == user.id,
+    ).first()
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+
+    total_hours = data.total_hours
+    entry_method = data.entry_method
+
+    if data.start_time and data.end_time:
+        total_hours = _calc_shift_hours(data.start_time, data.end_time, data.break_minutes)
+        entry_method = "clock"
+
+    rate = data.rate_applied if data.rate_applied else _pick_rate(staff, data.date, data.start_time)
+    earned = data.earned if data.earned is not None else round(total_hours * rate, 2)
+
+    entry.staff_id = data.staff_id
+    entry.date = data.date
+    entry.start_time = data.start_time
+    entry.end_time = data.end_time
+    entry.break_minutes = data.break_minutes
+    entry.total_hours = total_hours
+    entry.rate_applied = rate
+    entry.earned = earned
+    entry.entry_method = entry_method
+    entry.is_overtime = data.is_overtime
+    entry.notes = data.notes
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
+@router.delete("/hours/{hours_id}", status_code=204)
+def delete_hours(
+    hours_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    entry = db.query(HoursLogged).filter(
+        HoursLogged.id == hours_id,
+        HoursLogged.user_id == user.id,
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Hours entry not found")
+    db.delete(entry)
+    db.commit()
+
+
+@router.get("/hours/summary")
+def hours_summary(
+    from_date: date = Query(..., alias="from"),
+    to_date: date = Query(..., alias="to"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Per-staff summary: total_hours, total_earned, overtime_hours, tips_received."""
+    # Hours aggregation
+    hours_rows = (
+        db.query(
+            HoursLogged.staff_id,
+            func.sum(HoursLogged.total_hours).label("total_hours"),
+            func.sum(HoursLogged.earned).label("total_earned"),
+            func.sum(
+                func.case(
+                    (HoursLogged.is_overtime.is_(True), HoursLogged.total_hours),
+                    else_=0,
+                )
+            ).label("overtime_hours"),
+        )
+        .filter(
+            HoursLogged.user_id == user.id,
+            HoursLogged.date >= from_date,
+            HoursLogged.date <= to_date,
+        )
+        .group_by(HoursLogged.staff_id)
+        .all()
+    )
+
+    # Tips aggregation
+    tips_rows = (
+        db.query(
+            TipDistribution.staff_id,
+            func.sum(TipDistribution.amount).label("tips_received"),
+        )
+        .join(Tip, Tip.id == TipDistribution.tip_id)
+        .filter(
+            Tip.user_id == user.id,
+            Tip.date >= from_date,
+            Tip.date <= to_date,
+        )
+        .group_by(TipDistribution.staff_id)
+        .all()
+    )
+    tips_map = {str(r.staff_id): float(r.tips_received or 0) for r in tips_rows}
+
+    # Staff names
+    staff_ids = list({str(r.staff_id) for r in hours_rows} | set(tips_map.keys()))
+    staff_names = {}
+    if staff_ids:
+        members = db.query(StaffMember).filter(StaffMember.id.in_(staff_ids)).all()
+        staff_names = {str(m.id): m.name for m in members}
+
+    summary = []
+    for r in hours_rows:
+        sid = str(r.staff_id)
+        summary.append({
+            "staff_id": sid,
+            "staff_name": staff_names.get(sid, "Unknown"),
+            "total_hours": round(float(r.total_hours or 0), 1),
+            "total_earned": round(float(r.total_earned or 0), 2),
+            "overtime_hours": round(float(r.overtime_hours or 0), 1),
+            "tips_received": round(tips_map.get(sid, 0), 2),
+        })
+
+    # Include staff who only have tips but no hours
+    hours_staff_ids = {str(r.staff_id) for r in hours_rows}
+    for sid, tip_amount in tips_map.items():
+        if sid not in hours_staff_ids:
+            summary.append({
+                "staff_id": sid,
+                "staff_name": staff_names.get(sid, "Unknown"),
+                "total_hours": 0,
+                "total_earned": 0,
+                "overtime_hours": 0,
+                "tips_received": round(tip_amount, 2),
+            })
+
+    return summary
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  TIPS
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@router.get("/tips", response_model=list[TipResponse])
+def list_tips(
+    from_date: date = Query(..., alias="from"),
+    to_date: date = Query(..., alias="to"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    tips = (
+        db.query(Tip)
+        .filter(
+            Tip.user_id == user.id,
+            Tip.date >= from_date,
+            Tip.date <= to_date,
+        )
+        .order_by(Tip.date.desc())
+        .all()
+    )
+    return tips
+
+
+@router.post("/tips", response_model=TipResponse)
+def create_tip(
+    data: TipCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    tip = Tip(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        date=data.date,
+        total_amount=data.total_amount,
+        split_method=data.split_method,
+        notes=data.notes,
+    )
+    db.add(tip)
+    db.flush()  # get tip.id for distributions
+
+    if data.staff_hours:
+        if data.split_method == "by_hours":
+            total_hours = sum(sh.hours for sh in data.staff_hours)
+            for sh in data.staff_hours:
+                pct = (sh.hours / total_hours * 100) if total_hours > 0 else 0
+                amount = round(data.total_amount * sh.hours / total_hours, 2) if total_hours > 0 else 0
+                dist = TipDistribution(
+                    id=uuid.uuid4(),
+                    tip_id=tip.id,
+                    staff_id=sh.staff_id,
+                    share_pct=round(pct, 2),
+                    amount=amount,
+                )
+                db.add(dist)
+
+        elif data.split_method == "by_role":
+            # Look up contract types to assign shares
+            staff_ids = [sh.staff_id for sh in data.staff_hours]
+            members = db.query(StaffMember).filter(StaffMember.id.in_(staff_ids)).all()
+            contract_map = {str(m.id): m.contract_type for m in members}
+
+            shares = {}
+            for sh in data.staff_hours:
+                ct = contract_map.get(str(sh.staff_id), "full")
+                shares[sh.staff_id] = 1.0 if ct == "full" else 0.5
+
+            total_shares = sum(shares.values())
+            for staff_id, share in shares.items():
+                pct = (share / total_shares * 100) if total_shares > 0 else 0
+                amount = round(data.total_amount * share / total_shares, 2) if total_shares > 0 else 0
+                dist = TipDistribution(
+                    id=uuid.uuid4(),
+                    tip_id=tip.id,
+                    staff_id=staff_id,
+                    share_pct=round(pct, 2),
+                    amount=amount,
+                )
+                db.add(dist)
+
+        else:
+            # Equal split fallback
+            count = len(data.staff_hours)
+            per_person = round(data.total_amount / count, 2) if count > 0 else 0
+            pct = round(100.0 / count, 2) if count > 0 else 0
+            for sh in data.staff_hours:
+                dist = TipDistribution(
+                    id=uuid.uuid4(),
+                    tip_id=tip.id,
+                    staff_id=sh.staff_id,
+                    share_pct=pct,
+                    amount=per_person,
+                )
+                db.add(dist)
+
+    db.commit()
+    db.refresh(tip)
+    return tip
+
+
+@router.put("/tips/{tip_id}", response_model=TipResponse)
+def update_tip(
+    tip_id: str,
+    data: TipCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    tip = db.query(Tip).filter(
+        Tip.id == tip_id,
+        Tip.user_id == user.id,
+    ).first()
+    if not tip:
+        raise HTTPException(status_code=404, detail="Tip not found")
+    if tip.confirmed:
+        raise HTTPException(status_code=400, detail="Cannot edit a confirmed tip")
+
+    tip.date = data.date
+    tip.total_amount = data.total_amount
+    tip.split_method = data.split_method
+    tip.notes = data.notes
+
+    # Delete old distributions and recreate
+    db.query(TipDistribution).filter(TipDistribution.tip_id == tip.id).delete()
+    db.flush()
+
+    if data.staff_hours:
+        if data.split_method == "by_hours":
+            total_hours = sum(sh.hours for sh in data.staff_hours)
+            for sh in data.staff_hours:
+                pct = (sh.hours / total_hours * 100) if total_hours > 0 else 0
+                amount = round(data.total_amount * sh.hours / total_hours, 2) if total_hours > 0 else 0
+                dist = TipDistribution(
+                    id=uuid.uuid4(),
+                    tip_id=tip.id,
+                    staff_id=sh.staff_id,
+                    share_pct=round(pct, 2),
+                    amount=amount,
+                )
+                db.add(dist)
+
+        elif data.split_method == "by_role":
+            staff_ids = [sh.staff_id for sh in data.staff_hours]
+            members = db.query(StaffMember).filter(StaffMember.id.in_(staff_ids)).all()
+            contract_map = {str(m.id): m.contract_type for m in members}
+
+            shares = {}
+            for sh in data.staff_hours:
+                ct = contract_map.get(str(sh.staff_id), "full")
+                shares[sh.staff_id] = 1.0 if ct == "full" else 0.5
+
+            total_shares = sum(shares.values())
+            for staff_id, share in shares.items():
+                pct = (share / total_shares * 100) if total_shares > 0 else 0
+                amount = round(data.total_amount * share / total_shares, 2) if total_shares > 0 else 0
+                dist = TipDistribution(
+                    id=uuid.uuid4(),
+                    tip_id=tip.id,
+                    staff_id=staff_id,
+                    share_pct=round(pct, 2),
+                    amount=amount,
+                )
+                db.add(dist)
+
+        else:
+            count = len(data.staff_hours)
+            per_person = round(data.total_amount / count, 2) if count > 0 else 0
+            pct = round(100.0 / count, 2) if count > 0 else 0
+            for sh in data.staff_hours:
+                dist = TipDistribution(
+                    id=uuid.uuid4(),
+                    tip_id=tip.id,
+                    staff_id=sh.staff_id,
+                    share_pct=pct,
+                    amount=per_person,
+                )
+                db.add(dist)
+
+    db.commit()
+    db.refresh(tip)
+    return tip
+
+
+@router.post("/tips/{tip_id}/confirm", response_model=TipResponse)
+def confirm_tip(
+    tip_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    tip = db.query(Tip).filter(
+        Tip.id == tip_id,
+        Tip.user_id == user.id,
+    ).first()
+    if not tip:
+        raise HTTPException(status_code=404, detail="Tip not found")
+    tip.confirmed = True
+    db.commit()
+    db.refresh(tip)
+    return tip
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  PAYROLL PDF
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class PayrollPDFRequest(BaseModel):
+    period_start: date
+    period_end: date
+    staff_ids: list[str] | None = None
+
+
+@router.post("/payroll/pdf")
+def generate_payroll_pdf(
+    body: PayrollPDFRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    # Gather staff
+    staff_q = db.query(StaffMember).filter(
+        StaffMember.user_id == user.id,
+        StaffMember.is_deleted.isnot(True),
+    )
+    if body.staff_ids:
+        staff_q = staff_q.filter(StaffMember.id.in_(body.staff_ids))
+    staff_list = staff_q.order_by(StaffMember.name).all()
+    if not staff_list:
+        raise HTTPException(status_code=404, detail="No staff found")
+
+    staff_map = {str(m.id): m for m in staff_list}
+    staff_ids = list(staff_map.keys())
+
+    # Gather hours
+    hours = (
+        db.query(HoursLogged)
+        .filter(
+            HoursLogged.user_id == user.id,
+            HoursLogged.date >= body.period_start,
+            HoursLogged.date <= body.period_end,
+            HoursLogged.staff_id.in_(staff_ids),
+        )
+        .order_by(HoursLogged.date)
+        .all()
+    )
+
+    # Gather tips
+    tip_rows = (
+        db.query(
+            TipDistribution.staff_id,
+            func.sum(TipDistribution.amount).label("tips_total"),
+        )
+        .join(Tip, Tip.id == TipDistribution.tip_id)
+        .filter(
+            Tip.user_id == user.id,
+            Tip.date >= body.period_start,
+            Tip.date <= body.period_end,
+            TipDistribution.staff_id.in_(staff_ids),
+        )
+        .group_by(TipDistribution.staff_id)
+        .all()
+    )
+    tips_map = {str(r.staff_id): float(r.tips_total or 0) for r in tip_rows}
+
+    # Aggregate per staff
+    staff_data = {}
+    for sid in staff_ids:
+        staff_data[sid] = {
+            "name": staff_map[sid].name,
+            "role": staff_map[sid].role,
+            "contract_type": staff_map[sid].contract_type,
+            "total_hours": 0.0,
+            "overtime_hours": 0.0,
+            "total_earned": 0.0,
+            "tips": tips_map.get(sid, 0.0),
+            "entries": [],
+        }
+
+    for h in hours:
+        sid = str(h.staff_id)
+        if sid not in staff_data:
+            continue
+        staff_data[sid]["total_hours"] += float(h.total_hours or 0)
+        staff_data[sid]["total_earned"] += float(h.earned or 0)
+        if h.is_overtime:
+            staff_data[sid]["overtime_hours"] += float(h.total_hours or 0)
+        staff_data[sid]["entries"].append(h)
+
+    # Business profile
+    profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
+    currency = user.currency or "DKK"
+
+    # Build PDF
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable, PageBreak
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        topMargin=20 * mm, bottomMargin=15 * mm,
+        leftMargin=20 * mm, rightMargin=20 * mm,
+    )
+    styles = getSampleStyleSheet()
+    story = []
+
+    fmt = lambda v: f"{v:,.2f} {currency}" if v is not None else "---"
+
+    # ── Title page ──
+    title_style = ParagraphStyle("Title", parent=styles["Title"], fontSize=18, spaceAfter=4)
+    story.append(Paragraph("Payroll Report", title_style))
+
+    biz_name = profile.business_name if profile else ""
+    if biz_name:
+        story.append(Paragraph(biz_name, styles["Heading3"]))
+    if profile:
+        addr_parts = [p for p in [profile.address, profile.zipcode, profile.city] if p]
+        if addr_parts:
+            story.append(Paragraph(", ".join(addr_parts), styles["Normal"]))
+        if profile.org_number:
+            story.append(Paragraph(f"CVR: {profile.org_number}", styles["Normal"]))
+
+    story.append(Paragraph(
+        f"Period: {body.period_start.strftime('%d %B %Y')} - {body.period_end.strftime('%d %B %Y')}",
+        styles["Normal"],
+    ))
+    story.append(Spacer(1, 10 * mm))
+
+    # ── Per-staff pages ──
+    for sid in staff_ids:
+        sd = staff_data[sid]
+
+        story.append(Paragraph(sd["name"], styles["Heading2"]))
+        story.append(Paragraph(
+            f"Role: {sd['role']}  |  Contract: {sd['contract_type']}",
+            styles["Normal"],
+        ))
+        story.append(Spacer(1, 4 * mm))
+
+        # Hours detail table
+        if sd["entries"]:
+            detail_data = [["Date", "Time", "Break", "Hours", "Rate", "Earned"]]
+            for h in sd["entries"]:
+                time_str = f"{h.start_time or '---'} - {h.end_time or '---'}"
+                detail_data.append([
+                    h.date.strftime("%d/%m"),
+                    time_str,
+                    f"{h.break_minutes}m",
+                    f"{float(h.total_hours):.1f}",
+                    fmt(h.rate_applied),
+                    fmt(h.earned),
+                ])
+
+            t = Table(detail_data, colWidths=[22 * mm, 32 * mm, 18 * mm, 18 * mm, 30 * mm, 30 * mm])
+            t.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a1a2e")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ]))
+            story.append(t)
+            story.append(Spacer(1, 4 * mm))
+
+        # Staff totals
+        grand_total = sd["total_earned"] + sd["tips"]
+        totals_data = [
+            ["Total Hours", f"{sd['total_hours']:.1f}"],
+            ["Overtime Hours", f"{sd['overtime_hours']:.1f}"],
+            ["Total Earned", fmt(sd["total_earned"])],
+            ["Tips Received", fmt(sd["tips"])],
+            ["GRAND TOTAL", fmt(grand_total)],
+        ]
+        t = Table(totals_data, colWidths=[80 * mm, 60 * mm])
+        t.setStyle(TableStyle([
+            ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        story.append(t)
+        story.append(Spacer(1, 4 * mm))
+        story.append(HRFlowable(width="100%", color=colors.HexColor("#cccccc")))
+        story.append(Spacer(1, 6 * mm))
+
+    # ── Summary page ──
+    story.append(PageBreak())
+    story.append(Paragraph("Summary - All Staff", styles["Heading2"]))
+    story.append(Spacer(1, 4 * mm))
+
+    sum_data = [["Staff", "Hours", "Overtime", "Earned", "Tips", "Total"]]
+    grand_hours = 0.0
+    grand_overtime = 0.0
+    grand_earned = 0.0
+    grand_tips = 0.0
+    grand_total = 0.0
+
+    for sid in staff_ids:
+        sd = staff_data[sid]
+        row_total = sd["total_earned"] + sd["tips"]
+        sum_data.append([
+            sd["name"],
+            f"{sd['total_hours']:.1f}",
+            f"{sd['overtime_hours']:.1f}",
+            fmt(sd["total_earned"]),
+            fmt(sd["tips"]),
+            fmt(row_total),
+        ])
+        grand_hours += sd["total_hours"]
+        grand_overtime += sd["overtime_hours"]
+        grand_earned += sd["total_earned"]
+        grand_tips += sd["tips"]
+        grand_total += row_total
+
+    sum_data.append([
+        "TOTAL",
+        f"{grand_hours:.1f}",
+        f"{grand_overtime:.1f}",
+        fmt(grand_earned),
+        fmt(grand_tips),
+        fmt(grand_total),
+    ])
+
+    t = Table(sum_data, colWidths=[35 * mm, 20 * mm, 22 * mm, 28 * mm, 25 * mm, 30 * mm])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a1a2e")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    story.append(t)
+    story.append(Spacer(1, 8 * mm))
+
+    # Footer
+    story.append(HRFlowable(width="100%", color=colors.grey))
+    story.append(Spacer(1, 3 * mm))
+    story.append(Paragraph(
+        f"Generated from BonBox on {datetime.utcnow().strftime('%d/%m/%Y %H:%M')}",
+        styles["Normal"],
+    ))
+
+    doc.build(story)
+    buf.seek(0)
+    filename = f"payroll_{body.period_start.isoformat()}_{body.period_end.isoformat()}.pdf"
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )

@@ -136,6 +136,10 @@ const WineListPage = lazyRetry(() => import("./pages/WineListPage"));
 const JobCardPage = lazyRetry(() => import("./pages/JobCardPage"));
 const NewJobPage = lazyRetry(() => import("./pages/JobCardPage").then(m => ({ default: m.NewJobPage })));
 const PrivacyPolicyPage = lazyRetry(() => import("./pages/PrivacyPolicyPage"));
+const StaffSchedulePage = lazyRetry(() => import("./pages/StaffSchedulePage"));
+const StaffHoursPage = lazyRetry(() => import("./pages/StaffHoursPage"));
+const StaffTipsPage = lazyRetry(() => import("./pages/StaffTipsPage"));
+const StaffPayrollPage = lazyRetry(() => import("./pages/StaffPayrollPage"));
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -204,6 +208,10 @@ function AppRoutes() {
           <Route path="/payment-imports" element={<PaymentImportsPage />} />
           <Route path="/budgets" element={<BudgetPage />} />
           <Route path="/team" element={<TeamPage />} />
+          <Route path="/staff/schedule" element={<StaffSchedulePage />} />
+          <Route path="/staff/hours" element={<StaffHoursPage />} />
+          <Route path="/staff/tips" element={<StaffTipsPage />} />
+          <Route path="/staff/payroll" element={<StaffPayrollPage />} />
         </Route>
       </Routes>
     </Suspense>

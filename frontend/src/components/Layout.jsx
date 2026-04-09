@@ -53,6 +53,18 @@ const navGroups = [
     ],
   },
   {
+    id: "staff",
+    label: "Staff",
+    icon: "👥",
+    visibleFor: null,
+    items: [
+      { to: "/staff/schedule", icon: "📅", labelKey: "staffSchedule" },
+      { to: "/staff/hours", icon: "⏱", labelKey: "staffHours" },
+      { to: "/staff/tips", icon: "💰", labelKey: "staffTips" },
+      { to: "/staff/payroll", icon: "📄", labelKey: "staffPayroll" },
+    ],
+  },
+  {
     id: "intel",
     label: "Intelligence",
     icon: "🧠",
