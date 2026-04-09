@@ -375,4 +375,5 @@ export const de = {
   landingFooterTagline: "Intelligente Analysen für kleine Unternehmen",
   landingFooterContact: "Kontakt", landingFooterPrivacy: "Datenschutz",
   workshop: "Werkstatt",
+  wineList: "Weinkarte",
 };

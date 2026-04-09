@@ -367,4 +367,5 @@ export const no_ = {
   landingFooterTagline: "Smart analyse for små bedrifter",
   landingFooterContact: "Kontakt", landingFooterPrivacy: "Personvern",
   workshop: "Verksted",
+  wineList: "Vinkart",
 };

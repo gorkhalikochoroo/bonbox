@@ -47,6 +47,7 @@ const navGroups = [
     visibleFor: null,
     items: [
       { to: "/inventory", icon: "📦", labelKey: "inventory" },
+      { to: "/wine-list", icon: "🍷", labelKey: "wineList", visibleFor: ["restaurant", "general"] },
       { to: "/expiry", icon: "⏰", labelKey: "expiryForecasting", visibleFor: ["restaurant", "retail", "general"] },
       { to: "/waste", icon: "🗑️", labelKey: "wasteTracker", visibleFor: ["restaurant", "retail", "general"] },
     ],

@@ -367,4 +367,5 @@ export const nl = {
   landingFooterTagline: "Slimme analyses voor kleine bedrijven",
   landingFooterContact: "Contact", landingFooterPrivacy: "Privacy",
   workshop: "Werkplaats",
+  wineList: "Wijnkaart",
 };

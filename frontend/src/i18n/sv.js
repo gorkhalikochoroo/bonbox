@@ -367,4 +367,5 @@ export const sv = {
   landingFooterTagline: "Smart analys för småföretag",
   landingFooterContact: "Kontakt", landingFooterPrivacy: "Integritet",
   workshop: "Verkstad",
+  wineList: "Vinlista",
 };

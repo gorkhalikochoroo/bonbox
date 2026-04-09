@@ -367,4 +367,5 @@ export const pt = {
   landingFooterTagline: "Análise inteligente para pequenos negócios",
   landingFooterContact: "Contato", landingFooterPrivacy: "Privacidade",
   workshop: "Oficina",
+  wineList: "Carta de vinhos",
 };

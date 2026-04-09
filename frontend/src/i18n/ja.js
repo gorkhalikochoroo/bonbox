@@ -367,4 +367,5 @@ export const ja = {
   landingFooterTagline: "小規模ビジネスのためのスマート分析",
   landingFooterContact: "お問い合わせ", landingFooterPrivacy: "プライバシー",
   workshop: "ワークショップ",
+  wineList: "ワインリスト",
 };

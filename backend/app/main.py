@@ -10,7 +10,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine
 from app.database import engine, Base
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -358,6 +358,7 @@ app.include_router(competitor.router, prefix="/api/competitors", tags=["Competit
 app.include_router(branch.router, prefix="/api/branches", tags=["Branch Bookkeeping"])
 app.include_router(daily_close.router, prefix="/api/daily-close", tags=["Daily Close / Kasserapport"])
 app.include_router(workshop.router, prefix="/api/workshop", tags=["Automobile Workshop"])
+app.include_router(wine.router, prefix="/api/wines", tags=["Wine List"])
 
 
 # --- Protected Uploads (user can only access own receipts) ---

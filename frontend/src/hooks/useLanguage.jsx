@@ -204,6 +204,7 @@ const translations = {
     competitorScan: "Competitor Scan",
     branches: "Branches",
     workshop: "Workshop",
+    wineList: "Wine List", wineListDesc: "Manage your wine catalog, track stock & margins, export menus.",
     // Contact
     contact: "Contact",
     // Recently Deleted
@@ -788,6 +789,7 @@ const translations = {
     competitorScan: "Konkurrentscan",
     branches: "Filialer",
     workshop: "Værksted",
+    wineList: "Vinkort", wineListDesc: "Administrer dit vinkatalog, følg lager og marginer, eksportér menuer.",
     // Contact
     contact: "Kontakt",
     // Recently Deleted
@@ -1360,6 +1362,7 @@ const translations = {
     competitorScan: "प्रतिस्पर्धी स्क्यान",
     branches: "शाखाहरू",
     workshop: "कार्यशाला",
+    wineList: "वाइन सूची", wineListDesc: "आफ्नो वाइन क्याटलग व्यवस्थापन गर्नुहोस्, स्टक र मार्जिन ट्र्याक गर्नुहोस्।",
     // Contact
     contact: "सम्पर्क",
     // Recently Deleted
