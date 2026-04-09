@@ -1,3 +1,4 @@
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
@@ -14,8 +15,8 @@ from app.routers import auth, sales, expenses, inventory, reports, dashboard, st
 from app.database import engine, Base
 from app.models import *  # noqa: ensure all models are loaded
 
-# Create tables synchronously at import — DB MUST be ready before serving requests
-Base.metadata.create_all(bind=engine)
+# DB readiness flag — set once tables + migrations are done
+_db_ready = threading.Event()
 
 # Run schema migrations (idempotent — safe to run multiple times)
 _migrations = [
@@ -281,18 +282,55 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
-# --- Run migrations synchronously (DB must be ready before serving requests) ---
-try:
-    _run_migrations()
-except Exception as e:
-    print(f"Migration warning: {e}")
+# --- DB init in background thread with readiness gate ---
+def _init_db():
+    """Create tables & run migrations, then signal readiness."""
+    import time
+    for attempt in range(3):
+        try:
+            Base.metadata.create_all(bind=engine)
+            print("DB tables created")
+            break
+        except Exception as e:
+            print(f"DB create_all attempt {attempt + 1} failed: {e}")
+            if attempt < 2:
+                time.sleep(5)  # wait for sleeping PG to wake up
+            else:
+                print("DB create_all gave up after 3 attempts")
+    try:
+        _run_migrations()
+    except Exception as e:
+        print(f"Migration warning: {e}")
+    try:
+        _run_data_migration()
+    except Exception as e:
+        print(f"Data migration warning: {e}")
+    _db_ready.set()
+    print("DB init complete — ready to serve requests")
 
-try:
-    _run_data_migration()
-except Exception as e:
-    print(f"Data migration warning: {e}")
 
-print("DB init complete")
+@app.on_event("startup")
+async def startup_db():
+    """Start DB init in background so uvicorn can bind port immediately."""
+    t = threading.Thread(target=_init_db, daemon=True)
+    t.start()
+
+
+# --- DB readiness middleware: block API requests until DB is ready ---
+@app.middleware("http")
+async def db_readiness_gate(request: Request, call_next):
+    path = request.url.path
+    # Always allow health check, docs, and CORS preflight through
+    if path in ("/api/health", "/docs", "/redoc", "/openapi.json") or request.method == "OPTIONS":
+        return await call_next(request)
+    # Block real API requests until DB is ready (wait up to 30s)
+    if not _db_ready.wait(timeout=30):
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Server is starting up, please retry in a moment"},
+            headers={"Retry-After": "5"},
+        )
+    return await call_next(request)
 
 
 # --- CORS (tightened) ---
