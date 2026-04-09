@@ -14,7 +14,8 @@ from app.routers import auth, sales, expenses, inventory, reports, dashboard, st
 from app.database import engine, Base
 from app.models import *  # noqa: ensure all models are loaded
 
-Base.metadata.create_all(bind=engine)
+# Moved to startup event so port opens immediately (fixes Render free-tier timeout)
+# Base.metadata.create_all(bind=engine)  — now runs in @app.on_event("startup")
 
 # Run schema migrations (idempotent — safe to run multiple times)
 _migrations = [
@@ -210,17 +211,11 @@ def _run_migrations():
             conn.commit()
             print(f"Schema migrations (PG): {ok} applied, {failed} skipped")
 
-try:
-    _run_migrations()
-except Exception as e:
-    print(f"Migration warning: {e}")
-
-# --- Data migration: fix cashbook auto-synced entries ---
-try:
+def _run_data_migration():
+    """Fix cashbook auto-synced entries (runs once at startup)."""
     is_sqlite_db = str(engine.url).startswith("sqlite")
     with engine.connect() as conn:
         if is_sqlite_db:
-            # SQLite: use CAST(... AS TEXT) instead of ::text, and UPDATE ... FROM not supported
             conn.execute(text("""
                 DELETE FROM cash_transactions
                 WHERE reference_id LIKE 'expense_%'
@@ -230,7 +225,6 @@ try:
                     WHERE e.is_personal = 1
                 )
             """))
-            # SQLite doesn't support UPDATE ... FROM, so use a subquery
             conn.execute(text("""
                 UPDATE cash_transactions
                 SET category = (
@@ -248,7 +242,6 @@ try:
                 )
             """))
         else:
-            # PostgreSQL
             conn.execute(text("""
                 DELETE FROM cash_transactions
                 WHERE reference_id LIKE 'expense_%'
@@ -266,11 +259,8 @@ try:
                 WHERE ct.reference_id = 'expense_' || e.id::text
                 AND ct.category = 'Purchase'
             """))
-
         conn.commit()
     print("Data migration: cashbook entries fixed")
-except Exception as e:
-    print(f"Data migration warning: {e}")
 
 # --- Rate Limiter ---
 limiter = Limiter(key_func=get_remote_address, default_limits=["120/minute"])
@@ -289,6 +279,25 @@ app = FastAPI(
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+# --- DB init runs AFTER uvicorn opens port (fixes Render free-tier timeout) ---
+@app.on_event("startup")
+async def startup_db():
+    """Create tables & run migrations after port is open so Render port scan passes."""
+    try:
+        Base.metadata.create_all(bind=engine)
+        print("DB tables created")
+    except Exception as e:
+        print(f"DB create_all warning: {e}")
+    try:
+        _run_migrations()
+    except Exception as e:
+        print(f"Migration warning: {e}")
+    try:
+        _run_data_migration()
+    except Exception as e:
+        print(f"Data migration warning: {e}")
 
 
 # --- CORS (tightened) ---
