@@ -109,6 +109,7 @@ function LiveDemo({ t, currency }) {
     { key: "dashboard", label: t("landingDemoTabDashboard") },
     { key: "sales", label: t("landingDemoTabSales") },
     { key: "inventory", label: t("landingDemoTabInventory") },
+    { key: "staff", label: t("landingDemoTabStaff") },
   ];
 
   return (
@@ -279,6 +280,58 @@ function LiveDemo({ t, currency }) {
             </div>
           </div>
         )}
+
+        {activeTab === "staff" && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-white text-sm font-semibold">{t("landingDemoStaffTitle")}</p>
+              <span className="px-3 py-1 bg-purple-600 text-white text-[11px] rounded-lg font-semibold">{t("landingDemoPublish")}</span>
+            </div>
+            {/* Weekly schedule mini grid */}
+            <div className="bg-gray-800/60 border border-gray-700/50 rounded-lg p-3">
+              <p className="text-gray-400 text-[10px] font-semibold uppercase tracking-wider mb-2">{t("landingDemoThisWeek")}</p>
+              <div className="grid grid-cols-7 gap-1 mb-2">
+                {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d => (
+                  <div key={d} className="text-center text-[9px] text-gray-500 font-medium">{d}</div>
+                ))}
+              </div>
+              {[
+                { name: "Maria K.", shifts: [1,1,0,1,1,0,0], role: "Kitchen", on: "bg-orange-500/30 border border-orange-500/40" },
+                { name: "Jakob R.", shifts: [0,1,1,1,0,1,1], role: "Bar", on: "bg-purple-500/30 border border-purple-500/40" },
+                { name: "Rina T.", shifts: [1,0,1,0,1,1,0], role: "Floor", on: "bg-blue-500/30 border border-blue-500/40" },
+              ].map((staff) => (
+                <div key={staff.name} className="flex items-center gap-2 py-1.5 border-b border-gray-700/30 last:border-0">
+                  <span className="text-gray-300 text-[11px] font-medium w-16 truncate">{staff.name}</span>
+                  <div className="flex-1 grid grid-cols-7 gap-1">
+                    {staff.shifts.map((s, i) => (
+                      <div key={i} className={`h-5 rounded ${s ? staff.on : "bg-gray-800"} flex items-center justify-center`}>
+                        {s ? <span className="text-[8px] text-gray-300">{staff.role.charAt(0)}</span> : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {/* Hours + Tips summary */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-gray-800/60 border border-gray-700/50 rounded-lg p-3">
+                <p className="text-gray-400 text-[10px] font-semibold uppercase mb-2">{t("landingDemoHoursLogged")}</p>
+                <p className="text-white text-2xl font-bold">127<span className="text-gray-500 text-sm font-normal">h</span></p>
+                <p className="text-green-400 text-[10px]">3 {t("landingDemoStaffMembers")}</p>
+              </div>
+              <div className="bg-gray-800/60 border border-gray-700/50 rounded-lg p-3">
+                <p className="text-gray-400 text-[10px] font-semibold uppercase mb-2">{t("landingDemoTipPool")}</p>
+                <p className="text-white text-2xl font-bold">4,820 <span className="text-gray-500 text-sm font-normal">{currency}</span></p>
+                <p className="text-purple-400 text-[10px]">{t("landingDemoSplitByHours")}</p>
+              </div>
+            </div>
+            <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-2.5 flex items-center gap-2">
+              <span className="text-lg">📄</span>
+              <span className="text-green-400 text-[11px] font-medium flex-1">{t("landingDemoPayrollReady")}</span>
+              <span className="px-2 py-1 bg-green-600 text-white text-[10px] rounded font-semibold">PDF</span>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -436,7 +489,7 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
             {[
-              { val: 20, suffix: "+", label: t("landingStatFeatures") },
+              { val: 25, suffix: "+", label: t("landingStatFeatures") },
               { val: 21, suffix: "+", label: t("landingStatBusinessTypes") },
               { val: 12, suffix: "", label: t("landingStatLanguages") },
               { val: 5, suffix: "", label: t("landingStatSetup"), prefix: "" },
@@ -481,6 +534,9 @@ export default function LandingPage() {
               { icon: "🔧", titleKey: "landingFeature8Title", descKey: "landingFeature8Desc", accent: "from-amber-500/20 to-yellow-500/10", border: "border-amber-500/20 hover:border-amber-500/40" },
               { icon: "🏢", titleKey: "landingFeature9Title", descKey: "landingFeature9Desc", accent: "from-indigo-500/20 to-violet-500/10", border: "border-indigo-500/20 hover:border-indigo-500/40" },
               { icon: "🍷", titleKey: "landingFeature10Title", descKey: "landingFeature10Desc", accent: "from-purple-500/20 to-pink-500/10", border: "border-purple-500/20 hover:border-purple-500/40" },
+              { icon: "👨‍💼", titleKey: "landingFeature11Title", descKey: "landingFeature11Desc", accent: "from-teal-500/20 to-cyan-500/10", border: "border-teal-500/20 hover:border-teal-500/40" },
+              { icon: "🧮", titleKey: "landingFeature12Title", descKey: "landingFeature12Desc", accent: "from-lime-500/20 to-green-500/10", border: "border-lime-500/20 hover:border-lime-500/40" },
+              { icon: "🔄", titleKey: "landingFeature13Title", descKey: "landingFeature13Desc", accent: "from-sky-500/20 to-blue-500/10", border: "border-sky-500/20 hover:border-sky-500/40" },
             ].map((f, i) => (
               <FadeIn key={f.titleKey} delay={i * 80}>
                 <div className={`bg-gradient-to-br ${f.accent} rounded-2xl p-6 border ${f.border} transition-all duration-300 h-full group`}>
@@ -503,6 +559,7 @@ export default function LandingPage() {
                 t("landingTagExpiry"), t("landingTagCompetitor"), t("landingTagBranch"),
                 t("landingTagWorkshop"), t("landingTagDailyClose"), t("landingTagMultiBiz"),
                 t("landingTagWineList"), t("landingTagScanBottle"), t("landingTagSommelier"),
+                t("landingTagStaffSchedule"), t("landingTagTipSplit"), t("landingTagPayrollPdf"), t("landingTagUnitConvert"),
               ].map((f) => (
                 <span key={f} className="px-4 py-2 bg-white/5 border border-white/10 text-gray-400 text-sm font-medium rounded-full">
                   {f}
@@ -587,6 +644,45 @@ export default function LandingPage() {
                 ))}
               </div>
               <p className="text-center text-green-400 font-semibold text-sm mt-8">{t("landingBarBottom")}</p>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+
+      {/* ── Staff Management Spotlight ── */}
+      <section className="py-20 sm:py-28 bg-gradient-to-b from-slate-950 via-teal-950/15 to-slate-950 border-y border-white/5">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
+          <FadeIn>
+            <div className="text-center mb-12">
+              <p className="text-teal-400 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingStaffTag")}</p>
+              <h2 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight">
+                {t("landingStaffTitle1")}
+                <br />
+                <span className="text-teal-400">{t("landingStaffTitle2")}</span>
+              </h2>
+            </div>
+          </FadeIn>
+
+          <FadeIn delay={100}>
+            <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-6 sm:p-10">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6 text-center">
+                {[
+                  { icon: "📅", titleKey: "landingStaffStep1", subKey: "landingStaffStep1Sub", color: "text-white" },
+                  { icon: "⏱️", titleKey: "landingStaffStep2", subKey: "landingStaffStep2Sub", color: "text-white" },
+                  { icon: "💰", titleKey: "landingStaffStep3", subKey: "landingStaffStep3Sub", color: "text-teal-400" },
+                  { icon: "📄", titleKey: "landingStaffStep4", subKey: "landingStaffStep4Sub", color: "text-green-400" },
+                ].map((step, i) => (
+                  <div key={step.titleKey} className="relative">
+                    <div className="text-4xl mb-3">{step.icon}</div>
+                    <p className={`font-bold text-sm ${step.color}`}>{t(step.titleKey)}</p>
+                    <p className="text-gray-500 text-xs mt-1">{t(step.subKey)}</p>
+                    {i < 3 && (
+                      <span className="hidden sm:block absolute top-8 -right-3 sm:-right-4 text-teal-500 text-lg font-bold">&#8594;</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className="text-center text-teal-400 font-semibold text-sm mt-8">{t("landingStaffBottom")}</p>
             </div>
           </FadeIn>
         </div>

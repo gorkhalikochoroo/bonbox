@@ -3,7 +3,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
-import { formatDate, formatDateShort } from "../utils/dateFormat";
+
 import { FadeIn } from "../components/AnimationKit";
 
 const WEATHER_ICONS = {
@@ -24,8 +24,6 @@ export default function WeatherPage() {
   const [insights, setInsights] = useState([]);
   const [impact, setImpact] = useState(null);
   const [seasonal, setSeasonal] = useState(null);
-  const [sickCalls, setSickCalls] = useState([]);
-  const [sickStats, setSickStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [locationLoading, setLocationLoading] = useState(false);
   const [error, setError] = useState("");
@@ -39,10 +37,6 @@ export default function WeatherPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
 
-  // Sick call form
-  const [sickForm, setSickForm] = useState({ staff_name: "", date: new Date().toISOString().split("T")[0], weather_condition: "", notes: "" });
-  const [sickSuccess, setSickSuccess] = useState("");
-
   // Active tab for intelligence section
   const [intelTab, setIntelTab] = useState("predictions");
 
@@ -53,13 +47,11 @@ export default function WeatherPage() {
   const checkAndFetch = async () => {
     setLoading(true);
     setError("");
-    const [forecastRes, insightsRes, impactRes, seasonalRes, sickRes, sickStatsRes, statusRes, predRes, corrRes, alertsRes] = await Promise.allSettled([
+    const [forecastRes, insightsRes, impactRes, seasonalRes, statusRes, predRes, corrRes, alertsRes] = await Promise.allSettled([
       api.get("/weather/forecast"),
       api.get("/weather/insights"),
       api.get("/weather/impact-profile"),
       api.get("/weather/seasonal"),
-      api.get("/weather/sick-calls"),
-      api.get("/weather/sick-calls/stats"),
       api.get("/weather/intelligence-status"),
       api.get("/weather/prediction"),
       api.get("/weather/correlation"),
@@ -80,8 +72,6 @@ export default function WeatherPage() {
     if (insightsRes.status === "fulfilled") setInsights(insightsRes.value.data.insights || []);
     if (impactRes.status === "fulfilled") setImpact(impactRes.value.data);
     if (seasonalRes.status === "fulfilled") setSeasonal(seasonalRes.value.data);
-    if (sickRes.status === "fulfilled") setSickCalls(sickRes.value.data);
-    if (sickStatsRes.status === "fulfilled") setSickStats(sickStatsRes.value.data);
 
     // Intelligence endpoints
     if (statusRes.status === "fulfilled") setIntelStatus(statusRes.value.data);
@@ -138,24 +128,7 @@ export default function WeatherPage() {
     );
   };
 
-  const logSickCall = async (e) => {
-    e.preventDefault();
-    if (!sickForm.staff_name) return;
-    try {
-      await api.post("/weather/sick-calls", {
-        staff_name: sickForm.staff_name,
-        date: sickForm.date,
-        weather_condition: sickForm.weather_condition || null,
-        notes: sickForm.notes || null,
-      });
-      setSickForm({ staff_name: "", date: new Date().toISOString().split("T")[0], weather_condition: "", notes: "" });
-      setSickSuccess(t("sickCallLogged"));
-      setTimeout(() => setSickSuccess(""), 2000);
-      const [res, statsRes] = await Promise.all([api.get("/weather/sick-calls"), api.get("/weather/sick-calls/stats")]);
-      setSickCalls(res.data);
-      setSickStats(statsRes.data);
-    } catch { setError(t("couldNotLogSickCall")); }
-  };
+
 
   // ─── LOADING ───
   if (loading) {
@@ -627,80 +600,6 @@ export default function WeatherPage() {
           </div>
         </div>
       )}
-
-      {/* ─── SICK CALL TRACKER ─── */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
-        <h2 className="font-bold text-gray-800 dark:text-white mb-4">{t("sickCallTracker")}</h2>
-
-        {/* Stats */}
-        {sickStats && (
-          <div className="grid grid-cols-3 gap-3 mb-4">
-            <div className="bg-red-50 dark:bg-red-900/20 p-3 rounded-xl text-center">
-              <p className="text-2xl font-bold text-red-600">{sickStats.this_month}</p>
-              <p className="text-xs text-gray-500">{t("thisMonth")}</p>
-            </div>
-            <div className="bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded-xl text-center">
-              <p className="text-2xl font-bold text-yellow-600">{sickStats.last_month}</p>
-              <p className="text-xs text-gray-500">{t("lastMonth")}</p>
-            </div>
-            <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-xl text-center">
-              <p className="text-2xl font-bold text-blue-600">{sickStats.weather_related || 0}</p>
-              <p className="text-xs text-gray-500">{t("weatherDays")}</p>
-            </div>
-          </div>
-        )}
-
-        {/* Add form */}
-        <form onSubmit={logSickCall} className="flex flex-wrap gap-2 mb-4">
-          <input
-            placeholder={t("staffName")}
-            value={sickForm.staff_name}
-            onChange={e => setSickForm(f => ({ ...f, staff_name: e.target.value }))}
-            className="flex-1 min-w-[120px] px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white"
-          />
-          <input
-            type="date"
-            value={sickForm.date}
-            onChange={e => setSickForm(f => ({ ...f, date: e.target.value }))}
-            className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white"
-          />
-          <select
-            value={sickForm.weather_condition}
-            onChange={e => setSickForm(f => ({ ...f, weather_condition: e.target.value }))}
-            className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white"
-          >
-            <option value="">{t("reason")}</option>
-            <option value="rain">{t("rainWeather")}</option>
-            <option value="snow">{t("snowOption")}</option>
-            <option value="storm">{t("stormOption")}</option>
-            <option value="clear">{t("sickGoodWeather")}</option>
-            <option value="cloudy">{t("sickBadWeather")}</option>
-          </select>
-          <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition">
-            {t("log")}
-          </button>
-        </form>
-        {sickSuccess && <p className="text-green-500 text-sm mb-2">{sickSuccess}</p>}
-
-        {/* Recent list */}
-        {sickCalls.length > 0 ? (
-          <div className="space-y-2">
-            {sickCalls.slice(0, 10).map((sc, i) => (
-              <div key={i} className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700 last:border-0">
-                <div>
-                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{sc.staff_name}</p>
-                  <p className="text-xs text-gray-500">{sc.weather_condition || "—"} • {formatDate(sc.date)}</p>
-                </div>
-                {sc.weather_condition && (
-                  <span className="text-lg">{WEATHER_ICONS[sc.weather_condition] || ""}</span>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-gray-400 text-center py-4">{t("noSickCalls")}</p>
-        )}
-      </div>
 
       {error && (
         <div className="bg-red-50 dark:bg-red-900/20 text-red-600 text-sm p-3 rounded-xl text-center">
