@@ -323,12 +323,12 @@ async def db_readiness_gate(request: Request, call_next):
     # Always allow health check, docs, and CORS preflight through
     if path in ("/api/health", "/docs", "/redoc", "/openapi.json") or request.method == "OPTIONS":
         return await call_next(request)
-    # Block real API requests until DB is ready (wait up to 30s)
-    if not _db_ready.wait(timeout=30):
+    # Return 503 instantly if DB isn't ready yet (non-blocking — won't freeze event loop)
+    if not _db_ready.is_set():
         return JSONResponse(
             status_code=503,
             content={"detail": "Server is starting up, please retry in a moment"},
-            headers={"Retry-After": "5"},
+            headers={"Retry-After": "3"},
         )
     return await call_next(request)
 
