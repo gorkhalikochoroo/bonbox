@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -148,6 +148,55 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
   const [closedBy, setClosedBy] = useState("");
   const [notes, setNotes] = useState("");
 
+  // Scan / OCR state
+  const [scanMode, setScanMode] = useState("idle"); // idle | scanning | result | skipped
+  const [scanResult, setScanResult] = useState(null);
+  const [scanError, setScanError] = useState("");
+  const fileInputRef = useRef(null);
+
+  const handleFileSelect = async (file) => {
+    if (!file) return;
+    setScanMode("scanning");
+    setScanError("");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await api.post("/daily-close/scan-report", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setScanResult(res.data);
+      setScanMode("result");
+    } catch (err) {
+      setScanError(err.response?.data?.detail || "OCR scanning failed. Please enter values manually.");
+      setScanMode("idle");
+    }
+  };
+
+  const applyScanValues = (jumpToReview = false) => {
+    if (!scanResult) return;
+    const r = scanResult.revenue || {};
+    const p = scanResult.payments || {};
+    // Fill revenue
+    const newRev = {};
+    if (r.food) newRev.food = String(r.food);
+    if (r.drinks) newRev.drinks = String(r.drinks);
+    if (r.takeaway) newRev.takeaway = String(r.takeaway);
+    // Also fill any key that matches existing rev cats
+    revCats.forEach(c => { if (r[c.key]) newRev[c.key] = String(r[c.key]); });
+    setRevAmounts(prev => ({ ...prev, ...newRev }));
+    // Fill payments
+    const newPay = {};
+    if (p.cash) newPay.cash = String(p.cash);
+    if (p.card) newPay.card = String(p.card);
+    if (p.mobilepay) newPay.mobilepay = String(p.mobilepay);
+    setPayAmounts(prev => ({ ...prev, ...newPay }));
+    // Fill tips
+    if (scanResult.tips) setTipsTotal(String(scanResult.tips));
+    // Jump to review or step 1
+    setScanMode("skipped");
+    setStep(jumpToReview ? reviewStep : 1);
+  };
+
   // Prefill from real data
   const [prefill, setPrefill] = useState(null);
   const [prefillLoading, setPrefillLoading] = useState(false);
@@ -207,6 +256,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
   const tipsPP = tipsTotal && staffCount && parseInt(staffCount) > 0
     ? Math.round(parseFloat(tipsTotal) / parseInt(staffCount)) : null;
 
+  // MOMS calculation (Danish 25% VAT)
+  const momsTotal = useMemo(() => {
+    if (scanResult?.moms_total) return scanResult.moms_total;
+    return revenueTotal > 0 ? Math.round((revenueTotal * 0.25 / 1.25) * 100) / 100 : 0;
+  }, [scanResult, revenueTotal]);
+  const revenueExMoms = useMemo(() => Math.round((revenueTotal - momsTotal) * 100) / 100, [revenueTotal, momsTotal]);
+
   const addCustomRevCat = () => {
     if (!customRevName.trim()) return;
     const key = customRevName.toLowerCase().replace(/\s+/g, "_");
@@ -247,16 +303,247 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
   const inputClass = "w-full px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 text-right text-lg";
   const labelClass = "text-sm font-medium text-gray-600 dark:text-gray-300";
 
+  const showScanUI = scanMode === "idle" || scanMode === "scanning" || scanMode === "result";
+
+  // Count how many fields OCR detected
+  const scanFieldsDetected = useMemo(() => {
+    if (!scanResult) return 0;
+    let count = 0;
+    const r = scanResult.revenue || {};
+    const p = scanResult.payments || {};
+    if (r.food) count++;
+    if (r.drinks) count++;
+    if (r.takeaway) count++;
+    if (p.cash) count++;
+    if (p.card) count++;
+    if (p.mobilepay) count++;
+    if (scanResult.tips) count++;
+    return count;
+  }, [scanResult]);
+  const scanFieldsTotal = 7;
+
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       {/* Progress bar */}
       <div className="flex">
-        {Array.from({ length: totalSteps }, (_, i) => i + 1).map(s => (
-          <div key={s} className={`flex-1 h-1.5 ${s <= step ? "bg-green-500" : "bg-gray-200 dark:bg-gray-700"} transition-colors`} />
-        ))}
+        {showScanUI ? (
+          <div className="flex-1 h-1.5 bg-gradient-to-r from-green-400 to-green-600 animate-pulse" />
+        ) : (
+          Array.from({ length: totalSteps }, (_, i) => i + 1).map(s => (
+            <div key={s} className={`flex-1 h-1.5 ${s <= step ? "bg-green-500" : "bg-gray-200 dark:bg-gray-700"} transition-colors`} />
+          ))
+        )}
       </div>
 
       <div className="p-5 sm:p-6">
+        {/* Hidden file input for camera/upload */}
+        <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden"
+          onChange={e => { if (e.target.files?.[0]) handleFileSelect(e.target.files[0]); e.target.value = ""; }} />
+
+        {/* ─── SCAN BANNER (Step 0) ─── */}
+        {scanMode === "idle" && (
+          <div className="space-y-4">
+            <div className="rounded-2xl p-6 text-center"
+              style={{ background: "linear-gradient(135deg, #059669 0%, #10b981 50%, #34d399 100%)" }}>
+              <div className="text-4xl mb-3">📷</div>
+              <h2 className="text-xl font-bold text-white mb-1">Scan your Z-Report / Kasserapport</h2>
+              <p className="text-green-100 text-sm mb-5">
+                Take a photo or upload an image of your Z-report and we'll extract the values automatically.
+              </p>
+              <div className="flex gap-3 justify-center">
+                <button
+                  onClick={() => { if (fileInputRef.current) { fileInputRef.current.setAttribute("capture", "environment"); fileInputRef.current.click(); } }}
+                  className="px-5 py-2.5 bg-white text-green-700 rounded-xl font-semibold shadow-md hover:shadow-lg transition text-sm">
+                  📸 Take Photo
+                </button>
+                <button
+                  onClick={() => { if (fileInputRef.current) { fileInputRef.current.removeAttribute("capture"); fileInputRef.current.click(); } }}
+                  className="px-5 py-2.5 bg-white/20 text-white border border-white/40 rounded-xl font-semibold hover:bg-white/30 transition text-sm">
+                  📁 Upload Image
+                </button>
+              </div>
+            </div>
+            {/* Upload zone */}
+            <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-6 text-center cursor-pointer hover:border-green-400 dark:hover:border-green-500 transition-colors"
+              onClick={() => { if (fileInputRef.current) { fileInputRef.current.removeAttribute("capture"); fileInputRef.current.click(); } }}
+              onDragOver={e => e.preventDefault()}
+              onDrop={e => { e.preventDefault(); if (e.dataTransfer.files?.[0]) handleFileSelect(e.dataTransfer.files[0]); }}>
+              <p className="text-gray-400 dark:text-gray-500 text-sm">
+                Drag & drop your Z-report image here, or click to browse
+              </p>
+            </div>
+            {scanError && (
+              <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">
+                {scanError}
+              </div>
+            )}
+            <div className="text-center">
+              <button onClick={() => { setScanMode("skipped"); setStep(1); }}
+                className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline underline-offset-2 transition">
+                Skip — enter manually
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ─── SCANNING SPINNER ─── */}
+        {scanMode === "scanning" && (
+          <div className="py-12 text-center space-y-4">
+            <div className="inline-block w-10 h-10 border-4 border-green-200 border-t-green-600 rounded-full animate-spin" />
+            <p className="text-gray-600 dark:text-gray-300 font-medium">Reading your Z-report...</p>
+            <p className="text-sm text-gray-400">OCR is extracting revenue, payments, and MOMS data</p>
+          </div>
+        )}
+
+        {/* ─── SCAN RESULT CARD ─── */}
+        {scanMode === "result" && scanResult && (
+          <div className="space-y-5">
+            {/* Confidence indicator */}
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold dark:text-white">Scan Results</h2>
+              <span className={`text-sm font-medium px-3 py-1 rounded-full ${
+                scanFieldsDetected >= 5 ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+                  : scanFieldsDetected >= 3 ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300"
+                    : "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
+              }`}>
+                🎯 {scanFieldsDetected >= 5 ? "High" : scanFieldsDetected >= 3 ? "Medium" : "Low"} confidence — {scanFieldsDetected}/{scanFieldsTotal} fields detected
+              </span>
+            </div>
+
+            {/* Revenue (med moms) */}
+            <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 space-y-3">
+              <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                Revenue (med moms)
+              </h3>
+              {[
+                { key: "food", label: "🍽️ Food / Mad" },
+                { key: "drinks", label: "🍺 Drinks / Drikkevarer" },
+                { key: "takeaway", label: "📦 Takeaway / Udbringning" },
+              ].map(f => {
+                const val = scanResult.revenue?.[f.key];
+                return (
+                  <div key={f.key} className="flex items-center gap-3">
+                    <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
+                      {val ? <span className="text-green-500">✓</span> : <span className="text-gray-300 dark:text-gray-600">—</span>}
+                      {f.label}
+                      {val && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 rounded">OCR</span>}
+                    </span>
+                    <input type="number" inputMode="decimal" className={inputClass}
+                      defaultValue={val || ""}
+                      onChange={e => {
+                        setScanResult(prev => ({
+                          ...prev,
+                          revenue: { ...prev.revenue, [f.key]: parseFloat(e.target.value) || 0 }
+                        }));
+                      }} />
+                  </div>
+                );
+              })}
+              {scanResult.revenue_total && (
+                <div className="flex justify-between pt-2 border-t dark:border-gray-600 text-sm font-bold dark:text-white">
+                  <span>Total Revenue</span>
+                  <span>{scanResult.revenue_total.toLocaleString()} {currency}</span>
+                </div>
+              )}
+            </div>
+
+            {/* MOMS section */}
+            <div className="rounded-xl p-4 space-y-2"
+              style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.08), rgba(139,92,246,0.08))" }}>
+              <h3 className="font-semibold text-sm flex items-center gap-2" style={{ color: "#6366f1" }}>
+                MOMS (Danish VAT 25%)
+                {scanResult.moms_total && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 rounded">OCR</span>}
+              </h3>
+              <div className="flex justify-between text-sm dark:text-gray-300">
+                <span>Total MOMS</span>
+                <span className="font-semibold" style={{ color: "#6366f1" }}>
+                  {(scanResult.moms_total || Math.round(((scanResult.revenue_total || 0) * 0.25 / 1.25) * 100) / 100).toLocaleString()} {currency}
+                </span>
+              </div>
+              {[
+                { key: "food", label: "Food" },
+                { key: "drinks", label: "Drinks" },
+                { key: "takeaway", label: "Takeaway" },
+              ].map(f => {
+                const val = scanResult.revenue?.[f.key];
+                if (!val) return null;
+                const udenMoms = Math.round((val / 1.25) * 100) / 100;
+                return (
+                  <div key={f.key} className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
+                    <span>{f.label} (uden moms)</span>
+                    <span>{udenMoms.toLocaleString()} {currency}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Payments */}
+            <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 space-y-3">
+              <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400">Payments</h3>
+              {[
+                { key: "cash", label: "💵 Cash / Kontant" },
+                { key: "card", label: "💳 Card / Dankort" },
+                { key: "mobilepay", label: "📱 MobilePay" },
+              ].map(f => {
+                const val = scanResult.payments?.[f.key];
+                return (
+                  <div key={f.key} className="flex items-center gap-3">
+                    <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
+                      {val ? <span className="text-green-500">✓</span> : <span className="text-gray-300 dark:text-gray-600">—</span>}
+                      {f.label}
+                      {val && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 rounded">OCR</span>}
+                    </span>
+                    <input type="number" inputMode="decimal" className={inputClass}
+                      defaultValue={val || ""}
+                      onChange={e => {
+                        setScanResult(prev => ({
+                          ...prev,
+                          payments: { ...prev.payments, [f.key]: parseFloat(e.target.value) || 0 }
+                        }));
+                      }} />
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Tips */}
+            <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
+              <div className="flex items-center gap-3">
+                <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
+                  {scanResult.tips ? <span className="text-green-500">✓</span> : <span className="text-gray-300 dark:text-gray-600">—</span>}
+                  💰 Tips
+                  {scanResult.tips && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 rounded">OCR</span>}
+                </span>
+                <input type="number" inputMode="decimal" className={inputClass}
+                  defaultValue={scanResult.tips || ""}
+                  onChange={e => {
+                    setScanResult(prev => ({ ...prev, tips: parseFloat(e.target.value) || 0 }));
+                  }} />
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button onClick={() => applyScanValues(true)}
+                className="flex-1 px-6 py-3 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 transition text-sm">
+                ✅ Use these values — jump to review
+              </button>
+              <button onClick={() => applyScanValues(false)}
+                className="flex-1 px-6 py-3 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-xl font-semibold hover:bg-gray-200 dark:hover:bg-gray-600 transition text-sm">
+                ✏️ Continue step-by-step
+              </button>
+            </div>
+            <div className="text-center">
+              <button onClick={() => { setScanResult(null); setScanMode("idle"); }}
+                className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline underline-offset-2">
+                Re-scan a different image
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ─── NORMAL STEP FLOW ─── */}
+        {!showScanUI && (<>
         {/* Sync indicator */}
         {prefillLoading && (
           <div className="mb-4 px-4 py-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl text-center text-sm text-gray-400">
@@ -435,6 +722,26 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
               </div>
             </div>
 
+            {/* MOMS (VAT) summary */}
+            {revenueTotal > 0 && (
+              <div className="rounded-xl p-4"
+                style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.08), rgba(139,92,246,0.08))" }}>
+                <h3 className="font-semibold text-sm mb-2" style={{ color: "#6366f1" }}>MOMS / VAT (25%)</h3>
+                <div className="flex justify-between text-sm dark:text-gray-300 py-0.5">
+                  <span>Revenue (med moms)</span>
+                  <span>{revenueTotal.toLocaleString()} {currency}</span>
+                </div>
+                <div className="flex justify-between text-sm font-semibold py-0.5" style={{ color: "#6366f1" }}>
+                  <span>MOMS 25%</span>
+                  <span>{momsTotal.toLocaleString()} {currency}</span>
+                </div>
+                <div className="flex justify-between text-sm font-bold pt-2 border-t mt-1 dark:text-white" style={{ borderColor: "rgba(99,102,241,0.2)" }}>
+                  <span>Revenue (uden moms)</span>
+                  <span>{revenueExMoms.toLocaleString()} {currency}</span>
+                </div>
+              </div>
+            )}
+
             {/* Payment summary */}
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
               <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 mb-2">Payments</h3>
@@ -518,7 +825,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
             }} className="px-5 py-2.5 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl font-medium">
               ← Back
             </button>
-          ) : <div />}
+          ) : (
+            <button onClick={() => { setScanMode("idle"); setScanResult(null); }}
+              className="px-5 py-2.5 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl font-medium text-sm">
+              ← Scan Z-Report
+            </button>
+          )}
 
           {step < totalSteps ? (
             <button onClick={() => {
@@ -536,6 +848,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
             </button>
           )}
         </div>
+        </>)}
       </div>
     </div>
   );

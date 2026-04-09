@@ -236,6 +236,136 @@ def _extract_amounts_from_text(text: str) -> dict:
     }
 
 
+def _parse_danish_amount(text: str) -> float | None:
+    """Parse a Danish-format amount string like '1.234,50' or '1234,50' to float."""
+    # Match Danish amounts: optional thousands separator (dot), comma decimal
+    m = re.search(r"([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2})", text)
+    if m:
+        raw = m.group(1)
+        return float(raw.replace(".", "").replace(",", "."))
+    # Try plain integer or simple decimal
+    m = re.search(r"([0-9]+(?:,[0-9]{2})?)", text)
+    if m:
+        raw = m.group(1)
+        return float(raw.replace(",", "."))
+    # Try English-format as fallback
+    m = re.search(r"([0-9]+(?:\.[0-9]{2})?)", text)
+    if m:
+        return float(m.group(1))
+    return None
+
+
+def _find_amount_near_keyword(lines: list[str], keyword_pattern: str) -> float | None:
+    """Search lines for a keyword and extract the amount on that line or the next."""
+    for i, line in enumerate(lines):
+        if re.search(keyword_pattern, line, re.IGNORECASE):
+            # Try the same line first
+            amount = _parse_danish_amount(line.split(re.search(keyword_pattern, line, re.IGNORECASE).group())[-1])
+            if amount is not None and amount > 0:
+                return amount
+            # Also try parsing the whole line after the keyword
+            after_kw = re.split(keyword_pattern, line, flags=re.IGNORECASE)[-1]
+            amount = _parse_danish_amount(after_kw)
+            if amount is not None and amount > 0:
+                return amount
+            # Try the next line
+            if i + 1 < len(lines):
+                amount = _parse_danish_amount(lines[i + 1])
+                if amount is not None and amount > 0:
+                    return amount
+    return None
+
+
+def parse_z_report(image_path: str) -> dict:
+    """Parse a Z-report / kasserapport image using OCR and extract structured fields.
+
+    Returns dict with revenue breakdown, payment methods, tips, MOMS, and totals.
+    """
+    # Run OCR pipeline (same order as extract_amount_from_image)
+    raw_text = _ocrspace_ocr(image_path)
+    if not raw_text:
+        raw_text = _google_vision_ocr(image_path)
+
+    if not raw_text:
+        return {
+            "revenue": {"food": None, "drinks": None, "takeaway": None},
+            "payments": {"cash": None, "card": None, "mobilepay": None},
+            "tips": None,
+            "moms_total": None,
+            "revenue_total": None,
+            "raw_text": "",
+            "ocr_available": False,
+            "confidence": "low",
+        }
+
+    lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
+
+    # ── Revenue categories ──
+    food = _find_amount_near_keyword(
+        lines, r"(?:mad|food|spisning|køkken|kitchen)"
+    )
+    drinks = _find_amount_near_keyword(
+        lines, r"(?:drikkevarer|drinks|bar|drikke|beverages)"
+    )
+    takeaway = _find_amount_near_keyword(
+        lines, r"(?:takeaway|udbringning|take\s*away|delivery)"
+    )
+
+    # ── Payment methods ──
+    cash = _find_amount_near_keyword(
+        lines, r"(?:kontant|cash)"
+    )
+    card = _find_amount_near_keyword(
+        lines, r"(?:dankort|kort|card|visa|mastercard|credit|debit)"
+    )
+    mobilepay = _find_amount_near_keyword(
+        lines, r"(?:mobilepay|mobile\s*pay|swipp)"
+    )
+
+    # ── Tips ──
+    tips = _find_amount_near_keyword(
+        lines, r"(?:drikkepenge|tips?|gratuity)"
+    )
+
+    # ── MOMS / VAT ──
+    moms_total = _find_amount_near_keyword(
+        lines, r"(?:moms|vat|heraf\s*moms|moms\s*25\s*%)"
+    )
+
+    # ── Total revenue ──
+    revenue_total = _find_amount_near_keyword(
+        lines, r"(?:total|i\s*alt|sum|omsætning|omsaetning|grand\s*total)"
+    )
+
+    # ── Confidence calculation ──
+    fields_found = sum(1 for v in [food, drinks, takeaway, cash, card, mobilepay, tips, moms_total, revenue_total] if v is not None)
+    if fields_found >= 3:
+        confidence = "high"
+    elif fields_found >= 1:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    return {
+        "revenue": {
+            "food": food,
+            "drinks": drinks,
+            "takeaway": takeaway,
+        },
+        "payments": {
+            "cash": cash,
+            "card": card,
+            "mobilepay": mobilepay,
+        },
+        "tips": tips,
+        "moms_total": moms_total,
+        "revenue_total": revenue_total,
+        "raw_text": raw_text[:1000],
+        "ocr_available": True,
+        "confidence": confidence,
+    }
+
+
 def extract_amount_from_image(image_path: str) -> dict:
     """Extract total amount from a receipt photo.
 

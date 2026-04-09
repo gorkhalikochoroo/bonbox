@@ -2,12 +2,14 @@
 Daily Close (Kasserapport) — structured end-of-day closing for restaurants.
 
 Endpoints:
-  POST   /api/daily-close          — submit daily close
-  GET    /api/daily-close           — list closes (date range)
-  GET    /api/daily-close/insights  — aggregated insights
-  GET    /api/daily-close/{id}      — single close
-  GET    /api/daily-close/{id}/pdf  — kasserapport PDF
-  DELETE /api/daily-close/{id}      — soft delete
+  POST   /api/daily-close              — submit daily close
+  GET    /api/daily-close               — list closes (date range)
+  GET    /api/daily-close/insights      — aggregated insights
+  GET    /api/daily-close/prefill       — prefill from sales/expenses/cash
+  POST   /api/daily-close/scan-report   — scan Z-report image via OCR
+  GET    /api/daily-close/{id}          — single close
+  GET    /api/daily-close/{id}/pdf      — kasserapport PDF
+  DELETE /api/daily-close/{id}          — soft delete
 """
 
 import uuid
@@ -15,7 +17,7 @@ from datetime import date, datetime, timedelta
 from collections import defaultdict
 from io import BytesIO
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -29,6 +31,7 @@ from app.models.cashbook import CashTransaction
 from app.models.business_profile import BusinessProfile
 from app.schemas.daily_close import DailyCloseCreate, DailyCloseResponse
 from app.services.auth import get_current_user
+from app.services.receipt_ocr import save_receipt_photo, parse_z_report
 
 router = APIRouter()
 
@@ -429,6 +432,47 @@ def prefill_daily_close(
             "cash_expected": by_payment.get("cash", 0),
         },
     }
+
+
+# ─── POST — scan Z-report image ───
+
+@router.post("/scan-report")
+async def scan_z_report(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    """Upload a Z-report / kasserapport photo and extract structured data via OCR."""
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+
+    file_bytes = await file.read()
+    if len(file_bytes) > 10 * 1024 * 1024:  # 10 MB limit
+        raise HTTPException(status_code=400, detail="File too large (max 10 MB)")
+
+    # Save the image (Supabase or local fallback)
+    image_url = save_receipt_photo(file_bytes, file.filename or "z_report.jpg", str(user.id))
+
+    # Resolve the local path for OCR processing
+    # save_receipt_photo returns either a Supabase URL or a local path
+    if image_url.startswith("http"):
+        # Image was uploaded to Supabase — local copy is in uploads/receipts/
+        import time
+        from pathlib import Path
+        local_dir = Path("uploads/receipts")
+        # Find the most recent file for this user (saved moments ago)
+        candidates = sorted(local_dir.glob(f"{user.id}_*.jpg"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if candidates:
+            local_path = str(candidates[0])
+        else:
+            raise HTTPException(status_code=500, detail="Failed to save image for OCR processing")
+    else:
+        local_path = image_url
+
+    # Parse the Z-report
+    parsed = parse_z_report(local_path)
+    parsed["image_url"] = image_url
+
+    return parsed
 
 
 # ─── GET — single close ───
