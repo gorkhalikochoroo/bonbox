@@ -200,34 +200,44 @@ def add_competitor(user_id: str, db: Session, name: str, address: str = None,
     return {"id": str(comp.id), "name": comp.name, "message": "Competitor added"}
 
 
-def add_competitor_from_place(user_id: str, db: Session, place_data) -> dict:
+def add_competitor_from_place(user_id, db: Session, place_data) -> dict:
     """Add a competitor from a Google Places discovery result."""
-    # Check if already tracked by place_id
-    if place_data.place_id:
-        existing = db.query(Competitor).filter(
-            Competitor.user_id == user_id,
-            Competitor.place_id == place_data.place_id,
-        ).first()
-        if existing:
-            return {"id": str(existing.id), "name": existing.name, "message": "Already tracking this competitor"}
+    try:
+        # Check if already tracked by place_id
+        if place_data.place_id:
+            existing = db.query(Competitor).filter(
+                Competitor.user_id == user_id,
+                Competitor.place_id == place_data.place_id,
+            ).first()
+            if existing:
+                return {"id": str(existing.id), "name": existing.name, "message": "Already tracking this competitor"}
 
-    comp = Competitor(
-        user_id=user_id,
-        name=place_data.name,
-        address=place_data.address,
-        category=place_data.category,
-        place_id=place_data.place_id,
-        google_rating=place_data.google_rating,
-        price_level=place_data.price_level,
-        latitude=place_data.latitude,
-        longitude=place_data.longitude,
-        photo_ref=place_data.photo_ref,
-        total_ratings=place_data.total_ratings,
-    )
-    db.add(comp)
-    db.commit()
-    db.refresh(comp)
-    return {"id": str(comp.id), "name": comp.name, "message": f"Now tracking {comp.name}"}
+        # Truncate photo_ref if too long
+        photo = place_data.photo_ref
+        if photo and len(photo) > 500:
+            photo = photo[:500]
+
+        comp = Competitor(
+            user_id=user_id,
+            name=place_data.name,
+            address=place_data.address or None,
+            category=place_data.category or None,
+            place_id=place_data.place_id or None,
+            google_rating=float(place_data.google_rating) if place_data.google_rating is not None else None,
+            price_level=int(place_data.price_level) if place_data.price_level is not None else None,
+            latitude=float(place_data.latitude) if place_data.latitude is not None else None,
+            longitude=float(place_data.longitude) if place_data.longitude is not None else None,
+            photo_ref=photo,
+            total_ratings=int(place_data.total_ratings) if place_data.total_ratings is not None else None,
+        )
+        db.add(comp)
+        db.commit()
+        db.refresh(comp)
+        return {"id": str(comp.id), "name": comp.name, "message": f"Now tracking {comp.name}"}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to add competitor from place: {e}")
+        raise
 
 
 def add_price_check(user_id: str, db: Session, competitor_id: str, item_name: str,

@@ -1,6 +1,6 @@
 """Competitor Scan endpoints — CRUD + price tracking + Google Places discovery."""
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy.orm import Session
@@ -97,7 +97,10 @@ def create_from_place(
     current_user: User = Depends(get_current_user),
 ):
     """Add a competitor from a Google Places discovery result."""
-    return add_competitor_from_place(current_user.id, db, body)
+    try:
+        return add_competitor_from_place(current_user.id, db, body)
+    except Exception as e:
+        raise HTTPException(500, detail=f"Failed to save: {str(e)}")
 
 
 @router.post("/price-check")

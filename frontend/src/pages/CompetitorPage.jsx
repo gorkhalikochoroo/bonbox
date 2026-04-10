@@ -89,7 +89,10 @@ export default function CompetitorPage() {
         p.place_id === place.place_id ? { ...p, already_tracked: true } : p
       ));
       fetchData();
-    } catch { /* silent */ }
+    } catch (err) {
+      const msg = err.response?.data?.detail || err.response?.data?.error || err.message || "Failed to track";
+      alert(`Could not track: ${msg}`);
+    }
     setAddingId(null);
   };
 
