@@ -101,6 +101,11 @@ _migrations = [
     "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS unlock_reason TEXT",
     "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS unlocked_by VARCHAR(255)",
     "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS unlocked_at TIMESTAMP",
+    # Business profile — night shift cutoff
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS day_cutoff_hour INTEGER DEFAULT 0",
+    # Wine menu — display name + glass pricing
+    "ALTER TABLE wines ADD COLUMN IF NOT EXISTS menu_name VARCHAR(255)",
+    "ALTER TABLE wines ADD COLUMN IF NOT EXISTS glass_price NUMERIC(12,2)",
 ]
 
 def _run_migrations():
@@ -214,6 +219,11 @@ def _run_migrations():
             ok += _add("daily_closes", "unlock_reason", "TEXT")
             ok += _add("daily_closes", "unlocked_by", "VARCHAR(255)")
             ok += _add("daily_closes", "unlocked_at", "TIMESTAMP")
+            # Business profile — night shift cutoff
+            ok += _add("business_profiles", "day_cutoff_hour", "INTEGER DEFAULT 0")
+            # Wine menu — display name + glass pricing
+            ok += _add("wines", "menu_name", "VARCHAR(255)")
+            ok += _add("wines", "glass_price", "NUMERIC(12,2)")
             conn.commit()
             print(f"Schema migrations (SQLite): {ok} new columns added")
         else:

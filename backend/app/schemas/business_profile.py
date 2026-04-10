@@ -17,6 +17,7 @@ class BusinessProfileCreate(BaseModel):
     email: str | None = None
     source: str | None = None
     founded: str | None = None
+    day_cutoff_hour: int | None = None  # 0-6; night shift cutoff
 
 
 class BusinessProfileResponse(BaseModel):
@@ -35,6 +36,7 @@ class BusinessProfileResponse(BaseModel):
     email: str | None = None
     source: str | None = None
     founded: str | None = None
+    day_cutoff_hour: int = 0
 
     model_config = {"from_attributes": True}
 

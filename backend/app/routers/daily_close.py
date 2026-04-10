@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.models.daily_close import DailyClose, encode_breakdown, decode_breakdown
+from app.models.branch import Branch
 from app.models.sale import Sale
 from app.models.expense import Expense, ExpenseCategory
 from app.models.cashbook import CashTransaction
@@ -345,6 +346,84 @@ def daily_close_insights(
             "total_days": cash_diff_count,
         })
 
+    # 5. Cash variance streak detection — consecutive nights short
+    streak_alert = None
+    closes_by_date = sorted(
+        [(dc.date, float(dc.cash_difference)) for dc in closes if dc.cash_difference is not None],
+        key=lambda x: x[0],
+    )
+
+    if len(closes_by_date) >= 2:
+        streaks = []
+        cur_streak = []
+
+        for d, diff in closes_by_date:
+            if diff < 0:
+                if not cur_streak:
+                    cur_streak = [(d, diff)]
+                else:
+                    gap = (d - cur_streak[-1][0]).days
+                    if gap <= 3:          # allow gaps for days the business is closed
+                        cur_streak.append((d, diff))
+                    else:
+                        if len(cur_streak) >= 2:
+                            streaks.append(list(cur_streak))
+                        cur_streak = [(d, diff)]
+            else:
+                if len(cur_streak) >= 2:
+                    streaks.append(list(cur_streak))
+                cur_streak = []
+
+        if len(cur_streak) >= 2:
+            streaks.append(list(cur_streak))
+
+        if streaks:
+            latest = streaks[-1]
+            s_len = len(latest)
+            s_total = round(sum(diff for _, diff in latest), 2)
+            s_start = latest[0][0].strftime("%-d %b")
+            s_end = latest[-1][0].strftime("%-d %b")
+            most_recent = closes_by_date[-1][0]
+            is_active = (most_recent - latest[-1][0]).days <= 2
+
+            if s_len >= 5:
+                severity, icon = "critical", "\U0001f6a8"
+                title = f"Cash short {s_len} nights in a row"
+                detail = (
+                    f"Total shortage: {s_total:,.0f} over {s_len} consecutive days "
+                    f"({s_start}\u2013{s_end}). This pattern suggests systematic issues \u2014 "
+                    "review camera footage, POS reconciliation, and cash handling procedures."
+                )
+            elif s_len >= 3:
+                severity, icon = "warning", "\u26a0\ufe0f"
+                title = f"Cash short {s_len} nights in a row"
+                detail = (
+                    f"Total shortage: {s_total:,.0f} from {s_start} to {s_end}. "
+                    "Three or more consecutive shortages is a pattern worth investigating."
+                )
+            else:
+                severity, icon = "info", "\U0001f4a1"
+                title = "Cash short 2 nights in a row"
+                detail = (
+                    f"Total shortage: {s_total:,.0f} on {s_start} and {s_end}. "
+                    "Might be coincidence, but keep an eye on it."
+                )
+
+            streak_alert = {
+                "type": "cash_streak",
+                "icon": icon,
+                "title": title,
+                "detail": detail,
+                "severity": severity,
+                "streak_length": s_len,
+                "streak_total": s_total,
+                "streak_start": latest[0][0].isoformat(),
+                "streak_end": latest[-1][0].isoformat(),
+                "is_active": is_active,
+                "total_streaks": len(streaks),
+            }
+            insights.insert(0, streak_alert)
+
     # 4. Takeaway growth
     sorted_months = sorted(revenue_by_month.keys())
     if len(sorted_months) >= 2:
@@ -375,9 +454,95 @@ def daily_close_insights(
         "total_tips": round(total_tips, 2),
         "avg_daily_tips": round(total_tips / count, 2) if count else 0,
         "total_cash_difference": round(total_cash_diff, 2),
+        "cash_streak": streak_alert,
     }
 
     return {"has_data": True, "insights": insights, "summary": summary}
+
+
+# ─── GET — multi-branch daily summary ───
+
+@router.get("/branch-summary")
+def branch_summary(
+    target_date: date = Query(None, alias="date"),
+    from_date: date = Query(None, alias="from"),
+    to_date: date = Query(None, alias="to"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Cross-branch comparison: per-branch revenue, cash, tips for a date or range."""
+    if target_date:
+        from_date = to_date = target_date
+    if not from_date:
+        from_date = date.today() - timedelta(days=7)
+    if not to_date:
+        to_date = date.today()
+
+    closes = (
+        db.query(DailyClose)
+        .filter(
+            DailyClose.user_id == user.id,
+            DailyClose.date >= from_date,
+            DailyClose.date <= to_date,
+            DailyClose.is_deleted.isnot(True),
+        )
+        .order_by(DailyClose.date.desc())
+        .all()
+    )
+
+    # Fetch branch names
+    branches = db.query(Branch).filter(Branch.user_id == user.id, Branch.is_active.isnot(False)).all()
+    branch_names = {str(b.id): b.name for b in branches}
+    branch_names[None] = "No Branch"
+
+    # Aggregate per branch
+    per_branch = defaultdict(lambda: {
+        "revenue_total": 0, "payment_total": 0, "cash_diff_total": 0,
+        "tips_total": 0, "days_count": 0, "cash_diff_count": 0,
+    })
+
+    for dc in closes:
+        bid = str(dc.branch_id) if dc.branch_id else None
+        b = per_branch[bid]
+        b["revenue_total"] += float(dc.revenue_total or 0)
+        b["payment_total"] += float(dc.payment_total or 0)
+        b["tips_total"] += float(dc.tips_total or 0)
+        b["days_count"] += 1
+        if dc.cash_difference is not None:
+            b["cash_diff_total"] += float(dc.cash_difference)
+            b["cash_diff_count"] += 1
+
+    # Build response list
+    results = []
+    for bid, agg in per_branch.items():
+        results.append({
+            "branch_id": bid,
+            "branch_name": branch_names.get(bid, bid or "Unknown"),
+            "revenue_total": round(agg["revenue_total"], 2),
+            "avg_daily_revenue": round(agg["revenue_total"] / agg["days_count"], 2) if agg["days_count"] else 0,
+            "payment_total": round(agg["payment_total"], 2),
+            "cash_diff_total": round(agg["cash_diff_total"], 2),
+            "tips_total": round(agg["tips_total"], 2),
+            "days_count": agg["days_count"],
+        })
+
+    # Sort by revenue descending (top performers first)
+    results.sort(key=lambda x: x["revenue_total"], reverse=True)
+
+    grand = {
+        "revenue_total": round(sum(r["revenue_total"] for r in results), 2),
+        "cash_diff_total": round(sum(r["cash_diff_total"] for r in results), 2),
+        "tips_total": round(sum(r["tips_total"] for r in results), 2),
+        "total_days": sum(r["days_count"] for r in results),
+        "branch_count": len(results),
+    }
+
+    return {
+        "from_date": from_date.isoformat(),
+        "to_date": to_date.isoformat(),
+        "branches": results,
+        "grand_total": grand,
+    }
 
 
 # ─── GET — prefill from real sales/expenses/cash data ───
@@ -476,9 +641,14 @@ def prefill_daily_close(
 
     has_data = sales_count > 0 or expenses_count > 0
 
+    # Night shift cutoff from business profile
+    profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
+    cutoff = getattr(profile, "day_cutoff_hour", 0) or 0
+
     return {
         "date": target_date.isoformat(),
         "has_data": has_data,
+        "day_cutoff_hour": cutoff,
         "sales": {
             "total": sales_total,
             "count": sales_count,

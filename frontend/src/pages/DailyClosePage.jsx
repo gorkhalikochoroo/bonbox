@@ -7,6 +7,38 @@ import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
 
 /* ═══════════════════════════════════════════════════════════
+   OFFLINE QUEUE — store pending daily close submissions
+   ═══════════════════════════════════════════════════════════ */
+const OQ_KEY = "bonbox_dc_offline_queue";
+
+function getOfflineQueue() {
+  try { return JSON.parse(localStorage.getItem(OQ_KEY) || "[]"); } catch { return []; }
+}
+function addToOfflineQueue(payload) {
+  const q = getOfflineQueue();
+  q.push({ payload, ts: Date.now(), id: crypto.randomUUID() });
+  localStorage.setItem(OQ_KEY, JSON.stringify(q));
+}
+async function syncOfflineQueue() {
+  const q = getOfflineQueue();
+  if (!q.length) return 0;
+  const remaining = [];
+  for (const item of q) {
+    try {
+      await api.post("/daily-close", item.payload);
+    } catch (err) {
+      if (!err.response) { remaining.push(item); break; } // network still down — stop
+      // Server responded (even 4xx) — drop from queue
+    }
+  }
+  // Keep only un-synced items
+  const synced = q.length - remaining.length;
+  const leftover = [...remaining, ...q.slice(q.length - remaining.length + remaining.length)];
+  localStorage.setItem(OQ_KEY, JSON.stringify(remaining));
+  return remaining.length;
+}
+
+/* ═══════════════════════════════════════════════════════════
    DEFAULT CATEGORIES — adapt based on business type
    ═══════════════════════════════════════════════════════════ */
 const REVENUE_CATS_BY_TYPE = {
@@ -98,13 +130,32 @@ function getPaymentMethods(branchType) {
 export default function DailyClosePage() {
   const { user } = useAuth();
   const { t } = useLanguage();
-  const { branchId, branchType } = useBranch();
+  const { branchId, branchType, branches } = useBranch();
+  const hasMultiBranch = branches?.length > 1;
   const currency = displayCurrency(user?.currency);
 
   const [tab, setTab] = useState("close"); // close | history | insights
   const [history, setHistory] = useState([]);
   const [insights, setInsights] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  // Offline resilience
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [pendingCount, setPendingCount] = useState(getOfflineQueue().length);
+
+  const doSync = async () => {
+    const left = await syncOfflineQueue();
+    setPendingCount(left);
+    if (left === 0) { fetchHistory(); fetchInsights(); }
+  };
+
+  useEffect(() => {
+    const goOn = () => { setIsOnline(true); doSync(); };
+    const goOff = () => setIsOnline(false);
+    window.addEventListener("online", goOn);
+    window.addEventListener("offline", goOff);
+    return () => { window.removeEventListener("online", goOn); window.removeEventListener("offline", goOff); };
+  }, []);
 
   const fetchHistory = () => {
     api.get("/daily-close").then(r => setHistory(r.data)).catch(() => {});
@@ -118,12 +169,32 @@ export default function DailyClosePage() {
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6">
       <FadeIn>
-        <h1 className="text-2xl font-bold dark:text-white flex items-center gap-2">
-          📋 {t("dailyClose") || "Daily Close"}
-        </h1>
-        <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
-{(CLOSE_CONFIG[branchType] || CLOSE_CONFIG.general).description}
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold dark:text-white flex items-center gap-2">
+              📋 {t("dailyClose") || "Daily Close"}
+            </h1>
+            <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
+              {(CLOSE_CONFIG[branchType] || CLOSE_CONFIG.general).description}
+            </p>
+          </div>
+          {/* Online/Offline + pending indicator */}
+          {(!isOnline || pendingCount > 0) && (
+            <div className="flex items-center gap-2">
+              {!isOnline && (
+                <span className="text-[10px] px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full font-semibold flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full" /> Offline
+                </span>
+              )}
+              {pendingCount > 0 && (
+                <button onClick={doSync} disabled={!isOnline}
+                  className="text-[10px] px-2 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded-full font-semibold hover:bg-amber-200 disabled:opacity-50">
+                  {isOnline ? `Sync ${pendingCount} pending` : `${pendingCount} queued`}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </FadeIn>
 
       {/* Tab bar */}
@@ -132,6 +203,7 @@ export default function DailyClosePage() {
           { id: "close", label: t("newClose") || "New Close", icon: "✏️" },
           { id: "history", label: t("historyTab") || "History", icon: "📅" },
           { id: "insights", label: t("insightsTab") || "Insights", icon: "💡" },
+          ...(hasMultiBranch ? [{ id: "branches", label: "Branches", icon: "🏢" }] : []),
         ].map(tb => (
           <button key={tb.id} onClick={() => setTab(tb.id)}
             className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition ${
@@ -143,9 +215,12 @@ export default function DailyClosePage() {
         ))}
       </div>
 
-      {tab === "close" && <CloseForm currency={currency} t={t} branchType={branchType} branchId={branchId} onDone={() => { fetchHistory(); fetchInsights(); setTab("history"); }} />}
-      {tab === "history" && <HistoryView data={history} currency={currency} t={t} onRefresh={fetchHistory} />}
+      {tab === "close" && <CloseForm currency={currency} t={t} branchType={branchType} branchId={branchId} isOnline={isOnline}
+        onDone={() => { fetchHistory(); fetchInsights(); setTab("history"); }}
+        onQueued={() => { setPendingCount(getOfflineQueue().length); setTab("history"); }} />}
+      {tab === "history" && <HistoryView data={history} currency={currency} t={t} onRefresh={fetchHistory} insights={insights} />}
       {tab === "insights" && <InsightsView data={insights} currency={currency} t={t} />}
+      {tab === "branches" && <BranchSummaryView currency={currency} />}
     </div>
   );
 }
@@ -154,7 +229,17 @@ export default function DailyClosePage() {
 /* ═══════════════════════════════════════════════════════════
    MULTI-STEP CLOSE FORM
    ═══════════════════════════════════════════════════════════ */
-function CloseForm({ currency, t, branchType, branchId, onDone }) {
+/** Compute the "business date" — if current hour < cutoff, it's still yesterday's shift. */
+function getBusinessDate(cutoffHour = 0) {
+  const now = new Date();
+  const d = new Date(now);
+  if (cutoffHour > 0 && now.getHours() < cutoffHour) {
+    d.setDate(d.getDate() - 1);
+  }
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnline }) {
   const defaultRevCats = useMemo(() => getRevenueCats(branchType), [branchType]);
   const defaultPayMethods = useMemo(() => getPaymentMethods(branchType), [branchType]);
   const config = CLOSE_CONFIG[branchType] || CLOSE_CONFIG.general;
@@ -172,6 +257,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
   const currentStepId = stepSequence[step - 1];
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  // Night shift: business date may differ from calendar date
+  const [businessDate, setBusinessDate] = useState(() => getBusinessDate(0));
+  const [cutoffHour, setCutoffHour] = useState(0);
 
   // Step 1: Revenue
   const [revCats, setRevCats] = useState(defaultRevCats);
@@ -277,10 +366,22 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
     const fetchPrefill = async () => {
       setPrefillLoading(true);
       try {
-        const today = new Date().toISOString().split("T")[0];
+        const today = businessDate;
         const params = { date: today };
         if (branchId) params.branch_id = branchId;
         const res = await api.get("/daily-close/prefill", { params });
+        // Apply night shift cutoff from business profile
+        const serverCutoff = res.data.day_cutoff_hour || 0;
+        if (serverCutoff !== cutoffHour) {
+          setCutoffHour(serverCutoff);
+          const correctedDate = getBusinessDate(serverCutoff);
+          if (correctedDate !== today) {
+            setBusinessDate(correctedDate);
+            // Re-fetch with corrected date (don't loop — cutoffHour dep is stable after this)
+          }
+        }
+        setBusinessDate(getBusinessDate(serverCutoff));
+
         if (res.data.has_data) {
           setPrefill(res.data);
           // Auto-fill payment methods from sales data
@@ -317,7 +418,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
       setPrefillLoading(false);
     };
     fetchPrefill();
-  }, [branchId]);
+  }, [branchId, businessDate]);
 
   const revenueTotal = useMemo(() => Object.values(revAmounts).reduce((s, v) => s + (parseFloat(v) || 0), 0), [revAmounts]);
   const paymentTotal = useMemo(() => Object.values(payAmounts).reduce((s, v) => s + (parseFloat(v) || 0), 0), [payAmounts]);
@@ -355,7 +456,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
     const payment_breakdown = {};
     payMethods.forEach(m => { if (payAmounts[m.key]) payment_breakdown[m.key] = parseFloat(payAmounts[m.key]); });
     return {
-      date: new Date().toISOString().split("T")[0],
+      date: businessDate,
       branch_id: branchId || null,
       status,
       revenue_breakdown,
@@ -391,14 +492,30 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
     return () => clearTimeout(autoSaveRef.current);
   }, [step, revAmounts, payAmounts, cashCounted, tipsTotal]);
 
-  // Final submit — locks the close
+  // Final submit — locks the close (with offline queue fallback)
   const handleSubmit = async () => {
     setSaving(true);
     setError("");
+    const payload = buildPayload("confirmed");
+
+    if (!navigator.onLine) {
+      addToOfflineQueue(payload);
+      setSaving(false);
+      onQueued?.();
+      return;
+    }
+
     try {
-      await api.post("/daily-close", buildPayload("confirmed"));
+      await api.post("/daily-close", payload);
       onDone();
     } catch (err) {
+      if (!err.response) {
+        // Network failed mid-request — queue for later
+        addToOfflineQueue(payload);
+        setSaving(false);
+        onQueued?.();
+        return;
+      }
       const d = err.response?.data?.detail;
       setError(typeof d === "string" ? d : Array.isArray(d) ? d.map(e => e.msg || e).join(", ") : "Failed to save");
     } finally {
@@ -656,6 +773,28 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
 
         {/* ─── NORMAL STEP FLOW ─── */}
         {!showScanUI && (<>
+        {/* Date selector — defaults to today, allows past dates */}
+        <div className="mb-4 flex items-center gap-3">
+          <label className="text-sm font-medium text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
+            📅 Date
+          </label>
+          <input type="date" value={businessDate}
+            max={getBusinessDate(cutoffHour)}
+            onChange={e => { if (e.target.value) setBusinessDate(e.target.value); }}
+            className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+          {businessDate !== getBusinessDate(cutoffHour) && (
+            <span className="text-[10px] px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-full font-semibold">
+              Past date
+            </span>
+          )}
+          {businessDate !== getBusinessDate(cutoffHour) && (
+            <button onClick={() => setBusinessDate(getBusinessDate(cutoffHour))}
+              className="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline">
+              Reset to today
+            </button>
+          )}
+        </div>
+
         {/* Draft auto-save indicator */}
         {draftSaved && (
           <div className="mb-3 px-3 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-center text-xs text-gray-400 flex items-center justify-center gap-1.5">
@@ -666,7 +805,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
         {/* Sync indicator */}
         {prefillLoading && (
           <div className="mb-4 px-4 py-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl text-center text-sm text-gray-400">
-            Loading today's records...
+            Loading records...
           </div>
         )}
         {prefill && !prefillLoading && (
@@ -683,6 +822,16 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
               {prefill.expenses.total > 0 && <span>Expenses: {prefill.expenses.total.toLocaleString()} {currency}</span>}
               <span>Net: {(prefill.sales.total - prefill.expenses.total).toLocaleString()} {currency}</span>
             </div>
+          </div>
+        )}
+
+        {/* Night shift indicator */}
+        {cutoffHour > 0 && businessDate !== new Date().toISOString().split("T")[0] && (
+          <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-xl px-3 py-2 flex items-center gap-2 mb-3 border border-indigo-100 dark:border-indigo-800">
+            <span className="text-sm">🌙</span>
+            <p className="text-xs text-indigo-600 dark:text-indigo-300">
+              <strong>Night shift:</strong> closing for {new Date(businessDate + "T12:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })} (cutoff {cutoffHour}:00 AM)
+            </p>
           </div>
         )}
 
@@ -827,6 +976,17 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
         {/* ─── REVIEW STEP ─── */}
         {currentStepId === "review" && (
           <div className="space-y-4">
+            {/* Date confirmation */}
+            <div className="flex items-center gap-2 text-sm dark:text-gray-300">
+              <span>📅</span>
+              <span className="font-medium">
+                {new Date(businessDate + "T12:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+              </span>
+              {businessDate !== getBusinessDate(cutoffHour) && (
+                <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded font-semibold">Past date</span>
+              )}
+            </div>
+
             {/* Revenue summary */}
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
               <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 mb-2">Revenue</h3>
@@ -884,7 +1044,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
                 </div>
                 <div className="pt-2 border-t" style={{ borderColor: "rgba(99,102,241,0.15)" }}>
                   <p className="text-xs text-indigo-400">
-                    📊 This MOMS data is saved and available in <strong>Tax Autopilot</strong> for your accountant.
+                    📊 This MOMS data feeds into <a href="/tax" className="font-bold underline hover:text-indigo-300">Tax Autopilot</a> &mdash; reconciled automatically with your sales records.
                   </p>
                 </div>
               </div>
@@ -985,7 +1145,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
           ) : (
             <button onClick={handleSubmit} disabled={saving || revenueTotal === 0}
               className="px-6 py-2.5 bg-green-600 text-white rounded-xl hover:bg-green-700 font-semibold transition disabled:opacity-50">
-              {saving ? "Saving..." : "🔒 Confirm & Lock"}
+              {saving ? "Saving..." : !isOnline ? "📤 Queue & Lock (offline)" : "🔒 Confirm & Lock"}
             </button>
           )}
         </div>
@@ -999,11 +1159,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
 /* ═══════════════════════════════════════════════════════════
    HISTORY VIEW
    ═══════════════════════════════════════════════════════════ */
-function HistoryView({ data, currency, t, onRefresh }) {
+function HistoryView({ data, currency, t, onRefresh, insights }) {
   const [downloading, setDownloading] = useState(null);
   const [unlockId, setUnlockId] = useState(null);
   const [unlockReason, setUnlockReason] = useState("");
   const [unlocking, setUnlocking] = useState(false);
+
+  const activeStreak = insights?.insights?.find(i => i.type === "cash_streak" && i.is_active);
 
   const handleUnlock = async () => {
     if (!unlockReason.trim() || !unlockId) return;
@@ -1045,9 +1207,36 @@ function HistoryView({ data, currency, t, onRefresh }) {
 
   return (
     <div className="space-y-3">
-      {data.map(dc => {
+      {/* Active cash streak warning banner */}
+      {activeStreak && (
+        <div className={`rounded-xl p-3 flex items-center gap-2 border ${
+          activeStreak.severity === "critical"
+            ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800"
+            : activeStreak.severity === "warning"
+            ? "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800"
+            : "bg-yellow-50 dark:bg-yellow-950/30 border-yellow-200 dark:border-yellow-800"
+        }`}>
+          <span className="text-lg">{activeStreak.icon}</span>
+          <p className={`text-sm font-medium ${
+            activeStreak.severity === "critical" ? "text-red-700 dark:text-red-300"
+              : "text-amber-700 dark:text-amber-300"
+          }`}>
+            {activeStreak.title} &mdash; check Insights for details
+          </p>
+        </div>
+      )}
+
+      {/* Calendar heat map */}
+      <CalendarHeatMap data={data} currency={currency} />
+
+      {data.map((dc, idx) => {
         const rev = dc.revenue_breakdown || {};
         const pay = dc.payment_breakdown || {};
+        const prev = data[idx + 1]; // previous close (list sorted desc)
+        const revChange = prev && prev.revenue_total > 0 && dc.revenue_total > 0
+          ? Math.round(((dc.revenue_total - prev.revenue_total) / prev.revenue_total) * 100) : null;
+        const tipsChange = prev && prev.tips_total > 0 && dc.tips_total > 0
+          ? Math.round(((dc.tips_total - prev.tips_total) / prev.tips_total) * 100) : null;
         return (
           <div key={dc.id} className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
             <div className="flex items-start justify-between">
@@ -1069,6 +1258,11 @@ function HistoryView({ data, currency, t, onRefresh }) {
               </div>
               <div className="text-right">
                 <p className="text-lg font-bold text-green-600 dark:text-green-400">{dc.revenue_total?.toLocaleString()} {currency}</p>
+                {revChange !== null && Math.abs(revChange) >= 1 && (
+                  <p className={`text-[11px] font-semibold ${revChange > 0 ? "text-green-500" : "text-red-500"}`}>
+                    {revChange > 0 ? "↑" : "↓"} {Math.abs(revChange)}% vs prev
+                  </p>
+                )}
               </div>
             </div>
 
@@ -1098,7 +1292,15 @@ function HistoryView({ data, currency, t, onRefresh }) {
                     Cash: {dc.cash_difference > 0 ? "+" : ""}{dc.cash_difference?.toLocaleString()}
                   </span>
                 )}
-                {dc.tips_total > 0 && <span>Tips: {dc.tips_total?.toLocaleString()} ({dc.tips_staff_count} staff)</span>}
+                {dc.tips_total > 0 && (
+                  <span>Tips: {dc.tips_total?.toLocaleString()} ({dc.tips_staff_count} staff)
+                    {tipsChange !== null && Math.abs(tipsChange) >= 1 && (
+                      <span className={`ml-1 font-semibold ${tipsChange > 0 ? "text-green-500" : "text-red-500"}`}>
+                        {tipsChange > 0 ? "↑" : "↓"}{Math.abs(tipsChange)}%
+                      </span>
+                    )}
+                  </span>
+                )}
               </div>
               <div className="flex gap-2">
                 {(dc.status || "confirmed") === "confirmed" && (
@@ -1148,6 +1350,288 @@ function HistoryView({ data, currency, t, onRefresh }) {
 
 
 /* ═══════════════════════════════════════════════════════════
+   BRANCH SUMMARY VIEW — multi-branch comparison
+   ═══════════════════════════════════════════════════════════ */
+function BranchSummaryView({ currency }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [range, setRange] = useState("7"); // "1" = today, "7" = week, "30" = month
+
+  const fetchSummary = async () => {
+    setLoading(true);
+    try {
+      const to = new Date();
+      const from = new Date();
+      from.setDate(from.getDate() - (parseInt(range) - 1));
+      const fmtD = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const res = await api.get("/daily-close/branch-summary", { params: { from: fmtD(from), to: fmtD(to) } });
+      setData(res.data);
+    } catch { /* silent */ }
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchSummary(); }, [range]);
+
+  if (loading) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 text-center border border-gray-100 dark:border-gray-700">
+        <p className="text-4xl mb-3 animate-pulse">🏢</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Loading branch data...</p>
+      </div>
+    );
+  }
+
+  if (!data || !data.branches?.length) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 text-center border border-gray-100 dark:border-gray-700">
+        <p className="text-4xl mb-3">🏢</p>
+        <p className="font-semibold dark:text-white">No branch data</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Submit daily closes for multiple branches to see comparisons.</p>
+      </div>
+    );
+  }
+
+  const { branches, grand_total } = data;
+  const topBranch = branches[0];
+
+  return (
+    <div className="space-y-4">
+      {/* Range toggle */}
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-sm dark:text-white flex items-center gap-1.5">
+          <span>🏢</span> Branch Comparison
+        </h3>
+        <div className="flex gap-0.5 bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
+          {[{ v: "1", l: "Today" }, { v: "7", l: "7 days" }, { v: "30", l: "30 days" }].map(r => (
+            <button key={r.v} onClick={() => setRange(r.v)}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition ${
+                range === r.v ? "bg-white dark:bg-gray-600 shadow-sm text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"
+              }`}>
+              {r.l}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Grand totals */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700 text-center">
+          <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase">Total Revenue</p>
+          <p className="text-lg font-bold text-green-600 dark:text-green-400 mt-0.5">{grand_total.revenue_total?.toLocaleString()}</p>
+          <p className="text-[10px] text-gray-400">{currency}</p>
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700 text-center">
+          <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase">Cash Variance</p>
+          <p className={`text-lg font-bold mt-0.5 ${grand_total.cash_diff_total < -200 ? "text-red-500" : "text-gray-700 dark:text-white"}`}>
+            {grand_total.cash_diff_total > 0 ? "+" : ""}{grand_total.cash_diff_total?.toLocaleString()}
+          </p>
+          <p className="text-[10px] text-gray-400">{currency}</p>
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700 text-center">
+          <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase">Total Tips</p>
+          <p className="text-lg font-bold text-blue-600 dark:text-blue-400 mt-0.5">{grand_total.tips_total?.toLocaleString()}</p>
+          <p className="text-[10px] text-gray-400">{currency}</p>
+        </div>
+      </div>
+
+      {/* Branch cards */}
+      {branches.map((b, i) => {
+        const revShare = grand_total.revenue_total > 0 ? Math.round((b.revenue_total / grand_total.revenue_total) * 100) : 0;
+        return (
+          <div key={b.branch_id || i} className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold dark:text-white">{b.branch_name}</h3>
+                  {i === 0 && branches.length > 1 && (
+                    <span className="text-[10px] px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded font-semibold">Top</span>
+                  )}
+                </div>
+                <p className="text-xs text-gray-400 mt-0.5">{b.days_count} close{b.days_count !== 1 ? "s" : ""} &middot; avg {b.avg_daily_revenue?.toLocaleString()}/day</p>
+              </div>
+              <div className="text-right">
+                <p className="text-lg font-bold text-green-600 dark:text-green-400">{b.revenue_total?.toLocaleString()} <span className="text-xs font-normal text-gray-400">{currency}</span></p>
+                <p className="text-[10px] text-gray-400">{revShare}% of total</p>
+              </div>
+            </div>
+
+            {/* Revenue share bar */}
+            <div className="mt-3 h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div className="h-full bg-green-500 dark:bg-green-400 rounded-full transition-all" style={{ width: `${revShare}%` }} />
+            </div>
+
+            {/* Metrics row */}
+            <div className="flex gap-4 mt-3 text-xs text-gray-500 dark:text-gray-400">
+              <span>Cash: <span className={b.cash_diff_total < -100 ? "text-red-500 font-semibold" : ""}>{b.cash_diff_total > 0 ? "+" : ""}{b.cash_diff_total?.toLocaleString()}</span></span>
+              {b.tips_total > 0 && <span>Tips: {b.tips_total?.toLocaleString()}</span>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   CALENDAR HEAT MAP — 90-day visual overview
+   ═══════════════════════════════════════════════════════════ */
+function CalendarHeatMap({ data, currency }) {
+  const [mode, setMode] = useState("revenue"); // "revenue" | "cash"
+  const [hovered, setHovered] = useState(null);
+
+  // Build date → close lookup
+  const closeMap = useMemo(() => {
+    const map = {};
+    (data || []).forEach(dc => { map[dc.date] = dc; });
+    return map;
+  }, [data]);
+
+  // Generate 90 days of grid data grouped into weeks (Mon-start)
+  const weeks = useMemo(() => {
+    const today = new Date();
+    const days = [];
+    for (let i = 89; i >= 0; i--) {
+      const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+      days.push(d);
+    }
+    const result = [];
+    let week = new Array(7).fill(null);
+    for (const d of days) {
+      const dow = (d.getDay() + 6) % 7; // Mon=0, Sun=6
+      week[dow] = d;
+      if (dow === 6) { result.push(week); week = new Array(7).fill(null); }
+    }
+    if (week.some(d => d !== null)) result.push(week);
+    return result;
+  }, []);
+
+  const fmtDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+  // Color logic based on mode + data percentiles
+  const getColor = useMemo(() => {
+    if (mode === "revenue") {
+      const vals = (data || []).map(dc => dc.revenue_total).filter(v => v > 0).sort((a, b) => a - b);
+      if (!vals.length) return () => "bg-gray-100 dark:bg-gray-800";
+      const p25 = vals[Math.floor(vals.length * 0.25)];
+      const p50 = vals[Math.floor(vals.length * 0.5)];
+      const p75 = vals[Math.floor(vals.length * 0.75)];
+      return (dc) => {
+        if (!dc) return "bg-gray-100 dark:bg-gray-800";
+        const v = dc.revenue_total;
+        if (!v || v <= 0) return "bg-gray-200 dark:bg-gray-700";
+        if (v <= p25) return "bg-green-200 dark:bg-green-900/60";
+        if (v <= p50) return "bg-green-300 dark:bg-green-700";
+        if (v <= p75) return "bg-green-500 dark:bg-green-600";
+        return "bg-green-700 dark:bg-green-400";
+      };
+    }
+    // Cash variance mode
+    return (dc) => {
+      if (!dc) return "bg-gray-100 dark:bg-gray-800";
+      const diff = dc.cash_difference;
+      if (diff === null || diff === undefined) return "bg-gray-200 dark:bg-gray-700";
+      if (diff >= 0) return "bg-green-300 dark:bg-green-700";
+      if (diff >= -100) return "bg-amber-300 dark:bg-amber-700";
+      if (diff >= -300) return "bg-orange-400 dark:bg-orange-600";
+      return "bg-red-500 dark:bg-red-500";
+    };
+  }, [data, mode]);
+
+  const legendItems = mode === "revenue"
+    ? [
+        { color: "bg-gray-200 dark:bg-gray-700", label: "None" },
+        { color: "bg-green-200 dark:bg-green-900/60", label: "Low" },
+        { color: "bg-green-500 dark:bg-green-600", label: "Mid" },
+        { color: "bg-green-700 dark:bg-green-400", label: "High" },
+      ]
+    : [
+        { color: "bg-gray-200 dark:bg-gray-700", label: "N/A" },
+        { color: "bg-green-300 dark:bg-green-700", label: "Even/+" },
+        { color: "bg-amber-300 dark:bg-amber-700", label: "-100" },
+        { color: "bg-red-500 dark:bg-red-500", label: "Short" },
+      ];
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
+      {/* Header + mode toggle */}
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold text-sm dark:text-white flex items-center gap-1.5">
+          <span>📆</span> 90-Day Overview
+        </h3>
+        <div className="flex gap-0.5 bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
+          {[{ id: "revenue", label: "Revenue" }, { id: "cash", label: "Cash +/-" }].map(m => (
+            <button key={m.id} onClick={() => setMode(m.id)}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition ${
+                mode === m.id ? "bg-white dark:bg-gray-600 shadow-sm text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"
+              }`}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Grid */}
+      <div className="flex gap-[3px] overflow-x-auto pb-1">
+        {/* Day-of-week labels */}
+        <div className="flex flex-col gap-[3px] mr-0.5 shrink-0">
+          {["M", "", "W", "", "F", "", "S"].map((d, i) => (
+            <div key={i} className="w-3 h-3 flex items-center justify-center text-[8px] text-gray-400 dark:text-gray-500 select-none">{d}</div>
+          ))}
+        </div>
+        {/* Week columns */}
+        {weeks.map((week, wi) => (
+          <div key={wi} className="flex flex-col gap-[3px]">
+            {week.map((day, di) => {
+              if (!day) return <div key={di} className="w-3 h-3" />;
+              const ds = fmtDate(day);
+              const dc = closeMap[ds];
+              return (
+                <div key={di}
+                  className={`w-3 h-3 rounded-[2px] ${getColor(dc)} cursor-pointer transition-all hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-300 hover:scale-125`}
+                  onMouseEnter={() => setHovered({ ds, dc })}
+                  onMouseLeave={() => setHovered(null)}
+                />
+              );
+            })}
+          </div>
+        ))}
+      </div>
+
+      {/* Hover info line */}
+      <div className="h-5 mt-1.5">
+        {hovered ? (
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            <span className="font-medium dark:text-gray-300">
+              {new Date(hovered.ds + "T12:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}
+            </span>
+            {hovered.dc ? (
+              mode === "revenue"
+                ? <> &mdash; {hovered.dc.revenue_total?.toLocaleString()} {currency}</>
+                : <> &mdash; Cash: {hovered.dc.cash_difference !== null && hovered.dc.cash_difference !== undefined
+                    ? `${hovered.dc.cash_difference > 0 ? "+" : ""}${hovered.dc.cash_difference?.toLocaleString()} ${currency}`
+                    : "N/A"}</>
+            ) : <> &mdash; No close</>}
+          </p>
+        ) : (
+          <p className="text-[10px] text-gray-400 dark:text-gray-500">Hover a day to see details</p>
+        )}
+      </div>
+
+      {/* Legend */}
+      <div className="flex items-center gap-2 mt-1">
+        <span className="text-[9px] text-gray-400">Less</span>
+        {legendItems.map((l, i) => (
+          <div key={i} className={`w-2.5 h-2.5 rounded-[2px] ${l.color}`} title={l.label} />
+        ))}
+        <span className="text-[9px] text-gray-400">More</span>
+      </div>
+    </div>
+  );
+}
+
+
+/* ═══════════════════════════════════════════════════════════
    INSIGHTS VIEW
    ═══════════════════════════════════════════════════════════ */
 function InsightsView({ data, currency, t }) {
@@ -1162,9 +1646,16 @@ function InsightsView({ data, currency, t }) {
   }
 
   const { insights, summary } = data;
+  const streakAlerts = insights.filter(i => i.type === "cash_streak");
+  const regularInsights = insights.filter(i => i.type !== "cash_streak");
 
   return (
     <div className="space-y-4">
+      {/* Streak alerts — prominent at top */}
+      {streakAlerts.map((alert, i) => (
+        <StreakAlertCard key={i} alert={alert} currency={currency} />
+      ))}
+
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <SummaryCard label="Avg Daily Revenue" value={`${summary.avg_daily_revenue?.toLocaleString()} ${currency}`} />
@@ -1173,8 +1664,8 @@ function InsightsView({ data, currency, t }) {
           color={summary.total_cash_difference < -200 ? "red" : "green"} />
       </div>
 
-      {/* Insight cards */}
-      {insights.map((ins, i) => (
+      {/* Regular insight cards */}
+      {regularInsights.map((ins, i) => (
         <div key={i} className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
           <div className="flex items-start gap-3">
             <span className="text-2xl">{ins.icon}</span>
@@ -1194,6 +1685,72 @@ function InsightsView({ data, currency, t }) {
           Keep logging daily closes to unlock more insights.
         </div>
       )}
+    </div>
+  );
+}
+
+function StreakAlertCard({ alert, currency }) {
+  const styles = {
+    critical: {
+      border: "border-red-300 dark:border-red-700",
+      bg: "bg-red-50 dark:bg-red-950/40",
+      badge: "bg-red-500 text-white",
+      title: "text-red-800 dark:text-red-200",
+      detail: "text-red-600 dark:text-red-400",
+      dot: "bg-red-500 dark:bg-red-400",
+    },
+    warning: {
+      border: "border-amber-300 dark:border-amber-700",
+      bg: "bg-amber-50 dark:bg-amber-950/40",
+      badge: "bg-amber-500 text-white",
+      title: "text-amber-800 dark:text-amber-200",
+      detail: "text-amber-600 dark:text-amber-400",
+      dot: "bg-amber-500 dark:bg-amber-400",
+    },
+    info: {
+      border: "border-yellow-300 dark:border-yellow-700",
+      bg: "bg-yellow-50 dark:bg-yellow-950/40",
+      badge: "bg-yellow-500 text-white",
+      title: "text-yellow-800 dark:text-yellow-200",
+      detail: "text-yellow-700 dark:text-yellow-400",
+      dot: "bg-yellow-500 dark:bg-yellow-400",
+    },
+  };
+
+  const s = styles[alert.severity] || styles.info;
+
+  return (
+    <div className={`rounded-2xl p-5 border-2 ${s.border} ${s.bg} shadow-sm`}>
+      <div className="flex items-start gap-3">
+        <span className="text-2xl">{alert.icon}</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className={`font-bold ${s.title}`}>{alert.title}</h3>
+            {alert.is_active && (
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${s.badge}`}>
+                Active
+              </span>
+            )}
+          </div>
+          <p className={`text-sm mt-1 ${s.detail}`}>{alert.detail}</p>
+
+          {/* Streak dots visualization */}
+          <div className="flex items-center gap-1.5 mt-3">
+            {Array.from({ length: alert.streak_length }).map((_, i) => (
+              <div key={i} className={`w-2.5 h-2.5 rounded-full ${s.dot}`} />
+            ))}
+            <span className="text-xs ml-1.5 text-gray-500 dark:text-gray-400">
+              {alert.streak_length} consecutive days &middot; {alert.streak_total?.toLocaleString()} {currency}
+            </span>
+          </div>
+
+          {alert.total_streaks > 1 && (
+            <p className="text-xs mt-2 text-gray-400 dark:text-gray-500">
+              {alert.total_streaks} separate shortage streaks detected in last 90 days
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -48,7 +48,7 @@ export default function TaxAutopilotPage() {
     );
   }
 
-  const { tax_name, authority, rate_pct, frequency, upcoming_deadlines, current_month, ytd, alerts } = data;
+  const { tax_name, authority, rate_pct, frequency, upcoming_deadlines, current_month, ytd, alerts, daily_close_reconciliation: recon } = data;
   const nextDeadline = upcoming_deadlines?.[0];
 
   return (
@@ -164,6 +164,11 @@ export default function TaxAutopilotPage() {
         />
       </div>
 
+      {/* ─── DAILY CLOSE RECONCILIATION ─── */}
+      {recon && recon.current_month && (
+        <ReconCard recon={recon} taxName={tax_name} currency={currency} />
+      )}
+
       {/* ─── UPCOMING DEADLINES TABLE ─── */}
       {upcoming_deadlines?.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
@@ -273,6 +278,92 @@ function MetricCard({ label, value, sub, color, currency }) {
       <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
       <p className={`text-2xl font-bold mt-1 ${color}`}>{value}</p>
       <p className="text-xs text-gray-400 mt-0.5">{sub}</p>
+    </div>
+  );
+}
+
+
+function ReconCard({ recon, taxName, currency }) {
+  const cm = recon.current_month;
+  const yt = recon.ytd;
+
+  const statusStyles = {
+    matched:             { bg: "bg-green-50 dark:bg-green-900/20",  border: "border-green-200 dark:border-green-800", badge: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300", icon: "\u2705", label: "Matched" },
+    minor_discrepancy:   { bg: "bg-amber-50 dark:bg-amber-900/20",  border: "border-amber-200 dark:border-amber-800", badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300", icon: "\u26a0\ufe0f", label: "Minor Diff" },
+    major_discrepancy:   { bg: "bg-red-50 dark:bg-red-900/20",      border: "border-red-200 dark:border-red-800",     badge: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",       icon: "\ud83d\udea8", label: "Mismatch" },
+    no_data:             { bg: "bg-gray-50 dark:bg-gray-800",       border: "border-gray-200 dark:border-gray-700",   badge: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400",     icon: "\u2014",  label: "No Closes" },
+  };
+
+  const s = statusStyles[cm.status] || statusStyles.no_data;
+
+  return (
+    <div className={`rounded-2xl p-5 border ${s.border} ${s.bg} shadow-sm`}>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
+          <span>📋</span> Daily Close Reconciliation
+        </h2>
+        <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${s.badge}`}>
+          {s.icon} {s.label}
+        </span>
+      </div>
+
+      {cm.status === "no_data" ? (
+        <div className="text-center py-3">
+          <p className="text-sm text-gray-500 dark:text-gray-400">No confirmed daily closes this month yet.</p>
+          <a href="/daily-close" className="text-sm text-green-600 dark:text-green-400 hover:underline mt-1 inline-block">
+            Go to Daily Close &rarr;
+          </a>
+        </div>
+      ) : (
+        <>
+          {/* Current month comparison */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">From Daily Closes</p>
+              <p className="text-xl font-bold text-gray-800 dark:text-white">{fmt(cm.moms_from_closes)} <span className="text-sm font-normal text-gray-400">{currency}</span></p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {cm.closes_count} close{cm.closes_count !== 1 ? "s" : ""}
+                {cm.manual_count > 0 && <> &middot; {cm.manual_count} from receipt</>}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">From Sales Records</p>
+              <p className="text-xl font-bold text-gray-800 dark:text-white">{fmt(cm.moms_from_sales)} <span className="text-sm font-normal text-gray-400">{currency}</span></p>
+              <p className="text-xs text-gray-400 mt-0.5">Calculated from transactions</p>
+            </div>
+          </div>
+
+          {/* Discrepancy bar */}
+          {cm.discrepancy !== null && cm.discrepancy !== 0 && (
+            <div className="mt-3 pt-3 border-t border-gray-200/60 dark:border-gray-700/60 flex items-center justify-between">
+              <span className="text-sm text-gray-600 dark:text-gray-300">Difference</span>
+              <span className={`text-sm font-bold ${
+                Math.abs(cm.discrepancy) <= cm.moms_from_sales * 0.02
+                  ? "text-green-600" : Math.abs(cm.discrepancy) <= cm.moms_from_sales * 0.1
+                  ? "text-amber-600" : "text-red-600"
+              }`}>
+                {cm.discrepancy > 0 ? "+" : ""}{fmt(cm.discrepancy)} {currency}
+                {cm.discrepancy_pct != null && <span className="text-xs font-normal text-gray-400 ml-1">({cm.discrepancy_pct}%)</span>}
+              </span>
+            </div>
+          )}
+
+          {/* YTD line */}
+          {yt && yt.closes_count > 0 && (
+            <div className="mt-2 pt-2 border-t border-gray-200/40 dark:border-gray-700/40 flex items-center justify-between text-xs text-gray-400">
+              <span>YTD: {yt.closes_count} closes &rarr; {fmt(yt.moms_from_closes)} {taxName}</span>
+              <span>Sales &rarr; {fmt(yt.moms_from_sales)} {taxName}</span>
+            </div>
+          )}
+
+          {/* Link */}
+          <div className="mt-3 text-center">
+            <a href="/daily-close" className="text-xs text-green-600 dark:text-green-400 hover:underline">
+              View Daily Close History &rarr;
+            </a>
+          </div>
+        </>
+      )}
     </div>
   );
 }

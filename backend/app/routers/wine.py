@@ -47,6 +47,7 @@ router = APIRouter()
 
 class WineCreate(BaseModel):
     name: str
+    menu_name: Optional[str] = None
     winery: Optional[str] = None
     vintage: Optional[int] = None
     grape_variety: Optional[str] = None
@@ -58,6 +59,7 @@ class WineCreate(BaseModel):
     staff_description: Optional[str] = None
     cost_price: float = 0
     sell_price: float = 0
+    glass_price: Optional[float] = None
     stock_qty: int = 0
     reorder_level: int = 2
     supplier: Optional[str] = None
@@ -66,6 +68,7 @@ class WineCreate(BaseModel):
 
 class WineUpdate(BaseModel):
     name: Optional[str] = None
+    menu_name: Optional[str] = None
     winery: Optional[str] = None
     vintage: Optional[int] = None
     grape_variety: Optional[str] = None
@@ -77,6 +80,7 @@ class WineUpdate(BaseModel):
     staff_description: Optional[str] = None
     cost_price: Optional[float] = None
     sell_price: Optional[float] = None
+    glass_price: Optional[float] = None
     stock_qty: Optional[int] = None
     reorder_level: Optional[int] = None
     supplier: Optional[str] = None
@@ -89,6 +93,7 @@ class PdfExportRequest(BaseModel):
     title: Optional[str] = None                # custom menu title
     show_pairing: bool = True                  # include food pairing
     show_notes: bool = True                    # include tasting notes
+    show_glass: bool = True                    # include glass pricing
 
 
 # ── Helpers ──────────────────────────────────────────────────
@@ -112,6 +117,8 @@ def _wine_dict(w: Wine) -> dict:
         "tasting_notes": w.tasting_notes,
         "food_pairing": w.food_pairing,
         "staff_description": w.staff_description,
+        "menu_name": w.menu_name,
+        "glass_price": float(w.glass_price) if w.glass_price else None,
         "cost_price": float(w.cost_price or 0),
         "sell_price": float(w.sell_price or 0),
         "margin_pct": float(w.margin_pct or 0),
@@ -136,6 +143,7 @@ def create_wine(
         user_id=user.id,
         branch_id=uuid.UUID(data.branch_id) if data.branch_id else None,
         name=data.name,
+        menu_name=data.menu_name,
         winery=data.winery,
         vintage=data.vintage,
         grape_variety=data.grape_variety,
@@ -147,6 +155,7 @@ def create_wine(
         staff_description=data.staff_description,
         cost_price=data.cost_price,
         sell_price=data.sell_price,
+        glass_price=data.glass_price,
         margin_pct=margin,
         stock_qty=data.stock_qty,
         reorder_level=data.reorder_level,
@@ -372,123 +381,159 @@ def export_wine_pdf(
 
     styles = getSampleStyleSheet()
 
-    # Custom styles
+    # ── Elegant restaurant wine card styles ──
+    burgundy = colors.HexColor("#5c1a2a")
+    gold = colors.HexColor("#8b7355")
+    charcoal = colors.HexColor("#2c2c2c")
+    muted = colors.HexColor("#777777")
+
     title_style = ParagraphStyle(
         "WineMenuTitle", parent=styles["Title"],
-        fontSize=26, spaceAfter=4, alignment=TA_CENTER,
-        textColor=colors.HexColor("#1a1a2e"), fontName="Helvetica-Bold",
+        fontSize=28, spaceAfter=2, alignment=TA_CENTER,
+        textColor=charcoal, fontName="Times-Bold", leading=34,
     )
     subtitle_style = ParagraphStyle(
         "WineMenuSub", parent=styles["Normal"],
         fontSize=10, alignment=TA_CENTER,
-        textColor=colors.HexColor("#666666"), spaceAfter=20,
+        textColor=gold, spaceAfter=6, fontName="Times-Italic", leading=14,
     )
     section_style = ParagraphStyle(
         "WineSection", parent=styles["Heading2"],
-        fontSize=16, spaceBefore=20, spaceAfter=8,
-        textColor=colors.HexColor("#722f37"), fontName="Helvetica-Bold",
-        borderWidth=0,
+        fontSize=14, spaceBefore=18, spaceAfter=6,
+        textColor=burgundy, fontName="Times-Bold",
+        borderWidth=0, leading=18,
     )
     wine_name_style = ParagraphStyle(
         "WineName", parent=styles["Normal"],
-        fontSize=12, fontName="Helvetica-Bold",
-        textColor=colors.HexColor("#1a1a2e"), spaceAfter=1,
+        fontSize=11, fontName="Times-Bold",
+        textColor=charcoal, spaceAfter=0, leading=14,
     )
     wine_detail_style = ParagraphStyle(
         "WineDetail", parent=styles["Normal"],
-        fontSize=9, textColor=colors.HexColor("#555555"),
-        leading=13, spaceAfter=2,
+        fontSize=8.5, textColor=muted,
+        leading=11, spaceAfter=1, fontName="Helvetica",
     )
     wine_notes_style = ParagraphStyle(
         "WineNotes", parent=styles["Normal"],
-        fontSize=8.5, textColor=colors.HexColor("#777777"),
-        leading=12, spaceAfter=2, fontName="Helvetica-Oblique",
+        fontSize=8, textColor=colors.HexColor("#999999"),
+        leading=10, spaceAfter=1, fontName="Times-Italic",
     )
     price_style = ParagraphStyle(
         "WinePrice", parent=styles["Normal"],
-        fontSize=12, fontName="Helvetica-Bold",
-        textColor=colors.HexColor("#1a1a2e"), alignment=2,  # RIGHT
+        fontSize=10, fontName="Helvetica-Bold",
+        textColor=charcoal, alignment=2,  # RIGHT
+    )
+    price_glass_style = ParagraphStyle(
+        "WinePriceGlass", parent=styles["Normal"],
+        fontSize=8, fontName="Helvetica",
+        textColor=muted, alignment=2,
     )
 
     elements = []
+    currency = user.currency or "DKK"
 
-    # Title
-    menu_title = body.title or f"{user.business_name} Wine Menu" if user.business_name else "Wine Menu"
+    # ── Header ──
+    menu_title = body.title or (f"{user.business_name}" if user.business_name else "Wine Menu")
+    elements.append(Spacer(1, 5 * mm))
     elements.append(Paragraph(menu_title, title_style))
-    elements.append(Paragraph("— curated selection —", subtitle_style))
-    elements.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#ddd"), spaceAfter=12))
+    elements.append(Paragraph("\u2014 wine selection \u2014", subtitle_style))
+    elements.append(Spacer(1, 2 * mm))
+    elements.append(HRFlowable(width="40%", thickness=0.5, color=gold, spaceAfter=10, hAlign="CENTER"))
 
-    # Group by type
+    # ── Column header for glass/bottle ──
+    show_glass = body.show_glass and any(getattr(w, "glass_price", None) for w in wines)
+    if show_glass:
+        hdr = Table(
+            [["", Paragraph("Glass", price_glass_style), Paragraph("Bottle", price_glass_style)]],
+            colWidths=[doc.width * 0.68, doc.width * 0.16, doc.width * 0.16],
+        )
+        hdr.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ]))
+        elements.append(hdr)
+
+    # ── Group by type ──
     type_labels = {
-        "red": "Red Wines", "white": "White Wines", "rosé": "Rosé Wines",
-        "sparkling": "Sparkling", "natural": "Natural Wines",
+        "red": "Red Wines", "white": "White Wines", "ros\u00e9": "Ros\u00e9 Wines",
+        "sparkling": "Sparkling & Champagne", "natural": "Natural Wines",
         "dessert": "Dessert Wines", "orange": "Orange Wines",
     }
     grouped = {}
     for w in wines:
         grouped.setdefault(w.wine_type, []).append(w)
 
-    # Render type order
-    type_order = ["sparkling", "white", "rosé", "orange", "red", "natural", "dessert"]
+    type_order = ["sparkling", "white", "ros\u00e9", "orange", "red", "natural", "dessert"]
     for wtype in type_order:
         if wtype not in grouped:
             continue
         group = grouped[wtype]
 
         elements.append(Paragraph(type_labels.get(wtype, wtype.title()), section_style))
-        elements.append(HRFlowable(width="100%", thickness=0.3, color=colors.HexColor("#722f37"), spaceAfter=8))
+        elements.append(HRFlowable(width="100%", thickness=0.3, color=burgundy, spaceAfter=6))
 
         for w in group:
-            # Wine name + vintage + price row
+            display_name = getattr(w, "menu_name", None) or w.name
             detail_parts = []
             if w.grape_variety:
                 detail_parts.append(w.grape_variety)
             if w.region:
-                region_str = f"{w.region}, {w.country}" if w.country else w.region
-                detail_parts.append(region_str)
+                detail_parts.append(f"{w.region}, {w.country}" if w.country else w.region)
             if w.vintage:
                 detail_parts.append(str(w.vintage))
 
-            currency = user.currency or "DKK"
-            price_text = f"{float(w.sell_price):,.0f} {currency}"
-
-            # Build as a two-column table: name+details on left, price on right
-            name_text = w.name
+            name_text = display_name
             if w.winery:
-                name_text += f"  <font size='9' color='#888'>— {w.winery}</font>"
+                name_text += f"  <font size='8' color='#999'>\u2014 {w.winery}</font>"
 
             left_content = [Paragraph(name_text, wine_name_style)]
             if detail_parts:
-                left_content.append(Paragraph(" · ".join(detail_parts), wine_detail_style))
+                left_content.append(Paragraph(" \u00b7 ".join(detail_parts), wine_detail_style))
             if body.show_notes and w.tasting_notes:
-                left_content.append(Paragraph(f'"{w.tasting_notes}"', wine_notes_style))
+                left_content.append(Paragraph(f"\u201c{w.tasting_notes}\u201d", wine_notes_style))
             if body.show_pairing and w.food_pairing:
-                left_content.append(Paragraph(f"Pairs with: {w.food_pairing}", wine_detail_style))
+                left_content.append(Paragraph(f"Pairs with {w.food_pairing}", wine_detail_style))
 
-            row_table = Table(
-                [[left_content, Paragraph(price_text, price_style)]],
-                colWidths=[doc.width * 0.78, doc.width * 0.22],
-            )
+            bottle_text = f"{float(w.sell_price):,.0f}"
+            g_price = getattr(w, "glass_price", None)
+
+            if show_glass:
+                glass_text = f"{float(g_price):,.0f}" if g_price else "\u2014"
+                row_table = Table(
+                    [[left_content, Paragraph(glass_text, price_style), Paragraph(bottle_text, price_style)]],
+                    colWidths=[doc.width * 0.68, doc.width * 0.16, doc.width * 0.16],
+                )
+            else:
+                row_table = Table(
+                    [[left_content, Paragraph(bottle_text, price_style)]],
+                    colWidths=[doc.width * 0.80, doc.width * 0.20],
+                )
+
             row_table.setStyle(TableStyle([
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 0),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                ("LINEBELOW", (0, 0), (-1, -1), 0.2, colors.HexColor("#e8e8e8")),
             ]))
             elements.append(row_table)
 
-        elements.append(Spacer(1, 6))
+        elements.append(Spacer(1, 4))
 
-    # Footer
-    elements.append(Spacer(1, 20))
-    elements.append(HRFlowable(width="100%", thickness=0.3, color=colors.HexColor("#ccc"), spaceAfter=8))
+    # ── Footer ──
+    elements.append(Spacer(1, 15))
+    elements.append(HRFlowable(width="30%", thickness=0.3, color=gold, spaceAfter=6, hAlign="CENTER"))
     footer_style = ParagraphStyle(
         "Footer", parent=styles["Normal"],
-        fontSize=8, textColor=colors.HexColor("#999999"), alignment=TA_CENTER,
+        fontSize=7.5, textColor=colors.HexColor("#aaaaaa"), alignment=TA_CENTER, fontName="Helvetica",
     )
+    if show_glass:
+        elements.append(Paragraph(f"All prices in {currency}", footer_style))
     elements.append(Paragraph(
-        f"Generated on {datetime.utcnow().strftime('%d %b %Y')} · {len(wines)} wine{'s' if len(wines) != 1 else ''}",
+        f"{len(wines)} wine{'s' if len(wines) != 1 else ''} \u00b7 Ask your server for recommendations",
         footer_style,
     ))
 

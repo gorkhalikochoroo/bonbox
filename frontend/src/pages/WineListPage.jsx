@@ -30,7 +30,7 @@ export default function WineListPage() {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(new Set());
-  const [tab, setTab] = useState("catalog"); // catalog | staff | sommelier
+  const [tab, setTab] = useState("catalog"); // catalog | menu | staff | sommelier
   const [showAdd, setShowAdd] = useState(false);
   const [showQR, setShowQR] = useState(false);
   const [menuToken, setMenuToken] = useState(null);
@@ -187,6 +187,7 @@ export default function WineListPage() {
       <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
         {[
           { id: "catalog", label: "Catalog", icon: "🍷" },
+          { id: "menu", label: "Menu Editor", icon: "📜" },
           { id: "staff", label: "Staff Cheat Sheet", icon: "📋" },
           { id: "sommelier", label: "AI Sommelier", icon: "🤖" },
         ].map(tb => (
@@ -261,6 +262,9 @@ export default function WineListPage() {
           )}
         </>
       )}
+
+      {/* ── MENU EDITOR TAB ── */}
+      {tab === "menu" && <MenuEditorTab wines={wines} currency={currency} onUpdate={fetchWines} />}
 
       {/* ── STAFF CHEAT SHEET TAB ── */}
       {tab === "staff" && <StaffSheet wines={wines} currency={currency} />}
@@ -398,6 +402,288 @@ function WineCard({ wine: w, currency, isSelected, onToggle, onSell, onDelete })
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   MENU EDITOR TAB — edit display names, glass prices, export PDF
+   ═══════════════════════════════════════════════════════════ */
+function MenuEditorTab({ wines, currency, onUpdate }) {
+  const [edits, setEdits] = useState({});      // { wineId: { menu_name, glass_price, sell_price } }
+  const [saving, setSaving] = useState(null);   // wineId currently saving
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [menuTitle, setMenuTitle] = useState("");
+  const [showNotes, setShowNotes] = useState(true);
+  const [showPairing, setShowPairing] = useState(true);
+  const [pdfSuccess, setPdfSuccess] = useState(false);
+
+  const TYPE_ORDER = ["sparkling", "white", "rosé", "orange", "red", "natural", "dessert"];
+  const TYPE_LABELS = {
+    red: "Red Wines", white: "White Wines", "rosé": "Rosé Wines",
+    sparkling: "Sparkling & Champagne", natural: "Natural Wines",
+    dessert: "Dessert Wines", orange: "Orange Wines",
+  };
+
+  const grouped = useMemo(() => {
+    const g = {};
+    wines.forEach(w => { g[w.wine_type] = g[w.wine_type] || []; g[w.wine_type].push(w); });
+    return g;
+  }, [wines]);
+
+  const getEdit = (w) => edits[w.id] || {
+    menu_name: w.menu_name || "",
+    glass_price: w.glass_price != null ? String(w.glass_price) : "",
+    sell_price: String(w.sell_price),
+  };
+
+  const setField = (wId, field, val) => {
+    setEdits(prev => ({
+      ...prev,
+      [wId]: { ...getEdit(wines.find(w => w.id === wId)), [field]: val },
+    }));
+  };
+
+  const isDirty = (w) => {
+    const e = edits[w.id];
+    if (!e) return false;
+    const menuDirty = (e.menu_name || "") !== (w.menu_name || "");
+    const glassDirty = (e.glass_price || "") !== (w.glass_price != null ? String(w.glass_price) : "");
+    const sellDirty = (e.sell_price || "") !== String(w.sell_price);
+    return menuDirty || glassDirty || sellDirty;
+  };
+
+  const dirtyCount = wines.filter(isDirty).length;
+
+  const handleSave = async (w) => {
+    const e = getEdit(w);
+    setSaving(w.id);
+    try {
+      const payload = {};
+      if ((e.menu_name || "") !== (w.menu_name || "")) payload.menu_name = e.menu_name || null;
+      if ((e.glass_price || "") !== (w.glass_price != null ? String(w.glass_price) : ""))
+        payload.glass_price = e.glass_price ? parseFloat(e.glass_price) : null;
+      if ((e.sell_price || "") !== String(w.sell_price))
+        payload.sell_price = parseFloat(e.sell_price) || w.sell_price;
+      if (Object.keys(payload).length > 0) {
+        await api.put(`/wines/${w.id}`, payload);
+        setEdits(prev => { const n = { ...prev }; delete n[w.id]; return n; });
+        onUpdate();
+      }
+    } catch (err) {
+      alert(err.response?.data?.detail || "Save failed");
+    }
+    setSaving(null);
+  };
+
+  const handleSaveAll = async () => {
+    const dirtyWines = wines.filter(isDirty);
+    for (const w of dirtyWines) {
+      await handleSave(w);
+    }
+  };
+
+  const handlePdfExport = async () => {
+    setPdfLoading(true);
+    setPdfSuccess(false);
+    try {
+      const body = {
+        show_glass: true,
+        show_notes: showNotes,
+        show_pairing: showPairing,
+      };
+      if (menuTitle.trim()) body.title = menuTitle.trim();
+      const res = await api.post("/wines/pdf", body, { responseType: "blob" });
+      const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `wine_menu_${new Date().toISOString().split("T")[0]}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setPdfSuccess(true);
+      setTimeout(() => setPdfSuccess(false), 3000);
+    } catch {
+      alert("Failed to generate PDF");
+    }
+    setPdfLoading(false);
+  };
+
+  const hasAnyGlass = wines.some(w => {
+    const e = edits[w.id];
+    const gp = e ? e.glass_price : (w.glass_price != null ? String(w.glass_price) : "");
+    return gp && parseFloat(gp) > 0;
+  });
+
+  return (
+    <div className="space-y-5">
+      {/* Info banner */}
+      <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 flex items-start gap-3">
+        <span className="text-2xl">📜</span>
+        <div>
+          <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Wine Menu Editor</p>
+          <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+            Set display names for your printed menu, add glass pricing, then export a beautiful restaurant-style wine card PDF.
+          </p>
+        </div>
+      </div>
+
+      {/* PDF Export Controls */}
+      <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+          <h3 className="text-sm font-bold dark:text-white">Print Settings</h3>
+          <div className="flex gap-2">
+            {dirtyCount > 0 && (
+              <button onClick={handleSaveAll}
+                className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition">
+                Save {dirtyCount} Change{dirtyCount > 1 ? "s" : ""}
+              </button>
+            )}
+            <button onClick={handlePdfExport} disabled={pdfLoading || wines.length === 0}
+              className="px-5 py-2 bg-gradient-to-r from-purple-700 to-pink-600 text-white rounded-xl text-sm font-bold hover:from-purple-800 hover:to-pink-700 transition disabled:opacity-50 flex items-center gap-1.5">
+              {pdfLoading ? (
+                <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" /> Generating...</>
+              ) : pdfSuccess ? (
+                <>✅ Downloaded!</>
+              ) : (
+                <>📄 Export Wine Card PDF</>
+              )}
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-4 items-end">
+          <div className="flex-1 min-w-[200px]">
+            <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">Menu Title</label>
+            <input type="text" value={menuTitle} onChange={e => setMenuTitle(e.target.value)}
+              placeholder="Your restaurant name (default)"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl text-sm" />
+          </div>
+          <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 cursor-pointer">
+            <input type="checkbox" checked={showNotes} onChange={e => setShowNotes(e.target.checked)}
+              className="rounded border-gray-300 text-purple-600 focus:ring-purple-500" />
+            Tasting Notes
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 cursor-pointer">
+            <input type="checkbox" checked={showPairing} onChange={e => setShowPairing(e.target.checked)}
+              className="rounded border-gray-300 text-purple-600 focus:ring-purple-500" />
+            Food Pairing
+          </label>
+        </div>
+
+        {hasAnyGlass && (
+          <p className="text-xs text-green-600 dark:text-green-400 mt-2">
+            Glass pricing detected — PDF will show Glass / Bottle columns
+          </p>
+        )}
+      </div>
+
+      {/* Wines grouped by type */}
+      {wines.length === 0 ? (
+        <div className="text-center py-16 text-gray-400">
+          <p className="text-4xl mb-3">📜</p>
+          <p className="text-lg font-medium">No wines in catalog</p>
+          <p className="text-sm mt-1">Add wines in the Catalog tab first.</p>
+        </div>
+      ) : (
+        TYPE_ORDER.filter(t => grouped[t]).map(wtype => (
+          <div key={wtype}>
+            <h3 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+              <span className="w-8 h-px bg-gray-200 dark:bg-gray-700" />
+              {TYPE_LABELS[wtype] || wtype}
+              <span className="text-xs font-normal">({grouped[wtype].length})</span>
+              <span className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+            </h3>
+
+            <div className="space-y-2 mb-5">
+              {grouped[wtype].map(w => {
+                const e = getEdit(w);
+                const dirty = isDirty(w);
+                const displayName = e.menu_name || w.name;
+
+                return (
+                  <div key={w.id} className={`bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border transition ${
+                    dirty ? "border-amber-300 dark:border-amber-600 ring-1 ring-amber-100 dark:ring-amber-900/30"
+                      : "border-gray-100 dark:border-gray-700"
+                  }`}>
+                    <div className="flex items-start gap-4 flex-wrap">
+                      {/* Left: Wine info + editable fields */}
+                      <div className="flex-1 min-w-[280px] space-y-2">
+                        <div className="flex items-baseline gap-2 mb-1">
+                          <span className="text-xs text-gray-400 dark:text-gray-500 font-mono">#{wines.indexOf(w) + 1}</span>
+                          <span className="text-sm font-bold dark:text-white">{w.name}</span>
+                          {w.vintage && <span className="text-xs text-gray-400">{w.vintage}</span>}
+                          {w.winery && <span className="text-xs text-gray-400">— {w.winery}</span>}
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <div>
+                            <label className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold block mb-0.5">
+                              Menu Name
+                            </label>
+                            <input type="text"
+                              value={e.menu_name}
+                              onChange={ev => setField(w.id, "menu_name", ev.target.value)}
+                              placeholder={w.name}
+                              className="w-full px-2.5 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500" />
+                          </div>
+                          <div>
+                            <label className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold block mb-0.5">
+                              Bottle Price ({currency})
+                            </label>
+                            <input type="number" step="0.01"
+                              value={e.sell_price}
+                              onChange={ev => setField(w.id, "sell_price", ev.target.value)}
+                              className="w-full px-2.5 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm text-right focus:outline-none focus:ring-1 focus:ring-purple-500" />
+                          </div>
+                          <div>
+                            <label className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold block mb-0.5">
+                              Glass Price ({currency})
+                            </label>
+                            <input type="number" step="0.01"
+                              value={e.glass_price}
+                              onChange={ev => setField(w.id, "glass_price", ev.target.value)}
+                              placeholder="—"
+                              className="w-full px-2.5 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm text-right focus:outline-none focus:ring-1 focus:ring-purple-500" />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right: Preview + Save */}
+                      <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                        {/* Mini preview */}
+                        <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg px-3 py-2 text-right min-w-[140px]">
+                          <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">On menu shows as:</p>
+                          <p className="text-sm font-serif font-bold text-gray-800 dark:text-gray-200 italic">
+                            {displayName}
+                          </p>
+                          <div className="flex justify-end gap-3 mt-1">
+                            {e.glass_price && parseFloat(e.glass_price) > 0 && (
+                              <span className="text-xs text-gray-500">
+                                Glass: <span className="font-semibold">{parseFloat(e.glass_price).toLocaleString()}</span>
+                              </span>
+                            )}
+                            <span className="text-xs text-gray-500">
+                              Bottle: <span className="font-semibold">{parseFloat(e.sell_price || w.sell_price).toLocaleString()}</span>
+                            </span>
+                          </div>
+                        </div>
+
+                        {dirty && (
+                          <button onClick={() => handleSave(w)} disabled={saving === w.id}
+                            className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-700 transition disabled:opacity-50">
+                            {saving === w.id ? "Saving..." : "Save"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))
+      )}
     </div>
   );
 }

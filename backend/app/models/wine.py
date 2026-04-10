@@ -26,6 +26,7 @@ class Wine(Base):
 
     # ── Catalog ──────────────────────────────────────────────
     name: Mapped[str] = mapped_column(String(255))
+    menu_name: Mapped[str | None] = mapped_column(String(255), nullable=True)  # Display name on printed menu
     winery: Mapped[str | None] = mapped_column(String(255), nullable=True)
     vintage: Mapped[int | None] = mapped_column(Integer, nullable=True)
     grape_variety: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -39,6 +40,7 @@ class Wine(Base):
     # ── Inventory / Pricing ──────────────────────────────────
     cost_price: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     sell_price: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    glass_price: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)  # By-the-glass price
     margin_pct: Mapped[float] = mapped_column(Numeric(5, 1), default=0)
     stock_qty: Mapped[int] = mapped_column(Integer, default=0)
     reorder_level: Mapped[int] = mapped_column(Integer, default=2)

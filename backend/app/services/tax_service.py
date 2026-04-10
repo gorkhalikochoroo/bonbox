@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.models.user import User
 from app.models.sale import Sale
 from app.models.expense import Expense
+from app.models.daily_close import DailyClose
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +115,51 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date, vat_rate: 
         "output_vat": output_vat,
         "input_vat": input_vat,
         "vat_payable": round(output_vat - input_vat, 2),
+    }
+
+
+def _calc_daily_close_vat(db: Session, user_id, start_date: date, end_date: date) -> dict:
+    """Sum MOMS/VAT from confirmed daily closes in a date range."""
+    closes = (
+        db.query(DailyClose)
+        .filter(
+            DailyClose.user_id == user_id,
+            DailyClose.date >= start_date,
+            DailyClose.date <= end_date,
+            DailyClose.is_deleted.isnot(True),
+        )
+        .all()
+    )
+
+    confirmed = 0
+    drafts = 0
+    total_moms = 0.0
+    total_revenue = 0.0
+    total_rev_ex = 0.0
+    manual_count = 0
+
+    for dc in closes:
+        status = getattr(dc, "status", None) or "confirmed"
+        if status == "confirmed":
+            confirmed += 1
+            if dc.moms_total is not None:
+                total_moms += float(dc.moms_total)
+            if dc.revenue_total:
+                total_revenue += float(dc.revenue_total)
+            if dc.revenue_ex_moms is not None:
+                total_rev_ex += float(dc.revenue_ex_moms)
+            if getattr(dc, "moms_mode", None) == "manual":
+                manual_count += 1
+        else:
+            drafts += 1
+
+    return {
+        "total_moms": round(total_moms, 2),
+        "total_revenue": round(total_revenue, 2),
+        "total_revenue_ex_moms": round(total_rev_ex, 2),
+        "confirmed_count": confirmed,
+        "draft_count": drafts,
+        "manual_count": manual_count,
     }
 
 
@@ -253,8 +299,52 @@ def get_tax_overview(user: User, db: Session) -> dict:
     year_start = date(today.year, 1, 1)
     ytd = _calc_vat(db, user.id, year_start, today + timedelta(days=1), vat_rate)
 
-    # Generate alerts
-    alerts = _generate_tax_alerts(upcoming, config, currency, ytd)
+    # ── Daily Close reconciliation ──
+    dc_month = _calc_daily_close_vat(db, user.id, month_start, today)
+    dc_ytd = _calc_daily_close_vat(db, user.id, year_start, today)
+
+    discrepancy = None
+    disc_pct = None
+    recon_status = "no_data"
+
+    if dc_month["confirmed_count"] > 0:
+        discrepancy = round(dc_month["total_moms"] - current_period["output_vat"], 2)
+        if current_period["output_vat"] > 0:
+            disc_pct = round(abs(discrepancy) / current_period["output_vat"] * 100, 1)
+        elif dc_month["total_moms"] == 0:
+            disc_pct = 0.0
+        else:
+            disc_pct = 100.0
+
+        if disc_pct is not None and disc_pct <= 2:
+            recon_status = "matched"
+        elif disc_pct is not None and disc_pct <= 10:
+            recon_status = "minor_discrepancy"
+        else:
+            recon_status = "major_discrepancy"
+
+    daily_close_recon = {
+        "current_month": {
+            "moms_from_closes": dc_month["total_moms"],
+            "moms_from_sales": current_period["output_vat"],
+            "closes_count": dc_month["confirmed_count"],
+            "drafts_count": dc_month["draft_count"],
+            "manual_count": dc_month["manual_count"],
+            "revenue_from_closes": dc_month["total_revenue"],
+            "discrepancy": discrepancy,
+            "discrepancy_pct": disc_pct,
+            "status": recon_status,
+        },
+        "ytd": {
+            "moms_from_closes": dc_ytd["total_moms"],
+            "moms_from_sales": ytd["output_vat"],
+            "closes_count": dc_ytd["confirmed_count"],
+            "revenue_from_closes": dc_ytd["total_revenue"],
+        },
+    }
+
+    # Generate alerts (with reconciliation context)
+    alerts = _generate_tax_alerts(upcoming, config, currency, ytd, daily_close_recon)
 
     return {
         "tax_name": config["tax_name"],
@@ -273,10 +363,11 @@ def get_tax_overview(user: User, db: Session) -> dict:
             "year": today.year,
         },
         "alerts": alerts,
+        "daily_close_reconciliation": daily_close_recon,
     }
 
 
-def _generate_tax_alerts(upcoming, config, currency, ytd) -> list[dict]:
+def _generate_tax_alerts(upcoming, config, currency, ytd, recon=None) -> list[dict]:
     """Generate tax-related alerts."""
     alerts = []
     tax_name = config["tax_name"]
@@ -333,11 +424,41 @@ def _generate_tax_alerts(upcoming, config, currency, ytd) -> list[dict]:
             "action": None,
         })
 
+    # Daily Close reconciliation alert
+    if recon:
+        cm = recon.get("current_month", {})
+        if cm.get("status") == "major_discrepancy":
+            diff = cm.get("discrepancy", 0)
+            alerts.append({
+                "type": "reconciliation",
+                "severity": "warning",
+                "icon": "\U0001f50d",
+                "title": f"Daily Close vs Sales {tax_name} mismatch: {round(diff):+,}",
+                "detail": (
+                    f"Daily closes show {round(cm['moms_from_closes']):,} in {tax_name} this month, "
+                    f"but sales records show {round(cm['moms_from_sales']):,}. "
+                    "Review both sources before filing."
+                ),
+                "action": "Open Daily Close \u2192 History to compare with your sales register.",
+            })
+        elif cm.get("status") == "matched" and cm.get("closes_count", 0) >= 5:
+            alerts.append({
+                "type": "reconciliation_ok",
+                "severity": "positive",
+                "icon": "\u2705",
+                "title": f"Daily Close {tax_name} matches sales records",
+                "detail": (
+                    f"{cm['closes_count']} confirmed closes this month. "
+                    f"{tax_name} from receipts and sales are aligned."
+                ),
+                "action": None,
+            })
+
     if not alerts:
         alerts.append({
             "type": "all_clear",
             "severity": "positive",
-            "icon": "✅",
+            "icon": "\u2705",
             "title": f"No urgent {tax_name} deadlines",
             "detail": "Your tax filings are up to date.",
             "action": None,
