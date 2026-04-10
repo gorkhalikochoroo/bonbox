@@ -65,6 +65,17 @@ const navGroups = [
     ],
   },
   {
+    id: "reports",
+    label: "Reports",
+    icon: "📋",
+    visibleFor: null,
+    items: [
+      { to: "/reports", icon: "📋", labelKey: "reports" },
+      { to: "/daily-close", icon: "🧾", labelKey: "dailyClose" },
+      { to: "/tax", icon: "💰", labelKey: "taxAutopilot" },
+    ],
+  },
+  {
     id: "intel",
     label: "Intelligence",
     icon: "🧠",
@@ -75,17 +86,6 @@ const navGroups = [
       { to: "/pricing", icon: "💲", labelKey: "priceOptimization" },
       { to: "/retention", icon: "🤝", labelKey: "customerRetention" },
       { to: "/competitors", icon: "🔍", labelKey: "competitorScan" },
-    ],
-  },
-  {
-    id: "reports",
-    label: "Reports",
-    icon: "📋",
-    visibleFor: null,
-    items: [
-      { to: "/reports", icon: "📋", labelKey: "reports" },
-      { to: "/daily-close", icon: "🧾", labelKey: "dailyClose" },
-      { to: "/tax", icon: "💰", labelKey: "taxAutopilot" },
     ],
   },
   {
