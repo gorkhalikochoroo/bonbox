@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, date
 
-from sqlalchemy import String, DateTime, Date, Numeric, Text, ForeignKey
+from sqlalchemy import String, DateTime, Date, Numeric, Text, ForeignKey, Float
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
@@ -18,6 +18,13 @@ class Competitor(Base):
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
     category: Mapped[str | None] = mapped_column(String(100), nullable=True)  # cafe, restaurant, etc.
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    place_id: Mapped[str | None] = mapped_column(String(255), nullable=True)  # Google Places ID
+    google_rating: Mapped[float | None] = mapped_column(Float, nullable=True)
+    price_level: Mapped[int | None] = mapped_column(nullable=True)  # Google 0-4
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    photo_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)  # Google photo reference
+    total_ratings: Mapped[int | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     user: Mapped["User"] = relationship()

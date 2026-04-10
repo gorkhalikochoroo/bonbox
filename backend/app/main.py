@@ -106,6 +106,14 @@ _migrations = [
     # Wine menu — display name + glass pricing
     "ALTER TABLE wines ADD COLUMN IF NOT EXISTS menu_name VARCHAR(255)",
     "ALTER TABLE wines ADD COLUMN IF NOT EXISTS glass_price NUMERIC(12,2)",
+    # Competitor — Google Places fields
+    "ALTER TABLE competitors ADD COLUMN IF NOT EXISTS place_id VARCHAR(255)",
+    "ALTER TABLE competitors ADD COLUMN IF NOT EXISTS google_rating FLOAT",
+    "ALTER TABLE competitors ADD COLUMN IF NOT EXISTS price_level INTEGER",
+    "ALTER TABLE competitors ADD COLUMN IF NOT EXISTS latitude FLOAT",
+    "ALTER TABLE competitors ADD COLUMN IF NOT EXISTS longitude FLOAT",
+    "ALTER TABLE competitors ADD COLUMN IF NOT EXISTS photo_ref VARCHAR(500)",
+    "ALTER TABLE competitors ADD COLUMN IF NOT EXISTS total_ratings INTEGER",
 ]
 
 def _run_migrations():
@@ -224,6 +232,14 @@ def _run_migrations():
             # Wine menu — display name + glass pricing
             ok += _add("wines", "menu_name", "VARCHAR(255)")
             ok += _add("wines", "glass_price", "NUMERIC(12,2)")
+            # Competitor — Google Places fields
+            ok += _add("competitors", "place_id", "VARCHAR(255)")
+            ok += _add("competitors", "google_rating", "FLOAT")
+            ok += _add("competitors", "price_level", "INTEGER")
+            ok += _add("competitors", "latitude", "FLOAT")
+            ok += _add("competitors", "longitude", "FLOAT")
+            ok += _add("competitors", "photo_ref", "VARCHAR(500)")
+            ok += _add("competitors", "total_ratings", "INTEGER")
             conn.commit()
             print(f"Schema migrations (SQLite): {ok} new columns added")
         else:
