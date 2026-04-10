@@ -14,7 +14,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base, GUID
 
 # Allowed business types — expand as needed
-BUSINESS_TYPES = ("restaurant", "workshop", "retail", "service", "general")
+BUSINESS_TYPES = ("restaurant", "workshop", "retail", "grocery", "ecommerce", "service", "general")
 
 
 class Branch(Base):

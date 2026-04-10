@@ -29,7 +29,7 @@ from app.models.sale import Sale
 from app.models.expense import Expense, ExpenseCategory
 from app.models.cashbook import CashTransaction
 from app.models.business_profile import BusinessProfile
-from app.schemas.daily_close import DailyCloseCreate, DailyCloseResponse
+from app.schemas.daily_close import DailyCloseCreate, DailyCloseResponse, DailyCloseUnlock
 from app.services.auth import get_current_user
 from app.services.receipt_ocr import save_receipt_photo, parse_z_report
 
@@ -48,15 +48,22 @@ def _to_response(dc: DailyClose) -> dict:
         "revenue_total": float(dc.revenue_total or 0),
         "payment_breakdown": decode_breakdown(dc.payment_categories),
         "payment_total": float(dc.payment_total or 0),
+        "moms_total": float(dc.moms_total) if dc.moms_total is not None else None,
+        "revenue_ex_moms": float(dc.revenue_ex_moms) if dc.revenue_ex_moms is not None else None,
+        "moms_mode": dc.moms_mode,
         "cash_expected": float(dc.cash_expected) if dc.cash_expected is not None else None,
         "cash_counted": float(dc.cash_counted) if dc.cash_counted is not None else None,
         "cash_difference": float(dc.cash_difference) if dc.cash_difference is not None else None,
         "tips_total": float(dc.tips_total) if dc.tips_total is not None else None,
         "tips_staff_count": dc.tips_staff_count,
         "tips_per_person": float(dc.tips_per_person) if dc.tips_per_person is not None else None,
+        "status": getattr(dc, "status", None) or "confirmed",
         "notes": dc.notes,
         "closed_by": dc.closed_by,
         "closed_at": dc.closed_at,
+        "unlock_reason": getattr(dc, "unlock_reason", None),
+        "unlocked_by": getattr(dc, "unlocked_by", None),
+        "unlocked_at": getattr(dc, "unlocked_at", None),
         "is_deleted": dc.is_deleted,
         "created_at": dc.created_at,
     }
@@ -95,21 +102,47 @@ def create_daily_close(
     if data.tips_total and data.tips_staff_count and data.tips_staff_count > 0:
         tips_per_person = round(data.tips_total / data.tips_staff_count, 2)
 
+    # MOMS / VAT — use provided value or auto-calculate (Danish 25%)
+    moms_mode = data.moms_mode or "auto"
+    if data.moms_total is not None:
+        moms_total = round(data.moms_total, 2)
+    else:
+        moms_total = round(revenue_total * 0.25 / 1.25, 2) if revenue_total > 0 else 0
+    revenue_ex_moms = round(revenue_total - moms_total, 2) if revenue_total > 0 else 0
+
+    status = data.status if data.status in ("draft", "confirmed") else "confirmed"
+
     if existing:
+        # Block edits to confirmed (locked) entries — must unlock first
+        existing_status = getattr(existing, "status", None) or "confirmed"
+        if existing_status == "confirmed" and status != "draft":
+            raise HTTPException(
+                status_code=409,
+                detail="This daily close is locked. Unlock it first to make changes."
+            )
         # Update existing
         existing.revenue_categories = encode_breakdown(data.revenue_breakdown)
         existing.revenue_total = revenue_total
         existing.payment_categories = encode_breakdown(data.payment_breakdown)
         existing.payment_total = payment_total
+        existing.moms_total = moms_total
+        existing.revenue_ex_moms = revenue_ex_moms
+        existing.moms_mode = moms_mode
         existing.cash_expected = cash_expected
         existing.cash_counted = data.cash_counted
         existing.cash_difference = cash_difference
         existing.tips_total = data.tips_total
         existing.tips_staff_count = data.tips_staff_count
         existing.tips_per_person = tips_per_person
+        existing.status = status
         existing.notes = data.notes
         existing.closed_by = data.closed_by
-        existing.closed_at = datetime.utcnow()
+        if status == "confirmed":
+            existing.closed_at = datetime.utcnow()
+            # Clear unlock audit when re-confirming
+            existing.unlock_reason = None
+            existing.unlocked_by = None
+            existing.unlocked_at = None
         db.commit()
         db.refresh(existing)
         return _to_response(existing)
@@ -123,17 +156,53 @@ def create_daily_close(
         revenue_total=revenue_total,
         payment_categories=encode_breakdown(data.payment_breakdown),
         payment_total=payment_total,
+        moms_total=moms_total,
+        revenue_ex_moms=revenue_ex_moms,
+        moms_mode=moms_mode,
         cash_expected=cash_expected,
         cash_counted=data.cash_counted,
         cash_difference=cash_difference,
         tips_total=data.tips_total,
         tips_staff_count=data.tips_staff_count,
         tips_per_person=tips_per_person,
+        status=status,
         notes=data.notes,
         closed_by=data.closed_by,
-        closed_at=datetime.utcnow(),
+        closed_at=datetime.utcnow() if status == "confirmed" else None,
     )
     db.add(dc)
+    db.commit()
+    db.refresh(dc)
+    return _to_response(dc)
+
+
+# ─── POST — unlock a confirmed daily close ───
+
+@router.post("/{close_id}/unlock")
+def unlock_daily_close(
+    close_id: str,
+    data: DailyCloseUnlock,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Unlock a confirmed daily close so it can be edited. Owner only. Requires a reason."""
+    dc = db.query(DailyClose).filter(
+        DailyClose.id == close_id,
+        DailyClose.user_id == user.id,
+        DailyClose.is_deleted.isnot(True),
+    ).first()
+    if not dc:
+        raise HTTPException(status_code=404, detail="Daily close not found")
+    current_status = getattr(dc, "status", None) or "confirmed"
+    if current_status != "confirmed":
+        raise HTTPException(status_code=400, detail="Only confirmed closes can be unlocked")
+    if not data.reason or not data.reason.strip():
+        raise HTTPException(status_code=422, detail="A reason is required to unlock")
+
+    dc.status = "draft"
+    dc.unlock_reason = data.reason.strip()
+    dc.unlocked_by = user.email or str(user.id)
+    dc.unlocked_at = datetime.utcnow()
     db.commit()
     db.refresh(dc)
     return _to_response(dc)

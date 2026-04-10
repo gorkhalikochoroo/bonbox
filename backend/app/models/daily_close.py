@@ -35,10 +35,21 @@ class DailyClose(Base):
     cash_counted: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     cash_difference: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
 
+    # MOMS / VAT
+    moms_total: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    revenue_ex_moms: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    moms_mode: Mapped[str | None] = mapped_column(String(10), nullable=True)  # "auto" | "manual"
+
     # Tips
     tips_total: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     tips_staff_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     tips_per_person: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+
+    # Status & Lock
+    status: Mapped[str] = mapped_column(String(20), default="confirmed")  # "draft" | "confirmed"
+    unlock_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    unlocked_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    unlocked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Meta
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

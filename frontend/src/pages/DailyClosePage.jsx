@@ -22,8 +22,20 @@ const REVENUE_CATS_BY_TYPE = {
     { key: "towing", label: "Towing / Bugsering", icon: "🚛" },
   ],
   retail: [
-    { key: "products", label: "Products", icon: "📦" },
-    { key: "services", label: "Services", icon: "🛠️" },
+    { key: "products", label: "Products / Varer", icon: "👕" },
+    { key: "returns", label: "Returns / Returvarer", icon: "↩️" },
+    { key: "services", label: "Services / Ydelser", icon: "🛠️" },
+  ],
+  grocery: [
+    { key: "products", label: "Products / Dagligvarer", icon: "🛒" },
+    { key: "tobacco_lottery", label: "Tobacco & Lottery", icon: "🎰" },
+    { key: "fresh", label: "Fresh / Frisk", icon: "🥬" },
+    { key: "other", label: "Other / Andet", icon: "📦" },
+  ],
+  ecommerce: [
+    { key: "online_sales", label: "Online Sales", icon: "🛍️" },
+    { key: "returns", label: "Returns / Refunds", icon: "↩️" },
+    { key: "shipping", label: "Shipping Revenue", icon: "📦" },
   ],
   general: [
     { key: "revenue", label: "Revenue", icon: "💰" },
@@ -43,6 +55,33 @@ const PAYMENT_METHODS_BY_TYPE = {
     { key: "bank_transfer", label: "Bank Transfer", icon: "🏦" },
     { key: "invoice", label: "Invoice / Credit", icon: "📄" },
   ],
+  retail: [
+    { key: "cash", label: "Cash / Kontant", icon: "💵" },
+    { key: "card", label: "Card / Dankort", icon: "💳" },
+    { key: "mobilepay", label: "MobilePay", icon: "📱" },
+    { key: "gift_card", label: "Gift Card / Gavekort", icon: "🎁" },
+  ],
+  grocery: [
+    { key: "cash", label: "Cash / Kontant", icon: "💵" },
+    { key: "card", label: "Card / Dankort", icon: "💳" },
+    { key: "mobilepay", label: "MobilePay", icon: "📱" },
+  ],
+  ecommerce: [
+    { key: "card", label: "Card / Online", icon: "💳" },
+    { key: "mobilepay", label: "MobilePay", icon: "📱" },
+    { key: "bank_transfer", label: "Bank Transfer", icon: "🏦" },
+    { key: "paypal", label: "PayPal", icon: "🅿️" },
+  ],
+};
+
+/* Per-type close configuration — controls which steps appear */
+const CLOSE_CONFIG = {
+  restaurant:  { hasTips: true,  hasCashDrawer: true,  stepOneLabel: "Revenue by Category", description: "End-of-day closing — revenue, payments, cash drawer, tips." },
+  workshop:    { hasTips: false, hasCashDrawer: true,  stepOneLabel: "Revenue by Service",  description: "End-of-day closing — parts & labor revenue, payments, cash drawer." },
+  retail:      { hasTips: false, hasCashDrawer: true,  stepOneLabel: "Revenue by Category", description: "End-of-day closing — sales, returns, payments, cash drawer." },
+  grocery:     { hasTips: false, hasCashDrawer: true,  stepOneLabel: "Revenue by Category", description: "End-of-day closing — sales, cash drawer, transactions." },
+  ecommerce:   { hasTips: false, hasCashDrawer: false, stepOneLabel: "Revenue by Channel",  description: "End-of-day closing — online sales, returns, payments." },
+  general:     { hasTips: false, hasCashDrawer: true,  stepOneLabel: "Revenue",             description: "End-of-day closing — revenue, expenses, payments." },
 };
 
 function getRevenueCats(branchType) {
@@ -83,9 +122,7 @@ export default function DailyClosePage() {
           📋 {t("dailyClose") || "Daily Close"}
         </h1>
         <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
-          {branchType === "workshop"
-            ? "End-of-day closing — parts & labor revenue, payments, cash drawer."
-            : (t("dailyCloseDesc") || "End-of-day closing — revenue, payments, cash drawer, tips.")}
+{(CLOSE_CONFIG[branchType] || CLOSE_CONFIG.general).description}
         </p>
       </FadeIn>
 
@@ -120,11 +157,19 @@ export default function DailyClosePage() {
 function CloseForm({ currency, t, branchType, branchId, onDone }) {
   const defaultRevCats = useMemo(() => getRevenueCats(branchType), [branchType]);
   const defaultPayMethods = useMemo(() => getPaymentMethods(branchType), [branchType]);
-  const isWorkshop = branchType === "workshop";
-  const totalSteps = isWorkshop ? 4 : 5;    // workshops skip tips
-  const reviewStep = isWorkshop ? 4 : 5;
+  const config = CLOSE_CONFIG[branchType] || CLOSE_CONFIG.general;
+
+  const stepSequence = useMemo(() => {
+    const seq = ["revenue", "payments"];
+    if (config.hasCashDrawer !== false) seq.push("cash");
+    if (config.hasTips) seq.push("tips");
+    seq.push("review");
+    return seq;
+  }, [branchType]);
+  const totalSteps = stepSequence.length;
 
   const [step, setStep] = useState(1);
+  const currentStepId = stepSequence[step - 1];
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -148,11 +193,33 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
   const [closedBy, setClosedBy] = useState("");
   const [notes, setNotes] = useState("");
 
-  // Scan / OCR state
+  // Scan / OCR state — supports multiple photos
   const [scanMode, setScanMode] = useState("idle"); // idle | scanning | result | skipped
   const [scanResult, setScanResult] = useState(null);
+  const [scanPhotos, setScanPhotos] = useState([]); // [{url, name}]
   const [scanError, setScanError] = useState("");
   const fileInputRef = useRef(null);
+
+  // Merge two OCR scan results — newer non-null values overwrite
+  const mergeScans = (existing, incoming) => {
+    if (!existing) return incoming;
+    const merged = { ...existing };
+    const rev = { ...(existing.revenue || {}) };
+    Object.entries(incoming.revenue || {}).forEach(([k, v]) => { if (v != null) rev[k] = v; });
+    merged.revenue = rev;
+    const pay = { ...(existing.payments || {}) };
+    Object.entries(incoming.payments || {}).forEach(([k, v]) => { if (v != null) pay[k] = v; });
+    merged.payments = pay;
+    if (incoming.tips != null) merged.tips = incoming.tips;
+    if (incoming.moms_total != null) merged.moms_total = incoming.moms_total;
+    if (incoming.revenue_total != null) merged.revenue_total = incoming.revenue_total;
+    merged.raw_text = ((existing.raw_text || "") + "\n---\n" + (incoming.raw_text || "")).slice(0, 2000);
+    merged.ocr_available = true;
+    const allVals = [...Object.values(merged.revenue || {}), ...Object.values(merged.payments || {}), merged.tips, merged.moms_total, merged.revenue_total];
+    const found = allVals.filter(v => v != null).length;
+    merged.confidence = found >= 3 ? "high" : found >= 1 ? "medium" : "low";
+    return merged;
+  };
 
   const handleFileSelect = async (file) => {
     if (!file) return;
@@ -164,11 +231,15 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
       const res = await api.post("/daily-close/scan-report", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      setScanResult(res.data);
+      // Add thumbnail
+      const thumbUrl = URL.createObjectURL(file);
+      setScanPhotos(prev => [...prev, { url: thumbUrl, name: file.name }]);
+      // Merge with existing results
+      setScanResult(prev => mergeScans(prev, res.data));
       setScanMode("result");
     } catch (err) {
       setScanError(err.response?.data?.detail || "OCR scanning failed. Please enter values manually.");
-      setScanMode("idle");
+      setScanMode(scanResult ? "result" : "idle"); // keep results if we already have some
     }
   };
 
@@ -176,25 +247,26 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
     if (!scanResult) return;
     const r = scanResult.revenue || {};
     const p = scanResult.payments || {};
-    // Fill revenue
+    // Fill revenue — match against current template cats + any extras from OCR
     const newRev = {};
-    if (r.food) newRev.food = String(r.food);
-    if (r.drinks) newRev.drinks = String(r.drinks);
-    if (r.takeaway) newRev.takeaway = String(r.takeaway);
-    // Also fill any key that matches existing rev cats
     revCats.forEach(c => { if (r[c.key]) newRev[c.key] = String(r[c.key]); });
+    Object.entries(r).forEach(([k, v]) => { if (v && !newRev[k]) newRev[k] = String(v); });
     setRevAmounts(prev => ({ ...prev, ...newRev }));
-    // Fill payments
+    // Fill payments — match against current template methods + extras
     const newPay = {};
-    if (p.cash) newPay.cash = String(p.cash);
-    if (p.card) newPay.card = String(p.card);
-    if (p.mobilepay) newPay.mobilepay = String(p.mobilepay);
+    payMethods.forEach(m => { if (p[m.key]) newPay[m.key] = String(p[m.key]); });
+    Object.entries(p).forEach(([k, v]) => { if (v && !newPay[k]) newPay[k] = String(v); });
     setPayAmounts(prev => ({ ...prev, ...newPay }));
-    // Fill tips
-    if (scanResult.tips) setTipsTotal(String(scanResult.tips));
+    // Fill tips (only for types that have tips)
+    if (config.hasTips && scanResult.tips) setTipsTotal(String(scanResult.tips));
+    // If OCR detected MOMS, switch to manual mode with the scanned value
+    if (scanResult.moms_total) {
+      setMomsMode("manual");
+      setMomsManual(String(scanResult.moms_total));
+    }
     // Jump to review or step 1
     setScanMode("skipped");
-    setStep(jumpToReview ? reviewStep : 1);
+    setStep(jumpToReview ? totalSteps : 1);
   };
 
   // Prefill from real data
@@ -256,11 +328,15 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
   const tipsPP = tipsTotal && staffCount && parseInt(staffCount) > 0
     ? Math.round(parseFloat(tipsTotal) / parseInt(staffCount)) : null;
 
-  // MOMS calculation (Danish 25% VAT)
+  // MOMS / VAT — toggle between auto-calc and manual entry from receipt
+  const [momsMode, setMomsMode] = useState("auto"); // "auto" | "manual"
+  const [momsManual, setMomsManual] = useState("");
+
   const momsTotal = useMemo(() => {
+    if (momsMode === "manual") return parseFloat(momsManual) || 0;
     if (scanResult?.moms_total) return scanResult.moms_total;
     return revenueTotal > 0 ? Math.round((revenueTotal * 0.25 / 1.25) * 100) / 100 : 0;
-  }, [scanResult, revenueTotal]);
+  }, [momsMode, momsManual, scanResult, revenueTotal]);
   const revenueExMoms = useMemo(() => Math.round((revenueTotal - momsTotal) * 100) / 100, [revenueTotal, momsTotal]);
 
   const addCustomRevCat = () => {
@@ -272,29 +348,59 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
     setCustomRevName("");
   };
 
+  // Build payload used by both auto-save and final submit
+  const buildPayload = (status = "confirmed") => {
+    const revenue_breakdown = {};
+    revCats.forEach(c => { if (revAmounts[c.key]) revenue_breakdown[c.key] = parseFloat(revAmounts[c.key]); });
+    const payment_breakdown = {};
+    payMethods.forEach(m => { if (payAmounts[m.key]) payment_breakdown[m.key] = parseFloat(payAmounts[m.key]); });
+    return {
+      date: new Date().toISOString().split("T")[0],
+      branch_id: branchId || null,
+      status,
+      revenue_breakdown,
+      payment_breakdown,
+      moms_total: momsTotal || null,
+      moms_mode: momsMode,
+      tips_total: tipsTotal ? parseFloat(tipsTotal) : null,
+      tips_staff_count: staffCount ? parseInt(staffCount) : null,
+      cash_counted: cashCounted ? parseFloat(cashCounted) : null,
+      closed_by: closedBy || null,
+      notes: notes || null,
+    };
+  };
+
+  // Draft auto-save — fires on step change (silent, no loading state)
+  const [draftSaved, setDraftSaved] = useState(false);
+  const autoSaveRef = useRef(null);
+
+  useEffect(() => {
+    // Only auto-save if user has entered some data and is past scan UI
+    if (scanMode !== "skipped" || revenueTotal === 0) return;
+    // Debounce: save 2s after last step change
+    clearTimeout(autoSaveRef.current);
+    autoSaveRef.current = setTimeout(async () => {
+      try {
+        await api.post("/daily-close", buildPayload("draft"));
+        setDraftSaved(true);
+        setTimeout(() => setDraftSaved(false), 3000);
+      } catch {
+        // Silent — auto-save is best-effort
+      }
+    }, 2000);
+    return () => clearTimeout(autoSaveRef.current);
+  }, [step, revAmounts, payAmounts, cashCounted, tipsTotal]);
+
+  // Final submit — locks the close
   const handleSubmit = async () => {
     setSaving(true);
     setError("");
     try {
-      const revenue_breakdown = {};
-      revCats.forEach(c => { if (revAmounts[c.key]) revenue_breakdown[c.key] = parseFloat(revAmounts[c.key]); });
-      const payment_breakdown = {};
-      payMethods.forEach(m => { if (payAmounts[m.key]) payment_breakdown[m.key] = parseFloat(payAmounts[m.key]); });
-
-      await api.post("/daily-close", {
-        date: new Date().toISOString().split("T")[0],
-        branch_id: branchId || null,
-        revenue_breakdown,
-        payment_breakdown,
-        tips_total: tipsTotal ? parseFloat(tipsTotal) : null,
-        tips_staff_count: staffCount ? parseInt(staffCount) : null,
-        cash_counted: cashCounted ? parseFloat(cashCounted) : null,
-        closed_by: closedBy || null,
-        notes: notes || null,
-      });
+      await api.post("/daily-close", buildPayload("confirmed"));
       onDone();
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to save");
+      const d = err.response?.data?.detail;
+      setError(typeof d === "string" ? d : Array.isArray(d) ? d.map(e => e.msg || e).join(", ") : "Failed to save");
     } finally {
       setSaving(false);
     }
@@ -311,16 +417,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
     let count = 0;
     const r = scanResult.revenue || {};
     const p = scanResult.payments || {};
-    if (r.food) count++;
-    if (r.drinks) count++;
-    if (r.takeaway) count++;
-    if (p.cash) count++;
-    if (p.card) count++;
-    if (p.mobilepay) count++;
-    if (scanResult.tips) count++;
+    defaultRevCats.forEach(c => { if (r[c.key]) count++; });
+    defaultPayMethods.forEach(m => { if (p[m.key]) count++; });
+    if (config.hasTips && scanResult.tips) count++;
     return count;
-  }, [scanResult]);
-  const scanFieldsTotal = 7;
+  }, [scanResult, defaultRevCats, defaultPayMethods]);
+  const scanFieldsTotal = defaultRevCats.length + defaultPayMethods.length + (config.hasTips ? 1 : 0);
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
@@ -336,9 +438,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
       </div>
 
       <div className="p-5 sm:p-6">
-        {/* Hidden file input for camera/upload */}
-        <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden"
-          onChange={e => { if (e.target.files?.[0]) handleFileSelect(e.target.files[0]); e.target.value = ""; }} />
+        {/* Hidden file input for camera/upload — supports multiple files */}
+        <input ref={fileInputRef} type="file" accept="image/*" multiple capture="environment" className="hidden"
+          onChange={async e => {
+            const files = Array.from(e.target.files || []);
+            for (const f of files) await handleFileSelect(f);
+            e.target.value = "";
+          }} />
 
         {/* ─── SCAN BANNER (Step 0) ─── */}
         {scanMode === "idle" && (
@@ -348,7 +454,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
               <div className="text-4xl mb-3">📷</div>
               <h2 className="text-xl font-bold text-white mb-1">Scan your Z-Report / Kasserapport</h2>
               <p className="text-green-100 text-sm mb-5">
-                Take a photo or upload an image of your Z-report and we'll extract the values automatically.
+                Take photos or upload images of your Z-report — add multiple pages and we'll merge the results.
               </p>
               <div className="flex gap-3 justify-center">
                 <button
@@ -367,9 +473,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
             <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-6 text-center cursor-pointer hover:border-green-400 dark:hover:border-green-500 transition-colors"
               onClick={() => { if (fileInputRef.current) { fileInputRef.current.removeAttribute("capture"); fileInputRef.current.click(); } }}
               onDragOver={e => e.preventDefault()}
-              onDrop={e => { e.preventDefault(); if (e.dataTransfer.files?.[0]) handleFileSelect(e.dataTransfer.files[0]); }}>
+              onDrop={async e => { e.preventDefault(); const files = Array.from(e.dataTransfer.files || []); for (const f of files) await handleFileSelect(f); }}>
               <p className="text-gray-400 dark:text-gray-500 text-sm">
-                Drag & drop your Z-report image here, or click to browse
+                Drag & drop your Z-report images here, or click to browse
               </p>
             </div>
             {scanError && (
@@ -415,17 +521,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
               <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
                 Revenue (med moms)
               </h3>
-              {[
-                { key: "food", label: "🍽️ Food / Mad" },
-                { key: "drinks", label: "🍺 Drinks / Drikkevarer" },
-                { key: "takeaway", label: "📦 Takeaway / Udbringning" },
-              ].map(f => {
-                const val = scanResult.revenue?.[f.key];
+              {defaultRevCats.map(c => {
+                const val = scanResult.revenue?.[c.key];
                 return (
-                  <div key={f.key} className="flex items-center gap-3">
+                  <div key={c.key} className="flex items-center gap-3">
                     <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
                       {val ? <span className="text-green-500">✓</span> : <span className="text-gray-300 dark:text-gray-600">—</span>}
-                      {f.label}
+                      {c.icon} {c.label}
                       {val && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 rounded">OCR</span>}
                     </span>
                     <input type="number" inputMode="decimal" className={inputClass}
@@ -433,7 +535,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
                       onChange={e => {
                         setScanResult(prev => ({
                           ...prev,
-                          revenue: { ...prev.revenue, [f.key]: parseFloat(e.target.value) || 0 }
+                          revenue: { ...prev.revenue, [c.key]: parseFloat(e.target.value) || 0 }
                         }));
                       }} />
                   </div>
@@ -460,17 +562,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
                   {(scanResult.moms_total || Math.round(((scanResult.revenue_total || 0) * 0.25 / 1.25) * 100) / 100).toLocaleString()} {currency}
                 </span>
               </div>
-              {[
-                { key: "food", label: "Food" },
-                { key: "drinks", label: "Drinks" },
-                { key: "takeaway", label: "Takeaway" },
-              ].map(f => {
-                const val = scanResult.revenue?.[f.key];
+              {defaultRevCats.map(c => {
+                const val = scanResult.revenue?.[c.key];
                 if (!val) return null;
                 const udenMoms = Math.round((val / 1.25) * 100) / 100;
                 return (
-                  <div key={f.key} className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
-                    <span>{f.label} (uden moms)</span>
+                  <div key={c.key} className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
+                    <span>{c.label.split(" / ")[0]} (uden moms)</span>
                     <span>{udenMoms.toLocaleString()} {currency}</span>
                   </div>
                 );
@@ -480,17 +578,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
             {/* Payments */}
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 space-y-3">
               <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400">Payments</h3>
-              {[
-                { key: "cash", label: "💵 Cash / Kontant" },
-                { key: "card", label: "💳 Card / Dankort" },
-                { key: "mobilepay", label: "📱 MobilePay" },
-              ].map(f => {
-                const val = scanResult.payments?.[f.key];
+              {defaultPayMethods.map(m => {
+                const val = scanResult.payments?.[m.key];
                 return (
-                  <div key={f.key} className="flex items-center gap-3">
+                  <div key={m.key} className="flex items-center gap-3">
                     <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
                       {val ? <span className="text-green-500">✓</span> : <span className="text-gray-300 dark:text-gray-600">—</span>}
-                      {f.label}
+                      {m.icon} {m.label}
                       {val && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 rounded">OCR</span>}
                     </span>
                     <input type="number" inputMode="decimal" className={inputClass}
@@ -498,7 +592,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
                       onChange={e => {
                         setScanResult(prev => ({
                           ...prev,
-                          payments: { ...prev.payments, [f.key]: parseFloat(e.target.value) || 0 }
+                          payments: { ...prev.payments, [m.key]: parseFloat(e.target.value) || 0 }
                         }));
                       }} />
                   </div>
@@ -506,7 +600,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
               })}
             </div>
 
-            {/* Tips */}
+            {/* Tips — only for types that have tips */}
+            {config.hasTips && (
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
               <div className="flex items-center gap-3">
                 <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
@@ -521,6 +616,19 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
                   }} />
               </div>
             </div>
+            )}
+
+            {/* Photo thumbnails */}
+            {scanPhotos.length > 0 && (
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-400 shrink-0">📷 {scanPhotos.length} photo{scanPhotos.length > 1 ? "s" : ""} scanned</span>
+                <div className="flex gap-2 overflow-x-auto">
+                  {scanPhotos.map((p, i) => (
+                    <img key={i} src={p.url} alt={p.name} className="w-12 h-12 rounded-lg object-cover border-2 border-green-500/50" />
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Action buttons */}
             <div className="flex flex-col sm:flex-row gap-3">
@@ -533,10 +641,14 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
                 ✏️ Continue step-by-step
               </button>
             </div>
-            <div className="text-center">
-              <button onClick={() => { setScanResult(null); setScanMode("idle"); }}
+            <div className="flex justify-center gap-4">
+              <button onClick={() => { if (fileInputRef.current) { fileInputRef.current.removeAttribute("capture"); fileInputRef.current.click(); } }}
+                className="text-sm text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 font-medium">
+                + Add another photo
+              </button>
+              <button onClick={() => { setScanResult(null); setScanPhotos([]); setScanMode("idle"); }}
                 className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline underline-offset-2">
-                Re-scan a different image
+                Start over
               </button>
             </div>
           </div>
@@ -544,6 +656,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
 
         {/* ─── NORMAL STEP FLOW ─── */}
         {!showScanUI && (<>
+        {/* Draft auto-save indicator */}
+        {draftSaved && (
+          <div className="mb-3 px-3 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-center text-xs text-gray-400 flex items-center justify-center gap-1.5">
+            <span className="w-1.5 h-1.5 bg-green-400 rounded-full" /> Draft saved — you can leave and resume later
+          </div>
+        )}
+
         {/* Sync indicator */}
         {prefillLoading && (
           <div className="mb-4 px-4 py-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl text-center text-sm text-gray-400">
@@ -570,17 +689,17 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
         {/* Step header */}
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-bold dark:text-white">
-            {step === 1 && `Step 1 — ${isWorkshop ? "Revenue by Service" : "Revenue by Category"}`}
-            {step === 2 && "Step 2 — Payment Methods"}
-            {step === 3 && "Step 3 — Cash Drawer Count"}
-            {!isWorkshop && step === 4 && "Step 4 — Tips"}
-            {step === reviewStep && `Step ${reviewStep} — Review & Submit`}
+            {currentStepId === "revenue" && `Step ${step} — ${config.stepOneLabel}`}
+            {currentStepId === "payments" && `Step ${step} — Payment Methods`}
+            {currentStepId === "cash" && `Step ${step} — Cash Drawer Count`}
+            {currentStepId === "tips" && `Step ${step} — Tips`}
+            {currentStepId === "review" && `Step ${step} — Review & Submit`}
           </h2>
           <span className="text-sm text-gray-400">{step}/{totalSteps}</span>
         </div>
 
-        {/* ─── STEP 1: Revenue ─── */}
-        {step === 1 && (
+        {/* ─── STEP: Revenue ─── */}
+        {currentStepId === "revenue" && (
           <div className="space-y-4">
             {/* Hint: show sales total from system if multi-category */}
             {prefill && prefill.sales.total > 0 && defaultRevCats.length > 1 && (
@@ -616,8 +735,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
           </div>
         )}
 
-        {/* ─── STEP 2: Payments ─── */}
-        {step === 2 && (
+        {/* ─── STEP: Payments ─── */}
+        {currentStepId === "payments" && (
           <div className="space-y-4">
             {payMethods.map(m => (
               <div key={m.key}>
@@ -648,8 +767,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
           </div>
         )}
 
-        {/* ─── STEP 3: Cash Drawer ─── */}
-        {step === 3 && (
+        {/* ─── STEP: Cash Drawer ─── */}
+        {currentStepId === "cash" && (
           <div className="space-y-4">
             <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 text-sm text-blue-700 dark:text-blue-300">
               Count the physical cash in your drawer and enter the amount below. We'll compare it against what the system expects.
@@ -680,8 +799,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
           </div>
         )}
 
-        {/* ─── STEP 4: Tips (skip for workshops) ─── */}
-        {!isWorkshop && step === 4 && (
+        {/* ─── STEP: Tips (only for types with tips) ─── */}
+        {currentStepId === "tips" && (
           <div className="space-y-4">
             <div>
               <label className={labelClass}>💰 Total Tips</label>
@@ -706,7 +825,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
         )}
 
         {/* ─── REVIEW STEP ─── */}
-        {step === reviewStep && (
+        {currentStepId === "review" && (
           <div className="space-y-4">
             {/* Revenue summary */}
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
@@ -722,22 +841,51 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
               </div>
             </div>
 
-            {/* MOMS (VAT) summary */}
+            {/* MOMS (VAT) summary — with auto/manual toggle */}
             {revenueTotal > 0 && (
-              <div className="rounded-xl p-4"
+              <div className="rounded-xl p-4 space-y-3"
                 style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.08), rgba(139,92,246,0.08))" }}>
-                <h3 className="font-semibold text-sm mb-2" style={{ color: "#6366f1" }}>MOMS / VAT (25%)</h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-sm" style={{ color: "#6366f1" }}>MOMS / VAT (25%)</h3>
+                  {/* Toggle: Auto vs Manual */}
+                  <div className="flex bg-gray-200 dark:bg-gray-700 rounded-lg p-0.5 text-xs">
+                    <button onClick={() => setMomsMode("auto")}
+                      className={`px-3 py-1 rounded-md font-medium transition ${momsMode === "auto" ? "bg-indigo-500 text-white shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700"}`}>
+                      Auto
+                    </button>
+                    <button onClick={() => setMomsMode("manual")}
+                      className={`px-3 py-1 rounded-md font-medium transition ${momsMode === "manual" ? "bg-indigo-500 text-white shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700"}`}>
+                      From receipt
+                    </button>
+                  </div>
+                </div>
+                {momsMode === "manual" && (
+                  <div>
+                    <label className="text-xs text-indigo-400 mb-1 block">Enter MOMS from your Z-report / receipt</label>
+                    <input type="number" inputMode="decimal" placeholder="MOMS amount..."
+                      className="w-full px-4 py-2.5 border border-indigo-300 dark:border-indigo-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-right text-lg"
+                      value={momsManual} onChange={e => setMomsManual(e.target.value)} />
+                  </div>
+                )}
+                {momsMode === "auto" && (
+                  <p className="text-xs text-indigo-400">Auto-calculated: Revenue × 25% / 125%</p>
+                )}
                 <div className="flex justify-between text-sm dark:text-gray-300 py-0.5">
                   <span>Revenue (med moms)</span>
                   <span>{revenueTotal.toLocaleString()} {currency}</span>
                 </div>
                 <div className="flex justify-between text-sm font-semibold py-0.5" style={{ color: "#6366f1" }}>
-                  <span>MOMS 25%</span>
+                  <span>MOMS 25%{momsMode === "manual" ? " (from receipt)" : ""}</span>
                   <span>{momsTotal.toLocaleString()} {currency}</span>
                 </div>
                 <div className="flex justify-between text-sm font-bold pt-2 border-t mt-1 dark:text-white" style={{ borderColor: "rgba(99,102,241,0.2)" }}>
                   <span>Revenue (uden moms)</span>
                   <span>{revenueExMoms.toLocaleString()} {currency}</span>
+                </div>
+                <div className="pt-2 border-t" style={{ borderColor: "rgba(99,102,241,0.15)" }}>
+                  <p className="text-xs text-indigo-400">
+                    📊 This MOMS data is saved and available in <strong>Tax Autopilot</strong> for your accountant.
+                  </p>
                 </div>
               </div>
             )}
@@ -818,33 +966,26 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
         {/* Navigation buttons */}
         <div className="flex justify-between mt-6 pt-4 border-t dark:border-gray-700">
           {step > 1 ? (
-            <button onClick={() => {
-              // Workshop: skip back from reviewStep to step 3 (skip tips)
-              const prev = isWorkshop && step === reviewStep ? 3 : step - 1;
-              setStep(prev);
-            }} className="px-5 py-2.5 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl font-medium">
+            <button onClick={() => setStep(step - 1)}
+              className="px-5 py-2.5 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl font-medium">
               ← Back
             </button>
           ) : (
-            <button onClick={() => { setScanMode("idle"); setScanResult(null); }}
+            <button onClick={() => { setScanMode("idle"); setScanResult(null); setScanPhotos([]); }}
               className="px-5 py-2.5 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl font-medium text-sm">
               ← Scan Z-Report
             </button>
           )}
 
           {step < totalSteps ? (
-            <button onClick={() => {
-              // Workshop: skip from step 3 to reviewStep (skip tips)
-              const next = isWorkshop && step === 3 ? reviewStep : step + 1;
-              setStep(next);
-            }}
+            <button onClick={() => setStep(step + 1)}
               className="px-6 py-2.5 bg-green-600 text-white rounded-xl hover:bg-green-700 font-semibold transition">
               Next →
             </button>
           ) : (
             <button onClick={handleSubmit} disabled={saving || revenueTotal === 0}
               className="px-6 py-2.5 bg-green-600 text-white rounded-xl hover:bg-green-700 font-semibold transition disabled:opacity-50">
-              {saving ? "Saving..." : "✅ Submit Close"}
+              {saving ? "Saving..." : "🔒 Confirm & Lock"}
             </button>
           )}
         </div>
@@ -860,6 +1001,22 @@ function CloseForm({ currency, t, branchType, branchId, onDone }) {
    ═══════════════════════════════════════════════════════════ */
 function HistoryView({ data, currency, t, onRefresh }) {
   const [downloading, setDownloading] = useState(null);
+  const [unlockId, setUnlockId] = useState(null);
+  const [unlockReason, setUnlockReason] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
+
+  const handleUnlock = async () => {
+    if (!unlockReason.trim() || !unlockId) return;
+    setUnlocking(true);
+    try {
+      await api.post(`/daily-close/${unlockId}/unlock`, { reason: unlockReason.trim() });
+      setUnlockId(null);
+      setUnlockReason("");
+      onRefresh();
+    } catch { /* ignore */ } finally {
+      setUnlocking(false);
+    }
+  };
 
   const downloadPdf = async (id, dateStr) => {
     setDownloading(id);
@@ -895,10 +1052,20 @@ function HistoryView({ data, currency, t, onRefresh }) {
           <div key={dc.id} className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
             <div className="flex items-start justify-between">
               <div>
-                <h3 className="font-bold dark:text-white">
-                  {new Date(dc.date).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
-                </h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold dark:text-white">
+                    {new Date(dc.date).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
+                  </h3>
+                  {(dc.status || "confirmed") === "confirmed" ? (
+                    <span className="text-[10px] px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded font-semibold">🔒 Locked</span>
+                  ) : (
+                    <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded font-semibold">📝 Draft</span>
+                  )}
+                </div>
                 {dc.closed_by && <p className="text-xs text-gray-400">Closed by {dc.closed_by}</p>}
+                {dc.unlock_reason && (
+                  <p className="text-xs text-amber-500 mt-0.5">Unlocked: {dc.unlock_reason}</p>
+                )}
               </div>
               <div className="text-right">
                 <p className="text-lg font-bold text-green-600 dark:text-green-400">{dc.revenue_total?.toLocaleString()} {currency}</p>
@@ -933,14 +1100,48 @@ function HistoryView({ data, currency, t, onRefresh }) {
                 )}
                 {dc.tips_total > 0 && <span>Tips: {dc.tips_total?.toLocaleString()} ({dc.tips_staff_count} staff)</span>}
               </div>
-              <button onClick={() => downloadPdf(dc.id, dc.date)} disabled={downloading === dc.id}
-                className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 font-medium dark:text-gray-300">
-                {downloading === dc.id ? "..." : "📄 PDF"}
-              </button>
+              <div className="flex gap-2">
+                {(dc.status || "confirmed") === "confirmed" && (
+                  <button onClick={() => { setUnlockId(dc.id); setUnlockReason(""); }}
+                    className="text-xs px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 font-medium">
+                    🔓 Unlock
+                  </button>
+                )}
+                <button onClick={() => downloadPdf(dc.id, dc.date)} disabled={downloading === dc.id}
+                  className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 font-medium dark:text-gray-300">
+                  {downloading === dc.id ? "..." : "📄 PDF"}
+                </button>
+              </div>
             </div>
           </div>
         );
       })}
+
+      {/* Unlock modal */}
+      {unlockId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setUnlockId(null)}>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-md shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold dark:text-white mb-1">🔓 Unlock Daily Close</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              This will allow editing. Enter a reason for the audit trail.
+            </p>
+            <textarea placeholder="e.g. Accountant found an error in cash count..."
+              rows={3}
+              className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl resize-none mb-4"
+              value={unlockReason} onChange={e => setUnlockReason(e.target.value)} />
+            <div className="flex gap-3">
+              <button onClick={() => setUnlockId(null)}
+                className="flex-1 px-4 py-2.5 bg-gray-100 dark:bg-gray-700 rounded-xl font-medium text-sm dark:text-gray-300">
+                Cancel
+              </button>
+              <button onClick={handleUnlock} disabled={unlocking || !unlockReason.trim()}
+                className="flex-1 px-4 py-2.5 bg-amber-500 text-white rounded-xl font-semibold text-sm hover:bg-amber-600 transition disabled:opacity-50">
+                {unlocking ? "Unlocking..." : "🔓 Unlock"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

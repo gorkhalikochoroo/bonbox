@@ -92,6 +92,15 @@ _migrations = [
     # Sell-unit conversion (stock in dozen, sell in pieces)
     "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS sell_unit VARCHAR(20)",
     "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS pieces_per_unit NUMERIC(10,2)",
+    # Daily Close — MOMS / VAT fields
+    "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS moms_total NUMERIC(12,2)",
+    "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS revenue_ex_moms NUMERIC(12,2)",
+    "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS moms_mode VARCHAR(10)",
+    # Daily Close — status & lock/unlock
+    "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'confirmed'",
+    "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS unlock_reason TEXT",
+    "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS unlocked_by VARCHAR(255)",
+    "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS unlocked_at TIMESTAMP",
 ]
 
 def _run_migrations():
@@ -196,6 +205,15 @@ def _run_migrations():
             # Sell-unit conversion
             ok += _add("inventory_items", "sell_unit", "VARCHAR(20)")
             ok += _add("inventory_items", "pieces_per_unit", "NUMERIC(10,2)")
+            # Daily Close — MOMS / VAT fields
+            ok += _add("daily_closes", "moms_total", "NUMERIC(12,2)")
+            ok += _add("daily_closes", "revenue_ex_moms", "NUMERIC(12,2)")
+            ok += _add("daily_closes", "moms_mode", "VARCHAR(10)")
+            # Daily Close — status & lock/unlock
+            ok += _add("daily_closes", "status", "VARCHAR(20) DEFAULT 'confirmed'")
+            ok += _add("daily_closes", "unlock_reason", "TEXT")
+            ok += _add("daily_closes", "unlocked_by", "VARCHAR(255)")
+            ok += _add("daily_closes", "unlocked_at", "TIMESTAMP")
             conn.commit()
             print(f"Schema migrations (SQLite): {ok} new columns added")
         else:
