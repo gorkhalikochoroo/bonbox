@@ -7,6 +7,9 @@ import { getVatTerms } from "../utils/currency";
 import { usePageTracking } from "../hooks/useEventLog";
 import NotificationCenter from "./NotificationCenter";
 import BranchSelector, { useBranch } from "./BranchSelector";
+import MobileBottomNav from "./MobileBottomNav";
+import { useAppLifecycle } from "../hooks/useAppLifecycle";
+import { useKeyboardAvoidance } from "../hooks/useKeyboardAvoidance";
 
 // Lazy-load heavy floating widgets — only parsed when opened
 const QuickAdd = lazy(() => import("./QuickAdd"));
@@ -197,6 +200,10 @@ export default function Layout() {
     navigate(next === "personal" ? "/personal" : "/dashboard");
     closeSidebar();
   };
+
+  // iOS native hooks — no-op on web
+  useAppLifecycle();      // token check on resume, offline sync, deep links
+  useKeyboardAvoidance(); // keyboard pushes content up, scrolls to focused input
 
   const vatTerms = getVatTerms(user?.currency);
   const [dark, toggleDark] = useDarkMode();
@@ -402,10 +409,13 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* Main content */}
-      <main className="md:ml-56 pt-14 md:pt-0 pb-20">
+      {/* Main content — extra bottom padding on mobile for bottom nav */}
+      <main className="md:ml-56 pt-14 md:pt-0 pb-24 md:pb-4">
         <Outlet />
       </main>
+
+      {/* Mobile bottom nav — iOS tab bar pattern */}
+      <MobileBottomNav />
 
       {/* Floating widgets */}
       <Suspense fallback={null}>

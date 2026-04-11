@@ -73,6 +73,33 @@ body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
+/* === iOS Native Feel === */
+
+/* Prevent iOS auto-zoom on input focus — must be 16px+ */
+input, select, textarea {
+  font-size: 16px !important;
+}
+
+/* Minimum 44px touch targets — Apple App Store requirement */
+button, a, [role="button"],
+input[type="checkbox"], input[type="radio"] {
+  min-height: 44px;
+}
+
+/* Active press state — iOS native feel */
+button:active, a:active, [role="button"]:active {
+  opacity: 0.7;
+  transform: scale(0.97);
+  transition: all 0.1s ease;
+}
+
+/* Disable text selection on UI chrome */
+button, nav, [role="button"], .nav-item, .tab {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
 /* Smooth defaults for all interactive elements */
 button, a, input, select, textarea {
   -webkit-tap-highlight-color: transparent;
@@ -89,6 +116,33 @@ button, a, input, select, textarea {
 /* Smooth scrolling everywhere */
 html {
   scroll-behavior: smooth;
+  overscroll-behavior: none; /* prevent full-page bounce on iOS */
+}
+
+/* Fix 100vh on iOS Safari — toolbar makes 100vh too tall */
+.full-height {
+  height: 100vh;
+  height: 100dvh;
+}
+@supports not (height: 100dvh) {
+  .full-height { height: -webkit-fill-available; }
+}
+
+/* iOS momentum scrolling for scroll containers */
+.scrollable {
+  -webkit-overflow-scrolling: touch;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+/* Hide scrollbars on iOS (ugly in dark mode) */
+.scrollable::-webkit-scrollbar { display: none; }
+.scrollable { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Prevent body scroll when modal is open */
+body.modal-open {
+  overflow: hidden;
+  position: fixed;
+  width: 100%;
 }
 
 /* Reduce motion for users who prefer it */
