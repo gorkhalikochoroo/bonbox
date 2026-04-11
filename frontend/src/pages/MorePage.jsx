@@ -1,7 +1,8 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useBranch } from "../components/BranchSelector";
 import { useLanguage } from "../hooks/useLanguage";
 import { useAuth } from "../hooks/useAuth";
+import { useDarkMode } from "../hooks/useDarkMode";
 
 const sections = [
   {
@@ -65,7 +66,15 @@ const sections = [
 export default function MorePage() {
   const { branchType, businessTypes } = useBranch();
   const { t } = useLanguage();
+  const { logout } = useAuth();
+  const [dark, toggleDark] = useDarkMode();
+  const navigate = useNavigate();
   const activeTypes = branchType ? [branchType] : businessTypes.length ? businessTypes : ["general"];
+
+  const handleLogout = () => {
+    logout();
+    navigate("/login");
+  };
 
   // Filter sections and items by business type
   const visible = sections
@@ -104,6 +113,28 @@ export default function MorePage() {
           </div>
         </div>
       ))}
+
+      {/* Dark mode + Sign out */}
+      <div className="mt-4 space-y-2">
+        <button
+          onClick={toggleDark}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl
+            bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700
+            text-sm text-gray-700 dark:text-gray-300 active:scale-[0.98] transition-transform"
+        >
+          <span className="text-lg">{dark ? "☀️" : "🌙"}</span>
+          {dark ? t("lightMode") || "Light Mode" : t("darkMode") || "Dark Mode"}
+        </button>
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl
+            bg-white dark:bg-gray-800 border border-red-200 dark:border-red-900/50
+            text-sm text-red-500 dark:text-red-400 font-medium active:scale-[0.98] transition-transform"
+        >
+          <span className="text-lg">🚪</span>
+          {t("signOut") || "Sign Out"}
+        </button>
+      </div>
     </div>
   );
 }
