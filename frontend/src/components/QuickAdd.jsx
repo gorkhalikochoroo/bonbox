@@ -143,7 +143,7 @@ export default function QuickAdd() {
     <>
       <button
         onClick={() => { setOpen(true); setTab(mode === "personal" ? "personal_income" : "sale"); }}
-        className={`fixed bottom-6 left-6 z-40 w-10 h-10 ${mode === "personal" ? "bg-purple-600 hover:bg-purple-700" : "bg-green-600 hover:bg-green-700"} text-white rounded-full shadow-lg hover:scale-105 transition-all flex items-center justify-center text-xl font-light`}
+        className={`fixed bottom-20 md:bottom-6 left-6 z-40 w-10 h-10 ${mode === "personal" ? "bg-purple-600 hover:bg-purple-700" : "bg-green-600 hover:bg-green-700"} text-white rounded-full shadow-lg hover:scale-105 transition-all flex items-center justify-center text-xl font-light`}
       >
         +
       </button>

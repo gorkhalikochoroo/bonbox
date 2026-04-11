@@ -22,7 +22,7 @@ function getTabsForType(branchType) {
   return [
     { to: "/dashboard", icon: "📊", labelKey: "dashboard" },
     { to: "/sales",     icon: "💰", labelKey: "sales" },
-    { to: "/sales",     icon: "➕", labelKey: "add", isCenter: true },
+    { to: "/expenses",  icon: "➕", labelKey: "add", isCenter: true },
     typeTab[branchType] || typeTab.general,
     { to: "/more",      icon: "☰",  labelKey: "more" },
   ];

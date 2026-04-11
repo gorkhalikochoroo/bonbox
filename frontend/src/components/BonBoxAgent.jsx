@@ -422,7 +422,7 @@ export default function BonBoxAgent() {
           onClick={handleOpen}
           aria-label="Open BonBox AI Assistant"
           className="
-            fixed bottom-6 right-6 z-[9999]
+            fixed bottom-20 md:bottom-6 right-6 z-[9999]
             w-14 h-14 rounded-full
             bg-gradient-to-br from-green-500 to-emerald-600
             flex items-center justify-center
@@ -480,7 +480,7 @@ export default function BonBoxAgent() {
         <div
           className="
             fixed z-[9999]
-            bottom-6 right-6
+            bottom-20 md:bottom-6 right-6
             sm:w-[420px] sm:h-[620px]
             max-sm:inset-0 max-sm:bottom-0 max-sm:right-0
             flex flex-col
