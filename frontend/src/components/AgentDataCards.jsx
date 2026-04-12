@@ -514,6 +514,46 @@ export function StaffCard({ data }) {
 }
 
 /* ================================================================== */
+/*  SUGGESTIONS / ADVICE CARD                                          */
+/* ================================================================== */
+export function SuggestionsCard({ data }) {
+  if (!data) return null;
+  const suggestions = data.suggestions || [];
+  if (suggestions.length === 0) return null;
+
+  const typeStyles = {
+    warning: { bg: "bg-amber-500/10", border: "border-amber-500/30", icon: "⚠️", text: "text-amber-400" },
+    action: { bg: "bg-blue-500/10", border: "border-blue-500/30", icon: "🎯", text: "text-blue-400" },
+    success: { bg: "bg-green-500/10", border: "border-green-500/30", icon: "✅", text: "text-green-400" },
+    info: { bg: "bg-sky-500/10", border: "border-sky-500/30", icon: "💡", text: "text-sky-400" },
+    insight: { bg: "bg-purple-500/10", border: "border-purple-500/30", icon: "📊", text: "text-purple-400" },
+  };
+
+  return (
+    <div className="rounded-xl border border-amber-500/20 bg-gradient-to-br from-amber-900/20 to-orange-900/10 p-3.5 space-y-2.5">
+      <div className="flex items-center gap-2">
+        <span className="text-amber-400 font-bold text-[10px] uppercase tracking-widest">
+          Suggestions
+        </span>
+        <span className="text-[10px] text-gray-500">({suggestions.length})</span>
+      </div>
+      {suggestions.map((s, i) => {
+        const style = typeStyles[s.type] || typeStyles.info;
+        return (
+          <div key={i} className={`${style.bg} ${style.border} border rounded-lg p-2.5`}>
+            <div className="flex items-center gap-1.5 mb-1">
+              <span className="text-sm">{style.icon}</span>
+              <span className={`${style.text} font-semibold text-xs`}>{s.title}</span>
+            </div>
+            <p className="text-[11px] text-gray-400 leading-relaxed">{s.text}</p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ================================================================== */
 /*  HEALTH / OVERVIEW CARD                                             */
 /* ================================================================== */
 export function HealthCard({ data, currency }) {

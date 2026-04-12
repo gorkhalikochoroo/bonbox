@@ -923,3 +923,152 @@ def query_staff(db: Session, user_id: UUID) -> dict:
             "shifts_this_week": shift_count,
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# 9. Business Suggestions / Advice
+# ---------------------------------------------------------------------------
+
+def business_suggestions(db: Session, user_id: UUID) -> dict:
+    """
+    Analyze the business data and generate actionable suggestions.
+    Looks at revenue trends, expenses, inventory alerts, overdue credit,
+    and provides prioritized advice.
+    """
+    currency = _get_currency(db, user_id)
+    suggestions = []
+    priority_score = 0  # higher = more urgent
+
+    # -- Revenue trend --
+    week_rev = query_revenue(db, user_id, period="this_week")
+    last_week_rev = query_revenue(db, user_id, period="last_week")
+    month_rev = query_revenue(db, user_id, period="this_month")
+
+    week_total = week_rev["data"]["total_revenue"]
+    last_week_total = last_week_rev["data"]["total_revenue"]
+    month_total = month_rev["data"]["total_revenue"]
+
+    if last_week_total > 0 and week_total < last_week_total * 0.8:
+        drop_pct = round((1 - week_total / last_week_total) * 100)
+        suggestions.append({
+            "type": "warning",
+            "title": "Revenue dip",
+            "text": f"This week is down {drop_pct}% vs last week ({_fmt(week_total, currency)} vs {_fmt(last_week_total, currency)}). Consider a promotion or check what changed.",
+        })
+        priority_score += 3
+    elif last_week_total > 0 and week_total > last_week_total * 1.2:
+        grow_pct = round((week_total / last_week_total - 1) * 100)
+        suggestions.append({
+            "type": "success",
+            "title": "Revenue growing",
+            "text": f"Up {grow_pct}% vs last week! Keep doing what's working.",
+        })
+
+    if month_total == 0:
+        suggestions.append({
+            "type": "info",
+            "title": "Start logging sales",
+            "text": "No sales this month yet. Log your first sale to start tracking revenue trends.",
+        })
+        priority_score += 1
+
+    # -- Expenses vs revenue --
+    month_exp = query_expenses(db, user_id, period="this_month")
+    month_expenses = month_exp["data"]["total_expenses"]
+
+    if month_total > 0:
+        margin = round((month_total - month_expenses) / month_total * 100, 1)
+        if margin < 20:
+            suggestions.append({
+                "type": "warning",
+                "title": "Low profit margin",
+                "text": f"Your margin is {margin}% this month. Most small businesses target 30-50%. Review your top expense categories.",
+            })
+            priority_score += 3
+        elif margin > 60:
+            suggestions.append({
+                "type": "success",
+                "title": "Strong margins",
+                "text": f"Profit margin at {margin}% — that's healthy. Good cost control.",
+            })
+
+    # -- Inventory alerts --
+    inv = query_inventory(db, user_id, low_stock_only=True)
+    low_count = inv["data"]["low_stock_count"]
+    expiring = inv["data"]["expiring_soon_count"]
+
+    if low_count > 0:
+        names = ", ".join(inv["data"]["low_stock_names"][:3])
+        suggestions.append({
+            "type": "action",
+            "title": f"Restock {low_count} items",
+            "text": f"Low stock: {names}. Reorder before you run out.",
+        })
+        priority_score += 2
+
+    if expiring > 0:
+        exp_names = ", ".join(inv["data"]["expiring_soon_names"][:3])
+        suggestions.append({
+            "type": "warning",
+            "title": f"{expiring} items expiring soon",
+            "text": f"Expiring within 7 days: {exp_names}. Use them or run a special to avoid waste.",
+        })
+        priority_score += 2
+
+    # -- Overdue credit --
+    khata = query_khata(db, user_id)
+    overdue = khata["data"]["overdue_count"]
+    outstanding = khata["data"]["total_outstanding"]
+
+    if overdue > 0:
+        suggestions.append({
+            "type": "action",
+            "title": f"Collect overdue payments",
+            "text": f"{overdue} customers are overdue ({_fmt(outstanding, currency)} total). Follow up today.",
+        })
+        priority_score += 3
+    elif outstanding > 0:
+        suggestions.append({
+            "type": "info",
+            "title": "Credit outstanding",
+            "text": f"{_fmt(outstanding, currency)} in credit from {khata['data']['customers_with_balance']} customers. Not overdue yet, but keep an eye on it.",
+        })
+
+    # -- Best selling day insight --
+    if week_rev["data"].get("daily_breakdown"):
+        daily = week_rev["data"]["daily_breakdown"]
+        if daily:
+            best = max(daily, key=lambda d: d.get("total", 0))
+            if best.get("total", 0) > 0:
+                suggestions.append({
+                    "type": "insight",
+                    "title": "Best day this week",
+                    "text": f"{best['date']} was your best day with {_fmt(best['total'], currency)}. Plan staffing around your peak days.",
+                })
+
+    # -- Default if no issues --
+    if not suggestions:
+        suggestions.append({
+            "type": "success",
+            "title": "Looking good!",
+            "text": "No urgent issues found. Keep logging sales and expenses daily for better insights over time.",
+        })
+
+    summary_parts = []
+    actions = [s for s in suggestions if s["type"] in ("warning", "action")]
+    wins = [s for s in suggestions if s["type"] == "success"]
+    if actions:
+        summary_parts.append(f"{len(actions)} things need attention")
+    if wins:
+        summary_parts.append(f"{len(wins)} things going well")
+    summary = f"{len(suggestions)} suggestions: " + ", ".join(summary_parts) if summary_parts else f"{len(suggestions)} suggestions for your business"
+
+    return {
+        "summary": summary,
+        "data": {
+            "suggestions": suggestions,
+            "total_suggestions": len(suggestions),
+            "priority_score": priority_score,
+            "currency": currency,
+        },
+    }

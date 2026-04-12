@@ -251,4 +251,20 @@ AGENT_TOOLS = [
             "required": [],
         },
     },
+    {
+        "name": "business_suggestions",
+        "description": (
+            "Analyze the business and provide actionable suggestions and advice. "
+            "Use this when the user asks for suggestions, advice, recommendations, "
+            "tips, what they should do, how to improve, what to focus on, "
+            "action items, priorities, or 'any ideas'. "
+            "Returns prioritized suggestions based on revenue trends, expense ratios, "
+            "inventory alerts, overdue credit, and other business signals."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
 ]

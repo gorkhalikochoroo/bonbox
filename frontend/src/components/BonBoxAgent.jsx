@@ -8,6 +8,7 @@ import {
   WasteCard,
   KhataCard,
   StaffCard,
+  SuggestionsCard,
   HealthCard,
 } from "./AgentDataCards";
 
@@ -21,6 +22,7 @@ const DATA_CARD_MAP = {
   query_waste: WasteCard,
   query_khata: KhataCard,
   query_staff: StaffCard,
+  business_suggestions: SuggestionsCard,
   business_overview: HealthCard,
 };
 
@@ -34,6 +36,7 @@ const TOOL_LABELS = {
   query_waste: "Analyzing waste",
   query_khata: "Looking up credit",
   query_staff: "Checking staff",
+  business_suggestions: "Analyzing your business",
   business_overview: "Compiling overview",
 };
 
@@ -82,6 +85,7 @@ function getFollowUps(toolName) {
     query_khata: ["Who's most overdue?", "Total credit this month?", "Revenue?"],
     business_overview: ["Deep dive into revenue", "Check inventory", "Staff schedule"],
     query_staff: ["This week's shifts", "Revenue today", "Business overview"],
+    business_suggestions: ["Show revenue details", "Check inventory", "Business overview"],
   };
   return followUps[toolName] || [];
 }

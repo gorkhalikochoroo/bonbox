@@ -38,6 +38,7 @@ from app.services.agent_tools import (
     query_cashbook,
     business_overview,
     query_staff,
+    business_suggestions,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,9 +68,10 @@ TOOL_MAP = {
     "query_cashbook": query_cashbook,
     "business_overview": business_overview,
     "query_staff": query_staff,
+    "business_suggestions": business_suggestions,
 }
 
-NO_PARAM_TOOLS = {"business_overview", "query_staff"}
+NO_PARAM_TOOLS = {"business_overview", "query_staff", "business_suggestions"}
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +169,7 @@ INTENT_PATTERNS = [
         "keywords": [
             "khata", "credit", "debt", "owe", "owes", "outstanding",
             "receivable", "udhar", "who owes", "unpaid",
+            "skylder", "gæld", "tilgodehavende", "rin",
         ],
         "tool": "query_khata",
     },
@@ -186,6 +189,16 @@ INTENT_PATTERNS = [
             "vagtplan", "medarbejder", "karmachari",
         ],
         "tool": "query_staff",
+    },
+    # --- Suggestions / Advice ---
+    {
+        "keywords": [
+            "suggest", "suggestion", "advice", "advise", "recommend",
+            "tip", "tips", "what should i", "what can i", "improve",
+            "help me grow", "any ideas", "action items", "priorities",
+            "what to do", "forslag", "råd", "sujhav", "sallah",
+        ],
+        "tool": "business_suggestions",
     },
 ]
 
@@ -440,6 +453,19 @@ def _build_response(tool_name: str, result: dict, currency: str) -> str:
                 lines.append(f"  - {s['staff_name']}: {s['date']} {s['start_time']}-{s['end_time']}")
         else:
             lines.append("No shifts scheduled for the rest of this week.")
+
+    elif tool_name == "business_suggestions":
+        suggestions = data.get("suggestions", [])
+        type_icons = {"warning": "⚠️", "action": "🎯", "success": "✅", "info": "💡", "insight": "📊"}
+
+        if not suggestions:
+            lines.append("Everything looks good! No urgent suggestions right now.")
+        else:
+            lines.append(f"**{len(suggestions)} suggestions for your business:**\n")
+            for s in suggestions:
+                icon = type_icons.get(s["type"], "💡")
+                lines.append(f"{icon} **{s['title']}**")
+                lines.append(f"   {s['text']}\n")
 
     if not lines:
         lines.append(summary)
