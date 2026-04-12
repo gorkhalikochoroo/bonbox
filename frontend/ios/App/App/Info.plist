@@ -2,12 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CAPACITOR_DEBUG</key>
+	<key>CAPACITOR_DEBUG</key>
 	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>BonBox</string>
+	<string>BonBox</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -47,5 +47,15 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>BonBox needs camera access to scan receipts and Z-reports</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>BonBox needs photo library access to attach receipt images</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>BonBox needs to save scanned receipts to your photo library</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Use Face ID to securely unlock BonBox</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

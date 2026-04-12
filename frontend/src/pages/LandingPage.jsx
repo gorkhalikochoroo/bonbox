@@ -2,48 +2,84 @@ import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 
-/* Hero floating illustration — receipt + boxes scene */
-function HeroFloat() {
+/* Hero phone mockup showing BonBox dashboard */
+function HeroPhone() {
   return (
-    <svg viewBox="0 0 360 320" fill="none" className="w-full max-w-md mx-auto">
-      {/* Big receipt */}
-      <g style={{ animation: "heroFloat 3s ease-in-out infinite" }}>
-        <rect x="120" y="40" width="100" height="180" rx="10" fill="white" fillOpacity="0.95" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" />
-        <rect x="138" y="62" width="65" height="6" rx="3" fill="rgba(255,255,255,0.15)" />
-        <rect x="138" y="78" width="48" height="6" rx="3" fill="rgba(255,255,255,0.15)" />
-        <rect x="138" y="94" width="56" height="6" rx="3" fill="rgba(255,255,255,0.15)" />
-        <line x1="138" y1="116" x2="210" y2="116" stroke="rgba(255,255,255,0.1)" strokeWidth="1" strokeDasharray="4 3" />
-        <rect x="138" y="128" width="38" height="10" rx="5" fill="#22c55e" fillOpacity="0.9" />
-        <text x="142" y="137" fontSize="7" fill="white" fontWeight="bold">PAID</text>
-        <path d="M120 220 l8-9 8 9 8-9 8 9 8-9 8 9 8-9 8 9 8-9 8 9 8-9 8 9 8-9 v0 h-100 z" fill="white" fillOpacity="0.95" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" strokeLinejoin="round" />
-      </g>
-      {/* Coin */}
-      <g style={{ animation: "heroFloat 2.5s ease-in-out infinite 0.4s" }}>
-        <circle cx="280" cy="80" r="26" fill="#FCD34D" stroke="#F59E0B" strokeWidth="2" />
-        <text x="280" y="87" fontSize="18" fill="#92400E" fontWeight="bold" textAnchor="middle">$</text>
-      </g>
-      {/* Green box */}
-      <g style={{ animation: "heroFloat 3.5s ease-in-out infinite 0.8s" }}>
-        <rect x="255" y="160" width="58" height="58" rx="12" fill="#22c55e" fillOpacity="0.85" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" />
-        <path d="M268 182 h32 M284 170 v22" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
-      </g>
-      {/* Purple box */}
-      <g style={{ animation: "heroFloat 4s ease-in-out infinite 0.2s" }}>
-        <rect x="50" y="130" width="50" height="50" rx="12" fill="#A78BFA" fillOpacity="0.85" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" />
-        <path d="M63 155 l9 9 15-18" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-      </g>
-      {/* Mini chart */}
-      <g style={{ animation: "heroFloat 3s ease-in-out infinite 0.6s" }}>
-        <rect x="60" y="60" width="45" height="55" rx="8" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.15)" strokeWidth="1.5" />
-        <polyline points="70,98 78,86 88,92 98,74" stroke="#22c55e" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-      </g>
-      {/* Sparkles */}
-      <g fill="#FCD34D" fillOpacity="0.8">
-        <path d="M310 45 l3-8 3 8 -8-3 8-3z" style={{ animation: "heroTwinkle 2s ease-in-out infinite" }} />
-        <path d="M40 100 l2-6 2 6 -6-2 6-2z" style={{ animation: "heroTwinkle 2s ease-in-out infinite 0.7s" }} />
-        <path d="M330 230 l2-6 2 6 -6-2 6-2z" style={{ animation: "heroTwinkle 2s ease-in-out infinite 1.4s" }} />
-      </g>
-    </svg>
+    <div className="relative w-full max-w-sm mx-auto" style={{ animation: "heroFloat 4s ease-in-out infinite" }}>
+      {/* Glow behind phone */}
+      <div className="absolute inset-0 bg-green-500/20 rounded-[3rem] blur-[60px] scale-110" />
+      {/* Phone frame */}
+      <div className="relative bg-gray-900 rounded-[2.5rem] p-3 border-2 border-gray-700/60 shadow-2xl shadow-green-500/10">
+        {/* Notch */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-28 h-6 bg-gray-900 rounded-b-2xl z-10" />
+        {/* Screen */}
+        <div className="bg-gray-950 rounded-[2rem] overflow-hidden p-4 pt-8">
+          {/* Status bar */}
+          <div className="flex items-center justify-between mb-4 px-1">
+            <span className="text-white text-[10px] font-semibold">9:41</span>
+            <div className="flex items-center gap-1">
+              <div className="w-3.5 h-2 border border-white/60 rounded-sm relative"><div className="absolute inset-0.5 bg-green-400 rounded-[1px]" style={{width:"70%"}} /></div>
+            </div>
+          </div>
+          {/* App header */}
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-white text-xs font-bold">Dashboard</p>
+              <p className="text-gray-500 text-[9px]">Today</p>
+            </div>
+            <div className="w-6 h-6 bg-green-500/20 rounded-full flex items-center justify-center">
+              <span className="text-[8px]">+</span>
+            </div>
+          </div>
+          {/* KPI cards */}
+          <div className="grid grid-cols-2 gap-1.5 mb-2">
+            <div className="bg-gray-800/80 rounded-lg p-2 border border-green-500/20">
+              <p className="text-gray-500 text-[7px]">Revenue</p>
+              <p className="text-white text-sm font-bold">24,500 kr</p>
+              <p className="text-green-400 text-[7px]">+12%</p>
+            </div>
+            <div className="bg-gray-800/80 rounded-lg p-2 border border-green-500/20">
+              <p className="text-gray-500 text-[7px]">Profit</p>
+              <p className="text-white text-sm font-bold">70,097 kr</p>
+              <p className="text-green-400 text-[7px]">57.8%</p>
+            </div>
+          </div>
+          {/* Mini chart */}
+          <div className="bg-gray-800/80 rounded-lg p-2 border border-gray-700/50 mb-2">
+            <p className="text-gray-500 text-[7px] mb-1">Weekly Sales</p>
+            <svg viewBox="0 0 200 40" className="w-full h-8">
+              <defs>
+                <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#22c55e" stopOpacity="0.3" />
+                  <stop offset="100%" stopColor="#22c55e" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              <path d="M0,30 L30,22 L60,28 L90,15 L120,18 L150,8 L180,12 L200,5 L200,40 L0,40 Z" fill="url(#chartGrad)" />
+              <polyline points="0,30 30,22 60,28 90,15 120,18 150,8 180,12 200,5" fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </div>
+          {/* Recent sales */}
+          <div className="bg-gray-800/80 rounded-lg p-2 border border-gray-700/50">
+            <p className="text-gray-500 text-[7px] mb-1">Recent Sales</p>
+            {["Coca-Cola x10", "Rice 5kg", "Vodka 2x"].map((s, i) => (
+              <div key={i} className="flex items-center justify-between py-0.5 border-b border-gray-700/30 last:border-0">
+                <span className="text-gray-300 text-[8px]">{s}</span>
+                <span className="text-white text-[8px] font-medium">{["150", "1,350", "90"][i]} kr</span>
+              </div>
+            ))}
+          </div>
+          {/* Bottom nav */}
+          <div className="flex items-center justify-around mt-3 pt-2 border-t border-gray-700/40">
+            {["Home", "Sales", "Stock", "Staff", "More"].map((tab, i) => (
+              <div key={tab} className={`text-center ${i === 0 ? "text-green-400" : "text-gray-600"}`}>
+                <div className={`w-4 h-4 mx-auto mb-0.5 rounded ${i === 0 ? "bg-green-400/20" : ""}`} />
+                <span className="text-[6px]">{tab}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -449,9 +485,21 @@ export default function LandingPage() {
                   <Link to="/register" className="w-full sm:w-auto px-10 py-4 bg-green-500 text-white font-bold rounded-xl hover:bg-green-400 transition shadow-2xl shadow-green-500/25 text-center text-lg">
                     {t("landingCtaPrimary")}
                   </Link>
-                  <a href="https://play.google.com/store/apps/details?id=dk.bonbox.app" target="_blank" rel="noopener noreferrer" className="w-full sm:w-auto px-10 py-4 border border-white/15 text-white font-semibold rounded-xl hover:bg-white/5 transition text-center flex items-center justify-center gap-2">
-                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 01-.61-.92V2.734a1 1 0 01.609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.199l2.807 1.626a1 1 0 010 1.732l-2.807 1.626L15.206 12l2.492-2.492zM5.864 2.658L16.8 8.99l-2.302 2.302-8.634-8.634z"/></svg>
-                    {t("landingAndroidApp")}
+                </div>
+                <div className="mt-4 flex flex-row items-center justify-center lg:justify-start gap-3">
+                  <a href="https://apps.apple.com/app/bonbox-daily-close/id6744250498" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-5 py-2.5 bg-white/10 border border-white/15 rounded-xl hover:bg-white/15 transition">
+                    <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+                    <div className="text-left">
+                      <div className="text-[9px] text-gray-400 leading-none">Download on the</div>
+                      <div className="text-sm text-white font-semibold leading-tight">App Store</div>
+                    </div>
+                  </a>
+                  <a href="https://play.google.com/store/apps/details?id=dk.bonbox.app" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-5 py-2.5 bg-white/10 border border-white/15 rounded-xl hover:bg-white/15 transition">
+                    <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 01-.61-.92V2.734a1 1 0 01.609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.199l2.807 1.626a1 1 0 010 1.732l-2.807 1.626L15.206 12l2.492-2.492zM5.864 2.658L16.8 8.99l-2.302 2.302-8.634-8.634z"/></svg>
+                    <div className="text-left">
+                      <div className="text-[9px] text-gray-400 leading-none">GET IT ON</div>
+                      <div className="text-sm text-white font-semibold leading-tight">Google Play</div>
+                    </div>
                   </a>
                 </div>
               </FadeIn>
@@ -468,9 +516,9 @@ export default function LandingPage() {
               </FadeIn>
             </div>
 
-            {/* Right — floating illustration */}
+            {/* Right — phone mockup */}
             <FadeIn delay={400} className="flex-1 hidden md:block">
-              <HeroFloat />
+              <HeroPhone />
             </FadeIn>
           </div>
 
@@ -724,7 +772,39 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Testimonials removed — will add real ones when we have actual user feedback */}
+      {/* ── Download the App ── */}
+      <section className="py-16 border-y border-white/5 bg-gradient-to-r from-green-950/30 via-slate-950 to-green-950/30">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6">
+          <FadeIn>
+            <div className="flex flex-col md:flex-row items-center justify-between gap-8">
+              <div className="text-center md:text-left">
+                <h2 className="text-2xl md:text-3xl font-bold text-white mb-2">
+                  Take BonBox Everywhere
+                </h2>
+                <p className="text-gray-400 text-sm">
+                  Available on iOS and Android. Your dashboard in your pocket.
+                </p>
+              </div>
+              <div className="flex flex-row gap-3 flex-shrink-0">
+                <a href="https://apps.apple.com/app/bonbox-daily-close/id6744250498" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 px-5 py-3 bg-white text-black rounded-xl hover:bg-gray-100 transition shadow-lg">
+                  <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+                  <div className="text-left">
+                    <div className="text-[9px] text-gray-500 leading-none font-medium">Download on the</div>
+                    <div className="text-base font-bold leading-tight">App Store</div>
+                  </div>
+                </a>
+                <a href="https://play.google.com/store/apps/details?id=dk.bonbox.app" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 px-5 py-3 bg-white text-black rounded-xl hover:bg-gray-100 transition shadow-lg">
+                  <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor"><path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 01-.61-.92V2.734a1 1 0 01.609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.199l2.807 1.626a1 1 0 010 1.732l-2.807 1.626L15.206 12l2.492-2.492zM5.864 2.658L16.8 8.99l-2.302 2.302-8.634-8.634z"/></svg>
+                  <div className="text-left">
+                    <div className="text-[9px] text-gray-500 leading-none font-medium">GET IT ON</div>
+                    <div className="text-base font-bold leading-tight">Google Play</div>
+                  </div>
+                </a>
+              </div>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
 
       {/* ── Global reach ── */}
       <section className="py-16 border-y border-white/5 bg-slate-900/30">
@@ -790,9 +870,15 @@ export default function LandingPage() {
               <Link to="/register" className="w-full sm:w-auto px-12 py-4 bg-green-500 text-white font-bold rounded-xl hover:bg-green-400 transition shadow-2xl shadow-green-500/25 text-lg">
                 {t("landingCtaButton")}
               </Link>
-              <a href="https://play.google.com/store/apps/details?id=dk.bonbox.app" target="_blank" rel="noopener noreferrer" className="w-full sm:w-auto px-8 py-4 border border-white/15 text-white font-semibold rounded-xl hover:bg-white/5 transition flex items-center justify-center gap-2">
-                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 01-.61-.92V2.734a1 1 0 01.609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.199l2.807 1.626a1 1 0 010 1.732l-2.807 1.626L15.206 12l2.492-2.492zM5.864 2.658L16.8 8.99l-2.302 2.302-8.634-8.634z"/></svg>
-                {t("landingGetAndroid")}
+            </div>
+            <div className="mt-4 flex flex-row items-center justify-center gap-3">
+              <a href="https://apps.apple.com/app/bonbox-daily-close/id6744250498" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-5 py-2.5 bg-white/10 border border-white/15 rounded-xl hover:bg-white/15 transition">
+                <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+                <span className="text-sm text-white font-semibold">App Store</span>
+              </a>
+              <a href="https://play.google.com/store/apps/details?id=dk.bonbox.app" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-5 py-2.5 bg-white/10 border border-white/15 rounded-xl hover:bg-white/15 transition">
+                <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 01-.61-.92V2.734a1 1 0 01.609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.199l2.807 1.626a1 1 0 010 1.732l-2.807 1.626L15.206 12l2.492-2.492zM5.864 2.658L16.8 8.99l-2.302 2.302-8.634-8.634z"/></svg>
+                <span className="text-sm text-white font-semibold">Google Play</span>
               </a>
             </div>
             <p className="mt-5 text-gray-600 text-sm">{t("landingNoCard")}</p>

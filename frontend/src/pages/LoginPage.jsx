@@ -111,21 +111,49 @@ export default function LoginPage() {
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
       `}</style>
 
-      <div className="min-h-screen flex bg-white dark:bg-gray-900">
-        {/* Left panel — illustration (hidden on mobile) */}
-        <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50 dark:from-gray-800 dark:via-gray-800 dark:to-gray-800 items-center justify-center p-12 relative overflow-hidden">
-          {/* Decorative background circles */}
-          <div className="absolute top-10 left-10 w-64 h-64 bg-green-200/30 dark:bg-green-900/20 rounded-full blur-3xl" />
-          <div className="absolute bottom-20 right-10 w-48 h-48 bg-emerald-200/40 dark:bg-emerald-900/20 rounded-full blur-3xl" />
+      <div className="min-h-screen flex bg-slate-950">
+        {/* Left panel — branding (hidden on mobile) */}
+        <div className="hidden lg:flex lg:w-1/2 items-center justify-center p-12 relative overflow-hidden">
+          {/* Background glows */}
+          <div className="absolute top-20 left-1/4 w-80 h-80 bg-green-600/10 rounded-full blur-[100px]" />
+          <div className="absolute bottom-20 right-1/4 w-60 h-60 bg-emerald-600/8 rounded-full blur-[100px]" />
 
-          <div className="relative z-10 text-center" style={{ animation: "fadeIn 0.8s ease-out" }}>
-            <HeroIllustration />
-            <h2 className="text-2xl font-bold text-gray-800 dark:text-white mt-6">
+          <div className="relative z-10 text-center max-w-md" style={{ animation: "fadeIn 0.8s ease-out" }}>
+            {/* BonBox logo large */}
+            <div className="flex items-center justify-center gap-4 mb-10">
+              <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center backdrop-blur-sm border border-white/10">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                  <rect x="4" y="2" width="20" height="24" rx="3" stroke="white" strokeWidth="2.5"/>
+                  <path d="M9 8h10M9 12h10M9 16h6" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+                  <path d="M4 20h20" stroke="#22c55e" strokeWidth="2"/>
+                </svg>
+              </div>
+              <span className="text-3xl font-bold text-white tracking-tight">
+                Bon<span className="text-green-400">Box</span>
+              </span>
+            </div>
+
+            <h2 className="text-2xl font-bold text-white mb-3">
               Your business, simplified.
             </h2>
-            <p className="text-gray-500 dark:text-gray-400 mt-2 max-w-xs mx-auto">
+            <p className="text-gray-400 mb-10 leading-relaxed">
               Track sales, expenses, and receipts — all in one beautiful dashboard.
             </p>
+
+            {/* Mini feature cards */}
+            <div className="grid grid-cols-2 gap-3 text-left">
+              {[
+                { icon: "💰", text: "Sales & Revenue" },
+                { icon: "📦", text: "Inventory Tracking" },
+                { icon: "👥", text: "Staff Management" },
+                { icon: "📊", text: "Business Insights" },
+              ].map((f) => (
+                <div key={f.text} className="bg-white/[0.04] border border-white/10 rounded-xl p-3 flex items-center gap-2.5">
+                  <span className="text-lg">{f.icon}</span>
+                  <span className="text-gray-300 text-sm font-medium">{f.text}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -134,23 +162,23 @@ export default function LoginPage() {
           <div className="w-full max-w-md" style={{ animation: "slideUp 0.5s ease-out" }}>
             {/* Logo + heading */}
             <div className="mb-8">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-11 h-11 bg-green-600 rounded-xl flex items-center justify-center shadow-lg shadow-green-600/20">
+              <div className="flex items-center gap-3 mb-6 lg:hidden">
+                <div className="w-11 h-11 bg-white/10 rounded-xl flex items-center justify-center border border-white/10">
                   <svg width="22" height="22" viewBox="0 0 28 28" fill="none">
                     <rect x="4" y="2" width="20" height="24" rx="3" stroke="white" strokeWidth="2.5"/>
                     <path d="M9 8h10M9 12h10M9 16h6" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
-                    <path d="M4 20h20" stroke="#FCD34D" strokeWidth="2"/>
+                    <path d="M4 20h20" stroke="#22c55e" strokeWidth="2"/>
                   </svg>
                 </div>
-                <span className="text-xl font-bold text-gray-800 dark:text-white">BonBox</span>
+                <span className="text-xl font-bold text-white">Bon<span className="text-green-400">Box</span></span>
               </div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Welcome back!</h1>
-              <p className="text-gray-500 dark:text-gray-400 mt-1.5">Sign in to continue managing your business</p>
+              <h1 className="text-3xl font-bold text-white">Welcome back!</h1>
+              <p className="text-gray-400 mt-1.5">Sign in to continue managing your business</p>
             </div>
 
             {/* Error */}
             {error && (
-              <div className="flex items-start gap-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-3.5 rounded-xl mb-5 text-sm" style={{ animation: "slideUp 0.3s ease-out" }}>
+              <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 text-red-400 p-3.5 rounded-xl mb-5 text-sm" style={{ animation: "slideUp 0.3s ease-out" }}>
                 <svg className="w-5 h-5 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
                 </svg>
@@ -161,9 +189,9 @@ export default function LoginPage() {
             {/* Form */}
             <form onSubmit={handleSubmit} className="space-y-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Email</label>
+                <label className="block text-sm font-medium text-gray-300 mb-1.5">Email</label>
                 <div className="relative">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                   </span>
                   <input
@@ -171,15 +199,15 @@ export default function LoginPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@company.com"
-                    className="w-full pl-11 pr-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent text-base text-gray-800 dark:text-gray-200 placeholder:text-gray-400 transition"
+                    className="w-full pl-11 pr-4 py-3 border border-white/10 rounded-xl bg-white/[0.05] focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent text-base text-white placeholder:text-gray-500 transition"
                     required
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Password</label>
+                <label className="block text-sm font-medium text-gray-300 mb-1.5">Password</label>
                 <div className="relative">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
                   </span>
                   <input
@@ -187,13 +215,13 @@ export default function LoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Enter your password"
-                    className="w-full pl-11 pr-12 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent text-base text-gray-800 dark:text-gray-200 placeholder:text-gray-400 transition"
+                    className="w-full pl-11 pr-12 py-3 border border-white/10 rounded-xl bg-white/[0.05] focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent text-base text-white placeholder:text-gray-500 transition"
                     required
                   />
                   <button
                     type="button"
                     onClick={() => setShowPass(!showPass)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-1"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 p-1"
                   >
                     {showPass ? (
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L6.59 6.59m7.532 7.532l3.29 3.29M3 3l18 18" /></svg>
@@ -206,10 +234,10 @@ export default function LoginPage() {
 
               <div className="flex items-center justify-between">
                 <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500" />
-                  <span className="text-sm text-gray-600 dark:text-gray-400">Remember me</span>
+                  <input type="checkbox" className="w-4 h-4 rounded border-gray-600 bg-white/5 text-green-600 focus:ring-green-500" />
+                  <span className="text-sm text-gray-400">Remember me</span>
                 </label>
-                <Link to="/forgot-password" className="text-sm text-green-600 dark:text-green-400 hover:underline font-medium">
+                <Link to="/forgot-password" className="text-sm text-green-400 hover:underline font-medium">
                   Forgot password?
                 </Link>
               </div>
@@ -217,7 +245,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-green-600 text-white py-3.5 rounded-xl hover:bg-green-700 active:scale-[0.98] transition-all font-semibold text-base disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-green-600/20"
+                className="w-full bg-green-500 text-white py-3.5 rounded-xl hover:bg-green-400 active:scale-[0.98] transition-all font-semibold text-base disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-green-500/25"
               >
                 {loading ? (
                   <>
@@ -232,9 +260,9 @@ export default function LoginPage() {
             {hasGoogle && (
               <>
                 <div className="flex items-center gap-3 my-5">
-                  <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
-                  <span className="text-xs text-gray-400 dark:text-gray-500 font-medium">or</span>
-                  <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                  <div className="flex-1 h-px bg-white/10" />
+                  <span className="text-xs text-gray-500 font-medium">or</span>
+                  <div className="flex-1 h-px bg-white/10" />
                 </div>
                 <div className="flex justify-center [&>div]:w-full">
                   <GoogleLogin
@@ -249,15 +277,15 @@ export default function LoginPage() {
                     size="large"
                     width="400"
                     text="signin_with"
-                    theme="outline"
+                    theme="filled_black"
                   />
                 </div>
               </>
             )}
 
-            <p className="mt-5 text-center text-sm text-gray-500 dark:text-gray-400">
+            <p className="mt-5 text-center text-sm text-gray-500">
               Don't have an account?{" "}
-              <Link to="/register" className="text-green-600 dark:text-green-400 hover:underline font-semibold">
+              <Link to="/register" className="text-green-400 hover:underline font-semibold">
                 Create one
               </Link>
             </p>
@@ -271,8 +299,8 @@ export default function LoginPage() {
                   title={l.label}
                   className={`w-9 h-9 rounded-lg text-base flex items-center justify-center transition ${
                     lang === l.code
-                      ? "bg-green-50 dark:bg-green-900/30 ring-2 ring-green-400 dark:ring-green-500 scale-110"
-                      : "hover:bg-gray-100 dark:hover:bg-gray-800 opacity-60 hover:opacity-100"
+                      ? "bg-green-500/10 ring-2 ring-green-500 scale-110"
+                      : "hover:bg-white/10 opacity-60 hover:opacity-100"
                   }`}
                 >
                   {l.flag}
