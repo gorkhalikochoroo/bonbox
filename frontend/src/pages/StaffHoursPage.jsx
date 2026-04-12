@@ -21,7 +21,7 @@ function fmtDateFull(iso) {
 }
 
 function fmtPeriod(from, to) {
-  if (!from || !to) return "Loading...";
+  if (!from || !to) return "\u2014"; // em dash fallback, skeleton handles loading
   return `${fmtDate(from)} \u2013 ${fmtDate(to)}`;
 }
 
@@ -86,19 +86,29 @@ export default function StaffHoursPage() {
 
   // Fetch pay period config
   useEffect(() => {
+    const fallbackPeriod = () => {
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      setPeriodFrom(isoDate(start));
+      setPeriodTo(isoDate(end));
+    };
+
     api.get("/staff/pay-period/current")
       .then(r => {
-        setPeriodConfig(r.data);
-        setPeriodFrom(r.data.period_start);
-        setPeriodTo(r.data.period_end);
+        const d = r.data;
+        setPeriodConfig(d);
+        const start = d?.period_start || d?.start || d?.from;
+        const end = d?.period_end || d?.end || d?.to;
+        if (start && end) {
+          setPeriodFrom(start);
+          setPeriodTo(end);
+        } else {
+          fallbackPeriod();
+        }
       })
       .catch(() => {
-        // Fallback: current month
-        const now = new Date();
-        const start = new Date(now.getFullYear(), now.getMonth(), 1);
-        const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-        setPeriodFrom(isoDate(start));
-        setPeriodTo(isoDate(end));
+        fallbackPeriod();
       })
       .finally(() => setPeriodLoading(false));
   }, []);
