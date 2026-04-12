@@ -462,6 +462,8 @@ export default function StaffSchedulePage() {
    ═══════════════════════════════════════════════════════════ */
 function StaffPanel({ staff, currency, onRefresh, branchId }) {
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [role, setRole] = useState(ROLES[0]);
   const [contractType, setContractType] = useState("full");
   const [baseRate, setBaseRate] = useState("");
@@ -526,12 +528,16 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
     try {
       await api.post("/staff/members", {
         name: name.trim(),
+        email: email.trim() || undefined,
+        phone: phone.trim() || undefined,
         role,
         contract_type: contractType,
         base_rate: parseFloat(baseRate) || 0,
         branch_id: branchId || undefined,
       });
       setName("");
+      setEmail("");
+      setPhone("");
       setRole(ROLES[0]);
       setContractType("full");
       setBaseRate("");
@@ -548,6 +554,8 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
     try {
       await api.put(`/staff/members/${id}`, {
         name: editForm.name?.trim() || undefined,
+        email: editForm.email !== undefined ? (editForm.email.trim() || null) : undefined,
+        phone: editForm.phone !== undefined ? (editForm.phone.trim() || null) : undefined,
         role: editForm.role || undefined,
         contract_type: editForm.contract_type || undefined,
         base_rate: editForm.base_rate !== undefined ? parseFloat(editForm.base_rate) : undefined,
@@ -576,6 +584,8 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
     setEditingId(member.id);
     setEditForm({
       name: member.name,
+      email: member.email || "",
+      phone: member.phone || "",
       role: member.role,
       contract_type: member.contract_type,
       base_rate: member.base_rate || "",
@@ -597,12 +607,26 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
       {/* Add form */}
       <div className="pt-4">
         <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Add New Staff Member</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
           <input
             type="text"
             placeholder="Name"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+          />
+          <input
+            type="email"
+            placeholder="Email (optional)"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+          />
+          <input
+            type="tel"
+            placeholder="Phone (optional)"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
             className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
           />
           <select
@@ -671,13 +695,27 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
                 >
                   {isEditing ? (
                     <div className="space-y-3">
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                         <input
                           type="text"
                           value={editForm.name || ""}
                           onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
                           className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none"
                           placeholder="Name"
+                        />
+                        <input
+                          type="email"
+                          value={editForm.email || ""}
+                          onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                          className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none"
+                          placeholder="Email (optional)"
+                        />
+                        <input
+                          type="tel"
+                          value={editForm.phone || ""}
+                          onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                          className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none"
+                          placeholder="Phone (optional)"
                         />
                         <select
                           value={editForm.role || ""}
@@ -732,6 +770,11 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
                         <span className="text-sm font-medium text-gray-900 dark:text-white">
                           {member.name}
                         </span>
+                        {member.email && (
+                          <span className="text-xs text-green-500 dark:text-green-400" title={member.email}>
+                            @
+                          </span>
+                        )}
                         <span className="text-xs text-gray-400 dark:text-gray-500">
                           {CONTRACT_TYPES.find((c) => c.value === member.contract_type)?.label || member.contract_type}
                         </span>
@@ -779,6 +822,102 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
           </div>
         </div>
       )}
+
+      {/* WhatsApp Setup Guide */}
+      <details className="group">
+        <summary className="flex items-center justify-between cursor-pointer py-3 px-4 bg-green-50 dark:bg-green-900/10 rounded-xl border border-green-200 dark:border-green-800/30 text-sm font-medium text-green-800 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/20 transition">
+          <span>📱 WhatsApp Notifications — Quick Setup</span>
+          <svg className="w-4 h-4 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+        </summary>
+        <div className="mt-3 p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 space-y-5 text-sm text-gray-600 dark:text-gray-400">
+
+          {/* How it works */}
+          <div className="p-3 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-100 dark:border-green-800/20">
+            <p className="text-gray-800 dark:text-gray-200 font-medium text-xs uppercase tracking-wide mb-1">How it works</p>
+            <p>When you publish or change a schedule, staff with a phone number get a WhatsApp message like:</p>
+            <div className="mt-2 p-3 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 font-mono text-xs leading-relaxed">
+              <p className="text-green-600 dark:text-green-400">BonBox - Schedule Update</p>
+              <p className="mt-1">Hi Jonas! Your shifts changed:</p>
+              <p className="mt-1">Mon 14 Apr: 10:00 - 18:00</p>
+              <p>Wed 16 Apr: start moved to 15:00</p>
+              <p>Fri 18 Apr: shift removed</p>
+            </div>
+          </div>
+
+          {/* 3 simple steps */}
+          <div className="space-y-4">
+            <p className="text-gray-800 dark:text-gray-200 font-semibold">3 steps to set it up:</p>
+
+            {/* Step 1 */}
+            <div className="flex gap-3">
+              <span className="flex-shrink-0 w-7 h-7 rounded-full bg-green-500 text-white flex items-center justify-center text-xs font-bold">1</span>
+              <div className="flex-1">
+                <p className="font-medium text-gray-800 dark:text-gray-200">Sign up at twilio.com <span className="text-xs font-normal text-gray-500">(free, 2 min)</span></p>
+                <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg text-xs space-y-1">
+                  <p>Go to <span className="text-green-600 dark:text-green-400 font-medium">twilio.com/try-twilio</span></p>
+                  <p>Enter your email and create a password</p>
+                  <p>Verify your phone number — done!</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Step 2 */}
+            <div className="flex gap-3">
+              <span className="flex-shrink-0 w-7 h-7 rounded-full bg-green-500 text-white flex items-center justify-center text-xs font-bold">2</span>
+              <div className="flex-1">
+                <p className="font-medium text-gray-800 dark:text-gray-200">Turn on WhatsApp <span className="text-xs font-normal text-gray-500">(1 min)</span></p>
+                <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg text-xs space-y-2">
+                  <p>In Twilio, click <span className="font-medium text-gray-800 dark:text-gray-200">Messaging</span> in the left menu</p>
+                  <p>Click <span className="font-medium text-gray-800 dark:text-gray-200">Try it out</span> &rarr; <span className="font-medium text-gray-800 dark:text-gray-200">Send a WhatsApp message</span></p>
+                  <p>You'll see a sandbox number like <span className="font-mono text-green-600 dark:text-green-400">+1 415 523 8886</span></p>
+                  <p>And a join code like <span className="font-mono text-green-600 dark:text-green-400">join bright-owl</span></p>
+                  <div className="mt-2 p-2 bg-green-50 dark:bg-green-900/20 rounded border border-green-200 dark:border-green-800/30">
+                    <p className="text-green-700 dark:text-green-400">Copy these 3 things from your Twilio dashboard:</p>
+                    <div className="mt-1 font-mono space-y-0.5 text-gray-700 dark:text-gray-300">
+                      <p>Account SID: <span className="text-green-600 dark:text-green-400">AC1234...abcd</span></p>
+                      <p>Auth Token: <span className="text-green-600 dark:text-green-400">ef5678...wxyz</span></p>
+                      <p>WhatsApp #: <span className="text-green-600 dark:text-green-400">+14155238886</span></p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Step 3 */}
+            <div className="flex gap-3">
+              <span className="flex-shrink-0 w-7 h-7 rounded-full bg-green-500 text-white flex items-center justify-center text-xs font-bold">3</span>
+              <div className="flex-1">
+                <p className="font-medium text-gray-800 dark:text-gray-200">Paste them in Render <span className="text-xs font-normal text-gray-500">(1 min)</span></p>
+                <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg text-xs space-y-2">
+                  <p>Go to your BonBox backend on <span className="font-medium text-gray-800 dark:text-gray-200">render.com</span></p>
+                  <p>Click <span className="font-medium text-gray-800 dark:text-gray-200">Environment</span> in the sidebar</p>
+                  <p>Add these 3 values:</p>
+                  <div className="mt-1 font-mono bg-white dark:bg-gray-950 p-2 rounded border border-gray-200 dark:border-gray-700 space-y-0.5 text-gray-700 dark:text-gray-300">
+                    <p>TWILIO_ACCOUNT_SID = <span className="text-green-600 dark:text-green-400">paste yours</span></p>
+                    <p>TWILIO_AUTH_TOKEN = <span className="text-green-600 dark:text-green-400">paste yours</span></p>
+                    <p>TWILIO_WHATSAPP_NUMBER = <span className="text-green-600 dark:text-green-400">+14155238886</span></p>
+                  </div>
+                  <p>Click <span className="font-medium text-gray-800 dark:text-gray-200">Save Changes</span> — Render restarts automatically</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Staff side */}
+          <div className="p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-800/20">
+            <p className="text-gray-800 dark:text-gray-200 font-medium text-xs uppercase tracking-wide mb-2">What your staff does</p>
+            <div className="text-xs space-y-2">
+              <p><span className="font-medium text-gray-800 dark:text-gray-200">You:</span> Add their phone number here (e.g. <span className="font-mono text-blue-600 dark:text-blue-400">+4512345678</span>) using the edit button above</p>
+              <p><span className="font-medium text-gray-800 dark:text-gray-200">Staff:</span> Opens WhatsApp, sends <span className="font-mono bg-white dark:bg-gray-900 px-1.5 py-0.5 rounded text-green-600 dark:text-green-400">join bright-owl</span> to <span className="font-mono">+1 415 523 8886</span></p>
+              <p><span className="font-medium text-gray-800 dark:text-gray-200">Done!</span> They'll now get WhatsApp messages when shifts change</p>
+            </div>
+          </div>
+
+          <div className="p-3 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/30 rounded-lg text-xs text-amber-700 dark:text-amber-400">
+            <strong>Tip:</strong> This uses Twilio's free sandbox (great for testing). When you're ready for production, upgrade to a Twilio WhatsApp Business number — staff won't need to send the join message anymore.
+          </div>
+        </div>
+      </details>
 
       {/* Portal Link Modal */}
       {linkModal && (

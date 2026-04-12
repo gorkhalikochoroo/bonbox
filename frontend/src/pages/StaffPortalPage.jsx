@@ -421,20 +421,93 @@ function TipsTab({ data }) {
 }
 
 
-// ─── Alerts Tab (placeholder for now) ─────────────────────────────────────
+// ─── Alerts Tab ──────────────────────────────────────────────────────────
 
-function AlertsTab() {
+function AlertsTab({ token, staffName }) {
+  const [notifications, setNotifications] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    portalApi.get(`/portal/${token}/notifications`)
+      .then((res) => {
+        setNotifications(res.data.notifications || []);
+      })
+      .catch(() => {
+        setNotifications([]);
+      })
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  if (loading) return <LoadingSkeleton />;
+
+  const EVENT_ICONS = {
+    schedule_published: { icon: "📅", label: "Schedule published" },
+    shift_changed: { icon: "🔄", label: "Shift changed" },
+    shift_deleted: { icon: "❌", label: "Shift cancelled" },
+  };
+
+  const CHANNEL_ICONS = {
+    email: "📧",
+    push: "🔔",
+    whatsapp: "💬",
+  };
+
+  if (!notifications || notifications.length === 0) {
+    return (
+      <div className="space-y-4">
+        <div className="text-center py-12">
+          <div className="text-4xl mb-3">🔔</div>
+          <h3 className="text-base font-semibold text-white mb-1">No notifications yet</h3>
+          <p className="text-sm text-gray-500">
+            You'll see shift reminders, schedule updates, and tip notifications here.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
-      <div className="text-center py-12">
-        <div className="text-4xl mb-3">🔔</div>
-        <h3 className="text-base font-semibold text-white mb-1">No notifications yet</h3>
-        <p className="text-sm text-gray-500">
-          You'll see shift reminders, schedule updates, and tip notifications here.
-        </p>
+      <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
+        Recent notifications
+      </div>
+      <div className="space-y-1.5">
+        {notifications.map((n) => {
+          const evt = EVENT_ICONS[n.event_type] || { icon: "🔔", label: n.event_type };
+          const channelIcon = CHANNEL_ICONS[n.channel] || "🔔";
+          const timeAgo = n.created_at ? formatTimeAgo(n.created_at) : "";
+          return (
+            <div key={n.id} className="flex items-start gap-3 px-3 py-3 rounded-xl bg-white/[0.04] border border-white/[0.06]">
+              <div className="text-lg mt-0.5">{evt.icon}</div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-white">{n.subject || evt.label}</div>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-[11px] text-gray-500">{channelIcon} {n.channel}</span>
+                  <span className="text-[11px] text-gray-600">{timeAgo}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
+}
+
+function formatTimeAgo(dateStr) {
+  try {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diff = Math.floor((now - d) / 1000);
+    if (diff < 60) return "just now";
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+    return d.toLocaleDateString();
+  } catch {
+    return "";
+  }
 }
 
 
@@ -492,6 +565,13 @@ export default function StaffPortalPage() {
   const [hoursData, setHoursData] = useState(null);
   const [tipsData, setTipsData] = useState(null);
 
+  // Email & phone editing
+  const [showEmailEdit, setShowEmailEdit] = useState(false);
+  const [emailInput, setEmailInput] = useState("");
+  const [phoneInput, setPhoneInput] = useState("");
+  const [emailSaving, setEmailSaving] = useState(false);
+  const [emailMsg, setEmailMsg] = useState("");
+
   // 1. Validate token on mount
   useEffect(() => {
     portalApi.get(`/portal/${token}`)
@@ -546,6 +626,21 @@ export default function StaffPortalPage() {
     return <PinGate token={token} staffName={info.staff_name} onVerified={() => setPinVerified(true)} />;
   }
 
+  const handleContactSave = async () => {
+    setEmailSaving(true);
+    setEmailMsg("");
+    try {
+      const res = await portalApi.put(`/portal/${token}/email`, { email: emailInput.trim(), phone: phoneInput.trim() });
+      setInfo({ ...info, email: res.data.email, phone: res.data.phone });
+      setEmailMsg("Saved!");
+      setTimeout(() => { setEmailMsg(""); setShowEmailEdit(false); }, 1500);
+    } catch (err) {
+      setEmailMsg(err.response?.data?.detail || "Failed to save");
+    } finally {
+      setEmailSaving(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-950 text-white pb-24">
       {/* Header */}
@@ -559,10 +654,57 @@ export default function StaffPortalPage() {
               <div className="text-[11px] text-gray-500">{info.restaurant_name}</div>
             )}
           </div>
-          <div className="w-9 h-9 rounded-full bg-green-500/15 flex items-center justify-center text-sm font-bold text-green-400">
+          <button
+            onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setEmailMsg(""); }}
+            className="w-9 h-9 rounded-full bg-green-500/15 flex items-center justify-center text-sm font-bold text-green-400"
+            title="Edit email"
+          >
             {info?.staff_name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
-          </div>
+          </button>
         </div>
+        {/* Email edit panel */}
+        {showEmailEdit && (
+          <div className="max-w-lg mx-auto px-4 pb-3">
+            <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3 space-y-3">
+              <div className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold">Notifications</div>
+              <div>
+                <label className="text-[10px] text-gray-500 mb-1 block">Email</label>
+                <input
+                  type="email"
+                  value={emailInput}
+                  onChange={(e) => setEmailInput(e.target.value)}
+                  placeholder="your@email.com"
+                  className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white placeholder:text-gray-600 outline-none focus:border-green-500/40"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-gray-500 mb-1 block">Phone (for WhatsApp)</label>
+                <input
+                  type="tel"
+                  value={phoneInput}
+                  onChange={(e) => setPhoneInput(e.target.value)}
+                  placeholder="+45 12 34 56 78"
+                  className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white placeholder:text-gray-600 outline-none focus:border-green-500/40"
+                />
+              </div>
+              <button
+                onClick={handleContactSave}
+                disabled={emailSaving}
+                className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition disabled:opacity-50"
+              >
+                {emailSaving ? "Saving..." : "Save"}
+              </button>
+              {emailMsg && (
+                <div className={`text-xs ${emailMsg === "Saved!" ? "text-green-400" : "text-red-400"}`}>{emailMsg}</div>
+              )}
+              <div className="text-[10px] text-gray-600">
+                {info?.email || info?.phone
+                  ? `${info.email ? "📧 " + info.email : ""}${info.email && info.phone ? " · " : ""}${info.phone ? "📱 " + info.phone : ""}`
+                  : "Add your email or phone to get notified when your schedule changes."}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Content */}
@@ -570,7 +712,7 @@ export default function StaffPortalPage() {
         {tab === "schedule" && <ScheduleTab shifts={shifts} staffName={info?.staff_name} />}
         {tab === "hours" && <HoursTab data={hoursData} maxHours={info?.max_hours_month} />}
         {tab === "tips" && <TipsTab data={tipsData} />}
-        {tab === "alerts" && <AlertsTab />}
+        {tab === "alerts" && <AlertsTab token={token} staffName={info?.staff_name} />}
       </div>
 
       {/* Bottom Navigation */}

@@ -140,3 +140,19 @@ class StaffLink(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_accessed: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class NotificationLog(Base):
+    """Log of all notifications sent to staff (email, push, whatsapp)."""
+    __tablename__ = "notification_log"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
+    staff_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("staff_members.id"))
+    channel: Mapped[str] = mapped_column(String(20))  # 'email', 'push', 'whatsapp'
+    event_type: Mapped[str] = mapped_column(String(50))  # 'schedule_published', 'shift_changed', etc.
+    subject: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="sent")  # sent, failed
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

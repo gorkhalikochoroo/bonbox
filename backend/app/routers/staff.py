@@ -46,7 +46,7 @@ from datetime import date, datetime, timedelta
 from io import BytesIO
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -79,6 +79,13 @@ from app.schemas.staff import (
     TipResponse,
 )
 from app.services.auth import get_current_user
+from app.services.notification_service import (
+    detect_shift_changes,
+    send_shift_notifications,
+    send_single_shift_notification,
+    ShiftChange,
+)
+from app.database import SessionLocal
 
 router = APIRouter()
 
@@ -536,6 +543,7 @@ def create_schedule(
 def update_schedule(
     schedule_id: str,
     data: ScheduleCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -545,6 +553,13 @@ def update_schedule(
     ).first()
     if not shift:
         raise HTTPException(status_code=404, detail="Schedule not found")
+
+    # Snapshot old values for notification (only if published)
+    was_published = shift.status == "published"
+    old_start = shift.start_time
+    old_end = shift.end_time
+    old_staff_id = shift.staff_id
+    old_date = str(shift.date)
 
     shift.staff_id = data.staff_id
     shift.date = data.date
@@ -556,12 +571,37 @@ def update_schedule(
     shift.notes = data.notes
     db.commit()
     db.refresh(shift)
+
+    # Notify staff if a published shift was modified
+    if was_published and (old_start != data.start_time or old_end != data.end_time):
+        user_id = user.id
+        staff_id = old_staff_id
+        change = ShiftChange(
+            change_type="modified",
+            date=old_date,
+            old_start=old_start,
+            old_end=old_end,
+            new_start=data.start_time,
+            new_end=data.end_time,
+            role=data.role_on_shift,
+        )
+
+        def _send_bg():
+            bg_db = SessionLocal()
+            try:
+                send_single_shift_notification(bg_db, user_id, staff_id, change, "shift_changed")
+            finally:
+                bg_db.close()
+
+        background_tasks.add_task(_send_bg)
+
     return shift
 
 
 @router.delete("/schedules/{schedule_id}", status_code=204)
 def delete_schedule(
     schedule_id: str,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -571,8 +611,37 @@ def delete_schedule(
     ).first()
     if not shift:
         raise HTTPException(status_code=404, detail="Schedule not found")
+
+    # Snapshot for notification before deleting
+    was_published = shift.status == "published"
+    staff_id = shift.staff_id
+    shift_date = str(shift.date)
+    shift_start = shift.start_time
+    shift_end = shift.end_time
+    shift_role = shift.role_on_shift
+
     db.delete(shift)
     db.commit()
+
+    # Notify staff if a published shift was deleted
+    if was_published:
+        user_id = user.id
+        change = ShiftChange(
+            change_type="removed",
+            date=shift_date,
+            old_start=shift_start,
+            old_end=shift_end,
+            role=shift_role,
+        )
+
+        def _send_bg():
+            bg_db = SessionLocal()
+            try:
+                send_single_shift_notification(bg_db, user_id, staff_id, change, "shift_deleted")
+            finally:
+                bg_db.close()
+
+        background_tasks.add_task(_send_bg)
 
 
 @router.post("/schedules/copy-week")
@@ -618,11 +687,47 @@ def copy_week(
 
 @router.post("/schedules/publish")
 def publish_week(
+    background_tasks: BackgroundTasks,
     week_start: date = Query(..., description="Monday of the week to publish"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     week_end = week_start + timedelta(days=6)
+
+    # Snapshot existing published shifts BEFORE publishing new ones
+    old_published = (
+        db.query(Schedule)
+        .filter(
+            Schedule.user_id == user.id,
+            Schedule.date >= week_start,
+            Schedule.date <= week_end,
+            Schedule.status == "published",
+        )
+        .all()
+    )
+    old_snapshot = [
+        {
+            "staff_id": str(s.staff_id),
+            "date": str(s.date),
+            "start_time": s.start_time,
+            "end_time": s.end_time,
+            "role_on_shift": s.role_on_shift,
+        }
+        for s in old_published
+    ]
+
+    # Get draft shifts that will be published
+    drafts = (
+        db.query(Schedule)
+        .filter(
+            Schedule.user_id == user.id,
+            Schedule.date >= week_start,
+            Schedule.date <= week_end,
+            Schedule.status == "draft",
+        )
+        .all()
+    )
+
     updated = (
         db.query(Schedule)
         .filter(
@@ -634,6 +739,44 @@ def publish_week(
         .update({"status": "published"})
     )
     db.commit()
+
+    # Build new snapshot (all published shifts after update)
+    all_published = (
+        db.query(Schedule)
+        .filter(
+            Schedule.user_id == user.id,
+            Schedule.date >= week_start,
+            Schedule.date <= week_end,
+            Schedule.status == "published",
+        )
+        .all()
+    )
+    new_snapshot = [
+        {
+            "staff_id": str(s.staff_id),
+            "date": str(s.date),
+            "start_time": s.start_time,
+            "end_time": s.end_time,
+            "role_on_shift": s.role_on_shift,
+        }
+        for s in all_published
+    ]
+
+    # Detect changes and send notifications in background
+    changes = detect_shift_changes(old_snapshot, new_snapshot)
+    if changes:
+        user_id = user.id
+        week_label = f"Week of {week_start.strftime('%d %b %Y')}"
+
+        def _send_bg():
+            bg_db = SessionLocal()
+            try:
+                send_shift_notifications(bg_db, user_id, changes, week_label)
+            finally:
+                bg_db.close()
+
+        background_tasks.add_task(_send_bg)
+
     return {"published": updated, "week_start": week_start.isoformat()}
 
 

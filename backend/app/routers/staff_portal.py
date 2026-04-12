@@ -5,11 +5,13 @@ Staff open a magic link like bonbox.dk/s/j8k2m4 and see their own
 schedule, hours, and tips. No login, no password, no account needed.
 
 Endpoints:
-  GET    /portal/{token}           — validate link, return staff info
-  GET    /portal/{token}/schedule  — their shifts (this + next 2 weeks)
-  GET    /portal/{token}/hours     — hours logged for current pay period
-  GET    /portal/{token}/tips      — tip distributions for last 30 days
-  POST   /portal/{token}/verify-pin — optional PIN verification
+  GET    /portal/{token}               — validate link, return staff info (incl. email)
+  GET    /portal/{token}/schedule      — their shifts (this + next 2 weeks)
+  GET    /portal/{token}/hours         — hours logged for current pay period
+  GET    /portal/{token}/tips          — tip distributions for last 30 days
+  POST   /portal/{token}/verify-pin   — optional PIN verification
+  PUT    /portal/{token}/email        — staff updates their own email
+  GET    /portal/{token}/notifications — last 30 notification log entries
 """
 
 import secrets
@@ -25,9 +27,11 @@ from passlib.context import CryptContext
 from app.database import get_db
 from app.models.staff import (
     StaffMember, StaffLink, Schedule, HoursLogged,
-    Tip, TipDistribution, PayPeriodConfig,
+    Tip, TipDistribution, PayPeriodConfig, NotificationLog,
 )
 from app.models.business_profile import BusinessProfile
+
+import re
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -41,10 +45,25 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 class PortalInfo(BaseModel):
     staff_name: str
     role: str
+    email: str | None = None
+    phone: str | None = None
     restaurant_name: str | None = None
     has_pin: bool = False
     max_hours_month: float | None = None
     max_hours_week: float | None = None
+
+
+class ContactUpdateRequest(BaseModel):
+    email: str | None = None
+    phone: str | None = None
+
+
+class PortalNotification(BaseModel):
+    id: str
+    event_type: str
+    subject: str | None = None
+    created_at: datetime | None = None
+    channel: str
 
 class PortalShift(BaseModel):
     date: date
@@ -177,6 +196,8 @@ def get_portal_info(token: str, request: Request, db: Session = Depends(get_db))
     return PortalInfo(
         staff_name=member.name,
         role=member.role or "staff",
+        email=member.email,
+        phone=member.phone,
         restaurant_name=profile.business_name if profile else None,
         has_pin=bool(link.pin_hash),
         max_hours_month=float(member.max_hours_month) if member.max_hours_month else None,
@@ -329,3 +350,64 @@ def verify_pin(token: str, body: PinVerifyRequest, request: Request, db: Session
         raise HTTPException(status_code=401, detail="Invalid PIN")
 
     return {"verified": True}
+
+
+@router.put("/{token}/email")
+@limiter.limit("5/minute")
+def update_portal_contact(token: str, body: ContactUpdateRequest, request: Request, db: Session = Depends(get_db)):
+    """Staff updates their own email and/or phone from the portal."""
+    link, member = _get_staff_from_token(token, db)
+
+    # Handle email
+    if body.email is not None:
+        email = body.email.strip().lower()
+        if not email:
+            member.email = None
+        else:
+            email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            if not re.match(email_regex, email):
+                raise HTTPException(status_code=400, detail="Invalid email format")
+            member.email = email
+
+    # Handle phone
+    if body.phone is not None:
+        phone = body.phone.strip()
+        if not phone:
+            member.phone = None
+        else:
+            # Allow international format: +45 12 34 56 78, +4512345678, etc.
+            cleaned = re.sub(r'[\s\-\(\)]', '', phone)
+            if not re.match(r'^\+?\d{7,15}$', cleaned):
+                raise HTTPException(status_code=400, detail="Invalid phone format. Use international format e.g. +4512345678")
+            member.phone = cleaned
+
+    db.commit()
+    return {"email": member.email, "phone": member.phone, "message": "Contact info updated"}
+
+
+@router.get("/{token}/notifications")
+@limiter.limit("30/minute")
+def get_portal_notifications(token: str, request: Request, db: Session = Depends(get_db)):
+    """Return last 30 notification_log entries for this staff member."""
+    link, member = _get_staff_from_token(token, db)
+
+    notifications = (
+        db.query(NotificationLog)
+        .filter(NotificationLog.staff_id == member.id)
+        .order_by(NotificationLog.created_at.desc())
+        .limit(30)
+        .all()
+    )
+
+    return {
+        "notifications": [
+            PortalNotification(
+                id=str(n.id),
+                event_type=n.event_type,
+                subject=n.subject,
+                created_at=n.created_at,
+                channel=n.channel,
+            )
+            for n in notifications
+        ]
+    }
