@@ -7,6 +7,7 @@ import {
   InventoryCard,
   WasteCard,
   KhataCard,
+  StaffCard,
   HealthCard,
 } from "./AgentDataCards";
 
@@ -19,6 +20,7 @@ const DATA_CARD_MAP = {
   query_inventory: InventoryCard,
   query_waste: WasteCard,
   query_khata: KhataCard,
+  query_staff: StaffCard,
   business_overview: HealthCard,
 };
 
@@ -31,24 +33,64 @@ const TOOL_LABELS = {
   query_inventory: "Scanning inventory",
   query_waste: "Analyzing waste",
   query_khata: "Looking up credit",
+  query_staff: "Checking staff",
   business_overview: "Compiling overview",
 };
 
 /* ------------------------------------------------------------------ */
-/*  Suggestion chips                                                   */
+/*  Dynamic suggestion chips based on time of day                      */
 /* ------------------------------------------------------------------ */
-const QUICK_SUGGESTIONS = [
-  "How's today?",
-  "This week's revenue",
-  "Low stock items",
-  "Who owes us?",
-];
+function getQuickSuggestions() {
+  const hour = new Date().getHours();
+
+  if (hour < 12) {
+    // Morning
+    return [
+      "How was yesterday?",
+      "Low stock alerts",
+      "Who owes us?",
+      "This week so far",
+    ];
+  } else if (hour < 17) {
+    // Afternoon
+    return [
+      "How's today going?",
+      "Today's revenue",
+      "Check inventory",
+      "Business overview",
+    ];
+  } else {
+    // Evening
+    return [
+      "Today's summary",
+      "Compare to yesterday",
+      "This week's revenue",
+      "Any action items?",
+    ];
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Contextual follow-up suggestions after bot responses               */
+/* ------------------------------------------------------------------ */
+function getFollowUps(toolName) {
+  const followUps = {
+    query_revenue: ["Show expenses too", "Compare to last week", "Top sellers?"],
+    query_expenses: ["Revenue this period?", "Biggest expense category?", "Cash flow?"],
+    query_inventory: ["What's expiring soon?", "Restock list", "Inventory value?"],
+    query_waste: ["This month's waste cost?", "Revenue check", "Inventory status?"],
+    query_khata: ["Who's most overdue?", "Total credit this month?", "Revenue?"],
+    business_overview: ["Deep dive into revenue", "Check inventory", "Staff schedule"],
+    query_staff: ["This week's shifts", "Revenue today", "Business overview"],
+  };
+  return followUps[toolName] || [];
+}
 
 /* ------------------------------------------------------------------ */
 /*  WELCOME MESSAGE                                                    */
 /* ------------------------------------------------------------------ */
 const WELCOME_CONTENT =
-  "Hi! I'm your BonBox AI assistant. Ask me anything about your business \u2014 revenue, expenses, inventory, or staffing.";
+  "Hey! I'm your BonBox copilot. Ask me anything about your business \u2014 I can check revenue, expenses, inventory, credit, waste, and staff. Try one of the suggestions below \ud83d\udc47";
 
 /* ================================================================== */
 /*  MAIN COMPONENT                                                     */
@@ -307,21 +349,53 @@ export default function BonBoxAgent() {
             {/* data cards */}
             {msg.dataCards?.map((card, ci) => renderDataCard(card, ci))}
 
-            {/* suggestion chips below welcome */}
+            {/* follow-up suggestion chips after assistant messages with data cards */}
+            {!msg.isWelcome && msg.role === "assistant" && msg.dataCards?.length > 0 && (() => {
+              const lastTool = msg.dataCards[msg.dataCards.length - 1]?.tool;
+              const followUps = getFollowUps(lastTool);
+              if (!followUps.length) return null;
+              return (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {followUps.map((q) => (
+                    <button
+                      key={q}
+                      onClick={() => handleSuggestion(q)}
+                      disabled={isStreaming}
+                      className="
+                        text-[10.5px] px-2.5 py-1 rounded-full
+                        bg-emerald-500/[0.08] border border-emerald-500/[0.15]
+                        text-emerald-300/80 hover:text-emerald-200 hover:bg-emerald-500/[0.15] hover:border-emerald-500/[0.25]
+                        transition-all duration-200
+                        disabled:opacity-40 disabled:cursor-not-allowed
+                      "
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+
+            {/* suggestion chips below welcome — larger & animated */}
             {msg.isWelcome && (
-              <div className="flex flex-wrap gap-2 mt-3">
-                {QUICK_SUGGESTIONS.map((q) => (
+              <div className="flex flex-wrap gap-2.5 mt-4">
+                {getQuickSuggestions().map((q, qi) => (
                   <button
                     key={q}
                     onClick={() => handleSuggestion(q)}
                     disabled={isStreaming}
                     className="
-                      text-[11.5px] px-3 py-1.5 rounded-full
-                      bg-white/[0.06] border border-white/[0.08]
-                      text-gray-300 hover:text-white hover:bg-white/[0.1] hover:border-white/[0.15]
+                      text-[12.5px] px-4 py-2 rounded-full
+                      bg-white/[0.07] border border-white/[0.10]
+                      text-gray-200 hover:text-white hover:bg-white/[0.13] hover:border-emerald-500/30
+                      hover:shadow-[0_0_12px_rgba(34,197,94,0.1)]
                       transition-all duration-200
                       disabled:opacity-40 disabled:cursor-not-allowed
                     "
+                    style={{
+                      animation: `chipBounce 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both`,
+                      animationDelay: `${400 + qi * 80}ms`,
+                    }}
                   >
                     {q}
                   </button>
@@ -395,6 +469,10 @@ export default function BonBoxAgent() {
           0%   { background-position: 0% 50%; }
           50%  { background-position: 100% 50%; }
           100% { background-position: 0% 50%; }
+        }
+        @keyframes chipBounce {
+          0%   { opacity: 0; transform: translateY(10px) scale(0.92); }
+          100% { opacity: 1; transform: translateY(0) scale(1); }
         }
 
         .bonbox-agent-scrollbar::-webkit-scrollbar { width: 4px; }

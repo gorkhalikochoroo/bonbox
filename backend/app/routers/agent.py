@@ -37,6 +37,7 @@ from app.services.agent_tools import (
     query_khata,
     query_cashbook,
     business_overview,
+    query_staff,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,9 +66,10 @@ TOOL_MAP = {
     "query_khata": query_khata,
     "query_cashbook": query_cashbook,
     "business_overview": business_overview,
+    "query_staff": query_staff,
 }
 
-NO_PARAM_TOOLS = {"business_overview"}
+NO_PARAM_TOOLS = {"business_overview", "query_staff"}
 
 
 # ---------------------------------------------------------------------------
@@ -123,18 +125,6 @@ UNSUPPORTED_FEATURES = [
             "demand forecasts, temperature impact on sales, and recommended prep adjustments."
         ),
     },
-    {
-        "keywords": [
-            "staffing", "smart staffing", "staff", "schedule", "shift",
-            "employee", "worker", "rota", "roster", "personnel",
-            "vagtplan", "medarbejder", "karmachari",
-        ],
-        "message": (
-            "**Smart Staffing** data isn't available through chat yet.\n\n"
-            "Head to the **Smart Staffing** page in the sidebar to see shift planning, "
-            "staffing recommendations, and labor cost optimization."
-        ),
-    },
 ]
 
 # Each pattern maps to: (tool_name, kwargs_extractor)
@@ -187,6 +177,15 @@ INTENT_PATTERNS = [
             "cash out", "kontant",
         ],
         "tool": "query_cashbook",
+    },
+    # --- Staff ---
+    {
+        "keywords": [
+            "staff", "staffing", "employee", "worker", "team",
+            "schedule", "shift", "rota", "roster", "personnel",
+            "vagtplan", "medarbejder", "karmachari",
+        ],
+        "tool": "query_staff",
     },
 ]
 
@@ -422,6 +421,26 @@ def _build_response(tool_name: str, result: dict, currency: str) -> str:
         status = "positive" if net >= 0 else "negative"
         lines.append(f"**Net Cash**: {abs(net):,.0f} {currency} ({status})")
 
+    elif tool_name == "query_staff":
+        total = data.get("total_staff", 0)
+        staff = data.get("staff", [])
+        shifts = data.get("upcoming_shifts", [])
+        role_breakdown = data.get("role_breakdown", {})
+
+        role_str = ", ".join(f"{cnt} {role}(s)" for role, cnt in role_breakdown.items())
+        lines.append(f"**Team**: {total} active staff members ({role_str})")
+
+        if staff:
+            names = [f"{s['name']} ({s['role']})" for s in staff[:6]]
+            lines.append(f"**Members**: {', '.join(names)}")
+
+        if shifts:
+            lines.append(f"**This week**: {len(shifts)} shifts scheduled")
+            for s in shifts[:5]:
+                lines.append(f"  - {s['staff_name']}: {s['date']} {s['start_time']}-{s['end_time']}")
+        else:
+            lines.append("No shifts scheduled for the rest of this week.")
+
     if not lines:
         lines.append(summary)
 
@@ -524,35 +543,122 @@ async def agent_chat(
 async def _claude_chat(req: ChatRequest, db, user):
     """Full Claude API chat with tool use — requires ANTHROPIC_API_KEY + credits."""
     import anthropic as anth
+    from sqlalchemy import func as sa_func
     from app.services.agent_tool_defs import AGENT_TOOLS
+    from app.models import Sale, Expense, InventoryItem, KhataCustomer, KhataTransaction
+    from app.models.staff import StaffMember
 
     client = anth.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
     biz_name = user.business_name or "your business"
     currency = user.currency or "DKK"
+    today = date.today()
+    month_start = today.replace(day=1)
 
+    # ── Live business snapshot queries ──────────────────────────────
+    # Today's revenue
+    today_agg = (
+        db.query(
+            sa_func.coalesce(sa_func.sum(Sale.amount), 0).label("rev"),
+            sa_func.count(Sale.id).label("cnt"),
+        )
+        .filter(Sale.user_id == user.id, Sale.is_deleted.isnot(True), Sale.date == today)
+        .first()
+    )
+    today_rev = float(today_agg.rev)
+    sale_count = int(today_agg.cnt)
+
+    # Month revenue
+    month_rev_agg = (
+        db.query(sa_func.coalesce(sa_func.sum(Sale.amount), 0))
+        .filter(Sale.user_id == user.id, Sale.is_deleted.isnot(True),
+                Sale.date >= month_start, Sale.date <= today)
+        .scalar()
+    )
+    month_rev = float(month_rev_agg)
+
+    # Month expenses
+    month_exp_agg = (
+        db.query(sa_func.coalesce(sa_func.sum(Expense.amount), 0))
+        .filter(Expense.user_id == user.id, Expense.is_deleted.isnot(True),
+                Expense.is_personal.isnot(True),
+                Expense.date >= month_start, Expense.date <= today)
+        .scalar()
+    )
+    month_exp = float(month_exp_agg)
+    margin = round(((month_rev - month_exp) / month_rev) * 100, 1) if month_rev > 0 else 0.0
+
+    # Low stock count
+    low_stock = (
+        db.query(sa_func.count(InventoryItem.id))
+        .filter(InventoryItem.user_id == user.id,
+                InventoryItem.quantity <= InventoryItem.min_threshold)
+        .scalar()
+    )
+
+    # Khata outstanding
+    khata_customers = (
+        db.query(KhataCustomer)
+        .filter(KhataCustomer.user_id == user.id, KhataCustomer.is_deleted.isnot(True))
+        .all()
+    )
+    khata_total = 0.0
+    khata_with_balance = 0
+    for cust in khata_customers:
+        txn = (
+            db.query(
+                sa_func.coalesce(sa_func.sum(KhataTransaction.purchase_amount), 0).label("p"),
+                sa_func.coalesce(sa_func.sum(KhataTransaction.paid_amount), 0).label("pd"),
+            )
+            .filter(KhataTransaction.customer_id == cust.id,
+                    KhataTransaction.user_id == user.id)
+            .first()
+        )
+        outstanding = float(txn.p) - float(txn.pd)
+        if outstanding > 0:
+            khata_total += outstanding
+            khata_with_balance += 1
+    khata_total = round(khata_total, 2)
+
+    # Staff count
+    staff_count = (
+        db.query(sa_func.count(StaffMember.id))
+        .filter(StaffMember.user_id == user.id,
+                StaffMember.is_deleted.isnot(True),
+                StaffMember.active.is_(True))
+        .scalar()
+    )
+
+    # ── Build enriched system prompt ───────────────────────────────
     system_prompt = (
         f"You are **BonBox AI** — the smart business copilot for {biz_name}.\n"
-        f"Currency: {currency}  |  Today: {date.today().isoformat()}\n\n"
+        f"Currency: {currency}  |  Today: {today.isoformat()}\n\n"
+
+        "## Your Business Right Now\n"
+        f"- Today's revenue: **{today_rev:,.0f} {currency}** ({sale_count} sales)\n"
+        f"- This month: **{month_rev:,.0f}** revenue, **{month_exp:,.0f}** expenses ({margin}% margin)\n"
+        f"- Inventory alerts: **{low_stock}** items low on stock\n"
+        f"- Credit outstanding: **{khata_total:,.0f} {currency}** from {khata_with_balance} customers\n"
+        f"- Staff: **{staff_count}** team members\n\n"
 
         "## Personality\n"
-        "- Warm, concise, and sharp — like a trusted business partner who knows the numbers.\n"
-        "- Use emojis sparingly (1-2 per message max). Use **bold** for key numbers.\n"
-        "- Match the user's language (English, Danish, Nepali, or whatever they write in).\n"
-        "- Keep responses SHORT — 2-4 sentences for simple queries. No essays.\n\n"
+        "- Warm, concise, and sharp — like a trusted business partner.\n"
+        "- Use **bold** for key numbers. Minimal emojis (1-2 max).\n"
+        "- Match the user's language (English, Danish, Nepali, Hindi).\n"
+        "- Keep responses SHORT — 2-4 sentences for simple queries.\n"
+        "- Lead with the insight, not a wall of numbers.\n\n"
 
         "## When to use tools\n"
-        "- ONLY call tools when the user asks about real business data (revenue, expenses, stock, etc.).\n"
-        "- For greetings (hi, hey, hello) → respond warmly and offer to help. NO tool calls.\n"
-        "- For small talk or thanks → respond naturally. NO tool calls.\n"
-        "- For 'how's today?' or 'how's my business?' → use business_overview.\n"
-        "- Never guess or make up numbers — always query real data.\n\n"
+        "- Call tools when users ask about specific data, periods, or details.\n"
+        "- For general \"how's it going?\" → you already have the snapshot above, respond directly.\n"
+        "- For specific queries like \"revenue this week\" or \"show expenses\" → use tools.\n"
+        "- NEVER guess or make up numbers.\n\n"
 
         "## Response style\n"
-        "- Lead with the key insight, not a wall of numbers.\n"
-        "- If data shows something interesting (spike, drop, trend), call it out.\n"
-        "- Add a short actionable tip when relevant (e.g. 'Might be time to restock X').\n"
-        "- If the user's business has no data yet, be encouraging — 'Start logging sales and I'll track your growth!'\n"
+        "- If something looks good, celebrate it briefly.\n"
+        "- If something's concerning (low margin, overdue credit), flag it gently.\n"
+        "- Add a short actionable tip when relevant.\n"
+        "- After answering, suggest a natural follow-up question.\n"
     )
 
     messages = []
@@ -565,7 +671,7 @@ async def _claude_chat(req: ChatRequest, db, user):
         try:
             while True:
                 response = client.messages.create(
-                    model="claude-3-5-sonnet-20241022",
+                    model="claude-sonnet-4-20250514",
                     max_tokens=1024,
                     system=system_prompt,
                     tools=AGENT_TOOLS,

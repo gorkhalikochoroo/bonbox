@@ -28,6 +28,7 @@ from app.models import (
     CashTransaction,
     User,
 )
+from app.models.staff import StaffMember, Schedule
 
 
 # ---------------------------------------------------------------------------
@@ -822,5 +823,103 @@ def business_overview(db: Session, user_id: UUID) -> dict:
             "khata_outstanding": khata["data"]["total_outstanding"],
             "khata_overdue_count": khata["data"]["overdue_count"],
             "currency": currency,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# 8. Staff
+# ---------------------------------------------------------------------------
+
+def query_staff(db: Session, user_id: UUID) -> dict:
+    """
+    Query staff members and upcoming schedule for the current week.
+
+    Returns total count, list of names + roles, and shifts scheduled
+    for the remainder of this week.
+    """
+    today = date.today()
+    # End of the current ISO week (Sunday)
+    week_end = today + timedelta(days=(6 - today.weekday()))
+
+    # -- Active staff members --
+    members = (
+        db.query(StaffMember)
+        .filter(
+            StaffMember.user_id == user_id,
+            StaffMember.is_deleted.isnot(True),
+            StaffMember.active.is_(True),
+        )
+        .order_by(StaffMember.name)
+        .all()
+    )
+
+    staff_list = []
+    staff_ids = []
+    for m in members:
+        staff_list.append({
+            "id": str(m.id),
+            "name": m.name,
+            "role": m.role,
+            "contract_type": m.contract_type,
+            "phone": m.phone,
+            "email": m.email,
+        })
+        staff_ids.append(m.id)
+
+    # -- Upcoming shifts this week (today through Sunday) --
+    upcoming_shifts = []
+    if staff_ids:
+        schedules = (
+            db.query(Schedule)
+            .filter(
+                Schedule.user_id == user_id,
+                Schedule.staff_id.in_(staff_ids),
+                Schedule.date >= today,
+                Schedule.date <= week_end,
+            )
+            .order_by(Schedule.date, Schedule.start_time)
+            .all()
+        )
+
+        # Build a name lookup
+        name_map = {m.id: m.name for m in members}
+
+        for s in schedules:
+            upcoming_shifts.append({
+                "staff_name": name_map.get(s.staff_id, "Unknown"),
+                "date": str(s.date),
+                "start_time": s.start_time,
+                "end_time": s.end_time,
+                "role_on_shift": s.role_on_shift,
+                "status": s.status,
+            })
+
+    # -- Role breakdown --
+    role_counts: dict[str, int] = {}
+    for m in staff_list:
+        role_counts[m["role"]] = role_counts.get(m["role"], 0) + 1
+
+    # -- Summary --
+    total = len(staff_list)
+    shift_count = len(upcoming_shifts)
+    role_str = ", ".join(f"{cnt} {role}(s)" for role, cnt in role_counts.items())
+
+    summary = f"{total} active staff members"
+    if role_str:
+        summary += f" ({role_str})"
+    if shift_count:
+        summary += f". {shift_count} shifts scheduled this week."
+    else:
+        summary += ". No shifts scheduled for the rest of this week."
+
+    return {
+        "summary": summary,
+        "data": {
+            "total_staff": total,
+            "staff": staff_list,
+            "role_breakdown": role_counts,
+            "upcoming_shifts": upcoming_shifts,
+            "shifts_this_week": shift_count,
         },
     }

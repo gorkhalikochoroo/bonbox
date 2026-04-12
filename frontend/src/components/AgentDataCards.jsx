@@ -448,6 +448,72 @@ export function KhataCard({ data, currency }) {
 }
 
 /* ================================================================== */
+/*  STAFF CARD                                                         */
+/* ================================================================== */
+export function StaffCard({ data }) {
+  if (!data) return null;
+  const { total_staff = 0, staff = [] } = data;
+
+  const roleColors = {
+    manager: "bg-violet-500/20 text-violet-300 border-violet-500/20",
+    cashier: "bg-sky-500/20 text-sky-300 border-sky-500/20",
+    chef: "bg-amber-500/20 text-amber-300 border-amber-500/20",
+    waiter: "bg-emerald-500/20 text-emerald-300 border-emerald-500/20",
+    delivery: "bg-indigo-500/20 text-indigo-300 border-indigo-500/20",
+  };
+
+  function getRoleStyle(role) {
+    const key = (role || "").toLowerCase();
+    return roleColors[key] || "bg-gray-500/20 text-gray-300 border-gray-500/20";
+  }
+
+  return (
+    <CardShell gradient="from-indigo-950/60 to-gray-900/70">
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <p className="text-[11px] uppercase tracking-wider text-indigo-400/70 font-semibold mb-1">Staff</p>
+          <span className="text-2xl font-bold text-white">
+            <CountUp value={total_staff} /> members
+          </span>
+        </div>
+        <div className="w-8 h-8 rounded-lg bg-indigo-500/15 flex items-center justify-center shrink-0">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-indigo-400">
+            <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M23 21v-2a4 4 0 00-3-3.87" />
+            <path d="M16 3.13a4 4 0 010 7.75" />
+          </svg>
+        </div>
+      </div>
+
+      {/* staff list */}
+      {staff.length > 0 && (
+        <div className="space-y-1.5 overflow-y-auto max-h-[80px] scrollbar-thin">
+          {staff.slice(0, 6).map((s) => (
+            <div key={s.id || s.name} className="flex items-center justify-between text-[11px]">
+              <div className="flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-indigo-500/20 flex items-center justify-center text-[9px] font-bold text-indigo-300 shrink-0">
+                  {(s.name || "?").charAt(0).toUpperCase()}
+                </span>
+                <span className="text-gray-200 truncate max-w-[120px]">{s.name}</span>
+              </div>
+              <span
+                className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${getRoleStyle(s.role)}`}
+              >
+                {s.role || "Staff"}
+              </span>
+            </div>
+          ))}
+          {staff.length > 6 && (
+            <p className="text-[10px] text-gray-500 pl-3">+{staff.length - 6} more</p>
+          )}
+        </div>
+      )}
+    </CardShell>
+  );
+}
+
+/* ================================================================== */
 /*  HEALTH / OVERVIEW CARD                                             */
 /* ================================================================== */
 export function HealthCard({ data, currency }) {

@@ -235,4 +235,20 @@ AGENT_TOOLS = [
             "required": [],
         },
     },
+    {
+        "name": "query_staff",
+        "description": (
+            "Query staff members and their upcoming schedules. "
+            "Use this when the user asks about their team, employees, staff list, "
+            "who is working, upcoming shifts, weekly schedule, roster, rota, "
+            "staffing, or anything about their workforce. "
+            "Returns total headcount, names and roles, and shifts scheduled "
+            "for the remainder of the current week."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
 ]
