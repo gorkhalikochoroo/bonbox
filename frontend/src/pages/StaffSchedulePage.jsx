@@ -910,7 +910,7 @@ function ShiftModal({ modal, staff, weekDates, onClose, onSaved, branchId }) {
       date,
       start_time: startTime,
       end_time: endTime,
-      break_minutes: breakMinutes,
+      break_minutes: breakMinutes || 0,
       role_on_shift: roleOnShift,
       notes: notes.trim() || undefined,
       branch_id: branchId || undefined,
@@ -1065,7 +1065,7 @@ function ShiftModal({ modal, staff, weekDates, onClose, onSaved, branchId }) {
             <input
               type="number"
               value={breakMinutes}
-              onChange={(e) => setBreakMinutes(Math.max(0, parseInt(e.target.value) || 0))}
+              onChange={(e) => setBreakMinutes(e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value) || 0))}
               min="0"
               max="120"
               step="5"

@@ -167,8 +167,8 @@ export default function PersonalPage() {
     setBudgetDirty(true);
   };
   const saveBudgetsToApi = () => {
-    const items = Object.entries(budgets).map(([category, limit_amount]) => ({ category, limit_amount }));
-    items.push({ category: "__TOTAL__", limit_amount: totalBudget });
+    const items = Object.entries(budgets).map(([category, limit_amount]) => ({ category, limit_amount: limit_amount || 0 }));
+    items.push({ category: "__TOTAL__", limit_amount: totalBudget || 0 });
     api.put("/budgets", { month: filterMonth, budgets: items }).then(() => {
       setBudgetDirty(false);
     }).catch(() => {});
@@ -393,7 +393,7 @@ export default function PersonalPage() {
           <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">{t("monthlyBudgetSettings")}</h2>
           <div className="flex items-center gap-3 pb-3 border-b border-gray-100 dark:border-gray-700">
             <label className="text-sm font-medium text-gray-600 dark:text-gray-400 whitespace-nowrap">{t("totalMonthlyBudget")}:</label>
-            <input type="number" value={totalBudget || ""} onChange={(e) => saveTotalBudget(parseFloat(e.target.value) || 0)}
+            <input type="number" value={totalBudget || ""} onChange={(e) => saveTotalBudget(e.target.value === "" ? "" : parseFloat(e.target.value) || 0)}
               placeholder="e.g. 15000" className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-40" />
             <span className="text-sm text-gray-400">{currency}</span>
           </div>
@@ -402,7 +402,7 @@ export default function PersonalPage() {
             {spendingCats.map((cat) => (
               <div key={cat} className="flex items-center gap-2">
                 <span className="text-sm text-gray-600 dark:text-gray-400 w-32 truncate">{cat}</span>
-                <input type="number" value={budgets[cat] || ""} onChange={(e) => saveBudgets({ ...budgets, [cat]: parseFloat(e.target.value) || 0 })}
+                <input type="number" value={budgets[cat] || ""} onChange={(e) => saveBudgets({ ...budgets, [cat]: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
                   placeholder="0" className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-24" />
               </div>
             ))}

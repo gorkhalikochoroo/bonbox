@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
-  appId: "com.bonbox.app",
+  appId: "dk.bonbox.app",
   appName: "BonBox",
   webDir: "dist",
 

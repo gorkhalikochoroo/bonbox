@@ -136,6 +136,8 @@ export default function InventoryPage() {
   const saveEdit = async () => {
     try {
       const payload = { ...editData };
+      if (payload.quantity === "") payload.quantity = 0;
+      if (payload.cost_per_unit === "") payload.cost_per_unit = 0;
       if (payload.sell_price === "" || payload.sell_price === null) {
         payload.sell_price = null;
       }
@@ -872,7 +874,7 @@ export default function InventoryPage() {
                             className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-24" />
                         </td>
                         <td className="px-6 py-3">
-                          <input type="number" value={editData.quantity} onChange={(e) => setEditData({ ...editData, quantity: parseFloat(e.target.value) || 0 })}
+                          <input type="number" value={editData.quantity} onChange={(e) => setEditData({ ...editData, quantity: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
                             className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-20" />
                         </td>
                         <td className="px-6 py-3">
@@ -887,7 +889,7 @@ export default function InventoryPage() {
                           </select>
                         </td>
                         <td className="px-6 py-3">
-                          <input type="number" step="0.01" value={editData.cost_per_unit} onChange={(e) => setEditData({ ...editData, cost_per_unit: parseFloat(e.target.value) || 0 })}
+                          <input type="number" step="0.01" value={editData.cost_per_unit} onChange={(e) => setEditData({ ...editData, cost_per_unit: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
                             className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-20" />
                         </td>
                         <td className="px-6 py-3">

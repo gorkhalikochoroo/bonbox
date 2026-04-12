@@ -269,7 +269,9 @@ export default function ExpensesPage() {
 
   const saveEdit = async () => {
     try {
-      await api.put(`/expenses/${editId}`, editData);
+      const payload = { ...editData };
+      if (payload.amount === "") payload.amount = 0;
+      await api.put(`/expenses/${editId}`, payload);
       setEditId(null);
       setEditData({});
       fetchData(filterFrom, filterTo);
@@ -906,7 +908,7 @@ export default function ExpensesPage() {
                       <input
                         type="number"
                         value={editData.amount}
-                        onChange={(e) => setEditData({ ...editData, amount: parseFloat(e.target.value) || 0 })}
+                        onChange={(e) => setEditData({ ...editData, amount: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
                         className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-28"
                       />
                     </td>

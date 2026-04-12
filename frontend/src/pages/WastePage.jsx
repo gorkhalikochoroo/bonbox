@@ -89,7 +89,10 @@ export default function WastePage() {
 
   const saveEdit = async () => {
     try {
-      await api.put(`/waste/${editId}`, editData);
+      const payload = { ...editData };
+      if (payload.quantity === "") payload.quantity = 0;
+      if (payload.estimated_cost === "") payload.estimated_cost = 0;
+      await api.put(`/waste/${editId}`, payload);
       setEditId(null);
       fetchData(filterFrom, filterTo);
       setSuccess(t("updated"));
@@ -330,7 +333,7 @@ export default function WastePage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex gap-1">
-                          <input type="number" value={editData.quantity} onChange={(e) => setEditData({ ...editData, quantity: parseFloat(e.target.value) || 0 })}
+                          <input type="number" value={editData.quantity} onChange={(e) => setEditData({ ...editData, quantity: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
                             className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-sm dark:bg-gray-700 dark:text-white w-16" />
                           <select value={editData.unit} onChange={(e) => setEditData({ ...editData, unit: e.target.value })}
                             className="px-1 py-1 border border-gray-200 dark:border-gray-600 rounded text-xs dark:bg-gray-700 dark:text-white">
@@ -348,7 +351,7 @@ export default function WastePage() {
                         </select>
                       </td>
                       <td className="px-4 py-3">
-                        <input type="number" value={editData.estimated_cost} onChange={(e) => setEditData({ ...editData, estimated_cost: parseFloat(e.target.value) || 0 })}
+                        <input type="number" value={editData.estimated_cost} onChange={(e) => setEditData({ ...editData, estimated_cost: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
                           className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-sm dark:bg-gray-700 dark:text-white w-20" />
                       </td>
                       <td className="px-4 py-3 text-right space-x-2">

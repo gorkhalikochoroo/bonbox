@@ -652,7 +652,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       onChange={e => {
                         setScanResult(prev => ({
                           ...prev,
-                          revenue: { ...prev.revenue, [c.key]: parseFloat(e.target.value) || 0 }
+                          revenue: { ...prev.revenue, [c.key]: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 }
                         }));
                       }} />
                   </div>
@@ -709,7 +709,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       onChange={e => {
                         setScanResult(prev => ({
                           ...prev,
-                          payments: { ...prev.payments, [m.key]: parseFloat(e.target.value) || 0 }
+                          payments: { ...prev.payments, [m.key]: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 }
                         }));
                       }} />
                   </div>
@@ -729,7 +729,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 <input type="number" inputMode="decimal" className={inputClass}
                   defaultValue={scanResult.tips || ""}
                   onChange={e => {
-                    setScanResult(prev => ({ ...prev, tips: parseFloat(e.target.value) || 0 }));
+                    setScanResult(prev => ({ ...prev, tips: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 }));
                   }} />
               </div>
             </div>

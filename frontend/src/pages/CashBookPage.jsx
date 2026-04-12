@@ -81,7 +81,9 @@ export default function CashBookPage() {
 
   const saveEdit = async () => {
     try {
-      await api.put(`/cashbook/${editId}`, editData);
+      const payload = { ...editData };
+      if (payload.amount === "") payload.amount = 0;
+      await api.put(`/cashbook/${editId}`, payload);
       setEditId(null);
       fetchData(filterFrom, filterTo);
       setSuccess(t("updated"));
@@ -329,7 +331,7 @@ export default function CashBookPage() {
                             <option value="cash_in">{t("cashIn")}</option>
                             <option value="cash_out">{t("cashOut")}</option>
                           </select>
-                          <input type="number" value={editData.amount} onChange={(e) => setEditData({ ...editData, amount: parseFloat(e.target.value) || 0 })}
+                          <input type="number" value={editData.amount} onChange={(e) => setEditData({ ...editData, amount: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
                             className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-sm dark:bg-gray-700 dark:text-white w-24" />
                         </div>
                       </td>
