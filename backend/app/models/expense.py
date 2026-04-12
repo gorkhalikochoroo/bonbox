@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import String, Date, DateTime, Numeric, Boolean, Text, ForeignKey
+from sqlalchemy import String, Date, DateTime, Numeric, Boolean, Text, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
@@ -25,6 +25,10 @@ class ExpenseCategory(Base):
 
 class Expense(Base):
     __tablename__ = "expenses"
+    __table_args__ = (
+        Index("ix_expense_user_date", "user_id", "date", "is_deleted"),
+        Index("ix_expense_user_category", "user_id", "category_id", "date"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))

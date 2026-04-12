@@ -1,9 +1,21 @@
-import { Component, lazy, Suspense } from "react";
+import { Component, lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
 import { BranchProvider } from "./components/BranchSelector";
 import { LanguageProvider } from "./hooks/useLanguage";
 import { GoogleOAuthProvider } from "@react-oauth/google";
+
+// ── Keep-alive: prevent Render cold starts ──
+// Pings health endpoint every 10 min while app is open
+const API_BASE = import.meta.env.VITE_API_URL || "";
+function useKeepAlive() {
+  useEffect(() => {
+    const ping = () => fetch(`${API_BASE}/api/health`, { method: "HEAD" }).catch(() => {});
+    ping(); // immediate ping on app load
+    const id = setInterval(ping, 10 * 60 * 1000); // every 10 min
+    return () => clearInterval(id);
+  }, []);
+}
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 
@@ -223,6 +235,7 @@ function AppRoutes() {
 }
 
 function AppInner() {
+  useKeepAlive(); // ping Render every 10 min to prevent cold starts
   return (
     <ErrorBoundary>
       <BrowserRouter>

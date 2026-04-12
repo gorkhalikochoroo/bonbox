@@ -1131,25 +1131,40 @@ export default function DashboardPage() {
     return { lowStock, count: inventoryItems.length };
   }, [inventoryItems]);
 
-  // ── Data fetching ──
-  const fetchAll = () => {
-    api.get("/dashboard/summary").then((r) => setSummary(r.data)).catch(() => {});
-    const now = new Date();
-    api.get("/reports/monthly", { params: { month: now.getMonth() + 1, year: now.getFullYear() } }).then((r) => setMonthlyData(r.data)).catch(() => {});
-    api.get("/sales/latest").then((r) => setLastSale(r.data)).catch(() => {});
-    api.get("/sales/receipts").then((r) => setReceipts(r.data)).catch(() => {});
-    api.get("/reports/forecast", { params: { days: 7 } }).then((r) => setForecast(r.data)).catch(() => {});
-    api.get("/expenses/categories").then((r) => setCategories(r.data)).catch(() => {});
-    api.get("/dashboard/benchmarks").then((r) => setBenchmarks(r.data)).catch(() => {});
-    api.get("/inventory").then((r) => setInventoryItems(r.data)).catch(() => {});
-    api.get("/dashboard/top-sellers").then((r) => setTopSellers(r.data)).catch(() => {});
-    api.get("/dashboard/action-items").then((r) => setActionItems(r.data)).catch(() => {});
-    api.get("/dashboard/week-comparison").then((r) => setWeekComparison(r.data)).catch(() => {});
-    api.get("/dashboard/payment-breakdown").then((r) => setPaymentBreakdown(r.data)).catch(() => {});
-    api.get("/weather/forecast").then((r) => setWeather(r.data)).catch(() => {});
-    api.get("/staffing/forecast").then((r) => setStaffing(r.data)).catch(() => {});
-    const budMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
-    api.get(`/budgets/summary?month=${budMonth}&mode=business`).then((r) => setBudgetSummary(r.data)).catch(() => {});
+  // ── Data fetching (single batch call) ──
+  const [dashLoading, setDashLoading] = useState(true);
+
+  const fetchAll = async () => {
+    try {
+      setDashLoading(true);
+      const now = new Date();
+      const { data } = await api.get("/dashboard/batch", {
+        params: { month: now.getMonth() + 1, year: now.getFullYear() },
+      });
+      // Unpack all data at once
+      if (data.summary) setSummary(data.summary);
+      if (data.monthly) setMonthlyData(data.monthly);
+      if (data.latest_sales) setLastSale(data.latest_sales);
+      if (data.receipts) setReceipts(data.receipts);
+      if (data.forecast) setForecast(data.forecast);
+      if (data.expense_categories) setCategories(data.expense_categories);
+      if (data.benchmarks) setBenchmarks(data.benchmarks);
+      if (data.inventory) setInventoryItems(data.inventory);
+      if (data.top_sellers) setTopSellers(data.top_sellers);
+      if (data.action_items) setActionItems(data.action_items);
+      if (data.week_comparison) setWeekComparison(data.week_comparison);
+      if (data.payment_breakdown) setPaymentBreakdown(data.payment_breakdown);
+      if (data.weather) setWeather(data.weather);
+      if (data.staffing_forecast) setStaffing(data.staffing_forecast);
+      if (data.budget_summary) setBudgetSummary(data.budget_summary);
+    } catch {
+      // Fallback: try individual calls if batch fails
+      api.get("/dashboard/summary").then((r) => setSummary(r.data)).catch(() => {});
+      api.get("/dashboard/top-sellers").then((r) => setTopSellers(r.data)).catch(() => {});
+      api.get("/dashboard/action-items").then((r) => setActionItems(r.data)).catch(() => {});
+    } finally {
+      setDashLoading(false);
+    }
   };
 
   // Fetch period-specific stats

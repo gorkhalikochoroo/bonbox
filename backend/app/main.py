@@ -114,6 +114,12 @@ _migrations = [
     "ALTER TABLE competitors ADD COLUMN IF NOT EXISTS longitude FLOAT",
     "ALTER TABLE competitors ADD COLUMN IF NOT EXISTS photo_ref VARCHAR(500)",
     "ALTER TABLE competitors ADD COLUMN IF NOT EXISTS total_ratings INTEGER",
+    # Performance indexes for dashboard queries
+    "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",
+    "CREATE INDEX IF NOT EXISTS ix_sale_user_payment ON sales (user_id, payment_method, date)",
+    "CREATE INDEX IF NOT EXISTS ix_expense_user_date ON expenses (user_id, date, is_deleted)",
+    "CREATE INDEX IF NOT EXISTS ix_expense_user_category ON expenses (user_id, category_id, date)",
+    "CREATE INDEX IF NOT EXISTS ix_inventory_user_stock ON inventory_items (user_id, quantity, min_threshold)",
 ]
 
 def _run_migrations():
@@ -240,8 +246,23 @@ def _run_migrations():
             ok += _add("competitors", "longitude", "FLOAT")
             ok += _add("competitors", "photo_ref", "VARCHAR(500)")
             ok += _add("competitors", "total_ratings", "INTEGER")
+            # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
+            _index_stmts = [
+                "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",
+                "CREATE INDEX IF NOT EXISTS ix_sale_user_payment ON sales (user_id, payment_method, date)",
+                "CREATE INDEX IF NOT EXISTS ix_expense_user_date ON expenses (user_id, date, is_deleted)",
+                "CREATE INDEX IF NOT EXISTS ix_expense_user_category ON expenses (user_id, category_id, date)",
+                "CREATE INDEX IF NOT EXISTS ix_inventory_user_stock ON inventory_items (user_id, quantity, min_threshold)",
+            ]
+            ix_ok = 0
+            for stmt in _index_stmts:
+                try:
+                    conn.execute(text(stmt))
+                    ix_ok += 1
+                except Exception:
+                    pass
             conn.commit()
-            print(f"Schema migrations (SQLite): {ok} new columns added")
+            print(f"Schema migrations (SQLite): {ok} new columns added, {ix_ok} indexes ensured")
         else:
             # PostgreSQL: supports IF NOT EXISTS
             # IMPORTANT: Use SAVEPOINT per migration so one failure

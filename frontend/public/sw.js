@@ -1,5 +1,68 @@
 const CACHE_NAME = "bonbox-v3";
+const API_CACHE_NAME = "bonbox-api-v1";
+const API_CACHE_TTL = 5 * 60 * 1000; // 5 minutes in milliseconds
 const STATIC_ASSETS = ["/manifest.json", "/icon-192.png", "/icon-512.png", "/favicon.svg"];
+
+// --- API cache helpers ---
+
+// Check if a URL is a cacheable dashboard endpoint
+function isDashboardApi(url) {
+  return url.includes("/api/dashboard/batch") || url.includes("/api/dashboard/");
+}
+
+// Auth endpoints must NEVER be cached (security)
+function isAuthApi(url) {
+  return url.includes("/api/auth/");
+}
+
+// Store a response with a timestamp so we can check TTL later
+async function putWithTimestamp(cache, request, response) {
+  // Store the actual response
+  await cache.put(request, response.clone());
+  // Store the timestamp in a parallel key
+  const tsResponse = new Response(JSON.stringify({ timestamp: Date.now() }));
+  await cache.put(request.url + "__ts", tsResponse);
+}
+
+// Check whether a cached entry has expired
+async function isCacheExpired(cache, request) {
+  const tsResponse = await cache.match(request.url + "__ts");
+  if (!tsResponse) return true;
+  try {
+    const { timestamp } = await tsResponse.json();
+    return Date.now() - timestamp > API_CACHE_TTL;
+  } catch {
+    return true;
+  }
+}
+
+// Remove all expired entries from the API cache
+async function cleanExpiredApiEntries() {
+  const cache = await caches.open(API_CACHE_NAME);
+  const keys = await cache.keys();
+  const deletions = [];
+  for (const key of keys) {
+    // Skip timestamp meta-entries (they are cleaned with their parent)
+    if (key.url.endsWith("__ts")) continue;
+    const tsResponse = await cache.match(key.url + "__ts");
+    if (!tsResponse) {
+      // No timestamp found — stale orphan, delete both
+      deletions.push(cache.delete(key));
+      continue;
+    }
+    try {
+      const { timestamp } = await tsResponse.json();
+      if (Date.now() - timestamp > API_CACHE_TTL) {
+        deletions.push(cache.delete(key));
+        deletions.push(cache.delete(key.url + "__ts"));
+      }
+    } catch {
+      deletions.push(cache.delete(key));
+      deletions.push(cache.delete(key.url + "__ts"));
+    }
+  }
+  return Promise.all(deletions);
+}
 
 // Install: cache static assets, skip waiting to activate immediately
 self.addEventListener("install", (event) => {
@@ -9,12 +72,21 @@ self.addEventListener("install", (event) => {
   self.skipWaiting();
 });
 
-// Activate: delete ALL old caches aggressively
+// Activate: delete old caches and clean expired API cache entries
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    )
+    Promise.all([
+      // Delete old static caches (but keep current + API cache)
+      caches.keys().then((keys) =>
+        Promise.all(
+          keys
+            .filter((k) => k !== CACHE_NAME && k !== API_CACHE_NAME)
+            .map((k) => caches.delete(k))
+        )
+      ),
+      // Purge expired entries from the API cache
+      cleanExpiredApiEntries(),
+    ])
   );
   self.clients.claim();
 });
@@ -64,7 +136,54 @@ self.addEventListener("fetch", (event) => {
   // Skip non-GET requests
   if (request.method !== "GET") return;
 
-  // API requests: network only (always fresh data)
+  // Auth endpoints: NEVER cache (security — tokens, credentials, PII)
+  if (isAuthApi(request.url)) return;
+
+  // Dashboard API endpoints: stale-while-revalidate with 5-min TTL
+  if (isDashboardApi(request.url)) {
+    event.respondWith(
+      (async () => {
+        const cache = await caches.open(API_CACHE_NAME);
+        const cached = await cache.match(request);
+
+        // Background revalidation: fetch from network and update cache
+        const revalidate = fetch(request)
+          .then(async (networkResponse) => {
+            if (networkResponse.ok) {
+              await putWithTimestamp(cache, request, networkResponse);
+            }
+            return networkResponse;
+          })
+          .catch(() => null); // swallow network errors silently
+
+        // If we have a cached response and it's within TTL, return it immediately
+        // and let the background fetch update the cache for next time
+        if (cached) {
+          const expired = await isCacheExpired(cache, request);
+          if (!expired) {
+            // Fresh cache — return it, revalidate in background
+            revalidate; // fire-and-forget
+            return cached;
+          }
+          // Expired cache — try network first, fall back to stale cache
+          const networkResponse = await revalidate;
+          return networkResponse && networkResponse.ok ? networkResponse : cached;
+        }
+
+        // No cache at all — must go to network (offline = failure)
+        const networkResponse = await revalidate;
+        if (networkResponse && networkResponse.ok) return networkResponse;
+        // Network failed and no cache — return a proper error response
+        return new Response(JSON.stringify({ error: "offline", message: "No cached data available" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        });
+      })()
+    );
+    return;
+  }
+
+  // All other API requests: network only (always fresh data)
   if (request.url.includes("/api/")) return;
 
   // HTML navigation: network-first, cache fallback
