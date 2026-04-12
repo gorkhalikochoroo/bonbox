@@ -141,6 +141,7 @@ const StaffHoursPage = lazyRetry(() => import("./pages/StaffHoursPage"));
 const StaffTipsPage = lazyRetry(() => import("./pages/StaffTipsPage"));
 const StaffPayrollPage = lazyRetry(() => import("./pages/StaffPayrollPage"));
 const MorePage = lazyRetry(() => import("./pages/MorePage"));
+const StaffPortalPage = lazyRetry(() => import("./pages/StaffPortalPage"));
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -168,6 +169,7 @@ function AppRoutes() {
         <Route path="/privacy" element={<PrivacyPolicyPage />} />
         <Route path="/terms" element={<TermsPage />} />
         <Route path="/cookies" element={<CookiePolicyPage />} />
+        <Route path="/s/:token" element={<StaffPortalPage />} />
         <Route
           element={
             <ProtectedRoute>

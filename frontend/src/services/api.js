@@ -32,7 +32,7 @@ api.interceptors.response.use(
     if (err.response?.status === 401) {
       // Don't redirect if already on login/register/forgot-password page
       const path = window.location.pathname;
-      const isAuthPage = path === "/login" || path === "/register" || path.startsWith("/forgot") || path.startsWith("/reset");
+      const isAuthPage = path === "/login" || path === "/register" || path.startsWith("/forgot") || path.startsWith("/reset") || path.startsWith("/s/");
       if (!isAuthPage) {
         localStorage.removeItem("token");
         window.location.href = "/login";

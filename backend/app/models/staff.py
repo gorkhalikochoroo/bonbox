@@ -126,3 +126,17 @@ class TipDistribution(Base):
 
     tip: Mapped["Tip"] = relationship(back_populates="distributions")
     staff_member: Mapped["StaffMember"] = relationship(back_populates="tip_distributions")
+
+
+class StaffLink(Base):
+    """Magic link for staff self-service portal — no login needed."""
+    __tablename__ = "staff_links"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
+    staff_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("staff_members.id"))
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    pin_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_accessed: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

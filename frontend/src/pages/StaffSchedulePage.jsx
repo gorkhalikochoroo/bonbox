@@ -469,6 +469,55 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [panelError, setPanelError] = useState("");
+  const [linkModal, setLinkModal] = useState(null); // { staffName, portalUrl, loading }
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  const generateLink = async (member) => {
+    setLinkModal({ staffName: member.name, portalUrl: null, loading: true });
+    try {
+      const res = await api.post(`/staff/members/${member.id}/link`);
+      const origin = window.location.origin;
+      const fullUrl = `${origin}${res.data.portal_url}`;
+      setLinkModal({ staffName: member.name, portalUrl: fullUrl, loading: false });
+    } catch (err) {
+      setPanelError(err.response?.data?.detail || "Failed to generate link");
+      setLinkModal(null);
+    }
+  };
+
+  const copyLink = async () => {
+    if (!linkModal?.portalUrl) return;
+    try {
+      await navigator.clipboard.writeText(linkModal.portalUrl);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      // Fallback for older browsers
+      const input = document.createElement("input");
+      input.value = linkModal.portalUrl;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand("copy");
+      document.body.removeChild(input);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    }
+  };
+
+  const shareLink = async () => {
+    if (!linkModal?.portalUrl) return;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `${linkModal.staffName}'s BonBox Schedule`,
+          text: `Hi ${linkModal.staffName}! Here's your BonBox portal link to see your schedule, hours, and tips 👉`,
+          url: linkModal.portalUrl,
+        });
+      } catch { /* user cancelled */ }
+    } else {
+      copyLink();
+    }
+  };
 
   const handleAdd = async () => {
     if (!name.trim()) return;
@@ -701,6 +750,13 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
                         {!isInactive && (
                           <div className="flex gap-1">
                             <button
+                              onClick={() => generateLink(member)}
+                              title="Share portal link"
+                              className="px-2 py-1 rounded text-xs text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 transition"
+                            >
+                              🔗 Share
+                            </button>
+                            <button
                               onClick={() => startEdit(member)}
                               className="px-2 py-1 rounded text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
                             >
@@ -720,6 +776,61 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Portal Link Modal */}
+      {linkModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setLinkModal(null)}>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-sm w-full p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="text-center">
+              <div className="text-3xl mb-2">🔗</div>
+              <h3 className="text-base font-bold text-gray-900 dark:text-white">Share Portal Link</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Send this to <strong>{linkModal.staffName}</strong> — they can see their schedule, hours, and tips.
+              </p>
+            </div>
+
+            {linkModal.loading ? (
+              <div className="flex justify-center py-4">
+                <div className="animate-spin w-6 h-6 border-2 border-green-500 border-t-transparent rounded-full" />
+              </div>
+            ) : (
+              <>
+                <div className="bg-gray-50 dark:bg-gray-900 rounded-xl p-3 text-xs font-mono text-gray-600 dark:text-gray-400 break-all select-all">
+                  {linkModal.portalUrl}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={copyLink}
+                    className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition ${
+                      linkCopied
+                        ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+                        : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+                    }`}
+                  >
+                    {linkCopied ? "✓ Copied!" : "📋 Copy"}
+                  </button>
+                  <button
+                    onClick={shareLink}
+                    className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition"
+                  >
+                    📱 Share
+                  </button>
+                </div>
+                <p className="text-[11px] text-gray-400 dark:text-gray-600 text-center">
+                  No account needed. Staff just opens the link. You can deactivate it anytime.
+                </p>
+              </>
+            )}
+
+            <button
+              onClick={() => setLinkModal(null)}
+              className="w-full py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+            >
+              Close
+            </button>
           </div>
         </div>
       )}

@@ -40,6 +40,7 @@ Endpoints:
 """
 
 import uuid
+import secrets
 import calendar
 from datetime import date, datetime, timedelta
 from io import BytesIO
@@ -53,8 +54,10 @@ from pydantic import BaseModel
 
 from app.database import get_db
 from app.models.user import User
+from passlib.context import CryptContext
 from app.models.staff import (
     StaffMember,
+    StaffLink,
     PayPeriodConfig,
     Schedule,
     HoursLogged,
@@ -266,6 +269,132 @@ def deactivate_staff_member(
     member.active = False
     member.updated_at = datetime.utcnow()
     db.commit()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  STAFF PORTAL LINKS (magic links for staff self-service)
+# ═══════════════════════════════════════════════════════════════════════════
+
+_pin_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+@router.post("/members/{member_id}/link")
+def generate_staff_link(
+    member_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Generate a magic portal link for a staff member."""
+    member = db.query(StaffMember).filter(
+        StaffMember.id == member_id,
+        StaffMember.user_id == user.id,
+        StaffMember.is_deleted.isnot(True),
+    ).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+
+    # Deactivate any existing links
+    db.query(StaffLink).filter(
+        StaffLink.staff_id == member.id,
+        StaffLink.user_id == user.id,
+        StaffLink.active.is_(True),
+    ).update({"active": False})
+
+    # Create new link
+    token = secrets.token_urlsafe(24)  # ~32 chars, 192 bits of entropy
+    link = StaffLink(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        staff_id=member.id,
+        token=token,
+        active=True,
+    )
+    db.add(link)
+    db.commit()
+    db.refresh(link)
+
+    return {
+        "id": str(link.id),
+        "staff_id": str(member.id),
+        "staff_name": member.name,
+        "token": link.token,
+        "active": link.active,
+        "has_pin": False,
+        "portal_url": f"/s/{link.token}",
+        "created_at": link.created_at,
+    }
+
+
+@router.get("/members/{member_id}/link")
+def get_staff_link(
+    member_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Get the active portal link for a staff member."""
+    link = db.query(StaffLink).filter(
+        StaffLink.staff_id == member_id,
+        StaffLink.user_id == user.id,
+        StaffLink.active.is_(True),
+    ).first()
+    if not link:
+        return {"active": False}
+
+    member = db.query(StaffMember).filter(StaffMember.id == member_id).first()
+    return {
+        "id": str(link.id),
+        "staff_id": str(link.staff_id),
+        "staff_name": member.name if member else "Unknown",
+        "token": link.token,
+        "active": link.active,
+        "has_pin": bool(link.pin_hash),
+        "portal_url": f"/s/{link.token}",
+        "created_at": link.created_at,
+        "last_accessed": link.last_accessed,
+    }
+
+
+@router.delete("/members/{member_id}/link", status_code=204)
+def deactivate_staff_link(
+    member_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Deactivate all portal links for a staff member."""
+    db.query(StaffLink).filter(
+        StaffLink.staff_id == member_id,
+        StaffLink.user_id == user.id,
+        StaffLink.active.is_(True),
+    ).update({"active": False})
+    db.commit()
+
+
+class PinSetRequest(BaseModel):
+    pin: str  # 4-digit PIN
+
+
+@router.post("/members/{member_id}/link/pin")
+def set_staff_link_pin(
+    member_id: str,
+    body: PinSetRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Set or update PIN for a staff portal link."""
+    link = db.query(StaffLink).filter(
+        StaffLink.staff_id == member_id,
+        StaffLink.user_id == user.id,
+        StaffLink.active.is_(True),
+    ).first()
+    if not link:
+        raise HTTPException(status_code=404, detail="No active link found")
+
+    if not body.pin or len(body.pin) != 4 or not body.pin.isdigit():
+        raise HTTPException(status_code=400, detail="PIN must be exactly 4 digits")
+
+    link.pin_hash = _pin_ctx.hash(body.pin)
+    db.commit()
+    return {"message": "PIN set successfully"}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
