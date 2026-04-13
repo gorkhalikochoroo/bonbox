@@ -186,7 +186,7 @@ export default function ForgotPasswordPage() {
               <div style={{ animation: "slideUp 0.3s ease-out" }}>
                 <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 p-4 rounded-xl mb-5 text-center">
                   <p className="text-sm text-blue-800 dark:text-blue-300">
-                    Code sent to <strong>{email}</strong>
+                    If an account exists with <strong>{email}</strong>, we've sent a reset code.
                   </p>
                   <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">Check inbox & spam</p>
                 </div>

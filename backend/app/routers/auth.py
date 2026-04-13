@@ -30,11 +30,15 @@ from app.models.business_profile import BusinessProfile
 from app.models.payment_connection import PaymentConnection
 from app.schemas.auth import (
     UserRegister, UserLogin, Token, UserResponse, UserUpdate, PasswordChange,
-    ForgotPasswordRequest, ResetPasswordRequest,
+    ForgotPasswordRequest, ResetPasswordRequest, VerifyEmailRequest,
 )
 from app.services.auth import hash_password, verify_password, create_access_token, get_current_user
 from app.services.email_service import send_email
 from app.config import settings
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -95,6 +99,37 @@ def _admin_signup_email_html(email: str, business_name: str, business_type: str)
 </div>"""
 
 
+def _verification_email_html(code: str) -> str:
+    return f"""\
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:0;background:#0f172a">
+  <div style="padding:32px 24px">
+    <div style="text-align:center;margin-bottom:24px">
+      <div style="display:inline-block;background:rgba(255,255,255,0.1);border-radius:14px;padding:12px 14px;border:1px solid rgba(255,255,255,0.1)">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="2" width="20" height="24" rx="3" stroke="white" stroke-width="2"/><path d="M9 8h10M9 12h10M9 16h6" stroke="white" stroke-width="1.5" stroke-linecap="round"/><path d="M4 20h20" stroke="#22c55e" stroke-width="2"/></svg>
+      </div>
+      <h1 style="font-size:22px;color:#ffffff;margin:12px 0 4px">Verify your email</h1>
+      <p style="color:#94a3b8;font-size:14px;margin:0">Enter this code in the app to verify your email</p>
+    </div>
+    <div style="text-align:center;margin:28px 0">
+      <span style="display:inline-block;font-size:36px;font-weight:700;letter-spacing:10px;color:#22c55e;background:rgba(34,197,94,0.1);padding:18px 36px;border-radius:16px;border:2px dashed rgba(34,197,94,0.4)">{code}</span>
+    </div>
+    <p style="font-size:13px;color:#64748b;text-align:center;margin-top:24px">
+      This code expires in 30 minutes.<br>If you didn't create an account, ignore this email.
+    </p>
+    <div style="border-top:1px solid rgba(255,255,255,0.1);margin-top:28px;padding-top:16px;text-align:center">
+      <p style="font-size:12px;color:#475569;margin:0">
+        <span style="color:#94a3b8">Bon</span><span style="color:#22c55e">Box</span> — Your smart business companion
+      </p>
+    </div>
+  </div>
+</div>"""
+
+
+def _generate_verification_code() -> str:
+    """Generate a secure 6-digit verification code."""
+    return str(secrets.randbelow(900000) + 100000)
+
+
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
 @limiter.limit("15/minute")
 def register(request: Request, data: UserRegister, db: Session = Depends(get_db)):
@@ -105,22 +140,38 @@ def register(request: Request, data: UserRegister, db: Session = Depends(get_db)
             detail="Email already registered",
         )
 
+    # Generate verification code
+    verification_code = _generate_verification_code()
+
     user = User(
         email=data.email,
         password_hash=hash_password(data.password),
         business_name=data.business_name,
         business_type=data.business_type,
         currency=data.currency,
+        email_verified=False,
+        verification_code=verification_code,
+        verification_code_expires=datetime.utcnow() + timedelta(minutes=30),
     )
     db.add(user)
     db.commit()
     db.refresh(user)
 
-    # Send welcome email (non-blocking — don't fail registration if email fails)
+    # Send verification email (non-blocking — don't fail registration if email fails)
     try:
         send_email(
             user.email,
-            "Welcome to BonBox! 🎉",
+            f"BonBox — Your verification code is {verification_code}",
+            _verification_email_html(verification_code),
+        )
+    except Exception:
+        logger.warning(f"Failed to send verification email to {user.email}")
+
+    # Send welcome email (non-blocking)
+    try:
+        send_email(
+            user.email,
+            "Welcome to BonBox!",
             _welcome_email_html(user.business_name or "there"),
         )
     except Exception:
@@ -173,7 +224,7 @@ def google_auth(request: Request, data: GoogleAuthRequest, db: Session = Depends
     is_new = False
 
     if not user:
-        # Auto-register
+        # Auto-register — Google already verified their email
         is_new = True
         name = idinfo.get("name", "")
         user = User(
@@ -182,6 +233,7 @@ def google_auth(request: Request, data: GoogleAuthRequest, db: Session = Depends
             business_name=name,
             business_type="",
             currency="DKK",
+            email_verified=True,
         )
         db.add(user)
         db.commit()
@@ -220,6 +272,61 @@ def login(request: Request, data: UserLogin, db: Session = Depends(get_db)):
 
     token = create_access_token(str(user.id))
     return Token(access_token=token, user=UserResponse.model_validate(user))
+
+
+@router.post("/verify-email")
+@limiter.limit("10/minute")
+def verify_email(
+    request: Request,
+    data: VerifyEmailRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Verify user email with the 6-digit code."""
+    if current_user.email_verified:
+        return {"message": "Email already verified", "email_verified": True}
+
+    if not current_user.verification_code:
+        raise HTTPException(status_code=400, detail="No verification code found. Please request a new one.")
+
+    if current_user.verification_code_expires and current_user.verification_code_expires < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Verification code has expired. Please request a new one.")
+
+    if current_user.verification_code != data.code:
+        raise HTTPException(status_code=400, detail="Invalid verification code")
+
+    current_user.email_verified = True
+    current_user.verification_code = None
+    current_user.verification_code_expires = None
+    db.commit()
+    return {"message": "Email verified successfully", "email_verified": True}
+
+
+@router.post("/resend-verification")
+@limiter.limit("3/minute")
+def resend_verification(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Resend email verification code."""
+    if current_user.email_verified:
+        return {"message": "Email already verified"}
+
+    code = _generate_verification_code()
+    current_user.verification_code = code
+    current_user.verification_code_expires = datetime.utcnow() + timedelta(minutes=30)
+    db.commit()
+
+    email_sent = send_email(
+        current_user.email,
+        f"BonBox — Your verification code is {code}",
+        _verification_email_html(code),
+    )
+    if not email_sent:
+        logger.warning(f"Failed to resend verification email to {current_user.email}")
+
+    return {"message": "Verification code sent"}
 
 
 @router.get("/me", response_model=UserResponse)
@@ -267,8 +374,8 @@ def change_password(
 def forgot_password(request: Request, data: ForgotPasswordRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == data.email).first()
     if not user:
-        # Don't reveal if email exists
-        return {"message": "If an account exists with this email, a reset code has been generated."}
+        # Don't reveal if email exists — return same message as success
+        return {"message": "If an account exists with that email, we've sent a reset code."}
 
     # Generate a short 6-digit code instead of a long token
     code = f"{secrets.randbelow(900000) + 100000}"
@@ -295,8 +402,9 @@ def forgot_password(request: Request, data: ForgotPasswordRequest, db: Session =
 </div>""",
     )
     if not email_sent:
-        raise HTTPException(status_code=500, detail="Could not send reset email. Please try again later.")
-    return {"message": "We've sent a 6-digit code to your email."}
+        # Log failure but return 200 to prevent email enumeration
+        logger.error(f"Failed to send password reset email to {user.email}")
+    return {"message": "If an account exists with that email, we've sent a reset code."}
 
 
 @router.post("/reset-password")

@@ -114,6 +114,10 @@ _migrations = [
     "ALTER TABLE competitors ADD COLUMN IF NOT EXISTS longitude FLOAT",
     "ALTER TABLE competitors ADD COLUMN IF NOT EXISTS photo_ref VARCHAR(500)",
     "ALTER TABLE competitors ADD COLUMN IF NOT EXISTS total_ratings INTEGER",
+    # Email verification
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT false",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_code VARCHAR(10)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_code_expires TIMESTAMP",
     # Performance indexes for dashboard queries
     "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",
     "CREATE INDEX IF NOT EXISTS ix_sale_user_payment ON sales (user_id, payment_method, date)",
@@ -209,6 +213,10 @@ def _run_migrations():
             ok += _add("users", "daily_goal", "NUMERIC(12,2) DEFAULT 0")
             ok += _add("users", "role", "VARCHAR(20) DEFAULT 'owner'")
             ok += _add("users", "owner_id", "VARCHAR(36)")
+            # Email verification
+            ok += _add("users", "email_verified", "BOOLEAN DEFAULT 0")
+            ok += _add("users", "verification_code", "VARCHAR(10)")
+            ok += _add("users", "verification_code_expires", "TIMESTAMP")
             # Khata / Loans soft-delete
             ok += _add("khata_customers", "is_deleted", "BOOLEAN DEFAULT 0")
             ok += _add("loan_persons", "is_deleted", "BOOLEAN DEFAULT 0")

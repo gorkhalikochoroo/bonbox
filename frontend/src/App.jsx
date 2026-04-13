@@ -154,12 +154,23 @@ const StaffTipsPage = lazyRetry(() => import("./pages/StaffTipsPage"));
 const StaffPayrollPage = lazyRetry(() => import("./pages/StaffPayrollPage"));
 const MorePage = lazyRetry(() => import("./pages/MorePage"));
 const StaffPortalPage = lazyRetry(() => import("./pages/StaffPortalPage"));
+const VerifyEmailPage = lazyRetry(() => import("./pages/VerifyEmailPage"));
 
 function ProtectedRoute({ children }) {
-  const { user, loading } = useAuth();
+  const { user, loading, needsEmailVerification } = useAuth();
   if (loading) return <PageLoader />;
   if (!user) return <Navigate to="/login" />;
+  if (needsEmailVerification()) return <Navigate to="/verify-email" />;
   return children;
+}
+
+function VerifyEmailRoute() {
+  const { user, loading, needsEmailVerification } = useAuth();
+  if (loading) return <PageLoader />;
+  if (!user) return <Navigate to="/login" />;
+  // If already verified, go to dashboard
+  if (!needsEmailVerification()) return <Navigate to="/dashboard" />;
+  return <VerifyEmailPage />;
 }
 
 function PublicOrDashboard() {
@@ -177,6 +188,7 @@ function AppRoutes() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/verify-email" element={<VerifyEmailRoute />} />
         <Route path="/contact" element={<ContactPage />} />
         <Route path="/privacy" element={<PrivacyPolicyPage />} />
         <Route path="/terms" element={<TermsPage />} />

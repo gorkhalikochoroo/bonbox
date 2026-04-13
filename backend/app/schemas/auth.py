@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from pydantic import BaseModel, EmailStr, field_validator, Field
 
 
@@ -35,8 +36,14 @@ class UserResponse(BaseModel):
     daily_goal: float = 0
     monthly_goal: float = 0
     role: str = "owner"
+    email_verified: bool = False
+    created_at: datetime | None = None
 
     model_config = {"from_attributes": True}
+
+
+class VerifyEmailRequest(BaseModel):
+    code: str
 
 
 class UserUpdate(BaseModel):

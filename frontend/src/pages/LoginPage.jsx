@@ -64,7 +64,7 @@ function HeroIllustration() {
 }
 
 export default function LoginPage() {
-  const { login, googleLogin } = useAuth();
+  const { login, googleLogin, needsEmailVerification } = useAuth();
   const { lang, setLang, LANGUAGES } = useLanguage();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -79,8 +79,12 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      await login(email, password);
-      navigate("/dashboard");
+      const data = await login(email, password);
+      if (data.user && !data.user.email_verified && data.user.created_at && new Date(data.user.created_at) >= new Date("2026-04-13T00:00:00")) {
+        navigate("/verify-email");
+      } else {
+        navigate("/dashboard");
+      }
     } catch (err) {
       let msg;
       if (err.response?.data?.detail) {
@@ -269,7 +273,13 @@ export default function LoginPage() {
                     onSuccess={(res) => {
                       setError("");
                       googleLogin(res.credential)
-                        .then(() => navigate("/dashboard"))
+                        .then((data) => {
+                          if (data.user && !data.user.email_verified && data.user.created_at && new Date(data.user.created_at) >= new Date("2026-04-13T00:00:00")) {
+                            navigate("/verify-email");
+                          } else {
+                            navigate("/dashboard");
+                          }
+                        })
                         .catch((err) => setError(err.response?.data?.detail || "Google sign-in failed"));
                     }}
                     onError={() => setError("Google sign-in failed")}

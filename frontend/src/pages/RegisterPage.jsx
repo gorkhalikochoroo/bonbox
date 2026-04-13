@@ -79,7 +79,7 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       await register(form);
-      navigate("/dashboard");
+      navigate("/verify-email");
     } catch (err) {
       const status = err.response?.status;
       const detail = err.response?.data?.detail;
