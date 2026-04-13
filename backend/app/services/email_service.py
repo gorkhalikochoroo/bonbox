@@ -3,7 +3,7 @@ import resend
 
 resend.api_key = os.getenv("RESEND_API_KEY", "")
 
-FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "BonBox <onboarding@resend.dev>")
+FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "BonBox <noreply@bonbox.dk>")
 
 
 def send_email(to: str, subject: str, html: str) -> bool:
