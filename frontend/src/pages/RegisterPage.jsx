@@ -55,7 +55,9 @@ const selectCls = "w-full px-4 py-3 border border-gray-200 dark:border-gray-600 
 
 export default function RegisterPage() {
   const { register, googleLogin } = useAuth();
-  const hasGoogle = !!import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  // Hide Google sign-in on native iOS (Apple requires Sign in with Apple for third-party login)
+  const isNative = typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
+  const hasGoogle = !!import.meta.env.VITE_GOOGLE_CLIENT_ID && !isNative;
   const { t, lang, setLang, LANGUAGES } = useLanguage();
   const navigate = useNavigate();
   const [form, setForm] = useState({
@@ -79,7 +81,13 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       await register(form);
-      navigate("/verify-email");
+      // On native apps, skip email verification and go straight to dashboard
+      if (isNative) {
+        sessionStorage.setItem("skip_email_verify", "1");
+        navigate("/dashboard");
+      } else {
+        navigate("/verify-email");
+      }
     } catch (err) {
       const status = err.response?.status;
       const detail = err.response?.data?.detail;

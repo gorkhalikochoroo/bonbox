@@ -296,8 +296,19 @@ export default function VerifyEmailPage() {
               </button>
             </div>
 
+            {/* Skip for now */}
+            <button
+              onClick={() => {
+                sessionStorage.setItem("skip_email_verify", "1");
+                navigate("/dashboard");
+              }}
+              className="w-full mt-5 text-sm text-gray-500 hover:text-gray-300 transition py-2"
+            >
+              Skip for now
+            </button>
+
             {/* Help text */}
-            <div className="mt-8 p-4 bg-white/[0.03] border border-white/10 rounded-xl">
+            <div className="mt-4 p-4 bg-white/[0.03] border border-white/10 rounded-xl">
               <p className="text-xs text-gray-500 leading-relaxed">
                 Check your inbox and spam folder. The code expires in 30 minutes.
                 If you continue to have issues, try requesting a new code.

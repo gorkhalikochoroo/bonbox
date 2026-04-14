@@ -72,7 +72,9 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPass, setShowPass] = useState(false);
-  const hasGoogle = !!import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  // Hide Google sign-in on native iOS (Apple requires Sign in with Apple for third-party login)
+  const isNative = typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
+  const hasGoogle = !!import.meta.env.VITE_GOOGLE_CLIENT_ID && !isNative;
 
   const handleSubmit = async (e) => {
     e.preventDefault();

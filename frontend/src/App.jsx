@@ -160,7 +160,9 @@ function ProtectedRoute({ children }) {
   const { user, loading, needsEmailVerification } = useAuth();
   if (loading) return <PageLoader />;
   if (!user) return <Navigate to="/login" />;
-  if (needsEmailVerification()) return <Navigate to="/verify-email" />;
+  // Allow skipping email verification (native apps or user chose "skip for now")
+  const skipped = sessionStorage.getItem("skip_email_verify");
+  if (needsEmailVerification() && !skipped) return <Navigate to="/verify-email" />;
   return children;
 }
 
@@ -168,8 +170,9 @@ function VerifyEmailRoute() {
   const { user, loading, needsEmailVerification } = useAuth();
   if (loading) return <PageLoader />;
   if (!user) return <Navigate to="/login" />;
-  // If already verified, go to dashboard
-  if (!needsEmailVerification()) return <Navigate to="/dashboard" />;
+  // If already verified or skipped, go to dashboard
+  const skipped = sessionStorage.getItem("skip_email_verify");
+  if (!needsEmailVerification() || skipped) return <Navigate to="/dashboard" />;
   return <VerifyEmailPage />;
 }
 
