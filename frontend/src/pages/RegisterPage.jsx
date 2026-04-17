@@ -77,6 +77,15 @@ export default function RegisterPage() {
     e.preventDefault();
     setError("");
     setAlreadyExists(false);
+    // Client-side password validation (backend requires letters + digits)
+    if (form.password.length < 8) {
+      setError("Password must be at least 8 characters");
+      return;
+    }
+    if (!/[a-zA-Z]/.test(form.password) || !/[0-9]/.test(form.password)) {
+      setError("Password must contain at least one letter and one number");
+      return;
+    }
     // On native iOS, default business fields (Apple 3.1.1 compliance)
     const submitData = isNative
       ? { ...form, business_type: form.business_type || "personal", business_name: form.business_name || "My Dashboard" }
@@ -99,9 +108,16 @@ export default function RegisterPage() {
         setError(t("tooManyAttempts"));
       } else if (status === 409 || detail === "Email already registered") {
         setAlreadyExists(true);
+      } else if (status === 422 && Array.isArray(detail)) {
+        // Pydantic validation errors — extract first readable message
+        const first = detail[0] || {};
+        const field = Array.isArray(first.loc) ? first.loc[first.loc.length - 1] : "";
+        const msg = (first.msg || "Validation error").replace(/^Value error,\s*/, "");
+        setError(field ? `${field}: ${msg}` : msg);
+      } else if (typeof detail === "string") {
+        setError(detail);
       } else {
-        const msg = detail || (err.code === "ECONNABORTED" || !err.response ? t("slowConnection") : t("registrationFailed"));
-        setError(msg);
+        setError(err.code === "ECONNABORTED" || !err.response ? t("slowConnection") : t("registrationFailed"));
       }
     } finally {
       setLoading(false);
@@ -187,7 +203,8 @@ export default function RegisterPage() {
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
                   </span>
                   <input type="password" name="password" value={form.password} onChange={handleChange}
-                    placeholder="Min 8 characters" className={inputCls} required />
+                    placeholder="8+ characters with letters and numbers" className={inputCls} required
+                    minLength={8} />
                 </div>
               </div>
               <div>

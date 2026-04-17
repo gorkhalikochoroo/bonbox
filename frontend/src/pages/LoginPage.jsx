@@ -89,9 +89,14 @@ export default function LoginPage() {
       }
     } catch (err) {
       let msg;
-      if (err.response?.data?.detail) {
-        // Server returned a specific error message
-        msg = err.response.data.detail;
+      const detail = err.response?.data?.detail;
+      if (typeof detail === "string") {
+        // Server returned a specific string error message
+        msg = detail;
+      } else if (Array.isArray(detail)) {
+        // Pydantic validation errors — extract first readable message
+        const first = detail[0] || {};
+        msg = (first.msg || "Invalid input").replace(/^Value error,\s*/, "");
       } else if (err.code === "ECONNABORTED") {
         msg = "Server is waking up — please wait 30s and try again";
       } else if (err.code === "ERR_NETWORK" || !err.response) {
