@@ -77,10 +77,14 @@ export default function RegisterPage() {
     e.preventDefault();
     setError("");
     setAlreadyExists(false);
-    if (!form.business_type) { setError(t("pleaseSelectType")); return; }
+    // On native iOS, default business fields (Apple 3.1.1 compliance)
+    const submitData = isNative
+      ? { ...form, business_type: form.business_type || "personal", business_name: form.business_name || "My Dashboard" }
+      : form;
+    if (!isNative && !form.business_type) { setError(t("pleaseSelectType")); return; }
     setLoading(true);
     try {
-      await register(form);
+      await register(submitData);
       // On native apps, skip email verification and go straight to dashboard
       if (isNative) {
         sessionStorage.setItem("skip_email_verify", "1");
@@ -187,7 +191,7 @@ export default function RegisterPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">{form.business_type === "personal" ? t("displayName") : t("businessName")}</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">{isNative ? t("displayName") : (form.business_type === "personal" ? t("displayName") : t("businessName"))}</label>
                 <div className="relative">
                   <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
@@ -196,6 +200,8 @@ export default function RegisterPage() {
                     placeholder="My Awesome Shop" className={inputCls} required />
                 </div>
               </div>
+              {/* Hide business type/currency on native iOS (Apple 3.1.1 compliance) */}
+              {!isNative && (
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">{t("businessType")}</label>
@@ -262,6 +268,7 @@ export default function RegisterPage() {
                   </select>
                 </div>
               </div>
+              )}
 
               <button type="submit" disabled={loading}
                 className="w-full bg-green-600 text-white py-3.5 rounded-xl hover:bg-green-700 active:scale-[0.98] transition-all font-semibold text-base disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-green-600/20 mt-2">
