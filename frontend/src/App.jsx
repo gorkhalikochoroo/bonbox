@@ -180,6 +180,9 @@ function PublicOrDashboard() {
   const { user, loading } = useAuth();
   if (loading) return <PageLoader />;
   if (user) return <Navigate to="/dashboard" />;
+  // On native iOS, skip the marketing landing page (no third-party platform references, native feel)
+  const isNative = typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
+  if (isNative) return <Navigate to="/login" />;
   return <LandingPage />;
 }
 
