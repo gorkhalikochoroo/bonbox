@@ -43,8 +43,8 @@ class Settings(BaseSettings):
     STRIPE_SECRET_KEY: str = ""
     STRIPE_PUBLISHABLE_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
-    STRIPE_PRICE_ID_PRO: str = ""        # 139 kr/mo Pro tier
-    STRIPE_PRICE_ID_BUSINESS: str = ""   # Future: Business tier
+    STRIPE_PRICE_ID_PRO: str = ""        # 99 kr/mo Pro founding tier (first 1,000 customers); regular 249
+    STRIPE_PRICE_ID_BUSINESS: str = ""   # Multi-branch chains — custom quote, no public price
     # URL Stripe sends user back to after checkout. We use the frontend URL.
     STRIPE_SUCCESS_URL: str = ""  # default = FRONTEND_URL + /subscription?success=1
     STRIPE_CANCEL_URL: str = ""   # default = FRONTEND_URL + /subscription?canceled=1

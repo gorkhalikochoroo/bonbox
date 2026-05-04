@@ -59,7 +59,7 @@ export default function TrialBanner() {
           <span className={`ml-1 ${urgent ? "text-amber-700 dark:text-amber-400" : "text-blue-700 dark:text-blue-400"}`}>
             {urgent
               ? "After it ends, you stay on Free (every feature still works, just with caps). Add a card later if you want to keep Pro — no charge until you decide."
-              : "No card needed. Lock in 139 kr/mo founding price before regular 249 kicks in."}
+              : "No card needed. Lock in 99 kr/mo founding price (first 1,000 customers) before regular 249 kicks in."}
           </span>
         </div>
         <Link
@@ -98,7 +98,7 @@ export default function TrialBanner() {
           </span>
           <span className="ml-1 text-gray-600 dark:text-gray-400">
             You're back on Free — every feature still works, just with usage caps.
-            Founding-member 139 kr/mo is still available.
+            Founding-member 99 kr/mo is still available (first 1,000 customers).
           </span>
         </div>
         <Link

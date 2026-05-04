@@ -22,27 +22,29 @@ const isNative =
  *
  * Three tiers only — no "Coming soon" placeholders. Cleaner choice.
  *   Free: forever, real but limited
- *   Pro: 14-day trial → 149 founding (regular 249)
- *   Business: talk to sales (no public price)
+ *   Pro: 14-day trial → 99 kr/mo founding (first 1000 customers, regular 249)
+ *   Business: talk to sales — multi-branch chains (no public price, custom)
  */
 
 const TIERS = [
   {
     id: "free",
     name: "Free",
-    tagline: "Every feature. Casual usage. Forever.",
+    tagline: "Every feature, including AI. Casual usage. Forever.",
     price_monthly: 0,
     price_annual: 0,
     cta: "Start free",
     cta_unauth: "Sign up free",
     highlight: false,
     features: [
-      { text: "ALL features unlocked — same product, lighter caps", included: true, header: true },
-      { text: "200 sales logged / month", included: true },
-      { text: "100 expenses logged / month", included: true },
-      { text: "30 OCR receipt scans / month", included: true },
+      { text: "AI Copilot + AI insights included — every plan, even Free:", included: true, header: true },
       { text: "30 AI Copilot questions / day + voice input", included: true },
       { text: "Top 5 active AI insights at a time", included: true },
+      { text: "AI receipt OCR — 30 scans / month", included: true },
+      { text: "AI anomaly detection on sales & expenses", included: true },
+      { divider: true },
+      { text: "200 sales logged / month", included: true },
+      { text: "100 expenses logged / month", included: true },
       { text: "1 vertical module (Bar Pour, Workshop, etc. — pick one)", included: true },
       { text: "90 days of full history (older stays read-only)", included: true },
       { text: "Generic CSV export to your accountant", included: true },
@@ -52,21 +54,26 @@ const TIERS = [
   {
     id: "pro",
     name: "Pro",
-    tagline: "Same features. Caps removed. Most popular.",
+    tagline: "Unleash the AI. Every cap removed. Most popular.",
     price_monthly: 249,
     price_annual: 199,
-    founding_price: 139,
+    founding_price: 99,
+    founding_limit: 1000, // first N customers lock in this price
     cta: "Upgrade to Pro",
     cta_unauth: "Start 14-day free trial",
     highlight: true,
     badge: "🎁 14 days free · No card required",
     features: [
-      { text: "Everything in Free, with caps removed:", included: true, header: true },
-      { text: "Unlimited sales, expenses, OCR scans", included: true },
-      { text: "Unlimited AI Copilot questions", included: true },
-      { text: "Unlimited AI insights archive (no auto-drop)", included: true },
+      { text: "AI, no limits — the way it was meant to work:", included: true, header: true },
+      { text: "Unlimited AI Copilot conversations + voice input", included: true },
+      { text: "Unlimited AI insights archive — never auto-dropped", included: true },
+      { text: "Predictive AI: revenue forecast, churn risk, stockout alerts", included: true },
+      { text: "AI-powered receipt OCR (unlimited scans)", included: true },
+      { text: "AI staff & wage anomaly detection", included: true },
+      { text: "Custom AI playbooks tuned to YOUR business pattern", included: true },
+      { divider: true },
+      { text: "Unlimited sales, expenses, history", included: true },
       { text: "ALL vertical modules at once (Bar Pour + Workshop + etc.)", included: true },
-      { text: "Unlimited history — your full business timeline", included: true },
       { text: "Direct Dinero / Billy / e-conomic CSV exports", included: true },
       { text: "Up to 3 businesses, 5 users with role permissions", included: true },
       { text: "Bank import (multi-bank, multi-currency)", included: true },
@@ -76,19 +83,30 @@ const TIERS = [
   {
     id: "business",
     name: "Business",
-    tagline: "Multi-branch chains.",
-    price_monthly: null, // hidden
+    tagline: "Multi-branch chains. AI that thinks across every location.",
+    price_monthly: null, // hidden — custom quote per chain
     cta: "Talk to sales",
     cta_unauth: "Talk to sales",
     highlight: false,
     custom: true,
     features: [
-      { text: "Everything in Pro, plus:", included: true, header: true },
-      { text: "Unlimited businesses + multi-branch consolidation", included: true },
-      { text: "Unlimited users", included: true },
-      { text: "API access", included: true },
-      { text: "Dedicated onboarding + training", included: true },
-      { text: "Custom integrations", included: true },
+      { text: "Chain-level AI — Pro's AI, but across every branch:", included: true, header: true },
+      { text: "Group AI Copilot — asks span all branches, not just one", included: true },
+      { text: "Cross-branch AI benchmarking — spot the underperformer in seconds", included: true },
+      { text: "AI staffing optimiser — predicts shifts per branch + day", included: true },
+      { text: "Group-level revenue forecasting + cash flow projection", included: true },
+      { text: "AI churn detection across your entire customer base", included: true },
+      { text: "Custom AI playbooks per branch type (kitchen / bar / retail)", included: true },
+      { divider: true },
+      { text: "Everything in Pro, plus chain operations:", included: true, header: true },
+      { text: "Unlimited branches + group-level daily close consolidation", included: true },
+      { text: "Per-branch P&L + manager-scoped dashboards", included: true },
+      { text: "Branch-manager role (sees only their location)", included: true },
+      { text: "Centralised chart of accounts + standard SOPs", included: true },
+      { text: "Multi-location inventory & wage tracking", included: true },
+      { text: "Unlimited users with role permissions", included: true },
+      { text: "API + custom integrations (POS, payroll, suppliers)", included: true },
+      { text: "Dedicated onboarding, training & quarterly review", included: true },
       { text: "SLA + 24h priority support", included: true },
     ],
   },
@@ -136,10 +154,16 @@ export default function SubscriptionPage() {
       return;
     }
     if (tierId === "business") {
-      // Always route Business to sales conversation (custom plan)
-      const subject = encodeURIComponent("BonBox Business — questions");
+      // Always route Business to sales conversation (custom plan, multi-branch chains)
+      const subject = encodeURIComponent("BonBox Business — multi-branch enquiry");
       const body = encodeURIComponent(
-        `Hi,\n\nI'd like to learn more about BonBox Business for my company.\n\nMy account email: ${user.email}\n\nThanks!`
+        `Hi BonBox team,\n\nI run a multi-branch business and would like to learn more about BonBox Business.\n\n` +
+        `A few details that will help us scope a custom plan:\n` +
+        `• Number of branches / locations:\n` +
+        `• Type of business (restaurant chain, retail group, café group, etc.):\n` +
+        `• Approximate users / managers across locations:\n` +
+        `• Existing tools we integrate with (POS, accounting):\n\n` +
+        `My account email: ${user.email}\n\nThanks!`
       );
       window.location.href = `mailto:hello@bonbox.dk?subject=${subject}&body=${body}`;
       return;
@@ -215,7 +239,7 @@ export default function SubscriptionPage() {
       trackEvent("waitlist_joined", "subscription", tierId);
       setMsg(
         tierId === "pro"
-          ? "🎉 You're on the founding-member list — when payment opens, you'll lock in 139 kr/mo for as long as you stay."
+          ? "🎉 You're on the founding-member list — when payment opens, you'll lock in 99 kr/mo for as long as you stay subscribed."
           : `🎉 You're on the ${tierId} list — we'll email you when it opens.`
       );
       setTimeout(() => setMsg(""), 8000);
@@ -250,21 +274,27 @@ export default function SubscriptionPage() {
             onClick={() => handleCta("pro")}
             className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded-lg shadow-sm whitespace-nowrap"
           >
-            Lock in 139 kr/mo
+            Lock in 99 kr/mo
           </button>
         </div>
       )}
 
       {/* Hero */}
       <div className="text-center mb-10">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gradient-to-r from-purple-100 to-pink-100 dark:from-purple-900/30 dark:to-pink-900/30 border border-purple-200/60 dark:border-purple-700/40 text-xs font-semibold text-purple-700 dark:text-purple-300 mb-4">
+          ✨ AI-first business platform
+        </div>
         <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-white">
-          Every feature, free forever.
+          AI that runs your business with you.
         </h1>
         <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-3 max-w-2xl mx-auto">
-          Free includes every BonBox feature — AI Copilot, AI insights, vertical modules, the works.
-          You only upgrade when your usage outgrows the caps. New signups get 14 days of fully-uncapped
-          Pro for free, no card required, so you can see whether the caps will pinch.
+          Every plan — even Free — includes the BonBox AI Copilot, predictive insights, anomaly
+          detection, and receipt OCR. Pro removes the caps. Business spreads it across every branch.
+          New signups get 14 days of fully-uncapped Pro, no card required.
         </p>
+        <div className="mt-4 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+          🔥 First 1,000 customers lock in 99 kr/mo Pro for life
+        </div>
 
         {/* Annual / monthly toggle */}
         <div className="inline-flex items-center bg-gray-100 dark:bg-gray-800 rounded-full p-1 mt-6">
@@ -377,18 +407,25 @@ export default function SubscriptionPage() {
               </button>
 
               <ul className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
-                {tier.features.map((f, i) => (
-                  <li key={i} className={`flex items-start gap-2 ${f.header ? "font-semibold mt-1" : ""}`}>
-                    {f.header ? (
-                      <span className="text-gray-400 shrink-0 mt-0.5">·</span>
-                    ) : f.included ? (
-                      <span className="text-green-500 dark:text-green-400 shrink-0 mt-0.5">✓</span>
-                    ) : (
-                      <span className="text-gray-300 dark:text-gray-600 shrink-0 mt-0.5">—</span>
-                    )}
-                    <span className={f.included ? "" : "text-gray-400 dark:text-gray-500"}>{f.text}</span>
-                  </li>
-                ))}
+                {tier.features.map((f, i) => {
+                  if (f.divider) {
+                    return (
+                      <li key={i} aria-hidden="true" className="my-2 border-t border-gray-200/70 dark:border-gray-700/60" />
+                    );
+                  }
+                  return (
+                    <li key={i} className={`flex items-start gap-2 ${f.header ? "font-semibold mt-1" : ""}`}>
+                      {f.header ? (
+                        <span className="text-gray-400 shrink-0 mt-0.5">·</span>
+                      ) : f.included ? (
+                        <span className="text-green-500 dark:text-green-400 shrink-0 mt-0.5">✓</span>
+                      ) : (
+                        <span className="text-gray-300 dark:text-gray-600 shrink-0 mt-0.5">—</span>
+                      )}
+                      <span className={f.included ? "" : "text-gray-400 dark:text-gray-500"}>{f.text}</span>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           );
@@ -417,7 +454,11 @@ export default function SubscriptionPage() {
           />
           <FaqItem
             q="How does the founding-member price work?"
-            a="The first 100 Pro subscribers lock in 139 kr/mo for as long as they stay subscribed — even when our regular Pro price moves to 249 kr/mo. Cancel and rejoin? You'd pay regular price. Stay subscribed continuously? You're locked in. That's a 44% discount, locked for life."
+            a="The first 1,000 Pro subscribers lock in 99 kr/mo for as long as they stay subscribed — even when our regular Pro price moves to 249 kr/mo. Cancel and rejoin? You'd pay regular price. Stay subscribed continuously? You're locked in. That's a 60% discount, locked for life."
+          />
+          <FaqItem
+            q="I run a chain with multiple branches — what fits?"
+            a="The Business plan is built for multi-branch chains: group-level daily close consolidation, per-branch P&L, manager-scoped dashboards (so each location only sees its own numbers), centralised SOPs, and a custom integration path for your existing POS, payroll, and supplier systems. Pricing is custom because chain setups vary enormously — a 3-branch café group has very different needs than a 25-location restaurant chain. Click 'Talk to sales' on the Business card and we'll quote you within 1 business day."
           />
           <FaqItem
             q="Do I have to switch from Dinero / Billy / e-conomic?"
