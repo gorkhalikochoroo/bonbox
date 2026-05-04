@@ -1286,12 +1286,18 @@ export default function DashboardPage() {
               {(() => {
                 // Time-aware greeting + safer name handling.
                 // Falls back gracefully when business_name is missing or matches the app name.
+                // Note: t() returns the key string when a translation is missing,
+                // so we check both the falsy AND key-equality cases.
                 const hour = new Date().getHours();
+                const tr = (key, fallback) => {
+                  const v = t(key);
+                  return v && v !== key ? v : fallback;
+                };
                 let greet;
-                if (hour < 5) greet = t("goodEvening") || "Good evening";
-                else if (hour < 12) greet = t("goodMorning") || "Good morning";
-                else if (hour < 18) greet = t("goodAfternoon") || "Good afternoon";
-                else greet = t("goodEvening") || "Good evening";
+                if (hour < 5) greet = tr("goodEvening", "Good evening");
+                else if (hour < 12) greet = tr("goodMorning", "Good morning");
+                else if (hour < 18) greet = tr("goodAfternoon", "Good afternoon");
+                else greet = tr("goodEvening", "Good evening");
                 const rawName = user?.business_name?.trim() || "";
                 // Don't repeat the app name back at the user — feels like a bug
                 const looksLikeAppName = /^bonbox$/i.test(rawName);
