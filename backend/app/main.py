@@ -11,7 +11,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin
 from app.database import engine, Base
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -124,6 +124,23 @@ _migrations = [
     "CREATE INDEX IF NOT EXISTS ix_expense_user_date ON expenses (user_id, date, is_deleted)",
     "CREATE INDEX IF NOT EXISTS ix_expense_user_category ON expenses (user_id, category_id, date)",
     "CREATE INDEX IF NOT EXISTS ix_inventory_user_stock ON inventory_items (user_id, quantity, min_threshold)",
+    # Indexes on event_logs for fast admin queries (DAU/WAU/MAU and per-user timelines)
+    "CREATE INDEX IF NOT EXISTS ix_event_user_created ON event_logs (user_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_event_created ON event_logs (created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_event_event ON event_logs (event)",
+    # security_events — audit log for admin access attempts (multi-layer guard)
+    """CREATE TABLE IF NOT EXISTS security_events (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) REFERENCES users(id),
+        event_type VARCHAR(64) NOT NULL,
+        ip_address VARCHAR(64),
+        user_agent VARCHAR(500),
+        detail TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_security_events_user ON security_events (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_security_events_event_created ON security_events (event_type, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_security_events_created ON security_events (created_at)",
 ]
 
 def _run_migrations():
@@ -433,6 +450,48 @@ app.add_middleware(
 )
 
 
+# --- Admin path scan-blocker ---
+# In-memory IP block list for the /admin/* path. If an IP gets too many 4xx
+# responses on /admin, it gets a temporary ban regardless of any later auth.
+# This protects against scanners and credential-stuffing tools sweeping for
+# admin endpoints.
+_admin_ip_strikes: dict[str, list[float]] = {}
+_admin_ip_banned: dict[str, float] = {}
+_ADMIN_STRIKE_WINDOW_SEC = 60
+_ADMIN_STRIKE_LIMIT = 20  # 4xx hits in window before ban
+_ADMIN_BAN_DURATION_SEC = 600  # 10-minute ban
+
+
+@app.middleware("http")
+async def admin_scan_blocker(request: Request, call_next):
+    if not request.url.path.startswith("/api/admin"):
+        return await call_next(request)
+    import time
+    ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    # Already banned?
+    ban_until = _admin_ip_banned.get(ip)
+    if ban_until and now < ban_until:
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "Not found"},
+            headers={"Retry-After": str(int(ban_until - now))},
+        )
+    # Run the request
+    response = await call_next(request)
+    # Track strikes on 4xx responses
+    if 400 <= response.status_code < 500:
+        strikes = _admin_ip_strikes.setdefault(ip, [])
+        # Drop expired strikes
+        cutoff = now - _ADMIN_STRIKE_WINDOW_SEC
+        strikes[:] = [t for t in strikes if t > cutoff]
+        strikes.append(now)
+        if len(strikes) >= _ADMIN_STRIKE_LIMIT:
+            _admin_ip_banned[ip] = now + _ADMIN_BAN_DURATION_SEC
+            strikes.clear()
+    return response
+
+
 # --- Security Headers Middleware ---
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
@@ -441,8 +500,19 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    # Disable browser features the API never needs — defense against pivot attacks
+    response.headers["Permissions-Policy"] = (
+        "geolocation=(), microphone=(), camera=(), payment=(), usb=(), accelerometer=(), gyroscope=()"
+    )
+    # Cross-origin isolation (defense against side-channel attacks)
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    response.headers["Cross-Origin-Resource-Policy"] = "same-site"
+    # Cache nothing for /api/admin/* — security telemetry should never be cached
+    if request.url.path.startswith("/api/admin"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
+        response.headers["Pragma"] = "no-cache"
     if is_prod:
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
     return response
 
 
@@ -482,6 +552,9 @@ app.include_router(workshop.router, prefix="/api/workshop", tags=["Automobile Wo
 app.include_router(wine.router, prefix="/api/wines", tags=["Wine List"])
 app.include_router(staff.router, prefix="/api/staff", tags=["Staff Management"])
 app.include_router(staff_portal.router, prefix="/api/portal", tags=["Staff Portal (Public)"])
+# /admin/* — guarded by 6-layer require_super_admin (see services/admin_security.py).
+# Mounted last so any earlier router can't accidentally shadow these paths.
+app.include_router(admin.router, prefix="/api/admin", tags=["Super Admin"])
 
 
 # --- Protected Uploads (user can only access own receipts) ---

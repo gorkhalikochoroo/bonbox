@@ -1275,7 +1275,23 @@ export default function DashboardPage() {
         <FadeIn className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100">
-              {t("welcome")}, {user?.business_name}
+              {(() => {
+                // Time-aware greeting + safer name handling.
+                // Falls back gracefully when business_name is missing or matches the app name.
+                const hour = new Date().getHours();
+                let greet;
+                if (hour < 5) greet = t("goodEvening") || "Good evening";
+                else if (hour < 12) greet = t("goodMorning") || "Good morning";
+                else if (hour < 18) greet = t("goodAfternoon") || "Good afternoon";
+                else greet = t("goodEvening") || "Good evening";
+                const rawName = user?.business_name?.trim() || "";
+                // Don't repeat the app name back at the user — feels like a bug
+                const looksLikeAppName = /^bonbox$/i.test(rawName);
+                const displayName = !rawName || looksLikeAppName
+                  ? (user?.email?.split("@")[0] || "")
+                  : rawName;
+                return displayName ? `${greet}, ${displayName} 👋` : `${greet} 👋`;
+              })()}
             </h1>
             <p className="text-sm text-gray-400 mt-0.5">
               {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}

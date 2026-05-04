@@ -155,6 +155,7 @@ const StaffPayrollPage = lazyRetry(() => import("./pages/StaffPayrollPage"));
 const MorePage = lazyRetry(() => import("./pages/MorePage"));
 const StaffPortalPage = lazyRetry(() => import("./pages/StaffPortalPage"));
 const VerifyEmailPage = lazyRetry(() => import("./pages/VerifyEmailPage"));
+const AdminPage = lazyRetry(() => import("./pages/AdminPage"));
 
 function ProtectedRoute({ children }) {
   const { user, loading, needsEmailVerification } = useAuth();
@@ -163,6 +164,21 @@ function ProtectedRoute({ children }) {
   // Allow skipping email verification (native apps or user chose "skip for now")
   const skipped = sessionStorage.getItem("skip_email_verify");
   if (needsEmailVerification() && !skipped) return <Navigate to="/verify-email" />;
+  return children;
+}
+
+/**
+ * SuperAdminRoute — frontend gate for /admin pages.
+ * Frontend gating is COSMETIC ONLY — backend require_super_admin enforces the
+ * real boundary (multi-layer: role + email allowlist + verification + age + audit).
+ * If the frontend check is bypassed, every API call still 404s.
+ */
+function SuperAdminRoute({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) return <PageLoader />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role !== "super_admin") return <Navigate to="/dashboard" replace />;
+  if (!user.email_verified) return <Navigate to="/verify-email" replace />;
   return children;
 }
 
@@ -246,6 +262,16 @@ function AppRoutes() {
           <Route path="/staff/tips" element={<StaffTipsPage />} />
           <Route path="/staff/payroll" element={<StaffPayrollPage />} />
           <Route path="/more" element={<MorePage />} />
+        </Route>
+        {/* /admin — gated frontend, but real enforcement is server-side */}
+        <Route
+          element={
+            <SuperAdminRoute>
+              <Layout />
+            </SuperAdminRoute>
+          }
+        >
+          <Route path="/admin" element={<AdminPage />} />
         </Route>
       </Routes>
     </Suspense>

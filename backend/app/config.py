@@ -26,6 +26,14 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = ""  # Google OAuth client ID
     GOOGLE_PLACES_API_KEY: str = ""  # Google Places API (nearby competitor discovery)
     ADMIN_EMAIL: str = ""  # Get notified on new signups
+    # SUPER_ADMIN_EMAILS — comma-separated allowlist of emails that may access /admin/*.
+    # MUST also have users.role='super_admin' set in the database (defense in depth).
+    # There is intentionally NO API path to grant this role.
+    SUPER_ADMIN_EMAILS: str = ""
+    # Brute-force lockout for admin endpoint
+    ADMIN_LOCKOUT_THRESHOLD: int = 5
+    ADMIN_LOCKOUT_WINDOW_MIN: int = 10
+    ADMIN_LOCKOUT_COOLDOWN_MIN: int = 15
     USE_CLAUDE_API: bool = False  # Enable full Claude AI mode (requires ANTHROPIC_API_KEY)
     ENVIRONMENT: str = "development"  # "production" in deployed env
 
