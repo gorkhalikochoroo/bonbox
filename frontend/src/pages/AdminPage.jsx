@@ -221,8 +221,8 @@ export default function AdminPage() {
         <SpamCleanupBar onCleaned={() => api.get("/admin/users", { params: { limit: 100 } }).then(r => setUsers(r.data))} />
 
         <div className="overflow-x-auto -mx-4 sm:mx-0">
-          <table className="w-full text-sm">
-            <thead className="text-xs uppercase text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+          <table className="w-full text-sm text-gray-900 dark:text-gray-100">
+            <thead className="text-xs uppercase text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">
               <tr>
                 <th className="text-left px-2 py-2 w-6"></th>
                 <th className="text-left px-2 py-2">Email</th>
@@ -256,15 +256,15 @@ export default function AdminPage() {
                       {u.role === "super_admin" && <span className="ml-1 text-purple-500" title="Super admin">🛡️</span>}
                     </td>
                     <td className="px-2 py-2">{u.business_name || "—"}</td>
-                    <td className="px-2 py-2 text-xs text-gray-500 dark:text-gray-400">{u.business_type}</td>
+                    <td className="px-2 py-2 text-xs text-gray-600 dark:text-gray-300">{u.business_type}</td>
                     <td className="px-2 py-2 text-right font-mono">
                       {u.sale_count}
                       {u.is_activated && <span className="ml-1 text-green-500" title="Activated">✓</span>}
                     </td>
                     <td className="px-2 py-2 text-right font-mono">{u.event_count}</td>
                     <td className="px-2 py-2 text-right font-mono">{u.active_days}</td>
-                    <td className="px-2 py-2 text-xs text-gray-500 dark:text-gray-400">{u.last_active ? relativeTime(u.last_active) : "never"}</td>
-                    <td className="px-2 py-2 text-xs text-gray-500 dark:text-gray-400">{relativeTime(u.created_at)}</td>
+                    <td className="px-2 py-2 text-xs text-gray-600 dark:text-gray-300">{u.last_active ? relativeTime(u.last_active) : "never"}</td>
+                    <td className="px-2 py-2 text-xs text-gray-600 dark:text-gray-300">{relativeTime(u.created_at)}</td>
                   </tr>
                 );
               })}
@@ -276,8 +276,8 @@ export default function AdminPage() {
       {/* Security audit log */}
       <Section title="🛡️ Security audit log" subtitle="Recent admin access attempts — successful and denied">
         <div className="overflow-x-auto -mx-4 sm:mx-0">
-          <table className="w-full text-xs">
-            <thead className="uppercase text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+          <table className="w-full text-xs text-gray-900 dark:text-gray-100">
+            <thead className="uppercase text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">
               <tr>
                 <th className="text-left px-2 py-2">When</th>
                 <th className="text-left px-2 py-2">Event</th>
@@ -291,21 +291,21 @@ export default function AdminPage() {
                 const denied = s.event_type.startsWith("admin_denied");
                 return (
                   <tr key={s.id} className={`border-b border-gray-100 dark:border-gray-800 ${denied ? "bg-red-50/40 dark:bg-red-900/10" : ""}`}>
-                    <td className="px-2 py-1.5 text-gray-500 dark:text-gray-400">{relativeTime(s.created_at)}</td>
+                    <td className="px-2 py-1.5 text-gray-600 dark:text-gray-300">{relativeTime(s.created_at)}</td>
                     <td className="px-2 py-1.5">
                       <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${denied ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300" : "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"}`}>
                         {s.event_type}
                       </span>
                     </td>
-                    <td className="px-2 py-1.5 font-mono text-gray-500 dark:text-gray-400">{s.user_id ? s.user_id.slice(0, 8) : "—"}</td>
-                    <td className="px-2 py-1.5 font-mono text-gray-500 dark:text-gray-400">{s.ip_address || "—"}</td>
-                    <td className="px-2 py-1.5 text-gray-500 dark:text-gray-400">{s.detail || "—"}</td>
+                    <td className="px-2 py-1.5 font-mono text-gray-600 dark:text-gray-300">{s.user_id ? s.user_id.slice(0, 8) : "—"}</td>
+                    <td className="px-2 py-1.5 font-mono text-gray-600 dark:text-gray-300">{s.ip_address || "—"}</td>
+                    <td className="px-2 py-1.5 text-gray-600 dark:text-gray-300">{s.detail || "—"}</td>
                   </tr>
                 );
               })}
               {securityEvents.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-2 py-6 text-center text-gray-400">No events recorded yet</td>
+                  <td colSpan={5} className="px-2 py-6 text-center text-gray-500 dark:text-gray-400">No events recorded yet</td>
                 </tr>
               )}
             </tbody>
