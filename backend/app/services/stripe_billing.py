@@ -150,9 +150,15 @@ def create_checkout_session(
     from app.services.billing import trial_days_remaining
     remaining = trial_days_remaining(user) or 0
     sub_data = {
+        # description appears on Stripe-side dashboards, invoices, and receipt
+        # emails. Reinforces the BonBox brand even though the underlying Stripe
+        # account is shared with DukaanAi. Per-product statement descriptor on
+        # the product itself ("BONBOX PRO") handles bank-statement display.
+        "description": "BonBox Pro — Founding member subscription",
         "metadata": {
             "bonbox_user_id": str(user.id),
             "bonbox_plan": plan,
+            "bonbox_brand": "BonBox",
         },
     }
     if remaining > 0:
