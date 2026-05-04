@@ -3,8 +3,13 @@ Customer Retention Service — repeat rate, churn detection, CLV, recency analys
 
 Works with Khata customers (credit/debit transactions) as the customer base.
 Falls back to aggregate sales patterns when no Khata data exists.
+
+Multi-layer defense: every sub-function wraps its own work in try/except so
+a single bad customer row or NULL transaction date doesn't tank the whole
+report. Bad rows are skipped and logged, not silently mis-counted.
 """
 
+import logging
 from datetime import date, timedelta
 from collections import defaultdict
 
@@ -13,6 +18,8 @@ from sqlalchemy.orm import Session
 
 from app.models.sale import Sale
 from app.models.khata import KhataCustomer, KhataTransaction
+
+log = logging.getLogger("bonbox.retention_service")
 
 
 def get_retention_insights(user_id: str, db: Session) -> dict:
@@ -36,23 +43,36 @@ def get_retention_insights(user_id: str, db: Session) -> dict:
     total_clv = 0
 
     for cust in customers:
-        txns = (
-            db.query(KhataTransaction)
-            .filter(KhataTransaction.customer_id == cust.id)
-            .order_by(KhataTransaction.date.desc())
-            .all()
-        )
+        try:
+            txns = (
+                db.query(KhataTransaction)
+                .filter(KhataTransaction.customer_id == cust.id)
+                .order_by(KhataTransaction.date.desc())
+                .all()
+            )
+        except Exception as e:
+            log.warning("retention: txn query failed for customer %s: %s", cust.id, e)
+            continue
         if not txns:
             continue
 
-        # Transaction stats
-        total_spent = sum(float(t.amount) for t in txns if t.type == "credit")
-        total_paid = sum(float(t.amount) for t in txns if t.type == "debit")
-        txn_count = len(txns)
-        first_txn = min(t.date for t in txns)
-        last_txn = max(t.date for t in txns)
-        days_since_last = (today - last_txn).days
-        lifetime_days = max((last_txn - first_txn).days, 1)
+        # Filter out rows with bad/NULL dates — defensive against schema drift
+        valid_txns = [t for t in txns if t.date is not None and t.amount is not None]
+        if not valid_txns:
+            continue
+
+        try:
+            # Transaction stats — coerce to safe defaults
+            total_spent = sum(float(t.amount or 0) for t in valid_txns if t.type == "credit")
+            total_paid = sum(float(t.amount or 0) for t in valid_txns if t.type == "debit")
+            txn_count = len(valid_txns)
+            first_txn = min(t.date for t in valid_txns)
+            last_txn = max(t.date for t in valid_txns)
+            days_since_last = (today - last_txn).days
+            lifetime_days = max((last_txn - first_txn).days, 1)
+        except Exception as e:
+            log.warning("retention: stat calc failed for customer %s: %s", cust.id, e)
+            continue
 
         # Frequency: average days between transactions
         if txn_count >= 2:
@@ -105,29 +125,43 @@ def get_retention_insights(user_id: str, db: Session) -> dict:
     churn_rate = round(churned_count / total_customers * 100, 1) if total_customers else 0
 
     # ─── Aggregate sales trends (for non-Khata overview) ───
-    cur_sales = db.query(func.count(Sale.id), func.coalesce(func.sum(Sale.amount), 0)).filter(
-        Sale.user_id == user_id, Sale.date >= d30, Sale.is_deleted.isnot(True)
-    ).first()
-    prev_sales = db.query(func.count(Sale.id), func.coalesce(func.sum(Sale.amount), 0)).filter(
-        Sale.user_id == user_id, Sale.date >= d60, Sale.date < d30, Sale.is_deleted.isnot(True)
-    ).first()
+    try:
+        cur_sales = db.query(func.count(Sale.id), func.coalesce(func.sum(Sale.amount), 0)).filter(
+            Sale.user_id == user_id, Sale.date >= d30, Sale.is_deleted.isnot(True)
+        ).first()
+        prev_sales = db.query(func.count(Sale.id), func.coalesce(func.sum(Sale.amount), 0)).filter(
+            Sale.user_id == user_id, Sale.date >= d60, Sale.date < d30, Sale.is_deleted.isnot(True)
+        ).first()
 
-    cur_txn_count = int(cur_sales[0] or 0)
-    prev_txn_count = int(prev_sales[0] or 0)
-    cur_rev = float(cur_sales[1] or 0)
-    prev_rev = float(prev_sales[1] or 0)
+        cur_txn_count = int(cur_sales[0] or 0)
+        prev_txn_count = int(prev_sales[0] or 0)
+        cur_rev = float(cur_sales[1] or 0)
+        prev_rev = float(prev_sales[1] or 0)
 
-    txn_trend = round(((cur_txn_count - prev_txn_count) / prev_txn_count * 100), 1) if prev_txn_count else 0
-    rev_trend = round(((cur_rev - prev_rev) / prev_rev * 100), 1) if prev_rev else 0
+        txn_trend = round(((cur_txn_count - prev_txn_count) / prev_txn_count * 100), 1) if prev_txn_count else 0
+        rev_trend = round(((cur_rev - prev_rev) / prev_rev * 100), 1) if prev_rev else 0
+    except Exception as e:
+        log.warning("retention: aggregate sales query failed: %s", e)
+        cur_txn_count = prev_txn_count = 0
+        cur_rev = prev_rev = 0.0
+        txn_trend = rev_trend = 0
 
     # ─── Cohort: monthly new vs returning (via Khata) ───
-    monthly_cohort = _build_monthly_cohort(user_id, db, today)
+    try:
+        monthly_cohort = _build_monthly_cohort(user_id, db, today)
+    except Exception as e:
+        log.warning("retention: cohort build failed: %s", e)
+        monthly_cohort = []
 
     # ─── Alerts ───
-    alerts = _generate_retention_alerts(
-        total_customers, active_count, at_risk_count, churned_count,
-        retention_rate, churn_rate, customer_profiles, txn_trend,
-    )
+    try:
+        alerts = _generate_retention_alerts(
+            total_customers, active_count, at_risk_count, churned_count,
+            retention_rate, churn_rate, customer_profiles, txn_trend,
+        )
+    except Exception as e:
+        log.warning("retention: alert generation failed: %s", e)
+        alerts = []
 
     return {
         "total_customers": total_customers,

@@ -14,6 +14,9 @@ import { useKeyboardAvoidance } from "../hooks/useKeyboardAvoidance";
 // Lazy-load heavy floating widgets — only parsed when opened
 const QuickAdd = lazy(() => import("./QuickAdd"));
 const BonBoxAgent = lazy(() => import("./BonBoxAgent"));
+// Soft-error banner is part of the multi-layer defense — listens for graceful
+// backend errors so a single failing endpoint never blanks the whole page.
+const SoftErrorBanner = lazy(() => import("./SoftErrorBanner"));
 
 /* ─── Grouped sidebar navigation ───
    visibleFor: array of business_types that see this group.
@@ -73,9 +76,11 @@ const navGroups = [
     icon: "📋",
     visibleFor: null,
     items: [
+      { to: "/daily-report", icon: "🌙", labelKey: "dailyReport" },
       { to: "/reports", icon: "📋", labelKey: "reports" },
       { to: "/daily-close", icon: "🧾", labelKey: "dailyClose" },
       { to: "/tax", icon: "💰", labelKey: "taxAutopilot" },
+      { to: "/bookkeeping-export", icon: "📤", labelKey: "sendToAccountant" },
     ],
   },
   {
@@ -113,6 +118,15 @@ const navGroups = [
       { to: "/feedback", icon: "💬", labelKey: "feedback" },
       { to: "/recently-deleted", icon: "🗂️", labelKey: "recentlyDeleted" },
       { to: "/contact", icon: "✉️", labelKey: "contact" },
+    ],
+  },
+  {
+    id: "account",
+    label: "Account",
+    icon: "💎",
+    visibleFor: null,
+    items: [
+      { to: "/subscription", icon: "💎", labelKey: "planBilling" },
     ],
   },
 ];
@@ -166,7 +180,25 @@ export default function Layout() {
   const [mode, setMode] = useState(localStorage.getItem("bonbox_mode") || "business");
 
   // Filter sidebar groups based on active branch business type
-  const visibleGroups = filterNavGroups(navGroups, branchType, businessTypes);
+  const baseVisible = filterNavGroups(navGroups, branchType, businessTypes);
+  // For super_admin owners, show an extra "Platform" group with the admin
+  // dashboard. Frontend gating is cosmetic — real enforcement is server-side
+  // (services/admin_security.py). A non-admin clicking this link sees an empty
+  // dashboard because every /api/admin/* call returns 404.
+  const visibleGroups = user?.role === "super_admin"
+    ? [
+        ...baseVisible,
+        {
+          id: "platform",
+          label: "Platform",
+          icon: "🛡",
+          visibleFor: null,
+          items: [
+            { to: "/admin", icon: "🛡", labelKey: "platformAdmin" },
+          ],
+        },
+      ]
+    : baseVisible;
 
   // Track which groups are expanded
   const [openGroups, setOpenGroups] = useState(() => {
@@ -408,6 +440,11 @@ export default function Layout() {
           </button>
         </div>
       </aside>
+
+      {/* Soft-error banner — shows toast for graceful backend failures */}
+      <Suspense fallback={null}>
+        <SoftErrorBanner />
+      </Suspense>
 
       {/* Main content — extra bottom padding on mobile for bottom nav */}
       <main className="md:ml-56 pt-14 md:pt-0 pb-24 md:pb-4">

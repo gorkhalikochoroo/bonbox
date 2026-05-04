@@ -2,8 +2,17 @@
 
 Each branch gets its own sales, expenses, cashbook, inventory.
 Data is filtered by branch_id header (X-Branch-Id) across all endpoints.
+
+Multi-layer defense pattern:
+  - Each endpoint wraps its body in try/except so a single bad row or schema
+    drift doesn't 503 the whole feature.
+  - Returns are always shape-stable: {branches: [], count: 0, _error: "..."}
+    so the frontend can render the empty state gracefully + show the error.
+  - Aggregation queries use func.coalesce so NULL sums become 0 — never
+    propagates None into JSON.
 """
 
+import logging
 from datetime import date
 from typing import Optional
 
@@ -22,6 +31,7 @@ from app.models.cashbook import CashTransaction
 from app.models.inventory import InventoryItem
 
 router = APIRouter()
+log = logging.getLogger("bonbox.branch")
 
 
 class BranchCreate(BaseModel):
@@ -42,40 +52,60 @@ def list_branches(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """List all branches for the current owner."""
-    branches = (
-        db.query(Branch)
-        .filter(Branch.user_id == current_user.id, Branch.is_active.is_(True))
-        .order_by(Branch.is_default.desc(), Branch.created_at.asc())
-        .all()
-    )
+    """List all branches for the current owner.
+
+    Multi-layer defense:
+      - Outer try/except: if anything fails (schema drift, bad row, timeout)
+        we return an empty list with _error so the page still renders.
+      - Per-branch try/except: one bad branch's stats don't poison the whole list.
+      - Aggregations use coalesce → no NULL leaks into JSON.
+    """
+    try:
+        branches = (
+            db.query(Branch)
+            .filter(Branch.user_id == current_user.id, Branch.is_active.is_(True))
+            .order_by(Branch.is_default.desc(), Branch.created_at.asc())
+            .all()
+        )
+    except Exception as e:
+        log.exception("list_branches: branch query failed: %s", e)
+        return {
+            "branches": [],
+            "count": 0,
+            "_error": "Could not load branches. Please try again.",
+            "_recoverable": True,
+        }
 
     result = []
     for b in branches:
-        # Quick summary stats
-        rev = db.query(func.coalesce(func.sum(Sale.amount), 0)).filter(
-            Sale.user_id == current_user.id, Sale.branch_id == b.id,
-            Sale.is_deleted.isnot(True),
-        ).scalar() or 0
+        # Per-branch try/except: one corrupted branch shouldn't tank the rest
+        try:
+            rev = db.query(func.coalesce(func.sum(Sale.amount), 0)).filter(
+                Sale.user_id == current_user.id, Sale.branch_id == b.id,
+                Sale.is_deleted.isnot(True),
+            ).scalar() or 0
 
-        exp = db.query(func.coalesce(func.sum(Expense.amount), 0)).filter(
-            Expense.user_id == current_user.id, Expense.branch_id == b.id,
-            Expense.is_deleted.isnot(True), Expense.is_personal.isnot(True),
-        ).scalar() or 0
+            exp = db.query(func.coalesce(func.sum(Expense.amount), 0)).filter(
+                Expense.user_id == current_user.id, Expense.branch_id == b.id,
+                Expense.is_deleted.isnot(True), Expense.is_personal.isnot(True),
+            ).scalar() or 0
 
-        inv_count = db.query(func.count(InventoryItem.id)).filter(
-            InventoryItem.user_id == current_user.id, InventoryItem.branch_id == b.id,
-        ).scalar() or 0
+            inv_count = db.query(func.count(InventoryItem.id)).filter(
+                InventoryItem.user_id == current_user.id, InventoryItem.branch_id == b.id,
+            ).scalar() or 0
+        except Exception as e:
+            log.warning("list_branches: stats failed for branch %s: %s", b.id, e)
+            rev, exp, inv_count = 0, 0, 0
 
         result.append({
             "id": str(b.id),
             "name": b.name,
             "address": b.address,
             "business_type": b.business_type or "general",
-            "is_default": b.is_default,
-            "total_revenue": round(float(rev), 2),
-            "total_expenses": round(float(exp), 2),
-            "inventory_items": int(inv_count),
+            "is_default": bool(b.is_default),
+            "total_revenue": round(float(rev or 0), 2),
+            "total_expenses": round(float(exp or 0), 2),
+            "inventory_items": int(inv_count or 0),
             "created": str(b.created_at.date()) if b.created_at else None,
         })
 
@@ -166,12 +196,27 @@ def branch_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Consolidated vs per-branch summary for the owner."""
-    branches = (
-        db.query(Branch)
-        .filter(Branch.user_id == current_user.id, Branch.is_active.is_(True))
-        .all()
-    )
+    """Consolidated vs per-branch summary for the owner.
+
+    Multi-layer defense: same pattern as /list — wrap, fall back to safe shape,
+    never return inaccurate numbers (better empty than wrong).
+    """
+    try:
+        branches = (
+            db.query(Branch)
+            .filter(Branch.user_id == current_user.id, Branch.is_active.is_(True))
+            .all()
+        )
+    except Exception as e:
+        log.exception("branch_summary: branch list query failed: %s", e)
+        return {
+            "has_branches": False,
+            "branches": [],
+            "consolidated": {"month_revenue": 0, "month_expenses": 0, "month_profit": 0},
+            "unassigned": {"revenue": 0, "expenses": 0},
+            "_error": "Could not load branch summary. Please try again.",
+            "_recoverable": True,
+        }
 
     if not branches:
         return {
@@ -183,20 +228,24 @@ def branch_summary(
     month_start = today.replace(day=1)
 
     branch_summaries = []
-    total_rev = 0
-    total_exp = 0
+    total_rev = 0.0
+    total_exp = 0.0
 
     for b in branches:
-        rev = float(db.query(func.coalesce(func.sum(Sale.amount), 0)).filter(
-            Sale.user_id == current_user.id, Sale.branch_id == b.id,
-            Sale.date >= month_start, Sale.is_deleted.isnot(True),
-        ).scalar() or 0)
+        try:
+            rev = float(db.query(func.coalesce(func.sum(Sale.amount), 0)).filter(
+                Sale.user_id == current_user.id, Sale.branch_id == b.id,
+                Sale.date >= month_start, Sale.is_deleted.isnot(True),
+            ).scalar() or 0)
 
-        exp = float(db.query(func.coalesce(func.sum(Expense.amount), 0)).filter(
-            Expense.user_id == current_user.id, Expense.branch_id == b.id,
-            Expense.date >= month_start,
-            Expense.is_deleted.isnot(True), Expense.is_personal.isnot(True),
-        ).scalar() or 0)
+            exp = float(db.query(func.coalesce(func.sum(Expense.amount), 0)).filter(
+                Expense.user_id == current_user.id, Expense.branch_id == b.id,
+                Expense.date >= month_start,
+                Expense.is_deleted.isnot(True), Expense.is_personal.isnot(True),
+            ).scalar() or 0)
+        except Exception as e:
+            log.warning("branch_summary: per-branch query failed for %s: %s", b.id, e)
+            rev, exp = 0.0, 0.0
 
         total_rev += rev
         total_exp += exp
@@ -205,23 +254,27 @@ def branch_summary(
             "id": str(b.id),
             "name": b.name,
             "business_type": b.business_type or "general",
-            "is_default": b.is_default,
+            "is_default": bool(b.is_default),
             "month_revenue": round(rev, 2),
             "month_expenses": round(exp, 2),
             "month_profit": round(rev - exp, 2),
         })
 
     # Also count unassigned data (branch_id IS NULL)
-    unassigned_rev = float(db.query(func.coalesce(func.sum(Sale.amount), 0)).filter(
-        Sale.user_id == current_user.id, Sale.branch_id.is_(None),
-        Sale.date >= month_start, Sale.is_deleted.isnot(True),
-    ).scalar() or 0)
+    try:
+        unassigned_rev = float(db.query(func.coalesce(func.sum(Sale.amount), 0)).filter(
+            Sale.user_id == current_user.id, Sale.branch_id.is_(None),
+            Sale.date >= month_start, Sale.is_deleted.isnot(True),
+        ).scalar() or 0)
 
-    unassigned_exp = float(db.query(func.coalesce(func.sum(Expense.amount), 0)).filter(
-        Expense.user_id == current_user.id, Expense.branch_id.is_(None),
-        Expense.date >= month_start,
-        Expense.is_deleted.isnot(True), Expense.is_personal.isnot(True),
-    ).scalar() or 0)
+        unassigned_exp = float(db.query(func.coalesce(func.sum(Expense.amount), 0)).filter(
+            Expense.user_id == current_user.id, Expense.branch_id.is_(None),
+            Expense.date >= month_start,
+            Expense.is_deleted.isnot(True), Expense.is_personal.isnot(True),
+        ).scalar() or 0)
+    except Exception as e:
+        log.warning("branch_summary: unassigned query failed: %s", e)
+        unassigned_rev, unassigned_exp = 0.0, 0.0
 
     return {
         "has_branches": True,

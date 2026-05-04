@@ -18,6 +18,10 @@ export default function SalesPage() {
   const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
   const [sales, setSales] = useState([]);
+  // Track first-load so stat cards can show a skeleton instead of "0" before
+  // the API resolves. Once data arrives once, we never go back to "loading"
+  // even on refetch — the previous numbers stay visible while the new ones load.
+  const [salesLoading, setSalesLoading] = useState(true);
   const [amount, setAmount] = useState("");
   const [saleDate, setSaleDate] = useState(new Date().toISOString().split("T")[0]);
   const [method, setMethod] = useState("mixed");
@@ -105,9 +109,13 @@ export default function SalesPage() {
       if (from) params.from = from;
       if (to) params.to = to;
       const res = await api.get("/sales", { params });
-      setSales(res.data);
+      setSales(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       setFetchError(err.response?.data?.detail || t("failedToLoadSales"));
+    } finally {
+      // Always clear the first-load flag, even on error — otherwise the page
+      // sticks on a skeleton forever if the network fails.
+      setSalesLoading(false);
     }
   };
   const fetchInventory = () => {
@@ -400,23 +408,23 @@ export default function SalesPage() {
                     <p className="text-[10px] uppercase tracking-widest text-green-300/70 font-semibold">{hasFilter ? t("latestDay") : t("today")}</p>
                     <svg className={`w-3 h-3 text-green-400/60 transition-transform ${expandedStat === "today" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                   </div>
-                  <p className="text-3xl font-extrabold text-green-400 mt-1">{todayRev.toLocaleString()}</p>
-                  <p className="text-[11px] text-green-300/50 mt-1 font-medium">{todaySales.length} {todaySales.length !== 1 ? t("salesCount") : t("saleCount")} {t("today").toLowerCase()}</p>
+                  <p className="text-3xl font-extrabold text-green-400 mt-1">{salesLoading ? <span className="opacity-40">…</span> : todayRev.toLocaleString()}</p>
+                  <p className="text-[11px] text-green-300/50 mt-1 font-medium">{salesLoading ? " " : `${todaySales.length} ${todaySales.length !== 1 ? t("salesCount") : t("saleCount")} ${t("today").toLowerCase()}`}</p>
                 </button>
                 <button onClick={() => setExpandedStat(expandedStat === "total" ? null : "total")} className={`text-left bg-gradient-to-br from-blue-950 to-gray-800 rounded-xl p-4 border transition hover:brightness-110 active:scale-[0.98] ${expandedStat === "total" ? "border-blue-400 ring-1 ring-blue-400/50" : "border-blue-800/50"}`}>
                   <div className="flex items-center justify-between">
                     <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold">{monthName} {t("revenue")}</p>
                     <svg className={`w-3 h-3 text-blue-400/60 transition-transform ${expandedStat === "total" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                   </div>
-                  <p className="text-3xl font-extrabold text-blue-400 mt-1">{totalRev.toLocaleString()}</p>
-                  <p className="text-[11px] text-blue-300/50 mt-1 font-medium">{currency} · {monthSales.length} {t("salesCount")}</p>
+                  <p className="text-3xl font-extrabold text-blue-400 mt-1">{salesLoading ? <span className="opacity-40">…</span> : totalRev.toLocaleString()}</p>
+                  <p className="text-[11px] text-blue-300/50 mt-1 font-medium">{salesLoading ? " " : `${currency} · ${monthSales.length} ${t("salesCount")}`}</p>
                 </button>
                 <button onClick={() => setExpandedStat(expandedStat === "avg" ? null : "avg")} className={`text-left bg-gradient-to-br from-purple-950 to-gray-800 rounded-xl p-4 border transition hover:brightness-110 active:scale-[0.98] ${expandedStat === "avg" ? "border-purple-400 ring-1 ring-purple-400/50" : "border-purple-800/50"}`}>
                   <div className="flex items-center justify-between">
                     <p className="text-[10px] uppercase tracking-widest text-purple-300/70 font-semibold">{t("avgSale")}</p>
                     <svg className={`w-3 h-3 text-purple-400/60 transition-transform ${expandedStat === "avg" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                   </div>
-                  <p className="text-3xl font-extrabold text-purple-400 mt-1">{Math.round(avgSale).toLocaleString()}</p>
+                  <p className="text-3xl font-extrabold text-purple-400 mt-1">{salesLoading ? <span className="opacity-40">…</span> : Math.round(avgSale).toLocaleString()}</p>
                   <p className="text-[11px] text-purple-300/50 mt-1 font-medium">{currency}/{t("day")} · {daysWithSales} {t("days")}</p>
                 </button>
                 <div className="bg-gradient-to-br from-orange-950 to-gray-800 rounded-xl p-4 border border-orange-800/50">
@@ -953,15 +961,29 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
   const { t } = useLanguage();
   const [search, setSearch] = useState("");
   const [selectedItem, setSelectedItem] = useState(null);
-  const [qty, setQty] = useState("");
+  // Pre-fill qty=1 so the seller doesn't have to retype it for every common
+  // single-item sale. Sell-by-volume bar items override this on selection.
+  const [qty, setQty] = useState("1");
   const [price, setPrice] = useState("");
   const [method, setMethod] = useState("cash");
 
+  // When searching, surface ALL matches — including 0-stock — so the seller
+  // immediately sees they need to restock before selling. The picker disables
+  // those rows so accidental sale-of-empty-stock is impossible.
   const filtered = useMemo(() => {
-    if (!search) return items.filter((i) => parseFloat(i.quantity) > 0).slice(0, 20);
-    return items
-      .filter((i) => i.name.toLowerCase().includes(search.toLowerCase()) && parseFloat(i.quantity) > 0)
-      .slice(0, 20);
+    const all = items || [];
+    const inStock = all.filter((i) => parseFloat(i.quantity) > 0);
+    const outOfStock = all.filter((i) => !(parseFloat(i.quantity) > 0));
+    if (!search) {
+      // No query: show in-stock items first; only fill the rest of the slot
+      // budget with out-of-stock if there's room (rare on a fresh load).
+      const top = inStock.slice(0, 20);
+      const remainder = Math.max(0, 20 - top.length);
+      return [...top, ...outOfStock.slice(0, remainder)];
+    }
+    const q = search.toLowerCase();
+    const matchesQ = (i) => i.name && i.name.toLowerCase().includes(q);
+    return [...inStock.filter(matchesQ), ...outOfStock.filter(matchesQ)].slice(0, 20);
   }, [items, search]);
 
   // Unit conversion: if item stocks in dozen but sells in pieces
@@ -1007,33 +1029,47 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
               autoFocus
             />
             <div className="max-h-64 overflow-y-auto space-y-1">
-              {filtered.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    setSelectedItem(item);
-                    const ippu = parseFloat(item.pieces_per_unit || 0);
-                    const iHasConv = item.sell_unit && ippu > 0 && item.sell_unit !== item.unit;
-                    if (item.sell_price) {
-                      // If sell_price is per stock unit and we sell in pieces, divide it
-                      setPrice(iHasConv ? String(Math.round((parseFloat(item.sell_price) / ippu) * 100) / 100) : String(parseFloat(item.sell_price)));
-                    }
-                  }}
-                  className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition flex items-center justify-between"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{item.name}</p>
-                    <p className="text-xs text-gray-400">{item.category} · {t("cost")}: {parseFloat(item.cost_per_unit)} {currency}/{item.unit}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300">
-                      {item.sell_unit && parseFloat(item.pieces_per_unit || 0) > 0 && item.sell_unit !== item.unit
-                        ? `${Math.floor(parseFloat(item.quantity) * parseFloat(item.pieces_per_unit))} ${item.sell_unit}`
-                        : `${parseFloat(item.quantity)} ${item.unit}`}
-                    </p>
-                  </div>
-                </button>
-              ))}
+              {filtered.map((item) => {
+                const itemQty = parseFloat(item.quantity) || 0;
+                const isEmpty = itemQty <= 0;
+                return (
+                  <button
+                    key={item.id}
+                    disabled={isEmpty}
+                    onClick={() => {
+                      if (isEmpty) return;
+                      setSelectedItem(item);
+                      const ippu = parseFloat(item.pieces_per_unit || 0);
+                      const iHasConv = item.sell_unit && ippu > 0 && item.sell_unit !== item.unit;
+                      if (item.sell_price) {
+                        // If sell_price is per stock unit and we sell in pieces, divide it
+                        setPrice(iHasConv ? String(Math.round((parseFloat(item.sell_price) / ippu) * 100) / 100) : String(parseFloat(item.sell_price)));
+                      }
+                    }}
+                    className={`w-full text-left px-3 py-2.5 rounded-lg transition flex items-center justify-between ${
+                      isEmpty
+                        ? "opacity-50 cursor-not-allowed bg-gray-50 dark:bg-gray-700/30"
+                        : "hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                    }`}
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{item.name}</p>
+                      <p className="text-xs text-gray-400">{item.category} · {t("cost")}: {parseFloat(item.cost_per_unit)} {currency}/{item.unit}</p>
+                    </div>
+                    <div className="text-right">
+                      {isEmpty ? (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">⚠️ {t("restockFirst") || "Restock first"}</p>
+                      ) : (
+                        <p className="text-sm font-semibold text-gray-600 dark:text-gray-300">
+                          {item.sell_unit && parseFloat(item.pieces_per_unit || 0) > 0 && item.sell_unit !== item.unit
+                            ? `${Math.floor(itemQty * parseFloat(item.pieces_per_unit))} ${item.sell_unit}`
+                            : `${itemQty} ${item.unit}`}
+                        </p>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
               {filtered.length === 0 && (
                 <p className="text-center text-gray-400 py-4 text-sm">{t("noItemsWithStock")}</p>
               )}
@@ -1147,26 +1183,79 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
   );
 }
 
+/**
+ * CsvUpload — three-step flow with preview + undo to prevent corrupted imports.
+ *
+ *   1. Pick file → POST with dry_run=true → backend returns parsed preview
+ *   2. User reviews rows + warnings, clicks "Confirm import"
+ *   3. POST with dry_run=false → backend commits and returns imported_ids
+ *   4. Undo banner stays visible for 5 min — clicking calls /import-csv/rollback
+ *      which soft-deletes the sales (server enforces 5-min cutoff + tenant filter)
+ */
 function CsvUpload({ onDone }) {
   const { t } = useLanguage();
+  const [pendingFile, setPendingFile] = useState(null);
+  const [preview, setPreview] = useState(null);
   const [result, setResult] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [rolledBack, setRolledBack] = useState(false);
 
   const handleFile = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    setPendingFile(file);
+    setResult(null);
+    setRolledBack(false);
     setUploading(true);
     const formData = new FormData();
     formData.append("file", file);
     try {
-      const res = await api.post("/sales/import-csv", formData);
-      setResult(res.data);
-      onDone();
+      // Step 1 — dry run for preview (server doesn't commit)
+      const res = await api.post("/sales/import-csv?dry_run=true", formData);
+      setPreview(res.data);
     } catch (err) {
-      setResult({ imported: 0, errors: [err.response?.data?.detail || t("uploadFailed")] });
+      setPreview({ would_import: 0, errors: [err.response?.data?.detail || t("uploadFailed")] });
     }
     setUploading(false);
     e.target.value = "";
+  };
+
+  const confirmImport = async () => {
+    if (!pendingFile) return;
+    setConfirming(true);
+    const formData = new FormData();
+    formData.append("file", pendingFile);
+    try {
+      // Step 3 — actual commit
+      const res = await api.post("/sales/import-csv", formData);
+      setResult(res.data);
+      setPreview(null);
+      setPendingFile(null);
+      onDone();
+    } catch (err) {
+      setResult({ imported: 0, errors: [err.response?.data?.detail || t("uploadFailed")], imported_ids: [] });
+    }
+    setConfirming(false);
+  };
+
+  const cancelPreview = () => {
+    setPreview(null);
+    setPendingFile(null);
+  };
+
+  const undoImport = async () => {
+    const ids = result?.imported_ids || [];
+    if (!ids.length) return;
+    try {
+      await api.post("/sales/import-csv/rollback", { sale_ids: ids });
+      setRolledBack(true);
+      setResult(null);
+      onDone();
+    } catch (err) {
+      // Surface error but don't block the user
+      console.warn("Rollback failed:", err);
+    }
   };
 
   return (
@@ -1180,14 +1269,99 @@ function CsvUpload({ onDone }) {
           uploading ? "bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
         }`}>
           {uploading ? t("uploading") : t("chooseFile")}
-          <input type="file" accept=".csv" onChange={handleFile} className="hidden" disabled={uploading} />
+          <input type="file" accept=".csv" onChange={handleFile} className="hidden" disabled={uploading || confirming || preview} />
         </label>
       </div>
+
+      {/* Preview step — user must explicitly confirm before any DB write */}
+      {preview && !result && (
+        <div className="mt-4 border border-blue-200 dark:border-blue-700 bg-blue-50/60 dark:bg-blue-900/20 rounded-lg p-3">
+          <p className="text-sm font-semibold text-blue-800 dark:text-blue-300 mb-2">
+            Preview — {preview.would_import || 0} sales will be imported
+          </p>
+          {preview.preview && preview.preview.length > 0 && (
+            <div className="overflow-x-auto max-h-56 overflow-y-auto rounded border border-blue-200 dark:border-blue-700 mb-2 bg-white dark:bg-gray-900">
+              <table className="w-full text-xs">
+                <thead className="bg-blue-100 dark:bg-blue-900/40 sticky top-0">
+                  <tr>
+                    <th className="text-left p-2 font-semibold text-gray-600 dark:text-gray-300">Date</th>
+                    <th className="text-right p-2 font-semibold text-gray-600 dark:text-gray-300">Amount</th>
+                    <th className="text-left p-2 font-semibold text-gray-600 dark:text-gray-300">Payment</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.preview.map((row, i) => (
+                    <tr key={i} className="border-t border-blue-100 dark:border-blue-800/40">
+                      <td className="p-2 text-gray-600 dark:text-gray-300">{row.date}</td>
+                      <td className="p-2 text-right font-medium text-gray-700 dark:text-gray-200">{Number(row.amount).toLocaleString()}</td>
+                      <td className="p-2 text-gray-500 dark:text-gray-400">{row.payment_method}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {preview.preview_truncated && (
+            <p className="text-[11px] text-blue-600 dark:text-blue-400 mb-2">Showing first 50 rows. {preview.would_import - 50} more will be imported.</p>
+          )}
+          {preview.errors?.length > 0 && (
+            <details className="mb-2">
+              <summary className="text-xs text-amber-700 dark:text-amber-400 cursor-pointer font-medium">
+                ⚠️ {preview.errors.length} rows will be skipped
+              </summary>
+              <ul className="mt-1 text-[11px] text-amber-700 dark:text-amber-400 space-y-0.5 max-h-24 overflow-y-auto">
+                {preview.errors.slice(0, 20).map((err, i) => <li key={i}>{err}</li>)}
+                {preview.errors.length > 20 && <li>… and {preview.errors.length - 20} more</li>}
+              </ul>
+            </details>
+          )}
+          <div className="flex gap-2">
+            <button
+              onClick={cancelPreview}
+              disabled={confirming}
+              className="px-3 py-1.5 text-xs rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmImport}
+              disabled={confirming || !preview.would_import}
+              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
+            >
+              {confirming ? "Importing…" : `Confirm import (${preview.would_import})`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Post-commit result with Undo */}
       {result && (
         <div className="mt-3 text-sm">
-          <p className="text-green-600 dark:text-green-400 font-medium">{result.imported} {t("salesImported")}</p>
-          {result.errors.length > 0 && (
-            <details className="mt-1">
+          {result.imported > 0 && !rolledBack && (
+            <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700">
+              <div>
+                <p className="text-green-700 dark:text-green-400 font-medium">
+                  ✓ {result.imported} {t("salesImported")}
+                </p>
+                <p className="text-xs text-green-600 dark:text-green-500 mt-0.5">Undo available for 5 minutes</p>
+              </div>
+              {result.imported_ids?.length > 0 && (
+                <button
+                  onClick={undoImport}
+                  className="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-md border border-green-400 dark:border-green-600 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/40"
+                >
+                  Undo
+                </button>
+              )}
+            </div>
+          )}
+          {rolledBack && (
+            <p className="text-amber-700 dark:text-amber-400 font-medium px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
+              Import undone — sales removed.
+            </p>
+          )}
+          {result.errors?.length > 0 && (
+            <details className="mt-2">
               <summary className="text-yellow-600 dark:text-yellow-400 cursor-pointer">{result.errors.length} {t("rowsSkipped")}</summary>
               <ul className="mt-1 text-xs text-gray-500 dark:text-gray-400 space-y-0.5">
                 {result.errors.map((err, i) => <li key={i}>{err}</li>)}

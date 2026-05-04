@@ -48,7 +48,7 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
@@ -989,59 +989,113 @@ def hours_summary(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Per-staff summary: total_hours, total_earned, overtime_hours, tips_received."""
-    # Hours aggregation
-    hours_rows = (
-        db.query(
-            HoursLogged.staff_id,
-            func.sum(HoursLogged.total_hours).label("total_hours"),
-            func.sum(HoursLogged.earned).label("total_earned"),
-            func.sum(
-                func.case(
-                    (HoursLogged.is_overtime.is_(True), HoursLogged.total_hours),
-                    else_=0,
+    """Per-staff summary: total_hours, total_earned, overtime_hours, tips_received.
+
+    Multi-layer defense:
+      - Hours and tips queried independently — if one fails, the other still
+        contributes to the page so users see *some* accurate data.
+      - Per-staff name lookup wrapped — schema drift on StaffMember doesn't tank
+        the whole summary; we fall back to "Staff #<id>".
+      - Overtime uses sqlalchemy.case (not func.case which doesn't exist in
+        SQLAlchemy 2.x) — this was the original aggregation bug.
+    """
+    import logging
+    log = logging.getLogger("bonbox.staff_payroll")
+
+    # Hours aggregation — defensive
+    try:
+        hours_rows = (
+            db.query(
+                HoursLogged.staff_id,
+                func.sum(HoursLogged.total_hours).label("total_hours"),
+                func.sum(HoursLogged.earned).label("total_earned"),
+                func.sum(
+                    case(
+                        (HoursLogged.is_overtime.is_(True), HoursLogged.total_hours),
+                        else_=0,
+                    )
+                ).label("overtime_hours"),
+            )
+            .filter(
+                HoursLogged.user_id == user.id,
+                HoursLogged.date >= from_date,
+                HoursLogged.date <= to_date,
+            )
+            .group_by(HoursLogged.staff_id)
+            .all()
+        )
+    except Exception as e:
+        # Fallback: drop overtime aggregation if `is_overtime` column is missing
+        # on stale schemas. Better to return correct hours+earned with overtime=0
+        # than to fail the whole report.
+        log.warning("hours_summary: overtime aggregation failed (%s); falling back", e)
+        try:
+            hours_rows = (
+                db.query(
+                    HoursLogged.staff_id,
+                    func.sum(HoursLogged.total_hours).label("total_hours"),
+                    func.sum(HoursLogged.earned).label("total_earned"),
                 )
-            ).label("overtime_hours"),
-        )
-        .filter(
-            HoursLogged.user_id == user.id,
-            HoursLogged.date >= from_date,
-            HoursLogged.date <= to_date,
-        )
-        .group_by(HoursLogged.staff_id)
-        .all()
-    )
+                .filter(
+                    HoursLogged.user_id == user.id,
+                    HoursLogged.date >= from_date,
+                    HoursLogged.date <= to_date,
+                )
+                .group_by(HoursLogged.staff_id)
+                .all()
+            )
+            # Synthesise overtime_hours=0 on each row for shape consistency
+            hours_rows = [
+                type("Row", (), {
+                    "staff_id": r.staff_id,
+                    "total_hours": r.total_hours,
+                    "total_earned": r.total_earned,
+                    "overtime_hours": 0,
+                })()
+                for r in hours_rows
+            ]
+        except Exception as e2:
+            log.exception("hours_summary: fallback hours query failed: %s", e2)
+            hours_rows = []
 
-    # Tips aggregation
-    tips_rows = (
-        db.query(
-            TipDistribution.staff_id,
-            func.sum(TipDistribution.amount).label("tips_received"),
+    # Tips aggregation — independent so it won't be killed by a hours failure
+    try:
+        tips_rows = (
+            db.query(
+                TipDistribution.staff_id,
+                func.sum(TipDistribution.amount).label("tips_received"),
+            )
+            .join(Tip, Tip.id == TipDistribution.tip_id)
+            .filter(
+                Tip.user_id == user.id,
+                Tip.date >= from_date,
+                Tip.date <= to_date,
+            )
+            .group_by(TipDistribution.staff_id)
+            .all()
         )
-        .join(Tip, Tip.id == TipDistribution.tip_id)
-        .filter(
-            Tip.user_id == user.id,
-            Tip.date >= from_date,
-            Tip.date <= to_date,
-        )
-        .group_by(TipDistribution.staff_id)
-        .all()
-    )
-    tips_map = {str(r.staff_id): float(r.tips_received or 0) for r in tips_rows}
+        tips_map = {str(r.staff_id): float(r.tips_received or 0) for r in tips_rows}
+    except Exception as e:
+        log.warning("hours_summary: tips aggregation failed: %s", e)
+        tips_map = {}
 
-    # Staff names
+    # Staff names — wrapped so a corrupt member row doesn't kill the report
     staff_ids = list({str(r.staff_id) for r in hours_rows} | set(tips_map.keys()))
     staff_names = {}
     if staff_ids:
-        members = db.query(StaffMember).filter(StaffMember.id.in_(staff_ids)).all()
-        staff_names = {str(m.id): m.name for m in members}
+        try:
+            members = db.query(StaffMember).filter(StaffMember.id.in_(staff_ids)).all()
+            staff_names = {str(m.id): (m.name or "Unknown") for m in members}
+        except Exception as e:
+            log.warning("hours_summary: staff name lookup failed: %s", e)
+            staff_names = {}
 
     summary = []
     for r in hours_rows:
         sid = str(r.staff_id)
         summary.append({
             "staff_id": sid,
-            "staff_name": staff_names.get(sid, "Unknown"),
+            "staff_name": staff_names.get(sid, f"Staff #{sid[:8]}"),
             "total_hours": round(float(r.total_hours or 0), 1),
             "total_earned": round(float(r.total_earned or 0), 2),
             "overtime_hours": round(float(r.overtime_hours or 0), 1),
@@ -1054,7 +1108,7 @@ def hours_summary(
         if sid not in hours_staff_ids:
             summary.append({
                 "staff_id": sid,
-                "staff_name": staff_names.get(sid, "Unknown"),
+                "staff_name": staff_names.get(sid, f"Staff #{sid[:8]}"),
                 "total_hours": 0,
                 "total_earned": 0,
                 "overtime_hours": 0,

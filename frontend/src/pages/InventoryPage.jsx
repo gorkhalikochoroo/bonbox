@@ -985,23 +985,53 @@ export default function InventoryPage() {
 
       {/* Restock Modal */}
       {restockItem && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setRestockItem(null)}>
+        <div
+          className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+          onClick={() => setRestockItem(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="restock-title"
+          // Keyboard handling: Esc closes, Enter confirms. Mounted on the
+          // backdrop so it works regardless of which child has focus.
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.stopPropagation();
+              setRestockItem(null);
+            } else if (e.key === "Enter") {
+              e.stopPropagation();
+              restockBottle();
+            }
+          }}
+          tabIndex={-1}
+        >
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-1">{t("restock")} — {restockItem.name}</h3>
+            <h3 id="restock-title" className="text-lg font-bold text-gray-800 dark:text-white mb-1">{t("restock")} — {restockItem.name}</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
               {restockItem.bottle_size || 750}{restockItem.pour_unit || "ml"} {t("perBottle")} · {t("currently")} {Math.round(restockItem.quantity)} {restockItem.pour_unit || "ml"} {t("inStock")}
             </p>
             <div className="flex items-center justify-center gap-4 mb-4">
-              <button onClick={() => setRestockBottles(Math.max(1, restockBottles - 1))} className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-600 text-lg font-bold text-gray-700 dark:text-gray-200">-</button>
-              <span className="text-3xl font-bold text-gray-800 dark:text-white w-16 text-center">{restockBottles}</span>
-              <button onClick={() => setRestockBottles(restockBottles + 1)} className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-600 text-lg font-bold text-gray-700 dark:text-gray-200">+</button>
+              <button
+                onClick={() => setRestockBottles(Math.max(1, restockBottles - 1))}
+                aria-label={t("decreaseBottles") || "Decrease"}
+                className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-600 text-lg font-bold text-gray-700 dark:text-gray-200"
+              >-</button>
+              <span className="text-3xl font-bold text-gray-800 dark:text-white w-16 text-center" aria-live="polite">{restockBottles}</span>
+              <button
+                onClick={() => setRestockBottles(restockBottles + 1)}
+                aria-label={t("increaseBottles") || "Increase"}
+                className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-600 text-lg font-bold text-gray-700 dark:text-gray-200"
+              >+</button>
             </div>
             <p className="text-center text-sm text-gray-500 dark:text-gray-400 mb-4">
               {t("adding")} {restockBottles} {t("bottles")} = {(restockItem.bottle_size || 750) * restockBottles} {restockItem.pour_unit || "ml"}
             </p>
             <div className="flex gap-2">
               <button onClick={() => setRestockItem(null)} className="flex-1 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm text-gray-600 dark:text-gray-300">{t("cancel")}</button>
-              <button onClick={restockBottle} className="flex-1 py-2.5 bg-green-500 text-white rounded-xl font-semibold text-sm hover:bg-green-600">{t("add")} {restockBottles} {t("bottles")}</button>
+              <button
+                onClick={restockBottle}
+                autoFocus
+                className="flex-1 py-2.5 bg-green-500 text-white rounded-xl font-semibold text-sm hover:bg-green-600"
+              >{t("add")} {restockBottles} {t("bottles")}</button>
             </div>
           </div>
         </div>

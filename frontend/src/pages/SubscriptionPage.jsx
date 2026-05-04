@@ -136,7 +136,7 @@ export default function SubscriptionPage() {
       return;
     }
     if (tierId === "business") {
-      // Always route Business to sales conversation
+      // Always route Business to sales conversation (custom plan)
       const subject = encodeURIComponent("BonBox Business — questions");
       const body = encodeURIComponent(
         `Hi,\n\nI'd like to learn more about BonBox Business for my company.\n\nMy account email: ${user.email}\n\nThanks!`
@@ -144,16 +144,13 @@ export default function SubscriptionPage() {
       window.location.href = `mailto:hello@bonbox.dk?subject=${subject}&body=${body}`;
       return;
     }
-    // App Store compliance: when payment IS wired, native iOS/Android cannot
-    // process digital subscriptions outside Apple/Google billing without paying
-    // their cut. Until we wire IAP, on native we open the web subscription
-    // page in the system browser so the user upgrades via web (which is fine —
-    // no payment via in-app means no IAP requirement). For now (waitlist only,
-    // no payment), the same flow works seamlessly.
+    // ── Pro tier upgrade ──
+    // App Store compliance: native iOS cannot use Stripe for digital goods (Apple's
+    // 30% IAP rule). On native, we open the web subscription page in the system
+    // browser so the user completes payment via web. Backend ALSO blocks (defense
+    // in depth) — both layers must agree before a Stripe session is created.
     if (isNative && tierId === "pro") {
       try {
-        // Capacitor Browser plugin is preferred but not required — fall back
-        // to window.open which Capacitor routes to system browser by default.
         const url = "https://bonbox.dk/subscription";
         if (window.Capacitor?.Plugins?.Browser?.open) {
           await window.Capacitor.Plugins.Browser.open({ url });
@@ -162,9 +159,45 @@ export default function SubscriptionPage() {
         }
         return;
       } catch {
-        /* fall through to in-app waitlist */
+        /* fall through */
       }
     }
+
+    // Web flow — try real Stripe Checkout. If Stripe isn't configured server-side
+    // yet (early launch), fall back to the waitlist-join flow gracefully.
+    if (tierId === "pro" && billing?.stripe_configured) {
+      setPending(tierId);
+      setMsg("");
+      try {
+        const res = await api.post("/billing/stripe/checkout-session", {});
+        if (res.data?.url) {
+          // Already paid → portal URL was returned; otherwise checkout URL
+          if (res.data.already_subscribed) {
+            trackEvent("stripe_portal_opened", "subscription", "pro");
+          } else {
+            trackEvent("stripe_checkout_started", "subscription", "pro");
+          }
+          window.location.href = res.data.url;
+          return;
+        }
+        setMsg("Couldn't open checkout. Please try again.");
+      } catch (e) {
+        if (e?.response?.status === 403 && e.response.data?.redirect_to_web) {
+          // Backend says native iOS — open web (we may have missed isNative check)
+          window.open("https://bonbox.dk/subscription", "_blank");
+        } else if (e?.response?.status === 429) {
+          setMsg("Too many requests — please try again in a minute.");
+        } else {
+          setMsg(e?.response?.data?.detail || "Could not start checkout. Please try again.");
+        }
+      } finally {
+        setPending(null);
+      }
+      return;
+    }
+
+    // Fallback — Stripe not configured yet. Use the waitlist flow so we still
+    // capture intent. This is the temporary path until Stripe keys are live.
     if (joined.has(tierId)) {
       setMsg("You're already on the list — we'll be in touch when payment is ready.");
       setTimeout(() => setMsg(""), 4000);

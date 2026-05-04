@@ -44,6 +44,21 @@ export default function BookkeepingExportPage() {
         params: { start, end },
         responseType: "blob",
       });
+      // Defense: backend may legitimately return JSON in a 200 if it has an
+      // _error flag (e.g., empty range). Sniff the content-type before treating
+      // as a CSV download.
+      const ctype = res.headers?.["content-type"] || res.headers?.["Content-Type"] || "";
+      if (ctype.includes("application/json")) {
+        const text = await res.data.text();
+        try {
+          const json = JSON.parse(text);
+          setErr(json?.detail || "Export returned no data.");
+          return;
+        } catch (_) {
+          setErr("Unexpected response from the server.");
+          return;
+        }
+      }
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement("a");
       a.href = url;
@@ -56,7 +71,21 @@ export default function BookkeepingExportPage() {
       setMsg(`Exported! Now open ${currentFormat?.label || selected} and import the file.`);
       setTimeout(() => setMsg(""), 6000);
     } catch (e) {
-      setErr(e.response?.data?.detail || "Could not generate export — please try a different date range.");
+      // Backend now returns a structured 422 with detail when something fails
+      // mid-export. The response body is a Blob (because we asked for one),
+      // so read it as text to extract the helpful detail message.
+      let detail = "";
+      const blob = e?.response?.data;
+      if (blob && typeof blob.text === "function") {
+        try {
+          const text = await blob.text();
+          const json = JSON.parse(text);
+          detail = json?.detail || "";
+        } catch (_) {
+          detail = "";
+        }
+      }
+      setErr(detail || "Could not generate export — please try a different date range.");
     } finally {
       setDownloading(false);
     }
@@ -100,7 +129,7 @@ export default function BookkeepingExportPage() {
             <input
               type="date"
               value={start}
-              onChange={(e) => setStart(e.target.value)}
+              onChange={(e) => { setStart(e.target.value); setErr(""); setMsg(""); }}
               className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-sm text-gray-700 dark:text-gray-200"
             />
           </div>
@@ -109,7 +138,7 @@ export default function BookkeepingExportPage() {
             <input
               type="date"
               value={end}
-              onChange={(e) => setEnd(e.target.value)}
+              onChange={(e) => { setEnd(e.target.value); setErr(""); setMsg(""); }}
               className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-sm text-gray-700 dark:text-gray-200"
             />
           </div>
@@ -145,6 +174,10 @@ export default function BookkeepingExportPage() {
                 }
                 setStart(s.toISOString().slice(0, 10));
                 setEnd(e.toISOString().slice(0, 10));
+                // Clear stale error/success when user picks a new range so the
+                // previous "Could not generate export" doesn't linger.
+                setErr("");
+                setMsg("");
               }}
               className="px-3 py-1.5 text-xs font-medium rounded-full bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600"
             >

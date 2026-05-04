@@ -11,7 +11,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report
 from app.database import engine, Base
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -126,6 +126,24 @@ _migrations = [
     # 14-day Pro trial mechanics
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMP",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS plan VARCHAR(20) DEFAULT 'free'",
+    # Stripe subscription state — webhook is source-of-truth, never client-set
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(64)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR(64)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(32)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_period_end TIMESTAMP",
+    "CREATE INDEX IF NOT EXISTS ix_users_stripe_customer ON users (stripe_customer_id)",
+    "CREATE INDEX IF NOT EXISTS ix_users_stripe_subscription ON users (stripe_subscription_id)",
+    # Danish restaurant operations — Property Financial Report fields.
+    # Modeled on the Sticks'n'Sushi closing format: order channel, guest count,
+    # service charge, discount, and the void/error-correct ladder.
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS order_channel VARCHAR(20) DEFAULT 'dine_in'",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS guest_count INTEGER",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS service_charge_amount NUMERIC(12,2)",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(12,2)",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS is_void BOOLEAN DEFAULT false",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS is_manager_void BOOLEAN DEFAULT false",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS is_error_correct BOOLEAN DEFAULT false",
+    "CREATE INDEX IF NOT EXISTS ix_sale_user_channel ON sales (user_id, order_channel, date)",
     # Performance indexes for dashboard queries
     "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",
     "CREATE INDEX IF NOT EXISTS ix_sale_user_payment ON sales (user_id, payment_method, date)",
@@ -282,6 +300,19 @@ def _run_migrations():
             # Payment connections — auto-sync
             ok += _add("payment_connections", "auto_sync", "BOOLEAN DEFAULT 1")
             ok += _add("payment_connections", "last_auto_imported", "INTEGER DEFAULT 0")
+            # Stripe subscription state (mirrors PG migrations)
+            ok += _add("users", "stripe_customer_id", "VARCHAR(64)")
+            ok += _add("users", "stripe_subscription_id", "VARCHAR(64)")
+            ok += _add("users", "subscription_status", "VARCHAR(32)")
+            ok += _add("users", "subscription_period_end", "TIMESTAMP")
+            # Danish restaurant ops (mirrors PG migrations above)
+            ok += _add("sales", "order_channel", "VARCHAR(20) DEFAULT 'dine_in'")
+            ok += _add("sales", "guest_count", "INTEGER")
+            ok += _add("sales", "service_charge_amount", "NUMERIC(12,2)")
+            ok += _add("sales", "discount_amount", "NUMERIC(12,2)")
+            ok += _add("sales", "is_void", "BOOLEAN DEFAULT 0")
+            ok += _add("sales", "is_manager_void", "BOOLEAN DEFAULT 0")
+            ok += _add("sales", "is_error_correct", "BOOLEAN DEFAULT 0")
             # Branch-based bookkeeping
             ok += _add("sales", "branch_id", "VARCHAR(36)")
             ok += _add("expenses", "branch_id", "VARCHAR(36)")
@@ -418,6 +449,85 @@ app = FastAPI(
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+# --- Multi-layer defense: global exception handler ---
+# Last line of defense. If a router raises an unhandled exception, this catches
+# it and returns a clean JSON error instead of crashing the worker (which Render
+# turns into a 503). The actual stack trace is logged so we can debug, but the
+# user gets a helpful message and the rest of the app keeps working.
+#
+# Defense in depth: even if a router forgets its try/except, the global handler
+# still gives the client a proper response. One layer breaks → next catches it.
+#
+# Security: the response body NEVER includes query strings (which can hold PII
+# like start/end dates, customer IDs) or auth tokens. We strip the path to its
+# route template only, and never echo body contents back.
+import logging
+import time as _time
+import traceback as _tb
+_security_logger = logging.getLogger("bonbox.security")
+_error_logger = logging.getLogger("bonbox.errors")
+
+# Track repeat-exception fingerprints per IP so we can audit-log spikes that
+# suggest probing/scanning rather than honest bugs.
+_recent_exception_fingerprints: dict[str, list[float]] = {}
+_EXCEPTION_FINGERPRINT_WINDOW = 60  # seconds
+_EXCEPTION_SPIKE_THRESHOLD = 10  # exceptions/min from one IP triggers audit log
+
+
+def _audit_exception_spike(ip: str, fingerprint: str):
+    """Record an audit event when one IP keeps triggering exceptions —
+    likely a scanner. Cheap in-memory check, doesn't block legit traffic.
+    """
+    if not ip:
+        return
+    now = _time.time()
+    cutoff = now - _EXCEPTION_FINGERPRINT_WINDOW
+    bucket = _recent_exception_fingerprints.setdefault(ip, [])
+    bucket[:] = [t for t in bucket if t > cutoff]
+    bucket.append(now)
+    if len(bucket) >= _EXCEPTION_SPIKE_THRESHOLD:
+        _security_logger.warning(
+            "exception_spike: ip=%s count=%d fingerprint=%s",
+            ip, len(bucket), fingerprint,
+        )
+        bucket.clear()  # reset so we don't spam the same alert
+
+
+@app.exception_handler(Exception)
+async def _global_exception_handler(request: Request, exc: Exception):
+    """Catch-all so an uncaught backend bug never returns 503.
+
+    Logs the full stack trace for diagnosis, but returns a safe shape to the
+    client so the frontend can render a graceful error banner.
+    """
+    path = request.url.path
+    # Don't log stack traces for client-cancelled requests
+    if exc.__class__.__name__ in ("ClientDisconnect", "CancelledError"):
+        return JSONResponse(status_code=499, content={"detail": "Client disconnected"})
+    # Log details server-side, but be careful not to leak query params / body
+    # into the response (those may contain dates / IDs / etc.).
+    _error_logger.exception(
+        "Unhandled exception in %s %s: %s",
+        request.method, path, exc,
+    )
+    # Audit spike detection: many exceptions from same IP looks like probing
+    try:
+        ip = request.client.host if request.client else ""
+        _audit_exception_spike(ip, f"{request.method}:{path}:{type(exc).__name__}")
+    except Exception:
+        pass
+    # Don't leak stack traces in prod. Dev gets the trace for debugging.
+    body = {
+        "detail": "Something went wrong on our side. Please try again.",
+        "_error": True,
+        "_recoverable": True,
+    }
+    if not is_prod:
+        body["debug_trace"] = _tb.format_exc()
+        body["path"] = path  # only in dev; prod hides path to avoid recon
+    return JSONResponse(status_code=500, content=body)
 
 
 # --- DB init in background thread with readiness gate ---
@@ -602,6 +712,9 @@ app.include_router(exports.router, prefix="/api/exports", tags=["Bookkeeping Exp
 app.include_router(waitlist.router, prefix="/api/waitlist", tags=["Waitlist"])
 # Billing / trial state — read-only, no payment processing yet
 app.include_router(billing.router, prefix="/api/billing", tags=["Billing"])
+# Property Financial Report — Danish-restaurant daily close in the format
+# Aloha / Restwave / Pos+ users already recognize. Sales conversation hook.
+app.include_router(property_report.router, prefix="/api/property-report", tags=["PropertyReport"])
 # /admin/* — guarded by 6-layer require_super_admin (see services/admin_security.py).
 # Mounted last so any earlier router can't accidentally shadow these paths.
 app.include_router(admin.router, prefix="/api/admin", tags=["Super Admin"])

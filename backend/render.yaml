@@ -12,3 +12,37 @@ services:
         generateValue: true
       - key: FRONTEND_URL
         sync: false
+      # Owner contact — receives new-signup notifications + ops alerts.
+      # In Render: set this to iside653@gmail.com (or whichever Manoj checks).
+      - key: ADMIN_EMAIL
+        sync: false
+      # Comma-separated allowlist of emails that may reach /api/admin/*.
+      # Defense-in-depth: the user must ALSO have role='super_admin' in DB.
+      - key: SUPER_ADMIN_EMAILS
+        sync: false
+      # AI / vision (Claude wine scanner, agent, sommelier)
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: USE_CLAUDE_API
+        value: "true"
+      # Optional integrations — can be left blank in early deploy
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_PLACES_API_KEY
+        sync: false
+      - key: COMPANIES_HOUSE_API_KEY
+        sync: false
+      # Production marker so security headers + log filtering activate
+      - key: ENVIRONMENT
+        value: production
+      # ── Stripe subscription billing ──
+      # Get these from Stripe dashboard → Developers → API keys + Products + Webhooks.
+      # Live keys (sk_live_…) live ONLY in Render env vars — never in git.
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_PUBLISHABLE_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_ID_PRO
+        sync: false

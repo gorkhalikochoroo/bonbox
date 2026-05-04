@@ -40,6 +40,17 @@ class User(Base):
     #     payments are wired, the upgrade flow flips this to "pro".
     trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     plan: Mapped[str] = mapped_column(String(20), default="free")
+    # Stripe subscription state — source-of-truth for paid plan is the webhook.
+    # Code never trusts a client-side claim about plan; plan only flips to
+    # "pro"/"business" when Stripe sends customer.subscription.updated and we
+    # verify the webhook signature.
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    stripe_subscription_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # Stripe subscription status (mirrors Stripe's enum):
+    #   active | trialing | past_due | canceled | unpaid | incomplete | None
+    subscription_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Period end of the active subscription — for "renews on" display.
+    subscription_period_end: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     owner_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True)  # NULL for owners
     reset_token: Mapped[str | None] = mapped_column(String(100), nullable=True)
     reset_token_expires: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

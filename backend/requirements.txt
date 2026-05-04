@@ -21,3 +21,5 @@ httpx>=0.27.0
 google-auth>=2.0.0
 anthropic>=0.39.0
 python-dateutil>=2.8.0
+# Stripe subscription billing — webhook signature verification + checkout sessions
+stripe>=11.0.0

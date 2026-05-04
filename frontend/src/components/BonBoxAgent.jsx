@@ -386,8 +386,10 @@ export default function BonBoxAgent() {
               );
             })()}
 
-            {/* suggestion chips below welcome — larger & animated */}
-            {msg.isWelcome && (
+            {/* suggestion chips below welcome — larger & animated.
+                Hidden once the user has sent any message so they don't take
+                screen space on a populated conversation. */}
+            {msg.isWelcome && messages.length <= 1 && (
               <div className="flex flex-wrap gap-2.5 mt-4">
                 {getQuickSuggestions().map((q, qi) => (
                   <button
@@ -416,7 +418,8 @@ export default function BonBoxAgent() {
         </div>
       );
     },
-    [renderDataCard, handleSuggestion, isStreaming]
+    // messages.length included so welcome-pills hide after first user message
+    [renderDataCard, handleSuggestion, isStreaming, messages.length]
   );
 
   /* ================================================================ */
@@ -510,7 +513,7 @@ export default function BonBoxAgent() {
           onClick={handleOpen}
           aria-label="Open BonBox AI Assistant"
           className="
-            fixed bottom-20 md:bottom-6 right-6 z-[9999]
+            fixed md:bottom-6 right-6 z-[9999]
             w-14 h-14 rounded-full
             bg-gradient-to-br from-green-500 to-emerald-600
             flex items-center justify-center
@@ -518,7 +521,11 @@ export default function BonBoxAgent() {
             transition-transform duration-300 ease-out
             hover:scale-110 active:scale-95
           "
+          // Inline `bottom` keeps FAB clear of the bottom nav + iOS home
+          // indicator (env(safe-area-inset-bottom)). Without this, FAB sits
+          // behind the nav on devices with a home indicator.
           style={{
+            bottom: "calc(5rem + env(safe-area-inset-bottom, 0px))",
             animation: "orbPulse 3s ease-in-out infinite, orbFloat 4s ease-in-out infinite",
           }}
         >

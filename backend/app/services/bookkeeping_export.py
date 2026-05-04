@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 from datetime import date
 from typing import Iterable
 
@@ -30,6 +31,8 @@ from sqlalchemy.orm import Session
 from app.models.expense import Expense, ExpenseCategory
 from app.models.sale import Sale
 from app.models.user import User
+
+log = logging.getLogger("bonbox.bookkeeping_export")
 
 
 # ───────── helpers ─────────
@@ -56,38 +59,82 @@ def _money_dot(amount) -> str:
 
 
 def _query_sales(user: User, db: Session, start: date, end: date) -> list[Sale]:
-    return (
-        db.query(Sale)
-        .filter(
-            Sale.user_id == user.id,
-            Sale.date >= start,
-            Sale.date <= end,
-            Sale.is_deleted == False,  # noqa: E712
-            Sale.status != "returned",
+    """Inner-layer query — wraps in try so the exporter can decide what to do."""
+    try:
+        return (
+            db.query(Sale)
+            .filter(
+                Sale.user_id == user.id,
+                Sale.date >= start,
+                Sale.date <= end,
+                Sale.is_deleted == False,  # noqa: E712
+                Sale.status != "returned",
+            )
+            .order_by(Sale.date.asc())
+            .all()
         )
-        .order_by(Sale.date.asc())
-        .all()
-    )
+    except Exception as e:
+        # If the status column doesn't exist yet on a stale DB, fall back to the
+        # is_deleted-only filter rather than 503'ing the export.
+        log.warning("bookkeeping_export: sales query with status filter failed (%s); retrying without status", e)
+        try:
+            return (
+                db.query(Sale)
+                .filter(
+                    Sale.user_id == user.id,
+                    Sale.date >= start,
+                    Sale.date <= end,
+                    Sale.is_deleted == False,  # noqa: E712
+                )
+                .order_by(Sale.date.asc())
+                .all()
+            )
+        except Exception as e2:
+            log.exception("bookkeeping_export: sales fallback query also failed: %s", e2)
+            return []
 
 
 def _query_expenses(user: User, db: Session, start: date, end: date) -> list[Expense]:
-    return (
-        db.query(Expense)
-        .filter(
-            Expense.user_id == user.id,
-            Expense.date >= start,
-            Expense.date <= end,
-            Expense.is_deleted == False,  # noqa: E712
-            Expense.is_personal == False,  # noqa: E712
+    """Inner-layer query — graceful fallback for missing is_personal column."""
+    try:
+        return (
+            db.query(Expense)
+            .filter(
+                Expense.user_id == user.id,
+                Expense.date >= start,
+                Expense.date <= end,
+                Expense.is_deleted == False,  # noqa: E712
+                Expense.is_personal == False,  # noqa: E712
+            )
+            .order_by(Expense.date.asc())
+            .all()
         )
-        .order_by(Expense.date.asc())
-        .all()
-    )
+    except Exception as e:
+        log.warning("bookkeeping_export: expense query with is_personal filter failed (%s); retrying without", e)
+        try:
+            return (
+                db.query(Expense)
+                .filter(
+                    Expense.user_id == user.id,
+                    Expense.date >= start,
+                    Expense.date <= end,
+                    Expense.is_deleted == False,  # noqa: E712
+                )
+                .order_by(Expense.date.asc())
+                .all()
+            )
+        except Exception as e2:
+            log.exception("bookkeeping_export: expense fallback query also failed: %s", e2)
+            return []
 
 
 def _category_lookup(user: User, db: Session) -> dict:
-    rows = db.query(ExpenseCategory).filter(ExpenseCategory.user_id == user.id).all()
-    return {str(r.id): r.name for r in rows}
+    try:
+        rows = db.query(ExpenseCategory).filter(ExpenseCategory.user_id == user.id).all()
+        return {str(r.id): r.name for r in rows}
+    except Exception as e:
+        log.warning("bookkeeping_export: category lookup failed: %s", e)
+        return {}
 
 
 # ───────── DINERO ─────────

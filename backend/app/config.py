@@ -36,6 +36,18 @@ class Settings(BaseSettings):
     ADMIN_LOCKOUT_COOLDOWN_MIN: int = 15
     USE_CLAUDE_API: bool = False  # Enable full Claude AI mode (requires ANTHROPIC_API_KEY)
     ENVIRONMENT: str = "development"  # "production" in deployed env
+    # ── Stripe subscription billing ──
+    # Live keys go in Render env vars (sync: false). Test keys can go in .env
+    # for local dev. The webhook secret is per-endpoint (Stripe gives a unique
+    # signing secret to verify requests really came from Stripe).
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_PUBLISHABLE_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+    STRIPE_PRICE_ID_PRO: str = ""        # 139 kr/mo Pro tier
+    STRIPE_PRICE_ID_BUSINESS: str = ""   # Future: Business tier
+    # URL Stripe sends user back to after checkout. We use the frontend URL.
+    STRIPE_SUCCESS_URL: str = ""  # default = FRONTEND_URL + /subscription?success=1
+    STRIPE_CANCEL_URL: str = ""   # default = FRONTEND_URL + /subscription?canceled=1
 
     class Config:
         env_file = _ENV_FILE

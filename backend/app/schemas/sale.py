@@ -3,6 +3,30 @@ import datetime
 from pydantic import BaseModel, field_validator
 
 
+# Channel synonym map — accept Aloha/Restwave/Pos+ wording from CSV imports etc.
+_CHANNEL_SYNONYMS = {
+    "restaurant": "dine_in",
+    "in_house": "dine_in",
+    "ta_pickup": "takeaway",
+    "ta": "takeaway",
+    "pickup": "takeaway",
+    "wolt_del": "wolt",
+    "wolt_delivery": "wolt",
+    "justeat": "just_eat",
+    "online": "web",
+    "webcloseorder": "web",
+    "web_close_order": "web",
+    "web_prepaid": "web",
+}
+
+
+def _normalize_channel(v):
+    if not isinstance(v, str):
+        return "dine_in"
+    v = v.strip().lower().replace("-", "_").replace(" ", "_")
+    return _CHANNEL_SYNONYMS.get(v, v) or "dine_in"
+
+
 class SaleCreate(BaseModel):
     date: datetime.date
     amount: float | None = None  # optional for item sales (auto-calculated)
@@ -13,6 +37,16 @@ class SaleCreate(BaseModel):
     inventory_item_id: uuid.UUID | None = None
     quantity_sold: float | None = None
     unit_price: float | None = None
+    # ── Danish restaurant ops (Property Financial Report fields) ──
+    # All optional with safe defaults so non-restaurant flows are unaffected.
+    order_channel: str = "dine_in"  # dine_in|takeaway|wolt|just_eat|web|phone|catering|other
+    guest_count: int | None = None
+    service_charge_amount: float | None = None
+    discount_amount: float | None = None
+    # Operational exceptions — typically only flipped via admin/edit flow
+    is_void: bool = False
+    is_manager_void: bool = False
+    is_error_correct: bool = False
 
     @field_validator("payment_method", mode="before")
     @classmethod
@@ -20,6 +54,11 @@ class SaleCreate(BaseModel):
         if isinstance(v, str) and v.lower() == "kontant":
             return "cash"
         return v
+
+    @field_validator("order_channel", mode="before")
+    @classmethod
+    def normalize_channel(cls, v):
+        return _normalize_channel(v)
 
 
 class SaleUpdate(BaseModel):
@@ -28,6 +67,14 @@ class SaleUpdate(BaseModel):
     payment_method: str | None = None
     notes: str | None = None
     is_tax_exempt: bool | None = None
+    # Restaurant ops fields — all optional on update
+    order_channel: str | None = None
+    guest_count: int | None = None
+    service_charge_amount: float | None = None
+    discount_amount: float | None = None
+    is_void: bool | None = None
+    is_manager_void: bool | None = None
+    is_error_correct: bool | None = None
 
     @field_validator("payment_method", mode="before")
     @classmethod
@@ -35,6 +82,13 @@ class SaleUpdate(BaseModel):
         if isinstance(v, str) and v.lower() == "kontant":
             return "cash"
         return v
+
+    @field_validator("order_channel", mode="before")
+    @classmethod
+    def normalize_channel(cls, v):
+        if v is None:
+            return None
+        return _normalize_channel(v)
 
 
 class SaleReturnRequest(BaseModel):
@@ -65,5 +119,13 @@ class SaleResponse(BaseModel):
     return_action: str | None = None
     return_amount: float | None = None
     returned_at: datetime.datetime | None = None
+    # Restaurant ops fields
+    order_channel: str = "dine_in"
+    guest_count: int | None = None
+    service_charge_amount: float | None = None
+    discount_amount: float | None = None
+    is_void: bool = False
+    is_manager_void: bool = False
+    is_error_correct: bool = False
 
     model_config = {"from_attributes": True}

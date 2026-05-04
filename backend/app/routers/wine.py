@@ -549,22 +549,168 @@ def export_wine_pdf(
 
 # ── Scan Bottle Label (Claude Vision) ───────────────────────
 
+# ─── Wine label scanner ────────────────────────────────────────────────
+# The scanner had accuracy issues — model guessed when fields weren't visible
+# and sometimes returned tasting notes for the wrong wine. Fix by:
+#   1) Anti-hallucination prompt: explicit "use null when not visible"
+#   2) Reading ALL visible text first, then mapping to schema
+#   3) Strict JSON validation with field-level fallbacks (never propagate junk)
+#   4) Wine-type allow-list (typo-tolerant)
+#   5) Vintage range sanity (1900..current_year+1)
+#   6) Extended model output budget so longer labels aren't truncated mid-JSON
+
+_VALID_WINE_TYPES = {"red", "white", "rosé", "rose", "sparkling", "natural", "dessert", "orange", "fortified"}
+
+
+def _normalize_wine_type(value):
+    """Normalize wine_type to one of our enum values; default to 'red' if junk."""
+    if not value or not isinstance(value, str):
+        return None
+    v = value.strip().lower()
+    # Common synonyms
+    if v in {"rose", "rosé", "rosado", "rosato"}:
+        return "rosé"
+    if v in {"red", "rouge", "tinto", "rosso", "rot"}:
+        return "red"
+    if v in {"white", "blanc", "bianco", "blanco", "weiss", "weiß"}:
+        return "white"
+    if v in {"sparkling", "spumante", "champagne", "cava", "prosecco", "crémant"}:
+        return "sparkling"
+    if v in {"orange", "amber", "skin-contact"}:
+        return "orange"
+    if v in {"natural", "natty"}:
+        return "natural"
+    if v in {"dessert", "sweet", "passito", "ice wine", "icewine"}:
+        return "dessert"
+    if v in {"fortified", "port", "porto", "sherry", "madeira"}:
+        return "fortified"
+    return v if v in _VALID_WINE_TYPES else None
+
+
+def _validate_scan_output(raw: dict) -> dict:
+    """Sanitize the LLM JSON: clamp fields, drop hallucinations, enforce shape.
+
+    Never raises. Returns a dict with the same keys as the prompt schema, with
+    invalid fields coerced to null/sensible defaults. This is the multi-layer
+    defense — even if the LLM goes off-schema, the frontend gets a clean object.
+    """
+    from datetime import date as _date
+    out = {
+        "name": None,
+        "winery": None,
+        "vintage": None,
+        "grape_variety": None,
+        "region": None,
+        "country": None,
+        "wine_type": None,
+        "tasting_notes": None,
+        "food_pairing": None,
+    }
+    if not isinstance(raw, dict):
+        return out
+
+    def _clean_str(v, max_len=200):
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            v = str(v)
+        v = v.strip()
+        # Strip common LLM garbage signals
+        if v.lower() in {"", "null", "none", "n/a", "unknown", "not visible", "not specified"}:
+            return None
+        # Truncate to keep DB rows sane
+        return v[:max_len] if len(v) > max_len else v
+
+    out["name"] = _clean_str(raw.get("name"))
+    out["winery"] = _clean_str(raw.get("winery"))
+    out["grape_variety"] = _clean_str(raw.get("grape_variety"))
+    out["region"] = _clean_str(raw.get("region"))
+    out["country"] = _clean_str(raw.get("country"))
+    out["tasting_notes"] = _clean_str(raw.get("tasting_notes"), max_len=400)
+    out["food_pairing"] = _clean_str(raw.get("food_pairing"), max_len=300)
+    out["wine_type"] = _normalize_wine_type(raw.get("wine_type"))
+
+    # Vintage: int between 1900 and current_year+1 (futures sometimes labelled
+    # ahead). Anything else becomes None — never propagate a bogus year.
+    v_raw = raw.get("vintage")
+    try:
+        if v_raw is not None and v_raw != "":
+            v_int = int(v_raw) if not isinstance(v_raw, int) else v_raw
+            this_year = _date.today().year
+            if 1900 <= v_int <= this_year + 1:
+                out["vintage"] = v_int
+    except (TypeError, ValueError):
+        pass
+
+    return out
+
+
+_WINE_SCAN_PROMPT = (
+    "You are a wine catalog assistant for a restaurant POS. Look at this wine "
+    "bottle label and extract structured data.\n\n"
+    "Step 1: Read EVERY piece of text visible on the label — back AND front if shown.\n"
+    "Step 2: Map what you read to the fields below. Do not guess. If a field is "
+    "not clearly visible on the label, return null for that field.\n\n"
+    "Critical rules to avoid wrong information:\n"
+    "  • Never guess the vintage. If no year is printed, return vintage: null.\n"
+    "  • Never invent a winery. If you can't identify the producer, return null.\n"
+    "  • Never claim a region or country unless it is printed on the label.\n"
+    "  • Tasting notes must be neutral and based ONLY on what the label states "
+    "(e.g., 'Cabernet Sauvignon from Bordeaux'). Do not invent flavors that aren't "
+    "implied by the label.\n"
+    "  • If the bottle is not a wine (e.g., spirits, beer, water), return all-null.\n"
+    "  • For grape_variety, prefer the exact wording on the label (e.g., 'Sangiovese' "
+    "not 'Italian red').\n"
+    "  • For wine_type use exactly one of: red | white | rosé | sparkling | natural | "
+    "dessert | orange | fortified.\n\n"
+    "Return ONLY this JSON, no markdown, no explanation:\n"
+    "{\n"
+    '  "name": string|null,\n'
+    '  "winery": string|null,\n'
+    '  "vintage": integer|null,\n'
+    '  "grape_variety": string|null,\n'
+    '  "region": string|null,\n'
+    '  "country": string|null,\n'
+    '  "wine_type": "red"|"white"|"rosé"|"sparkling"|"natural"|"dessert"|"orange"|"fortified"|null,\n'
+    '  "tasting_notes": string|null (1 short sentence, factual),\n'
+    '  "food_pairing": string|null (2-3 dishes, comma-separated)\n'
+    "}"
+)
+
+
 @router.post("/scan")
 async def scan_bottle_label(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
 ):
-    """Upload a photo of a wine label → Claude Vision extracts details."""
+    """Upload a photo of a wine label → Claude Vision extracts details.
+
+    Multi-layer defense:
+      1) File size + type validation
+      2) Try/except around the Anthropic call
+      3) Strict JSON parsing with markdown-block tolerance
+      4) _validate_scan_output() coerces every field to a safe value
+      5) On failure: structured error JSON (frontend shows the SoftErrorBanner)
+    """
     if not settings.ANTHROPIC_API_KEY:
         raise HTTPException(400, "AI scanning not configured — add wine manually")
 
+    # Layer 1 — input validation
     image_data = await file.read()
     if len(image_data) > 10 * 1024 * 1024:
         raise HTTPException(400, "Image too large (max 10 MB)")
+    if len(image_data) < 1024:
+        # < 1 KB = almost certainly not a real photo
+        raise HTTPException(400, "Image too small — try a clearer photo")
+
+    media_type = file.content_type or "image/jpeg"
+    if media_type not in {"image/jpeg", "image/png", "image/webp", "image/gif"}:
+        # Anthropic vision accepts these; reject others before the upload round-trip
+        raise HTTPException(400, "Unsupported image format — use JPEG, PNG, or WebP")
 
     b64 = base64.b64encode(image_data).decode()
-    media_type = file.content_type or "image/jpeg"
 
+    raw_text = ""
     try:
         import httpx
 
@@ -578,7 +724,9 @@ async def scan_bottle_label(
             },
             json={
                 "model": "claude-sonnet-4-20250514",
-                "max_tokens": 800,
+                "max_tokens": 1200,  # bumped from 800 — long labels were truncating mid-JSON
+                # Lower temp for deterministic, factual extraction (no creative guesses)
+                "temperature": 0.1,
                 "messages": [{
                     "role": "user",
                     "content": [
@@ -586,18 +734,7 @@ async def scan_bottle_label(
                             "type": "image",
                             "source": {"type": "base64", "media_type": media_type, "data": b64},
                         },
-                        {
-                            "type": "text",
-                            "text": (
-                                "This is a photo of a wine bottle label. Extract the following as JSON:\n"
-                                '{"name": "wine name", "winery": "producer/winery", "vintage": year_int_or_null, '
-                                '"grape_variety": "grape(s)", "region": "wine region", "country": "country", '
-                                '"wine_type": "red|white|rosé|sparkling|natural|dessert|orange", '
-                                '"tasting_notes": "brief 1-sentence tasting note", '
-                                '"food_pairing": "2-3 food suggestions"}\n'
-                                "Return ONLY the JSON object, no explanation."
-                            ),
-                        },
+                        {"type": "text", "text": _WINE_SCAN_PROMPT},
                     ],
                 }],
             },
@@ -605,22 +742,63 @@ async def scan_bottle_label(
         )
 
         if resp.status_code != 200:
-            return {"success": False, "error": f"Anthropic API {resp.status_code}: {resp.text[:200]}", "v": "v4"}
+            logger.warning("Anthropic API non-200: %d %s", resp.status_code, resp.text[:200])
+            return {
+                "success": False,
+                "error": "AI service is busy. Please try again in a moment.",
+                "_recoverable": True,
+            }
 
-        raw = resp.json()["content"][0]["text"].strip()
-        # Extract JSON from response (handle markdown code blocks)
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-        result = json.loads(raw)
-        return {"success": True, "data": result}
+        try:
+            raw_text = resp.json()["content"][0]["text"].strip()
+        except (KeyError, IndexError, ValueError) as e:
+            logger.warning("Anthropic response shape unexpected: %s", e)
+            return {
+                "success": False,
+                "error": "AI returned an unexpected response. Please try again.",
+                "_recoverable": True,
+            }
 
-    except json.JSONDecodeError:
-        logger.warning("Claude returned non-JSON for wine scan: %s", raw[:200])
-        return {"success": False, "error": "Could not parse label — try a clearer photo", "raw": raw[:200]}
+        # Strip markdown code fences if present
+        if raw_text.startswith("```"):
+            raw_text = raw_text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+
+        try:
+            parsed = json.loads(raw_text)
+        except json.JSONDecodeError:
+            logger.warning("Claude returned non-JSON for wine scan: %s", raw_text[:200])
+            return {
+                "success": False,
+                "error": "Could not read the label clearly. Try a sharper, well-lit photo of the front of the bottle.",
+                "_recoverable": True,
+            }
+
+        # Layer 4 — sanitize and clamp fields. Even if Claude returns junk for
+        # one field, the rest survive.
+        validated = _validate_scan_output(parsed)
+
+        # Detection: if all fields are null, it almost certainly wasn't a wine
+        # bottle (or photo was unreadable). Tell the user explicitly.
+        non_null = sum(1 for v in validated.values() if v not in (None, ""))
+        if non_null == 0:
+            return {
+                "success": False,
+                "error": (
+                    "Couldn't identify a wine on this label. "
+                    "Make sure the front label is fully visible and try again."
+                ),
+                "_recoverable": True,
+            }
+
+        return {"success": True, "data": validated}
+
     except Exception as e:
-        key_len = len(settings.ANTHROPIC_API_KEY)
-        logger.exception("Wine scan error (key=%d chars)", key_len)
-        return {"success": False, "error": str(e), "key_len": key_len, "v": "v3"}
+        logger.exception("Wine scan unexpected error")
+        return {
+            "success": False,
+            "error": "Wine scan failed. Try again or add the wine manually.",
+            "_recoverable": True,
+        }
 
 
 # ── Public Customer Wine Menu (no auth) ─────────────────────

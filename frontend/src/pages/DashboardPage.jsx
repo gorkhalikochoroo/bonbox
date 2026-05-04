@@ -617,8 +617,11 @@ function AlertsPanel({ actionItems, summary, weekComparison, onNavigate }) {
    P&L SUMMARY — compact profit/loss card
    ═══════════════════════════════════════════════════════════ */
 
-function PLCard({ revenue, expenses, profit, margin, currency, onNavigate }) {
+function PLCard({ revenue, expenses, profit, margin, currency, onNavigate, loading }) {
   const isProfit = profit >= 0;
+  // Show "…" placeholder while data loads so we don't briefly render -0 DKK
+  // (which the QA flagged — looked broken even though it was just a render race).
+  const placeholder = <span className="opacity-30">…</span>;
   return (
     <div
       onClick={onNavigate}
@@ -630,21 +633,21 @@ function PLCard({ revenue, expenses, profit, margin, currency, onNavigate }) {
       <div className="border-b border-gray-100 dark:border-gray-700 pb-3 mb-3 space-y-2">
         <div className="flex justify-between">
           <span className="text-sm text-gray-500 dark:text-gray-400">Revenue</span>
-          <span className="text-sm font-semibold text-green-600 dark:text-green-400">+{revenue.toLocaleString()} {currency}</span>
+          <span className="text-sm font-semibold text-green-600 dark:text-green-400">{loading ? placeholder : `+${revenue.toLocaleString()} ${currency}`}</span>
         </div>
         <div className="flex justify-between">
           <span className="text-sm text-gray-500 dark:text-gray-400">Expenses</span>
-          <span className="text-sm font-semibold text-red-500 dark:text-red-400">-{expenses.toLocaleString()} {currency}</span>
+          <span className="text-sm font-semibold text-red-500 dark:text-red-400">{loading ? placeholder : `-${expenses.toLocaleString()} ${currency}`}</span>
         </div>
       </div>
 
       <div className="flex justify-between items-baseline">
         <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Net Profit</span>
         <div className="text-right">
-          <p className={`text-xl font-bold ${isProfit ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400"}`}>
-            {isProfit ? "+" : ""}{profit.toLocaleString()} {currency}
+          <p className={`text-xl font-bold ${loading ? "text-gray-400" : (isProfit ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400")}`}>
+            {loading ? placeholder : `${isProfit ? "+" : ""}${profit.toLocaleString()} ${currency}`}
           </p>
-          <p className="text-xs text-gray-400">Margin: {margin}%</p>
+          <p className="text-xs text-gray-400">{loading ? " " : `Margin: ${margin}%`}</p>
         </div>
       </div>
 
@@ -1421,7 +1424,7 @@ export default function DashboardPage() {
             <ForecastWeatherStaffing forecast={forecast} weather={weather} staffing={staffing} currency={currency} onNavigate={() => navigate("/weather")} />
           </StaggerGridItem>
           <StaggerGridItem>
-            <PLCard revenue={revenue} expenses={expenses} profit={profit} margin={marginPct} currency={currency} onNavigate={() => navigate("/reports")} />
+            <PLCard revenue={revenue} expenses={expenses} profit={profit} margin={marginPct} currency={currency} loading={dashLoading} onNavigate={() => navigate("/reports")} />
           </StaggerGridItem>
         </StaggerGrid>
 

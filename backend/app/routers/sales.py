@@ -1,10 +1,12 @@
 import csv
 import io
+import logging
 import os
 import uuid
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -16,6 +18,8 @@ from app.database import get_db
 from app.models.user import User
 from app.models.sale import Sale
 from app.models.inventory import InventoryItem, InventoryLog
+
+log = logging.getLogger("bonbox.sales")
 from app.schemas.sale import SaleCreate, SaleUpdate, SaleResponse, SaleReturnRequest
 from app.services.auth import get_current_user
 from app.services.receipt_ocr import extract_amount_from_image, save_receipt_photo
@@ -356,10 +360,19 @@ def returns_summary(
 async def import_csv(
     request: Request,
     file: UploadFile = File(...),
+    dry_run: bool = False,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Import sales from CSV. Expects columns: date, amount, payment_method (optional)."""
+    """Import sales from CSV. Expects columns: date, amount, payment_method (optional).
+
+    Multi-layer defense:
+      • dry_run=true → parse + validate but do NOT commit. Used by the frontend
+        to render a preview before the user confirms.
+      • Returns imported_ids → the frontend can offer an "Undo last import"
+        button that calls /import-csv/rollback within 5 minutes.
+      • Per-row try/except so one malformed row doesn't drop the whole batch.
+    """
     # Validate file type
     if file.content_type not in ("text/csv", "application/vnd.ms-excel", "text/plain"):
         raise HTTPException(status_code=400, detail="Invalid file type. Please upload a CSV file.")
@@ -369,37 +382,169 @@ async def import_csv(
     # Validate file size
     if len(content) > MAX_CSV_SIZE:
         raise HTTPException(status_code=413, detail="CSV too large. Maximum size is 2 MB.")
-    text = content.decode("utf-8-sig")  # handles BOM from Excel
+    try:
+        text = content.decode("utf-8-sig")  # handles BOM from Excel
+    except UnicodeDecodeError:
+        # Fall back to latin-1 for legacy CSVs from Danish accounting tools
+        try:
+            text = content.decode("latin-1")
+        except Exception:
+            raise HTTPException(status_code=400, detail="Could not read CSV — please save as UTF-8.")
     reader = csv.DictReader(io.StringIO(text))
 
     # Normalize column names (lowercase, strip whitespace)
     imported = 0
     errors = []
+    preview_rows = []
+    pending_sales = []  # (Sale instance, row_num) — added to DB only on commit
+
     for i, row in enumerate(reader, start=2):
         row = {k.strip().lower(): v.strip() for k, v in row.items() if k}
         try:
             sale_date = row.get("date", "")
-            amount = row.get("amount", "") or row.get("revenue", "") or row.get("total", "")
+            amount_raw = row.get("amount", "") or row.get("revenue", "") or row.get("total", "")
             method = row.get("payment_method", "") or row.get("payment", "") or "mixed"
 
-            if not sale_date or not amount:
+            if not sale_date or not amount_raw:
                 errors.append(f"Row {i}: missing date or amount")
                 continue
 
+            # Parse date defensively — handle DD/MM/YYYY too (Danish CSVs)
+            try:
+                parsed_date = date.fromisoformat(sale_date)
+            except ValueError:
+                # Try DD/MM/YYYY
+                try:
+                    parts = sale_date.split("/")
+                    if len(parts) == 3 and len(parts[2]) == 4:
+                        parsed_date = date(int(parts[2]), int(parts[1]), int(parts[0]))
+                    else:
+                        raise ValueError("bad date")
+                except Exception:
+                    errors.append(f"Row {i}: invalid date '{sale_date}' — use YYYY-MM-DD")
+                    continue
+
+            try:
+                amount_val = float(amount_raw.replace(",", "").replace(" ", ""))
+            except ValueError:
+                errors.append(f"Row {i}: invalid amount '{amount_raw}'")
+                continue
+            if amount_val <= 0:
+                errors.append(f"Row {i}: amount must be positive")
+                continue
+
+            normalized_method = method.lower() if method else "mixed"
+            # Allowed payment methods — extended for Danish restaurant operations:
+            #   • dankort_offline / mastercard_offline — offline-mode chip transactions
+            #   • wolt — delivery platform settles separately (commission deducted)
+            #   • web_prepaid — pre-paid online order (biggest channel for sushi/takeaway)
+            #   • gift_card — Danish "gavekort" with VAT timing rules
+            allowed = (
+                "cash", "card", "mobilepay", "mixed", "dankort", "kontant", "online",
+                "dankort_offline", "mastercard_offline", "visa", "mastercard",
+                "wolt", "web_prepaid", "gift_card", "just_eat",
+            )
+            if normalized_method not in allowed:
+                normalized_method = "mixed"
+
             sale = Sale(
                 user_id=user.id,
-                date=date.fromisoformat(sale_date),
-                amount=float(amount.replace(",", "")),
-                payment_method=method if method in ("cash", "card", "mobilepay", "mixed", "dankort", "kontant") else "mixed",
+                date=parsed_date,
+                amount=amount_val,
+                payment_method=normalized_method,
                 notes="CSV import",
             )
-            db.add(sale)
+            pending_sales.append(sale)
+            preview_rows.append({
+                "row": i,
+                "date": str(parsed_date),
+                "amount": amount_val,
+                "payment_method": normalized_method,
+            })
             imported += 1
         except Exception as e:
             errors.append(f"Row {i}: {str(e)}")
 
+    # Dry run: don't commit, just return the preview
+    if dry_run:
+        return {
+            "imported": 0,
+            "would_import": imported,
+            "errors": errors,
+            "preview": preview_rows[:50],  # cap preview to keep response small
+            "preview_truncated": imported > 50,
+            "dry_run": True,
+        }
+
+    # Commit phase
+    imported_ids: list[str] = []
+    try:
+        for s in pending_sales:
+            db.add(s)
+        db.flush()  # populate IDs without committing yet
+        imported_ids = [str(s.id) for s in pending_sales]
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        log.exception("CSV import commit failed: %s", e)
+        return {
+            "imported": 0,
+            "errors": [f"Database commit failed: {e}"] + errors,
+            "imported_ids": [],
+        }
+
+    return {
+        "imported": imported,
+        "errors": errors,
+        "imported_ids": imported_ids,  # frontend can use these for "Undo"
+    }
+
+
+class CsvRollbackRequest(BaseModel):
+    sale_ids: list[str]
+
+
+@router.post("/import-csv/rollback")
+@limiter.limit("10/minute")
+async def rollback_csv_import(
+    request: Request,
+    body: CsvRollbackRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Soft-delete sales just imported by CSV — used by the "Undo" button.
+
+    Safety:
+      • Caps batch at 1000 IDs so an attacker can't sweep deletes.
+      • Only sales OWNED BY THE CALLER are touched (defense against ID guessing).
+      • Only sales created in the last 5 minutes — beyond that, user must use
+        Recently Deleted UI for normal deletion.
+    """
+    from datetime import datetime as _dt, timedelta as _td
+
+    if not body.sale_ids:
+        return {"deleted": 0, "skipped": 0, "_recoverable": True}
+    if len(body.sale_ids) > 1000:
+        raise HTTPException(status_code=400, detail="Rollback batch too large (max 1000)")
+
+    cutoff = _dt.utcnow() - _td(minutes=5)
+    sales = (
+        db.query(Sale)
+        .filter(
+            Sale.id.in_(body.sale_ids),
+            Sale.user_id == user.id,  # tenant isolation — required
+            Sale.created_at >= cutoff,
+        )
+        .all()
+    )
+    deleted = 0
+    for s in sales:
+        if not s.is_deleted:
+            s.is_deleted = True
+            s.deleted_at = _dt.utcnow()
+            deleted += 1
     db.commit()
-    return {"imported": imported, "errors": errors}
+    return {"deleted": deleted, "skipped": len(body.sale_ids) - deleted}
 
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"}
