@@ -52,13 +52,13 @@ export default function PrivacyPolicyPage() {
 
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-12">
         <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Privacy Policy</h1>
-        <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Last updated: April 7, 2026</p>
+        <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Last updated: 30 April 2026</p>
 
         <div className="prose prose-gray dark:prose-invert max-w-none space-y-4 text-gray-700 dark:text-gray-300 leading-relaxed">
 
           <Section title="Who we are">
             <p>
-              BonBox is a free business analytics dashboard operated by Manoj Kumar Chaudhary, based in Copenhagen, Denmark.
+              BonBox is a business analytics platform for small and medium-sized businesses, operated by Manoj Kumar Chaudhary, based in Copenhagen, Denmark.
             </p>
             <ul className="list-disc pl-6 space-y-1 mt-2">
               <li><strong>Website:</strong> bonbox.dk</li>
@@ -120,10 +120,35 @@ export default function PrivacyPolicyPage() {
               <li>IP address (anonymized after 30 days)</li>
               <li>Browser type and version</li>
               <li>Device type (desktop, mobile, tablet)</li>
-              <li>Pages visited and time spent</li>
             </ul>
             <p className="mt-1">We do not use third-party tracking cookies. We do not use Google Analytics, Meta Pixel, or similar advertising trackers.</p>
             <p className="mt-2 text-sm text-gray-500 dark:text-gray-400"><strong>Legal basis:</strong> Legitimate interest (GDPR Article 6(1)(f)).</p>
+
+            <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 mt-6 mb-2">Product analytics events</h3>
+            <p>To improve BonBox and detect anomalies in your business, we record events about how you use the app:</p>
+            <ul className="list-disc pl-6 space-y-1 mt-1">
+              <li>Pages you visit and time spent on each</li>
+              <li>Actions you take (sale logged, receipt scanned, AI question asked, daily close completed, login/logout)</li>
+              <li>Up to the first 200 characters of questions you ask the BonBox AI Copilot (so we can improve the AI)</li>
+              <li>Token usage of AI Copilot conversations (metadata only — used for cost monitoring, not content)</li>
+            </ul>
+            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+              <strong>You can pause analytics at any time</strong> in <Link to="/profile" className="text-blue-600 dark:text-blue-400 hover:underline">Profile → Privacy & Data</Link>. When paused, no new events are recorded for your account.
+            </p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              <strong>Retention:</strong> Product analytics events are automatically deleted after 180 days. Aggregated counts may be retained longer in anonymised form for product improvement.
+            </p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400"><strong>Legal basis:</strong> Legitimate interest (GDPR Article 6(1)(f)) — improving BonBox and detecting business anomalies for your benefit.</p>
+
+            <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 mt-6 mb-2">Derived insights (AI patterns)</h3>
+            <p>BonBox computes pattern-recognition insights about your business from your data. Examples:</p>
+            <ul className="list-disc pl-6 space-y-1 mt-1">
+              <li>"You close every Sunday around 22:00" (from event timestamps)</li>
+              <li>"Today's revenue is below your usual Tuesday" (from sales aggregates)</li>
+              <li>"Wage cost is above your trailing 4-week average" (from expense + sales data)</li>
+            </ul>
+            <p className="mt-1">These insights are computed on our servers, stored in your account, and shown only to you. We do <strong>not</strong> train external AI models on your data.</p>
+            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400"><strong>Legal basis:</strong> Performance of contract (GDPR Article 6(1)(b)).</p>
           </Section>
 
           <Section title="What we do NOT collect">
@@ -132,9 +157,21 @@ export default function PrivacyPolicyPage() {
               <li>We do not collect biometric data</li>
               <li>We do not collect data from social media profiles</li>
               <li>We do not sell, rent, or share your data with third parties for marketing</li>
-              <li>We do not use your data to train AI models</li>
+              <li>We do not train external AI models on your data, and our AI provider (Anthropic) does not train on data sent through their API</li>
               <li>We do not display advertising in BonBox</li>
             </ul>
+          </Section>
+
+          <Section title="AI Copilot and your data">
+            <p>BonBox includes an AI assistant ("BonBox AI Copilot") powered by Anthropic's Claude API. When you chat with the Copilot:</p>
+            <ul className="list-disc pl-6 space-y-1 mt-1">
+              <li>Your message and a summary of your business context (revenue totals, top features used, recent insights — never raw customer data) are sent to Anthropic's API to generate a reply.</li>
+              <li>Anthropic processes the data on EU/US servers and does not retain it beyond their operational logs (typically 30 days). Per Anthropic's commercial terms, they do <strong>not</strong> train their models on data sent through their API.</li>
+              <li>We log the question (first 200 chars) and token usage in your account so you can review what was sent.</li>
+              <li>You can disable AI Copilot interactions by simply not using it — the rest of BonBox works without it.</li>
+            </ul>
+            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400"><strong>Legal basis:</strong> Performance of contract (GDPR Article 6(1)(b)) — providing the Copilot feature you requested.</p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400"><strong>Anthropic's privacy policy:</strong> <a href="https://www.anthropic.com/privacy" className="text-blue-600 dark:text-blue-400 hover:underline" target="_blank" rel="noopener noreferrer">anthropic.com/privacy</a></p>
           </Section>
 
           <Section title="Who has access to your data">
@@ -146,6 +183,7 @@ export default function PrivacyPolicyPage() {
                 ["Vercel", "Frontend hosting", "Global CDN", "No personal data stored"],
                 ["Render", "Backend API hosting", "US/EU", "API requests, no persistent storage"],
                 ["Resend", "Email delivery", "US", "Email address, email content"],
+                ["Anthropic (Claude API)", "AI Copilot responses", "EU/US", "Your chat message + business context summary; not retained beyond Anthropic's operational logs; not used for training"],
                 ["cvrapi.dk", "Business registration lookup", "Denmark", "CVR numbers (public data)"],
               ]}
             />
@@ -161,14 +199,18 @@ export default function PrivacyPolicyPage() {
               rows={[
                 ["Account data", "Until you delete your account"],
                 ["Business profile", "Until you delete your account"],
-                ["Financial data (sales, expenses)", "Until you delete your account"],
+                ["Financial data (sales, expenses, inventory)", "Until you delete your account"],
                 ["Bank CSV files (raw)", "Deleted within 30 days of import"],
                 ["Parsed bank transactions", "Until you delete your account"],
+                ["Product analytics events", "180 days (auto-purged daily)"],
+                ["AI insights derived from events", "Auto-expire 1–30 days; can be dismissed any time"],
+                ["AI Copilot question logs (first 200 chars)", "180 days"],
                 ["Technical/access logs", "30 days"],
+                ["Security audit log (admin access attempts)", "365 days"],
                 ["Email communication logs", "90 days"],
               ]}
             />
-            <p>When you delete your account, all your personal and financial data is permanently deleted within 30 days. Backups are purged within 90 days.</p>
+            <p>When you delete your account, all your personal and financial data is permanently deleted within 30 days. Backups are purged within 90 days. The security audit log is retained for forensic purposes but no longer linked to your identity once your account is deleted.</p>
           </Section>
 
           <Section title="Your rights under GDPR">

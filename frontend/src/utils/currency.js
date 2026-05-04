@@ -4,6 +4,94 @@ export function displayCurrency(code) {
   return code.startsWith("EUR_") ? "EUR" : code;
 }
 
+/* ───────────────────────────── formatMoney ─────────────────────────────
+ * Single source of truth for displaying money values across the app.
+ *
+ *   formatMoney(15000, "DKK")             → "15.000 DKK"   (Danish locale)
+ *   formatMoney(15000.5, "DKK")           → "15.000,50 DKK"
+ *   formatMoney(0, "DKK")                 → "0 DKK"
+ *   formatMoney(15000, "DKK", { compact: true })  → "15K DKK"
+ *   formatMoney(15000, "DKK", { sign: true })     → "+15.000 DKK"
+ *   formatMoney(null, "DKK")              → "—"
+ *
+ * Rules:
+ *   - Locale chosen by currency (DKK→da-DK, NOK→nb-NO, etc.)
+ *   - Currency code shown after the number (operator-friendly)
+ *   - Decimals only when the value isn't a round integer
+ *   - null/undefined/NaN → "—"
+ * ───────────────────────────────────────────────────────────────────── */
+
+const LOCALE_BY_CURRENCY = {
+  DKK: "da-DK",
+  SEK: "sv-SE",
+  NOK: "nb-NO",
+  EUR: "de-DE",
+  GBP: "en-GB",
+  USD: "en-US",
+  CHF: "de-CH",
+  JPY: "ja-JP",
+  INR: "en-IN",
+  NPR: "en-IN", // Nepali rupee uses Indian grouping
+  BRL: "pt-BR",
+  MXN: "es-MX",
+  AUD: "en-AU",
+  CAD: "en-CA",
+  ZAR: "en-ZA",
+  THB: "th-TH",
+  PHP: "en-PH",
+};
+
+export function formatMoney(amount, currency = "DKK", options = {}) {
+  if (amount == null || Number.isNaN(amount)) return "—";
+  const num = typeof amount === "string" ? parseFloat(amount) : amount;
+  if (Number.isNaN(num)) return "—";
+
+  const code = displayCurrency(currency);
+  const locale = LOCALE_BY_CURRENCY[code] || "en-GB";
+
+  // Compact mode for charts/cards — "15K DKK", "1.2M DKK"
+  if (options.compact) {
+    try {
+      const formatter = new Intl.NumberFormat(locale, {
+        notation: "compact",
+        maximumFractionDigits: 1,
+      });
+      return `${formatter.format(num)} ${code}`;
+    } catch {
+      return `${Math.round(num).toLocaleString()} ${code}`;
+    }
+  }
+
+  // Decimals only when needed (cleaner for whole-number transactions)
+  const isWhole = Number.isInteger(num) || Math.abs(num - Math.round(num)) < 0.005;
+  const minFrac = options.alwaysDecimals ? 2 : 0;
+  const maxFrac = isWhole && !options.alwaysDecimals ? 0 : 2;
+
+  let formatted;
+  try {
+    formatted = new Intl.NumberFormat(locale, {
+      minimumFractionDigits: minFrac,
+      maximumFractionDigits: maxFrac,
+    }).format(num);
+  } catch {
+    formatted = Math.round(num).toLocaleString();
+  }
+
+  const sign = options.sign && num > 0 ? "+" : "";
+  return `${sign}${formatted} ${code}`;
+}
+
+/** Convenience: parse a money string back to number. Tolerant of locale separators. */
+export function parseMoney(str) {
+  if (str == null) return null;
+  const cleaned = String(str)
+    .replace(/[^\d.,-]/g, "")
+    .replace(/\.(?=\d{3}(\D|$))/g, "")
+    .replace(",", ".");
+  const n = parseFloat(cleaned);
+  return Number.isNaN(n) ? null : n;
+}
+
 /**
  * VAT terminology by currency/country.
  * Returns localized terms for VAT concepts based on the user's currency selection.
