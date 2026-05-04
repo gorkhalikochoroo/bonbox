@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useDarkMode } from "../hooks/useDarkMode";
+import { useTheme, THEMES } from "../hooks/useTheme";
 import { useLanguage } from "../hooks/useLanguage";
 import { FadeIn } from "../components/AnimationKit";
 import usePushNotifications from "../hooks/usePushNotifications";
@@ -8,6 +9,7 @@ import BusinessLookup from "../components/BusinessLookup";
 
 export default function ProfilePage() {
   const [dark] = useDarkMode();
+  const [theme, setTheme] = useTheme();
   const { t } = useLanguage();
   const [user, setUser] = useState(null);
   const [form, setForm] = useState({ business_name: "", business_type: "", currency: "", email: "" });
@@ -543,6 +545,36 @@ export default function ProfilePage() {
             >
               {exporting ? t("exporting") || "Exporting..." : t("downloadCsv") || "Download CSV"}
             </button>
+          </div>
+
+          {/* Appearance — theme picker (4 accent themes; works alongside light/dark mode) */}
+          <div className="p-4 bg-gray-50 dark:bg-gray-800/40 rounded-xl">
+            <div className="mb-3">
+              <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{t("appearance") || "Appearance"}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Pick the accent that feels right. Works in both light and dark mode.</p>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {THEMES.map((th) => {
+                const active = theme === th.id;
+                return (
+                  <button
+                    key={th.id}
+                    onClick={() => setTheme(th.id)}
+                    aria-pressed={active}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition
+                      ${active
+                        ? "bg-white dark:bg-gray-700 border-2 border-gray-700 dark:border-gray-300 text-gray-900 dark:text-white"
+                        : "bg-white dark:bg-gray-700/60 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-gray-400"}`}
+                  >
+                    <span
+                      className="w-4 h-4 rounded-full shrink-0 ring-1 ring-black/10 dark:ring-white/10"
+                      style={{ backgroundColor: th.swatch }}
+                    />
+                    <span>{th.name}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Delete Account */}
