@@ -46,6 +46,7 @@ const sections = [
     title: "Intelligence",
     visibleFor: ["restaurant", "retail", "service", "general"],
     items: [
+      { to: "/insights", icon: "✨", labelKey: "aiInsights" },
       { to: "/weather", icon: "🌦️", labelKey: "weatherSmart" },
       { to: "/staffing", icon: "👥", labelKey: "smartStaffing" },
       { to: "/pricing", icon: "💲", labelKey: "priceOptimization" },

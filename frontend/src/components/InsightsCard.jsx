@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import api from "../services/api";
 import { trackEvent } from "../hooks/useEventLog";
 
@@ -99,7 +100,12 @@ export default function InsightsCard({ className = "" }) {
             Insights for your business
           </h2>
         </div>
-        <span className="text-xs text-gray-500 dark:text-gray-400">{visible.length} active</span>
+        <Link
+          to="/insights"
+          className="text-xs text-indigo-700 dark:text-indigo-400 hover:underline font-medium"
+        >
+          View all ({visible.length}) →
+        </Link>
       </div>
 
       <div className="space-y-2.5">
