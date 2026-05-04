@@ -11,7 +11,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist
 from app.database import engine, Base
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -166,6 +166,20 @@ _migrations = [
     "CREATE INDEX IF NOT EXISTS ix_owner_patterns_user_state ON owner_patterns (user_id, state)",
     "CREATE INDEX IF NOT EXISTS ix_owner_patterns_user_type ON owner_patterns (user_id, pattern_type)",
     "CREATE INDEX IF NOT EXISTS ix_owner_patterns_detected ON owner_patterns (detected_at)",
+    # waitlist_entries — interest capture for paid tiers
+    """CREATE TABLE IF NOT EXISTS waitlist_entries (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) REFERENCES users(id),
+        email VARCHAR(255) NOT NULL,
+        tier VARCHAR(32) NOT NULL,
+        source VARCHAR(64),
+        notes VARCHAR(500),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_waitlist_user ON waitlist_entries (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_waitlist_email ON waitlist_entries (email)",
+    "CREATE INDEX IF NOT EXISTS ix_waitlist_email_tier ON waitlist_entries (email, tier)",
+    "CREATE INDEX IF NOT EXISTS ix_waitlist_created ON waitlist_entries (created_at)",
 ]
 
 def _run_migrations():
@@ -581,6 +595,8 @@ app.include_router(staff_portal.router, prefix="/api/portal", tags=["Staff Porta
 app.include_router(patterns.router, prefix="/api/patterns", tags=["Owner Patterns"])
 # Bookkeeping export (Dinero / Billy / e-conomic / generic CSV)
 app.include_router(exports.router, prefix="/api/exports", tags=["Bookkeeping Export"])
+# Waitlist for paid tiers (founding-member Pro etc.)
+app.include_router(waitlist.router, prefix="/api/waitlist", tags=["Waitlist"])
 # /admin/* — guarded by 6-layer require_super_admin (see services/admin_security.py).
 # Mounted last so any earlier router can't accidentally shadow these paths.
 app.include_router(admin.router, prefix="/api/admin", tags=["Super Admin"])

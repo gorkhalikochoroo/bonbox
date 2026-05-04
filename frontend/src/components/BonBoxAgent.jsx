@@ -111,6 +111,8 @@ export default function BonBoxAgent() {
     { role: "assistant", content: WELCOME_CONTENT, isWelcome: true },
   ]);
   const [input, setInput] = useState("");
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [activeTools, setActiveTools] = useState([]);
   const [isExpanding, setIsExpanding] = useState(false); // for morph animation
@@ -696,7 +698,7 @@ export default function BonBoxAgent() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask about your business..."
+                placeholder={listening ? "Listening…" : "Ask about your business…"}
                 disabled={isStreaming}
                 rows={1}
                 className="
@@ -715,6 +717,62 @@ export default function BonBoxAgent() {
                     Math.min(e.target.scrollHeight, 100) + "px";
                 }}
               />
+
+              {/* mic button — Web Speech API; gracefully no-op on unsupported browsers */}
+              <button
+                onClick={() => {
+                  if (listening) {
+                    recognitionRef.current?.stop();
+                    return;
+                  }
+                  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+                  if (!SR) return;
+                  try {
+                    const rec = new SR();
+                    // Match the user's UI language for better accuracy
+                    const lang = (typeof navigator !== "undefined" && navigator.language) || "en-US";
+                    rec.lang = lang;
+                    rec.interimResults = false;
+                    rec.continuous = false;
+                    rec.onstart = () => {
+                      setListening(true);
+                      try { trackEvent("ai_voice_input_started", "agent", lang); } catch {}
+                    };
+                    rec.onend = () => setListening(false);
+                    rec.onerror = () => setListening(false);
+                    rec.onresult = (event) => {
+                      const text = event.results[0]?.[0]?.transcript || "";
+                      if (text.trim()) {
+                        setInput((prev) => (prev ? `${prev} ${text}` : text));
+                      }
+                    };
+                    recognitionRef.current = rec;
+                    rec.start();
+                  } catch {
+                    setListening(false);
+                  }
+                }}
+                disabled={isStreaming}
+                aria-label={listening ? "Stop voice input" : "Start voice input"}
+                title={listening ? "Stop listening" : "Voice input"}
+                className={`
+                  shrink-0 w-9 h-9 mb-1.5
+                  rounded-lg flex items-center justify-center
+                  transition-all duration-200 active:scale-90
+                  disabled:opacity-30 disabled:cursor-not-allowed
+                  ${listening
+                    ? "bg-red-500/20 text-red-400 ring-1 ring-red-500/40 animate-pulse"
+                    : "bg-white/[0.04] text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10"}
+                `}
+              >
+                {/* mic SVG */}
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" y1="19" x2="12" y2="23" />
+                  <line x1="8" y1="23" x2="16" y2="23" />
+                </svg>
+              </button>
 
               {/* send button */}
               <button

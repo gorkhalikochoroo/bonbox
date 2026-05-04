@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { trackEvent } from "../hooks/useEventLog";
+import api from "../services/api";
 
 /**
  * BonBox subscription tiers — public pricing page.
@@ -103,16 +104,63 @@ const TIERS = [
 export default function SubscriptionPage() {
   const { user } = useAuth();
   const [annual, setAnnual] = useState(false);
+  const [joined, setJoined] = useState(new Set()); // tiers the user has already joined
+  const [pending, setPending] = useState(null); // tier currently being submitted
+  const [msg, setMsg] = useState("");
 
-  const handleCta = (tierId) => {
+  // Pre-load: which tiers has this user already joined?
+  useEffect(() => {
+    if (!user) return;
+    api
+      .get("/waitlist/status")
+      .then((res) => {
+        const tiers = (res.data || []).map((r) => r.tier);
+        setJoined(new Set(tiers));
+      })
+      .catch(() => {});
+  }, [user]);
+
+  const handleCta = async (tierId) => {
     trackEvent("pricing_cta_clicked", "subscription", tierId);
     if (tierId === "free") return;
-    // No payment processing yet — capture interest via email link
-    const subject = encodeURIComponent(`Founding member: ${tierId}`);
-    const body = encodeURIComponent(
-      `Hi,\n\nI'd like to upgrade my BonBox account (${user?.email || "(your email)"}) to the ${tierId} tier.\n\nThanks!`
-    );
-    window.location.href = `mailto:hello@bonbox.dk?subject=${subject}&body=${body}`;
+    if (!user?.email) {
+      // Anonymous — fall back to mailto so they can still express interest
+      const subject = encodeURIComponent(`Interested: ${tierId}`);
+      window.location.href = `mailto:hello@bonbox.dk?subject=${subject}`;
+      return;
+    }
+    if (joined.has(tierId)) {
+      setMsg("You're already on the waitlist for this tier — we'll be in touch.");
+      setTimeout(() => setMsg(""), 4000);
+      return;
+    }
+    setPending(tierId);
+    setMsg("");
+    try {
+      await api.post("/waitlist/join", {
+        email: user.email,
+        tier: tierId,
+        source: "subscription_page",
+      });
+      setJoined((prev) => new Set([...prev, tierId]));
+      trackEvent("waitlist_joined", "subscription", tierId);
+      setMsg(
+        tierId === "pro"
+          ? "🎉 You're on the founding-member list. We'll lock in 149 kr/mo for you when Pro launches."
+          : `🎉 You're on the ${tierId} waitlist. We'll email you when it launches.`
+      );
+      setTimeout(() => setMsg(""), 7000);
+    } catch (e) {
+      const status = e?.response?.status;
+      setMsg(
+        status === 429
+          ? "Too many requests — please try again in a minute."
+          : "Couldn't add you to the list. Please try again or email hello@bonbox.dk."
+      );
+      setTimeout(() => setMsg(""), 5000);
+    } finally {
+      setPending(null);
+    }
   };
 
   return (
@@ -146,6 +194,13 @@ export default function SubscriptionPage() {
           </button>
         </div>
       </div>
+
+      {/* Status banner — confirmation / errors from waitlist join */}
+      {msg && (
+        <div className="mb-6 text-center text-sm bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 rounded-xl px-4 py-3">
+          {msg}
+        </div>
+      )}
 
       {/* Tiers */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -197,15 +252,21 @@ export default function SubscriptionPage() {
 
               <button
                 onClick={() => handleCta(tier.id)}
-                disabled={tier.id === "free"}
+                disabled={tier.id === "free" || pending === tier.id || joined.has(tier.id)}
                 className={`w-full py-2 rounded-lg text-sm font-medium transition mt-3 mb-4
                   ${tier.id === "free"
                     ? "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-default"
-                    : tier.highlight
-                      ? "bg-green-600 hover:bg-green-700 text-white shadow-sm"
-                      : "bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600"}`}
+                    : joined.has(tier.id)
+                      ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800"
+                      : tier.highlight
+                        ? "bg-green-600 hover:bg-green-700 text-white shadow-sm disabled:opacity-60"
+                        : "bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-60"}`}
               >
-                {tier.cta}
+                {pending === tier.id
+                  ? "Joining…"
+                  : joined.has(tier.id)
+                    ? "✓ On the list"
+                    : tier.cta}
               </button>
 
               <ul className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
