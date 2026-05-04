@@ -20,49 +20,47 @@ const TIERS = [
   {
     id: "free",
     name: "Free",
-    tagline: "Forever free. No card, no time limit.",
+    tagline: "Every feature. Casual usage. Forever.",
     price_monthly: 0,
     price_annual: 0,
     cta: "Start free",
     cta_unauth: "Sign up free",
     highlight: false,
     features: [
+      { text: "ALL features unlocked — same product, lighter caps", included: true, header: true },
+      { text: "200 sales logged / month", included: true },
+      { text: "100 expenses logged / month", included: true },
+      { text: "30 OCR receipt scans / month", included: true },
+      { text: "30 AI Copilot questions / day + voice input", included: true },
+      { text: "Top 5 active AI insights at a time", included: true },
+      { text: "1 vertical module (Bar Pour, Workshop, etc. — pick one)", included: true },
+      { text: "90 days of full history (older stays read-only)", included: true },
+      { text: "Generic CSV export to your accountant", included: true },
       { text: "1 business, 1 user", included: true },
-      { text: "30-day data history", included: true },
-      { text: "Daily Close + Sales + Expenses", included: true },
-      { text: "5 OCR receipt scans / month", included: true },
-      { text: "BonBox AI Copilot — basic (5 questions/day)", included: true },
-      { text: "Web access (iOS/Android in app store)", included: true },
-      { text: "12-language UI", included: true },
-      { text: "AI pattern insights", included: false },
-      { text: "Bank import / Dinero export", included: false },
-      { text: "Multi-user roles", included: false },
     ],
   },
   {
     id: "pro",
     name: "Pro",
-    tagline: "Full AI + analytics. Most popular.",
+    tagline: "Same features. Caps removed. Most popular.",
     price_monthly: 249,
     price_annual: 199,
-    founding_price: 149,
+    founding_price: 139,
     cta: "Upgrade to Pro",
     cta_unauth: "Start 14-day free trial",
     highlight: true,
     badge: "🎁 14 days free · No card required",
     features: [
-      { text: "Everything in Free, plus:", included: true, header: true },
-      { text: "Unlimited history (sales, expenses, all data)", included: true },
-      { text: "Unlimited OCR scans + AI receipt categorisation", included: true },
-      { text: "AI Pattern Engine — anomalies, routines, dormant features", included: true },
-      { text: "Unlimited AI Copilot questions + voice input", included: true },
-      { text: "Smart Staffing — weather + event predictions", included: true },
-      { text: "Price Optimisation per product", included: true },
-      { text: "Customer Retention (churn prediction)", included: true },
-      { text: "Vertical modules (Bar Pour, Workshop Manager, etc.)", included: true },
-      { text: "Bank import + Dinero / Billy / e-conomic export", included: true },
+      { text: "Everything in Free, with caps removed:", included: true, header: true },
+      { text: "Unlimited sales, expenses, OCR scans", included: true },
+      { text: "Unlimited AI Copilot questions", included: true },
+      { text: "Unlimited AI insights archive (no auto-drop)", included: true },
+      { text: "ALL vertical modules at once (Bar Pour + Workshop + etc.)", included: true },
+      { text: "Unlimited history — your full business timeline", included: true },
+      { text: "Direct Dinero / Billy / e-conomic CSV exports", included: true },
       { text: "Up to 3 businesses, 5 users with role permissions", included: true },
-      { text: "Priority support", included: true },
+      { text: "Bank import (multi-bank, multi-currency)", included: true },
+      { text: "Priority email support", included: true },
     ],
   },
   {
@@ -79,9 +77,9 @@ const TIERS = [
       { text: "Unlimited businesses + multi-branch consolidation", included: true },
       { text: "Unlimited users", included: true },
       { text: "API access", included: true },
-      { text: "Dedicated onboarding", included: true },
+      { text: "Dedicated onboarding + training", included: true },
       { text: "Custom integrations", included: true },
-      { text: "SLA + priority support", included: true },
+      { text: "SLA + 24h priority support", included: true },
     ],
   },
 ];
@@ -153,7 +151,7 @@ export default function SubscriptionPage() {
       trackEvent("waitlist_joined", "subscription", tierId);
       setMsg(
         tierId === "pro"
-          ? "🎉 You're on the founding-member list — when payment opens, you'll lock in 149 kr/mo for as long as you stay."
+          ? "🎉 You're on the founding-member list — when payment opens, you'll lock in 139 kr/mo for as long as you stay."
           : `🎉 You're on the ${tierId} list — we'll email you when it opens.`
       );
       setTimeout(() => setMsg(""), 8000);
@@ -188,7 +186,7 @@ export default function SubscriptionPage() {
             onClick={() => handleCta("pro")}
             className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded-lg shadow-sm whitespace-nowrap"
           >
-            Lock in 149 kr/mo
+            Lock in 139 kr/mo
           </button>
         </div>
       )}
@@ -196,12 +194,12 @@ export default function SubscriptionPage() {
       {/* Hero */}
       <div className="text-center mb-10">
         <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-white">
-          Try Pro free for 14 days. No card needed.
+          Every feature, free forever.
         </h1>
         <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-3 max-w-2xl mx-auto">
-          Every new BonBox account starts on Pro for 14 days — full AI insights, unlimited Copilot,
-          all vertical modules. After 14 days you choose: stay on Free (forever, no card) or upgrade
-          to Pro at our founding-member price.
+          Free includes every BonBox feature — AI Copilot, AI insights, vertical modules, the works.
+          You only upgrade when your usage outgrows the caps. New signups get 14 days of fully-uncapped
+          Pro for free, no card required, so you can see whether the caps will pinch.
         </p>
 
         {/* Annual / monthly toggle */}
@@ -347,11 +345,15 @@ export default function SubscriptionPage() {
         <div className="space-y-4">
           <FaqItem
             q="What happens when my 14-day trial ends?"
-            a="You automatically drop to the Free plan. You keep all your data (sales, expenses, history). Some Pro features become locked — you can re-upgrade any time. You will NEVER be charged automatically. We won't even ask for a card during the trial."
+            a="You automatically drop to Free. Every feature stays — only the usage caps come back. Your data stays untouched (sales, expenses, history). You will NEVER be charged automatically. We don't even ask for a card during the trial."
+          />
+          <FaqItem
+            q="Why does Free have every feature, just with caps?"
+            a="Because feature-gating is a tax on small shops. A side-business owner shouldn't be locked out of AI insights just because they only do 50 sales a month — they need the insights MORE than a busy shop does. Caps mean Free users get full value, and only upgrade when they've actually outgrown what Free can support."
           />
           <FaqItem
             q="How does the founding-member price work?"
-            a="The first 100 Pro subscribers lock in 149 kr/mo for as long as they stay subscribed — even when our regular Pro price moves to 249 kr/mo. Cancel and rejoin? You'd pay regular price. Stay subscribed continuously? You're locked in."
+            a="The first 100 Pro subscribers lock in 139 kr/mo for as long as they stay subscribed — even when our regular Pro price moves to 249 kr/mo. Cancel and rejoin? You'd pay regular price. Stay subscribed continuously? You're locked in. That's a 44% discount, locked for life."
           />
           <FaqItem
             q="Do I have to switch from Dinero / Billy / e-conomic?"

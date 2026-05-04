@@ -55,7 +55,7 @@ export default function TrialBanner() {
               : `${days} days left in your free Pro trial.`}
           </span>
           <span className={`ml-1 ${urgent ? "text-amber-700 dark:text-amber-400" : "text-blue-700 dark:text-blue-400"}`}>
-            All AI features unlocked. Lock in the 149 kr/mo founding price before regular price kicks in.
+            All caps removed during trial. Lock in 139 kr/mo founding price before regular 249 kicks in.
           </span>
         </div>
         <Link
@@ -93,7 +93,8 @@ export default function TrialBanner() {
             Your trial ended {daysSince === 0 ? "today" : `${daysSince} day${daysSince === 1 ? "" : "s"} ago`}.
           </span>
           <span className="ml-1 text-gray-600 dark:text-gray-400">
-            You're now on Free — your data is intact. AI insights and unlimited Copilot are paused. Upgrade anytime.
+            You're back on Free — every feature still works, just with usage caps.
+            Founding-member 139 kr/mo is still available.
           </span>
         </div>
         <Link
