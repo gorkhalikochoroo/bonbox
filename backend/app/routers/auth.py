@@ -180,8 +180,9 @@ def register(request: Request, data: UserRegister, db: Session = Depends(get_db)
     except Exception:
         pass
 
-    # Notify admin about new signup
-    if settings.ADMIN_EMAIL:
+    # Notify admin about new signup — but skip probe / test signups so the
+    # multi_tenant_probe.py script doesn't pollute the admin's inbox.
+    if settings.ADMIN_EMAIL and "@bonbox-probe.com" not in (user.email or "").lower():
         try:
             send_email(
                 settings.ADMIN_EMAIL,
@@ -251,8 +252,8 @@ def google_auth(request: Request, data: GoogleAuthRequest, db: Session = Depends
         except Exception:
             pass
 
-        # Admin notification
-        if settings.ADMIN_EMAIL:
+        # Admin notification — skip probe / test signups
+        if settings.ADMIN_EMAIL and "@bonbox-probe.com" not in (email or "").lower():
             try:
                 send_email(
                     settings.ADMIN_EMAIL,
