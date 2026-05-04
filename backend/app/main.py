@@ -11,7 +11,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing
 from app.database import engine, Base
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -123,6 +123,9 @@ _migrations = [
     # User-local timezone — IANA name, e.g. "Europe/Copenhagen". Drives
     # "today" / "this week" boundaries in pattern detection.
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone VARCHAR(64) DEFAULT 'Europe/Copenhagen'",
+    # 14-day Pro trial mechanics
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMP",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS plan VARCHAR(20) DEFAULT 'free'",
     # Performance indexes for dashboard queries
     "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",
     "CREATE INDEX IF NOT EXISTS ix_sale_user_payment ON sales (user_id, payment_method, date)",
@@ -597,6 +600,8 @@ app.include_router(patterns.router, prefix="/api/patterns", tags=["Owner Pattern
 app.include_router(exports.router, prefix="/api/exports", tags=["Bookkeeping Export"])
 # Waitlist for paid tiers (founding-member Pro etc.)
 app.include_router(waitlist.router, prefix="/api/waitlist", tags=["Waitlist"])
+# Billing / trial state — read-only, no payment processing yet
+app.include_router(billing.router, prefix="/api/billing", tags=["Billing"])
 # /admin/* — guarded by 6-layer require_super_admin (see services/admin_security.py).
 # Mounted last so any earlier router can't accidentally shadow these paths.
 app.include_router(admin.router, prefix="/api/admin", tags=["Super Admin"])

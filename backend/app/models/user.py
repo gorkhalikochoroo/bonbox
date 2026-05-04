@@ -32,6 +32,14 @@ class User(Base):
     # positives when UTC midnight rolls over but it's still business hours
     # locally. Default Copenhagen since most users are Danish.
     timezone: Mapped[str] = mapped_column(String(64), default="Europe/Copenhagen")
+    # Subscription / trial state.
+    #   trial_ends_at: when the auto-started 14-day Pro trial expires.
+    #     null = no trial (legacy users) — they keep Free indefinitely.
+    #   plan: free | trial | pro | business
+    #     Source of truth for what features the user can access. Once
+    #     payments are wired, the upgrade flow flips this to "pro".
+    trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    plan: Mapped[str] = mapped_column(String(20), default="free")
     owner_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True)  # NULL for owners
     reset_token: Mapped[str | None] = mapped_column(String(100), nullable=True)
     reset_token_expires: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

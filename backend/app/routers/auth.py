@@ -153,6 +153,9 @@ def register(request: Request, data: UserRegister, db: Session = Depends(get_db)
         verification_code=verification_code,
         verification_code_expires=datetime.utcnow() + timedelta(minutes=30),
     )
+    # Start the 14-day Pro trial — full features, no card required
+    from app.services.billing import start_trial
+    start_trial(user)
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -235,6 +238,9 @@ def google_auth(request: Request, data: GoogleAuthRequest, db: Session = Depends
             currency="DKK",
             email_verified=True,
         )
+        # Start the 14-day Pro trial for new Google sign-ups too
+        from app.services.billing import start_trial
+        start_trial(user)
         db.add(user)
         db.commit()
         db.refresh(user)

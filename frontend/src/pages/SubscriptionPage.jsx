@@ -6,79 +6,62 @@ import api from "../services/api";
 /**
  * BonBox subscription tiers — public pricing page.
  *
- * Today, every user is on Free. This page exists to:
- *   1. Show that BonBox has a real business model (legitimacy signal for
- *      reviewers, partners, journalists)
- *   2. Plant intent for paid features without blocking free use
- *   3. Capture interest in the "founding member" Pro tier — first 100 users
- *      lock in 149kr/mo instead of 249kr/mo as a thank-you
+ * Strategy: every new signup gets 14 days of Pro free, no card. After the
+ * trial they choose Free or Pro. This kills the "I haven't validated this
+ * yet, why would I pay" hesitation that kills new-product conversion.
  *
- * No payment processing wired yet — "Upgrade" buttons currently capture
- * interest via email. Wire Stripe / MobilePay later.
+ * Three tiers only — no "Coming soon" placeholders. Cleaner choice.
+ *   Free: forever, real but limited
+ *   Pro: 14-day trial → 149 founding (regular 249)
+ *   Business: talk to sales (no public price)
  */
 
 const TIERS = [
   {
     id: "free",
     name: "Free",
-    tagline: "Try everything. No credit card.",
+    tagline: "Forever free. No card, no time limit.",
     price_monthly: 0,
     price_annual: 0,
-    cta: "You're here",
+    cta: "Start free",
+    cta_unauth: "Sign up free",
     highlight: false,
     features: [
       { text: "1 business, 1 user", included: true },
-      { text: "30-day history", included: true },
-      { text: "Daily Close + Cash Book", included: true },
-      { text: "10 OCR receipt scans / month", included: true },
-      { text: "Web + iOS + Android", included: true },
-      { text: "12 languages", included: true },
-      { text: "AI Copilot (basic)", included: true },
+      { text: "30-day data history", included: true },
+      { text: "Daily Close + Sales + Expenses", included: true },
+      { text: "5 OCR receipt scans / month", included: true },
+      { text: "BonBox AI Copilot — basic (5 questions/day)", included: true },
+      { text: "Web access (iOS/Android in app store)", included: true },
+      { text: "12-language UI", included: true },
       { text: "AI pattern insights", included: false },
-      { text: "Bank import", included: false },
-      { text: "Multi-user / role permissions", included: false },
-    ],
-  },
-  {
-    id: "starter",
-    name: "Starter",
-    tagline: "For solo shops & side businesses.",
-    price_monthly: 89,
-    price_annual: 79,
-    cta: "Coming soon",
-    highlight: false,
-    features: [
-      { text: "1 business, 2 users", included: true },
-      { text: "Full history (unlimited)", included: true },
-      { text: "All bookkeeping-adjacent modules", included: true },
-      { text: "Unlimited OCR scans", included: true },
-      { text: "Bank import (Dinero / e-conomic export)", included: true },
-      { text: "Email support", included: true },
-      { text: "AI pattern insights", included: false },
-      { text: "Vertical modules (Bar Pour, etc.)", included: false },
-      { text: "Multi-business", included: false },
+      { text: "Bank import / Dinero export", included: false },
+      { text: "Multi-user roles", included: false },
     ],
   },
   {
     id: "pro",
     name: "Pro",
-    tagline: "AI-powered analytics for SMEs with staff.",
+    tagline: "Full AI + analytics. Most popular.",
     price_monthly: 249,
     price_annual: 199,
     founding_price: 149,
-    cta: "Join founding members",
+    cta: "Upgrade to Pro",
+    cta_unauth: "Start 14-day free trial",
     highlight: true,
-    badge: "🏆 First 100 users — 149 kr/mo for life",
+    badge: "🎁 14 days free · No card required",
     features: [
-      { text: "Up to 3 businesses, 5 users with roles", included: true },
-      { text: "Full AI Pattern Engine — anomalies, routines, dormant features", included: true },
+      { text: "Everything in Free, plus:", included: true, header: true },
+      { text: "Unlimited history (sales, expenses, all data)", included: true },
+      { text: "Unlimited OCR scans + AI receipt categorisation", included: true },
+      { text: "AI Pattern Engine — anomalies, routines, dormant features", included: true },
+      { text: "Unlimited AI Copilot questions + voice input", included: true },
       { text: "Smart Staffing — weather + event predictions", included: true },
-      { text: "Price Optimization (per-product elasticity)", included: true },
+      { text: "Price Optimisation per product", included: true },
       { text: "Customer Retention (churn prediction)", included: true },
-      { text: "Business Health Score", included: true },
-      { text: "Competitor scan", included: true },
       { text: "Vertical modules (Bar Pour, Workshop Manager, etc.)", included: true },
-      { text: "Dinero / Billy export", included: true },
+      { text: "Bank import + Dinero / Billy / e-conomic export", included: true },
+      { text: "Up to 3 businesses, 5 users with role permissions", included: true },
       { text: "Priority support", included: true },
     ],
   },
@@ -86,11 +69,13 @@ const TIERS = [
     id: "business",
     name: "Business",
     tagline: "Multi-branch chains.",
-    price_monthly: 599,
-    price_annual: 499,
+    price_monthly: null, // hidden
     cta: "Talk to sales",
+    cta_unauth: "Talk to sales",
     highlight: false,
+    custom: true,
     features: [
+      { text: "Everything in Pro, plus:", included: true, header: true },
       { text: "Unlimited businesses + multi-branch consolidation", included: true },
       { text: "Unlimited users", included: true },
       { text: "API access", included: true },
@@ -101,36 +86,58 @@ const TIERS = [
   },
 ];
 
+function daysRemaining(iso) {
+  if (!iso) return null;
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return 0;
+  return Math.ceil(ms / 86400000);
+}
+
 export default function SubscriptionPage() {
   const { user } = useAuth();
   const [annual, setAnnual] = useState(false);
-  const [joined, setJoined] = useState(new Set()); // tiers the user has already joined
-  const [pending, setPending] = useState(null); // tier currently being submitted
+  const [billing, setBilling] = useState(null);
+  const [joined, setJoined] = useState(new Set());
+  const [pending, setPending] = useState(null);
   const [msg, setMsg] = useState("");
 
-  // Pre-load: which tiers has this user already joined?
+  // Load current plan + waitlist status in parallel
   useEffect(() => {
     if (!user) return;
-    api
-      .get("/waitlist/status")
-      .then((res) => {
-        const tiers = (res.data || []).map((r) => r.tier);
-        setJoined(new Set(tiers));
-      })
-      .catch(() => {});
+    Promise.all([
+      api.get("/billing/me").catch(() => ({ data: null })),
+      api.get("/waitlist/status").catch(() => ({ data: [] })),
+    ]).then(([b, w]) => {
+      setBilling(b.data);
+      setJoined(new Set((w.data || []).map((r) => r.tier)));
+    });
   }, [user]);
+
+  const trialDaysLeft = billing?.trial_active ? billing.trial_days_remaining : null;
+  const currentPlan = billing?.plan || "free";
 
   const handleCta = async (tierId) => {
     trackEvent("pricing_cta_clicked", "subscription", tierId);
-    if (tierId === "free") return;
+    if (tierId === "free") {
+      // No-op for logged-in users on Free / trial — they're already here
+      return;
+    }
     if (!user?.email) {
-      // Anonymous — fall back to mailto so they can still express interest
-      const subject = encodeURIComponent(`Interested: ${tierId}`);
-      window.location.href = `mailto:hello@bonbox.dk?subject=${subject}`;
+      // Anonymous — push them to register, which auto-starts the trial
+      window.location.href = "/register";
+      return;
+    }
+    if (tierId === "business") {
+      // Always route Business to sales conversation
+      const subject = encodeURIComponent("BonBox Business — questions");
+      const body = encodeURIComponent(
+        `Hi,\n\nI'd like to learn more about BonBox Business for my company.\n\nMy account email: ${user.email}\n\nThanks!`
+      );
+      window.location.href = `mailto:hello@bonbox.dk?subject=${subject}&body=${body}`;
       return;
     }
     if (joined.has(tierId)) {
-      setMsg("You're already on the waitlist for this tier — we'll be in touch.");
+      setMsg("You're already on the list — we'll be in touch when payment is ready.");
       setTimeout(() => setMsg(""), 4000);
       return;
     }
@@ -142,20 +149,19 @@ export default function SubscriptionPage() {
         tier: tierId,
         source: "subscription_page",
       });
-      setJoined((prev) => new Set([...prev, tierId]));
+      setJoined((p) => new Set([...p, tierId]));
       trackEvent("waitlist_joined", "subscription", tierId);
       setMsg(
         tierId === "pro"
-          ? "🎉 You're on the founding-member list. We'll lock in 149 kr/mo for you when Pro launches."
-          : `🎉 You're on the ${tierId} waitlist. We'll email you when it launches.`
+          ? "🎉 You're on the founding-member list — when payment opens, you'll lock in 149 kr/mo for as long as you stay."
+          : `🎉 You're on the ${tierId} list — we'll email you when it opens.`
       );
-      setTimeout(() => setMsg(""), 7000);
+      setTimeout(() => setMsg(""), 8000);
     } catch (e) {
-      const status = e?.response?.status;
       setMsg(
-        status === 429
+        e?.response?.status === 429
           ? "Too many requests — please try again in a minute."
-          : "Couldn't add you to the list. Please try again or email hello@bonbox.dk."
+          : "Couldn't add you to the list. Email hello@bonbox.dk if this keeps happening."
       );
       setTimeout(() => setMsg(""), 5000);
     } finally {
@@ -165,14 +171,37 @@ export default function SubscriptionPage() {
 
   return (
     <div className="px-4 sm:px-6 py-6 sm:py-10 max-w-6xl mx-auto">
+      {/* Trial status banner — only shown when trial is active */}
+      {trialDaysLeft != null && trialDaysLeft > 0 && (
+        <div className="mb-6 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
+          <div className="text-3xl">⏳</div>
+          <div className="flex-1">
+            <div className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+              Your free Pro trial ends in {trialDaysLeft} day{trialDaysLeft === 1 ? "" : "s"}.
+            </div>
+            <div className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+              You're using all Pro features right now — AI insights, unlimited Copilot, full history,
+              vertical modules. After the trial you can stay on Free (limited) or upgrade.
+            </div>
+          </div>
+          <button
+            onClick={() => handleCta("pro")}
+            className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded-lg shadow-sm whitespace-nowrap"
+          >
+            Lock in 149 kr/mo
+          </button>
+        </div>
+      )}
+
       {/* Hero */}
       <div className="text-center mb-10">
         <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-white">
-          Simple pricing. Built for SMEs.
+          Try Pro free for 14 days. No card needed.
         </h1>
         <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-3 max-w-2xl mx-auto">
-          BonBox sits alongside your bookkeeping (Dinero, Billy, e-conomic) — it doesn't replace it.
-          Pay only for the operational + AI layer that bookkeeping platforms structurally don't build.
+          Every new BonBox account starts on Pro for 14 days — full AI insights, unlimited Copilot,
+          all vertical modules. After 14 days you choose: stay on Free (forever, no card) or upgrade
+          to Pro at our founding-member price.
         </p>
 
         {/* Annual / monthly toggle */}
@@ -195,18 +224,23 @@ export default function SubscriptionPage() {
         </div>
       </div>
 
-      {/* Status banner — confirmation / errors from waitlist join */}
+      {/* Status confirmation banner */}
       {msg && (
         <div className="mb-6 text-center text-sm bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 rounded-xl px-4 py-3">
           {msg}
         </div>
       )}
 
-      {/* Tiers */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Tiers — 3 cards now */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {TIERS.map((tier) => {
+          const isCurrent =
+            (tier.id === "pro" && (currentPlan === "pro" || currentPlan === "trial")) ||
+            (tier.id === "free" && currentPlan === "free") ||
+            (tier.id === "business" && currentPlan === "business");
           const price = annual ? tier.price_annual : tier.price_monthly;
           const isFoundingPro = tier.id === "pro" && tier.founding_price;
+          const cta = user ? tier.cta : tier.cta_unauth;
           return (
             <div
               key={tier.id}
@@ -220,12 +254,19 @@ export default function SubscriptionPage() {
                   Most popular
                 </div>
               )}
+              {isCurrent && (
+                <div className="absolute -top-3 right-4 bg-blue-600 text-white text-[10px] font-bold px-2.5 py-1 rounded-full shadow whitespace-nowrap">
+                  {currentPlan === "trial" ? "Your trial" : "Current plan"}
+                </div>
+              )}
 
               <h3 className="text-xl font-bold text-gray-900 dark:text-white">{tier.name}</h3>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 min-h-[2.5em]">{tier.tagline}</p>
 
               <div className="mt-4 mb-1">
-                {isFoundingPro ? (
+                {tier.custom ? (
+                  <div className="text-2xl font-bold text-gray-900 dark:text-white">Custom</div>
+                ) : isFoundingPro ? (
                   <>
                     <div className="text-3xl font-bold text-gray-900 dark:text-white">
                       {tier.founding_price}
@@ -239,40 +280,46 @@ export default function SubscriptionPage() {
                     {price > 0 && <span className="text-sm font-normal text-gray-500 dark:text-gray-400 ml-1">kr/mo</span>}
                   </div>
                 )}
-                {annual && price > 0 && !isFoundingPro && (
+                {annual && price > 0 && !isFoundingPro && !tier.custom && (
                   <div className="text-[11px] text-green-600 dark:text-green-400">billed annually</div>
                 )}
               </div>
 
               {tier.badge && (
-                <div className="text-[11px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 rounded-md px-2 py-1 mt-1 mb-3">
+                <div className="text-[11px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 rounded-md px-2 py-1 mt-1 mb-3 text-center">
                   {tier.badge}
                 </div>
               )}
 
               <button
                 onClick={() => handleCta(tier.id)}
-                disabled={tier.id === "free" || pending === tier.id || joined.has(tier.id)}
+                disabled={isCurrent || pending === tier.id || (tier.id !== "business" && joined.has(tier.id))}
                 className={`w-full py-2 rounded-lg text-sm font-medium transition mt-3 mb-4
-                  ${tier.id === "free"
-                    ? "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-default"
-                    : joined.has(tier.id)
+                  ${isCurrent
+                    ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800 cursor-default"
+                    : joined.has(tier.id) && tier.id !== "business"
                       ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800"
                       : tier.highlight
                         ? "bg-green-600 hover:bg-green-700 text-white shadow-sm disabled:opacity-60"
                         : "bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-60"}`}
               >
-                {pending === tier.id
-                  ? "Joining…"
-                  : joined.has(tier.id)
-                    ? "✓ On the list"
-                    : tier.cta}
+                {isCurrent
+                  ? currentPlan === "trial"
+                    ? "On trial — full Pro features"
+                    : "✓ Current plan"
+                  : pending === tier.id
+                    ? "Joining…"
+                    : joined.has(tier.id) && tier.id !== "business"
+                      ? "✓ On the list"
+                      : cta}
               </button>
 
               <ul className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
                 {tier.features.map((f, i) => (
-                  <li key={i} className="flex items-start gap-2">
-                    {f.included ? (
+                  <li key={i} className={`flex items-start gap-2 ${f.header ? "font-semibold mt-1" : ""}`}>
+                    {f.header ? (
+                      <span className="text-gray-400 shrink-0 mt-0.5">·</span>
+                    ) : f.included ? (
                       <span className="text-green-500 dark:text-green-400 shrink-0 mt-0.5">✓</span>
                     ) : (
                       <span className="text-gray-300 dark:text-gray-600 shrink-0 mt-0.5">—</span>
@@ -287,51 +334,44 @@ export default function SubscriptionPage() {
       </div>
 
       {/* Reassurance row */}
-      <div className="grid sm:grid-cols-3 gap-3 mt-10">
-        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4 text-center">
-          <div className="text-2xl mb-1">🇩🇰</div>
-          <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">Built in Denmark</div>
-          <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">GDPR-first · EU-hosted · DKK + Moms native</div>
-        </div>
-        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4 text-center">
-          <div className="text-2xl mb-1">🤝</div>
-          <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">Cancel any time</div>
-          <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">No contracts. Export your data on the way out.</div>
-        </div>
-        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4 text-center">
-          <div className="text-2xl mb-1">🌏</div>
-          <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">12 languages</div>
-          <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Dansk, English, नेपाली, اردو, عربي + 7 more</div>
-        </div>
+      <div className="grid sm:grid-cols-4 gap-3 mt-10">
+        <Reassure icon="🆓" title="No card for trial" sub="14 days of Pro, no payment info needed." />
+        <Reassure icon="🇩🇰" title="Built in Denmark" sub="GDPR-first · EU-hosted · DKK + Moms native" />
+        <Reassure icon="🤝" title="Cancel anytime" sub="No contracts. Export your data on the way out." />
+        <Reassure icon="🌏" title="12 languages" sub="Dansk, English, नेपाली, اردو + 8 more" />
       </div>
 
       {/* FAQ */}
       <div className="mt-12 max-w-3xl mx-auto">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">FAQ</h2>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">Common questions</h2>
         <div className="space-y-4">
           <FaqItem
-            q="Do I have to switch from Dinero / Billy / e-conomic?"
-            a="No. BonBox is a complement, not a replacement. Keep your bookkeeping platform — BonBox adds the operational and AI layer your bookkeeper doesn't build."
+            q="What happens when my 14-day trial ends?"
+            a="You automatically drop to the Free plan. You keep all your data (sales, expenses, history). Some Pro features become locked — you can re-upgrade any time. You will NEVER be charged automatically. We won't even ask for a card during the trial."
           />
           <FaqItem
             q="How does the founding-member price work?"
-            a="The first 100 Pro subscribers lock in 149 kr/mo for life — even when our regular Pro price moves to 249 kr/mo. It's our way of saying thank you for being early."
+            a="The first 100 Pro subscribers lock in 149 kr/mo for as long as they stay subscribed — even when our regular Pro price moves to 249 kr/mo. Cancel and rejoin? You'd pay regular price. Stay subscribed continuously? You're locked in."
+          />
+          <FaqItem
+            q="Do I have to switch from Dinero / Billy / e-conomic?"
+            a="No. BonBox sits ALONGSIDE your bookkeeping platform — keep using whichever one your accountant prefers. We even export clean CSVs to all three. We focus on the operational + AI layer that bookkeeping platforms don't build."
           />
           <FaqItem
             q="What about VAT (Moms)?"
-            a="All prices shown are excl. moms. We invoice Danish businesses with 25% Moms automatically. EU businesses with a valid VAT number are reverse-charged."
+            a="All prices shown are excl. moms. Danish businesses are invoiced with 25% Moms automatically. EU businesses with valid VAT numbers are reverse-charged."
           />
           <FaqItem
             q="Can I cancel anytime?"
-            a="Yes. No contracts, no notice period. You'll keep access until the end of your current billing period and can export all your data on the way out."
+            a="Yes. No contracts, no notice period. You'll keep access until the end of the current billing period and can export all your data at any time."
           />
           <FaqItem
             q="Is my data safe?"
-            a="Yes. EU-hosted, encrypted at rest and in transit, GDPR-compliant, never sold or shared. You own your data — full export and delete tools are built in."
+            a="EU-hosted, encrypted at rest and in transit, GDPR-compliant, never sold, never shared with marketers, never used to train AI models. Full export and delete tools are built in."
           />
         </div>
 
-        {/* Trademark notice — referenced platform names belong to their owners */}
+        {/* Trademark notice */}
         <p className="mt-10 text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed text-center">
           Dinero, Billy, e-conomic, MobilePay and Dankort are trademarks of their
           respective owners. BonBox is not affiliated with or endorsed by any of
@@ -339,6 +379,16 @@ export default function SubscriptionPage() {
           comparative purposes under nominative fair use.
         </p>
       </div>
+    </div>
+  );
+}
+
+function Reassure({ icon, title, sub }) {
+  return (
+    <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4 text-center">
+      <div className="text-2xl mb-1">{icon}</div>
+      <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">{title}</div>
+      <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{sub}</div>
     </div>
   );
 }

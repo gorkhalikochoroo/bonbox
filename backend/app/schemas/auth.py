@@ -39,6 +39,8 @@ class UserResponse(BaseModel):
     email_verified: bool = False
     analytics_opt_out: bool = False
     timezone: str = "Europe/Copenhagen"
+    plan: str = "free"
+    trial_ends_at: datetime | None = None
     created_at: datetime | None = None
 
     model_config = {"from_attributes": True}
