@@ -6,7 +6,7 @@ import ReceiptCapture from "../components/ReceiptCapture";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { displayCurrency, getTaxConfig } from "../utils/currency";
-import { formatDate, formatDateShort } from "../utils/dateFormat";
+import { formatDate, formatDateShort, formatDateClear } from "../utils/dateFormat";
 import { getVatTerms } from "../utils/currency";
 import TaxBreakdown from "../components/TaxBreakdown";
 import { FadeIn, StaggerGrid, StaggerGridItem, AnimatedList, AnimatedListItem, TabContent, motion, AnimatePresence } from "../components/AnimationKit";
@@ -796,7 +796,7 @@ export default function SalesPage() {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 capitalize">{sale.payment_method}</td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{sale.notes || "—"}</td>
-                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 text-right">{formatDate(sale.date)}</td>
+                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 text-right">{formatDateClear(sale.date)}</td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2 flex-wrap">
                         {/* Return/Exchange button for completed sales */}
