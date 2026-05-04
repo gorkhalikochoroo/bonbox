@@ -39,6 +39,7 @@ const sections = [
       { to: "/reports", icon: "📋", labelKey: "reports" },
       { to: "/daily-close", icon: "🧾", labelKey: "dailyClose" },
       { to: "/tax", icon: "💰", labelKey: "taxAutopilot" },
+      { to: "/bookkeeping-export", icon: "📤", labelKey: "bookkeepingExport" },
     ],
   },
   {

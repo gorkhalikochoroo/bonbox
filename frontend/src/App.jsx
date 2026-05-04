@@ -157,6 +157,7 @@ const StaffPortalPage = lazyRetry(() => import("./pages/StaffPortalPage"));
 const VerifyEmailPage = lazyRetry(() => import("./pages/VerifyEmailPage"));
 const AdminPage = lazyRetry(() => import("./pages/AdminPage"));
 const SubscriptionPage = lazyRetry(() => import("./pages/SubscriptionPage"));
+const BookkeepingExportPage = lazyRetry(() => import("./pages/BookkeepingExportPage"));
 
 function ProtectedRoute({ children }) {
   const { user, loading, needsEmailVerification } = useAuth();
@@ -264,6 +265,7 @@ function AppRoutes() {
           <Route path="/staff/payroll" element={<StaffPayrollPage />} />
           <Route path="/more" element={<MorePage />} />
           <Route path="/subscription" element={<SubscriptionPage />} />
+          <Route path="/bookkeeping-export" element={<BookkeepingExportPage />} />
         </Route>
         {/* /admin — gated frontend, but real enforcement is server-side */}
         <Route

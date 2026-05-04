@@ -11,7 +11,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports
 from app.database import engine, Base
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -579,6 +579,8 @@ app.include_router(staff.router, prefix="/api/staff", tags=["Staff Management"])
 app.include_router(staff_portal.router, prefix="/api/portal", tags=["Staff Portal (Public)"])
 # Per-user pattern recognition (AI insights, dismiss/feedback)
 app.include_router(patterns.router, prefix="/api/patterns", tags=["Owner Patterns"])
+# Bookkeeping export (Dinero / Billy / e-conomic / generic CSV)
+app.include_router(exports.router, prefix="/api/exports", tags=["Bookkeeping Export"])
 # /admin/* — guarded by 6-layer require_super_admin (see services/admin_security.py).
 # Mounted last so any earlier router can't accidentally shadow these paths.
 app.include_router(admin.router, prefix="/api/admin", tags=["Super Admin"])
