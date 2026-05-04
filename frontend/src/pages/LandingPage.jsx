@@ -887,8 +887,15 @@ export default function LandingPage() {
           <div className="flex items-center gap-4">
             <Link to="/contact" className="text-gray-500 text-sm hover:text-gray-300 transition">{t("landingFooterContact")}</Link>
             <Link to="/privacy" className="text-gray-500 text-sm hover:text-gray-300 transition">{t("landingFooterPrivacy")}</Link>
+            <Link to="/terms" className="text-gray-500 text-sm hover:text-gray-300 transition">Terms</Link>
           </div>
         </div>
+        {/* Trademark notice — third-party names referenced under nominative fair use */}
+        <p className="mt-6 text-[10px] text-gray-700 text-center max-w-3xl mx-auto px-4 leading-relaxed">
+          Dinero, Billy, e-conomic, Visma, MobilePay, Dankort, Apple, App Store, Anthropic and Claude are
+          trademarks of their respective owners. BonBox is operated independently and is not affiliated
+          with or endorsed by these companies. See <Link to="/terms" className="underline hover:text-gray-500">Terms § 13</Link> for the full notice.
+        </p>
       </footer>
     </div>
   );

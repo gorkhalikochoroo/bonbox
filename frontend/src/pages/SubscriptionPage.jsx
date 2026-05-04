@@ -269,6 +269,14 @@ export default function SubscriptionPage() {
             a="Yes. EU-hosted, encrypted at rest and in transit, GDPR-compliant, never sold or shared. You own your data — full export and delete tools are built in."
           />
         </div>
+
+        {/* Trademark notice — referenced platform names belong to their owners */}
+        <p className="mt-10 text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed text-center">
+          Dinero, Billy, e-conomic, MobilePay and Dankort are trademarks of their
+          respective owners. BonBox is not affiliated with or endorsed by any of
+          these companies. References are made for interoperability and
+          comparative purposes under nominative fair use.
+        </p>
       </div>
     </div>
   );

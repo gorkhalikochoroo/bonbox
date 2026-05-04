@@ -203,6 +203,13 @@ export default function BookkeepingExportPage() {
           <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Opens cleanly in Excel + Google Sheets.</div>
         </div>
       </div>
+
+      {/* Trademark notice — referenced platform names belong to their owners */}
+      <p className="mt-6 text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed">
+        Dinero, Billy, and e-conomic are trademarks of their respective owners.
+        BonBox is not affiliated with or endorsed by any of these companies.
+        We provide CSV exports as an interoperability convenience for our users.
+      </p>
     </div>
   );
 }

@@ -154,13 +154,46 @@ export default function TermsPage() {
             <p className="mt-2">Before initiating legal proceedings, we encourage you to contact us at <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a> so we can try to resolve the issue directly.</p>
           </Section>
 
-          <Section num={13} title="Changes to these terms">
+          <Section num={13} title="Trademarks and third-party names">
+            <p>
+              "BonBox" and the BonBox logo are trademarks of Manoj Kumar Chaudhary.
+            </p>
+            <p className="mt-3">
+              All other product, service, and company names referenced in BonBox or in
+              our marketing materials — including but not limited to{" "}
+              <strong>Dinero</strong>, <strong>Billy</strong>, <strong>e-conomic</strong>,{" "}
+              <strong>Visma</strong>, <strong>Saldi</strong>, <strong>Uniconta</strong>,{" "}
+              <strong>MobilePay</strong>, <strong>Dankort</strong>, <strong>Apple</strong>,{" "}
+              <strong>App Store</strong>, <strong>Google Play</strong>, <strong>Anthropic</strong>{" "}
+              and <strong>Claude</strong> — are trademarks or registered trademarks of their
+              respective owners. References to these names are made only:
+            </p>
+            <ul className="list-disc pl-6 space-y-1 mt-2">
+              <li>To describe interoperability (e.g. "exports to Dinero CSV format")</li>
+              <li>For comparative or factual reference under nominative fair use</li>
+              <li>To accurately disclose third-party services we use (Anthropic for AI, Apple for iOS, etc.)</li>
+            </ul>
+            <p className="mt-3">
+              Use of these names does not imply any endorsement, sponsorship, partnership,
+              or affiliation between the trademark owner and BonBox. BonBox is operated
+              independently and is <strong>not</strong> affiliated with or endorsed by any
+              of the parties listed above.
+            </p>
+            <p className="mt-3">
+              Comparative or competitive statements made by BonBox in marketing are
+              based on publicly available information and the operator's good-faith
+              judgement at the time of publication. If a statement appears inaccurate,
+              please contact us at <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a> and we will review it promptly.
+            </p>
+          </Section>
+
+          <Section num={14} title="Changes to these terms">
             <p>
               We may update these terms from time to time. When we make significant changes, we will notify you via email or through a notice in BonBox at least 14 days before the changes take effect. Continued use after the effective date constitutes acceptance.
             </p>
           </Section>
 
-          <Section num={14} title="Contact">
+          <Section num={15} title="Contact">
             <p>For questions about these terms:</p>
             <p className="mt-2">
               <strong>Email:</strong> <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a><br />
