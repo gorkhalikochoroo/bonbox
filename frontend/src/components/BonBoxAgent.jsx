@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { trackEvent } from "../hooks/useEventLog";
 import {
   RevenueCard,
   ExpenseCard,
@@ -161,6 +162,9 @@ export default function BonBoxAgent() {
     async (overrideText) => {
       const userMsg = (overrideText || input).trim();
       if (!userMsg || isStreaming) return;
+      // Track AI question for thesis RQ1 + future per-owner pattern engine.
+      // Truncate to 200 chars to bound storage and avoid logging long prompts.
+      trackEvent("ai_question_asked", "agent", userMsg.slice(0, 200));
       setInput("");
       setMessages((prev) => [...prev, { role: "user", content: userMsg }]);
       setIsStreaming(true);

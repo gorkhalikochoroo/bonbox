@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useBranch } from "../components/BranchSelector";
 import { displayCurrency } from "../utils/currency";
+import { trackEvent } from "../hooks/useEventLog";
 import { FadeIn } from "../components/AnimationKit";
 
 /* ═══════════════════════════════════════════════════════════
@@ -507,6 +508,11 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
 
     try {
       await api.post("/daily-close", payload);
+      trackEvent(
+        payload.status === "draft" ? "daily_close_draft_saved" : "daily_close_completed",
+        "daily-close",
+        payload.report_date || null
+      );
       onDone();
     } catch (err) {
       if (!err.response) {

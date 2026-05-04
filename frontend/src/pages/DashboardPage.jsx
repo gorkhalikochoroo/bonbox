@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
+import { trackEvent } from "../hooks/useEventLog";
 import ReceiptCapture from "../components/ReceiptCapture";
 import Onboarding from "../components/Onboarding";
 import {
@@ -645,14 +646,19 @@ function PLCard({ revenue, expenses, profit, margin, currency, onNavigate }) {
         </div>
       </div>
 
+      {/* Empty state when user has no data yet — don't pretend they're "profitable" with 0 DKK */}
       <div className={`mt-3 px-3 py-2.5 rounded-xl text-xs leading-relaxed
-        ${isProfit
-          ? "bg-green-50 dark:bg-green-900/15 text-green-700 dark:text-green-400 border border-green-200/50 dark:border-green-800/30"
-          : "bg-red-50 dark:bg-red-900/15 text-red-600 dark:text-red-400 border border-red-200/50 dark:border-red-800/30"
+        ${revenue === 0 && expenses === 0
+          ? "bg-blue-50 dark:bg-blue-900/15 text-blue-700 dark:text-blue-300 border border-blue-200/50 dark:border-blue-800/30"
+          : isProfit
+            ? "bg-green-50 dark:bg-green-900/15 text-green-700 dark:text-green-400 border border-green-200/50 dark:border-green-800/30"
+            : "bg-red-50 dark:bg-red-900/15 text-red-600 dark:text-red-400 border border-red-200/50 dark:border-red-800/30"
         }`}>
-        {isProfit
-          ? "On track for profitability this month. Keep up the momentum!"
-          : "Expenses are exceeding revenue. Consider reviewing your top cost categories."}
+        {revenue === 0 && expenses === 0
+          ? "No data yet this month — log your first sale to see your numbers come alive 👇"
+          : isProfit
+            ? "On track for profitability this month. Keep up the momentum!"
+            : "Expenses are exceeding revenue. Consider reviewing your top cost categories."}
       </div>
     </div>
   );
@@ -1209,13 +1215,14 @@ export default function DashboardPage() {
   const handleQuickSale = async (amount) => {
     try {
       await api.post("/sales", { amount, date: new Date().toISOString().split("T")[0], payment_method: "cash", description: t("quickSaleDesc") });
+      trackEvent("sale_logged", "dashboard", `quick_sale ${amount} ${currency}`);
       showToast(`${t("saleLogged")} ${amount.toLocaleString()} ${currency}`, "success");
       fetchAll();
     } catch { showToast(t("failedToLogSale"), "error"); }
   };
 
   const repeatYesterday = async () => {
-    try { await api.post("/sales/repeat-yesterday"); setQuickMsg(t("yesterdayCopied")); fetchAll(); setTimeout(() => setQuickMsg(""), 3000); }
+    try { await api.post("/sales/repeat-yesterday"); trackEvent("sale_logged", "dashboard", "repeat_yesterday"); setQuickMsg(t("yesterdayCopied")); fetchAll(); setTimeout(() => setQuickMsg(""), 3000); }
     catch { setQuickMsg(t("noYesterdaySale")); setTimeout(() => setQuickMsg(""), 3000); }
   };
 

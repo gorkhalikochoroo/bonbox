@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import api from "../services/api";
+import { trackEvent } from "./useEventLog";
 
 const AuthContext = createContext(null);
 
@@ -27,6 +28,8 @@ export function AuthProvider({ children }) {
     const res = await api.post("/auth/login", { email, password });
     localStorage.setItem("token", res.data.access_token);
     setUser(res.data.user);
+    // Track login (after token is set so trackEvent can authenticate)
+    try { trackEvent("login_success", "login", "password"); } catch {}
     return res.data;
   };
 
@@ -34,6 +37,7 @@ export function AuthProvider({ children }) {
     const res = await api.post("/auth/register", data);
     localStorage.setItem("token", res.data.access_token);
     setUser(res.data.user);
+    try { trackEvent("signup_completed", "register", res.data.user?.business_type || null); } catch {}
     return res.data;
   };
 
@@ -41,10 +45,13 @@ export function AuthProvider({ children }) {
     const res = await api.post("/auth/google", { credential });
     localStorage.setItem("token", res.data.access_token);
     setUser(res.data.user);
+    try { trackEvent("login_success", "login", "google"); } catch {}
     return res.data;
   };
 
   const logout = () => {
+    // Track BEFORE clearing token (otherwise the API call has no auth header)
+    try { trackEvent("logout", "logout", null); } catch {}
     localStorage.removeItem("token");
     setUser(null);
   };

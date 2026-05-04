@@ -99,9 +99,9 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
       {!isExpense && (
         <button
           onClick={() => setOpen(true)}
-          className="px-4 py-2.5 bg-orange-50 text-orange-700 border border-orange-200 rounded-lg text-sm font-medium hover:bg-orange-100 transition"
+          className="px-4 py-2.5 bg-white dark:bg-gray-700 text-green-700 dark:text-green-400 border border-green-300 dark:border-green-700 rounded-lg text-sm font-medium hover:bg-green-50 dark:hover:bg-green-900/20 transition shadow-sm"
         >
-          {t("snapReceipt")}
+          📸 {t("snapReceipt")}
         </button>
       )}
 
