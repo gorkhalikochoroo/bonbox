@@ -153,3 +153,122 @@ body.modal-open {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   THEME SYSTEM — accent color overrides via [data-theme] on <html>
+
+   We keep all "green" success states (✓ checkmarks, success toasts) as
+   green because green = success universally. We only swap the BRAND
+   accent — buttons, highlights, focus rings, "most popular" badges,
+   nav active states.
+
+   Default is "calm" (soft blue) — feedback was that the previous
+   default (emerald/green with glow) felt like a developer tool to
+   small-business users.
+
+   Tech theme (id="tech") is the legacy emerald look — kept opt-in
+   for founder/dev users who liked the original.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── CALM (default) — soft business blue ── */
+:root[data-theme="calm"],
+:root:not([data-theme]) {
+  --brand-50: 239 246 255;   /* blue-50 */
+  --brand-100: 219 234 254;  /* blue-100 */
+  --brand-400: 96 165 250;   /* blue-400 */
+  --brand-500: 59 130 246;   /* blue-500 */
+  --brand-600: 37 99 235;    /* blue-600 */
+  --brand-700: 29 78 216;    /* blue-700 */
+  --brand-bg-dark: 30 58 138; /* blue-900 */
+}
+
+/* ── MODERN — soft violet/lavender ── */
+:root[data-theme="modern"] {
+  --brand-50: 245 243 255;   /* violet-50 */
+  --brand-100: 237 233 254;  /* violet-100 */
+  --brand-400: 167 139 250;  /* violet-400 */
+  --brand-500: 139 92 246;   /* violet-500 */
+  --brand-600: 124 58 237;   /* violet-600 */
+  --brand-700: 109 40 217;   /* violet-700 */
+  --brand-bg-dark: 76 29 149; /* violet-900 */
+}
+
+/* ── FOCUS — pure monochrome slate ── */
+:root[data-theme="focus"] {
+  --brand-50: 248 250 252;   /* slate-50 */
+  --brand-100: 241 245 249;  /* slate-100 */
+  --brand-400: 148 163 184;  /* slate-400 */
+  --brand-500: 100 116 139;  /* slate-500 */
+  --brand-600: 71 85 105;    /* slate-600 */
+  --brand-700: 51 65 85;     /* slate-700 */
+  --brand-bg-dark: 15 23 42; /* slate-900 */
+}
+
+/* ── TECH (legacy) — original emerald ── */
+:root[data-theme="tech"] {
+  --brand-50: 236 253 245;   /* emerald-50 */
+  --brand-100: 209 250 229;  /* emerald-100 */
+  --brand-400: 52 211 153;   /* emerald-400 */
+  --brand-500: 16 185 129;   /* emerald-500 */
+  --brand-600: 5 150 105;    /* emerald-600 */
+  --brand-700: 4 120 87;     /* emerald-700 */
+  --brand-bg-dark: 6 78 59;  /* emerald-900 */
+}
+
+/* ───── Override the most-used green-* utilities to use the theme accent.
+   Only applied when theme is NOT "tech" (which keeps original green).
+   Success-state classes (✓ checks, success toasts) stay green via more
+   specific selectors elsewhere — these overrides target BRAND uses. ───── */
+
+:root:not([data-theme="tech"]) .bg-green-50    { background-color: rgb(var(--brand-50)) !important; }
+:root:not([data-theme="tech"]) .bg-green-100   { background-color: rgb(var(--brand-100)) !important; }
+:root:not([data-theme="tech"]) .bg-green-400   { background-color: rgb(var(--brand-400)) !important; }
+:root:not([data-theme="tech"]) .bg-green-500   { background-color: rgb(var(--brand-500)) !important; }
+:root:not([data-theme="tech"]) .bg-green-600   { background-color: rgb(var(--brand-600)) !important; }
+:root:not([data-theme="tech"]) .bg-green-700   { background-color: rgb(var(--brand-700)) !important; }
+
+:root:not([data-theme="tech"]) .hover\:bg-green-400:hover   { background-color: rgb(var(--brand-400)) !important; }
+:root:not([data-theme="tech"]) .hover\:bg-green-500:hover   { background-color: rgb(var(--brand-500)) !important; }
+:root:not([data-theme="tech"]) .hover\:bg-green-600:hover   { background-color: rgb(var(--brand-600)) !important; }
+:root:not([data-theme="tech"]) .hover\:bg-green-700:hover   { background-color: rgb(var(--brand-700)) !important; }
+
+:root:not([data-theme="tech"]) .text-green-400 { color: rgb(var(--brand-400)) !important; }
+:root:not([data-theme="tech"]) .text-green-500 { color: rgb(var(--brand-500)) !important; }
+:root:not([data-theme="tech"]) .text-green-600 { color: rgb(var(--brand-600)) !important; }
+:root:not([data-theme="tech"]) .text-green-700 { color: rgb(var(--brand-700)) !important; }
+
+:root:not([data-theme="tech"]) .border-green-200 { border-color: rgb(var(--brand-100)) !important; }
+:root:not([data-theme="tech"]) .border-green-400 { border-color: rgb(var(--brand-400)) !important; }
+:root:not([data-theme="tech"]) .border-green-500 { border-color: rgb(var(--brand-500)) !important; }
+:root:not([data-theme="tech"]) .border-green-600 { border-color: rgb(var(--brand-600)) !important; }
+
+:root:not([data-theme="tech"]) .ring-green-500 { --tw-ring-color: rgb(var(--brand-500)) !important; }
+
+/* Also remap the emerald variants used in the same gradients */
+:root:not([data-theme="tech"]) .from-green-400 { --tw-gradient-from: rgb(var(--brand-400)) !important; }
+:root:not([data-theme="tech"]) .from-green-500 { --tw-gradient-from: rgb(var(--brand-500)) !important; }
+:root:not([data-theme="tech"]) .from-green-600 { --tw-gradient-from: rgb(var(--brand-600)) !important; }
+:root:not([data-theme="tech"]) .via-emerald-400 { --tw-gradient-via: rgb(var(--brand-400)) !important; }
+:root:not([data-theme="tech"]) .via-emerald-500 { --tw-gradient-via: rgb(var(--brand-500)) !important; }
+:root:not([data-theme="tech"]) .to-emerald-500 { --tw-gradient-to: rgb(var(--brand-500)) !important; }
+:root:not([data-theme="tech"]) .to-emerald-600 { --tw-gradient-to: rgb(var(--brand-600)) !important; }
+:root:not([data-theme="tech"]) .to-green-300   { --tw-gradient-to: rgb(var(--brand-100)) !important; }
+:root:not([data-theme="tech"]) .to-green-500   { --tw-gradient-to: rgb(var(--brand-500)) !important; }
+
+/* Dark-mode brand backgrounds (the deep ones used in pricing card halos) */
+:root:not([data-theme="tech"]) .dark\:bg-green-900\/20 { background-color: rgb(var(--brand-bg-dark) / 0.20) !important; }
+:root:not([data-theme="tech"]) .dark\:bg-green-900\/30 { background-color: rgb(var(--brand-bg-dark) / 0.30) !important; }
+:root:not([data-theme="tech"]) .dark\:bg-green-900\/40 { background-color: rgb(var(--brand-bg-dark) / 0.40) !important; }
+:root:not([data-theme="tech"]) .dark\:from-green-900\/20 { --tw-gradient-from: rgb(var(--brand-bg-dark) / 0.20) !important; }
+:root:not([data-theme="tech"]) .dark\:to-emerald-900\/20 { --tw-gradient-to: rgb(var(--brand-bg-dark) / 0.20) !important; }
+:root:not([data-theme="tech"]) .dark\:border-green-600 { border-color: rgb(var(--brand-600)) !important; }
+:root:not([data-theme="tech"]) .dark\:border-green-700\/30 { border-color: rgb(var(--brand-700) / 0.30) !important; }
+:root:not([data-theme="tech"]) .dark\:border-green-800 { border-color: rgb(var(--brand-700)) !important; }
+:root:not([data-theme="tech"]) .dark\:text-green-300 { color: rgb(var(--brand-100)) !important; }
+:root:not([data-theme="tech"]) .dark\:text-green-400 { color: rgb(var(--brand-400)) !important; }
+
+/* Calm theme also softens the body background slightly to feel less "app-ish" */
+:root[data-theme="calm"] body       { background-color: #f9fbfd; }
+:root[data-theme="calm"].dark body  { background-color: #0f172a; }
+:root[data-theme="modern"] body     { background-color: #faf9fd; }
+:root[data-theme="focus"] body      { background-color: #f8fafc; }

@@ -3,6 +3,7 @@ import { useBranch } from "../components/BranchSelector";
 import { useLanguage } from "../hooks/useLanguage";
 import { useAuth } from "../hooks/useAuth";
 import { useDarkMode } from "../hooks/useDarkMode";
+import { useTheme, THEMES } from "../hooks/useTheme";
 
 const sections = [
   {
@@ -71,6 +72,7 @@ export default function MorePage() {
   const { t } = useLanguage();
   const { logout } = useAuth();
   const [dark, toggleDark] = useDarkMode();
+  const [theme, setTheme] = useTheme();
   const navigate = useNavigate();
   const activeTypes = branchType ? [branchType] : businessTypes.length ? businessTypes : ["general"];
 
@@ -116,6 +118,40 @@ export default function MorePage() {
           </div>
         </div>
       ))}
+
+      {/* Theme picker — accent only, doesn't change light/dark mode */}
+      <div className="mt-2 mb-2">
+        <h3 className="text-xs text-gray-400 dark:text-gray-500 font-semibold uppercase tracking-wider mb-2 px-1">
+          {t("appearance") || "Appearance"}
+        </h3>
+        <div className="grid grid-cols-4 gap-2">
+          {THEMES.map((th) => {
+            const active = theme === th.id;
+            return (
+              <button
+                key={th.id}
+                onClick={() => setTheme(th.id)}
+                aria-pressed={active}
+                aria-label={`${th.name} theme — ${th.description}`}
+                className={`flex flex-col items-center justify-center
+                  bg-white dark:bg-gray-800 rounded-xl p-3 min-h-[72px]
+                  active:scale-95 transition-transform
+                  ${active
+                    ? "border-2 border-blue-500 dark:border-blue-400"
+                    : "border border-gray-200 dark:border-gray-700"}`}
+              >
+                <span
+                  className="block w-6 h-6 rounded-full mb-1.5 ring-1 ring-black/5 dark:ring-white/10"
+                  style={{ backgroundColor: th.swatch }}
+                />
+                <span className="text-[11px] text-gray-700 dark:text-gray-300 text-center leading-tight font-medium">
+                  {th.name}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       {/* Dark mode + Sign out */}
       <div className="mt-4 space-y-2">

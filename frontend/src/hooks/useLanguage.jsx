@@ -15,7 +15,7 @@ const translations = {
   en: {
     dashboard: "Dashboard", sales: "Sales", expenses: "Expenses", inventory: "Inventory",
     smartStaffing: "Smart Staffing", weatherSmart: "Weather Smart", wasteTracker: "Waste Tracker", weeklyReport: "Weekly Report",
-    momsVat: "Tax/VAT", darkMode: "Dark Mode", lightMode: "Light Mode", signOut: "Sign Out",
+    momsVat: "Tax/VAT", darkMode: "Dark Mode", lightMode: "Light Mode", signOut: "Sign Out", appearance: "Appearance",
     language: "Dansk",
     // Dashboard
     welcome: "Welcome",
@@ -657,7 +657,7 @@ const translations = {
   da: {
     dashboard: "Oversigt", sales: "Salg", expenses: "Udgifter", inventory: "Lager",
     smartStaffing: "Vagtplanlægning", weatherSmart: "Vejr Smart", wasteTracker: "Madspild", weeklyReport: "Ugerapport",
-    momsVat: "Moms", darkMode: "Mørk tilstand", lightMode: "Lys tilstand", signOut: "Log ud",
+    momsVat: "Moms", darkMode: "Mørk tilstand", lightMode: "Lys tilstand", signOut: "Log ud", appearance: "Udseende",
     language: "English",
     // Dashboard
     welcome: "Velkommen",
@@ -1284,7 +1284,7 @@ const translations = {
   np: {
     dashboard: "ड्यासबोर्ड", sales: "बिक्री", expenses: "खर्च", inventory: "स्टक",
     smartStaffing: "स्मार्ट स्टाफिङ", weatherSmart: "मौसम स्मार्ट", wasteTracker: "फोहोर ट्र्याकर", weeklyReport: "हप्ताको रिपोर्ट",
-    momsVat: "भ्याट", darkMode: "डार्क मोड", lightMode: "लाइट मोड", signOut: "लग आउट",
+    momsVat: "भ्याट", darkMode: "डार्क मोड", lightMode: "लाइट मोड", signOut: "लग आउट", appearance: "थिम",
     language: "भाषा",
     // Dashboard
     welcome: "स्वागतम",
