@@ -4,6 +4,16 @@ import { trackEvent } from "../hooks/useEventLog";
 import api from "../services/api";
 
 /**
+ * isNative — running inside Capacitor (iOS or Android).
+ * Used to comply with App Store Review Guideline 3.1.1 + Google Play Billing
+ * rules: in-app purchase of digital subscriptions must use Apple/Google
+ * billing. Until we wire those up, native users see a "manage on web"
+ * pathway instead of an in-app upgrade button.
+ */
+const isNative =
+  typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
+
+/**
  * BonBox subscription tiers — public pricing page.
  *
  * Strategy: every new signup gets 14 days of Pro free, no card. After the
@@ -134,6 +144,27 @@ export default function SubscriptionPage() {
       window.location.href = `mailto:hello@bonbox.dk?subject=${subject}&body=${body}`;
       return;
     }
+    // App Store compliance: when payment IS wired, native iOS/Android cannot
+    // process digital subscriptions outside Apple/Google billing without paying
+    // their cut. Until we wire IAP, on native we open the web subscription
+    // page in the system browser so the user upgrades via web (which is fine —
+    // no payment via in-app means no IAP requirement). For now (waitlist only,
+    // no payment), the same flow works seamlessly.
+    if (isNative && tierId === "pro") {
+      try {
+        // Capacitor Browser plugin is preferred but not required — fall back
+        // to window.open which Capacitor routes to system browser by default.
+        const url = "https://bonbox.dk/subscription";
+        if (window.Capacitor?.Plugins?.Browser?.open) {
+          await window.Capacitor.Plugins.Browser.open({ url });
+        } else {
+          window.open(url, "_blank");
+        }
+        return;
+      } catch {
+        /* fall through to in-app waitlist */
+      }
+    }
     if (joined.has(tierId)) {
       setMsg("You're already on the list — we'll be in touch when payment is ready.");
       setTimeout(() => setMsg(""), 4000);
@@ -145,7 +176,7 @@ export default function SubscriptionPage() {
       await api.post("/waitlist/join", {
         email: user.email,
         tier: tierId,
-        source: "subscription_page",
+        source: isNative ? "subscription_page_native" : "subscription_page",
       });
       setJoined((p) => new Set([...p, tierId]));
       trackEvent("waitlist_joined", "subscription", tierId);
@@ -168,7 +199,7 @@ export default function SubscriptionPage() {
   };
 
   return (
-    <div className="px-4 sm:px-6 py-6 sm:py-10 max-w-6xl mx-auto">
+    <div className="px-4 sm:px-6 py-6 sm:py-10 pb-32 sm:pb-16 max-w-6xl mx-auto">
       {/* Trial status banner — only shown when trial is active */}
       {trialDaysLeft != null && trialDaysLeft > 0 && (
         <div className="mb-6 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
