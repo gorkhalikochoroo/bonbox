@@ -224,12 +224,22 @@ export function QuickSaleModal({ open, onClose, onSubmit, currency = "DKK" }) {
     }
   }, [open]);
 
+  // Escape closes the modal — standard expectation for any dialog.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   function handleSubmit(e) {
     e.preventDefault();
     // Strip all non-numeric chars except decimal comma/period, then parse
-    const cleaned = amount.replace(/\./g, "").replace(/,/g, ".");
+    const cleaned = String(amount || "").replace(/\./g, "").replace(/,/g, ".");
     const num = parseFloat(cleaned);
     if (num > 0) {
       onSubmit(num);
@@ -248,8 +258,12 @@ export function QuickSaleModal({ open, onClose, onSubmit, currency = "DKK" }) {
               ref={inputRef}
               type="text"
               inputMode="decimal"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value.replace(/[^0-9.,]/g, ""))}
+              // Coerce null/undefined to empty string — prevents the literal
+              // "null" or "undefined" string from rendering inside the input
+              // when state somehow becomes nullish (focus race, React strict
+              // mode double-render, etc.)
+              value={amount ?? ""}
+              onChange={(e) => setAmount(String(e.target.value || "").replace(/[^0-9.,]/g, ""))}
               placeholder="0"
               className="w-full text-center text-5xl font-bold bg-transparent border-none outline-none text-gray-900 dark:text-white placeholder-gray-300 dark:placeholder-gray-700"
             />
