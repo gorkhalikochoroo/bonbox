@@ -22,7 +22,7 @@ const isNative =
  *
  * Three tiers only — no "Coming soon" placeholders. Cleaner choice.
  *   Free: forever, real but limited
- *   Pro: 14-day trial → 99 kr/mo founding (first 1000 customers, regular 249)
+ *   Pro: 14-day trial → 99 kr/mo founding (first 1000 customers, regular 169)
  *   Business: talk to sales — multi-branch chains (no public price, custom)
  */
 
@@ -55,8 +55,8 @@ const TIERS = [
     id: "pro",
     name: "Pro",
     tagline: "Unleash the AI. Every cap removed. Most popular.",
-    price_monthly: 249,
-    price_annual: 199,
+    price_monthly: 169,
+    price_annual: 135,
     founding_price: 99,
     founding_limit: 1000, // first N customers lock in this price
     cta: "Upgrade to Pro",
@@ -454,7 +454,7 @@ export default function SubscriptionPage() {
           />
           <FaqItem
             q="How does the founding-member price work?"
-            a="The first 1,000 Pro subscribers lock in 99 kr/mo for as long as they stay subscribed — even when our regular Pro price moves to 249 kr/mo. Cancel and rejoin? You'd pay regular price. Stay subscribed continuously? You're locked in. That's a 60% discount, locked for life."
+            a="The first 1,000 Pro subscribers lock in 99 kr/mo for as long as they stay subscribed — even when our regular Pro price kicks in at 169 kr/mo. Cancel and rejoin? You'd pay regular price. Stay subscribed continuously? You're locked in. That's a 41% discount, locked for life."
           />
           <FaqItem
             q="I run a chain with multiple branches — what fits?"
