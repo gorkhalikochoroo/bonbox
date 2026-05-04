@@ -138,7 +138,7 @@ export default function AdminPage() {
               <div key={k} className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4">
                 <div className="text-xs uppercase text-gray-500 dark:text-gray-400 tracking-wide">{k.toUpperCase()} Retention</div>
                 <div className="text-2xl font-bold text-gray-800 dark:text-gray-100 mt-1">{retention[k].rate}%</div>
-                <div className="text-xs text-gray-500 mt-1">{retention[k].retained} of {retention[k].eligible} eligible</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{retention[k].retained} of {retention[k].eligible} eligible</div>
               </div>
             ))}
           </div>
@@ -256,15 +256,15 @@ export default function AdminPage() {
                       {u.role === "super_admin" && <span className="ml-1 text-purple-500" title="Super admin">🛡️</span>}
                     </td>
                     <td className="px-2 py-2">{u.business_name || "—"}</td>
-                    <td className="px-2 py-2 text-xs text-gray-500">{u.business_type}</td>
+                    <td className="px-2 py-2 text-xs text-gray-500 dark:text-gray-400">{u.business_type}</td>
                     <td className="px-2 py-2 text-right font-mono">
                       {u.sale_count}
                       {u.is_activated && <span className="ml-1 text-green-500" title="Activated">✓</span>}
                     </td>
                     <td className="px-2 py-2 text-right font-mono">{u.event_count}</td>
                     <td className="px-2 py-2 text-right font-mono">{u.active_days}</td>
-                    <td className="px-2 py-2 text-xs text-gray-500">{u.last_active ? relativeTime(u.last_active) : "never"}</td>
-                    <td className="px-2 py-2 text-xs text-gray-500">{relativeTime(u.created_at)}</td>
+                    <td className="px-2 py-2 text-xs text-gray-500 dark:text-gray-400">{u.last_active ? relativeTime(u.last_active) : "never"}</td>
+                    <td className="px-2 py-2 text-xs text-gray-500 dark:text-gray-400">{relativeTime(u.created_at)}</td>
                   </tr>
                 );
               })}
@@ -291,15 +291,15 @@ export default function AdminPage() {
                 const denied = s.event_type.startsWith("admin_denied");
                 return (
                   <tr key={s.id} className={`border-b border-gray-100 dark:border-gray-800 ${denied ? "bg-red-50/40 dark:bg-red-900/10" : ""}`}>
-                    <td className="px-2 py-1.5 text-gray-500">{relativeTime(s.created_at)}</td>
+                    <td className="px-2 py-1.5 text-gray-500 dark:text-gray-400">{relativeTime(s.created_at)}</td>
                     <td className="px-2 py-1.5">
                       <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${denied ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300" : "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"}`}>
                         {s.event_type}
                       </span>
                     </td>
-                    <td className="px-2 py-1.5 font-mono text-gray-500">{s.user_id ? s.user_id.slice(0, 8) : "—"}</td>
-                    <td className="px-2 py-1.5 font-mono text-gray-500">{s.ip_address || "—"}</td>
-                    <td className="px-2 py-1.5 text-gray-500">{s.detail || "—"}</td>
+                    <td className="px-2 py-1.5 font-mono text-gray-500 dark:text-gray-400">{s.user_id ? s.user_id.slice(0, 8) : "—"}</td>
+                    <td className="px-2 py-1.5 font-mono text-gray-500 dark:text-gray-400">{s.ip_address || "—"}</td>
+                    <td className="px-2 py-1.5 text-gray-500 dark:text-gray-400">{s.detail || "—"}</td>
                   </tr>
                 );
               })}
