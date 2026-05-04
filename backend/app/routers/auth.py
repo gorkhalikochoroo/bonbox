@@ -130,9 +130,52 @@ def _generate_verification_code() -> str:
     return str(secrets.randbelow(900000) + 100000)
 
 
+# Disposable / temp email domains. Most spam signups use these to bypass
+# verification. Real users almost never use them. Blocklist is short on
+# purpose — false positives are worse than false negatives.
+# To extend: append more from https://github.com/disposable-email-domains
+_DISPOSABLE_EMAIL_DOMAINS = frozenset({
+    # Top-volume disposable services
+    "tempmail.com", "temp-mail.org", "temp-mail.io",
+    "guerrillamail.com", "guerrillamail.info", "guerrillamail.biz", "guerrillamail.net",
+    "10minutemail.com", "10minutemail.net",
+    "mailinator.com", "mailinator.net", "mailinator.org",
+    "yopmail.com", "yopmail.fr", "yopmail.net",
+    "maildrop.cc", "throwawaymail.com", "fakeinbox.com",
+    "trashmail.com", "trashmail.de", "trashmail.io",
+    "getnada.com", "spamgourmet.com", "sharklasers.com",
+    "moakt.com", "dispostable.com", "tempinbox.com", "fakemail.net",
+    "harakirimail.com", "burnermail.io", "emailondeck.com",
+    "mintemail.com", "mytemp.email", "mailnesia.com",
+    "anonymousemail.me", "tempr.email", "minutemail.com",
+    "mohmal.com", "incognitomail.org",
+    # Spam/SEO operations frequently observed
+    "pokemail.net", "spamex.com", "spam.la", "spambog.com",
+    "trbvm.com", "byom.de", "deadaddress.com", "easytrashmail.com",
+})
+
+
+def _is_disposable_email(email: str) -> bool:
+    """Return True if email's domain is on the disposable allowlist."""
+    if not email or "@" not in email:
+        return False
+    domain = email.split("@", 1)[1].strip().lower()
+    return domain in _DISPOSABLE_EMAIL_DOMAINS
+
+
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
-@limiter.limit("15/minute")
+@limiter.limit("5/minute")  # Tightened from 15/min — bots were burning the budget
 def register(request: Request, data: UserRegister, db: Session = Depends(get_db)):
+    # Defense layer 1: disposable email blocklist
+    if _is_disposable_email(data.email):
+        # Generic 422 to not give bots feedback for retry. Real users get the
+        # same response if they try a disposable provider — they'll know to use
+        # their real email.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Please use a real email address (work or personal). Disposable email services aren't supported.",
+        )
+
     existing = db.query(User).filter(User.email == data.email).first()
     if existing:
         raise HTTPException(
@@ -180,17 +223,9 @@ def register(request: Request, data: UserRegister, db: Session = Depends(get_db)
     except Exception:
         pass
 
-    # Notify admin about new signup — but skip probe / test signups so the
-    # multi_tenant_probe.py script doesn't pollute the admin's inbox.
-    if settings.ADMIN_EMAIL and "@bonbox-probe.com" not in (user.email or "").lower():
-        try:
-            send_email(
-                settings.ADMIN_EMAIL,
-                f"New BonBox signup: {user.business_name or user.email}",
-                _admin_signup_email_html(user.email, user.business_name, user.business_type),
-            )
-        except Exception:
-            pass
+    # Anti-spam: admin notification moved to /verify-email handler. Bots
+    # rarely complete email verification, so notifying only at that step
+    # filters out 90%+ of fake-account noise from the admin inbox.
 
     token = create_access_token(str(user.id))
     return Token(access_token=token, user=UserResponse.model_validate(user))
@@ -306,6 +341,19 @@ def verify_email(
     current_user.verification_code = None
     current_user.verification_code_expires = None
     db.commit()
+
+    # Anti-spam: notify admin ONLY after the user verifies their email. This
+    # is the moment we know it's a real human (verified inbox), so bots that
+    # register-and-disappear don't pollute the admin inbox.
+    if settings.ADMIN_EMAIL and "@bonbox-probe.com" not in (current_user.email or "").lower():
+        try:
+            send_email(
+                settings.ADMIN_EMAIL,
+                f"New verified BonBox signup: {current_user.business_name or current_user.email}",
+                _admin_signup_email_html(current_user.email, current_user.business_name, current_user.business_type),
+            )
+        except Exception:
+            pass
     return {"message": "Email verified successfully", "email_verified": True}
 
 

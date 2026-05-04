@@ -217,10 +217,14 @@ export default function AdminPage() {
 
       {/* User list */}
       <Section title="Users" subtitle={`${users.length} most recent`}>
+        {/* Anti-spam control */}
+        <SpamCleanupBar onCleaned={() => api.get("/admin/users", { params: { limit: 100 } }).then(r => setUsers(r.data))} />
+
         <div className="overflow-x-auto -mx-4 sm:mx-0">
           <table className="w-full text-sm">
             <thead className="text-xs uppercase text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
               <tr>
+                <th className="text-left px-2 py-2 w-6"></th>
                 <th className="text-left px-2 py-2">Email</th>
                 <th className="text-left px-2 py-2">Business</th>
                 <th className="text-left px-2 py-2">Type</th>
@@ -232,25 +236,38 @@ export default function AdminPage() {
               </tr>
             </thead>
             <tbody>
-              {users.map((u) => (
-                <tr key={u.id} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/30">
-                  <td className="px-2 py-2 font-mono text-xs">
-                    {u.email}
-                    {!u.email_verified && <span className="ml-1 text-red-500" title="Email not verified">⚠</span>}
-                    {u.role === "super_admin" && <span className="ml-1 text-purple-500" title="Super admin">🛡️</span>}
-                  </td>
-                  <td className="px-2 py-2">{u.business_name || "—"}</td>
-                  <td className="px-2 py-2 text-xs text-gray-500">{u.business_type}</td>
-                  <td className="px-2 py-2 text-right font-mono">
-                    {u.sale_count}
-                    {u.is_activated && <span className="ml-1 text-green-500" title="Activated">✓</span>}
-                  </td>
-                  <td className="px-2 py-2 text-right font-mono">{u.event_count}</td>
-                  <td className="px-2 py-2 text-right font-mono">{u.active_days}</td>
-                  <td className="px-2 py-2 text-xs text-gray-500">{u.last_active ? relativeTime(u.last_active) : "never"}</td>
-                  <td className="px-2 py-2 text-xs text-gray-500">{relativeTime(u.created_at)}</td>
-                </tr>
-              ))}
+              {users.map((u) => {
+                // Online status from last_active timestamp
+                const lastActive = u.last_active ? new Date(u.last_active) : null;
+                const minsSince = lastActive ? (Date.now() - lastActive.getTime()) / 60000 : Infinity;
+                let dotClass = "bg-gray-300 dark:bg-gray-600";  // offline / never
+                let dotTitle = "Offline";
+                if (minsSince < 5) { dotClass = "bg-green-500"; dotTitle = "Online (active in last 5 min)"; }
+                else if (minsSince < 60) { dotClass = "bg-yellow-500"; dotTitle = "Recently active (within an hour)"; }
+                else if (minsSince < 60 * 24) { dotClass = "bg-blue-400"; dotTitle = "Active today"; }
+                return (
+                  <tr key={u.id} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/30">
+                    <td className="px-2 py-2">
+                      <span className={`inline-block w-2 h-2 rounded-full ${dotClass}`} title={dotTitle} aria-label={dotTitle}></span>
+                    </td>
+                    <td className="px-2 py-2 font-mono text-xs">
+                      {u.email}
+                      {!u.email_verified && <span className="ml-1 text-red-500" title="Email not verified">⚠</span>}
+                      {u.role === "super_admin" && <span className="ml-1 text-purple-500" title="Super admin">🛡️</span>}
+                    </td>
+                    <td className="px-2 py-2">{u.business_name || "—"}</td>
+                    <td className="px-2 py-2 text-xs text-gray-500">{u.business_type}</td>
+                    <td className="px-2 py-2 text-right font-mono">
+                      {u.sale_count}
+                      {u.is_activated && <span className="ml-1 text-green-500" title="Activated">✓</span>}
+                    </td>
+                    <td className="px-2 py-2 text-right font-mono">{u.event_count}</td>
+                    <td className="px-2 py-2 text-right font-mono">{u.active_days}</td>
+                    <td className="px-2 py-2 text-xs text-gray-500">{u.last_active ? relativeTime(u.last_active) : "never"}</td>
+                    <td className="px-2 py-2 text-xs text-gray-500">{relativeTime(u.created_at)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -342,4 +359,106 @@ function relativeTime(iso) {
   if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
   if (sec < 86400 * 7) return `${Math.floor(sec / 86400)}d ago`;
   return then.toLocaleDateString();
+}
+
+
+/**
+ * Spam-cleanup control bar.
+ *   1. "Find spam" button → calls /admin/spam-candidates → shows count + preview
+ *   2. "Clean N accounts" button (only if count > 0) → calls /admin/cleanup-spam?confirm=true
+ *   3. After delete → green confirmation + refreshes user list
+ *
+ * Defense:
+ *   • Two-step UX (preview before delete) — can't accidentally nuke users.
+ *   • Backend filter requires `confirm=true` query param even when called.
+ *   • Preview shows what WOULD be deleted so admin can sanity-check.
+ */
+function SpamCleanupBar({ onCleaned }) {
+  const [candidates, setCandidates] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const findSpam = async () => {
+    setLoading(true);
+    setResult(null);
+    try {
+      const r = await api.get("/admin/spam-candidates", { params: { min_age_days: 3 } });
+      setCandidates(r.data);
+      setConfirmOpen(false);
+    } catch (e) {
+      setResult({ error: e.response?.data?.detail || "Failed to scan" });
+    }
+    setLoading(false);
+  };
+
+  const cleanSpam = async () => {
+    setLoading(true);
+    try {
+      const r = await api.post("/admin/cleanup-spam?confirm=true&min_age_days=3");
+      setResult(r.data);
+      setCandidates(null);
+      setConfirmOpen(false);
+      onCleaned?.();
+    } catch (e) {
+      setResult({ error: e.response?.data?.detail || "Cleanup failed" });
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2 px-2 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/15 border border-amber-200 dark:border-amber-800/40">
+      <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">🧹 Spam cleanup</span>
+      <button
+        onClick={findSpam}
+        disabled={loading}
+        className="px-3 py-1 text-xs font-medium rounded-md bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-900/60 disabled:opacity-50"
+      >
+        {loading ? "Scanning…" : "Find spam (unverified, no activity, ≥3 days old)"}
+      </button>
+
+      {candidates && (
+        <>
+          <span className="text-xs text-amber-700 dark:text-amber-400 font-medium">
+            Found <b>{candidates.count}</b> spam candidates
+          </span>
+          {candidates.count > 0 && !confirmOpen && (
+            <button
+              onClick={() => setConfirmOpen(true)}
+              className="px-3 py-1 text-xs font-semibold rounded-md bg-red-600 hover:bg-red-700 text-white"
+            >
+              Clean {candidates.count} accounts
+            </button>
+          )}
+          {confirmOpen && (
+            <span className="flex items-center gap-2">
+              <span className="text-xs text-red-700 dark:text-red-400 font-semibold">Confirm delete {candidates.count}?</span>
+              <button
+                onClick={cleanSpam}
+                disabled={loading}
+                className="px-3 py-1 text-xs font-semibold rounded-md bg-red-600 hover:bg-red-700 text-white disabled:opacity-50"
+              >
+                Yes, delete
+              </button>
+              <button
+                onClick={() => setConfirmOpen(false)}
+                className="px-3 py-1 text-xs rounded-md border border-gray-300 dark:border-gray-600"
+              >
+                Cancel
+              </button>
+            </span>
+          )}
+        </>
+      )}
+
+      {result?.deleted >= 0 && (
+        <span className="text-xs text-green-700 dark:text-green-400 font-medium">
+          ✓ Deleted {result.deleted} accounts. {result.skipped_with_data > 0 && `Skipped ${result.skipped_with_data} with data.`}
+        </span>
+      )}
+      {result?.error && (
+        <span className="text-xs text-red-700 dark:text-red-400">{result.error}</span>
+      )}
+    </div>
+  );
 }

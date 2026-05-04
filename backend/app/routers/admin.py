@@ -313,3 +313,132 @@ def admin_security_events(
         }
         for r in rows
     ]
+
+
+# ─────────────────────── Spam cleanup ───────────────────────
+
+
+@router.get("/spam-candidates")
+def admin_spam_candidates(
+    min_age_days: int = Query(3, ge=0, le=365, description="Account must be at least this many days old"),
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Identify likely-spam accounts. A candidate is:
+       - email_verified = False
+       - 0 sales, 0 expenses
+       - 0 events (never opened the app)
+       - older than `min_age_days`
+
+    Read-only — does NOT delete. The admin UI calls this first to show what
+    WOULD be deleted, then the user clicks confirm to call /cleanup-spam.
+    """
+    cutoff = datetime.utcnow() - timedelta(days=min_age_days)
+    users = (
+        db.query(User)
+        .filter(
+            User.email_verified.is_(False),
+            User.created_at < cutoff,
+            User.role != "super_admin",  # Never sweep super_admins
+        )
+        .all()
+    )
+    candidates = []
+    for u in users:
+        sale_count = db.query(func.count(Sale.id)).filter(Sale.user_id == u.id).scalar() or 0
+        expense_count = db.query(func.count(Expense.id)).filter(Expense.user_id == u.id).scalar() or 0
+        event_count = db.query(func.count(EventLog.id)).filter(EventLog.user_id == u.id).scalar() or 0
+        # Only flag truly inactive accounts — no engagement at all
+        if sale_count == 0 and expense_count == 0 and event_count == 0:
+            candidates.append({
+                "id": str(u.id),
+                "email": u.email,
+                "business_name": u.business_name,
+                "created_at": u.created_at.isoformat(),
+                "age_days": (datetime.utcnow() - u.created_at).days,
+            })
+    return {
+        "count": len(candidates),
+        "min_age_days": min_age_days,
+        "candidates": candidates,
+    }
+
+
+@router.post("/cleanup-spam")
+def admin_cleanup_spam(
+    confirm: bool = Query(False, description="Required — must be true to actually delete"),
+    min_age_days: int = Query(3, ge=0, le=365),
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Delete spam-candidate accounts. Same filter as /spam-candidates:
+    unverified, no engagement, older than min_age_days, not super_admin.
+
+    Multi-layer defense:
+      • Requires `confirm=true` query param (prevents accidental DELETE).
+      • Skips super_admins always.
+      • Audit-logged via SecurityEvent.
+      • Cascades to user's sales / expenses / categories / khata so we don't
+        leave orphan rows.
+    """
+    if not confirm:
+        return {"deleted": 0, "skipped": "confirm=true required to actually delete"}
+
+    cutoff = datetime.utcnow() - timedelta(days=min_age_days)
+    users = (
+        db.query(User)
+        .filter(
+            User.email_verified.is_(False),
+            User.created_at < cutoff,
+            User.role != "super_admin",
+        )
+        .all()
+    )
+
+    # Defer model imports to avoid widening the module's startup cost
+    from app.models.expense import ExpenseCategory
+    from app.models.khata import KhataCustomer, KhataTransaction
+
+    deleted = 0
+    skipped_with_data = 0
+    for u in users:
+        sale_count = db.query(func.count(Sale.id)).filter(Sale.user_id == u.id).scalar() or 0
+        expense_count = db.query(func.count(Expense.id)).filter(Expense.user_id == u.id).scalar() or 0
+        event_count = db.query(func.count(EventLog.id)).filter(EventLog.user_id == u.id).scalar() or 0
+        # Skip anyone who has ANY activity — only sweep ghost accounts
+        if sale_count > 0 or expense_count > 0 or event_count > 0:
+            skipped_with_data += 1
+            continue
+
+        try:
+            # Cascade clean per user (orphan-safe). Most should be empty
+            # already since we filtered to no-engagement accounts.
+            cust_ids = [c.id for c in db.query(KhataCustomer).filter(KhataCustomer.user_id == u.id).all()]
+            if cust_ids:
+                db.query(KhataTransaction).filter(KhataTransaction.customer_id.in_(cust_ids)).delete(synchronize_session=False)
+            db.query(KhataCustomer).filter(KhataCustomer.user_id == u.id).delete(synchronize_session=False)
+            db.query(ExpenseCategory).filter(ExpenseCategory.user_id == u.id).delete(synchronize_session=False)
+            db.delete(u)
+            deleted += 1
+        except Exception:
+            # Don't let one bad row block the rest
+            db.rollback()
+            continue
+
+    # Single audit-log entry for the whole sweep (each delete is destructive)
+    try:
+        evt = SecurityEvent(
+            user_id=admin.id,
+            event_type="admin_cleanup_spam",
+            detail=f"Deleted {deleted} unverified inactive accounts (≥{min_age_days}d old). Skipped {skipped_with_data} with data.",
+        )
+        db.add(evt)
+    except Exception:
+        pass
+
+    db.commit()
+    return {
+        "deleted": deleted,
+        "skipped_with_data": skipped_with_data,
+        "min_age_days": min_age_days,
+    }
