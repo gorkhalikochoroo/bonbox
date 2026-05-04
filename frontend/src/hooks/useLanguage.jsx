@@ -18,7 +18,9 @@ const translations = {
     momsVat: "Tax/VAT", darkMode: "Dark Mode", lightMode: "Light Mode", signOut: "Sign Out",
     language: "Dansk",
     // Dashboard
-    welcome: "Welcome", todayRevenue: "Today's Revenue", monthlyProfit: "Monthly Profit",
+    welcome: "Welcome",
+    goodMorning: "Good morning", goodAfternoon: "Good afternoon", goodEvening: "Good evening",
+    todayRevenue: "Today's Revenue", monthlyProfit: "Monthly Profit",
     topExpense: "Top Expense", inventoryAlerts: "Inventory Alerts", snapReceipt: "Snap Receipt",
     repeatYesterday: "Repeat Yesterday's Sale", downloadPdf: "Download PDF Report",
     loadingDashboard: "Loading dashboard...", vsYesterday: "vs yesterday", margin: "margin",
@@ -632,7 +634,9 @@ const translations = {
     momsVat: "Moms", darkMode: "Mørk tilstand", lightMode: "Lys tilstand", signOut: "Log ud",
     language: "English",
     // Dashboard
-    welcome: "Velkommen", todayRevenue: "Dagens omsætning", monthlyProfit: "Månedens overskud",
+    welcome: "Velkommen",
+    goodMorning: "God morgen", goodAfternoon: "God eftermiddag", goodEvening: "God aften",
+    todayRevenue: "Dagens omsætning", monthlyProfit: "Månedens overskud",
     topExpense: "Største udgift", inventoryAlerts: "Lageradvarsler", snapReceipt: "Tag kvittering",
     repeatYesterday: "Gentag gårsdagens salg", downloadPdf: "Hent PDF-rapport",
     loadingDashboard: "Indlæser oversigt...", vsYesterday: "vs i går", margin: "margin",
@@ -1231,7 +1235,9 @@ const translations = {
     momsVat: "भ्याट", darkMode: "डार्क मोड", lightMode: "लाइट मोड", signOut: "लग आउट",
     language: "भाषा",
     // Dashboard
-    welcome: "स्वागतम", todayRevenue: "आजको आम्दानी", monthlyProfit: "मासिक नाफा",
+    welcome: "स्वागतम",
+    goodMorning: "शुभ प्रभात", goodAfternoon: "शुभ अपराह्न", goodEvening: "शुभ साँझ",
+    todayRevenue: "आजको आम्दानी", monthlyProfit: "मासिक नाफा",
     topExpense: "सबैभन्दा ठूलो खर्च", inventoryAlerts: "स्टक अलर्ट", snapReceipt: "रसिद खिच्नुहोस्",
     repeatYesterday: "हिजोको बिक्री दोहोर्‍याउनुहोस्", downloadPdf: "PDF रिपोर्ट डाउनलोड",
     loadingDashboard: "ड्यासबोर्ड लोड हुँदैछ...", vsYesterday: "हिजोको तुलनामा", margin: "मार्जिन",
