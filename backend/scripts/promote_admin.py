@@ -30,6 +30,15 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
+
+# When this script is run directly (`python scripts/promote_admin.py …`)
+# the script's own directory ends up on sys.path, NOT the backend root,
+# so `from app.config import settings` fails. Add the backend root (parent
+# of /scripts) so the import works regardless of how the user invoked it.
+_BACKEND_ROOT = Path(__file__).resolve().parent.parent
+if str(_BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_ROOT))
 
 
 def main(email: str) -> int:
