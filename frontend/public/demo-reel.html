@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BonBox Demo Reel</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a0a;
+    color: #fff;
+    font-family: 'Inter', -apple-system, sans-serif;
+    overflow: hidden;
+    width: 1080px;
+    height: 1080px;
+  }
+
+  .scene {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px;
+    opacity: 0;
+    transform: scale(0.95);
+    transition: none;
+    text-align: center;
+  }
+
+  .scene.active {
+    animation: fadeIn 0.6s ease forwards;
+  }
+
+  .scene.exit {
+    animation: fadeOut 0.4s ease forwards;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: scale(0.95) translateY(20px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+  }
+
+  @keyframes fadeOut {
+    from { opacity: 1; transform: scale(1) translateY(0); }
+    to { opacity: 0; transform: scale(1.02) translateY(-10px); }
+  }
+
+  /* Scene 1: Hook */
+  .scene-1 .logo {
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #888;
+    margin-bottom: 40px;
+    opacity: 0;
+    animation: slideUp 0.5s ease 0.3s forwards;
+  }
+
+  .scene-1 h1 {
+    font-size: 72px;
+    font-weight: 900;
+    line-height: 1.05;
+    letter-spacing: -2px;
+    max-width: 800px;
+    opacity: 0;
+    animation: slideUp 0.6s ease 0.6s forwards;
+  }
+
+  .scene-1 h1 span {
+    background: linear-gradient(135deg, #f97316, #fb923c);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .scene-1 .sub {
+    margin-top: 30px;
+    font-size: 22px;
+    color: #666;
+    font-weight: 400;
+    opacity: 0;
+    animation: slideUp 0.5s ease 1s forwards;
+  }
+
+  /* Scene 2: Problem */
+  .scene-2 h2 {
+    font-size: 52px;
+    font-weight: 800;
+    line-height: 1.15;
+    letter-spacing: -1px;
+    margin-bottom: 50px;
+    opacity: 0;
+    animation: slideUp 0.5s ease 0.2s forwards;
+  }
+
+  .scene-2 .problems {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    align-items: center;
+  }
+
+  .scene-2 .problem-item {
+    font-size: 26px;
+    color: #999;
+    font-weight: 400;
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+
+  .scene-2 .problem-item:nth-child(1) { animation: slideRight 0.4s ease 0.5s forwards; }
+  .scene-2 .problem-item:nth-child(2) { animation: slideRight 0.4s ease 0.7s forwards; }
+  .scene-2 .problem-item:nth-child(3) { animation: slideRight 0.4s ease 0.9s forwards; }
+  .scene-2 .problem-item:nth-child(4) { animation: slideRight 0.4s ease 1.1s forwards; }
+
+  @keyframes slideRight {
+    from { opacity: 0; transform: translateX(-20px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  /* Scene 3: Solution */
+  .scene-3 .icon {
+    font-size: 80px;
+    margin-bottom: 30px;
+    opacity: 0;
+    animation: pop 0.4s ease 0.2s forwards;
+  }
+
+  .scene-3 h2 {
+    font-size: 56px;
+    font-weight: 900;
+    letter-spacing: -1.5px;
+    margin-bottom: 30px;
+    opacity: 0;
+    animation: slideUp 0.5s ease 0.4s forwards;
+  }
+
+  .scene-3 .features {
+    display: flex;
+    gap: 30px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .scene-3 .feat {
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    border-radius: 16px;
+    padding: 24px 28px;
+    font-size: 18px;
+    font-weight: 500;
+    color: #ccc;
+    opacity: 0;
+    transform: translateY(15px);
+  }
+
+  .scene-3 .feat:nth-child(1) { animation: slideUp 0.3s ease 0.6s forwards; }
+  .scene-3 .feat:nth-child(2) { animation: slideUp 0.3s ease 0.75s forwards; }
+  .scene-3 .feat:nth-child(3) { animation: slideUp 0.3s ease 0.9s forwards; }
+  .scene-3 .feat:nth-child(4) { animation: slideUp 0.3s ease 1.05s forwards; }
+  .scene-3 .feat:nth-child(5) { animation: slideUp 0.3s ease 1.2s forwards; }
+  .scene-3 .feat:nth-child(6) { animation: slideUp 0.3s ease 1.35s forwards; }
+
+  .scene-3 .feat .feat-icon {
+    font-size: 28px;
+    display: block;
+    margin-bottom: 8px;
+  }
+
+  /* Scene 4: AI */
+  .scene-4 h2 {
+    font-size: 52px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    margin-bottom: 50px;
+    opacity: 0;
+    animation: slideUp 0.5s ease 0.2s forwards;
+  }
+
+  .scene-4 .chat-bubble {
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    border-radius: 20px;
+    padding: 28px 36px;
+    font-size: 24px;
+    color: #e0e0e0;
+    max-width: 700px;
+    margin-bottom: 20px;
+    opacity: 0;
+  }
+
+  .scene-4 .chat-bubble.user {
+    background: #1c1c2e;
+    border-color: #2d2d4a;
+    align-self: flex-end;
+    text-align: left;
+  }
+
+  .scene-4 .chat-bubble.ai {
+    background: #1a2a1a;
+    border-color: #2a3a2a;
+    text-align: left;
+  }
+
+  .scene-4 .chat-bubble:nth-child(2) { animation: slideUp 0.4s ease 0.4s forwards; }
+  .scene-4 .chat-bubble:nth-child(3) { animation: slideUp 0.4s ease 1s forwards; }
+  .scene-4 .chat-bubble:nth-child(4) { animation: slideUp 0.4s ease 1.6s forwards; }
+  .scene-4 .chat-bubble:nth-child(5) { animation: slideUp 0.4s ease 2.2s forwards; }
+
+  .scene-4 .chat-label {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+    color: #666;
+  }
+
+  /* Scene 5: Intelligence */
+  .scene-5 h2 {
+    font-size: 48px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    margin-bottom: 50px;
+    opacity: 0;
+    animation: slideUp 0.5s ease 0.2s forwards;
+  }
+
+  .scene-5 h2 span {
+    background: linear-gradient(135deg, #3b82f6, #60a5fa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .scene-5 .intel-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    max-width: 800px;
+  }
+
+  .scene-5 .intel-card {
+    background: #111;
+    border: 1px solid #222;
+    border-radius: 16px;
+    padding: 32px;
+    text-align: left;
+    opacity: 0;
+  }
+
+  .scene-5 .intel-card:nth-child(1) { animation: slideUp 0.4s ease 0.4s forwards; }
+  .scene-5 .intel-card:nth-child(2) { animation: slideUp 0.4s ease 0.6s forwards; }
+  .scene-5 .intel-card:nth-child(3) { animation: slideUp 0.4s ease 0.8s forwards; }
+  .scene-5 .intel-card:nth-child(4) { animation: slideUp 0.4s ease 1s forwards; }
+
+  .scene-5 .intel-card .ic-icon { font-size: 36px; margin-bottom: 12px; }
+  .scene-5 .intel-card .ic-title { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+  .scene-5 .intel-card .ic-desc { font-size: 15px; color: #888; line-height: 1.4; }
+
+  /* Scene 6: CTA */
+  .scene-6 .cta-free {
+    font-size: 20px;
+    font-weight: 600;
+    color: #f97316;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 30px;
+    opacity: 0;
+    animation: slideUp 0.5s ease 0.2s forwards;
+  }
+
+  .scene-6 h2 {
+    font-size: 64px;
+    font-weight: 900;
+    letter-spacing: -2px;
+    line-height: 1.1;
+    margin-bottom: 20px;
+    opacity: 0;
+    animation: slideUp 0.5s ease 0.5s forwards;
+  }
+
+  .scene-6 .url {
+    font-size: 36px;
+    font-weight: 700;
+    color: #f97316;
+    margin-top: 20px;
+    opacity: 0;
+    animation: slideUp 0.5s ease 0.9s forwards;
+  }
+
+  .scene-6 .tags {
+    display: flex;
+    gap: 20px;
+    margin-top: 30px;
+    opacity: 0;
+    animation: slideUp 0.4s ease 1.2s forwards;
+  }
+
+  .scene-6 .tag {
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 100px;
+    padding: 12px 24px;
+    font-size: 16px;
+    color: #aaa;
+  }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes pop {
+    from { opacity: 0; transform: scale(0.5); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  /* Progress bar */
+  .progress {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 4px;
+    background: linear-gradient(90deg, #f97316, #fb923c);
+    z-index: 10;
+    width: 0%;
+  }
+
+  .progress.running {
+    animation: progressBar 25s linear forwards;
+  }
+
+  @keyframes progressBar {
+    from { width: 0%; }
+    to { width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="progress" id="progress"></div>
+
+<!-- Scene 1: Hook -->
+<div class="scene scene-1" id="scene-1">
+  <div class="logo">BonBox</div>
+  <h1>Your restaurant.<br><span>On autopilot.</span></h1>
+  <div class="sub">AI-powered dashboard for small restaurants</div>
+</div>
+
+<!-- Scene 2: Problem -->
+<div class="scene scene-2" id="scene-2">
+  <h2>Sound familiar?</h2>
+  <div class="problems">
+    <div class="problem-item">Sales tracked on paper</div>
+    <div class="problem-item">Guessing how many staff to schedule</div>
+    <div class="problem-item">No idea what competitors charge</div>
+    <div class="problem-item">Tax season = nightmare</div>
+  </div>
+</div>
+
+<!-- Scene 3: Solution -->
+<div class="scene scene-3" id="scene-3">
+  <div class="icon">📱</div>
+  <h2>One app. Everything.</h2>
+  <div class="features">
+    <div class="feat"><span class="feat-icon">📊</span>Live Dashboard</div>
+    <div class="feat"><span class="feat-icon">📦</span>Inventory</div>
+    <div class="feat"><span class="feat-icon">👥</span>Staff Scheduling</div>
+    <div class="feat"><span class="feat-icon">🧾</span>Tax Autopilot</div>
+    <div class="feat"><span class="feat-icon">🤖</span>AI Assistant</div>
+    <div class="feat"><span class="feat-icon">🌍</span>12 Languages</div>
+  </div>
+</div>
+
+<!-- Scene 4: AI Chat -->
+<div class="scene scene-4" id="scene-4">
+  <h2>Ask your business anything</h2>
+  <div class="chat-bubble user">
+    <div class="chat-label">You</div>
+    How were my sales this week?
+  </div>
+  <div class="chat-bubble ai">
+    <div class="chat-label">BonBox AI</div>
+    Revenue is up 12% vs last week. Tuesday was your best day at 8,400 kr.
+  </div>
+  <div class="chat-bubble user">
+    <div class="chat-label">You</div>
+    Hvem skylder os penge?
+  </div>
+  <div class="chat-bubble ai">
+    <div class="chat-label">BonBox AI</div>
+    3 open credits totaling 2,150 kr. Oldest is 14 days overdue.
+  </div>
+</div>
+
+<!-- Scene 5: Intelligence -->
+<div class="scene scene-5" id="scene-5">
+  <h2>Intelligence <span>no one else</span> has</h2>
+  <div class="intel-grid">
+    <div class="intel-card">
+      <div class="ic-icon">📈</div>
+      <div class="ic-title">Revenue Forecast</div>
+      <div class="ic-desc">AI predicts next week's sales from your history</div>
+    </div>
+    <div class="intel-card">
+      <div class="ic-icon">🌦️</div>
+      <div class="ic-title">Weather Staffing</div>
+      <div class="ic-desc">Auto-adjusts staff based on tomorrow's weather</div>
+    </div>
+    <div class="intel-card">
+      <div class="ic-icon">🔍</div>
+      <div class="ic-title">Competitor Scan</div>
+      <div class="ic-desc">Know what your neighbors charge</div>
+    </div>
+    <div class="intel-card">
+      <div class="ic-icon">💡</div>
+      <div class="ic-title">Smart Suggestions</div>
+      <div class="ic-desc">AI spots problems before you do</div>
+    </div>
+  </div>
+</div>
+
+<!-- Scene 6: CTA -->
+<div class="scene scene-6" id="scene-6">
+  <div class="cta-free">Free forever. No credit card.</div>
+  <h2>Start running your<br>restaurant smarter.</h2>
+  <div class="url">bonbox.dk</div>
+  <div class="tags">
+    <div class="tag">5 min setup</div>
+    <div class="tag">Works on any phone</div>
+    <div class="tag">49 kr/mo Pro</div>
+  </div>
+</div>
+
+<script>
+  const scenes = [
+    { id: 'scene-1', duration: 3500 },
+    { id: 'scene-2', duration: 4000 },
+    { id: 'scene-3', duration: 4500 },
+    { id: 'scene-4', duration: 5500 },
+    { id: 'scene-5', duration: 4500 },
+    { id: 'scene-6', duration: 4000 },
+  ];
+
+  let current = 0;
+
+  function showScene(index) {
+    // Exit previous
+    if (index > 0) {
+      const prev = document.getElementById(scenes[index - 1].id);
+      prev.classList.remove('active');
+      prev.classList.add('exit');
+    }
+
+    // Show current
+    setTimeout(() => {
+      const scene = document.getElementById(scenes[index].id);
+      scene.classList.remove('exit');
+      scene.classList.add('active');
+
+      // Schedule next
+      if (index < scenes.length - 1) {
+        setTimeout(() => {
+          current++;
+          showScene(current);
+        }, scenes[index].duration);
+      }
+    }, index === 0 ? 0 : 300);
+  }
+
+  // Start after a beat
+  setTimeout(() => {
+    document.getElementById('progress').classList.add('running');
+    showScene(0);
+  }, 500);
+</script>
+</body>
+</html>

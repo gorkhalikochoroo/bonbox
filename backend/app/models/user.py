@@ -27,6 +27,11 @@ class User(Base):
     latitude: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
     longitude: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
     role: Mapped[str] = mapped_column(String(20), default="owner")  # owner | manager | cashier | viewer
+    # IANA timezone identifier (e.g. "Europe/Copenhagen"). Used for "today",
+    # "this week" computations so anomaly detection doesn't fire false
+    # positives when UTC midnight rolls over but it's still business hours
+    # locally. Default Copenhagen since most users are Danish.
+    timezone: Mapped[str] = mapped_column(String(64), default="Europe/Copenhagen")
     owner_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True)  # NULL for owners
     reset_token: Mapped[str | None] = mapped_column(String(100), nullable=True)
     reset_token_expires: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

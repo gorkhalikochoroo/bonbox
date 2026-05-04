@@ -38,6 +38,7 @@ class UserResponse(BaseModel):
     role: str = "owner"
     email_verified: bool = False
     analytics_opt_out: bool = False
+    timezone: str = "Europe/Copenhagen"
     created_at: datetime | None = None
 
     model_config = {"from_attributes": True}
@@ -53,6 +54,7 @@ class UserUpdate(BaseModel):
     currency: str | None = None
     email: EmailStr | None = None
     analytics_opt_out: bool | None = None
+    timezone: str | None = None
 
 
 class PasswordChange(BaseModel):

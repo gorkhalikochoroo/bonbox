@@ -35,6 +35,7 @@ from app.models.expense import Expense
 from app.models.owner_pattern import OwnerPattern
 from app.models.sale import Sale
 from app.models.user import User
+from app.services.tz_utils import today_local, week_start_local
 
 
 # ───────────────────────────── data classes ─────────────────────────────
@@ -132,8 +133,10 @@ def detect_revenue_anomaly(user: User, db: Session) -> list[DetectedPattern]:
     """
     Compare today's revenue to the same weekday over the last 4-6 weeks.
     Fire if z-score is outside ±1.5 with at least 4 historical points.
+    Uses the user's local timezone for "today" so we don't fire false
+    positives at UTC midnight while still business hours locally.
     """
-    today = date.today()
+    today = today_local(user)
     weekday = today.weekday()
 
     # Fetch sales by day for the last 6 weeks (need same-weekday history)
@@ -277,9 +280,10 @@ def detect_dormant_feature(user: User, db: Session) -> list[DetectedPattern]:
 def detect_expense_spike(user: User, db: Session) -> list[DetectedPattern]:
     """
     Total expenses this week >50% above the trailing 4-week average.
+    Week boundaries in user's local timezone.
     """
-    today = date.today()
-    week_start = today - timedelta(days=today.weekday())
+    today = today_local(user)
+    week_start = week_start_local(user)
     history_start = week_start - timedelta(weeks=4)
 
     rows = (
@@ -336,20 +340,175 @@ def detect_expense_spike(user: User, db: Session) -> list[DetectedPattern]:
 
 def detect_inventory_low_repeat(user: User, db: Session) -> list[DetectedPattern]:
     """
-    Same inventory item flagged as low/critical repeatedly (e.g. weekly).
-    Suggests increasing reorder threshold or auto-ordering.
-    Currently a stub — relies on inventory_logs that may need wiring up.
+    Items currently below their min_threshold AND that have been below it
+    on multiple recent days. Recurring shortage signals chronic
+    underordering — recommend bumping the reorder threshold or enabling
+    auto-reorder.
+
+    Cheap implementation: read the snapshot of currently-low items. The full
+    "below threshold N times in 30 days" version requires inventory snapshot
+    history which we don't capture yet — wire up later as inventory grows.
     """
-    # Stub for v1; wire up once inventory low-stock events are reliably tracked.
-    return []
+    from app.models.inventory import InventoryItem  # noqa: avoid top-level cycle
+    rows = (
+        db.query(InventoryItem)
+        .filter(
+            InventoryItem.user_id == user.id,
+            InventoryItem.is_deleted.isnot(True),
+            InventoryItem.min_threshold.isnot(None),
+            InventoryItem.min_threshold > 0,
+            InventoryItem.quantity < InventoryItem.min_threshold,
+        )
+        .order_by(InventoryItem.quantity.asc())
+        .limit(10)
+        .all()
+    )
+    if not rows:
+        return []
+
+    # If 5+ items are below threshold, treat as systemic — fire ONE pattern
+    # rather than 5 separate ones (avoid notification spam).
+    if len(rows) >= 5:
+        sample = ", ".join(r.name for r in rows[:5])
+        return [
+            DetectedPattern(
+                pattern_type="inventory_low_repeat",
+                severity="warning",
+                title=f"{len(rows)} items below your minimum threshold",
+                detail=(
+                    f"Items needing reorder: {sample}"
+                    + ("…" if len(rows) > 5 else "")
+                    + ". Consider bulk-ordering or revisiting your minimum thresholds."
+                ),
+                suggested_action="Open Inventory → review items below minimum",
+                valid_for_days=3,
+                raw_data={"count": len(rows), "items": [r.name for r in rows]},
+            )
+        ]
+
+    # Otherwise fire a single combined info pattern listing them
+    items_str = ", ".join(r.name for r in rows)
+    return [
+        DetectedPattern(
+            pattern_type="inventory_low_repeat",
+            severity="info",
+            title=f"{len(rows)} items low on stock",
+            detail=f"Below minimum: {items_str}. Reorder before they run out.",
+            suggested_action="Open Inventory → reorder these items",
+            valid_for_days=2,
+            raw_data={"count": len(rows), "items": [r.name for r in rows]},
+        )
+    ]
 
 
 def detect_wage_pct_anomaly(user: User, db: Session) -> list[DetectedPattern]:
     """
-    Wages-as-share-of-revenue this week vs trailing 4-week average.
-    Stub — depends on staff hours + wage data which needs query design.
+    Wages-as-share-of-revenue this week vs the trailing 4-week average.
+
+    Heuristic: pull all expenses tagged to a "Salary"/"Wages"/"Løn"/"Personale"
+    category and divide by sales for the same period. If the ratio jumps
+    materially (>30% relative increase from the trailing average), surface
+    a warning. Restaurant/retail SMEs care about this number more than
+    almost any other metric.
     """
-    return []
+    from app.models.expense import ExpenseCategory  # local import to avoid cycle
+    today = today_local(user)
+    week_start = week_start_local(user)
+    history_start = week_start - timedelta(weeks=4)
+
+    # Find category IDs that look like wages — multilingual common spellings
+    wage_keywords = (
+        "salary", "salar", "wage", "wages", "payroll", "staff cost",
+        "løn", "personale", "lønninger",
+        "lohn", "personal", "gehalt",
+        "salaire", "personnel",
+        "salario", "sueldo",
+        "stipendi", "personale",
+        "personeel",
+        "lön",
+        "lønn",
+    )
+    cats = (
+        db.query(ExpenseCategory.id, ExpenseCategory.name)
+        .filter(ExpenseCategory.user_id == user.id)
+        .all()
+    )
+    wage_cat_ids = [c.id for c in cats if any(k in (c.name or "").lower() for k in wage_keywords)]
+    if not wage_cat_ids:
+        return []
+
+    def wages_in(start: date, end: date) -> float:
+        v = (
+            db.query(func.coalesce(func.sum(Expense.amount), 0))
+            .filter(
+                Expense.user_id == user.id,
+                Expense.date >= start,
+                Expense.date <= end,
+                Expense.is_deleted == False,  # noqa: E712
+                Expense.is_personal == False,  # noqa: E712
+                Expense.category_id.in_(wage_cat_ids),
+            )
+            .scalar()
+        )
+        return float(v or 0)
+
+    def revenue_in(start: date, end: date) -> float:
+        v = (
+            db.query(func.coalesce(func.sum(Sale.amount), 0))
+            .filter(
+                Sale.user_id == user.id,
+                Sale.date >= start,
+                Sale.date <= end,
+                Sale.is_deleted == False,  # noqa: E712
+                Sale.status != "returned",
+            )
+            .scalar()
+        )
+        return float(v or 0)
+
+    week_end = week_start + timedelta(days=6)
+    this_week_pct = None
+    this_rev = revenue_in(week_start, week_end)
+    if this_rev > 0:
+        this_week_pct = wages_in(week_start, week_end) / this_rev
+
+    historical_pcts: list[float] = []
+    for w in range(1, 5):
+        s = week_start - timedelta(weeks=w)
+        e = s + timedelta(days=6)
+        rev = revenue_in(s, e)
+        if rev > 0:
+            historical_pcts.append(wages_in(s, e) / rev)
+
+    if this_week_pct is None or len(historical_pcts) < 2:
+        return []
+
+    avg = sum(historical_pcts) / len(historical_pcts)
+    if avg <= 0:
+        return []
+    rel_change = (this_week_pct - avg) / avg
+    if rel_change < 0.30:
+        return []
+
+    return [
+        DetectedPattern(
+            pattern_type="wage_pct_anomaly",
+            severity="warning" if rel_change < 0.5 else "critical",
+            title=f"Wage cost is {rel_change * 100:.0f}% above your usual",
+            detail=(
+                f"This week wages are {this_week_pct * 100:.0f}% of revenue. "
+                f"Your trailing 4-week average is {avg * 100:.0f}%. "
+                f"Either revenue dipped, hours went up, or both."
+            ),
+            suggested_action="Open Staff → Hours to review this week's shifts",
+            valid_for_days=7,
+            raw_data={
+                "this_week_pct": this_week_pct,
+                "avg_pct": avg,
+                "rel_change": rel_change,
+            },
+        )
+    ]
 
 
 # ───────────────────────────── orchestrator ─────────────────────────────

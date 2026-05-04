@@ -20,6 +20,7 @@ const translations = {
     // Dashboard
     welcome: "Welcome",
     goodMorning: "Good morning", goodAfternoon: "Good afternoon", goodEvening: "Good evening",
+    subscription: "Plan & Billing",
     todayRevenue: "Today's Revenue", monthlyProfit: "Monthly Profit",
     topExpense: "Top Expense", inventoryAlerts: "Inventory Alerts", snapReceipt: "Snap Receipt",
     repeatYesterday: "Repeat Yesterday's Sale", downloadPdf: "Download PDF Report",
@@ -636,6 +637,7 @@ const translations = {
     // Dashboard
     welcome: "Velkommen",
     goodMorning: "God morgen", goodAfternoon: "God eftermiddag", goodEvening: "God aften",
+    subscription: "Plan & Betaling",
     todayRevenue: "Dagens omsætning", monthlyProfit: "Månedens overskud",
     topExpense: "Største udgift", inventoryAlerts: "Lageradvarsler", snapReceipt: "Tag kvittering",
     repeatYesterday: "Gentag gårsdagens salg", downloadPdf: "Hent PDF-rapport",
@@ -1237,6 +1239,7 @@ const translations = {
     // Dashboard
     welcome: "स्वागतम",
     goodMorning: "शुभ प्रभात", goodAfternoon: "शुभ अपराह्न", goodEvening: "शुभ साँझ",
+    subscription: "योजना र बिलिंग",
     todayRevenue: "आजको आम्दानी", monthlyProfit: "मासिक नाफा",
     topExpense: "सबैभन्दा ठूलो खर्च", inventoryAlerts: "स्टक अलर्ट", snapReceipt: "रसिद खिच्नुहोस्",
     repeatYesterday: "हिजोको बिक्री दोहोर्‍याउनुहोस्", downloadPdf: "PDF रिपोर्ट डाउनलोड",

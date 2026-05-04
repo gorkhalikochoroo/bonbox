@@ -120,6 +120,9 @@ _migrations = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_code_expires TIMESTAMP",
     # GDPR — opt-out toggle for product analytics
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS analytics_opt_out BOOLEAN DEFAULT false",
+    # User-local timezone — IANA name, e.g. "Europe/Copenhagen". Drives
+    # "today" / "this week" boundaries in pattern detection.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone VARCHAR(64) DEFAULT 'Europe/Copenhagen'",
     # Performance indexes for dashboard queries
     "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",
     "CREATE INDEX IF NOT EXISTS ix_sale_user_payment ON sales (user_id, payment_method, date)",

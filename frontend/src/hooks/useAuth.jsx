@@ -4,6 +4,22 @@ import { trackEvent } from "./useEventLog";
 
 const AuthContext = createContext(null);
 
+/**
+ * Detect the browser's IANA timezone — silently push to the server if it
+ * differs from what we have stored. Fail-quietly: a wrong / missing TZ
+ * isn't worth blocking auth flows.
+ */
+function syncTimezoneIfChanged(currentUserTz) {
+  try {
+    const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (browserTz && browserTz !== currentUserTz) {
+      api.patch("/auth/profile", { timezone: browserTz }).catch(() => {});
+    }
+  } catch {
+    // Some old browsers don't expose Intl.DateTimeFormat — skip
+  }
+}
+
 // Grace date: users created before this date are not forced to verify email
 const VERIFICATION_GRACE_DATE = "2026-04-13T00:00:00";
 
@@ -28,7 +44,7 @@ export function AuthProvider({ children }) {
     const res = await api.post("/auth/login", { email, password });
     localStorage.setItem("token", res.data.access_token);
     setUser(res.data.user);
-    // Track login (after token is set so trackEvent can authenticate)
+    syncTimezoneIfChanged(res.data.user?.timezone);
     try { trackEvent("login_success", "login", "password"); } catch {}
     return res.data;
   };
@@ -37,6 +53,7 @@ export function AuthProvider({ children }) {
     const res = await api.post("/auth/register", data);
     localStorage.setItem("token", res.data.access_token);
     setUser(res.data.user);
+    syncTimezoneIfChanged(res.data.user?.timezone);
     try { trackEvent("signup_completed", "register", res.data.user?.business_type || null); } catch {}
     return res.data;
   };
@@ -45,6 +62,7 @@ export function AuthProvider({ children }) {
     const res = await api.post("/auth/google", { credential });
     localStorage.setItem("token", res.data.access_token);
     setUser(res.data.user);
+    syncTimezoneIfChanged(res.data.user?.timezone);
     try { trackEvent("login_success", "login", "google"); } catch {}
     return res.data;
   };

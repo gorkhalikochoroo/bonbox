@@ -353,6 +353,14 @@ def update_profile(
         current_user.email = data.email
     if data.analytics_opt_out is not None:
         current_user.analytics_opt_out = bool(data.analytics_opt_out)
+    if data.timezone is not None:
+        # Validate the timezone string before persisting (untrusted input)
+        try:
+            from zoneinfo import ZoneInfo  # validates the name
+            ZoneInfo(data.timezone)
+            current_user.timezone = data.timezone
+        except Exception:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail="Invalid timezone")
     db.commit()
     db.refresh(current_user)
     return current_user

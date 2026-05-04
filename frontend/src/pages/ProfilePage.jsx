@@ -20,6 +20,10 @@ export default function ProfilePage() {
   const [changingPw, setChangingPw] = useState(false);
   const [emailPrefs, setEmailPrefs] = useState({ daily_digest_enabled: false, expense_alerts_enabled: true });
   const [emailMsg, setEmailMsg] = useState("");
+  // GDPR: per-user analytics opt-out. Synced from /auth/me. When ON,
+  // backend silently drops every event_log write for this user.
+  const [analyticsOptOut, setAnalyticsOptOut] = useState(false);
+  const [privacyMsg, setPrivacyMsg] = useState("");
   const { permission: pushPerm, supported: pushSupported, requestPermission: requestPush } = usePushNotifications();
   const [businessProfile, setBusinessProfile] = useState(null);
   const [sendingTest, setSendingTest] = useState(false);
@@ -45,6 +49,7 @@ export default function ProfilePage() {
         currency: res.data.currency || "DKK",
         email: res.data.email || "",
       });
+      setAnalyticsOptOut(!!res.data.analytics_opt_out);
     });
     api.get("/email/preferences").then((res) => setEmailPrefs(res.data)).catch(() => {});
     api.get("/whatsapp/status").then((res) => setWaStatus(res.data)).catch(() => {});
@@ -57,6 +62,22 @@ export default function ProfilePage() {
     try {
       await api.patch("/email/preferences", updated);
     } catch { /* ignore */ }
+  };
+
+  /** Toggle product-analytics opt-out. Optimistic — rolls back on error. */
+  const toggleAnalyticsOptOut = async () => {
+    const next = !analyticsOptOut;
+    setAnalyticsOptOut(next);
+    setPrivacyMsg("");
+    try {
+      await api.patch("/auth/profile", { analytics_opt_out: next });
+      setPrivacyMsg(next ? "Analytics paused — no new events will be recorded." : "Analytics resumed.");
+      setTimeout(() => setPrivacyMsg(""), 4000);
+    } catch {
+      setAnalyticsOptOut(!next); // roll back
+      setPrivacyMsg("Couldn't update — please try again.");
+      setTimeout(() => setPrivacyMsg(""), 4000);
+    }
   };
 
   const sendTestDigest = async () => {
@@ -355,6 +376,50 @@ export default function ProfilePage() {
             </button>
             {emailMsg && <span className="ml-3 text-sm text-green-600 dark:text-green-400">{emailMsg}</span>}
           </div>
+        </div>
+      </div>
+
+      {/* Privacy & Data */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900/30 rounded-xl flex items-center justify-center">
+            <svg className="w-5 h-5 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Privacy & Data</h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500">You're in control of what BonBox learns from your use.</p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Pause product analytics</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                When ON, BonBox stops recording your clicks, page views and AI questions.
+                Your business data (sales, expenses, inventory) is unaffected.
+                You can resume any time. Existing analytics older than 180 days
+                are auto-deleted.
+              </p>
+            </div>
+            <button
+              onClick={toggleAnalyticsOptOut}
+              aria-pressed={analyticsOptOut}
+              aria-label="Pause product analytics"
+              className={`shrink-0 mt-1 relative w-11 h-6 rounded-full transition ${analyticsOptOut ? "bg-purple-600" : "bg-gray-300 dark:bg-gray-600"}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${analyticsOptOut ? "translate-x-5" : ""}`} />
+            </button>
+          </div>
+          {privacyMsg && (
+            <p className="text-xs text-purple-600 dark:text-purple-400">{privacyMsg}</p>
+          )}
+          <p className="text-[11px] text-gray-400 dark:text-gray-500 pt-2 border-t border-gray-100 dark:border-gray-700">
+            🇪🇺 GDPR: BonBox processes analytics under legitimate-interest basis.
+            Your right to opt out is respected here. To delete all your data, see "Your Data" below.
+          </p>
         </div>
       </div>
 

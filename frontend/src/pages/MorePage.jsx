@@ -58,6 +58,7 @@ const sections = [
       { to: "/branches", icon: "🏢", labelKey: "branches" },
       { to: "/team", icon: "👤", labelKey: "team" },
       { to: "/profile", icon: "⚙️", labelKey: "profile" },
+      { to: "/subscription", icon: "💎", labelKey: "subscription" },
       { to: "/feedback", icon: "💬", labelKey: "feedback" },
     ],
   },
