@@ -141,21 +141,34 @@ def create_checkout_session(
         or f"{settings.FRONTEND_URL.rstrip('/')}/subscription?canceled=1"
     )
 
+    # Sync Stripe trial with the user's REMAINING BonBox trial.
+    # Logic:
+    #   • User has X days left in BonBox trial → pass them as Stripe trial_period_days.
+    #     They get those X days free in Stripe (no charge), then auto-charge.
+    #   • User's BonBox trial already expired → trial_period_days=None, charge immediately.
+    # This avoids the double-trial UX bug where users got 14 BonBox days + 14 Stripe days.
+    from app.services.billing import trial_days_remaining
+    remaining = trial_days_remaining(user) or 0
+    sub_data = {
+        "metadata": {
+            "bonbox_user_id": str(user.id),
+            "bonbox_plan": plan,
+        },
+    }
+    if remaining > 0:
+        sub_data["trial_period_days"] = int(remaining)
+        # When trial ends WITHOUT a payment method, cancel the subscription
+        # rather than try to charge an empty card. User stays Free, no surprise bills.
+        sub_data["trial_settings"] = {
+            "end_behavior": {"missing_payment_method": "cancel"},
+        }
+
     try:
-        session = s.checkout.Session.create(
+        session_kwargs = dict(
             mode="subscription",
             customer=customer_id,
             line_items=[{"price": price, "quantity": 1}],
-            # 14-day Stripe-side trial — matches our app-side trial.
-            # If the user already had a BonBox trial, Stripe's trial still applies
-            # but the value is small (most users will have already burned it).
-            subscription_data={
-                "trial_period_days": 14,
-                "metadata": {
-                    "bonbox_user_id": str(user.id),
-                    "bonbox_plan": plan,
-                },
-            },
+            subscription_data=sub_data,
             success_url=success_url,
             cancel_url=cancel_url,
             # Tax handling: if Stripe Tax is enabled in the dashboard, this
@@ -163,9 +176,17 @@ def create_checkout_session(
             automatic_tax={"enabled": False},
             # Allow promo codes — useful for early-adopter discounts
             allow_promotion_codes=True,
-            # Embed user_id in client_reference_id as a defense-in-depth fallback
+            # Embed user_id in client_reference_id as defense-in-depth fallback
             client_reference_id=str(user.id),
         )
+        # If the user is still in their BonBox trial, do NOT force them to enter
+        # a card upfront — let them start without a payment method. Stripe will
+        # auto-cancel at trial end if they never come back to add one.
+        # If trial is already burned, payment method is required (default behavior).
+        if remaining > 0:
+            session_kwargs["payment_method_collection"] = "if_required"
+
+        session = s.checkout.Session.create(**session_kwargs)
         return {
             "url": session.url,
             "session_id": session.id,

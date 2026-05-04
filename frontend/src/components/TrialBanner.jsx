@@ -38,8 +38,10 @@ export default function TrialBanner() {
 
   // Active trial
   if (billing.trial_active && days > 0) {
-    // Tone differs based on urgency
-    const urgent = days <= 3;
+    // Tone differs based on urgency.
+    // 2-day-prior threshold per Manoj — banner turns amber and adds clearer
+    // CTA when ≤ 2 days remain, blue/informational before that.
+    const urgent = days <= 2;
     return (
       <div
         className={`flex items-start gap-3 rounded-xl border px-4 py-3
@@ -55,7 +57,9 @@ export default function TrialBanner() {
               : `${days} days left in your free Pro trial.`}
           </span>
           <span className={`ml-1 ${urgent ? "text-amber-700 dark:text-amber-400" : "text-blue-700 dark:text-blue-400"}`}>
-            All caps removed during trial. Lock in 139 kr/mo founding price before regular 249 kicks in.
+            {urgent
+              ? "After it ends, you stay on Free (every feature still works, just with caps). Add a card later if you want to keep Pro — no charge until you decide."
+              : "No card needed. Lock in 139 kr/mo founding price before regular 249 kicks in."}
           </span>
         </div>
         <Link
