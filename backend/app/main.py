@@ -11,7 +11,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns
 from app.database import engine, Base
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -141,6 +141,26 @@ _migrations = [
     "CREATE INDEX IF NOT EXISTS ix_security_events_user ON security_events (user_id)",
     "CREATE INDEX IF NOT EXISTS ix_security_events_event_created ON security_events (event_type, created_at)",
     "CREATE INDEX IF NOT EXISTS ix_security_events_created ON security_events (created_at)",
+    # owner_patterns — AI-detected behavioural / business patterns per user
+    """CREATE TABLE IF NOT EXISTS owner_patterns (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        pattern_type VARCHAR(64) NOT NULL,
+        severity VARCHAR(20) DEFAULT 'info',
+        title VARCHAR(200) NOT NULL,
+        detail TEXT NOT NULL,
+        suggested_action TEXT,
+        detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        valid_until TIMESTAMP,
+        state VARCHAR(20) DEFAULT 'active',
+        feedback VARCHAR(20),
+        feedback_at TIMESTAMP,
+        raw_data TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_owner_patterns_user ON owner_patterns (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_owner_patterns_user_state ON owner_patterns (user_id, state)",
+    "CREATE INDEX IF NOT EXISTS ix_owner_patterns_user_type ON owner_patterns (user_id, pattern_type)",
+    "CREATE INDEX IF NOT EXISTS ix_owner_patterns_detected ON owner_patterns (detected_at)",
 ]
 
 def _run_migrations():
@@ -552,6 +572,8 @@ app.include_router(workshop.router, prefix="/api/workshop", tags=["Automobile Wo
 app.include_router(wine.router, prefix="/api/wines", tags=["Wine List"])
 app.include_router(staff.router, prefix="/api/staff", tags=["Staff Management"])
 app.include_router(staff_portal.router, prefix="/api/portal", tags=["Staff Portal (Public)"])
+# Per-user pattern recognition (AI insights, dismiss/feedback)
+app.include_router(patterns.router, prefix="/api/patterns", tags=["Owner Patterns"])
 # /admin/* — guarded by 6-layer require_super_admin (see services/admin_security.py).
 # Mounted last so any earlier router can't accidentally shadow these paths.
 app.include_router(admin.router, prefix="/api/admin", tags=["Super Admin"])

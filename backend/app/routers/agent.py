@@ -687,6 +687,19 @@ async def _claude_chat(req: ChatRequest, db, user):
         "- After answering, suggest a natural follow-up question.\n"
     )
 
+    # ── Per-owner memory addendum ─────────────────────────────────
+    # Detected behavioural / business patterns specific to this user. This is
+    # what makes BonBox AI feel like it KNOWS the business vs. being generic.
+    # Failure here is non-fatal — the agent still works without the addendum.
+    try:
+        from app.services.owner_memory import build_system_prompt_addendum
+        addendum = build_system_prompt_addendum(user, db)
+        if addendum:
+            system_prompt = system_prompt + addendum
+    except Exception as _mem_err:  # noqa: BLE001
+        # Don't block chat if memory fails; just log and continue
+        print(f"[agent] owner_memory unavailable: {_mem_err}")
+
     messages = []
     for h in req.history[-10:]:
         messages.append({"role": h["role"], "content": h["content"]})
