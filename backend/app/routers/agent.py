@@ -705,8 +705,12 @@ async def _claude_chat(req: ChatRequest, db, user):
         messages.append({"role": h["role"], "content": h["content"]})
     messages.append({"role": "user", "content": req.message})
 
+    # Track total tokens used in this conversation across multiple tool-call rounds
+    _total_input_tokens = 0
+    _total_output_tokens = 0
+
     async def claude_stream():
-        nonlocal messages
+        nonlocal messages, _total_input_tokens, _total_output_tokens
         try:
             while True:
                 response = client.messages.create(
@@ -716,6 +720,16 @@ async def _claude_chat(req: ChatRequest, db, user):
                     tools=AGENT_TOOLS,
                     messages=messages,
                 )
+
+                # Token accounting for cost monitoring. Each round is a separate
+                # API call so we accumulate across rounds.
+                try:
+                    usage = getattr(response, "usage", None)
+                    if usage:
+                        _total_input_tokens += getattr(usage, "input_tokens", 0) or 0
+                        _total_output_tokens += getattr(usage, "output_tokens", 0) or 0
+                except Exception:  # noqa: BLE001
+                    pass
 
                 has_tool_use = False
                 tool_results = []
@@ -750,7 +764,31 @@ async def _claude_chat(req: ChatRequest, db, user):
                 else:
                     break
 
-            yield f"event: done\ndata: {json.dumps({})}\n\n"
+            # Persist token usage for cost monitoring. Logged as an event_log
+            # row so it shows up alongside everything else (and the admin panel
+            # can chart it). Failure is non-fatal — we don't want token logging
+            # to break a successful chat.
+            try:
+                from app.models.event_log import EventLog
+                ev = EventLog(
+                    user_id=user.id,
+                    event="ai_tokens_used",
+                    page="agent",
+                    detail=json.dumps({
+                        "input": _total_input_tokens,
+                        "output": _total_output_tokens,
+                        "model": "claude-sonnet-4-20250514",
+                    }),
+                )
+                db.add(ev)
+                db.commit()
+            except Exception:  # noqa: BLE001
+                try:
+                    db.rollback()
+                except Exception:  # noqa: BLE001
+                    pass
+
+            yield f"event: done\ndata: {json.dumps({'tokens': {'input': _total_input_tokens, 'output': _total_output_tokens}})}\n\n"
 
         except Exception as e:
             logger.exception("Claude API error")

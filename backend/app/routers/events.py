@@ -29,6 +29,9 @@ def log_event(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    # GDPR: respect user's analytics opt-out — silently drop, don't 4xx
+    if getattr(user, "analytics_opt_out", False):
+        return {"ok": True, "skipped": True}
     log = EventLog(user_id=user.id, event=data.event, page=data.page, detail=data.detail)
     db.add(log)
     db.commit()
@@ -41,6 +44,9 @@ def log_events_batch(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    # GDPR: respect user's analytics opt-out — silently drop the batch
+    if getattr(user, "analytics_opt_out", False):
+        return {"ok": True, "skipped": True, "count": 0}
     for e in data.events:
         db.add(EventLog(user_id=user.id, event=e.event, page=e.page, detail=e.detail))
     db.commit()

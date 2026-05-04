@@ -20,6 +20,10 @@ class User(Base):
     monthly_goal: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     daily_digest_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     expense_alerts_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # GDPR — owner can opt out of product analytics (event_log writes).
+    # Default OFF (analytics ON) under legitimate-interest basis; user can flip
+    # at any time via Profile → Privacy. When True, no events are persisted.
+    analytics_opt_out: Mapped[bool] = mapped_column(Boolean, default=False)
     latitude: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
     longitude: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
     role: Mapped[str] = mapped_column(String(20), default="owner")  # owner | manager | cashier | viewer

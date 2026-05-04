@@ -5,6 +5,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
 import { trackEvent } from "../hooks/useEventLog";
 import ReceiptCapture from "../components/ReceiptCapture";
+import InsightsCard from "../components/InsightsCard";
 import Onboarding from "../components/Onboarding";
 import {
   AnimatedCounter,
@@ -1328,6 +1329,9 @@ export default function DashboardPage() {
         {quickMsg && (
           <div className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-4 py-2.5 rounded-xl text-sm font-medium">{quickMsg}</div>
         )}
+
+        {/* ── AI INSIGHTS — only renders when there are active patterns ── */}
+        <InsightsCard />
 
         {/* ── PERIOD SELECTOR ── */}
         <div className="flex flex-wrap items-center gap-2">

@@ -37,6 +37,7 @@ class UserResponse(BaseModel):
     monthly_goal: float = 0
     role: str = "owner"
     email_verified: bool = False
+    analytics_opt_out: bool = False
     created_at: datetime | None = None
 
     model_config = {"from_attributes": True}
@@ -51,6 +52,7 @@ class UserUpdate(BaseModel):
     business_type: str | None = None
     currency: str | None = None
     email: EmailStr | None = None
+    analytics_opt_out: bool | None = None
 
 
 class PasswordChange(BaseModel):

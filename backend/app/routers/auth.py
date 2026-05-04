@@ -351,6 +351,8 @@ def update_profile(
         if existing:
             raise HTTPException(status_code=400, detail="Email already in use")
         current_user.email = data.email
+    if data.analytics_opt_out is not None:
+        current_user.analytics_opt_out = bool(data.analytics_opt_out)
     db.commit()
     db.refresh(current_user)
     return current_user

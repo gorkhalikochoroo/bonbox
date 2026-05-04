@@ -365,14 +365,37 @@ _DETECTORS = (
 )
 
 
+# Minimum days of activity before pattern detection fires for a user.
+# Below this, anomaly thresholds and routines are statistically meaningless and
+# tend to produce false positives that permanently damage AI trust.
+_MIN_DAYS_ACTIVE = 14
+
+
+def _has_enough_data(user: User, db: Session) -> bool:
+    """User must have at least _MIN_DAYS_ACTIVE distinct days of events."""
+    cutoff = datetime.utcnow() - timedelta(days=90)
+    days = (
+        db.query(func.count(func.distinct(func.date(EventLog.created_at))))
+        .filter(EventLog.user_id == user.id, EventLog.created_at >= cutoff)
+        .scalar()
+        or 0
+    )
+    return days >= _MIN_DAYS_ACTIVE
+
+
 def run_for_user(user: User, db: Session) -> int:
     """
     Run every detector for one user, persist new patterns. Idempotent in the
     sense that re-running on the same day won't duplicate — duplicates are
     de-duped by (user_id, pattern_type, raw_data) signature.
 
-    Returns count of newly-persisted patterns.
+    Returns count of newly-persisted patterns. Returns 0 immediately if the
+    user has fewer than _MIN_DAYS_ACTIVE days of data — false positives at
+    that scale would damage AI trust permanently.
     """
+    if not _has_enough_data(user, db):
+        return 0
+
     detected: list[DetectedPattern] = []
     for fn in _DETECTORS:
         try:

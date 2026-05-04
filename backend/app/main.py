@@ -118,6 +118,8 @@ _migrations = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT false",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_code VARCHAR(10)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_code_expires TIMESTAMP",
+    # GDPR — opt-out toggle for product analytics
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS analytics_opt_out BOOLEAN DEFAULT false",
     # Performance indexes for dashboard queries
     "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",
     "CREATE INDEX IF NOT EXISTS ix_sale_user_payment ON sales (user_id, payment_method, date)",
@@ -602,11 +604,13 @@ def serve_receipt(filename: str, request: Request):
     )
 
 
-# --- Background scheduler: auto-sync payment providers ---
+# --- Background scheduler: auto-sync payment providers + nightly maintenance ---
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.interval import IntervalTrigger
+    from apscheduler.triggers.cron import CronTrigger
     from app.services.payment_autosync import run_auto_sync
+    from app.jobs.retention_and_patterns import daily_maintenance
 
     _scheduler = BackgroundScheduler()
     _scheduler.add_job(
@@ -616,8 +620,17 @@ try:
         name="Auto-sync payment providers",
         replace_existing=True,
     )
+    # Nightly: GDPR purge old events + expire stale patterns + run detectors.
+    # 02:30 UTC = 03:30/04:30 Copenhagen — well outside business hours.
+    _scheduler.add_job(
+        daily_maintenance,
+        trigger=CronTrigger(hour=2, minute=30),
+        id="daily_maintenance",
+        name="GDPR retention + pattern detection",
+        replace_existing=True,
+    )
     _scheduler.start()
-    print("Payment auto-sync scheduler started (every 6 hours)")
+    print("Schedulers started: payment auto-sync (6h), nightly maintenance (02:30 UTC)")
 
     @app.on_event("shutdown")
     def _shutdown_scheduler():
