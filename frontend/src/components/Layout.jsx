@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useDarkMode } from "../hooks/useDarkMode";
 import { useLanguage } from "../hooks/useLanguage";
+import { useTheme, THEMES } from "../hooks/useTheme";
 import { getVatTerms } from "../utils/currency";
 import { usePageTracking } from "../hooks/useEventLog";
 import NotificationCenter from "./NotificationCenter";
@@ -239,6 +240,7 @@ export default function Layout() {
 
   const vatTerms = getVatTerms(user?.currency);
   const [dark, toggleDark] = useDarkMode();
+  const [theme, setTheme] = useTheme();
   const { t, lang, setLang, LANGUAGES } = useLanguage();
   usePageTracking();
 
@@ -418,6 +420,30 @@ export default function Layout() {
             <span className="text-sm w-5 text-center">{dark ? "☀️" : "🌙"}</span>
             {dark ? t("lightMode") : t("darkMode")}
           </button>
+          {/* Theme swatch row — compact, accent only (independent of light/dark) */}
+          <div className="px-3 py-1.5">
+            <div className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold mb-1.5">
+              {t("appearance") || "Appearance"}
+            </div>
+            <div className="flex items-center gap-1.5">
+              {THEMES.map((th) => {
+                const active = theme === th.id;
+                return (
+                  <button
+                    key={th.id}
+                    onClick={() => setTheme(th.id)}
+                    aria-pressed={active}
+                    title={`${th.name} — ${th.description}`}
+                    className={`w-7 h-7 rounded-full transition shrink-0
+                      ${active
+                        ? "ring-2 ring-offset-2 ring-offset-white dark:ring-offset-gray-900 ring-gray-700 dark:ring-gray-300"
+                        : "ring-1 ring-black/10 dark:ring-white/15 hover:scale-110"}`}
+                    style={{ backgroundColor: th.swatch }}
+                  />
+                );
+              })}
+            </div>
+          </div>
           <div className="px-1 py-1">
             <select
               value={lang}
