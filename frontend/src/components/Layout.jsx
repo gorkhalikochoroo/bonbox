@@ -3,7 +3,6 @@ import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useDarkMode } from "../hooks/useDarkMode";
 import { useLanguage } from "../hooks/useLanguage";
-import { useTheme, THEMES } from "../hooks/useTheme";
 import { getVatTerms } from "../utils/currency";
 import { usePageTracking } from "../hooks/useEventLog";
 import NotificationCenter from "./NotificationCenter";
@@ -240,7 +239,6 @@ export default function Layout() {
 
   const vatTerms = getVatTerms(user?.currency);
   const [dark, toggleDark] = useDarkMode();
-  const [theme, setTheme] = useTheme();
   const { t, lang, setLang, LANGUAGES } = useLanguage();
   usePageTracking();
 
@@ -251,7 +249,10 @@ export default function Layout() {
 
   const closeSidebar = () => setSidebarOpen(false);
 
-  const activeClass = "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400";
+  // Accounting-software style: neutral gray bg + bold dark text on the active
+  // item (Dinero/Billy/e-conomic do this). Avoids the "tech glow" colored pill
+  // that read as developer-tool aesthetic.
+  const activeClass = "bg-gray-100 dark:bg-gray-700/60 text-gray-900 dark:text-white font-semibold";
   const inactiveClass = "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-white";
 
   return (
@@ -286,19 +287,23 @@ export default function Layout() {
           <button onClick={closeSidebar} className="md:hidden text-gray-400 hover:text-gray-600 text-xl">&times;</button>
         </div>
 
-        {/* Mode switcher */}
+        {/* Mode switcher — neutral pill with a tiny colored dot for the mode signal */}
         <div className="px-3 py-2">
           <button
             onClick={toggleMode}
-            className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-              mode === "personal"
-                ? "bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-700"
-                : "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-700"
-            }`}
+            className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition
+              bg-gray-50 dark:bg-gray-700/60 text-gray-800 dark:text-gray-100
+              border border-gray-200 dark:border-gray-600
+              hover:bg-gray-100 dark:hover:bg-gray-700"
           >
-            <span>{mode === "personal" ? "👤" : "💼"}</span>
+            <span
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                mode === "personal" ? "bg-purple-500" : "bg-blue-500"
+              }`}
+              aria-hidden="true"
+            />
             <span>{mode === "personal" ? t("personalMode") : t("businessMode")}</span>
-            <svg className="w-3 h-3 ml-auto opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-3 h-3 ml-auto opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
             </svg>
           </button>
@@ -420,30 +425,7 @@ export default function Layout() {
             <span className="text-sm w-5 text-center">{dark ? "☀️" : "🌙"}</span>
             {dark ? t("lightMode") : t("darkMode")}
           </button>
-          {/* Theme swatch row — compact, accent only (independent of light/dark) */}
-          <div className="px-3 py-1.5">
-            <div className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold mb-1.5">
-              {t("appearance") || "Appearance"}
-            </div>
-            <div className="flex items-center gap-1.5">
-              {THEMES.map((th) => {
-                const active = theme === th.id;
-                return (
-                  <button
-                    key={th.id}
-                    onClick={() => setTheme(th.id)}
-                    aria-pressed={active}
-                    title={`${th.name} — ${th.description}`}
-                    className={`w-7 h-7 rounded-full transition shrink-0
-                      ${active
-                        ? "ring-2 ring-offset-2 ring-offset-white dark:ring-offset-gray-900 ring-gray-700 dark:ring-gray-300"
-                        : "ring-1 ring-black/10 dark:ring-white/15 hover:scale-110"}`}
-                    style={{ backgroundColor: th.swatch }}
-                  />
-                );
-              })}
-            </div>
-          </div>
+          {/* Theme picker lives on Profile / More page now — sidebar kept lean */}
           <div className="px-1 py-1">
             <select
               value={lang}
