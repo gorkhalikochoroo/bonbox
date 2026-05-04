@@ -160,7 +160,10 @@ def export_dinero(user: User, db: Session, start: date, end: date) -> bytes:
     voucher = 1
     for s in sales:
         moms = "0%" if getattr(s, "is_tax_exempt", False) else "25%"
-        desc = (s.description or "Salg") + (
+        # Sale model uses `notes` not `description` — guard with getattr in case
+        # of any future schema drift, and prefer `item_name` for item sales.
+        sale_text = getattr(s, "item_name", None) or getattr(s, "notes", None) or "Salg"
+        desc = sale_text + (
             f" (ref: {s.reference_id})" if getattr(s, "reference_id", None) else ""
         )
         w.writerow([
@@ -215,7 +218,8 @@ def export_billy(user: User, db: Session, start: date, end: date) -> bytes:
     w.writerow(["Date", "Description", "Amount", "Currency", "VAT %", "Payment"])
     for s in sales:
         vat = "0" if getattr(s, "is_tax_exempt", False) else "25"
-        desc = s.description or "Sale"
+        # Sale uses `notes`, not `description`
+        desc = getattr(s, "item_name", None) or getattr(s, "notes", None) or "Sale"
         w.writerow([
             s.date.isoformat() if hasattr(s.date, "isoformat") else str(s.date),
             desc[:120],
@@ -281,7 +285,8 @@ def export_economic(user: User, db: Session, start: date, end: date) -> bytes:
     voucher = 1
     for s in sales:
         vat = "U0" if getattr(s, "is_tax_exempt", False) else "U25"
-        desc = s.description or "Salg"
+        # Sale uses `notes`, not `description`
+        desc = getattr(s, "item_name", None) or getattr(s, "notes", None) or "Salg"
         w.writerow([
             f"S{voucher:05d}",
             s.date.isoformat() if hasattr(s.date, "isoformat") else str(s.date),
@@ -334,10 +339,12 @@ def export_generic(user: User, db: Session, start: date, end: date) -> bytes:
     ])
     for s in sales:
         vat = "0" if getattr(s, "is_tax_exempt", False) else "25"
+        # Sale uses `notes`, not `description`
+        sale_text = getattr(s, "item_name", None) or getattr(s, "notes", None) or "Sale"
         w.writerow([
             s.date.isoformat() if hasattr(s.date, "isoformat") else str(s.date),
             "Sale",
-            (s.description or "Sale")[:120],
+            sale_text[:120],
             "",
             _money_dot(s.amount),
             cur,
