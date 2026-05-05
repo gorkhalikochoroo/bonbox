@@ -421,14 +421,18 @@ def sync_user_subscription_from_stripe(user: User, db: Session, force: bool = Fa
     if not user.stripe_customer_id:
         recovered = _find_customer_by_user_metadata(s, user)
         if not recovered:
-            return {"status": "no_stripe_customer"}
+            return {"status": "no_stripe_customer", "user_id": str(user.id)}
         log.info("Recovered orphaned Stripe customer %s for user %s", recovered, user.id)
         try:
             user.stripe_customer_id = recovered
             db.commit()
-        except Exception:
-            db.rollback()
-            return None
+        except Exception as e:
+            log.exception("Failed to commit recovered customer_id for user=%s: %s", user.id, e)
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            return {"status": "error", "stage": "save_customer_id", "exception_type": type(e).__name__, "exception_msg": str(e)[:300]}
 
     try:
         # Fetch all subs for this customer (live count is small per customer)
@@ -452,17 +456,36 @@ def sync_user_subscription_from_stripe(user: User, db: Session, force: bool = Fa
 
     items = list(getattr(subs, "data", []) or [])
     if not items:
-        return {"status": "no_subs"}
+        return {"status": "no_subs", "customer_id": user.stripe_customer_id}
 
     # Pick the most relevant sub: prefer active/trialing/past_due, then most recent
     priority = {"active": 0, "trialing": 1, "past_due": 2, "canceled": 3, "unpaid": 4, "incomplete": 5, "incomplete_expired": 6}
     items.sort(key=lambda x: (priority.get(getattr(x, "status", ""), 99), -int(getattr(x, "created", 0) or 0)))
     chosen = items[0]
+    # Convert StripeObject to plain dict in a way that works across SDK versions.
+    # `dict(stripe_obj)` doesn't recursively convert; `to_dict_recursive` does
+    # but isn't on every version. `_previous_attributes` and `__values__` differ.
+    # Safest: use the SDK's built-in serializer if available, else cast to dict.
+    sub_obj = None
+    for converter in (
+        lambda x: x.to_dict_recursive() if hasattr(x, "to_dict_recursive") else None,
+        lambda x: dict(x.__dict__) if hasattr(x, "__dict__") else None,
+        lambda x: dict(x),
+    ):
+        try:
+            sub_obj = converter(chosen)
+            if sub_obj:
+                break
+        except Exception:
+            continue
+    if not sub_obj:
+        return {"status": "error", "stage": "convert_sub", "exception_msg": "could not coerce Stripe Subscription to dict"}
+
     try:
-        _apply_subscription_state(user, dict(chosen), db)
+        _apply_subscription_state(user, sub_obj, db)
     except Exception as e:
         log.exception("apply state failed during sync for user=%s: %s", user.id, e)
-        return None
+        return {"status": "error", "stage": "apply_state", "exception_type": type(e).__name__, "exception_msg": str(e)[:300]}
 
     return {"status": "synced", "sub_id": getattr(chosen, "id", None), "sub_status": getattr(chosen, "status", None)}
 
