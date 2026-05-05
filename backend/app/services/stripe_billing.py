@@ -31,7 +31,7 @@ Test mode:
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -272,6 +272,32 @@ def create_checkout_session(
         # If trial is already burned, payment method is required (default behavior).
         if remaining > 0:
             session_kwargs["payment_method_collection"] = "if_required"
+
+        # Reinforce the "lock-in" framing on the Stripe page. Stripe's default
+        # CTA is "Start trial" which undersells what's actually happening — the
+        # user is committing to the founding rate for life. Surface that in the
+        # submit-button context line so the customer sees commitment + first-charge
+        # date in one beat.
+        if remaining > 0:
+            first_charge = datetime.utcnow() + timedelta(days=int(remaining))
+            charge_date = f"{first_charge.day} {first_charge.strftime('%B %Y')}"
+            if is_founding:
+                submit_msg = (
+                    f"You're locking in the founding-member rate of DKK 99/month "
+                    f"for life. First charge: {charge_date}. Cancel anytime before "
+                    f"then to avoid being billed."
+                )
+            else:
+                submit_msg = (
+                    f"First charge: {charge_date}. Cancel anytime before then to "
+                    f"avoid being billed."
+                )
+        else:
+            if is_founding:
+                submit_msg = "Locking in the founding-member rate of DKK 99/month for life."
+            else:
+                submit_msg = "Subscribing now — first charge today, then monthly."
+        session_kwargs["custom_text"] = {"submit": {"message": submit_msg}}
 
         session = s.checkout.Session.create(**session_kwargs)
         return {
