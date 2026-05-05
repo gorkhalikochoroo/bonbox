@@ -83,6 +83,8 @@ export default function InventoryPage() {
   const [restockBottles, setRestockBottles] = useState(1);
   const [deadStock, setDeadStock] = useState([]);
   const [profitRanking, setProfitRanking] = useState([]);
+  const [expiring, setExpiring] = useState([]);   // Items in next 7 days
+  const [expired, setExpired] = useState([]);     // Items already past expiry
   const [expandedStat, setExpandedStat] = useState(null); // "total" | "low" | "fresh" | "categories" | "priced"
 
   const fetchData = () => {
@@ -91,6 +93,8 @@ export default function InventoryPage() {
     api.get("/inventory/categories").then((res) => setCategories(res.data)).catch(() => {});
     api.get("/inventory/dead-stock").then((res) => setDeadStock(res.data)).catch(() => {});
     api.get("/inventory/profit-ranking").then((res) => setProfitRanking(res.data)).catch(() => {});
+    api.get("/inventory/expiring", { params: { days: 7 } }).then((res) => setExpiring(res.data || [])).catch(() => {});
+    api.get("/inventory/expired").then((res) => setExpired(res.data || [])).catch(() => {});
   };
 
   useEffect(() => { fetchData(); }, []);
@@ -349,6 +353,62 @@ export default function InventoryPage() {
       {alerts.length > 0 && (
         <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 p-4 rounded-xl">
           <p className="text-red-700 dark:text-red-300 font-medium text-sm">{t("lowStockAlerts")}: {alerts.length} {t("itemsBelowMinStock")}</p>
+        </div>
+      )}
+
+      {/* ─── Expiry alerts (already past = waste candidate; soon = use first) ─── */}
+      {(expired.length > 0 || expiring.length > 0) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {expired.length > 0 && (
+            <div className="bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800 p-4 rounded-xl">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl shrink-0 mt-0.5">⚠️</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-rose-800 dark:text-rose-200 font-semibold text-sm">
+                    {expired.length} item{expired.length === 1 ? "" : "s"} past expiry
+                  </p>
+                  <p className="text-rose-700 dark:text-rose-300 text-xs mt-0.5">
+                    Move to Waste or remove from stock — usable inventory shouldn't include these.
+                  </p>
+                  <ul className="mt-2 space-y-0.5 text-[12px] text-rose-700 dark:text-rose-300">
+                    {expired.slice(0, 3).map((it) => (
+                      <li key={it.id} className="truncate">
+                        • {it.name} <span className="opacity-70">({it.expiry_date}, {Number(it.quantity).toFixed(1)} {it.unit})</span>
+                      </li>
+                    ))}
+                    {expired.length > 3 && (
+                      <li className="opacity-70">+ {expired.length - 3} more…</li>
+                    )}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
+          {expiring.length > 0 && (
+            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-4 rounded-xl">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl shrink-0 mt-0.5">⏰</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-amber-800 dark:text-amber-200 font-semibold text-sm">
+                    {expiring.length} item{expiring.length === 1 ? "" : "s"} expiring within 7 days
+                  </p>
+                  <p className="text-amber-700 dark:text-amber-300 text-xs mt-0.5">
+                    Use these first or plan a discount — first-expired-first-out keeps waste low.
+                  </p>
+                  <ul className="mt-2 space-y-0.5 text-[12px] text-amber-700 dark:text-amber-300">
+                    {expiring.slice(0, 3).map((it) => (
+                      <li key={it.id} className="truncate">
+                        • {it.name} <span className="opacity-70">({it.expiry_date}, {Number(it.quantity).toFixed(1)} {it.unit})</span>
+                      </li>
+                    ))}
+                    {expiring.length > 3 && (
+                      <li className="opacity-70">+ {expiring.length - 3} more…</li>
+                    )}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
