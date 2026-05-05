@@ -71,6 +71,33 @@ def is_test_mode() -> bool:
     return settings.STRIPE_SECRET_KEY.startswith("sk_test_")
 
 
+# Canonical production frontend URL. Stripe success/cancel/return URLs MUST
+# resolve to a public domain; the bonbox.vercel.app alias is access-walled by
+# Vercel and lands the user on a 401 page. If FRONTEND_URL is misconfigured to
+# vercel.app in production, we override here rather than break the upgrade flow.
+_CANONICAL_PROD_FRONTEND = "https://bonbox.dk"
+
+
+def _safe_frontend_url() -> str:
+    """Return the frontend base URL Stripe should redirect back to.
+
+    Always rewrites vercel.app preview aliases to bonbox.dk — the preview alias
+    is access-walled and Stripe callbacks land on a 401. localhost is preserved
+    for dev. Empty FRONTEND_URL falls back to bonbox.dk too.
+    """
+    url = (settings.FRONTEND_URL or "").rstrip("/")
+    if not url:
+        return _CANONICAL_PROD_FRONTEND
+    if "vercel.app" in url:
+        log.warning(
+            "FRONTEND_URL=%s is a vercel.app alias; rewriting to %s for Stripe "
+            "redirects (preview aliases are access-walled and break checkout)",
+            url, _CANONICAL_PROD_FRONTEND,
+        )
+        return _CANONICAL_PROD_FRONTEND
+    return url
+
+
 # ─────────────────────────── Customer management ───────────────────────────
 
 
@@ -132,13 +159,23 @@ def create_checkout_session(
     if not customer_id:
         return None
 
-    success_url = (
-        settings.STRIPE_SUCCESS_URL
-        or f"{settings.FRONTEND_URL.rstrip('/')}/subscription?success=1&session_id={{CHECKOUT_SESSION_ID}}"
+    base = _safe_frontend_url()
+    # If STRIPE_SUCCESS_URL/STRIPE_CANCEL_URL are set explicitly but point at a
+    # vercel.app alias, fall back to the canonical base — same reasoning as
+    # _safe_frontend_url(): the preview alias is access-walled.
+    def _safe(explicit: str, default: str) -> str:
+        if explicit and "vercel.app" in explicit:
+            log.warning("Stripe URL %s is a vercel.app alias; using fallback", explicit)
+            return default
+        return explicit or default
+
+    success_url = _safe(
+        settings.STRIPE_SUCCESS_URL,
+        f"{base}/subscription?success=1&session_id={{CHECKOUT_SESSION_ID}}",
     )
-    cancel_url = (
-        settings.STRIPE_CANCEL_URL
-        or f"{settings.FRONTEND_URL.rstrip('/')}/subscription?canceled=1"
+    cancel_url = _safe(
+        settings.STRIPE_CANCEL_URL,
+        f"{base}/subscription?canceled=1",
     )
 
     # Sync Stripe trial with the user's REMAINING BonBox trial.
@@ -218,7 +255,7 @@ def create_billing_portal_session(user: User, db: Session) -> Optional[dict]:
         # No customer record yet → nothing to manage
         return None
 
-    return_url = f"{settings.FRONTEND_URL.rstrip('/')}/subscription"
+    return_url = f"{_safe_frontend_url()}/subscription"
     try:
         portal = s.billing_portal.Session.create(
             customer=user.stripe_customer_id,
