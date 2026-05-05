@@ -390,10 +390,11 @@ export default function LandingPage() {
       <nav className="fixed top-0 left-0 right-0 z-50 bg-[#fafaf7]/85 backdrop-blur-xl border-b border-gray-200/60">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2.5 group">
-            <div className="w-9 h-9 bg-gray-900 rounded-lg flex items-center justify-center">
+            <div className="w-9 h-9 bg-green-500 rounded-lg flex items-center justify-center shadow-sm">
               <svg width="20" height="20" viewBox="0 0 28 28" fill="none">
                 <rect x="4" y="2" width="20" height="24" rx="3" stroke="white" strokeWidth="2.2" />
                 <path d="M9 8h10M9 12h10M9 16h6" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+                <path d="M4 20h20" stroke="#fde68a" strokeWidth="2" />
               </svg>
             </div>
             <span className="text-[17px] font-semibold text-gray-900 tracking-tight">BonBox</span>
@@ -413,7 +414,7 @@ export default function LandingPage() {
             <Link to="/login" className="px-3 py-2 text-[14px] font-medium text-gray-700 hover:text-gray-900 transition">
               {t("landingSignIn")}
             </Link>
-            <Link to="/register" className="px-4 py-2 text-[14px] font-medium bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition">
+            <Link to="/register" className="px-4 py-2 text-[14px] font-medium bg-green-500 text-white rounded-lg hover:bg-green-600 transition shadow-sm">
               {t("landingStartFree")}
             </Link>
           </div>
@@ -440,15 +441,15 @@ export default function LandingPage() {
               ))}
             </select>
             <Link to="/login" className="block w-full text-center px-4 py-3 text-sm font-medium text-gray-800 border border-gray-300 rounded-lg">{t("landingSignIn")}</Link>
-            <Link to="/register" className="block w-full text-center px-4 py-3 text-sm font-medium bg-gray-900 text-white rounded-lg">{t("landingStartFree")}</Link>
+            <Link to="/register" className="block w-full text-center px-4 py-3 text-sm font-medium bg-green-500 text-white rounded-lg shadow-sm">{t("landingStartFree")}</Link>
           </div>
         )}
       </nav>
 
-      {/* ── Hero (Copenhagen-clean: warm white, restrained accent, no glow) ── */}
+      {/* ── Hero (warm-white Copenhagen + BonBox green signature) ── */}
       <section className="relative pt-32 sm:pt-40 pb-20 sm:pb-32 text-gray-900 overflow-hidden">
-        <div className="absolute top-20 left-1/4 w-[500px] h-[500px] bg-blue-100/60 rounded-full blur-[120px] pointer-events-none" />
-        <div className="absolute top-40 right-1/4 w-[400px] h-[400px] bg-amber-100/40 rounded-full blur-[120px] pointer-events-none" />
+        <div className="absolute top-20 left-1/4 w-[500px] h-[500px] bg-green-100/60 rounded-full blur-[120px] pointer-events-none" />
+        <div className="absolute top-40 right-1/4 w-[400px] h-[400px] bg-emerald-100/50 rounded-full blur-[120px] pointer-events-none" />
 
         <div className="relative max-w-6xl mx-auto px-4 sm:px-6">
           {/* Split hero: text left, illustration right */}
@@ -456,8 +457,8 @@ export default function LandingPage() {
             {/* Left — text */}
             <div className="flex-1 text-center lg:text-left">
               <FadeIn>
-                <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-50 rounded-full text-[12px] font-medium text-blue-700 mb-8 border border-blue-200/60">
-                  <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
+                <div className="inline-flex items-center gap-2 px-3 py-1 bg-green-50 rounded-full text-[12px] font-medium text-green-700 mb-8 border border-green-200/70">
+                  <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
                   {t("landingBadge")}
                 </div>
               </FadeIn>
@@ -466,7 +467,7 @@ export default function LandingPage() {
                 <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-[1.08] tracking-tight text-gray-900">
                   {t("landingHeroLine1")}
                   <br />
-                  <span className="text-blue-600">
+                  <span className="bg-gradient-to-r from-green-600 to-emerald-500 bg-clip-text text-transparent">
                     {t("landingHeroLine2")}
                   </span>
                 </h1>
@@ -480,7 +481,7 @@ export default function LandingPage() {
 
               <FadeIn delay={300}>
                 <div className="mt-10 flex flex-col sm:flex-row items-center lg:items-start justify-center lg:justify-start gap-3">
-                  <Link to="/register" className="w-full sm:w-auto px-7 py-3 bg-gray-900 text-white font-medium rounded-lg hover:bg-gray-800 transition text-center text-[15px]">
+                  <Link to="/register" className="w-full sm:w-auto px-7 py-3.5 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 transition text-center text-[15px] shadow-md shadow-green-500/20">
                     {t("landingCtaPrimary")}
                   </Link>
                   <a href="https://apps.apple.com/dk/app/bonbox-daily-close/id6762066960" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-3 bg-white border border-gray-300 rounded-lg hover:border-gray-400 transition">
@@ -494,10 +495,10 @@ export default function LandingPage() {
               </FadeIn>
 
               <FadeIn delay={350}>
-                <div className="mt-6 flex flex-wrap items-center justify-center lg:justify-start gap-5 text-[13px] text-gray-500">
+                <div className="mt-6 flex flex-wrap items-center justify-center lg:justify-start gap-5 text-[13px] text-gray-600">
                   {[t("landingCheck1"), t("landingCheck2"), t("landingCheck3")].map((txt) => (
                     <span key={txt} className="flex items-center gap-1.5">
-                      <svg className="w-4 h-4 text-gray-900" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
+                      <svg className="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
                       {txt}
                     </span>
                   ))}
@@ -549,7 +550,7 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <FadeIn>
             <div className="text-center mb-16">
-              <p className="text-blue-600 text-xs font-semibold uppercase tracking-wider mb-3">{t("landingFeaturesTag")}</p>
+              <p className="text-green-600 text-xs font-semibold uppercase tracking-wider mb-3">{t("landingFeaturesTag")}</p>
               <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 tracking-tight">
                 {t("landingFeaturesTitle")}
               </h2>
@@ -598,7 +599,7 @@ export default function LandingPage() {
                 t("landingTagWineList"), t("landingTagScanBottle"), t("landingTagSommelier"),
                 t("landingTagStaffSchedule"), t("landingTagTipSplit"), t("landingTagPayrollPdf"), t("landingTagUnitConvert"),
               ].map((f) => (
-                <span key={f} className="px-4 py-2 bg-white/5 border border-white/10 text-gray-400 text-sm font-medium rounded-full">
+                <span key={f} className="px-4 py-2 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-full hover:border-green-300 hover:text-green-700 transition">
                   {f}
                 </span>
               ))}
@@ -612,11 +613,11 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <FadeIn>
             <div className="text-center mb-12">
-              <p className="text-purple-400 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingIntelTag")}</p>
+              <p className="text-purple-600 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingIntelTag")}</p>
               <h2 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">
                 {t("landingIntelTitle1")}
                 <br />
-                <span className="text-purple-400">{t("landingIntelTitle2")}</span>
+                <span className="text-purple-600">{t("landingIntelTitle2")}</span>
               </h2>
               <p className="mt-5 text-gray-600 text-lg max-w-xl mx-auto">
                 {t("landingIntelSub")}
@@ -627,18 +628,18 @@ export default function LandingPage() {
           <FadeIn delay={100}>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               {[
-                { icon: "💲", titleKey: "landingIntel1", subKey: "landingIntel1Sub", color: "hover:border-green-500/30" },
-                { icon: "🤝", titleKey: "landingIntel2", subKey: "landingIntel2Sub", color: "hover:border-pink-500/30" },
-                { icon: "🔍", titleKey: "landingIntel3", subKey: "landingIntel3Sub", color: "hover:border-blue-500/30" },
-                { icon: "⏰", titleKey: "landingIntel4", subKey: "landingIntel4Sub", color: "hover:border-amber-500/30" },
-                { icon: "🏢", titleKey: "landingIntel5", subKey: "landingIntel5Sub", color: "hover:border-slate-400/30" },
-                { icon: "🧾", titleKey: "landingIntel6", subKey: "landingIntel6Sub", color: "hover:border-emerald-500/30" },
+                { icon: "💲", titleKey: "landingIntel1", subKey: "landingIntel1Sub", color: "hover:border-green-400/60" },
+                { icon: "🤝", titleKey: "landingIntel2", subKey: "landingIntel2Sub", color: "hover:border-pink-400/60" },
+                { icon: "🔍", titleKey: "landingIntel3", subKey: "landingIntel3Sub", color: "hover:border-purple-400/60" },
+                { icon: "⏰", titleKey: "landingIntel4", subKey: "landingIntel4Sub", color: "hover:border-amber-400/60" },
+                { icon: "🏢", titleKey: "landingIntel5", subKey: "landingIntel5Sub", color: "hover:border-slate-400/60" },
+                { icon: "🧾", titleKey: "landingIntel6", subKey: "landingIntel6Sub", color: "hover:border-emerald-400/60" },
               ].map((f, i) => (
                 <FadeIn key={f.titleKey} delay={i * 80}>
-                  <div className={`bg-white/[0.03] border border-white/10 rounded-2xl p-5 text-center transition-all duration-300 ${f.color}`}>
+                  <div className={`bg-white border border-gray-200 rounded-2xl p-5 text-center transition-all duration-300 hover:shadow-md ${f.color}`}>
                     <div className="text-3xl mb-3">{f.icon}</div>
-                    <p className="text-white font-bold text-sm">{t(f.titleKey)}</p>
-                    <p className="text-gray-500 text-xs mt-1.5 leading-relaxed">{t(f.subKey)}</p>
+                    <p className="text-gray-900 font-bold text-sm">{t(f.titleKey)}</p>
+                    <p className="text-gray-600 text-xs mt-1.5 leading-relaxed">{t(f.subKey)}</p>
                   </div>
                 </FadeIn>
               ))}
@@ -652,35 +653,35 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <FadeIn>
             <div className="text-center mb-12">
-              <p className="text-orange-400 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingBarTag")}</p>
+              <p className="text-amber-600 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingBarTag")}</p>
               <h2 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">
                 {t("landingBarTitle1")}
                 <br />
-                <span className="text-orange-400">{t("landingBarTitle2")}</span>
+                <span className="text-amber-600">{t("landingBarTitle2")}</span>
               </h2>
             </div>
           </FadeIn>
 
           <FadeIn delay={100}>
-            <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-6 sm:p-10">
+            <div className="bg-white border border-gray-200 rounded-2xl p-6 sm:p-10 shadow-sm">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6 text-center">
                 {[
-                  { icon: "🍾", titleKey: "landingBarStep1", subKey: "landingBarStep1Sub", color: "text-white" },
-                  { icon: "🥃", titleKey: "landingBarStep2", subKey: "landingBarStep2Sub", color: "text-white" },
-                  { icon: "📉", titleKey: "landingBarStep3", subKey: "landingBarStep3Sub", color: "text-green-400" },
-                  { icon: "💵", titleKey: "landingBarStep4", subKey: "landingBarStep4Sub", color: "text-orange-400" },
+                  { icon: "🍾", titleKey: "landingBarStep1", subKey: "landingBarStep1Sub", color: "text-gray-900" },
+                  { icon: "🥃", titleKey: "landingBarStep2", subKey: "landingBarStep2Sub", color: "text-gray-900" },
+                  { icon: "📉", titleKey: "landingBarStep3", subKey: "landingBarStep3Sub", color: "text-green-600" },
+                  { icon: "💵", titleKey: "landingBarStep4", subKey: "landingBarStep4Sub", color: "text-amber-600" },
                 ].map((step, i) => (
                   <div key={step.titleKey} className="relative">
                     <div className="text-4xl mb-3">{step.icon}</div>
                     <p className={`font-bold text-sm ${step.color}`}>{t(step.titleKey)}</p>
-                    <p className="text-gray-500 text-xs mt-1">{t(step.subKey)}</p>
+                    <p className="text-gray-600 text-xs mt-1">{t(step.subKey)}</p>
                     {i < 3 && (
-                      <span className="hidden sm:block absolute top-8 -right-3 sm:-right-4 text-orange-500 text-lg font-bold">→</span>
+                      <span className="hidden sm:block absolute top-8 -right-3 sm:-right-4 text-amber-500 text-lg font-bold">→</span>
                     )}
                   </div>
                 ))}
               </div>
-              <p className="text-center text-green-400 font-semibold text-sm mt-8">{t("landingBarBottom")}</p>
+              <p className="text-center text-green-600 font-semibold text-sm mt-8">{t("landingBarBottom")}</p>
             </div>
           </FadeIn>
         </div>
@@ -691,35 +692,35 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <FadeIn>
             <div className="text-center mb-12">
-              <p className="text-teal-400 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingStaffTag")}</p>
+              <p className="text-teal-600 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingStaffTag")}</p>
               <h2 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">
                 {t("landingStaffTitle1")}
                 <br />
-                <span className="text-teal-400">{t("landingStaffTitle2")}</span>
+                <span className="text-teal-600">{t("landingStaffTitle2")}</span>
               </h2>
             </div>
           </FadeIn>
 
           <FadeIn delay={100}>
-            <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-6 sm:p-10">
+            <div className="bg-white border border-gray-200 rounded-2xl p-6 sm:p-10 shadow-sm">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6 text-center">
                 {[
-                  { icon: "📅", titleKey: "landingStaffStep1", subKey: "landingStaffStep1Sub", color: "text-white" },
-                  { icon: "⏱️", titleKey: "landingStaffStep2", subKey: "landingStaffStep2Sub", color: "text-white" },
-                  { icon: "💰", titleKey: "landingStaffStep3", subKey: "landingStaffStep3Sub", color: "text-teal-400" },
-                  { icon: "📄", titleKey: "landingStaffStep4", subKey: "landingStaffStep4Sub", color: "text-green-400" },
+                  { icon: "📅", titleKey: "landingStaffStep1", subKey: "landingStaffStep1Sub", color: "text-gray-900" },
+                  { icon: "⏱️", titleKey: "landingStaffStep2", subKey: "landingStaffStep2Sub", color: "text-gray-900" },
+                  { icon: "💰", titleKey: "landingStaffStep3", subKey: "landingStaffStep3Sub", color: "text-teal-600" },
+                  { icon: "📄", titleKey: "landingStaffStep4", subKey: "landingStaffStep4Sub", color: "text-green-600" },
                 ].map((step, i) => (
                   <div key={step.titleKey} className="relative">
                     <div className="text-4xl mb-3">{step.icon}</div>
                     <p className={`font-bold text-sm ${step.color}`}>{t(step.titleKey)}</p>
-                    <p className="text-gray-500 text-xs mt-1">{t(step.subKey)}</p>
+                    <p className="text-gray-600 text-xs mt-1">{t(step.subKey)}</p>
                     {i < 3 && (
                       <span className="hidden sm:block absolute top-8 -right-3 sm:-right-4 text-teal-500 text-lg font-bold">&#8594;</span>
                     )}
                   </div>
                 ))}
               </div>
-              <p className="text-center text-teal-400 font-semibold text-sm mt-8">{t("landingStaffBottom")}</p>
+              <p className="text-center text-teal-600 font-semibold text-sm mt-8">{t("landingStaffBottom")}</p>
             </div>
           </FadeIn>
         </div>
@@ -746,14 +747,14 @@ export default function LandingPage() {
               <FadeIn key={step.num} delay={i * 120}>
                 <div className="text-center relative">
                   {i < 2 && (
-                    <div className="hidden md:block absolute top-8 left-[60%] w-[80%] border-t-2 border-dashed border-gray-700" />
+                    <div className="hidden md:block absolute top-8 left-[60%] w-[80%] border-t-2 border-dashed border-gray-300" />
                   )}
-                  <div className="relative z-10 w-16 h-16 bg-green-500/10 border border-green-500/30 text-3xl rounded-2xl flex items-center justify-center mx-auto mb-5">
+                  <div className="relative z-10 w-16 h-16 bg-green-50 border border-green-200 text-3xl rounded-2xl flex items-center justify-center mx-auto mb-5">
                     {step.icon}
                   </div>
-                  <div className="text-green-400 text-xs font-bold mb-2">{t("landingStepLabel")} {step.num}</div>
-                  <h3 className="text-lg font-bold text-white mb-1">{t(step.titleKey)}</h3>
-                  <p className="text-gray-500 text-sm">{t(step.subKey)}</p>
+                  <div className="text-green-600 text-xs font-bold mb-2">{t("landingStepLabel")} {step.num}</div>
+                  <h3 className="text-lg font-bold text-gray-900 mb-1">{t(step.titleKey)}</h3>
+                  <p className="text-gray-600 text-sm">{t(step.subKey)}</p>
                 </div>
               </FadeIn>
             ))}
@@ -770,7 +771,7 @@ export default function LandingPage() {
                 <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-2">
                   Take BonBox Everywhere
                 </h2>
-                <p className="text-gray-400 text-sm">
+                <p className="text-gray-600 text-sm">
                   Available on iOS. Your dashboard in your pocket.
                 </p>
               </div>
@@ -796,7 +797,7 @@ export default function LandingPage() {
               <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-4">
                 {t("landingGlobalTitle")}
               </h2>
-              <p className="text-gray-400 text-lg mb-8 max-w-lg mx-auto">
+              <p className="text-gray-600 text-lg mb-8 max-w-lg mx-auto">
                 {t("landingGlobalSub")}
               </p>
               <div className="flex flex-wrap justify-center gap-3 mb-10">
@@ -809,7 +810,7 @@ export default function LandingPage() {
                   { flag: "🇮🇹", name: "Italy" }, { flag: "🇯🇵", name: "Japan" },
                   { flag: "🇮🇳", name: "India" }, { flag: "🇪🇺", name: "Europe" },
                 ].map((c) => (
-                  <span key={c.name} className="inline-flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 text-gray-300 text-sm font-medium rounded-full">
+                  <span key={c.name} className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-full hover:border-green-300 transition">
                     <span className="text-lg">{c.flag}</span>
                     {c.name}
                   </span>
@@ -821,9 +822,9 @@ export default function LandingPage() {
                   { icon: "📱", textKey: "landingCredibility2" },
                   { icon: "🔒", textKey: "landingCredibility3" },
                 ].map((item) => (
-                  <div key={item.textKey} className="bg-white/[0.03] border border-white/10 rounded-xl p-4 text-center">
+                  <div key={item.textKey} className="bg-white border border-gray-200 rounded-xl p-4 text-center hover:border-green-300 hover:shadow-sm transition">
                     <div className="text-2xl mb-2">{item.icon}</div>
-                    <p className="text-gray-400 text-sm">{t(item.textKey)}</p>
+                    <p className="text-gray-700 text-sm">{t(item.textKey)}</p>
                   </div>
                 ))}
               </div>
@@ -835,21 +836,21 @@ export default function LandingPage() {
       {/* ── Final CTA (Copenhagen-clean: warm white, restrained accent) ── */}
       <section className="relative py-24 sm:py-32 text-gray-900 text-center overflow-hidden bg-white">
         <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute top-10 left-1/3 w-72 h-72 bg-blue-100/50 rounded-full blur-[100px]" />
-          <div className="absolute bottom-10 right-1/3 w-60 h-60 bg-amber-100/40 rounded-full blur-[100px]" />
+          <div className="absolute top-10 left-1/3 w-72 h-72 bg-green-100/60 rounded-full blur-[100px]" />
+          <div className="absolute bottom-10 right-1/3 w-60 h-60 bg-emerald-100/50 rounded-full blur-[100px]" />
         </div>
         <div className="relative max-w-3xl mx-auto px-4 sm:px-6">
           <FadeIn>
             <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-5 tracking-tight text-gray-900">
               {t("landingCtaTitle1")}
               <br />
-              <span className="text-blue-600">{t("landingCtaTitle2")}</span>
+              <span className="bg-gradient-to-r from-green-600 to-emerald-500 bg-clip-text text-transparent">{t("landingCtaTitle2")}</span>
             </h2>
             <p className="text-gray-600 text-lg mb-10 max-w-lg mx-auto">
               {t("landingCtaSub")}
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-              <Link to="/register" className="w-full sm:w-auto px-9 py-3.5 bg-gray-900 text-white font-medium rounded-lg hover:bg-gray-800 transition text-[15px]">
+              <Link to="/register" className="w-full sm:w-auto px-9 py-3.5 bg-green-500 text-white font-medium rounded-lg hover:bg-green-600 transition text-[15px] shadow-md shadow-green-500/20">
                 {t("landingCtaButton")}
               </Link>
               <a href="https://apps.apple.com/dk/app/bonbox-daily-close/id6762066960" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-5 py-3.5 bg-white border border-gray-300 rounded-lg hover:border-gray-400 transition">
@@ -866,10 +867,11 @@ export default function LandingPage() {
       <footer className="py-10 border-t border-gray-200/60 bg-[#fafaf7]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
-            <div className="inline-flex items-center justify-center w-7 h-7 bg-gray-900 rounded-md">
+            <div className="inline-flex items-center justify-center w-7 h-7 bg-green-500 rounded-md shadow-sm">
               <svg width="16" height="16" viewBox="0 0 28 28" fill="none">
                 <rect x="4" y="2" width="20" height="24" rx="3" stroke="white" strokeWidth="2.2" />
                 <path d="M9 8h10M9 12h10M9 16h6" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+                <path d="M4 20h20" stroke="#fde68a" strokeWidth="2" />
               </svg>
             </div>
             <span className="text-gray-900 font-semibold text-sm">BonBox</span>
