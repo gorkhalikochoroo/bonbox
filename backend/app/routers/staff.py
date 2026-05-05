@@ -1778,15 +1778,18 @@ def generate_payroll_pdf(
                 ])
 
             t = Table(detail_data, colWidths=[22 * mm, 32 * mm, 18 * mm, 18 * mm, 30 * mm, 30 * mm])
+            # Copenhagen-clean: subtle gray header, hairline rules, no harsh GRID
             t.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a1a2e")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#374151")),
                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("FONTSIZE", (0, 0), (-1, 0), 8),
+                ("FONTSIZE", (0, 1), (-1, -1), 8.5),
                 ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                ("TOPPADDING", (0, 0), (-1, -1), 3),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("LINEBELOW", (0, 0), (-1, 0), 0.5, colors.HexColor("#d1d5db")),
+                ("LINEBELOW", (0, -1), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
             ]))
             story.append(t)
             story.append(Spacer(1, 4 * mm))
@@ -1804,9 +1807,9 @@ def generate_payroll_pdf(
         t.setStyle(TableStyle([
             ("ALIGN", (1, 0), (1, -1), "RIGHT"),
             ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("TOPPADDING", (0, 0), (-1, -1), 3),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("LINEABOVE", (0, -1), (-1, -1), 0.5, colors.HexColor("#d1d5db")),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ]))
         story.append(t)
         story.append(Spacer(1, 4 * mm))
@@ -1853,15 +1856,16 @@ def generate_payroll_pdf(
 
     t = Table(sum_data, colWidths=[35 * mm, 20 * mm, 22 * mm, 28 * mm, 25 * mm, 30 * mm])
     t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a1a2e")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#374151")),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, -1), 8),
         ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.5, colors.HexColor("#d1d5db")),
+        ("LINEABOVE", (0, -1), (-1, -1), 0.5, colors.HexColor("#d1d5db")),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
     story.append(t)
     story.append(Spacer(1, 8 * mm))

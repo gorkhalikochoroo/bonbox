@@ -326,11 +326,24 @@ def export_generic(user: User, db: Session, start: date, end: date) -> bytes:
     type column so users don't need to deal with two files.
 
     Columns: Date, Type, Description, Category, Amount, Currency, VAT %, Payment
+
+    VAT % is derived from the user's currency (DK 25%, GBP 20%, NPR 13%, etc.)
+    so non-DK users get the correct number on their export. Dinero/Billy/
+    e-conomic exports stay at 25% because those are DK-only platforms.
     """
     sales = _query_sales(user, db, start, end)
     expenses = _query_expenses(user, db, start, end)
     cats = _category_lookup(user, db)
     cur = user.currency or "DKK"
+
+    # Derive default VAT % string from the user's currency. Tax-exempt rows
+    # still override with "0".
+    try:
+        from app.services.tax_service import _get_vat_rate
+        default_vat_pct = int(round(_get_vat_rate(cur) * 100))
+    except Exception:  # noqa: BLE001
+        default_vat_pct = 25  # safe DK fallback if tax service load fails
+    default_vat_str = str(default_vat_pct)
 
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=",", quoting=csv.QUOTE_MINIMAL, lineterminator="\n")
@@ -338,7 +351,7 @@ def export_generic(user: User, db: Session, start: date, end: date) -> bytes:
         "Date", "Type", "Description", "Category", "Amount", "Currency", "VAT %", "Payment"
     ])
     for s in sales:
-        vat = "0" if getattr(s, "is_tax_exempt", False) else "25"
+        vat = "0" if getattr(s, "is_tax_exempt", False) else default_vat_str
         # Sale uses `notes`, not `description`
         sale_text = getattr(s, "item_name", None) or getattr(s, "notes", None) or "Sale"
         w.writerow([
@@ -352,7 +365,7 @@ def export_generic(user: User, db: Session, start: date, end: date) -> bytes:
             (getattr(s, "payment_method", None) or "").capitalize(),
         ])
     for e in expenses:
-        vat = "0" if getattr(e, "is_tax_exempt", False) else "25"
+        vat = "0" if getattr(e, "is_tax_exempt", False) else default_vat_str
         cat_name = cats.get(str(e.category_id), "Other")
         w.writerow([
             e.date.isoformat() if hasattr(e.date, "isoformat") else str(e.date),
