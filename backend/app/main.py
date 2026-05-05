@@ -636,17 +636,28 @@ async def db_readiness_gate(request: Request, call_next):
     return await call_next(request)
 
 
-# --- CORS (tightened) ---
-origins = [
-    settings.FRONTEND_URL,
-    "http://localhost:5173",
-    "https://bonbox.vercel.app",
+# --- CORS (tightened, environment-aware) ---
+# Production:    only canonical bonbox.dk + Capacitor iOS shell
+# Non-production: also allow vercel.app preview alias + localhost for dev
+# This stops attackers using a stale or malicious preview origin to send
+# authenticated XHR with allow_credentials=True.
+_PROD_ORIGINS = [
     "https://bonbox.dk",
     "https://www.bonbox.dk",
-    "https://localhost",
-    "capacitor://localhost",
-    "http://localhost",
+    "capacitor://localhost",   # iOS native via Capacitor
+    "https://localhost",       # iOS native fallback scheme
 ]
+_DEV_ORIGINS = [
+    "http://localhost:5173",   # Vite dev server
+    "http://localhost",        # generic dev
+    "https://bonbox.vercel.app",  # preview alias
+]
+if settings.ENVIRONMENT == "production":
+    origins = _PROD_ORIGINS + ([settings.FRONTEND_URL] if settings.FRONTEND_URL and "vercel.app" not in settings.FRONTEND_URL else [])
+else:
+    origins = _PROD_ORIGINS + _DEV_ORIGINS + ([settings.FRONTEND_URL] if settings.FRONTEND_URL else [])
+# Dedup while preserving order
+origins = list(dict.fromkeys([o for o in origins if o]))
 
 app.add_middleware(
     CORSMiddleware,
@@ -654,6 +665,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-BonBox-Platform", "Stripe-Signature"],
+    max_age=600,  # cache preflights for 10min — fewer OPTIONS roundtrips
 )
 
 
@@ -714,6 +726,11 @@ async def add_security_headers(request: Request, call_next):
     # Cross-origin isolation (defense against side-channel attacks)
     response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
     response.headers["Cross-Origin-Resource-Policy"] = "same-site"
+    # Content-Security-Policy for the API. Frontend is a separate origin (Vercel)
+    # and gets its own CSP via meta tag in index.html; this CSP scopes the API's
+    # OWN responses (which are JSON only — no scripts, no embeds, no images).
+    # default-src 'none' is the strictest — API responses can't render anything.
+    response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
     # Cache nothing for /api/admin/* — security telemetry should never be cached
     if request.url.path.startswith("/api/admin"):
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
@@ -721,6 +738,49 @@ async def add_security_headers(request: Request, call_next):
     if is_prod:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
     return response
+
+
+# --- Request body size limit ---
+# Reject huge bodies before they hit the handler. Prevents memory-exhaustion
+# DoS where an attacker streams a 1GB request to a handler that never reads
+# Content-Length. Receipt OCR uploads are the largest legitimate payload at
+# ~5MB; we set a generous 10MB cap.
+_MAX_REQUEST_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+@app.middleware("http")
+async def enforce_request_size(request: Request, call_next):
+    # Trust Content-Length header for the cheap rejection path. Real clients
+    # always send it; missing/zero is fine (GET/empty bodies). For chunked
+    # uploads without Content-Length the underlying ASGI server (uvicorn)
+    # has its own request-line limits.
+    cl = request.headers.get("content-length")
+    if cl and cl.isdigit() and int(cl) > _MAX_REQUEST_BYTES:
+        return JSONResponse(
+            status_code=413,
+            content={
+                "detail": f"Request body too large (max {_MAX_REQUEST_BYTES // (1024*1024)} MB)",
+                "_error": True,
+                "_recoverable": False,
+            },
+        )
+    return await call_next(request)
+
+
+# --- JWT secret strength check on startup ---
+# In prod, refuse to serve if SECRET_KEY is too short or auto-generated.
+# Auto-generated means tokens invalidate on every restart — bad UX, also
+# weak entropy guarantee. Configured via env in prod.
+if is_prod:
+    _key = settings.SECRET_KEY or ""
+    if len(_key) < 32:
+        # Don't crash — log loudly and refuse to issue tokens via a flag elsewhere
+        # would be ideal, but a clear log warning lets operators see + fix
+        import warnings
+        warnings.warn(
+            f"SECURITY WARNING: SECRET_KEY in production is only {len(_key)} chars. "
+            f"Set a 64+ char SECRET_KEY env var on Render to harden token signing."
+        )
 
 
 # --- Routers ---

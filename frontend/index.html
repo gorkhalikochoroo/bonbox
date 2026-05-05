@@ -52,6 +52,24 @@
     <title>BonBox — Din digitale bonkasse | Free business analytics dashboard</title>
   </head>
   <body>
+    <script>
+      // Force light mode by default — only honor "dark" if the user explicitly
+      // toggled it. This runs before React mounts, so no flash of dark theme
+      // on first load. Migration: any legacy users with theme=null/undefined
+      // will see light mode immediately.
+      (function () {
+        try {
+          var t = localStorage.getItem("theme");
+          if (t === "dark") {
+            document.documentElement.classList.add("dark");
+          } else {
+            document.documentElement.classList.remove("dark");
+            // Normalize the localStorage value so future reads are consistent
+            if (t !== "light") localStorage.setItem("theme", "light");
+          }
+        } catch (e) { /* localStorage blocked in private mode — default light */ }
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
     <script>
