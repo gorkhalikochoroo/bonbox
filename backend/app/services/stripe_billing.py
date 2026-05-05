@@ -266,12 +266,15 @@ def create_checkout_session(
             # Embed user_id in client_reference_id as defense-in-depth fallback
             client_reference_id=str(user.id),
         )
-        # If the user is still in their BonBox trial, do NOT force them to enter
-        # a card upfront — let them start without a payment method. Stripe will
-        # auto-cancel at trial end if they never come back to add one.
-        # If trial is already burned, payment method is required (default behavior).
-        if remaining > 0:
-            session_kwargs["payment_method_collection"] = "if_required"
+        # Always require a card at lock-in — even during trial. This:
+        #   • Changes the CTA from "Start trial" to "Subscribe", matching the
+        #     "Lock in" framing on BonBox
+        #   • Eliminates the silent-cancel surprise where a user thinks they
+        #     locked in but never returned to add a card → sub auto-cancels at
+        #     trial end → they lose their founding-member slot for nothing
+        #   • Card is captured but NOT charged during trial; first charge fires
+        #     on day-N as Stripe's normal trial-end billing event
+        session_kwargs["payment_method_collection"] = "always"
 
         # Reinforce the "lock-in" framing on the Stripe page. Stripe's default
         # CTA is "Start trial" which undersells what's actually happening — the
