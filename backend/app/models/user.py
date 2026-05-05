@@ -32,6 +32,19 @@ class User(Base):
     # positives when UTC midnight rolls over but it's still business hours
     # locally. Default Copenhagen since most users are Danish.
     timezone: Mapped[str] = mapped_column(String(64), default="Europe/Copenhagen")
+    # Tax filing preferences. Defaults are derived from currency at runtime
+    # (DK SMBs <5M kr file half_yearly; the rest of EU/UK file quarterly;
+    # NPR/INR file monthly). Stored explicitly here when the user has chosen
+    # a different frequency. NULL = use the currency-based default.
+    tax_filing_frequency: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # B2C businesses (cafés, retail) usually enter prices INCL. Moms — that's
+    # what the customer pays. B2B businesses usually enter NET (excl. Moms).
+    # The VAT extraction formula differs, so we ask the user explicitly. Default
+    # True since most BonBox target users are B2C.
+    prices_include_moms: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Triggers showing A-skat + AM-bidrag deadlines in Tax Autopilot. Set to
+    # True once the user adds a staff member with a wage. Defaults False.
+    has_employees: Mapped[bool] = mapped_column(Boolean, default=False)
     # Subscription / trial state.
     #   trial_ends_at: when the auto-started 14-day Pro trial expires.
     #     null = no trial (legacy users) — they keep Free indefinitely.

@@ -133,6 +133,10 @@ _migrations = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_period_end TIMESTAMP",
     "CREATE INDEX IF NOT EXISTS ix_users_stripe_customer ON users (stripe_customer_id)",
     "CREATE INDEX IF NOT EXISTS ix_users_stripe_subscription ON users (stripe_subscription_id)",
+    # Tax filing preferences (DK SMBs <5M kr file half_yearly by default; quarterly is opt-in for larger)
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS tax_filing_frequency VARCHAR(20)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS prices_include_moms BOOLEAN DEFAULT true",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS has_employees BOOLEAN DEFAULT false",
     # Danish restaurant operations — Property Financial Report fields.
     # Modeled on the Sticks'n'Sushi closing format: order channel, guest count,
     # service charge, discount, and the void/error-correct ladder.
