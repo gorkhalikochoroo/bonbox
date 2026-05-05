@@ -224,8 +224,13 @@ def send_shift_notifications(
         except ValueError:
             continue
 
+        # Multi-tenant: enforce that the staff member belongs to user_id.
+        # Without the user_id filter, a malicious caller passing another
+        # tenant's staff_id could trigger a schedule-update email to that
+        # user's staff (DoS / phishing vector). Always scope by user.
         member = db.query(StaffMember).filter(
             StaffMember.id == staff_uuid,
+            StaffMember.user_id == user_id,
             StaffMember.is_deleted.isnot(True),
         ).first()
         if not member or not member.email:
@@ -273,9 +278,16 @@ def send_single_shift_notification(
     change: ShiftChange,
     event_type: str = "shift_changed",
 ):
-    """Send a notification for a single shift change (edit or delete)."""
+    """
+    Send a notification for a single shift change (edit or delete).
+
+    Multi-tenant: same fix as send_shift_notifications — enforce that
+    the staff_id belongs to user_id before fetching the email and
+    triggering the send.
+    """
     member = db.query(StaffMember).filter(
         StaffMember.id == staff_id,
+        StaffMember.user_id == user_id,
         StaffMember.is_deleted.isnot(True),
     ).first()
     if not member or not member.email:
