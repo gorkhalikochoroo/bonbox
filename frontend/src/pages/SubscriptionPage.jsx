@@ -255,6 +255,31 @@ export default function SubscriptionPage() {
     }
   };
 
+  // Open the Stripe Customer Portal so the user can cancel, update their
+  // card, or download invoices. Only meaningful for users with a real
+  // Stripe subscription (active or trialing — i.e. they've locked in).
+  const handleManage = async () => {
+    setPending("manage");
+    setMsg("");
+    try {
+      const res = await api.post("/billing/stripe/portal-session", {});
+      if (res.data?.url) {
+        window.location.href = res.data.url;
+        return;
+      }
+      setMsg("Could not open the billing portal. Please try again.");
+    } catch (e) {
+      setMsg(e?.response?.data?.detail || "Could not open the billing portal. Please try again.");
+    } finally {
+      setPending(null);
+    }
+  };
+
+  // True iff the user has a real Stripe subscription (post lock-in). They
+  // need the portal to cancel, update card, see invoices. Auto-trial users
+  // (subscription_status=null, trial_active=true) just let the trial expire.
+  const hasStripeSub = ["active", "trialing", "past_due"].includes(billing?.subscription_status);
+
   return (
     <div className="px-4 sm:px-6 py-6 sm:py-10 pb-32 sm:pb-16 max-w-6xl mx-auto">
       {/* Trial status banner — only shown when trial is active */}
@@ -439,6 +464,17 @@ export default function SubscriptionPage() {
                       ? "✓ On the list"
                       : cta}
               </button>
+
+              {/* Manage / Cancel — only when user has a real Stripe sub on this tier */}
+              {isCurrent && hasStripeSub && tier.id === "pro" && (
+                <button
+                  onClick={handleManage}
+                  disabled={pending === "manage"}
+                  className="w-full text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline mt-1 mb-3 disabled:opacity-50"
+                >
+                  {pending === "manage" ? "Opening…" : "Manage subscription / cancel"}
+                </button>
+              )}
 
               <ul className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
                 {tier.features.map((f, i) => {
