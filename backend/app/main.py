@@ -133,6 +133,11 @@ _migrations = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_period_end TIMESTAMP",
     "CREATE INDEX IF NOT EXISTS ix_users_stripe_customer ON users (stripe_customer_id)",
     "CREATE INDEX IF NOT EXISTS ix_users_stripe_subscription ON users (stripe_subscription_id)",
+    # Branch business_type — added to model in branch.py but never migrated.
+    # Missing column was crashing user→branches relationship loading on every
+    # /billing/me, /billing/stripe/sync, and webhook handler that touched the
+    # user object. Default 'general' matches the model default.
+    "ALTER TABLE branches ADD COLUMN IF NOT EXISTS business_type VARCHAR(50) DEFAULT 'general'",
     # Tax filing preferences (DK SMBs <5M kr file half_yearly by default; quarterly is opt-in for larger)
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS tax_filing_frequency VARCHAR(20)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS prices_include_moms BOOLEAN DEFAULT true",
