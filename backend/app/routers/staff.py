@@ -1641,6 +1641,22 @@ def generate_payroll_pdf(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    """
+    Build a payroll PDF (per-staff hours detail + summary page).
+
+    Defensive build: the whole pipeline is wrapped so reportlab errors
+    (bad chars in name, missing rate, etc.) surface as a structured 500
+    instead of a generic gateway error — the frontend can then show the
+    real cause to the user.
+    """
+    import html as _html
+    import logging as _logging
+    log = _logging.getLogger("bonbox.payroll_pdf")
+
+    def _safe(s):
+        # reportlab Paragraph interprets <, >, & as markup — escape for safety.
+        return _html.escape(str(s)) if s is not None else ""
+
     # Gather staff
     staff_q = db.query(StaffMember).filter(
         StaffMember.user_id == user.id,
@@ -1650,7 +1666,7 @@ def generate_payroll_pdf(
         staff_q = staff_q.filter(StaffMember.id.in_(body.staff_ids))
     staff_list = staff_q.order_by(StaffMember.name).all()
     if not staff_list:
-        raise HTTPException(status_code=404, detail="No staff found")
+        raise HTTPException(status_code=404, detail="No staff with logged hours in this period")
 
     staff_map = {str(m.id): m for m in staff_list}
     staff_ids = list(staff_map.keys())
@@ -1715,11 +1731,14 @@ def generate_payroll_pdf(
     currency = user.currency or "DKK"
 
     # Build PDF
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib import colors
-    from reportlab.lib.units import mm
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable, PageBreak
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib import colors
+        from reportlab.lib.units import mm
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable, PageBreak
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    except ImportError:
+        raise HTTPException(status_code=500, detail="PDF library not installed on server")
 
     buf = BytesIO()
     doc = SimpleDocTemplate(
@@ -1730,7 +1749,13 @@ def generate_payroll_pdf(
     styles = getSampleStyleSheet()
     story = []
 
-    fmt = lambda v: f"{v:,.2f} {currency}" if v is not None else "---"
+    def fmt(v):
+        if v is None:
+            return "---"
+        try:
+            return f"{float(v):,.2f} {currency}"
+        except (TypeError, ValueError):
+            return "---"
 
     # ── Title page ──
     title_style = ParagraphStyle("Title", parent=styles["Title"], fontSize=18, spaceAfter=4)
@@ -1738,13 +1763,13 @@ def generate_payroll_pdf(
 
     biz_name = profile.business_name if profile else ""
     if biz_name:
-        story.append(Paragraph(biz_name, styles["Heading3"]))
+        story.append(Paragraph(_safe(biz_name), styles["Heading3"]))
     if profile:
         addr_parts = [p for p in [profile.address, profile.zipcode, profile.city] if p]
         if addr_parts:
-            story.append(Paragraph(", ".join(addr_parts), styles["Normal"]))
+            story.append(Paragraph(_safe(", ".join(addr_parts)), styles["Normal"]))
         if profile.org_number:
-            story.append(Paragraph(f"CVR: {profile.org_number}", styles["Normal"]))
+            story.append(Paragraph(f"CVR: {_safe(profile.org_number)}", styles["Normal"]))
 
     story.append(Paragraph(
         f"Period: {body.period_start.strftime('%d %B %Y')} - {body.period_end.strftime('%d %B %Y')}",
@@ -1756,65 +1781,77 @@ def generate_payroll_pdf(
     for sid in staff_ids:
         sd = staff_data[sid]
 
-        story.append(Paragraph(sd["name"], styles["Heading2"]))
-        story.append(Paragraph(
-            f"Role: {sd['role']}  |  Contract: {sd['contract_type']}",
-            styles["Normal"],
-        ))
-        story.append(Spacer(1, 4 * mm))
+        try:
+            story.append(Paragraph(_safe(sd["name"] or "—"), styles["Heading2"]))
+            story.append(Paragraph(
+                f"Role: {_safe(sd.get('role') or '—')}  |  Contract: {_safe(sd.get('contract_type') or '—')}",
+                styles["Normal"],
+            ))
+            story.append(Spacer(1, 4 * mm))
 
-        # Hours detail table
-        if sd["entries"]:
-            detail_data = [["Date", "Time", "Break", "Hours", "Rate", "Earned"]]
-            for h in sd["entries"]:
-                time_str = f"{h.start_time or '---'} - {h.end_time or '---'}"
-                detail_data.append([
-                    h.date.strftime("%d/%m"),
-                    time_str,
-                    f"{h.break_minutes}m",
-                    f"{float(h.total_hours):.1f}",
-                    fmt(h.rate_applied),
-                    fmt(h.earned),
-                ])
+            # Hours detail table — only render if employee has entries this period
+            if sd["entries"]:
+                detail_data = [["Date", "Time", "Break", "Hours", "Rate", "Earned"]]
+                for h in sd["entries"]:
+                    time_str = f"{h.start_time or '---'} - {h.end_time or '---'}"
+                    date_str = h.date.strftime("%d/%m") if h.date else "—"
+                    break_str = f"{int(h.break_minutes or 0)}m"
+                    hrs_str = f"{float(h.total_hours or 0):.1f}"
+                    detail_data.append([
+                        date_str,
+                        time_str,
+                        break_str,
+                        hrs_str,
+                        fmt(h.rate_applied),
+                        fmt(h.earned),
+                    ])
 
-            t = Table(detail_data, colWidths=[22 * mm, 32 * mm, 18 * mm, 18 * mm, 30 * mm, 30 * mm])
-            # Copenhagen-clean: subtle gray header, hairline rules, no harsh GRID
+                t = Table(detail_data, colWidths=[22 * mm, 32 * mm, 18 * mm, 18 * mm, 30 * mm, 30 * mm])
+                # Copenhagen-clean: subtle gray header, hairline rules, no harsh GRID
+                t.setStyle(TableStyle([
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#374151")),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, 0), 8),
+                    ("FONTSIZE", (0, 1), (-1, -1), 8.5),
+                    ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
+                    ("LINEBELOW", (0, 0), (-1, 0), 0.5, colors.HexColor("#d1d5db")),
+                    ("LINEBELOW", (0, -1), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ]))
+                story.append(t)
+                story.append(Spacer(1, 4 * mm))
+
+            # Staff totals
+            grand_total_row = (sd.get("total_earned") or 0.0) + (sd.get("tips") or 0.0)
+            totals_data = [
+                ["Total Hours", f"{float(sd.get('total_hours') or 0):.1f}"],
+                ["Overtime Hours", f"{float(sd.get('overtime_hours') or 0):.1f}"],
+                ["Total Earned", fmt(sd.get("total_earned"))],
+                ["Tips Received", fmt(sd.get("tips"))],
+                ["GRAND TOTAL", fmt(grand_total_row)],
+            ]
+            t = Table(totals_data, colWidths=[80 * mm, 60 * mm])
             t.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#374151")),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, 0), 8),
-                ("FONTSIZE", (0, 1), (-1, -1), 8.5),
-                ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
-                ("LINEBELOW", (0, 0), (-1, 0), 0.5, colors.HexColor("#d1d5db")),
-                ("LINEBELOW", (0, -1), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+                ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+                ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+                ("LINEABOVE", (0, -1), (-1, -1), 0.5, colors.HexColor("#d1d5db")),
                 ("TOPPADDING", (0, 0), (-1, -1), 4),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
             ]))
             story.append(t)
             story.append(Spacer(1, 4 * mm))
-
-        # Staff totals
-        grand_total = sd["total_earned"] + sd["tips"]
-        totals_data = [
-            ["Total Hours", f"{sd['total_hours']:.1f}"],
-            ["Overtime Hours", f"{sd['overtime_hours']:.1f}"],
-            ["Total Earned", fmt(sd["total_earned"])],
-            ["Tips Received", fmt(sd["tips"])],
-            ["GRAND TOTAL", fmt(grand_total)],
-        ]
-        t = Table(totals_data, colWidths=[80 * mm, 60 * mm])
-        t.setStyle(TableStyle([
-            ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-            ("LINEABOVE", (0, -1), (-1, -1), 0.5, colors.HexColor("#d1d5db")),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ]))
-        story.append(t)
-        story.append(Spacer(1, 4 * mm))
-        story.append(HRFlowable(width="100%", color=colors.HexColor("#cccccc")))
-        story.append(Spacer(1, 6 * mm))
+            story.append(HRFlowable(width="100%", color=colors.HexColor("#cccccc")))
+            story.append(Spacer(1, 6 * mm))
+        except Exception as e:  # noqa: BLE001
+            log.warning("payroll_pdf: failed to render staff %s: %s", sd.get("name"), e)
+            story.append(Paragraph(
+                f"Could not render details for {_safe(sd.get('name') or '?')} — "
+                "skipped this employee.",
+                styles["Normal"],
+            ))
+            story.append(Spacer(1, 4 * mm))
 
     # ── Summary page ──
     story.append(PageBreak())
@@ -1830,19 +1867,25 @@ def generate_payroll_pdf(
 
     for sid in staff_ids:
         sd = staff_data[sid]
-        row_total = sd["total_earned"] + sd["tips"]
+        # All numbers come from server-side aggregation but be defensive in case
+        # of None / missing keys — a single bad row shouldn't kill the summary.
+        sd_hours = float(sd.get("total_hours") or 0)
+        sd_ot = float(sd.get("overtime_hours") or 0)
+        sd_earned = float(sd.get("total_earned") or 0)
+        sd_tips = float(sd.get("tips") or 0)
+        row_total = sd_earned + sd_tips
         sum_data.append([
-            sd["name"],
-            f"{sd['total_hours']:.1f}",
-            f"{sd['overtime_hours']:.1f}",
-            fmt(sd["total_earned"]),
-            fmt(sd["tips"]),
+            _safe(sd.get("name") or "—"),
+            f"{sd_hours:.1f}",
+            f"{sd_ot:.1f}",
+            fmt(sd_earned),
+            fmt(sd_tips),
             fmt(row_total),
         ])
-        grand_hours += sd["total_hours"]
-        grand_overtime += sd["overtime_hours"]
-        grand_earned += sd["total_earned"]
-        grand_tips += sd["tips"]
+        grand_hours += sd_hours
+        grand_overtime += sd_ot
+        grand_earned += sd_earned
+        grand_tips += sd_tips
         grand_total += row_total
 
     sum_data.append([
@@ -1878,7 +1921,15 @@ def generate_payroll_pdf(
         styles["Normal"],
     ))
 
-    doc.build(story)
+    try:
+        doc.build(story)
+    except Exception as e:  # noqa: BLE001
+        log.error("payroll_pdf: doc.build failed: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"PDF rendering failed ({type(e).__name__}). Check Admin → Errors for details.",
+        )
+
     buf.seek(0)
     filename = f"payroll_{body.period_start.isoformat()}_{body.period_end.isoformat()}.pdf"
     return StreamingResponse(

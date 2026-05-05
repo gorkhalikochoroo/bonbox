@@ -238,8 +238,25 @@ export default function StaffPayrollPage() {
       a.click();
       a.remove();
       window.URL.revokeObjectURL(url);
-    } catch {
-      setError("Could not generate PDF. Please try again.");
+    } catch (err) {
+      // Surface the actual server detail when available — `responseType: "blob"`
+      // means axios delivers the error body as a Blob, so we read it as text first.
+      let detail = "Could not generate PDF. Please try again.";
+      try {
+        const data = err?.response?.data;
+        if (data instanceof Blob) {
+          const txt = await data.text();
+          try {
+            const parsed = JSON.parse(txt);
+            if (parsed?.detail) detail = parsed.detail;
+          } catch {
+            if (txt) detail = txt.slice(0, 200);
+          }
+        } else if (data?.detail) {
+          detail = data.detail;
+        }
+      } catch { /* fall through to generic */ }
+      setError(detail);
     }
     setPdfLoading(false);
   };
