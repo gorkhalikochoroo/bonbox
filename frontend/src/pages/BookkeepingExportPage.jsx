@@ -192,7 +192,16 @@ export default function BookkeepingExportPage() {
             <p className="text-xs font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wide mb-1">
               How to import
             </p>
-            <p className="text-sm text-blue-800 dark:text-blue-200 leading-relaxed">{currentFormat.instructions}</p>
+            <p className="text-sm text-blue-800 dark:text-blue-200 leading-relaxed">
+              {currentFormat.instructions.split("→").map((part, i, arr) => (
+                <span key={i}>
+                  {part}
+                  {i < arr.length - 1 && (
+                    <strong className="font-bold text-blue-900 dark:text-blue-100 mx-0.5">→</strong>
+                  )}
+                </span>
+              ))}
+            </p>
           </div>
         )}
 

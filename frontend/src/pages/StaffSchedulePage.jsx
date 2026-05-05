@@ -361,7 +361,7 @@ export default function StaffSchedulePage() {
                 ({activeStaff.length} active)
               </span>
             </span>
-            <span className="text-gray-400 dark:text-gray-500 text-lg transition-transform" style={{ transform: showManageStaff ? "rotate(180deg)" : "rotate(0)" }}>
+            <span className="text-gray-700 dark:text-gray-200 text-xl font-bold transition-transform" style={{ transform: showManageStaff ? "rotate(180deg)" : "rotate(0)" }}>
               {"\u25BC"}
             </span>
           </button>
