@@ -39,7 +39,24 @@ def my_billing(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Compact billing state for the frontend banner + subscription page."""
+    """Compact billing state for the frontend banner + subscription page.
+
+    Self-healing: if the user has a Stripe customer ID but no subscription
+    state recorded (i.e. webhooks failed to fire / arrive), pull state directly
+    from Stripe before responding. The sync is rate-limited per-user (30s
+    cooldown) and wrapped in try/except so it can't crash this endpoint.
+    """
+    if (
+        user.stripe_customer_id
+        and not user.subscription_status
+        and stripe_billing.is_configured()
+    ):
+        try:
+            stripe_billing.sync_user_subscription_from_stripe(user, db)
+        except Exception:
+            # Never let sync failures break /billing/me
+            pass
+
     summary = billing_summary(user)
     summary["stripe_configured"] = stripe_billing.is_configured()
     summary["stripe_test_mode"] = stripe_billing.is_test_mode()
@@ -48,6 +65,31 @@ def my_billing(
         user.subscription_period_end.isoformat() if user.subscription_period_end else None
     )
     return summary
+
+
+@router.post("/stripe/sync")
+@limiter.limit("6/minute")
+def sync_subscription(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Manually pull subscription state from Stripe — recovery path when
+    webhooks fail (mis-configured events, secret mismatch, deploy gap, etc.).
+
+    Multi-layer defense:
+      • Auth required
+      • Rate-limited 6/min per IP
+      • Function itself rate-limited per-user (30s cooldown) inside Stripe service
+      • Wrapped — never crashes; returns a status dict for the frontend to show
+    """
+    if not stripe_billing.is_configured():
+        return {"status": "skipped", "reason": "stripe_not_configured"}
+    try:
+        result = stripe_billing.sync_user_subscription_from_stripe(user, db, force=True)
+        return result or {"status": "no_change"}
+    except Exception as e:
+        return {"status": "error", "exception_type": type(e).__name__, "exception_msg": str(e)[:300]}
 
 
 @router.post("/stripe/checkout-session")
@@ -160,7 +202,28 @@ async def stripe_webhook(
     is the only thing that returns 400.
     """
     payload = await request.body()
-    result = stripe_billing.handle_webhook(payload, stripe_signature or "", db)
+    # Outer try/except so an unhandled exception inside handle_webhook (e.g.
+    # DB error, type mismatch, new Stripe API field shape) doesn't bubble up
+    # to the global 500 handler — that hides the real error from Stripe's
+    # webhook attempts view and triggers retry-storms.
+    try:
+        result = stripe_billing.handle_webhook(payload, stripe_signature or "", db)
+    except Exception as e:
+        import logging, traceback
+        log = logging.getLogger("bonbox.stripe")
+        log.exception("Webhook router-level crash: %s", e)
+        # Return 200 with a diagnostic body so Stripe shows the actual error
+        # in dashboard webhook attempts and stops retrying. Body is only
+        # visible to whoever has Stripe dashboard access.
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "error",
+                "code": "router_crash",
+                "exception_type": type(e).__name__,
+                "exception_msg": str(e)[:500],
+            },
+        )
     # If the handler signaled a specific HTTP code (e.g. 400 for bad signature)
     if isinstance(result, dict) and result.get("_http"):
         http_code = result.pop("_http")

@@ -352,6 +352,80 @@ def create_checkout_session(
         return None
 
 
+# ─────────────────────────── Self-healing sync ─────────────────────────────
+
+
+# Per-user cooldown so auto-sync calls during /billing/me can't loop or
+# hammer Stripe. In-memory dict; resets on backend restart (acceptable —
+# worst case we sync once after a deploy, no harm).
+_LAST_SYNC: dict[str, datetime] = {}
+_SYNC_COOLDOWN_SECONDS = 30
+
+
+def sync_user_subscription_from_stripe(user: User, db: Session, force: bool = False) -> Optional[dict]:
+    """Pull this user's subscription state directly from Stripe and write it to
+    the DB. Self-healing fallback for when webhooks fail to fire / are mis-
+    configured / arrive out of order.
+
+    Multi-layer defense:
+      L1 — Per-user 30s cooldown (set force=True to bypass) prevents loops if
+           /billing/me is hammered or this is called recursively.
+      L2 — Hard requirement: user must have a stripe_customer_id. We never
+           "guess" by email; that would be cross-tenant if duplicate emails
+           ever happen.
+      L3 — All Stripe API calls + DB writes wrapped — the function never
+           re-raises, so callers in /billing/me can't 500.
+      L4 — Refuses to run if Stripe isn't configured (e.g. local dev).
+
+    Returns a small status dict for logging/telemetry, or None on hard error.
+    """
+    s = _stripe()
+    if not s or not user.stripe_customer_id:
+        return None
+
+    if not force:
+        last = _LAST_SYNC.get(str(user.id))
+        if last and (datetime.utcnow() - last).total_seconds() < _SYNC_COOLDOWN_SECONDS:
+            return {"status": "skipped", "reason": "cooldown"}
+    _LAST_SYNC[str(user.id)] = datetime.utcnow()
+
+    try:
+        # Fetch all subs for this customer (live count is small per customer)
+        subs = s.Subscription.list(customer=user.stripe_customer_id, status="all", limit=10)
+    except Exception as e:
+        msg = str(e).lower()
+        if "no such customer" in msg or "resource_missing" in msg:
+            # Customer ID is stale (likely test→live mismatch); clear it so
+            # the next checkout creates a fresh customer.
+            log.warning("Stripe customer %s missing during sync; clearing", user.stripe_customer_id)
+            try:
+                user.stripe_customer_id = None
+                user.stripe_subscription_id = None
+                user.subscription_status = None
+                db.commit()
+            except Exception:
+                db.rollback()
+            return {"status": "cleared", "reason": "customer_missing"}
+        log.exception("Stripe sub list failed for user=%s: %s", user.id, e)
+        return None
+
+    items = list(getattr(subs, "data", []) or [])
+    if not items:
+        return {"status": "no_subs"}
+
+    # Pick the most relevant sub: prefer active/trialing/past_due, then most recent
+    priority = {"active": 0, "trialing": 1, "past_due": 2, "canceled": 3, "unpaid": 4, "incomplete": 5, "incomplete_expired": 6}
+    items.sort(key=lambda x: (priority.get(getattr(x, "status", ""), 99), -int(getattr(x, "created", 0) or 0)))
+    chosen = items[0]
+    try:
+        _apply_subscription_state(user, dict(chosen), db)
+    except Exception as e:
+        log.exception("apply state failed during sync for user=%s: %s", user.id, e)
+        return None
+
+    return {"status": "synced", "sub_id": getattr(chosen, "id", None), "sub_status": getattr(chosen, "status", None)}
+
+
 # ─────────────────────────── Customer portal ───────────────────────────────
 
 
@@ -424,39 +498,70 @@ def _apply_subscription_state(user: User, sub_obj: dict, db: Session) -> None:
 
     This is the ONLY way a user's plan flips to 'pro'. Webhook signature has
     already been verified by the caller — by this point we trust the data.
+
+    Layered defenses:
+      • Each field update is best-effort — bad data on one field doesn't kill
+        the whole sync. Worst case: user.plan gets updated even if period_end
+        parsing failed.
+      • API-version tolerant: current_period_end moved from the subscription
+        level to subscription_item in 2025+ Stripe APIs. We check both spots.
+      • Final commit is wrapped — DB errors are logged but the function never
+        re-raises, so webhook 500s don't happen here.
     """
     status = sub_obj.get("status")  # active | trialing | past_due | canceled | etc.
     user.subscription_status = status
     user.stripe_subscription_id = sub_obj.get("id")
 
-    # period end → datetime
+    # period end → datetime. Try sub-level first (old Stripe API), fall back
+    # to first item's current_period_end (new Stripe API ≥2025-03 moved it).
     pe = sub_obj.get("current_period_end")
+    if not pe:
+        items = (sub_obj.get("items") or {}).get("data") or []
+        if items:
+            pe = items[0].get("current_period_end")
     if pe:
         try:
             user.subscription_period_end = datetime.utcfromtimestamp(int(pe))
         except (TypeError, ValueError):
             pass
 
-    # Map Stripe status → BonBox plan column
-    if status in ("active", "trialing"):
-        # Determine which plan from the price ID on the first item
-        items = (sub_obj.get("items") or {}).get("data") or []
-        price_id = None
-        if items:
-            price_id = (items[0].get("price") or {}).get("id")
-        if price_id == settings.STRIPE_PRICE_ID_BUSINESS:
-            user.plan = "business"
+    # Map Stripe status → BonBox plan column. Each branch is best-effort —
+    # we never re-raise from here so webhook handlers can't 500 over a status
+    # we don't recognize (Stripe occasionally adds new statuses).
+    try:
+        if status in ("active", "trialing"):
+            # Determine which plan from the price ID on the first item
+            items = (sub_obj.get("items") or {}).get("data") or []
+            price_id = None
+            if items:
+                price_id = (items[0].get("price") or {}).get("id")
+            if price_id == settings.STRIPE_PRICE_ID_BUSINESS:
+                user.plan = "business"
+            else:
+                user.plan = "pro"
+        elif status in ("canceled", "unpaid", "incomplete_expired"):
+            # Subscription ended — drop back to free. Trial_ends_at is preserved
+            # for analytics / re-engagement campaigns.
+            user.plan = "free"
+        elif status == "past_due":
+            # Don't auto-downgrade on past_due — Stripe is still trying to charge.
+            # Frontend can surface a banner asking user to update card.
+            pass
         else:
-            user.plan = "pro"
-    elif status in ("canceled", "unpaid", "incomplete_expired"):
-        # Subscription ended — drop back to free. Trial_ends_at is preserved
-        # for analytics / re-engagement campaigns.
-        user.plan = "free"
-    elif status == "past_due":
-        # Don't auto-downgrade on past_due — Stripe is still trying to charge.
-        # Frontend can surface a banner asking user to update card.
-        pass
-    db.commit()
+            log.warning("Unknown Stripe sub status=%s for user=%s — leaving plan as-is", status, user.id)
+    except Exception as e:
+        log.exception("Plan mapping failed for user=%s status=%s: %s", user.id, status, e)
+
+    # Wrap commit — DB errors should be logged, not re-raised. The webhook will
+    # be retried by Stripe automatically on next state change anyway.
+    try:
+        db.commit()
+    except Exception as e:
+        log.exception("DB commit failed in _apply_subscription_state user=%s: %s", user.id, e)
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
 
 def handle_webhook(
@@ -522,9 +627,17 @@ def handle_webhook(
         handler(event, db)
         return {"status": "ok", "type": event_type, "id": event_id}
     except Exception as e:
-        # Internal error — log but still return 200 so Stripe doesn't retry-storm
+        # Internal error — log but still return 200 so Stripe doesn't retry-storm.
+        # Include exception type+message so the cause is visible in Stripe
+        # dashboard's webhook attempts view (only auth'd dashboard users see it).
         log.exception("Handler for %s failed: %s", event_type, e)
-        return {"status": "error", "code": "handler_failed", "type": event_type}
+        return {
+            "status": "error",
+            "code": "handler_failed",
+            "type": event_type,
+            "exception_type": type(e).__name__,
+            "exception_msg": str(e)[:500],
+        }
 
 
 def _handle_checkout_completed(event: dict, db: Session) -> None:
