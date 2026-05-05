@@ -98,6 +98,35 @@ def _safe_frontend_url() -> str:
     return url
 
 
+# ─────────────────────────── Founding-member helper ────────────────────────
+
+
+def _is_founding_member_slot_open(user: User, db: Session) -> bool:
+    """True iff this user qualifies for the founding-member price.
+
+    Two cases qualify:
+      1. The user is already a founding subscriber (active/trialing) — they get
+         their existing rate either way, but we surface the founding price on
+         re-checkout for transparency. (Stripe doesn't reprice active subs.)
+      2. The user is new/free, and we haven't yet hit FOUNDING_MEMBER_LIMIT
+         active+trialing subscribers.
+
+    Counted statuses: 'active' and 'trialing'. 'past_due' counts too — Stripe
+    is still trying to charge them; they haven't churned yet. 'canceled' does
+    not count — they freed up a slot.
+    """
+    counted = ("active", "trialing", "past_due")
+    if user.subscription_status in counted:
+        return True
+
+    current_count = (
+        db.query(User)
+        .filter(User.subscription_status.in_(counted))
+        .count()
+    )
+    return current_count < settings.FOUNDING_MEMBER_LIMIT
+
+
 # ─────────────────────────── Customer management ───────────────────────────
 
 
@@ -150,10 +179,24 @@ def create_checkout_session(
     if not s:
         return None
 
-    price = price_id or settings.STRIPE_PRICE_ID_PRO
+    # Founding-member price selection. The first FOUNDING_MEMBER_LIMIT
+    # subscribers (active or still in Stripe trial) get STRIPE_PRICE_ID_PRO_FOUNDING.
+    # Existing subscribers keep their rate — Stripe never retroactively reprices
+    # an active subscription. After the cap, new checkouts use the regular price.
+    is_founding = _is_founding_member_slot_open(user, db)
+    if price_id:
+        price = price_id
+    elif is_founding and settings.STRIPE_PRICE_ID_PRO_FOUNDING:
+        price = settings.STRIPE_PRICE_ID_PRO_FOUNDING
+    else:
+        price = settings.STRIPE_PRICE_ID_PRO
     if not price:
         log.warning("No price ID configured for plan=%s", plan)
         return None
+    log.info(
+        "Checkout for user=%s: founding=%s price=%s",
+        user.id, is_founding, price,
+    )
 
     customer_id = get_or_create_customer(user, db)
     if not customer_id:
@@ -196,6 +239,7 @@ def create_checkout_session(
             "bonbox_user_id": str(user.id),
             "bonbox_plan": plan,
             "bonbox_brand": "BonBox",
+            "bonbox_founding_member": "true" if is_founding else "false",
         },
     }
     if remaining > 0:
