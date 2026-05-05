@@ -217,6 +217,14 @@ def repeat_yesterday(
         notes="Repeated from yesterday",
         is_tax_exempt=last_sale.is_tax_exempt,
     )
+    # Allocate bilagsnummer like the main /sales endpoint does — without
+    # this, "repeat yesterday" sales had no voucher number and broke the
+    # SKAT-compliant sequence.
+    try:
+        from app.services.voucher_service import allocate_voucher
+        sale.voucher_number = allocate_voucher(db, user.id, "sale", sale.date.year)
+    except Exception:  # noqa: BLE001
+        sale.voucher_number = None
     db.add(sale)
     db.commit()
     db.refresh(sale)
@@ -488,7 +496,21 @@ async def import_csv(
     # Commit phase
     imported_ids: list[str] = []
     try:
+        # Allocate bilagsnummer per row before persisting. We allocate
+        # in-loop (rather than batch+1) so each sale's voucher matches
+        # its date's fiscal year (back-dated CSV rows still get correct
+        # year sequence). Wrapped in try/except per-sale; failure leaves
+        # voucher_number NULL but doesn't abort the import.
+        try:
+            from app.services.voucher_service import allocate_voucher
+        except Exception:  # noqa: BLE001
+            allocate_voucher = None
         for s in pending_sales:
+            if allocate_voucher and s.voucher_number is None:
+                try:
+                    s.voucher_number = allocate_voucher(db, user.id, "sale", s.date.year)
+                except Exception:  # noqa: BLE001
+                    pass
             db.add(s)
         db.flush()  # populate IDs without committing yet
         imported_ids = [str(s.id) for s in pending_sales]
@@ -607,7 +629,7 @@ async def upload_receipt(
 
 @router.post("/from-receipt", response_model=SaleResponse, status_code=201)
 def create_sale_from_receipt(
-    amount: float = Query(...),
+    amount: float = Query(..., gt=0),
     receipt_path: str = Query(...),
     payment_method: str = Query("mixed"),
     db: Session = Depends(get_db),
@@ -622,6 +644,12 @@ def create_sale_from_receipt(
         receipt_photo=receipt_path,
         notes="From receipt photo",
     )
+    # Allocate bilagsnummer (parity with main create + repeat-yesterday)
+    try:
+        from app.services.voucher_service import allocate_voucher
+        sale.voucher_number = allocate_voucher(db, user.id, "sale", sale.date.year)
+    except Exception:  # noqa: BLE001
+        sale.voucher_number = None
     db.add(sale)
     db.commit()
     db.refresh(sale)
