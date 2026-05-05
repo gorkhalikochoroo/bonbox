@@ -6,6 +6,7 @@ import { useBranch } from "../components/BranchSelector";
 import { displayCurrency } from "../utils/currency";
 import { trackEvent } from "../hooks/useEventLog";
 import { FadeIn } from "../components/AnimationKit";
+import DismissibleTip from "../components/DismissibleTip";
 
 /* ═══════════════════════════════════════════════════════════
    OFFLINE QUEUE — store pending daily close submissions
@@ -197,6 +198,18 @@ export default function DailyClosePage() {
           )}
         </div>
       </FadeIn>
+
+      <DismissibleTip
+        id="daily-close-intro-v1"
+        icon="📋"
+        title="What is Daily Close?"
+      >
+        <p>
+          End-of-shift wrap-up: count your cash drawer + card terminal totals once a day, and BonBox
+          locks in your numbers as the source of truth for Moms reports. Tap{" "}
+          <strong>New Close</strong>, fill in what you actually have, and confirm. Past closes show under <strong>History</strong>.
+        </p>
+      </DismissibleTip>
 
       {/* Tab bar */}
       <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">

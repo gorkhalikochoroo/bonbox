@@ -5,6 +5,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { formatDate } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
+import DismissibleTip from "../components/DismissibleTip";
 
 /* ═══════════════════════════════════════════════════════════
    HELPERS
@@ -294,6 +295,21 @@ export default function StaffPayrollPage() {
           Generate payroll reports for your accountant
         </p>
       </FadeIn>
+
+      <DismissibleTip
+        id="payroll-intro-v1"
+        icon="💼"
+        title="DK payroll, the easy way"
+      >
+        <p className="mb-1.5">
+          BonBox runs <strong>lønhjælp mode</strong> — we estimate AM-bidrag (8%), A-skat (~36% after personfradrag),
+          ATP and feriepenge, then export a clean Lønseddel PDF + a DataLøn / Zenegy CSV your accountant
+          can drop straight into eIndkomst.
+        </p>
+        <p className="text-xs opacity-75">
+          We don&rsquo;t store CPR or file directly with SKAT — your accountant signs off on the final numbers.
+        </p>
+      </DismissibleTip>
 
       {/* ─── PERIOD SELECTOR ─── */}
       <FadeIn delay={0.05}>

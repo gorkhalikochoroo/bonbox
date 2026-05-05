@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
+import DismissibleTip from "../components/DismissibleTip";
 
 const TEMPLATES = [
   // Food & Drink
@@ -349,6 +350,19 @@ export default function InventoryPage() {
 
       {success && <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
       {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-300 px-4 py-3 rounded-xl text-sm">{error}</div>}
+
+      <DismissibleTip
+        id="inventory-intro-v1"
+        icon="📦"
+        title="How inventory works"
+      >
+        <p>
+          Add what you stock with a unit cost and minimum reorder level. BonBox watches your sales and{" "}
+          <strong>auto-deducts quantity</strong> as items sell, then alerts you when you drop below
+          minimum or when an expiry date is approaching. Use <strong>Load template</strong> to import
+          a starter list for cafés, bars and shops.
+        </p>
+      </DismissibleTip>
 
       {alerts.length > 0 && (
         <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 p-4 rounded-xl">

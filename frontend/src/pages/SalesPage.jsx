@@ -10,6 +10,7 @@ import { formatDate, formatDateShort, formatDateClear } from "../utils/dateForma
 import { getVatTerms } from "../utils/currency";
 import TaxBreakdown from "../components/TaxBreakdown";
 import { FadeIn, StaggerGrid, StaggerGridItem, AnimatedList, AnimatedListItem, TabContent, motion, AnimatePresence } from "../components/AnimationKit";
+import DismissibleTip from "../components/DismissibleTip";
 
 const QUICK_AMOUNTS = [500, 1000, 2500, 5000, 7500, 10000, 15000];
 
@@ -271,6 +272,19 @@ export default function SalesPage() {
       {success && <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
       {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">{error}</div>}
       {fetchError && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">{fetchError}</div>}
+
+      <DismissibleTip
+        id="sales-intro-v1"
+        icon="💸"
+        title="Three ways to log a sale"
+      >
+        <p>
+          <strong>Tap an amount</strong> below for a quick gross-total sale, hit{" "}
+          <strong>+ Item sale</strong> when you need line items + inventory deduction, or{" "}
+          <strong>scan a receipt</strong> with the camera and BonBox auto-fills the total.
+          Every sale you log here gets a sequential bilagsnummer for SKAT.
+        </p>
+      </DismissibleTip>
 
       {/* Form + Stats side by side */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">

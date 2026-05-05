@@ -8,6 +8,7 @@ import ReceiptCapture from "../components/ReceiptCapture";
 import InsightsCard from "../components/InsightsCard";
 import TrialBanner from "../components/TrialBanner";
 import Onboarding from "../components/Onboarding";
+import DismissibleTip from "../components/DismissibleTip";
 import {
   AnimatedCounter,
   SkeletonCard,
@@ -1342,6 +1343,19 @@ export default function DashboardPage() {
 
         {/* ── TRIAL COUNTDOWN — only renders during/just-after trial ── */}
         <TrialBanner />
+
+        {/* ── First-run tip on the Dashboard ── */}
+        <DismissibleTip
+          id="dashboard-intro-v1"
+          icon="👋"
+          title="Welcome to your dashboard"
+        >
+          <p>
+            This is your business at a glance. Tap the <strong>period chips</strong> below to flip
+            between today, week and month. Use <strong>Quick Add</strong> to log a sale or expense in seconds —
+            BonBox handles the Moms math automatically.
+          </p>
+        </DismissibleTip>
 
         {/* ── AI INSIGHTS — only renders when there are active patterns ── */}
         <InsightsCard />

@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
+import DismissibleTip from "../components/DismissibleTip";
 
 function fmt(n) { return n != null ? Math.round(n).toLocaleString() : "—"; }
 
@@ -17,8 +18,26 @@ export default function TaxAutopilotPage() {
   const [error, setError] = useState("");
   // Bilagsnummer compliance audit (DK only) — fetched in parallel
   const [audit, setAudit] = useState(null);
+  // Tax preferences (filing frequency / Moms inclusion / has employees) —
+  // these directly drive the deadlines + estimates on this page, so the panel
+  // belongs here rather than buried in More → Profile.
+  const [tax, setTax] = useState({ filing_frequency: "", prices_include_moms: true, has_employees: false });
+  const [taxMsg, setTaxMsg] = useState("");
+  const [taxSaving, setTaxSaving] = useState(false);
 
   useEffect(() => { fetchData(); }, []);
+
+  // Pre-fill the preferences card from /auth/me (independent of /tax/overview
+  // so a slow overview call doesn't block the form).
+  useEffect(() => {
+    api.get("/auth/me").then((res) => {
+      setTax({
+        filing_frequency: res.data?.tax_filing_frequency || "",
+        prices_include_moms: res.data?.prices_include_moms !== false,
+        has_employees: !!res.data?.has_employees,
+      });
+    }).catch(() => { /* defaults already set */ });
+  }, []);
 
   const fetchData = async () => {
     setLoading(true);
@@ -32,6 +51,26 @@ export default function TaxAutopilotPage() {
       if (auditRes.status === "fulfilled") setAudit(auditRes.value.data);
     } catch { setError("Could not load tax data"); }
     setLoading(false);
+  };
+
+  const saveTaxPrefs = async () => {
+    setTaxSaving(true);
+    setTaxMsg("");
+    try {
+      await api.patch("/auth/profile", {
+        tax_filing_frequency: tax.filing_frequency || null,
+        prices_include_moms: tax.prices_include_moms,
+        has_employees: tax.has_employees,
+      });
+      setTaxMsg("Saved — deadlines will refresh.");
+      // Re-fetch so the page reflects the new frequency immediately.
+      fetchData();
+      setTimeout(() => setTaxMsg(""), 3500);
+    } catch (e) {
+      setTaxMsg(e?.response?.data?.detail || "Couldn't save.");
+    } finally {
+      setTaxSaving(false);
+    }
   };
 
   if (loading) {
@@ -68,6 +107,31 @@ export default function TaxAutopilotPage() {
           <p className="text-xs text-gray-400">{authority} • {frequency}</p>
         </div>
       </div>
+
+      {/* ─── HOW IT WORKS (dismissible) ─── */}
+      <DismissibleTip
+        id="tax-autopilot-intro-v1"
+        icon="🧭"
+        title="How Tax Autopilot works"
+      >
+        <p className="mb-1.5">
+          We watch every Sale and Expense, calculate the {tax_name} you owe, and surface
+          the next deadline so you never miss it. The countdown turns red when it&rsquo;s urgent.
+        </p>
+        <p>
+          Set your <strong>filing frequency</strong> below — it&rsquo;s the single setting
+          that controls everything. DK cafés &amp; small retail are usually <em>half-yearly</em>.
+        </p>
+      </DismissibleTip>
+
+      {/* ─── TAX PREFERENCES (drives deadlines + Moms math) ─── */}
+      <TaxPrefsCard
+        tax={tax}
+        setTax={setTax}
+        saving={taxSaving}
+        msg={taxMsg}
+        onSave={saveTaxPrefs}
+      />
 
       {/* ─── COUNTDOWN HERO ─── */}
       {nextDeadline && (
@@ -290,6 +354,84 @@ function MetricCard({ label, value, sub, color, currency }) {
       <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
       <p className={`text-2xl font-bold mt-1 ${color}`}>{value}</p>
       <p className="text-xs text-gray-400 mt-0.5">{sub}</p>
+    </div>
+  );
+}
+
+
+/* ──────────────────────────────────────────────────────────────
+   TaxPrefsCard — moved here from More → Profile so the settings
+   that drive this page's calculations live next to their effect.
+   ────────────────────────────────────────────────────────────── */
+function TaxPrefsCard({ tax, setTax, saving, msg, onSave }) {
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+      <div className="mb-4">
+        <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Tax preferences</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+          Controls deadlines and Moms calculations across every report.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">
+            Filing frequency
+          </label>
+          <select
+            value={tax.filing_frequency}
+            onChange={(e) => setTax({ ...tax, filing_frequency: e.target.value })}
+            className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+          >
+            <option value="">Use default for my country</option>
+            <option value="half_yearly">Half-yearly (DK SMBs &lt; 5M kr — most cafés / retail)</option>
+            <option value="quarterly">Quarterly (DK businesses 5–50M kr)</option>
+            <option value="monthly">Monthly (DK businesses &gt; 50M kr / NPR / INR)</option>
+            <option value="bimonthly">Bimonthly (NOK only)</option>
+          </select>
+        </div>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={tax.prices_include_moms}
+            onChange={(e) => setTax({ ...tax, prices_include_moms: e.target.checked })}
+            className="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-gray-600 accent-green-600"
+          />
+          <div className="text-sm">
+            <div className="font-medium text-gray-800 dark:text-gray-100">My prices include Moms</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">
+              Default for B2C (cafés, retail) — you enter what the customer pays. Uncheck if you invoice B2B with net prices.
+            </div>
+          </div>
+        </label>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={tax.has_employees}
+            onChange={(e) => setTax({ ...tax, has_employees: e.target.checked })}
+            className="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-gray-600 accent-green-600"
+          />
+          <div className="text-sm">
+            <div className="font-medium text-gray-800 dark:text-gray-100">I have employees</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">
+              Surfaces A-skat + AM-bidrag deadlines (10th of next month) here.
+            </div>
+          </div>
+        </label>
+
+        {msg && <p className="text-xs text-green-600 dark:text-green-400">{msg}</p>}
+
+        <button
+          type="button"
+          disabled={saving}
+          onClick={onSave}
+          className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 transition shadow-sm shadow-green-500/20"
+        >
+          {saving ? "Saving…" : "Save tax preferences"}
+        </button>
+      </div>
     </div>
   );
 }

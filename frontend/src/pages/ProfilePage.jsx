@@ -6,6 +6,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { FadeIn } from "../components/AnimationKit";
 import usePushNotifications from "../hooks/usePushNotifications";
 import BusinessLookup from "../components/BusinessLookup";
+import { resetAllTips } from "../components/DismissibleTip";
 
 export default function ProfilePage() {
   const [dark] = useDarkMode();
@@ -26,10 +27,8 @@ export default function ProfilePage() {
   // backend silently drops every event_log write for this user.
   const [analyticsOptOut, setAnalyticsOptOut] = useState(false);
   const [privacyMsg, setPrivacyMsg] = useState("");
-  // Tax preferences (loaded from /auth/me, saved via /auth/profile)
-  const [tax, setTax] = useState({ filing_frequency: "", prices_include_moms: true, has_employees: false });
-  const [taxMsg, setTaxMsg] = useState("");
-  const [taxSaving, setTaxSaving] = useState(false);
+  // Tax preferences live in /tax-autopilot now (next to where they take effect),
+  // so no local state for them here anymore — see TaxAutopilotPage.jsx.
   const { permission: pushPerm, supported: pushSupported, requestPermission: requestPush } = usePushNotifications();
   const [businessProfile, setBusinessProfile] = useState(null);
   const [sendingTest, setSendingTest] = useState(false);
@@ -56,11 +55,6 @@ export default function ProfilePage() {
         email: res.data.email || "",
       });
       setAnalyticsOptOut(!!res.data.analytics_opt_out);
-      setTax({
-        filing_frequency: res.data.tax_filing_frequency || "",
-        prices_include_moms: res.data.prices_include_moms !== false,
-        has_employees: !!res.data.has_employees,
-      });
     });
     api.get("/email/preferences").then((res) => setEmailPrefs(res.data)).catch(() => {});
     api.get("/whatsapp/status").then((res) => setWaStatus(res.data)).catch(() => {});
@@ -556,86 +550,42 @@ export default function ProfilePage() {
             </button>
           </div>
 
-          {/* Tax preferences — drives Tax Autopilot accuracy */}
+          {/* Tax preferences moved → Tax Autopilot page (next to the deadlines they drive). */}
+          <a
+            href="/tax-autopilot"
+            className="block p-4 rounded-xl border border-green-200/70 dark:border-green-800/40 bg-green-50/60 dark:bg-green-900/15 hover:border-green-300 dark:hover:border-green-700 transition"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-xl">🧾</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-green-900 dark:text-green-100">Tax preferences moved</p>
+                <p className="text-xs text-green-800/80 dark:text-green-200/80 mt-0.5">
+                  Filing frequency, Moms inclusion and employee flag now live in Tax Autopilot — next to the deadlines they affect.
+                </p>
+              </div>
+              <span className="text-green-700 dark:text-green-300 text-sm">→</span>
+            </div>
+          </a>
+
+          {/* Help — show all dismissed tips again (works across all pages) */}
           <div className="p-4 bg-gray-50 dark:bg-gray-800/40 rounded-xl">
             <div className="mb-3">
-              <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Tax preferences</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Controls Tax Autopilot deadlines and Moms calculations.</p>
+              <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Tips &amp; hints</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                We show small contextual tips around the app. Dismissed them all and want a refresher?
+              </p>
             </div>
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Filing frequency</label>
-                <select
-                  value={tax.filing_frequency}
-                  onChange={(e) => setTax({ ...tax, filing_frequency: e.target.value })}
-                  className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Use default for my country</option>
-                  <option value="half_yearly">Half-yearly (DK SMBs &lt; 5M kr — most cafés / retail)</option>
-                  <option value="quarterly">Quarterly (DK businesses 5–50M kr)</option>
-                  <option value="monthly">Monthly (DK businesses &gt; 50M kr / NPR / INR)</option>
-                  <option value="bimonthly">Bimonthly (NOK only)</option>
-                </select>
-              </div>
-
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={tax.prices_include_moms}
-                  onChange={(e) => setTax({ ...tax, prices_include_moms: e.target.checked })}
-                  className="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-gray-600"
-                />
-                <div className="text-sm">
-                  <div className="font-medium text-gray-800 dark:text-gray-100">My prices include Moms</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
-                    Default for B2C (cafés, retail) — you enter what the customer pays. Uncheck if you invoice B2B with net prices.
-                  </div>
-                </div>
-              </label>
-
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={tax.has_employees}
-                  onChange={(e) => setTax({ ...tax, has_employees: e.target.checked })}
-                  className="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-gray-600"
-                />
-                <div className="text-sm">
-                  <div className="font-medium text-gray-800 dark:text-gray-100">I have employees</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
-                    Surfaces A-skat + AM-bidrag deadlines (10th of next month) in Tax Autopilot.
-                  </div>
-                </div>
-              </label>
-
-              {taxMsg && <p className="text-xs text-green-600 dark:text-green-400">{taxMsg}</p>}
-
-              <button
-                type="button"
-                disabled={taxSaving}
-                onClick={async () => {
-                  setTaxSaving(true);
-                  setTaxMsg("");
-                  try {
-                    await api.patch("/auth/profile", {
-                      tax_filing_frequency: tax.filing_frequency || null,
-                      prices_include_moms: tax.prices_include_moms,
-                      has_employees: tax.has_employees,
-                    });
-                    setTaxMsg("Saved.");
-                    setTimeout(() => setTaxMsg(""), 3000);
-                  } catch (e) {
-                    setTaxMsg(e?.response?.data?.detail || "Couldn't save.");
-                  } finally {
-                    setTaxSaving(false);
-                  }
-                }}
-                className="px-4 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-lg text-sm font-medium hover:bg-gray-800 dark:hover:bg-gray-100 disabled:opacity-50 transition"
-              >
-                {taxSaving ? "Saving…" : "Save tax preferences"}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                resetAllTips();
+                // Force a reload so every mounted DismissibleTip re-reads localStorage.
+                window.location.reload();
+              }}
+              className="px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-800 dark:text-gray-100 rounded-lg hover:border-green-400 hover:text-green-700 dark:hover:text-green-300 transition"
+            >
+              Show all tips again
+            </button>
           </div>
 
           {/* Appearance — theme picker (4 accent themes; works alongside light/dark mode) */}

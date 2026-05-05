@@ -9,6 +9,7 @@ import { formatDate, formatDateShort } from "../utils/dateFormat";
 import TaxBreakdown from "../components/TaxBreakdown";
 import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
 import ReceiptCapture from "../components/ReceiptCapture";
+import DismissibleTip from "../components/DismissibleTip";
 
 const QUICK_AMOUNTS = [100, 250, 500, 1000, 2500, 5000];
 const DEFAULT_CATEGORIES = ["Ingredients", "Rent", "Wages", "Utilities", "Supplies", "Other"];
@@ -318,6 +319,18 @@ export default function ExpensesPage() {
 
       {success && <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
       {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-300 px-4 py-3 rounded-xl text-sm">{error}</div>}
+
+      <DismissibleTip
+        id="expenses-intro-v1"
+        icon="🧾"
+        title="Snap, log, claim back"
+      >
+        <p>
+          Tap a quick amount, pick a category, done. Or hit <strong>Snap receipt</strong> to capture
+          a supplier invoice — the OCR pulls out the total, you confirm, and BonBox calculates the
+          input Moms you can deduct on your next filing. Each expense gets a sequential bilagsnummer.
+        </p>
+      </DismissibleTip>
 
       {showSetup && (
         <div className="bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 p-5 rounded-xl">
