@@ -763,6 +763,16 @@ def daily_close_pdf(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    """
+    Kasserapport PDF — Copenhagen-clean format for accountant handover.
+
+    Layout principles:
+      - Generous whitespace (22mm margins)
+      - No heavy black header bands; sections separated by hairline rules
+      - Helvetica throughout; right-aligned numbers
+      - Danish number format (1.234,56)
+      - MOMS section explicit so accountant doesn't have to recompute
+    """
     dc = db.query(DailyClose).filter(
         DailyClose.id == close_id,
         DailyClose.user_id == user.id,
@@ -775,137 +785,203 @@ def daily_close_pdf(
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
     from reportlab.lib.units import mm
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
+    from reportlab.platypus import (
+        SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable,
+    )
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_RIGHT
 
-    buf = BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=20 * mm, bottomMargin=15 * mm,
-                            leftMargin=20 * mm, rightMargin=20 * mm)
-    styles = getSampleStyleSheet()
-    story = []
+    # Copenhagen-clean palette
+    INK = colors.HexColor("#171717")
+    MUTED = colors.HexColor("#6b7280")
+    DIVIDER = colors.HexColor("#e5e7eb")
+    DANGER = colors.HexColor("#b91c1c")
 
     currency = user.currency or "DKK"
-    fmt = lambda v: f"{v:,.2f} {currency}" if v is not None else "—"
 
-    # Title
-    title_style = ParagraphStyle("Title", parent=styles["Title"], fontSize=18, spaceAfter=4)
-    story.append(Paragraph("Kasserapport / Daily Close", title_style))
+    def fmt(v):
+        if v is None:
+            return "—"
+        # Danish number format: 1.234,56
+        formatted = f"{float(v):,.2f}"
+        return f"{formatted.replace(',', 'X').replace('.', ',').replace('X', '.')} {currency}"
 
-    # Business info
-    biz_name = profile.business_name if profile else (user.business_name if hasattr(user, "business_name") else "")
-    if biz_name:
-        story.append(Paragraph(biz_name, styles["Heading3"]))
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        topMargin=22 * mm, bottomMargin=18 * mm,
+        leftMargin=22 * mm, rightMargin=22 * mm,
+        title="Kasserapport",
+    )
+    styles = getSampleStyleSheet()
+    h1 = ParagraphStyle("H1", parent=styles["Title"], fontSize=14, spaceAfter=2,
+                        textColor=INK, fontName="Helvetica-Bold")
+    h_period = ParagraphStyle("Period", parent=styles["Normal"], fontSize=9,
+                              textColor=MUTED, alignment=TA_RIGHT)
+    section_title = ParagraphStyle("Sect", parent=styles["Normal"], fontSize=8.5,
+                                   textColor=MUTED, fontName="Helvetica-Bold",
+                                   leading=12, spaceBefore=10, spaceAfter=4)
+    val = ParagraphStyle("Val", parent=styles["Normal"], fontSize=10.5,
+                         textColor=INK, fontName="Helvetica", leading=14)
+    val_r = ParagraphStyle("ValR", parent=val, alignment=TA_RIGHT)
+    val_b = ParagraphStyle("ValB", parent=val, fontName="Helvetica-Bold")
+    val_br = ParagraphStyle("ValBR", parent=val_b, alignment=TA_RIGHT)
+    foot = ParagraphStyle("Foot", parent=styles["Normal"], fontSize=8,
+                          textColor=MUTED, fontName="Helvetica-Oblique", leading=11)
+
+    story = []
+
+    # ─── Header: title + date ───
+    head_table = Table(
+        [[Paragraph("KASSERAPPORT", h1), Paragraph(dc.date.strftime("%d %B %Y"), h_period)]],
+        colWidths=[100 * mm, 66 * mm],
+    )
+    head_table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
+    story.append(head_table)
+    story.append(HRFlowable(width="100%", thickness=0.5, color=DIVIDER, spaceBefore=4, spaceAfter=12))
+
+    # ─── Business info ───
+    biz_name = (profile.business_name if profile and profile.business_name
+                else getattr(user, "business_name", None)) or "—"
+    biz_lines = [f"<font name='Helvetica-Bold' size='10.5'>{biz_name}</font>"]
     if profile:
-        addr_parts = [p for p in [profile.address, profile.zipcode, profile.city] if p]
+        addr_parts = [p for p in [profile.address,
+                                  " ".join(p for p in [getattr(profile, "zipcode", None),
+                                                       getattr(profile, "city", None)] if p)]
+                      if p]
         if addr_parts:
-            story.append(Paragraph(", ".join(addr_parts), styles["Normal"]))
-        if profile.org_number:
-            story.append(Paragraph(f"CVR: {profile.org_number}", styles["Normal"]))
-
-    story.append(Paragraph(f"Date: {dc.date.strftime('%d %B %Y')}", styles["Normal"]))
+            biz_lines.append(f"<font color='#6b7280'>{', '.join(addr_parts)}</font>")
+        if getattr(profile, "org_number", None):
+            biz_lines.append(f"<font color='#6b7280'>CVR {profile.org_number}</font>")
     if dc.closed_by:
-        story.append(Paragraph(f"Closed by: {dc.closed_by}", styles["Normal"]))
-    story.append(Spacer(1, 8 * mm))
+        biz_lines.append(f"<font color='#6b7280'>Closed by: {dc.closed_by}</font>")
+    story.append(Paragraph("<br/>".join(biz_lines), val))
+    story.append(Spacer(1, 6 * mm))
 
-    # Revenue breakdown
+    # ─── Revenue Breakdown ───
     rev = decode_breakdown(dc.revenue_categories)
     if rev:
-        story.append(Paragraph("Revenue Breakdown", styles["Heading2"]))
-        rev_data = [["Category", "Amount"]]
+        story.append(Paragraph("REVENUE BREAKDOWN", section_title))
+        rows = []
         for k, v in rev.items():
-            rev_data.append([k.title(), fmt(v)])
-        rev_data.append(["TOTAL", fmt(float(dc.revenue_total or 0))])
-        t = Table(rev_data, colWidths=[100 * mm, 60 * mm])
+            rows.append([Paragraph(k.title(), val), Paragraph(fmt(v), val_r)])
+        rows.append([Paragraph("Total revenue", val_b),
+                     Paragraph(fmt(float(dc.revenue_total or 0)), val_br)])
+        t = Table(rows, colWidths=[110 * mm, 56 * mm])
         t.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a1a2e")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-            ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("LINEABOVE", (0, -1), (-1, -1), 0.5, DIVIDER),
         ]))
         story.append(t)
-        story.append(Spacer(1, 6 * mm))
 
-    # Payment breakdown
+    # ─── MOMS / VAT (added — was missing in old PDF) ───
+    if dc.moms_total is not None or dc.revenue_ex_moms is not None:
+        story.append(Paragraph("MOMS BREAKDOWN", section_title))
+        moms_rows = [
+            [Paragraph("Revenue (incl. Moms)", val), Paragraph(fmt(float(dc.revenue_total or 0)), val_r)],
+            [Paragraph("Moms (output VAT)", val), Paragraph(fmt(float(dc.moms_total or 0)), val_r)],
+            [Paragraph("Revenue (excl. Moms)", val_b),
+             Paragraph(fmt(float(dc.revenue_ex_moms or 0)), val_br)],
+        ]
+        t = Table(moms_rows, colWidths=[110 * mm, 56 * mm])
+        t.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("LINEABOVE", (0, -1), (-1, -1), 0.5, DIVIDER),
+        ]))
+        story.append(t)
+        if dc.moms_mode == "manual":
+            story.append(Spacer(1, 2 * mm))
+            story.append(Paragraph("Moms entered manually by closer.", foot))
+
+    # ─── Payment Methods ───
     pay = decode_breakdown(dc.payment_categories)
     if pay:
-        story.append(Paragraph("Payment Methods", styles["Heading2"]))
-        pay_data = [["Method", "Amount"]]
+        story.append(Paragraph("PAYMENT METHODS", section_title))
+        rows = []
         for k, v in pay.items():
-            pay_data.append([k.title(), fmt(v)])
-        pay_data.append(["TOTAL", fmt(float(dc.payment_total or 0))])
-        t = Table(pay_data, colWidths=[100 * mm, 60 * mm])
+            rows.append([Paragraph(k.replace("_", " ").title(), val), Paragraph(fmt(v), val_r)])
+        rows.append([Paragraph("Total payments", val_b),
+                     Paragraph(fmt(float(dc.payment_total or 0)), val_br)])
+        t = Table(rows, colWidths=[110 * mm, 56 * mm])
         t.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a1a2e")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-            ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("LINEABOVE", (0, -1), (-1, -1), 0.5, DIVIDER),
         ]))
         story.append(t)
-        story.append(Spacer(1, 6 * mm))
 
-    # Cash drawer
+    # ─── Cash Drawer ───
     if dc.cash_counted is not None:
-        story.append(Paragraph("Cash Drawer", styles["Heading2"]))
-        diff_color = colors.red if (dc.cash_difference or 0) < -100 else colors.black
-        drawer_data = [
-            ["Expected", fmt(dc.cash_expected)],
-            ["Counted", fmt(dc.cash_counted)],
-            ["Difference", fmt(dc.cash_difference)],
+        story.append(Paragraph("CASH DRAWER", section_title))
+        diff = float(dc.cash_difference or 0)
+        diff_style = ParagraphStyle("Diff", parent=val_br,
+                                    textColor=DANGER if abs(diff) > 100 else INK)
+        rows = [
+            [Paragraph("Expected (from receipts)", val), Paragraph(fmt(dc.cash_expected), val_r)],
+            [Paragraph("Counted", val), Paragraph(fmt(dc.cash_counted), val_r)],
+            [Paragraph("Difference", val_b), Paragraph(fmt(dc.cash_difference), diff_style)],
         ]
-        t = Table(drawer_data, colWidths=[100 * mm, 60 * mm])
+        t = Table(rows, colWidths=[110 * mm, 56 * mm])
         t.setStyle(TableStyle([
-            ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-            ("TEXTCOLOR", (1, -1), (1, -1), diff_color),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("LINEABOVE", (0, -1), (-1, -1), 0.5, DIVIDER),
         ]))
         story.append(t)
-        story.append(Spacer(1, 6 * mm))
 
-    # Tips
+    # ─── Tips ───
     if dc.tips_total:
-        story.append(Paragraph("Tips", styles["Heading2"]))
-        tips_data = [
-            ["Total Tips", fmt(dc.tips_total)],
-            ["Staff Count", str(dc.tips_staff_count or "—")],
-            ["Per Person", fmt(dc.tips_per_person)],
+        story.append(Paragraph("TIPS", section_title))
+        rows = [
+            [Paragraph("Total tips", val), Paragraph(fmt(dc.tips_total), val_r)],
+            [Paragraph("Staff count", val),
+             Paragraph(str(dc.tips_staff_count or "—"), val_r)],
+            [Paragraph("Per person", val_b), Paragraph(fmt(dc.tips_per_person), val_br)],
         ]
-        t = Table(tips_data, colWidths=[100 * mm, 60 * mm])
+        t = Table(rows, colWidths=[110 * mm, 56 * mm])
         t.setStyle(TableStyle([
-            ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("LINEABOVE", (0, -1), (-1, -1), 0.5, DIVIDER),
         ]))
         story.append(t)
-        story.append(Spacer(1, 4 * mm))
+        story.append(Spacer(1, 2 * mm))
         story.append(Paragraph(
-            "<i>Note: Tips must be reported via eIndkomst. Share this data with your accountant.</i>",
-            ParagraphStyle("Note", parent=styles["Normal"], fontSize=8, textColor=colors.grey),
+            "Tips must be reported via eIndkomst. Share with your lønsystem.",
+            foot,
         ))
-        story.append(Spacer(1, 6 * mm))
 
-    # Notes
+    # ─── Notes ───
     if dc.notes:
-        story.append(Paragraph("Notes", styles["Heading2"]))
-        story.append(Paragraph(dc.notes, styles["Normal"]))
-        story.append(Spacer(1, 6 * mm))
+        story.append(Paragraph("NOTES", section_title))
+        story.append(Paragraph(dc.notes, val))
 
-    # Footer
-    story.append(HRFlowable(width="100%", color=colors.grey))
-    story.append(Spacer(1, 3 * mm))
+    # ─── Footer ───
+    story.append(Spacer(1, 14 * mm))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=DIVIDER, spaceBefore=2, spaceAfter=4))
     closed_time = dc.closed_at.strftime("%d/%m/%Y %H:%M") if dc.closed_at else "—"
-    story.append(Paragraph(f"Generated from BonBox · Closed at {closed_time}", styles["Normal"]))
+    story.append(Paragraph(
+        f"Generated by BonBox · Closed {closed_time} · "
+        f"Use this report alongside your accounting software.",
+        foot,
+    ))
 
     doc.build(story)
     buf.seek(0)
