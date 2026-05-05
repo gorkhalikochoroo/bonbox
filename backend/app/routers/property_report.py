@@ -218,16 +218,32 @@ def property_financial_report(
 
     gross_before = total_revenue + discount_total
     gross_after_discount = total_revenue
-    # Danish moms (VAT) is 25% — backed out from gross. Per row check
-    # is_tax_exempt would be more accurate, but for the daily aggregate this
-    # mirrors what the Sticks'n'Sushi report does.
+    # MOMS / VAT — derived from user's currency AND prices_include_moms
+    # preference. Previously hardcoded /5 (= extract 25%) which gave the
+    # wrong tax for any non-DK user (NPR 13%, GBP 20%, EUR 21%, etc.) and
+    # for B2B users entering net prices.
     taxable_sales = sum(
         float(s.amount or 0) for s in rows
         if not s.is_deleted and not s.is_void and s.status != "returned" and not s.is_tax_exempt
     )
-    # 25% VAT included in price → tax = total / 5
-    tax_collected = round(taxable_sales / 5, 2)
-    all_sales_net = round(taxable_sales - tax_collected, 2)
+    try:
+        from app.services.tax_service import _get_vat_rate
+        vat_rate = _get_vat_rate(user.currency or "DKK")
+    except Exception:  # noqa: BLE001
+        vat_rate = 0.25  # safe DK fallback
+    prices_incl_moms = bool(getattr(user, "prices_include_moms", True))
+
+    if vat_rate <= 0 or taxable_sales <= 0:
+        tax_collected = 0.0
+        all_sales_net = round(taxable_sales, 2)
+    elif prices_incl_moms:
+        # B2C (default): VAT extracted from gross
+        tax_collected = round(taxable_sales * vat_rate / (1 + vat_rate), 2)
+        all_sales_net = round(taxable_sales - tax_collected, 2)
+    else:
+        # B2B: prices are net, VAT is on top
+        tax_collected = round(taxable_sales * vat_rate, 2)
+        all_sales_net = round(taxable_sales, 2)
 
     # ── Sort + compute averages ──
     channels_out = []

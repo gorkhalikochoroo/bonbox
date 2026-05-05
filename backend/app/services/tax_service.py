@@ -24,9 +24,24 @@ logger = logging.getLogger(__name__)
 # Each entry: { tax_type, name, rate, frequency, deadlines_func }
 
 VAT_RATES = {
-    "DKK": 0.25, "SEK": 0.25, "NOK": 0.25, "EUR": 0.21,
-    "GBP": 0.20, "NPR": 0.13, "INR": 0.18, "JPY": 0.10,
-    "AUD": 0.10, "CAD": 0.05, "CHF": 0.081,
+    "DKK": 0.25,       # Denmark Moms 25%
+    "SEK": 0.25,       # Sweden Moms 25%
+    "NOK": 0.25,       # Norway MVA 25%
+    "EUR": 0.21,       # EU default (when country not specified)
+    "EUR_PT": 0.23,    # Portugal IVA 23%
+    "EUR_DE": 0.19,    # Germany MwSt 19%
+    "EUR_FR": 0.20,    # France TVA 20%
+    "EUR_ES": 0.21,    # Spain IVA 21%
+    "EUR_IT": 0.22,    # Italy IVA 22%
+    "EUR_NL": 0.21,    # Netherlands BTW 21%
+    "GBP": 0.20,       # UK VAT 20%
+    "USD": 0.0,        # US has no federal VAT (sales tax varies by state)
+    "NPR": 0.13,       # Nepal VAT 13%
+    "INR": 0.18,       # India GST 18% (default; varies 0/5/12/18/28%)
+    "JPY": 0.10,       # Japan consumption tax 10%
+    "AUD": 0.10,       # Australia GST 10%
+    "CAD": 0.05,       # Canada GST 5% (provinces add HST/PST)
+    "CHF": 0.081,      # Switzerland MWST 8.1%
 }
 
 # How many months a single filing period covers, by frequency.
