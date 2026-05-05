@@ -15,6 +15,11 @@ _ENV_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file_
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/smallbiz"
     SECRET_KEY: str = _default_secret()
+    # Optional. When rotating SECRET_KEY, set the OLD key here for a grace
+    # period — tokens signed with the previous key will still verify, but
+    # newly issued tokens use SECRET_KEY. Once all tokens have expired (24h
+    # default), unset SECRET_KEY_PREVIOUS.
+    SECRET_KEY_PREVIOUS: str = ""
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
     FRONTEND_URL: str = "http://localhost:5173"

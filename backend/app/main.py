@@ -1,5 +1,32 @@
+import os
 import threading
 from pathlib import Path
+
+# Optional Sentry init — only loaded if SENTRY_DSN env var set AND the
+# sentry-sdk package is installed. Wrapped in try/except so missing dep
+# never crashes the app. Add `sentry-sdk[fastapi]` to requirements.txt
+# only when you're ready to use it.
+_SENTRY_DSN = os.environ.get("SENTRY_DSN", "").strip()
+if _SENTRY_DSN:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+        sentry_sdk.init(
+            dsn=_SENTRY_DSN,
+            traces_sample_rate=0.05,   # 5% transaction sampling — keeps quota cheap
+            profiles_sample_rate=0.0,  # disabled by default
+            send_default_pii=False,    # never include user IPs / cookies
+            integrations=[FastApiIntegration(), SqlalchemyIntegration()],
+            environment=os.environ.get("ENVIRONMENT", "development"),
+        )
+    except ImportError:
+        # sentry-sdk not installed — env var alone doesn't hurt, just log noise
+        import warnings
+        warnings.warn("SENTRY_DSN set but sentry-sdk not installed; skipping init")
+    except Exception as e:
+        import warnings
+        warnings.warn(f"Sentry init failed: {e}")
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware

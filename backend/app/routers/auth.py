@@ -3,7 +3,7 @@ import csv
 import secrets
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -32,7 +32,7 @@ from app.schemas.auth import (
     UserRegister, UserLogin, Token, UserResponse, UserUpdate, PasswordChange,
     ForgotPasswordRequest, ResetPasswordRequest, VerifyEmailRequest,
 )
-from app.services.auth import hash_password, verify_password, create_access_token, get_current_user
+from app.services.auth import hash_password, verify_password, create_access_token, get_current_user, AUTH_COOKIE_NAME
 from app.services.email_service import send_email
 from app.config import settings
 
@@ -42,6 +42,52 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
+
+
+def _set_auth_cookie(response: Response, token: str) -> None:
+    """Attach the JWT as an HttpOnly cookie alongside the body response.
+
+    Multi-layer defense:
+      • HttpOnly: JS in the page (and any XSS payload) cannot read it
+      • Secure: HTTPS-only — cookie is dropped in any plaintext context
+      • SameSite=None: required because frontend (bonbox.dk) and API
+        (bonbox-api.onrender.com) are different origins
+      • max_age matches the JWT expiry (24h) so the cookie disappears
+        when the token would have expired anyway
+      • Path=/ so all API endpoints can read it; backend explicitly
+        accepts cookie OR Authorization header in get_current_user
+
+    Existing clients that store the token in localStorage and send it as
+    Authorization: Bearer keep working — this is purely additive defense.
+    """
+    is_secure = settings.ENVIRONMENT == "production"
+    response.set_cookie(
+        key=AUTH_COOKIE_NAME,
+        value=token,
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        httponly=True,
+        secure=is_secure,
+        # SameSite None is required for cross-origin (bonbox.dk → onrender.com).
+        # Browsers reject SameSite=None without Secure, so dev (HTTP) falls
+        # back to Lax — same-origin only, which is fine since dev runs both
+        # services on localhost.
+        samesite="none" if is_secure else "lax",
+        path="/",
+    )
+
+
+def _clear_auth_cookie(response: Response) -> None:
+    """Wipe the auth cookie. Same attributes as _set_auth_cookie so the
+    browser actually replaces the existing one (mismatched attributes
+    silently leave the old cookie in place)."""
+    is_secure = settings.ENVIRONMENT == "production"
+    response.delete_cookie(
+        key=AUTH_COOKIE_NAME,
+        path="/",
+        secure=is_secure,
+        samesite="none" if is_secure else "lax",
+        httponly=True,
+    )
 
 
 def _welcome_email_html(name: str) -> str:
@@ -165,7 +211,7 @@ def _is_disposable_email(email: str) -> bool:
 
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")  # Tightened from 15/min — bots were burning the budget
-def register(request: Request, data: UserRegister, db: Session = Depends(get_db)):
+def register(request: Request, response: Response, data: UserRegister, db: Session = Depends(get_db)):
     # Defense layer 1: disposable email blocklist
     if _is_disposable_email(data.email):
         # Generic 422 to not give bots feedback for retry. Real users get the
@@ -228,6 +274,7 @@ def register(request: Request, data: UserRegister, db: Session = Depends(get_db)
     # filters out 90%+ of fake-account noise from the admin inbox.
 
     token = create_access_token(str(user.id))
+    _set_auth_cookie(response, token)
     return Token(access_token=token, user=UserResponse.model_validate(user))
 
 
@@ -237,7 +284,7 @@ class GoogleAuthRequest(BaseModel):
 
 @router.post("/google", response_model=Token)
 @limiter.limit("15/minute")
-def google_auth(request: Request, data: GoogleAuthRequest, db: Session = Depends(get_db)):
+def google_auth(request: Request, response: Response, data: GoogleAuthRequest, db: Session = Depends(get_db)):
     """Sign in or register with Google. Verifies the ID token and creates/logs in the user."""
     from google.oauth2 import id_token as google_id_token
     from google.auth.transport import requests as google_requests
@@ -299,12 +346,13 @@ def google_auth(request: Request, data: GoogleAuthRequest, db: Session = Depends
                 pass
 
     token = create_access_token(str(user.id))
+    _set_auth_cookie(response, token)
     return Token(access_token=token, user=UserResponse.model_validate(user))
 
 
 @router.post("/login", response_model=Token)
 @limiter.limit("10/minute")
-def login(request: Request, data: UserLogin, db: Session = Depends(get_db)):
+def login(request: Request, response: Response, data: UserLogin, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == data.email).first()
     if not user or not verify_password(data.password, user.password_hash):
         raise HTTPException(
@@ -313,7 +361,17 @@ def login(request: Request, data: UserLogin, db: Session = Depends(get_db)):
         )
 
     token = create_access_token(str(user.id))
+    _set_auth_cookie(response, token)
     return Token(access_token=token, user=UserResponse.model_validate(user))
+
+
+@router.post("/logout")
+def logout(response: Response):
+    """Clear the HttpOnly auth cookie. Frontend should also drop its
+    localStorage token. Returns 200 even if no cookie was set (idempotent).
+    """
+    _clear_auth_cookie(response)
+    return {"status": "ok"}
 
 
 @router.post("/verify-email")

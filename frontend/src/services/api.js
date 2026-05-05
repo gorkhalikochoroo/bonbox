@@ -3,6 +3,12 @@ import axios from "axios";
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000/api",
   timeout: 60000, // 60s timeout for slow connections (Nepal, etc.)
+  // Send the HttpOnly auth cookie set by /auth/login. Pairs with the
+  // existing Authorization: Bearer header — backend accepts either.
+  // Defense layer: even if XSS exfiltrates localStorage, the HttpOnly
+  // cookie can't be read by JS. CORS allow_credentials=true is already
+  // configured on the backend.
+  withCredentials: true,
 });
 
 // Auto-retry on timeout or network error (max 2 retries)
