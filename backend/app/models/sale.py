@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import String, Date, DateTime, Numeric, Text, Boolean, ForeignKey, Index
+from sqlalchemy import String, Date, DateTime, Numeric, Text, Boolean, ForeignKey, Index, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
@@ -23,6 +23,11 @@ class Sale(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     receipt_photo: Mapped[str | None] = mapped_column(String(500), nullable=True)  # file path
     reference_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Bilagsnummer — sequential voucher number per fiscal year per user.
+    # Required by Bogføringsloven 2024 (DK Bookkeeping Act): every transaction
+    # must have a unique sequential ID with no gaps. Format: 4-digit per year
+    # (e.g. S-2026-0001). Auto-allocated on creation by voucher_service.
+    voucher_number: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     # ── Danish restaurant operations ────────────────────────────────────
     # Modeled after the Sticks'n'Sushi Property Financial Report. Most Danish
     # restaurants split revenue across 4-6 channels and need per-channel

@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import String, Date, DateTime, Numeric, Boolean, Text, ForeignKey, Index
+from sqlalchemy import String, Date, DateTime, Numeric, Boolean, Text, ForeignKey, Index, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
@@ -42,6 +42,9 @@ class Expense(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_personal: Mapped[bool] = mapped_column(Boolean, default=False)
     reference_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Bilagsnummer — sequential voucher per fiscal year per user (DK
+    # Bogføringsloven 2024 compliance). Auto-allocated on creation.
+    voucher_number: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     is_tax_exempt: Mapped[bool] = mapped_column(Boolean, default=False)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

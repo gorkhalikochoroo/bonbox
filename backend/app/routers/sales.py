@@ -132,6 +132,15 @@ def create_sale(
         db.add(log)
 
     sale = Sale(user_id=user.id, **sale_data)
+    # Allocate bilagsnummer (DK Bogføringsloven 2024). Year derives from
+    # sale.date (not "today") so back-dated entries land in the correct
+    # fiscal year sequence.
+    try:
+        from app.services.voucher_service import allocate_voucher
+        sale.voucher_number = allocate_voucher(db, user.id, "sale", sale.date.year)
+    except Exception:  # noqa: BLE001
+        # Multi-layer defense: voucher allocation must never block a sale
+        sale.voucher_number = None
     db.add(sale)
     db.commit()
     db.refresh(sale)

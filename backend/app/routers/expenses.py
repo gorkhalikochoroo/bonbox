@@ -311,6 +311,13 @@ def create_expense(
     user: User = Depends(get_current_user),
 ):
     expense = Expense(user_id=user.id, **data.model_dump())
+    # Allocate bilagsnummer (DK Bogføringsloven 2024). Year from expense.date
+    # so back-dated entries land in the correct fiscal year sequence.
+    try:
+        from app.services.voucher_service import allocate_voucher
+        expense.voucher_number = allocate_voucher(db, user.id, "expense", expense.date.year)
+    except Exception:  # noqa: BLE001
+        expense.voucher_number = None
     db.add(expense)
     db.commit()
     db.refresh(expense)

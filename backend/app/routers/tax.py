@@ -46,3 +46,43 @@ def tax_overview(
     except Exception as e:
         log.exception("tax_overview failed for user=%s: %s", user.id, e)
         return _safe_empty()
+
+
+@router.get("/voucher-audit")
+def voucher_audit(
+    year: int | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Bilagsnummer compliance check (Bogføringsloven 2024).
+
+    Returns gap analysis for the user's sales + expenses in the given
+    fiscal year. SKAT auditors look for unbroken sequences — a missing
+    voucher number can trigger a full audit.
+
+    If no `year` provided, defaults to the current calendar year.
+    Multi-tenant: scoped by user_id automatically.
+    """
+    from datetime import date as _date
+    from app.services.voucher_service import assert_no_gaps
+    yr = year or _date.today().year
+
+    try:
+        sales = assert_no_gaps(db, user.id, "sale", yr)
+        expenses = assert_no_gaps(db, user.id, "expense", yr)
+    except Exception as e:  # noqa: BLE001
+        log.exception("voucher_audit failed for user=%s: %s", user.id, e)
+        return {
+            "year": yr,
+            "_error": "Could not run voucher audit right now.",
+            "_recoverable": True,
+        }
+
+    return {
+        "year": yr,
+        "sales": sales,
+        "expenses": expenses,
+        "is_compliant": sales["is_compliant"] and expenses["is_compliant"],
+        "regulation": "Bogføringsloven 2024 § 7 — sequential bilagsnummer",
+    }
