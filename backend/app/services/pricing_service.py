@@ -62,19 +62,39 @@ def get_pricing_insights(user_id, db: Session) -> dict:
         .all()
     )
 
+    # Moms-aware margin (same pattern as wine.py / inventory.py).
+    # avg_price comes from Sale.unit_price which is gross/incl-Moms in B2C
+    # default; avg_cost is the wholesale cost stored ex-Moms. Comparing
+    # raw gives an inflated margin number — extract Moms first.
+    try:
+        from app.services.tax_service import _get_vat_rate
+        from app.models.user import User as _User
+        u = db.query(_User).filter(_User.id == user_id).first()
+        vat_rate = _get_vat_rate(getattr(u, "currency", "DKK") or "DKK")
+        prices_incl_moms = bool(getattr(u, "prices_include_moms", True))
+    except Exception:  # noqa: BLE001
+        vat_rate = 0.25
+        prices_incl_moms = True
+
     items = []
     low_margin_items = []
     for row in item_sales:
-        avg_price = float(row.avg_price or 0)
+        avg_price_gross = float(row.avg_price or 0)
         avg_cost = float(row.avg_cost or 0)
-        margin = round((avg_price - avg_cost) / avg_price * 100, 1) if avg_price > 0 else 0
+        # Net price = what business actually keeps after Moms is remitted
+        if prices_incl_moms and vat_rate > 0:
+            net_price = avg_price_gross / (1 + vat_rate)
+        else:
+            net_price = avg_price_gross
+        margin = round((net_price - avg_cost) / net_price * 100, 1) if net_price > 0 else 0
         revenue = float(row.revenue or 0)
 
         item = {
             "name": row.item_name,
             "qty_sold": int(row.qty),
             "revenue": round(revenue, 2),
-            "avg_price": round(avg_price, 2),
+            "avg_price": round(avg_price_gross, 2),       # display gross to user
+            "avg_price_net": round(net_price, 2),         # for cross-check
             "avg_cost": round(avg_cost, 2),
             "margin_pct": margin,
         }

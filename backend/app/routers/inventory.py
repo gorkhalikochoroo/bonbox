@@ -44,6 +44,31 @@ def list_categories(
     return sorted(set(r[0] or "General" for r in rows))
 
 
+@router.get("/expired", response_model=list[InventoryItemResponse])
+def get_expired(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Items already past their expiry date and still in stock.
+
+    Separate from /expiring (which is the "act soon" window). This is the
+    "act now / write off" list — typically routed to the Waste tracker.
+    """
+    today = date.today()
+    return (
+        db.query(InventoryItem)
+        .filter(
+            InventoryItem.user_id == user.id,
+            InventoryItem.expiry_date.is_not(None),
+            InventoryItem.expiry_date < today,
+            InventoryItem.quantity > 0,
+        )
+        .order_by(InventoryItem.expiry_date)
+        .all()
+    )
+
+
 @router.get("/expiring", response_model=list[InventoryItemResponse])
 def get_expiring(
     days: int = Query(3, ge=1, le=365),

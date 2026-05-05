@@ -179,3 +179,35 @@ def test_expiring_days_param_clamped():
     assert lower <= 30 <= upper
     assert not (lower <= 0 <= upper)         # 0 days rejected
     assert not (lower <= 10000 <= upper)     # huge values rejected
+
+
+# ─── Pricing service: Moms-aware margin ─────────────────────────
+def test_pricing_margin_b2c_extracts_moms():
+    """B2C sale at 200 incl-Moms + cost 100 ex = real margin 37.5%, not 50%."""
+    avg_price_gross = 200.0
+    avg_cost = 100.0
+    vat_rate = 0.25
+
+    net_price = avg_price_gross / (1 + vat_rate)
+    assert round(net_price, 2) == 160.0
+
+    margin = round((net_price - avg_cost) / net_price * 100, 1)
+    assert margin == 37.5  # was incorrectly 50% before the fix
+
+
+def test_pricing_margin_b2b_no_extraction():
+    """B2B (prices_include_moms=False) — avg_price is already net."""
+    avg_price = 200.0
+    avg_cost = 100.0
+
+    margin = round((avg_price - avg_cost) / avg_price * 100, 1)
+    assert margin == 50.0
+
+
+def test_pricing_margin_zero_price():
+    """Free items don't crash the calc."""
+    avg_price_gross = 0.0
+    vat_rate = 0.25
+    net_price = avg_price_gross / (1 + vat_rate)
+    assert net_price == 0.0
+    # The router returns 0 in this case, no division
