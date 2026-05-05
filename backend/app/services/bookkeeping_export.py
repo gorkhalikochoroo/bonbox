@@ -67,7 +67,7 @@ def _query_sales(user: User, db: Session, start: date, end: date) -> list[Sale]:
                 Sale.user_id == user.id,
                 Sale.date >= start,
                 Sale.date <= end,
-                Sale.is_deleted == False,  # noqa: E712
+                Sale.is_deleted.isnot(True),
                 Sale.status != "returned",
             )
             .order_by(Sale.date.asc())
@@ -84,7 +84,7 @@ def _query_sales(user: User, db: Session, start: date, end: date) -> list[Sale]:
                     Sale.user_id == user.id,
                     Sale.date >= start,
                     Sale.date <= end,
-                    Sale.is_deleted == False,  # noqa: E712
+                    Sale.is_deleted.isnot(True),
                 )
                 .order_by(Sale.date.asc())
                 .all()
@@ -103,7 +103,7 @@ def _query_expenses(user: User, db: Session, start: date, end: date) -> list[Exp
                 Expense.user_id == user.id,
                 Expense.date >= start,
                 Expense.date <= end,
-                Expense.is_deleted == False,  # noqa: E712
+                Expense.is_deleted.isnot(True),
                 Expense.is_personal == False,  # noqa: E712
             )
             .order_by(Expense.date.asc())
@@ -118,7 +118,7 @@ def _query_expenses(user: User, db: Session, start: date, end: date) -> list[Exp
                     Expense.user_id == user.id,
                     Expense.date >= start,
                     Expense.date <= end,
-                    Expense.is_deleted == False,  # noqa: E712
+                    Expense.is_deleted.isnot(True),
                 )
                 .order_by(Expense.date.asc())
                 .all()

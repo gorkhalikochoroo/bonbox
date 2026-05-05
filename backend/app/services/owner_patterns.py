@@ -146,7 +146,7 @@ def detect_revenue_anomaly(user: User, db: Session) -> list[DetectedPattern]:
         .filter(
             Sale.user_id == user.id,
             Sale.date >= cutoff,
-            Sale.is_deleted == False,  # noqa: E712
+            Sale.is_deleted.isnot(True),
             Sale.status != "returned",
         )
         .group_by(func.date(Sale.date))
@@ -291,7 +291,7 @@ def detect_expense_spike(user: User, db: Session) -> list[DetectedPattern]:
         .filter(
             Expense.user_id == user.id,
             Expense.date >= history_start,
-            Expense.is_deleted == False,  # noqa: E712
+            Expense.is_deleted.isnot(True),
             Expense.is_personal == False,  # noqa: E712
         )
         .group_by(func.date(Expense.date))
@@ -444,7 +444,7 @@ def detect_wage_pct_anomaly(user: User, db: Session) -> list[DetectedPattern]:
                 Expense.user_id == user.id,
                 Expense.date >= start,
                 Expense.date <= end,
-                Expense.is_deleted == False,  # noqa: E712
+                Expense.is_deleted.isnot(True),
                 Expense.is_personal == False,  # noqa: E712
                 Expense.category_id.in_(wage_cat_ids),
             )
@@ -459,7 +459,7 @@ def detect_wage_pct_anomaly(user: User, db: Session) -> list[DetectedPattern]:
                 Sale.user_id == user.id,
                 Sale.date >= start,
                 Sale.date <= end,
-                Sale.is_deleted == False,  # noqa: E712
+                Sale.is_deleted.isnot(True),
                 Sale.status != "returned",
             )
             .scalar()

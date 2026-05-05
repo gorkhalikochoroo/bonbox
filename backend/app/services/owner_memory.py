@@ -54,7 +54,7 @@ def build_owner_context(user: User, db: Session, max_patterns: int = 5) -> str:
         .filter(
             Sale.user_id == user.id,
             Sale.date >= week_ago.date(),
-            Sale.is_deleted == False,  # noqa: E712
+            Sale.is_deleted.isnot(True),
             Sale.status != "returned",
         )
         .scalar()
@@ -65,7 +65,7 @@ def build_owner_context(user: User, db: Session, max_patterns: int = 5) -> str:
         .filter(
             Sale.user_id == user.id,
             Sale.date >= month_ago.date(),
-            Sale.is_deleted == False,  # noqa: E712
+            Sale.is_deleted.isnot(True),
             Sale.status != "returned",
         )
         .scalar()
@@ -76,7 +76,7 @@ def build_owner_context(user: User, db: Session, max_patterns: int = 5) -> str:
         .filter(
             Sale.user_id == user.id,
             Sale.date >= week_ago.date(),
-            Sale.is_deleted == False,  # noqa: E712
+            Sale.is_deleted.isnot(True),
         )
         .scalar()
         or 0
@@ -92,7 +92,7 @@ def build_owner_context(user: User, db: Session, max_patterns: int = 5) -> str:
         .filter(
             Expense.user_id == user.id,
             Expense.date >= month_ago.date(),
-            Expense.is_deleted == False,  # noqa: E712
+            Expense.is_deleted.isnot(True),
             Expense.is_personal == False,  # noqa: E712
         )
         .scalar()

@@ -129,7 +129,7 @@ def get_dashboard_batch(
         db.query(
             func.sum(KhataTransaction.purchase_amount) - func.sum(KhataTransaction.paid_amount)
         ).join(KhataCustomer, KhataTransaction.customer_id == KhataCustomer.id)
-        .filter(KhataTransaction.user_id == user.id, KhataCustomer.is_deleted == False)
+        .filter(KhataTransaction.user_id == user.id, KhataCustomer.is_deleted.isnot(True))
         .scalar()
     )
     khata_receivable = max(float(khata_recv_raw) if khata_recv_raw is not None else 0.0, 0)
@@ -709,7 +709,7 @@ def get_dashboard_batch(
             .filter(
                 Expense.user_id == user.id,
                 Expense.is_personal == False,
-                Expense.is_deleted == False,
+                Expense.is_deleted.isnot(True),
                 extract("year", Expense.date) == target_year,
                 extract("month", Expense.date) == target_month,
             )
@@ -1008,7 +1008,7 @@ def get_summary(
         ).join(KhataCustomer, KhataTransaction.customer_id == KhataCustomer.id)
         .filter(
             KhataTransaction.user_id == user.id,
-            KhataCustomer.is_deleted == False,
+            KhataCustomer.is_deleted.isnot(True),
         ).scalar()
     )
     khata_receivable = float(khata_recv_raw) if khata_recv_raw is not None else 0.0

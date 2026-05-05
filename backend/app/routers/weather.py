@@ -135,7 +135,7 @@ def get_impact_profile(
     # Get user's sales data range
     sales = (
         db.query(Sale.date, func.sum(Sale.amount))
-        .filter(Sale.user_id == user.id, Sale.is_deleted == False)
+        .filter(Sale.user_id == user.id, Sale.is_deleted.isnot(True))
         .group_by(Sale.date)
         .all()
     )
@@ -198,7 +198,7 @@ def get_seasonal(
             func.avg(Sale.amount).label("avg"),
             func.count(Sale.id).label("count"),
         )
-        .filter(Sale.user_id == user.id, Sale.is_deleted == False)
+        .filter(Sale.user_id == user.id, Sale.is_deleted.isnot(True))
         .group_by("month")
         .all()
     )
@@ -431,7 +431,7 @@ def intelligence_status(
     ).scalar() or 0
 
     sales_days = db.query(func.count(func.distinct(Sale.date))).filter(
-        Sale.user_id == user.id, Sale.is_deleted == False
+        Sale.user_id == user.id, Sale.is_deleted.isnot(True)
     ).scalar() or 0
 
     # Paired days (both weather and sales exist)
@@ -441,7 +441,7 @@ def intelligence_status(
         paired = db.query(func.count(DailyWeather.id)).filter(
             DailyWeather.user_id == user.id,
             DailyWeather.date.in_(
-                db.query(Sale.date).filter(Sale.user_id == user.id, Sale.is_deleted == False).distinct()
+                db.query(Sale.date).filter(Sale.user_id == user.id, Sale.is_deleted.isnot(True)).distinct()
             ),
         ).scalar() or 0
 

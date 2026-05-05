@@ -50,7 +50,7 @@ def list_customers(
 ):
     customers = (
         db.query(KhataCustomer)
-        .filter(KhataCustomer.user_id == user.id, KhataCustomer.is_deleted == False)
+        .filter(KhataCustomer.user_id == user.id, KhataCustomer.is_deleted.isnot(True))
         .order_by(KhataCustomer.name)
         .all()
     )
@@ -222,7 +222,7 @@ def get_summary(
     # Get all non-deleted customers for this user
     customers = (
         db.query(KhataCustomer)
-        .filter(KhataCustomer.user_id == user.id, KhataCustomer.is_deleted == False)
+        .filter(KhataCustomer.user_id == user.id, KhataCustomer.is_deleted.isnot(True))
         .all()
     )
 

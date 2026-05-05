@@ -61,7 +61,7 @@ def sync_historical_weather(user: User, db: Session) -> dict:
     # Get all dates where user has sales
     sales_dates = (
         db.query(Sale.date)
-        .filter(Sale.user_id == user.id, Sale.is_deleted == False)
+        .filter(Sale.user_id == user.id, Sale.is_deleted.isnot(True))
         .distinct()
         .all()
     )
@@ -156,7 +156,7 @@ def get_correlation(user: User, db: Session) -> dict:
     # Join daily_weather with sales aggregated by date
     sales_by_date = dict(
         db.query(Sale.date, func.sum(Sale.amount))
-        .filter(Sale.user_id == user.id, Sale.is_deleted == False)
+        .filter(Sale.user_id == user.id, Sale.is_deleted.isnot(True))
         .group_by(Sale.date)
         .all()
     )

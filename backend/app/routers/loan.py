@@ -57,7 +57,7 @@ def list_persons(
 ):
     persons = (
         db.query(LoanPerson)
-        .filter(LoanPerson.user_id == user.id, LoanPerson.is_deleted == False)
+        .filter(LoanPerson.user_id == user.id, LoanPerson.is_deleted.isnot(True))
         .order_by(LoanPerson.name)
         .all()
     )
@@ -209,7 +209,7 @@ def get_summary(
 ):
     persons = (
         db.query(LoanPerson)
-        .filter(LoanPerson.user_id == user.id, LoanPerson.is_deleted == False)
+        .filter(LoanPerson.user_id == user.id, LoanPerson.is_deleted.isnot(True))
         .all()
     )
     total_borrowed = 0.0
