@@ -571,7 +571,28 @@ def _find_user_for_event(db: Session, event_data: dict) -> Optional[User]:
     return None
 
 
-def _apply_subscription_state(user: User, sub_obj: dict, db: Session) -> None:
+def _g(obj, key, default=None):
+    """Safe accessor that works for both dicts AND Stripe SDK objects.
+
+    Newer Stripe Python SDK versions return objects that don't always inherit
+    from dict, so .get(key) raises AttributeError. This helper falls back to
+    getattr(). Also handles None safely. Use this everywhere we read from a
+    Stripe payload — the SDK shape can drift across versions and we never want
+    to crash on .get().
+    """
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    if hasattr(obj, "get") and callable(obj.get):
+        try:
+            return obj.get(key, default)
+        except Exception:
+            pass
+    return getattr(obj, key, default)
+
+
+def _apply_subscription_state(user: User, sub_obj, db: Session) -> None:
     """Update user.plan/status/period_end from a Stripe subscription object.
 
     This is the ONLY way a user's plan flips to 'pro'. Webhook signature has
@@ -586,17 +607,17 @@ def _apply_subscription_state(user: User, sub_obj: dict, db: Session) -> None:
       • Final commit is wrapped — DB errors are logged but the function never
         re-raises, so webhook 500s don't happen here.
     """
-    status = sub_obj.get("status")  # active | trialing | past_due | canceled | etc.
+    status = _g(sub_obj, "status")  # active | trialing | past_due | canceled | etc.
     user.subscription_status = status
-    user.stripe_subscription_id = sub_obj.get("id")
+    user.stripe_subscription_id = _g(sub_obj, "id")
 
     # period end → datetime. Try sub-level first (old Stripe API), fall back
     # to first item's current_period_end (new Stripe API ≥2025-03 moved it).
-    pe = sub_obj.get("current_period_end")
+    pe = _g(sub_obj, "current_period_end")
     if not pe:
-        items = (sub_obj.get("items") or {}).get("data") or []
-        if items:
-            pe = items[0].get("current_period_end")
+        items_data = _g(_g(sub_obj, "items") or {}, "data") or []
+        if items_data:
+            pe = _g(items_data[0], "current_period_end")
     if pe:
         try:
             user.subscription_period_end = datetime.utcfromtimestamp(int(pe))
@@ -609,10 +630,10 @@ def _apply_subscription_state(user: User, sub_obj: dict, db: Session) -> None:
     try:
         if status in ("active", "trialing"):
             # Determine which plan from the price ID on the first item
-            items = (sub_obj.get("items") or {}).get("data") or []
+            items_data = _g(_g(sub_obj, "items") or {}, "data") or []
             price_id = None
-            if items:
-                price_id = (items[0].get("price") or {}).get("id")
+            if items_data:
+                price_id = _g(_g(items_data[0], "price") or {}, "id")
             if price_id == settings.STRIPE_PRICE_ID_BUSINESS:
                 user.plan = "business"
             else:
