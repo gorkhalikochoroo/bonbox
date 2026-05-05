@@ -1793,7 +1793,12 @@ def generate_payroll_pdf(
             if sd["entries"]:
                 detail_data = [["Date", "Time", "Break", "Hours", "Rate", "Earned"]]
                 for h in sd["entries"]:
-                    time_str = f"{h.start_time or '---'} - {h.end_time or '---'}"
+                    # If neither start nor end is logged (manual quick-entry of total
+                    # hours only), show a single em-dash instead of "--- - ---".
+                    if h.start_time or h.end_time:
+                        time_str = f"{h.start_time or '—'} – {h.end_time or '—'}"
+                    else:
+                        time_str = "—"
                     date_str = h.date.strftime("%d/%m") if h.date else "—"
                     break_str = f"{int(h.break_minutes or 0)}m"
                     hrs_str = f"{float(h.total_hours or 0):.1f}"
