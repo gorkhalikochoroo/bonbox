@@ -840,6 +840,35 @@ def daily_close_pdf(
     story.append(head_table)
     story.append(HRFlowable(width="100%", thickness=0.5, color=DIVIDER, spaceBefore=4, spaceAfter=12))
 
+    # ─── Voucher range for the day (Bogføringsloven 2024 audit trail) ───
+    # If sales/expenses for this date have voucher_numbers, show min-max range
+    # so accountant can cross-check the closes against the bilag list.
+    try:
+        from app.models.sale import Sale
+        from app.models.expense import Expense
+        sale_vmin, sale_vmax = (
+            db.query(func.min(Sale.voucher_number), func.max(Sale.voucher_number))
+            .filter(
+                Sale.user_id == user.id,
+                Sale.date == dc.date,
+                Sale.voucher_number.is_not(None),
+                Sale.is_deleted.isnot(True),
+            )
+            .one_or_none() or (None, None)
+        )
+        exp_vmin, exp_vmax = (
+            db.query(func.min(Expense.voucher_number), func.max(Expense.voucher_number))
+            .filter(
+                Expense.user_id == user.id,
+                Expense.date == dc.date,
+                Expense.voucher_number.is_not(None),
+                Expense.is_deleted.isnot(True),
+            )
+            .one_or_none() or (None, None)
+        )
+    except Exception:  # noqa: BLE001
+        sale_vmin = sale_vmax = exp_vmin = exp_vmax = None
+
     # ─── Business info ───
     biz_name = (profile.business_name if profile and profile.business_name
                 else getattr(user, "business_name", None)) or "—"
@@ -967,6 +996,31 @@ def daily_close_pdf(
             "Tips must be reported via eIndkomst. Share with your lønsystem.",
             foot,
         ))
+
+    # ─── Bilagsnummer audit trail (DK Bogføringsloven 2024) ───
+    if currency == "DKK" and (sale_vmin or exp_vmin):
+        story.append(Paragraph("BILAGSNUMMER", section_title))
+        rows = []
+        if sale_vmin and sale_vmax:
+            label = (f"S-{dc.date.year}-{sale_vmin:04d} → S-{dc.date.year}-{sale_vmax:04d}"
+                     if sale_vmin != sale_vmax
+                     else f"S-{dc.date.year}-{sale_vmin:04d}")
+            rows.append([Paragraph("Sales vouchers", val), Paragraph(label, val_r)])
+        if exp_vmin and exp_vmax:
+            label = (f"E-{dc.date.year}-{exp_vmin:04d} → E-{dc.date.year}-{exp_vmax:04d}"
+                     if exp_vmin != exp_vmax
+                     else f"E-{dc.date.year}-{exp_vmin:04d}")
+            rows.append([Paragraph("Expense vouchers", val), Paragraph(label, val_r)])
+        if rows:
+            t = Table(rows, colWidths=[110 * mm, 56 * mm])
+            t.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ]))
+            story.append(t)
 
     # ─── Notes ───
     if dc.notes:

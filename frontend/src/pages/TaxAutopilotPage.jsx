@@ -15,14 +15,21 @@ export default function TaxAutopilotPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // Bilagsnummer compliance audit (DK only) — fetched in parallel
+  const [audit, setAudit] = useState(null);
 
   useEffect(() => { fetchData(); }, []);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const res = await api.get("/tax/overview");
-      setData(res.data);
+      const [ovRes, auditRes] = await Promise.allSettled([
+        api.get("/tax/overview"),
+        api.get("/tax/voucher-audit"),
+      ]);
+      if (ovRes.status === "fulfilled") setData(ovRes.value.data);
+      else throw new Error("overview failed");
+      if (auditRes.status === "fulfilled") setAudit(auditRes.value.data);
     } catch { setError("Could not load tax data"); }
     setLoading(false);
   };
@@ -167,6 +174,11 @@ export default function TaxAutopilotPage() {
       {/* ─── DAILY CLOSE RECONCILIATION ─── */}
       {recon && recon.current_month && (
         <ReconCard recon={recon} taxName={tax_name} currency={currency} />
+      )}
+
+      {/* ─── BILAGSNUMMER COMPLIANCE (DK Bogføringsloven 2024) ─── */}
+      {user?.currency === "DKK" && audit && !audit._error && (
+        <ComplianceCard audit={audit} />
       )}
 
       {/* ─── UPCOMING DEADLINES TABLE ─── */}
@@ -364,6 +376,93 @@ function ReconCard({ recon, taxName, currency }) {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+
+/* ──────────────────────────────────────────────────────────────
+   ComplianceCard — Bilagsnummer audit (DK Bogføringsloven 2024)
+   Green badge if no gaps; red list if missing voucher numbers.
+   ────────────────────────────────────────────────────────────── */
+function ComplianceCard({ audit }) {
+  const { year, sales = {}, expenses = {}, is_compliant, regulation } = audit;
+  const okSales = sales.is_compliant !== false;
+  const okExp = expenses.is_compliant !== false;
+  const totalCount = (sales.count || 0) + (expenses.count || 0);
+
+  return (
+    <div className={`rounded-2xl p-5 shadow-sm border ${
+      is_compliant
+        ? "bg-emerald-50/60 dark:bg-emerald-900/10 border-emerald-200/60 dark:border-emerald-800/40"
+        : "bg-amber-50/70 dark:bg-amber-900/10 border-amber-200/60 dark:border-amber-800/40"
+    }`}>
+      <div className="flex items-start gap-3">
+        <div className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center ${
+          is_compliant
+            ? "bg-emerald-500 text-white"
+            : "bg-amber-500 text-white"
+        }`}>
+          {is_compliant ? "✓" : "!"}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <h2 className="font-bold text-gray-800 dark:text-white">
+              {is_compliant
+                ? "Books are SKAT-compliant"
+                : "Voucher gaps detected"}
+            </h2>
+            <span className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold">
+              {year}
+            </span>
+          </div>
+          <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+            {regulation || "Bogføringsloven 2024 — sequential bilagsnummer"}
+          </p>
+
+          <div className="grid grid-cols-2 gap-3 mt-4">
+            <ComplianceCol label="Sales (bilag)" data={sales} ok={okSales} />
+            <ComplianceCol label="Expenses (bilag)" data={expenses} ok={okExp} />
+          </div>
+
+          {!is_compliant && (
+            <div className="mt-4 text-xs text-amber-800 dark:text-amber-300">
+              <strong>Missing numbers:</strong>
+              {sales.missing?.length > 0 && (
+                <span className="ml-1">Sales: {sales.missing.slice(0, 10).join(", ")}{sales.missing.length > 10 ? "…" : ""}</span>
+              )}
+              {expenses.missing?.length > 0 && (
+                <span className="ml-2">Expenses: {expenses.missing.slice(0, 10).join(", ")}{expenses.missing.length > 10 ? "…" : ""}</span>
+              )}
+            </div>
+          )}
+
+          {totalCount > 0 && (
+            <p className="mt-3 text-[11px] text-gray-500 dark:text-gray-500">
+              {totalCount} voucher{totalCount === 1 ? "" : "s"} this year, traceable end-to-end.
+              SKAT auditors check sequence integrity — gaps trigger reviews.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ComplianceCol({ label, data, ok }) {
+  return (
+    <div className={`rounded-lg p-3 border ${
+      ok
+        ? "bg-white/60 dark:bg-gray-800/40 border-emerald-200/40 dark:border-emerald-800/30"
+        : "bg-white/60 dark:bg-gray-800/40 border-amber-200/60 dark:border-amber-800/40"
+    }`}>
+      <div className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold">{label}</div>
+      <div className="mt-1 text-lg font-bold text-gray-900 dark:text-white">
+        #{data.count || 0}
+      </div>
+      <div className="text-[11px] text-gray-500 dark:text-gray-400">
+        Latest: #{data.max || 0} {ok ? "· no gaps ✓" : `· ${data.missing?.length || 0} missing`}
+      </div>
     </div>
   );
 }
