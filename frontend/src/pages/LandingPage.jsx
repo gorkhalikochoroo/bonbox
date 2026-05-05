@@ -380,47 +380,45 @@ export default function LandingPage() {
   const currency = "kr";
 
   return (
-    <div className="min-h-screen bg-slate-950 overflow-x-hidden">
+    <div className="min-h-screen bg-[#fafaf7] overflow-x-hidden">
       <style>{`
         @keyframes heroFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
         @keyframes heroTwinkle { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.2; transform: scale(0.5); } }
       `}</style>
 
-      {/* ── Navigation ── */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-slate-950/80 backdrop-blur-xl border-b border-white/5">
+      {/* ── Navigation (Copenhagen-clean: light bg, restrained accent) ── */}
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-[#fafaf7]/85 backdrop-blur-xl border-b border-gray-200/60">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-3 group">
-            <div className="inline-flex items-center justify-center w-10 h-10 bg-white/10 rounded-xl group-hover:bg-white/15 transition">
-              <svg width="24" height="24" viewBox="0 0 28 28" fill="none">
-                <rect x="4" y="2" width="20" height="24" rx="3" stroke="white" strokeWidth="2" />
+          <Link to="/" className="flex items-center gap-2.5 group">
+            <div className="w-9 h-9 bg-gray-900 rounded-lg flex items-center justify-center">
+              <svg width="20" height="20" viewBox="0 0 28 28" fill="none">
+                <rect x="4" y="2" width="20" height="24" rx="3" stroke="white" strokeWidth="2.2" />
                 <path d="M9 8h10M9 12h10M9 16h6" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-                <path d="M4 20h20" stroke="#22c55e" strokeWidth="2" />
               </svg>
             </div>
-            <span className="text-xl font-bold text-white tracking-tight">
-              Bon<span className="text-green-400">Box</span>
-            </span>
+            <span className="text-[17px] font-semibold text-gray-900 tracking-tight">BonBox</span>
           </Link>
 
           <div className="hidden sm:flex items-center gap-3">
             <select
               value={lang}
               onChange={(e) => setLang(e.target.value)}
-              className="bg-white/5 border border-white/10 text-gray-300 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-green-500/50 cursor-pointer"
+              aria-label="Language"
+              className="text-[13px] bg-transparent border border-gray-200 rounded-md px-2.5 py-1.5 text-gray-700 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer"
             >
               {LANGUAGES.map((l) => (
-                <option key={l.code} value={l.code} className="bg-gray-900 text-white">{l.flag} {l.label}</option>
+                <option key={l.code} value={l.code}>{l.label}</option>
               ))}
             </select>
-            <Link to="/login" className="px-5 py-2 text-sm font-medium text-gray-300 hover:text-white transition">
+            <Link to="/login" className="px-3 py-2 text-[14px] font-medium text-gray-700 hover:text-gray-900 transition">
               {t("landingSignIn")}
             </Link>
-            <Link to="/register" className="px-5 py-2.5 text-sm font-semibold bg-green-500 text-white rounded-lg hover:bg-green-400 transition shadow-lg shadow-green-500/25">
+            <Link to="/register" className="px-4 py-2 text-[14px] font-medium bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition">
               {t("landingStartFree")}
             </Link>
           </div>
 
-          <button onClick={() => setMenuOpen(!menuOpen)} className="sm:hidden text-white p-2">
+          <button onClick={() => setMenuOpen(!menuOpen)} className="sm:hidden text-gray-700 p-2" aria-label="Menu">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               {menuOpen ? (
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -431,26 +429,26 @@ export default function LandingPage() {
           </button>
         </div>
         {menuOpen && (
-          <div className="sm:hidden px-4 pb-4 space-y-2 border-t border-white/10 pt-3">
+          <div className="sm:hidden px-4 pb-4 space-y-2 border-t border-gray-200/60 pt-3 bg-[#fafaf7]">
             <select
               value={lang}
               onChange={(e) => setLang(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 text-gray-300 text-sm rounded-lg px-3 py-2.5 mb-1"
+              className="w-full text-sm bg-white border border-gray-200 rounded-lg px-3 py-2.5 mb-1"
             >
               {LANGUAGES.map((l) => (
-                <option key={l.code} value={l.code} className="bg-gray-900 text-white">{l.flag} {l.label}</option>
+                <option key={l.code} value={l.code}>{l.label}</option>
               ))}
             </select>
-            <Link to="/login" className="block w-full text-center px-4 py-3 text-sm font-medium text-white border border-white/20 rounded-lg">{t("landingSignIn")}</Link>
-            <Link to="/register" className="block w-full text-center px-4 py-3 text-sm font-semibold bg-green-500 text-white rounded-lg">{t("landingStartFree")}</Link>
+            <Link to="/login" className="block w-full text-center px-4 py-3 text-sm font-medium text-gray-800 border border-gray-300 rounded-lg">{t("landingSignIn")}</Link>
+            <Link to="/register" className="block w-full text-center px-4 py-3 text-sm font-medium bg-gray-900 text-white rounded-lg">{t("landingStartFree")}</Link>
           </div>
         )}
       </nav>
 
-      {/* ── Hero ── */}
-      <section className="relative pt-32 sm:pt-40 pb-20 sm:pb-32 text-white overflow-hidden">
-        <div className="absolute top-20 left-1/4 w-[500px] h-[500px] bg-green-600/10 rounded-full blur-[120px]" />
-        <div className="absolute top-40 right-1/4 w-[400px] h-[400px] bg-orange-600/8 rounded-full blur-[120px]" />
+      {/* ── Hero (Copenhagen-clean: warm white, restrained accent, no glow) ── */}
+      <section className="relative pt-32 sm:pt-40 pb-20 sm:pb-32 text-gray-900 overflow-hidden">
+        <div className="absolute top-20 left-1/4 w-[500px] h-[500px] bg-blue-100/60 rounded-full blur-[120px] pointer-events-none" />
+        <div className="absolute top-40 right-1/4 w-[400px] h-[400px] bg-amber-100/40 rounded-full blur-[120px] pointer-events-none" />
 
         <div className="relative max-w-6xl mx-auto px-4 sm:px-6">
           {/* Split hero: text left, illustration right */}
@@ -458,50 +456,48 @@ export default function LandingPage() {
             {/* Left — text */}
             <div className="flex-1 text-center lg:text-left">
               <FadeIn>
-                <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-green-500/10 backdrop-blur-sm rounded-full text-sm font-medium text-green-400 mb-8 border border-green-500/20">
-                  <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-50 rounded-full text-[12px] font-medium text-blue-700 mb-8 border border-blue-200/60">
+                  <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
                   {t("landingBadge")}
                 </div>
               </FadeIn>
 
               <FadeIn delay={100}>
-                <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.08] tracking-tight">
+                <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-[1.08] tracking-tight text-gray-900">
                   {t("landingHeroLine1")}
                   <br />
-                  <span className="bg-gradient-to-r from-green-400 via-emerald-400 to-green-300 bg-clip-text text-transparent">
+                  <span className="text-blue-600">
                     {t("landingHeroLine2")}
                   </span>
                 </h1>
               </FadeIn>
 
               <FadeIn delay={200}>
-                <p className="mt-6 text-lg text-gray-400 max-w-lg mx-auto lg:mx-0 leading-relaxed">
+                <p className="mt-6 text-lg text-gray-600 max-w-lg mx-auto lg:mx-0 leading-relaxed">
                   {t("landingHeroSub")}
                 </p>
               </FadeIn>
 
               <FadeIn delay={300}>
-                <div className="mt-10 flex flex-col sm:flex-row items-center lg:items-start justify-center lg:justify-start gap-4">
-                  <Link to="/register" className="w-full sm:w-auto px-10 py-4 bg-green-500 text-white font-bold rounded-xl hover:bg-green-400 transition shadow-2xl shadow-green-500/25 text-center text-lg">
+                <div className="mt-10 flex flex-col sm:flex-row items-center lg:items-start justify-center lg:justify-start gap-3">
+                  <Link to="/register" className="w-full sm:w-auto px-7 py-3 bg-gray-900 text-white font-medium rounded-lg hover:bg-gray-800 transition text-center text-[15px]">
                     {t("landingCtaPrimary")}
                   </Link>
-                </div>
-                <div className="mt-4 flex flex-row items-center justify-center lg:justify-start gap-3">
-                  <a href="https://apps.apple.com/dk/app/bonbox-daily-close/id6762066960" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-5 py-2.5 bg-white/10 border border-white/15 rounded-xl hover:bg-white/15 transition">
-                    <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+                  <a href="https://apps.apple.com/dk/app/bonbox-daily-close/id6762066960" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-3 bg-white border border-gray-300 rounded-lg hover:border-gray-400 transition">
+                    <svg className="w-5 h-5 text-gray-900" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
                     <div className="text-left">
-                      <div className="text-[9px] text-gray-400 leading-none">Download on the</div>
-                      <div className="text-sm text-white font-semibold leading-tight">App Store</div>
+                      <div className="text-[9px] text-gray-500 leading-none">Download on the</div>
+                      <div className="text-[13px] text-gray-900 font-semibold leading-tight">App Store</div>
                     </div>
                   </a>
                 </div>
               </FadeIn>
 
               <FadeIn delay={350}>
-                <div className="mt-6 flex flex-wrap items-center justify-center lg:justify-start gap-6 text-sm text-gray-500">
+                <div className="mt-6 flex flex-wrap items-center justify-center lg:justify-start gap-5 text-[13px] text-gray-500">
                   {[t("landingCheck1"), t("landingCheck2"), t("landingCheck3")].map((txt) => (
                     <span key={txt} className="flex items-center gap-1.5">
-                      <svg className="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
+                      <svg className="w-4 h-4 text-gray-900" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
                       {txt}
                     </span>
                   ))}
@@ -519,14 +515,14 @@ export default function LandingPage() {
           <FadeIn delay={500}>
             <div className="mt-16 max-w-5xl mx-auto">
               <LiveDemo t={t} currency={currency} />
-              <p className="text-gray-600 text-xs mt-3 tracking-wide">{t("landingDemoCaption")}</p>
+              <p className="text-gray-500 text-xs mt-3 tracking-wide">{t("landingDemoCaption")}</p>
             </div>
           </FadeIn>
         </div>
       </section>
 
-      {/* ── Stats bar ── */}
-      <section className="py-12 border-y border-white/5 bg-slate-900/50">
+      {/* ── Stats bar (Copenhagen-light: subtle gray panel) ── */}
+      <section className="py-12 border-y border-gray-200/70 bg-white">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
             {[
@@ -537,7 +533,7 @@ export default function LandingPage() {
             ].map((s) => (
               <FadeIn key={s.label}>
                 <div>
-                  <p className="text-3xl sm:text-4xl font-extrabold text-white">
+                  <p className="text-3xl sm:text-4xl font-bold text-gray-900">
                     <Counter end={s.val} duration={1200} prefix={s.prefix} suffix={s.suffix} />
                   </p>
                   <p className="text-gray-500 text-sm mt-1">{s.label}</p>
@@ -553,11 +549,11 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <FadeIn>
             <div className="text-center mb-16">
-              <p className="text-green-400 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingFeaturesTag")}</p>
-              <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-white tracking-tight">
+              <p className="text-blue-600 text-xs font-semibold uppercase tracking-wider mb-3">{t("landingFeaturesTag")}</p>
+              <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 tracking-tight">
                 {t("landingFeaturesTitle")}
               </h2>
-              <p className="mt-5 text-gray-400 text-lg max-w-xl mx-auto">
+              <p className="mt-5 text-gray-600 text-lg max-w-xl mx-auto">
                 {t("landingFeaturesSub")}
               </p>
             </div>
@@ -580,10 +576,10 @@ export default function LandingPage() {
               { icon: "🔄", titleKey: "landingFeature13Title", descKey: "landingFeature13Desc", accent: "from-sky-500/20 to-blue-500/10", border: "border-sky-500/20 hover:border-sky-500/40" },
             ].map((f, i) => (
               <FadeIn key={f.titleKey} delay={i * 80}>
-                <div className={`bg-gradient-to-br ${f.accent} rounded-2xl p-6 border ${f.border} transition-all duration-300 h-full group`}>
+                <div className="bg-white rounded-2xl p-6 border border-gray-200 hover:border-gray-300 transition-all duration-300 h-full group">
                   <div className="text-3xl mb-4">{f.icon}</div>
-                  <h3 className="text-lg font-bold text-white mb-2">{t(f.titleKey)}</h3>
-                  <p className="text-gray-400 text-sm leading-relaxed">{t(f.descKey)}</p>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">{t(f.titleKey)}</h3>
+                  <p className="text-gray-600 text-sm leading-relaxed">{t(f.descKey)}</p>
                 </div>
               </FadeIn>
             ))}
@@ -612,17 +608,17 @@ export default function LandingPage() {
       </section>
 
       {/* ── Intelligence Suite ── */}
-      <section className="py-20 sm:py-28 bg-gradient-to-b from-slate-950 via-purple-950/20 to-slate-950 border-y border-white/5">
+      <section className="py-20 sm:py-28 bg-gradient-to-b from-white via-purple-50/40 to-white border-y border-gray-200/60">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <FadeIn>
             <div className="text-center mb-12">
               <p className="text-purple-400 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingIntelTag")}</p>
-              <h2 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight">
+              <h2 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">
                 {t("landingIntelTitle1")}
                 <br />
                 <span className="text-purple-400">{t("landingIntelTitle2")}</span>
               </h2>
-              <p className="mt-5 text-gray-400 text-lg max-w-xl mx-auto">
+              <p className="mt-5 text-gray-600 text-lg max-w-xl mx-auto">
                 {t("landingIntelSub")}
               </p>
             </div>
@@ -652,12 +648,12 @@ export default function LandingPage() {
       </section>
 
       {/* ── Bar/Restaurant Spotlight ── */}
-      <section className="py-20 sm:py-28 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 border-y border-white/5">
+      <section className="py-20 sm:py-28 bg-gray-50 border-y border-gray-200/60">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <FadeIn>
             <div className="text-center mb-12">
               <p className="text-orange-400 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingBarTag")}</p>
-              <h2 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight">
+              <h2 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">
                 {t("landingBarTitle1")}
                 <br />
                 <span className="text-orange-400">{t("landingBarTitle2")}</span>
@@ -691,12 +687,12 @@ export default function LandingPage() {
       </section>
 
       {/* ── Staff Management Spotlight ── */}
-      <section className="py-20 sm:py-28 bg-gradient-to-b from-slate-950 via-teal-950/15 to-slate-950 border-y border-white/5">
+      <section className="py-20 sm:py-28 bg-gradient-to-b from-white via-teal-50/40 to-white border-y border-gray-200/60">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <FadeIn>
             <div className="text-center mb-12">
               <p className="text-teal-400 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingStaffTag")}</p>
-              <h2 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight">
+              <h2 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">
                 {t("landingStaffTitle1")}
                 <br />
                 <span className="text-teal-400">{t("landingStaffTitle2")}</span>
@@ -735,7 +731,7 @@ export default function LandingPage() {
           <FadeIn>
             <div className="text-center mb-16">
               <p className="text-green-400 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingHowTag")}</p>
-              <h2 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight">
+              <h2 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">
                 {t("landingHowTitle")}
               </h2>
             </div>
@@ -766,12 +762,12 @@ export default function LandingPage() {
       </section>
 
       {/* ── Download the App ── */}
-      <section className="py-16 border-y border-white/5 bg-gradient-to-r from-green-950/30 via-slate-950 to-green-950/30">
+      <section className="py-16 border-y border-gray-200/60 bg-gradient-to-r from-emerald-50 via-white to-emerald-50">
         <div className="max-w-4xl mx-auto px-4 sm:px-6">
           <FadeIn>
             <div className="flex flex-col md:flex-row items-center justify-between gap-8">
               <div className="text-center md:text-left">
-                <h2 className="text-2xl md:text-3xl font-bold text-white mb-2">
+                <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-2">
                   Take BonBox Everywhere
                 </h2>
                 <p className="text-gray-400 text-sm">
@@ -793,11 +789,11 @@ export default function LandingPage() {
       </section>
 
       {/* ── Global reach ── */}
-      <section className="py-16 border-y border-white/5 bg-slate-900/30">
+      <section className="py-16 border-y border-gray-200/60 bg-gray-50">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <FadeIn>
             <div className="text-center">
-              <h2 className="text-2xl md:text-3xl font-bold text-white mb-4">
+              <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-4">
                 {t("landingGlobalTitle")}
               </h2>
               <p className="text-gray-400 text-lg mb-8 max-w-lg mx-auto">
@@ -836,65 +832,62 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Final CTA ── */}
-      <section className="relative py-24 sm:py-32 text-white text-center overflow-hidden">
-        <div className="absolute inset-0">
-          <div className="absolute top-10 left-1/3 w-72 h-72 bg-green-600/15 rounded-full blur-[100px]" />
-          <div className="absolute bottom-10 right-1/3 w-60 h-60 bg-orange-600/10 rounded-full blur-[100px]" />
+      {/* ── Final CTA (Copenhagen-clean: warm white, restrained accent) ── */}
+      <section className="relative py-24 sm:py-32 text-gray-900 text-center overflow-hidden bg-white">
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute top-10 left-1/3 w-72 h-72 bg-blue-100/50 rounded-full blur-[100px]" />
+          <div className="absolute bottom-10 right-1/3 w-60 h-60 bg-amber-100/40 rounded-full blur-[100px]" />
         </div>
         <div className="relative max-w-3xl mx-auto px-4 sm:px-6">
           <FadeIn>
-            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold mb-5 tracking-tight">
+            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-5 tracking-tight text-gray-900">
               {t("landingCtaTitle1")}
               <br />
-              <span className="bg-gradient-to-r from-green-400 to-emerald-300 bg-clip-text text-transparent">{t("landingCtaTitle2")}</span>
+              <span className="text-blue-600">{t("landingCtaTitle2")}</span>
             </h2>
-            <p className="text-gray-400 text-lg mb-10 max-w-lg mx-auto">
+            <p className="text-gray-600 text-lg mb-10 max-w-lg mx-auto">
               {t("landingCtaSub")}
             </p>
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Link to="/register" className="w-full sm:w-auto px-12 py-4 bg-green-500 text-white font-bold rounded-xl hover:bg-green-400 transition shadow-2xl shadow-green-500/25 text-lg">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+              <Link to="/register" className="w-full sm:w-auto px-9 py-3.5 bg-gray-900 text-white font-medium rounded-lg hover:bg-gray-800 transition text-[15px]">
                 {t("landingCtaButton")}
               </Link>
-            </div>
-            <div className="mt-4 flex flex-row items-center justify-center gap-3">
-              <a href="https://apps.apple.com/dk/app/bonbox-daily-close/id6762066960" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-5 py-2.5 bg-white/10 border border-white/15 rounded-xl hover:bg-white/15 transition">
-                <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
-                <span className="text-sm text-white font-semibold">App Store</span>
+              <a href="https://apps.apple.com/dk/app/bonbox-daily-close/id6762066960" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-5 py-3.5 bg-white border border-gray-300 rounded-lg hover:border-gray-400 transition">
+                <svg className="w-5 h-5 text-gray-900" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+                <span className="text-[14px] text-gray-900 font-semibold">App Store</span>
               </a>
             </div>
-            <p className="mt-5 text-gray-600 text-sm">{t("landingNoCard")}</p>
+            <p className="mt-5 text-gray-500 text-sm">{t("landingNoCard")}</p>
           </FadeIn>
         </div>
       </section>
 
       {/* ── Footer ── */}
-      <footer className="py-10 border-t border-white/5">
+      <footer className="py-10 border-t border-gray-200/60 bg-[#fafaf7]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="inline-flex items-center justify-center w-8 h-8 bg-white/10 rounded-lg">
-              <svg width="18" height="18" viewBox="0 0 28 28" fill="none">
-                <rect x="4" y="2" width="20" height="24" rx="3" stroke="white" strokeWidth="2" />
+          <div className="flex items-center gap-2.5">
+            <div className="inline-flex items-center justify-center w-7 h-7 bg-gray-900 rounded-md">
+              <svg width="16" height="16" viewBox="0 0 28 28" fill="none">
+                <rect x="4" y="2" width="20" height="24" rx="3" stroke="white" strokeWidth="2.2" />
                 <path d="M9 8h10M9 12h10M9 16h6" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-                <path d="M4 20h20" stroke="#22c55e" strokeWidth="2" />
               </svg>
             </div>
-            <span className="text-white font-bold text-sm">Bon<span className="text-green-400">Box</span></span>
+            <span className="text-gray-900 font-semibold text-sm">BonBox</span>
           </div>
-          <p className="text-gray-600 text-xs text-center">
+          <p className="text-gray-500 text-xs text-center">
             &copy; 2026 BonBox &middot; {t("landingFooterTagline")}
           </p>
           <div className="flex items-center gap-4">
-            <Link to="/contact" className="text-gray-500 text-sm hover:text-gray-300 transition">{t("landingFooterContact")}</Link>
-            <Link to="/privacy" className="text-gray-500 text-sm hover:text-gray-300 transition">{t("landingFooterPrivacy")}</Link>
-            <Link to="/terms" className="text-gray-500 text-sm hover:text-gray-300 transition">Terms</Link>
+            <Link to="/contact" className="text-gray-600 text-sm hover:text-gray-900 transition">{t("landingFooterContact")}</Link>
+            <Link to="/privacy" className="text-gray-600 text-sm hover:text-gray-900 transition">{t("landingFooterPrivacy")}</Link>
+            <Link to="/terms" className="text-gray-600 text-sm hover:text-gray-900 transition">Terms</Link>
           </div>
         </div>
-        {/* Trademark notice — third-party names referenced under nominative fair use */}
-        <p className="mt-6 text-[10px] text-gray-700 text-center max-w-3xl mx-auto px-4 leading-relaxed">
+        {/* Trademark notice */}
+        <p className="mt-6 text-[10px] text-gray-500 text-center max-w-3xl mx-auto px-4 leading-relaxed">
           Dinero, Billy, e-conomic, Visma, MobilePay, Dankort, Apple, App Store, Anthropic and Claude are
           trademarks of their respective owners. BonBox is operated independently and is not affiliated
-          with or endorsed by these companies. See <Link to="/terms" className="underline hover:text-gray-500">Terms § 13</Link> for the full notice.
+          with or endorsed by these companies. See <Link to="/terms" className="underline hover:text-gray-700">Terms § 13</Link> for the full notice.
         </p>
       </footer>
     </div>
