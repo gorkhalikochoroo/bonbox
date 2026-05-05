@@ -66,6 +66,10 @@ class WineSale(Base):
         GUID(), ForeignKey("branches.id", ondelete="SET NULL"), nullable=True,
     )
     quantity: Mapped[int] = mapped_column(Integer, default=1)
+    # "bottle" or "glass" — for glass sales, quantity is glasses and stock is
+    # decremented by ceil(quantity / glasses_per_bottle). Default "bottle"
+    # preserves legacy behaviour for any pre-existing rows.
+    unit_type: Mapped[str] = mapped_column(String(10), default="bottle")
     sale_price: Mapped[float] = mapped_column(Numeric(12, 2))
     sold_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

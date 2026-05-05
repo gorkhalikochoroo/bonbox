@@ -137,6 +137,8 @@ _migrations = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS tax_filing_frequency VARCHAR(20)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS prices_include_moms BOOLEAN DEFAULT true",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS has_employees BOOLEAN DEFAULT false",
+    # Wine sales — distinguish bottle vs glass sales (legacy rows default to "bottle")
+    "ALTER TABLE wine_sales ADD COLUMN IF NOT EXISTS unit_type VARCHAR(10) DEFAULT 'bottle'",
     # Danish restaurant operations — Property Financial Report fields.
     # Modeled on the Sticks'n'Sushi closing format: order channel, guest count,
     # service charge, discount, and the void/error-correct ladder.

@@ -416,6 +416,16 @@ def update_profile(
             current_user.timezone = data.timezone
         except Exception:  # noqa: BLE001
             raise HTTPException(status_code=400, detail="Invalid timezone")
+    # Tax preferences. Validate frequency against an allowlist — never trust
+    # the wire, no SQL injection risk via this enum-style column.
+    if data.tax_filing_frequency is not None:
+        if data.tax_filing_frequency not in {"monthly", "bimonthly", "quarterly", "half_yearly"}:
+            raise HTTPException(status_code=400, detail="Invalid filing frequency")
+        current_user.tax_filing_frequency = data.tax_filing_frequency
+    if data.prices_include_moms is not None:
+        current_user.prices_include_moms = bool(data.prices_include_moms)
+    if data.has_employees is not None:
+        current_user.has_employees = bool(data.has_employees)
     db.commit()
     db.refresh(current_user)
     return current_user

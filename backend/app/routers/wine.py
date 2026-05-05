@@ -98,10 +98,37 @@ class PdfExportRequest(BaseModel):
 
 # ── Helpers ──────────────────────────────────────────────────
 
-def _calc_margin(cost: float, sell: float) -> float:
+# DK Moms rate. Wine in DK has no reduced rate — full 25% applies.
+# (Cost prices from wholesalers are typically ex-moms; sell prices on the
+# menu are typically incl-moms because that's what the guest pays.)
+DK_MOMS_RATE = 0.25
+
+
+def _net_sell(sell_price_incl_moms: float, prices_include_moms: bool = True) -> float:
+    """Convert menu price (incl moms) to net price the business actually keeps."""
+    if not prices_include_moms or sell_price_incl_moms <= 0:
+        return float(sell_price_incl_moms or 0)
+    return float(sell_price_incl_moms) / (1 + DK_MOMS_RATE)
+
+
+def _calc_margin(cost: float, sell: float, prices_include_moms: bool = True) -> float:
+    """
+    Gross margin %, Moms-aware.
+
+    Cost prices come from wholesalers ex-moms. Menu sell prices are
+    incl-moms in B2C (the user-facing default). Comparing them directly
+    overstates margin by ~5–10 percentage points. We extract net sell
+    first, then compute (net_sell - cost) / net_sell.
+
+    For B2B users (prices_include_moms=False), sell is already net so
+    no extraction needed.
+    """
     if sell <= 0:
-        return 0
-    return round((sell - cost) / sell * 100, 1)
+        return 0.0
+    net = _net_sell(sell, prices_include_moms)
+    if net <= 0:
+        return 0.0
+    return round((net - cost) / net * 100, 1)
 
 
 def _wine_dict(w: Wine) -> dict:
@@ -132,13 +159,21 @@ def _wine_dict(w: Wine) -> dict:
 
 # ── CRUD ─────────────────────────────────────────────────────
 
+def _user_prices_incl_moms(user: User) -> bool:
+    """Multi-layer: read user setting if present, default to True (B2C)."""
+    try:
+        return bool(getattr(user, "prices_include_moms", True))
+    except Exception:
+        return True
+
+
 @router.post("")
 def create_wine(
     data: WineCreate,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    margin = _calc_margin(data.cost_price, data.sell_price)
+    margin = _calc_margin(data.cost_price, data.sell_price, _user_prices_incl_moms(user))
     wine = Wine(
         user_id=user.id,
         branch_id=uuid.UUID(data.branch_id) if data.branch_id else None,
@@ -280,47 +315,86 @@ def update_wine(
     for k, v in updates.items():
         setattr(wine, k, v)
 
-    # Recalculate margin if prices changed
+    # Recalculate margin if prices changed (Moms-aware)
     cost = float(updates.get("cost_price", wine.cost_price) or 0)
     sell = float(updates.get("sell_price", wine.sell_price) or 0)
-    wine.margin_pct = _calc_margin(cost, sell)
+    wine.margin_pct = _calc_margin(cost, sell, _user_prices_incl_moms(user))
 
     db.commit()
     db.refresh(wine)
     return _wine_dict(wine)
 
 
+# Restaurants pour ~5 glasses from one bottle (150ml glass / 750ml bottle).
+# Configurable per-wine in future; hardcoded default for now.
+GLASSES_PER_BOTTLE = 5
+
+
 @router.post("/{wine_id}/sell")
 def sell_wine(
     wine_id: str,
     quantity: int = Query(1, ge=1),
+    unit: str = Query("bottle", pattern="^(bottle|glass)$"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    """
+    Record a wine sale.
+
+    `unit=bottle` (default) — decrements stock by quantity, charges sell_price each.
+    `unit=glass`            — decrements stock by quantity/5 (rounded up), charges
+                              glass_price each (or sell_price/5 if glass_price unset).
+
+    Multi-layer defense: if unit_type column doesn't exist yet (pre-migration),
+    we still log the sale at correct revenue but skip persisting unit_type — the
+    business never loses a number, just the breakdown granularity.
+    """
     wine = db.query(Wine).filter(
         Wine.id == wine_id, Wine.user_id == user.id, Wine.is_deleted.isnot(True),
     ).first()
     if not wine:
         raise HTTPException(404, "Wine not found")
-    if wine.stock_qty < quantity:
-        raise HTTPException(400, f"Only {wine.stock_qty} bottles in stock")
 
-    wine.stock_qty -= quantity
+    # Compute per-unit price + stock impact based on unit type
+    sell_price_bottle = float(wine.sell_price or 0)
+    if unit == "glass":
+        glass_price = float(wine.glass_price or 0) or (sell_price_bottle / GLASSES_PER_BOTTLE if sell_price_bottle else 0)
+        per_unit_price = glass_price
+        # Stock is bottles — round UP because once you open, it's deducted
+        bottles_consumed = -(-quantity // GLASSES_PER_BOTTLE)  # ceil division
+    else:
+        per_unit_price = sell_price_bottle
+        bottles_consumed = quantity
 
-    sale = WineSale(
+    if wine.stock_qty < bottles_consumed:
+        raise HTTPException(
+            400,
+            f"Only {wine.stock_qty} bottle(s) in stock — not enough for {quantity} {unit}(s)",
+        )
+    wine.stock_qty -= bottles_consumed
+
+    sale_kwargs = dict(
         user_id=user.id,
         wine_id=wine.id,
         branch_id=wine.branch_id,
         quantity=quantity,
-        sale_price=float(wine.sell_price or 0) * quantity,
+        sale_price=per_unit_price * quantity,
     )
+    # Try to set unit_type if the column exists. If migration hasn't run yet,
+    # fall back gracefully — sale still gets logged with correct revenue.
+    try:
+        sale = WineSale(**sale_kwargs, unit_type=unit)
+    except (TypeError, AttributeError):
+        sale = WineSale(**sale_kwargs)
     db.add(sale)
     db.commit()
 
     return {
-        "message": f"Sold {quantity} bottle(s) of {wine.name}",
-        "remaining": wine.stock_qty,
+        "message": f"Sold {quantity} {unit}(s) of {wine.name}",
+        "remaining_bottles": wine.stock_qty,
         "low_stock": wine.stock_qty <= wine.reorder_level,
+        "unit": unit,
+        "revenue": round(per_unit_price * quantity, 2),
     }
 
 

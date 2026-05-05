@@ -42,6 +42,10 @@ class UserResponse(BaseModel):
     plan: str = "free"
     trial_ends_at: datetime | None = None
     created_at: datetime | None = None
+    # Tax preferences — null tax_filing_frequency means "use currency default"
+    tax_filing_frequency: str | None = None
+    prices_include_moms: bool = True
+    has_employees: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -57,6 +61,10 @@ class UserUpdate(BaseModel):
     email: EmailStr | None = None
     analytics_opt_out: bool | None = None
     timezone: str | None = None
+    # Tax preferences (validated server-side against allowed list)
+    tax_filing_frequency: str | None = None  # "monthly" | "bimonthly" | "quarterly" | "half_yearly"
+    prices_include_moms: bool | None = None
+    has_employees: bool | None = None
 
 
 class PasswordChange(BaseModel):
