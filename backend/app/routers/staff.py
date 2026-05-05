@@ -1354,6 +1354,65 @@ def estimate_payroll(
     return estimate_period_payroll(db, user.id, period_start, period_end)
 
 
+@router.get("/payroll/csv")
+def export_payroll_csv(
+    period_start: date,
+    period_end: date,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Hours + gross wages CSV — drop-in import for DataLøn / Zenegy / Salary.
+
+    Format: Name, Role, Contract type, Hours, Gross wage, Period start, Period end.
+    Names match the universal columns these systems accept; users map them
+    once in their lønsystem then re-import each period.
+
+    Why CSV (not direct submit): submitting to SKAT/eIndkomst requires
+    certification we don't have. The user's lønsystem (already certified)
+    handles the official submission — we just save them the typing.
+
+    Multi-layer defense: if payroll service errors, we still export an
+    empty CSV with headers so the user's import job doesn't crash.
+    """
+    import csv
+    import io
+    from app.services.payroll_service import estimate_period_payroll
+
+    try:
+        est = estimate_period_payroll(db, user.id, period_start, period_end)
+    except Exception:  # noqa: BLE001
+        est = {"per_staff": []}
+
+    buf = io.StringIO()
+    writer = csv.writer(buf, delimiter=";")  # DK lønsystems prefer ; (Excel locale)
+    writer.writerow([
+        "Name", "Role", "Contract", "Hours", "Gross (DKK)",
+        "AM-bidrag (8%)", "A-skat (est.)", "Net pay", "Period start", "Period end",
+    ])
+    for s in est.get("per_staff", []):
+        writer.writerow([
+            s.get("name", ""),
+            s.get("role", ""),
+            s.get("contract_type", ""),
+            f"{float(s.get('hours', 0)):.2f}",
+            f"{float(s.get('gross', 0)):.2f}",
+            f"{float(s.get('am_bidrag', 0)):.2f}",
+            f"{float(s.get('a_skat', 0)):.2f}",
+            f"{float(s.get('net_pay', 0)):.2f}",
+            str(period_start),
+            str(period_end),
+        ])
+
+    csv_bytes = buf.getvalue().encode("utf-8-sig")  # BOM for Excel locale handling
+    filename = f"bonbox_payroll_{period_start}_{period_end}.csv"
+    return StreamingResponse(
+        iter([csv_bytes]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
 @router.post("/payroll/pdf")
 def generate_payroll_pdf(
     body: PayrollPDFRequest,

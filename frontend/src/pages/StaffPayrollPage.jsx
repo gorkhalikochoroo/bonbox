@@ -73,6 +73,21 @@ export default function StaffPayrollPage() {
   // ─── Error ───
   const [error, setError] = useState("");
 
+  // ─── Danish payroll estimate (only relevant for DKK users) ───
+  const [dkEstimate, setDkEstimate] = useState(null);
+  const [dkLoading, setDkLoading] = useState(false);
+  const isDanish = user?.currency === "DKK";
+
+  useEffect(() => {
+    if (!period || !isDanish) { setDkEstimate(null); return; }
+    setDkLoading(true);
+    api.get("/staff/payroll/estimate", {
+      params: { period_start: period.period_start, period_end: period.period_end },
+    })
+      .then(r => { setDkEstimate(r.data); setDkLoading(false); })
+      .catch(() => { setDkEstimate(null); setDkLoading(false); });
+  }, [period, isDanish]);
+
   /* ─── Fetch current pay period ─── */
   useEffect(() => {
     setPeriodLoading(true);
@@ -478,6 +493,119 @@ export default function StaffPayrollPage() {
         </div>
       </FadeIn>
 
+      {/* ─── DANISH PAYROLL ESTIMATE — A-skat / AM-bidrag / ATP / Feriepenge ─── */}
+      {isDanish && (
+        <FadeIn delay={0.15}>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+            <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
+              <div>
+                <h2 className="font-bold text-gray-800 dark:text-white">Danish payroll breakdown</h2>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Estimate for SKAT remittance and FerieKonto. Submit via your lønsystem.
+                </p>
+              </div>
+              <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                Estimate
+              </span>
+            </div>
+
+            {dkLoading ? (
+              <div className="text-sm text-gray-500 dark:text-gray-400">Loading estimate…</div>
+            ) : !dkEstimate ? (
+              <div className="text-sm text-gray-500 dark:text-gray-400">
+                No estimate available — log staff hours first.
+              </div>
+            ) : dkEstimate.staff_count === 0 ? (
+              <div className="text-sm text-gray-500 dark:text-gray-400">
+                No active staff or hours logged in this period.
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                  <DkStat label="Gross wages" value={dkEstimate.totals.gross} currency={currency} accent="gray" />
+                  <DkStat label="AM-bidrag (8%)" value={dkEstimate.totals.am_bidrag} currency={currency} accent="blue" />
+                  <DkStat label="A-skat (est. 36%)" value={dkEstimate.totals.a_skat} currency={currency} accent="blue" />
+                  <DkStat label="Net to staff" value={dkEstimate.totals.net_pay} currency={currency} accent="green" />
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4 pt-4 border-t border-gray-100 dark:border-gray-700">
+                  <DkStat label="ATP" value={dkEstimate.totals.atp} currency={currency} small />
+                  <DkStat label="Feriepenge (12.5%)" value={dkEstimate.totals.feriepenge} currency={currency} small />
+                  <DkStat label="Employer total cost" value={dkEstimate.totals.employer_total_cost} currency={currency} small accent="dark" />
+                </div>
+
+                <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 px-3 py-2.5 text-xs text-blue-800 dark:text-blue-200">
+                  <div className="font-semibold mb-0.5">SKAT remittance for this period</div>
+                  <div>{fmtMoney(dkEstimate.skat_remit.total, currency)} = AM-bidrag {fmtMoney(dkEstimate.skat_remit.am_bidrag, currency)} + A-skat {fmtMoney(dkEstimate.skat_remit.a_skat, currency)}</div>
+                </div>
+
+                <p className="mt-3 text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
+                  {dkEstimate.estimate_note}
+                </p>
+
+                <div className="mt-3 flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={async () => {
+                      try {
+                        const res = await api.get("/staff/payroll/csv", {
+                          params: { period_start: period.period_start, period_end: period.period_end },
+                          responseType: "blob",
+                        });
+                        const url = window.URL.createObjectURL(new Blob([res.data], { type: "text/csv" }));
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = `bonbox_payroll_${period.period_start}_${period.period_end}.csv`;
+                        document.body.appendChild(a); a.click(); a.remove();
+                        window.URL.revokeObjectURL(url);
+                      } catch {
+                        setError("Could not generate CSV.");
+                      }
+                    }}
+                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 transition"
+                  >
+                    Download CSV (DataLøn / Zenegy import)
+                  </button>
+                </div>
+
+                {dkEstimate.per_staff?.length > 0 && (
+                  <details className="mt-3">
+                    <summary className="cursor-pointer text-xs font-medium text-gray-700 dark:text-gray-300 select-none">
+                      Per-employee breakdown ({dkEstimate.per_staff.length})
+                    </summary>
+                    <div className="overflow-x-auto mt-2">
+                      <table className="w-full text-xs text-gray-700 dark:text-gray-300">
+                        <thead className="text-[10px] uppercase text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+                          <tr>
+                            <th className="text-left py-1.5 px-2">Name</th>
+                            <th className="text-right py-1.5 px-2">Hours</th>
+                            <th className="text-right py-1.5 px-2">Gross</th>
+                            <th className="text-right py-1.5 px-2">AM</th>
+                            <th className="text-right py-1.5 px-2">A-skat</th>
+                            <th className="text-right py-1.5 px-2">Net</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dkEstimate.per_staff.map((s) => (
+                            <tr key={s.staff_id} className="border-b border-gray-100 dark:border-gray-800">
+                              <td className="py-1.5 px-2">{s.name}</td>
+                              <td className="py-1.5 px-2 text-right">{s.hours.toFixed(1)}</td>
+                              <td className="py-1.5 px-2 text-right">{fmtMoney(s.gross, currency)}</td>
+                              <td className="py-1.5 px-2 text-right">{fmtMoney(s.am_bidrag, currency)}</td>
+                              <td className="py-1.5 px-2 text-right">{fmtMoney(s.a_skat, currency)}</td>
+                              <td className="py-1.5 px-2 text-right font-semibold">{fmtMoney(s.net_pay, currency)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
+                )}
+              </>
+            )}
+          </div>
+        </FadeIn>
+      )}
+
       {/* ─── EXPORT SECTION ─── */}
       <FadeIn delay={0.2}>
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
@@ -621,6 +749,25 @@ export default function StaffPayrollPage() {
           )}
         </div>
       </FadeIn>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DK payroll stat tile
+   ═══════════════════════════════════════════════════════════ */
+function DkStat({ label, value, currency, accent = "gray", small = false }) {
+  const accentClass =
+    accent === "blue" ? "border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/20"
+    : accent === "green" ? "border-green-200 dark:border-green-800 bg-green-50/60 dark:bg-green-900/20"
+    : accent === "dark" ? "border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700/40"
+    : "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40";
+  return (
+    <div className={`rounded-lg border ${accentClass} px-3 py-2.5`}>
+      <div className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold">{label}</div>
+      <div className={`mt-0.5 font-bold text-gray-900 dark:text-white ${small ? "text-base" : "text-lg"}`}>
+        {value == null ? "—" : `${Number(value).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} ${currency}`}
+      </div>
     </div>
   );
 }
