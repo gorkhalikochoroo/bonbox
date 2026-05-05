@@ -565,6 +565,27 @@ export default function StaffPayrollPage() {
                   >
                     Download CSV (DataLøn / Zenegy import)
                   </button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const res = await api.get("/staff/payroll/loenseddel", {
+                          params: { period_start: period.period_start, period_end: period.period_end },
+                          responseType: "blob",
+                        });
+                        const url = window.URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = `bonbox_loenseddel_${period.period_start}_${period.period_end}.pdf`;
+                        document.body.appendChild(a); a.click(); a.remove();
+                        window.URL.revokeObjectURL(url);
+                      } catch (e) {
+                        setError(e?.response?.status === 404 ? "No staff hours logged in this period." : "Could not generate Lønseddel.");
+                      }
+                    }}
+                    className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+                  >
+                    Lønseddel PDF (one per employee)
+                  </button>
                 </div>
 
                 {dkEstimate.per_staff?.length > 0 && (

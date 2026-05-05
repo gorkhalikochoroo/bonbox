@@ -93,22 +93,46 @@ def create_daily_close(
     revenue_total = sum((data.revenue_breakdown or {}).values())
     payment_total = sum((data.payment_breakdown or {}).values())
 
-    # Cash expected = payment_breakdown["cash"] if present
-    cash_expected = (data.payment_breakdown or {}).get("cash") or (data.payment_breakdown or {}).get("kontant")
+    # Cash expected — explicit None check so 0 (legitimate "no cash today")
+    # doesn't get treated as missing. The previous `or` chain coerced 0 → None.
+    pb = data.payment_breakdown or {}
+    if "cash" in pb:
+        cash_expected = pb["cash"]
+    elif "kontant" in pb:
+        cash_expected = pb["kontant"]
+    else:
+        cash_expected = None
     cash_difference = None
     if cash_expected is not None and data.cash_counted is not None:
-        cash_difference = round(data.cash_counted - cash_expected, 2)
+        cash_difference = round(float(data.cash_counted) - float(cash_expected), 2)
 
     tips_per_person = None
     if data.tips_total and data.tips_staff_count and data.tips_staff_count > 0:
         tips_per_person = round(data.tips_total / data.tips_staff_count, 2)
 
-    # MOMS / VAT — use provided value or auto-calculate (Danish 25%)
+    # MOMS / VAT — use provided value or auto-calculate using the user's
+    # currency rate AND their prices-include-Moms preference.
+    # Previously hardcoded 25% which gave wrong MOMS for any non-DK user
+    # (NPR 13%, GBP 20%, EUR 21%, etc.) and ignored B2B net-amount mode.
     moms_mode = data.moms_mode or "auto"
     if data.moms_total is not None:
         moms_total = round(data.moms_total, 2)
     else:
-        moms_total = round(revenue_total * 0.25 / 1.25, 2) if revenue_total > 0 else 0
+        try:
+            from app.services.tax_service import _get_vat_rate
+            vat_rate = _get_vat_rate(user.currency or "DKK")
+        except Exception:  # noqa: BLE001
+            vat_rate = 0.25  # safe DK fallback if tax service load fails
+        prices_incl_moms = bool(getattr(user, "prices_include_moms", True))
+        if revenue_total > 0 and vat_rate > 0:
+            if prices_incl_moms:
+                # Gross-input mode (B2C): extract VAT from total
+                moms_total = round(revenue_total * vat_rate / (1 + vat_rate), 2)
+            else:
+                # Net-input mode (B2B): VAT is rate × net
+                moms_total = round(revenue_total * vat_rate, 2)
+        else:
+            moms_total = 0
     revenue_ex_moms = round(revenue_total - moms_total, 2) if revenue_total > 0 else 0
 
     status = data.status if data.status in ("draft", "confirmed") else "confirmed"
