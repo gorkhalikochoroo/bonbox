@@ -30,8 +30,8 @@ export default function ContactPage() {
             </div>
             <div>
               <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Email</p>
-              <a href="mailto:gorkhalikochoroo@gmail.com" className="text-blue-600 dark:text-blue-400 hover:underline text-sm">
-                gorkhalikochoroo@gmail.com
+              <a href="mailto:bonbox.dk@gmail.com" className="text-blue-600 dark:text-blue-400 hover:underline text-sm">
+                bonbox.dk@gmail.com
               </a>
             </div>
           </div>

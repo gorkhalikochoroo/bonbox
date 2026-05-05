@@ -22,7 +22,7 @@ React frontend + FastAPI backend + PostgreSQL (Supabase).
 
 ## Key Technical Decisions
 - **i18n**: Custom `useLanguage()` hook with `t(key)` — supports EN 🇬🇧, DA 🇩🇰, NP 🇳🇵
-- **Auth**: JWT tokens, stored in localStorage
+- **Auth**: JWT — web rides on an HttpOnly `bonbox_session` cookie (set by `/auth/login`); native iOS (Capacitor) keeps the JWT in localStorage because cross-site cookies aren't reliable inside WKWebView. Backend's `get_current_user` accepts either source.
 - **DB Migrations**: Auto-run on startup via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in main.py (no shell access on Render free tier)
 - **Lazy Loading**: `lazyRetry()` wrapper around React.lazy() with retry delays
 - **Service Worker**: bonbox-v3 cache with auto-clear on errors

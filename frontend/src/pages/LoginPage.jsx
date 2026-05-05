@@ -9,7 +9,7 @@ function HeroIllustration() {
   return (
     <svg viewBox="0 0 400 400" fill="none" className="w-full max-w-sm mx-auto drop-shadow-lg" style={{ filter: "drop-shadow(0 8px 24px rgba(0,0,0,0.08))" }}>
       {/* Background blob */}
-      <ellipse cx="200" cy="210" rx="170" ry="160" fill="#ECFDF5" className="dark:opacity-10" />
+      <ellipse cx="200" cy="210" rx="170" ry="160" fill="#ECFDF5" />
 
       {/* Desk */}
       <rect x="60" y="280" width="280" height="12" rx="6" fill="#D1FAE5" />
@@ -132,16 +132,16 @@ export default function LoginPage() {
         @keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
 
-      <div className="min-h-screen flex flex-col bg-[#fafaf7] dark:bg-gray-950 text-gray-900 dark:text-gray-100">
+      <div className="min-h-screen flex flex-col bg-slate-50 text-gray-900">
         {/* Top bar — wordmark left, language dropdown right (Copenhagen-style minimal nav) */}
-        <header className="px-6 sm:px-10 py-5 flex items-center justify-between border-b border-gray-200/60 dark:border-gray-800">
+        <header className="px-6 sm:px-10 py-5 flex items-center justify-between border-b border-gray-200/60">
           <Link to="/" className="flex items-center gap-2.5 group">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-gray-900 dark:bg-white">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-gray-900">
               <svg width="18" height="18" viewBox="0 0 28 28" fill="none">
                 <rect x="4" y="2" width="20" height="24" rx="3" stroke="currentColor"
-                      className="text-white dark:text-gray-900" strokeWidth="2.2"/>
+                      className="text-white" strokeWidth="2.2"/>
                 <path d="M9 8h10M9 12h10M9 16h6" stroke="currentColor"
-                      className="text-white dark:text-gray-900" strokeWidth="1.5" strokeLinecap="round"/>
+                      className="text-white" strokeWidth="1.5" strokeLinecap="round"/>
               </svg>
             </div>
             <span className="text-[15px] font-semibold tracking-tight">BonBox</span>
@@ -151,12 +151,12 @@ export default function LoginPage() {
             value={lang}
             onChange={(e) => setLang(e.target.value)}
             aria-label="Language"
-            className="text-[13px] bg-transparent border border-gray-200 dark:border-gray-700 rounded-md px-2.5 py-1.5
-              text-gray-700 dark:text-gray-300 hover:border-gray-400 dark:hover:border-gray-500
+            className="text-[13px] bg-transparent border border-gray-200 rounded-md px-2.5 py-1.5
+              text-gray-700 hover:border-gray-400
               focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer"
           >
             {LANGUAGES.map((l) => (
-              <option key={l.code} value={l.code} className="bg-white dark:bg-gray-900">
+              <option key={l.code} value={l.code} className="bg-white">
                 {l.label}
               </option>
             ))}
@@ -166,16 +166,16 @@ export default function LoginPage() {
         {/* Body — single column, generous whitespace */}
         <main className="flex-1 flex items-center justify-center px-6 py-12 sm:py-20">
           <div className="w-full max-w-[400px]" style={{ animation: "slideUp 0.4s ease-out" }}>
-            <h1 className="text-[28px] sm:text-[32px] font-semibold tracking-tight leading-[1.15] text-gray-900 dark:text-white">
+            <h1 className="text-[28px] sm:text-[32px] font-semibold tracking-tight leading-[1.15] text-gray-900">
               Welcome back
             </h1>
-            <p className="text-[15px] text-gray-500 dark:text-gray-400 mt-2 leading-relaxed">
+            <p className="text-[15px] text-gray-500 mt-2 leading-relaxed">
               Sign in to continue with BonBox.
             </p>
 
             {error && (
-              <div role="alert" className="mt-6 flex items-start gap-2.5 bg-red-50 dark:bg-red-900/20
-                border border-red-200 dark:border-red-800/60 text-red-700 dark:text-red-300 px-3.5 py-3 rounded-lg text-[13px]">
+              <div role="alert" className="mt-6 flex items-start gap-2.5 bg-red-50
+                border border-red-200 text-red-700 px-3.5 py-3 rounded-lg text-[13px]">
                 <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                         d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"/>
@@ -186,7 +186,7 @@ export default function LoginPage() {
 
             <form onSubmit={handleSubmit} className="mt-7 space-y-4">
               <div>
-                <label htmlFor="email" className="block text-[13px] font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <label htmlFor="email" className="block text-[13px] font-medium text-gray-700 mb-1.5">
                   Email
                 </label>
                 <input
@@ -196,8 +196,8 @@ export default function LoginPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@company.com"
                   autoComplete="email"
-                  className="w-full px-3.5 py-2.5 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700
-                    rounded-lg text-[15px] text-gray-900 dark:text-white placeholder:text-gray-400
+                  className="w-full px-3.5 py-2.5 bg-white border border-gray-300
+                    rounded-lg text-[15px] text-gray-900 placeholder:text-gray-400
                     focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
                   required
                 />
@@ -205,11 +205,11 @@ export default function LoginPage() {
 
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label htmlFor="password" className="block text-[13px] font-medium text-gray-700 dark:text-gray-300">
+                  <label htmlFor="password" className="block text-[13px] font-medium text-gray-700">
                     Password
                   </label>
                   <Link to="/forgot-password"
-                        className="text-[13px] text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white underline-offset-2 hover:underline">
+                        className="text-[13px] text-gray-600 hover:text-gray-900 underline-offset-2 hover:underline">
                     Forgot?
                   </Link>
                 </div>
@@ -221,8 +221,8 @@ export default function LoginPage() {
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
                     autoComplete="current-password"
-                    className="w-full px-3.5 pr-11 py-2.5 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700
-                      rounded-lg text-[15px] text-gray-900 dark:text-white placeholder:text-gray-400
+                    className="w-full px-3.5 pr-11 py-2.5 bg-white border border-gray-300
+                      rounded-lg text-[15px] text-gray-900 placeholder:text-gray-400
                       focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
                     required
                   />
@@ -230,7 +230,7 @@ export default function LoginPage() {
                     type="button"
                     onClick={() => setShowPass(!showPass)}
                     aria-label={showPass ? "Hide password" : "Show password"}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-gray-700"
                   >
                     {showPass ? (
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L6.59 6.59m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>
@@ -244,8 +244,8 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-gray-900 dark:bg-white text-white dark:text-gray-900 py-2.5 rounded-lg
-                  text-[14px] font-medium hover:bg-gray-800 dark:hover:bg-gray-100
+                className="w-full bg-gray-900 text-white py-2.5 rounded-lg
+                  text-[14px] font-medium hover:bg-gray-800
                   disabled:opacity-60 disabled:cursor-not-allowed transition
                   flex items-center justify-center gap-2"
               >
@@ -264,9 +264,9 @@ export default function LoginPage() {
             {hasGoogle && (
               <>
                 <div className="flex items-center gap-3 my-5">
-                  <div className="flex-1 h-px bg-gray-200 dark:bg-gray-800"/>
-                  <span className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">or</span>
-                  <div className="flex-1 h-px bg-gray-200 dark:bg-gray-800"/>
+                  <div className="flex-1 h-px bg-gray-200"/>
+                  <span className="text-[11px] uppercase tracking-wider text-gray-400">or</span>
+                  <div className="flex-1 h-px bg-gray-200"/>
                 </div>
                 <div ref={googleWrap} className="flex justify-center [&>div]:w-full overflow-hidden">
                   <GoogleLogin
@@ -287,15 +287,15 @@ export default function LoginPage() {
                     size="large"
                     width={String(googleWidth)}
                     text="signin_with"
-                    theme={typeof window !== "undefined" && document.documentElement.classList.contains("dark") ? "filled_black" : "outline"}
+                    theme="outline"
                   />
                 </div>
               </>
             )}
 
-            <p className="mt-7 text-center text-[13px] text-gray-500 dark:text-gray-400">
+            <p className="mt-7 text-center text-[13px] text-gray-500">
               New to BonBox?{" "}
-              <Link to="/register" className="text-gray-900 dark:text-white font-medium underline-offset-2 hover:underline">
+              <Link to="/register" className="text-gray-900 font-medium underline-offset-2 hover:underline">
                 Create an account
               </Link>
             </p>
@@ -303,11 +303,11 @@ export default function LoginPage() {
         </main>
 
         {/* Footer — quietly Danish */}
-        <footer className="px-6 sm:px-10 py-5 text-[12px] text-gray-400 dark:text-gray-500 flex items-center justify-between border-t border-gray-200/60 dark:border-gray-800">
+        <footer className="px-6 sm:px-10 py-5 text-[12px] text-gray-400 flex items-center justify-between border-t border-gray-200/60">
           <span>Made in Copenhagen · GDPR · EU-hosted</span>
           <div className="flex items-center gap-4">
-            <Link to="/privacy" className="hover:text-gray-700 dark:hover:text-gray-300">Privacy</Link>
-            <Link to="/terms" className="hover:text-gray-700 dark:hover:text-gray-300">Terms</Link>
+            <Link to="/privacy" className="hover:text-gray-700">Privacy</Link>
+            <Link to="/terms" className="hover:text-gray-700">Terms</Link>
           </div>
         </footer>
       </div>

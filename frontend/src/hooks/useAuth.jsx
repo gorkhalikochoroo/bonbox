@@ -20,6 +20,16 @@ function syncTimezoneIfChanged(currentUserTz) {
   }
 }
 
+// Web sessions ride on the HttpOnly bonbox_session cookie set by the backend
+// on /auth/login. Persisting the JWT in localStorage on web is what lets XSS
+// steal sessions — so we don't. Native (Capacitor iOS) still uses localStorage
+// because the cross-site cookie isn't reliable inside WKWebView under Safari
+// ITP; the JWT there sits in an app-sandboxed WebView that other origins can't
+// read anyway.
+function isNativeShell() {
+  try { return !!window.Capacitor?.isNativePlatform?.(); } catch { return false; }
+}
+
 // Grace date: users created before this date are not forced to verify email
 const VERIFICATION_GRACE_DATE = "2026-04-13T00:00:00";
 
@@ -28,21 +38,49 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (token) {
-      api
-        .get("/auth/me")
-        .then((res) => setUser(res.data))
-        .catch(() => localStorage.removeItem("token"))
-        .finally(() => setLoading(false));
-    } else {
+    const native = isNativeShell();
+    const legacyToken = localStorage.getItem("token");
+    // Web: always probe /auth/me — the HttpOnly cookie may authenticate us
+    //   even when no localStorage token is present (post-migration users).
+    // Native: only probe when there's a stored bearer token, since the
+    //   cross-site cookie isn't available inside the WebView.
+    if (native && !legacyToken) {
       setLoading(false);
+      return;
     }
+    api
+      .get("/auth/me")
+      .then((res) => {
+        setUser(res.data);
+        // One-time migration: once cookie auth is confirmed working on web,
+        // drop the legacy bearer token so XSS can't read it.
+        if (!native && legacyToken) {
+          try { localStorage.removeItem("token"); } catch {}
+        }
+      })
+      .catch(() => {
+        // Token (if any) is invalid or session expired — wipe it so we
+        // don't keep retrying with stale credentials.
+        try { localStorage.removeItem("token"); } catch {}
+      })
+      .finally(() => setLoading(false));
   }, []);
+
+  // After a successful login/register/google response, decide where to keep
+  // the JWT. Backend always sets the HttpOnly cookie, so on web we keep the
+  // bearer out of JS reach entirely. Native still stores it because Capacitor
+  // doesn't get the cross-site cookie.
+  const persistTokenIfNeeded = (jwt) => {
+    if (isNativeShell()) {
+      localStorage.setItem("token", jwt);
+    } else {
+      try { localStorage.removeItem("token"); } catch {}
+    }
+  };
 
   const login = async (email, password) => {
     const res = await api.post("/auth/login", { email, password });
-    localStorage.setItem("token", res.data.access_token);
+    persistTokenIfNeeded(res.data.access_token);
     setUser(res.data.user);
     syncTimezoneIfChanged(res.data.user?.timezone);
     try { trackEvent("login_success", "login", "password"); } catch {}
@@ -51,7 +89,7 @@ export function AuthProvider({ children }) {
 
   const register = async (data) => {
     const res = await api.post("/auth/register", data);
-    localStorage.setItem("token", res.data.access_token);
+    persistTokenIfNeeded(res.data.access_token);
     setUser(res.data.user);
     syncTimezoneIfChanged(res.data.user?.timezone);
     try { trackEvent("signup_completed", "register", res.data.user?.business_type || null); } catch {}
@@ -60,17 +98,21 @@ export function AuthProvider({ children }) {
 
   const googleLogin = async (credential) => {
     const res = await api.post("/auth/google", { credential });
-    localStorage.setItem("token", res.data.access_token);
+    persistTokenIfNeeded(res.data.access_token);
     setUser(res.data.user);
     syncTimezoneIfChanged(res.data.user?.timezone);
     try { trackEvent("login_success", "login", "google"); } catch {}
     return res.data;
   };
 
-  const logout = () => {
+  const logout = async () => {
     // Track BEFORE clearing token (otherwise the API call has no auth header)
     try { trackEvent("logout", "logout", null); } catch {}
-    localStorage.removeItem("token");
+    // Clear the server-side HttpOnly cookie. Fire-and-forget — if the network
+    // call fails we still wipe local state below; the cookie will expire on
+    // its own at ACCESS_TOKEN_EXPIRE_MINUTES.
+    try { await api.post("/auth/logout"); } catch {}
+    try { localStorage.removeItem("token"); } catch {}
     setUser(null);
   };
 
