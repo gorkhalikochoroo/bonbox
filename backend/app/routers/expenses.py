@@ -385,19 +385,52 @@ async def upload_expense_receipt(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
 ):
-    """Upload a receipt image and OCR-extract the amount for expense creation."""
+    """
+    Upload a receipt image and OCR-extract the amount for expense creation.
+
+    Was previously broken — imported `process_receipt` which doesn't exist.
+    Reconstructed using save_receipt_photo + extract_amount_from_image
+    (same pipeline as /sales/upload-receipt).
+
+    Defense layers:
+      1. content_type must be image/*
+      2. body capped at 5 MB
+      3. PIL.verify() inside save_receipt_photo rejects non-images
+         (raises ValueError → 400 here)
+    """
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(400, "Please upload an image file")
     raw = await file.read()
     if len(raw) > 5 * 1024 * 1024:
         raise HTTPException(400, "Image too large (max 5 MB)")
 
+    from app.services.receipt_ocr import save_receipt_photo, extract_amount_from_image
     try:
-        from app.services.receipt_ocr import process_receipt
-        result = process_receipt(raw, user_id=str(user.id))
-        return result
+        stored_path = save_receipt_photo(raw, file.filename, str(user.id))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    # OCR needs local file — find the most recent local match for this user
+    import glob, os as _os
+    local_files = sorted(
+        glob.glob(f"uploads/receipts/{user.id}_*"),
+        key=_os.path.getmtime,
+        reverse=True,
+    )
+    local_path = local_files[0] if local_files else stored_path
+
+    try:
+        result = extract_amount_from_image(local_path)
     except Exception as e:
-        raise HTTPException(500, f"OCR failed: {str(e)}")
+        raise HTTPException(500, f"OCR failed: {e}")
+
+    return {
+        "filepath": stored_path,
+        "suggested_amount": result.get("suggested_amount"),
+        "all_amounts_found": result.get("all_amounts_found", []),
+        "ocr_available": result.get("ocr_available", False),
+        "raw_text": result.get("raw_text", ""),
+    }
 
 
 @router.post("/from-receipt", response_model=ExpenseResponse, status_code=201)

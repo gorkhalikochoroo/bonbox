@@ -431,23 +431,42 @@ def _upload_to_supabase(file_bytes: bytes, safe_name: str) -> str | None:
 
 
 def save_receipt_photo(file_bytes: bytes, filename: str, user_id: str) -> str:
-    """Save uploaded receipt photo. Uploads to Supabase Storage for persistence,
-    falls back to local disk for OCR processing."""
+    """
+    Save uploaded receipt photo. Uploads to Supabase Storage for persistence,
+    falls back to local disk for OCR processing.
+
+    Security: previously the PIL-failure fallback silently persisted RAW
+    bytes — meaning a corrupt-image payload (e.g. a renamed script) would
+    land on disk verbatim. Even though the upload endpoint validates
+    content_type, an attacker can spoof headers. Now we re-raise a
+    ValueError on PIL failure so the upload fails fast with 400 instead
+    of leaving an arbitrary file.
+
+    Filename uses UUID4 + timestamp so two uploads from the same user
+    in the same second don't collide (was: user_id + epoch seconds).
+    """
     import time
+    import uuid as _uuid
 
-    # Convert to JPEG for compatibility
-    safe_name = f"{user_id}_{int(time.time())}.jpg"
+    # Convert to JPEG for compatibility — prevents storing arbitrary content
+    safe_name = f"{user_id}_{int(time.time())}_{_uuid.uuid4().hex[:8]}.jpg"
 
-    # Always save locally first (needed for OCR processing)
+    # Always save locally first (needed for OCR processing). PIL must succeed
+    # — its failure means the upload isn't a real image.
     filepath = UPLOAD_DIR / safe_name
     try:
         img = Image.open(io.BytesIO(file_bytes))
+        img.verify()  # PIL signature check before re-opening for save
+    except Exception as e:
+        raise ValueError(f"Uploaded file is not a valid image ({e})")
+
+    try:
+        img = Image.open(io.BytesIO(file_bytes))  # re-open after verify()
         img = img.convert("RGB")
         img.save(filepath, "JPEG", quality=85)
         jpeg_bytes = filepath.read_bytes()
-    except Exception:
-        filepath.write_bytes(file_bytes)
-        jpeg_bytes = file_bytes
+    except Exception as e:
+        raise ValueError(f"Could not process image ({e})")
 
     # Upload to Supabase Storage for persistent display
     public_url = _upload_to_supabase(jpeg_bytes, safe_name)

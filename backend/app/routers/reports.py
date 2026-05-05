@@ -240,12 +240,12 @@ def daily_kasserapport(
     # Cash transactions
     cash_in = float(
         db.query(func.coalesce(func.sum(CashTransaction.amount), 0))
-        .filter(CashTransaction.user_id == user.id, CashTransaction.date == d, CashTransaction.type == "in", CashTransaction.is_deleted.isnot(True))
+        .filter(CashTransaction.user_id == user.id, CashTransaction.date == d, CashTransaction.type == "cash_in", CashTransaction.is_deleted.isnot(True))
         .scalar()
     )
     cash_out = float(
         db.query(func.coalesce(func.sum(CashTransaction.amount), 0))
-        .filter(CashTransaction.user_id == user.id, CashTransaction.date == d, CashTransaction.type == "out", CashTransaction.is_deleted.isnot(True))
+        .filter(CashTransaction.user_id == user.id, CashTransaction.date == d, CashTransaction.type == "cash_out", CashTransaction.is_deleted.isnot(True))
         .scalar()
     )
 

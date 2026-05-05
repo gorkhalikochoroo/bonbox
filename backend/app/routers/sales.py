@@ -604,8 +604,12 @@ async def upload_receipt(
     # Validate file size
     if len(content) > MAX_UPLOAD_SIZE:
         raise HTTPException(status_code=413, detail="File too large. Maximum size is 5 MB.")
-    # save_receipt_photo saves locally + uploads to Supabase, returns URL or local path
-    stored_path = save_receipt_photo(content, file.filename, str(user.id))
+    # save_receipt_photo validates the content with PIL.verify(); on a
+    # spoofed-header non-image upload it raises ValueError → 400 here.
+    try:
+        stored_path = save_receipt_photo(content, file.filename, str(user.id))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     # OCR needs local file — find it in uploads dir
     import glob
