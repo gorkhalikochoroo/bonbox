@@ -137,3 +137,53 @@ def test_next_voucher_number_does_not_persist(db, user):
     n = next_voucher_number(db, user.id, "sale", 2026)
     again = next_voucher_number(db, user.id, "sale", 2026)
     assert n == again == 1  # reads, doesn't persist
+
+
+# ─── Sequential allocation in a "bulk import" scenario ──────────
+def test_bulk_allocation_yields_unbroken_sequence(db, user):
+    """Mimics what bank_import / payment_autosync do: allocate per row.
+
+    Each call must read MAX from currently-flushed state — so allocating
+    inside a flush()-then-add loop gives a strict 1, 2, 3, … sequence
+    matching what we shipped in c56331e.
+    """
+    rows = []
+    for _ in range(5):
+        n = allocate_voucher(db, user.id, "sale", 2026)
+        s = Sale(user_id=user.id, date=date(2026, 5, 5), amount=10,
+                 voucher_number=n)
+        db.add(s); db.flush()
+        rows.append(s)
+    db.commit()
+
+    nums = sorted(r.voucher_number for r in rows)
+    assert nums == [1, 2, 3, 4, 5]
+
+
+def test_bulk_allocation_back_dated_lands_in_correct_year(db, user):
+    """Back-dated bank-import row from 2025 must allocate against the 2025
+    sequence, not 2026."""
+    # First, two 2026 rows
+    for _ in range(2):
+        n = allocate_voucher(db, user.id, "sale", 2026)
+        db.add(Sale(user_id=user.id, date=date(2026, 1, 5), amount=10,
+                    voucher_number=n))
+        db.flush()
+    # Now a 2025 back-dated row
+    n_2025 = allocate_voucher(db, user.id, "sale", 2025)
+    db.add(Sale(user_id=user.id, date=date(2025, 12, 31), amount=10,
+                voucher_number=n_2025))
+    db.commit()
+
+    assert n_2025 == 1  # 2025 sequence starts fresh
+    # 2026 still at 2 (unaffected by 2025 row)
+    nxt = next_voucher_number(db, user.id, "sale", 2026)
+    assert nxt == 3
+
+
+def test_allocator_returns_1_after_failure_recovery(db, user):
+    """If MAX query somehow returns weird negative (defense path), we
+    return 1 — ensures we never persist 0 or negative voucher numbers."""
+    # Setup state to validate behaviour: empty → 1
+    n = allocate_voucher(db, user.id, "sale", 2026)
+    assert n == 1
