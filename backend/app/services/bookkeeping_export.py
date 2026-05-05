@@ -157,39 +157,43 @@ def export_dinero(user: User, db: Session, start: date, end: date) -> bytes:
     w = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\n")
     w.writerow(["Dato", "Bilag", "Beskrivelse", "Beløb", "Moms", "Konto"])
 
-    voucher = 1
+    fallback = 1
     for s in sales:
         moms = "0%" if getattr(s, "is_tax_exempt", False) else "25%"
-        # Sale model uses `notes` not `description` — guard with getattr in case
-        # of any future schema drift, and prefer `item_name` for item sales.
+        # Use persisted bilagsnummer when available (Bogføringsloven 2024
+        # compliant); fall back to export-time counter for legacy rows.
+        vn = getattr(s, "voucher_number", None)
+        bilag = f"S-{s.date.year}-{vn:04d}" if vn else f"S{fallback:04d}"
         sale_text = getattr(s, "item_name", None) or getattr(s, "notes", None) or "Salg"
         desc = sale_text + (
             f" (ref: {s.reference_id})" if getattr(s, "reference_id", None) else ""
         )
         w.writerow([
             s.date.isoformat() if hasattr(s.date, "isoformat") else str(s.date),
-            f"S{voucher:04d}",
+            bilag,
             desc[:80],
             _money(s.amount),
             moms,
             "1010",
         ])
-        voucher += 1
+        fallback += 1
 
-    voucher = 1
+    fallback = 1
     for e in expenses:
         moms = "0%" if getattr(e, "is_tax_exempt", False) else "25%"
         cat_name = cats.get(str(e.category_id), "Other")
         desc = f"{cat_name}: {e.description}" if e.description else cat_name
+        vn = getattr(e, "voucher_number", None)
+        bilag = f"E-{e.date.year}-{vn:04d}" if vn else f"E{fallback:04d}"
         w.writerow([
             e.date.isoformat() if hasattr(e.date, "isoformat") else str(e.date),
-            f"E{voucher:04d}",
+            bilag,
             desc[:80],
             _money(-float(e.amount)),
             moms,
             "2750",
         ])
-        voucher += 1
+        fallback += 1
 
     return buf.getvalue().encode("utf-8-sig")  # BOM so Excel opens cleanly
 
@@ -215,12 +219,14 @@ def export_billy(user: User, db: Session, start: date, end: date) -> bytes:
 
     # SALES section
     w.writerow(["# === SALES ==="])
-    w.writerow(["Date", "Description", "Amount", "Currency", "VAT %", "Payment"])
+    w.writerow(["Bilagsnummer", "Date", "Description", "Amount", "Currency", "VAT %", "Payment"])
     for s in sales:
         vat = "0" if getattr(s, "is_tax_exempt", False) else "25"
-        # Sale uses `notes`, not `description`
         desc = getattr(s, "item_name", None) or getattr(s, "notes", None) or "Sale"
+        vn = getattr(s, "voucher_number", None)
+        bilag = f"S-{s.date.year}-{vn:04d}" if vn else ""
         w.writerow([
+            bilag,
             s.date.isoformat() if hasattr(s.date, "isoformat") else str(s.date),
             desc[:120],
             _money_dot(s.amount),
@@ -234,11 +240,14 @@ def export_billy(user: User, db: Session, start: date, end: date) -> bytes:
 
     # EXPENSES section
     w.writerow(["# === EXPENSES ==="])
-    w.writerow(["Date", "Category", "Description", "Amount", "Currency", "VAT %"])
+    w.writerow(["Bilagsnummer", "Date", "Category", "Description", "Amount", "Currency", "VAT %"])
     for e in expenses:
         vat = "0" if getattr(e, "is_tax_exempt", False) else "25"
         cat_name = cats.get(str(e.category_id), "Other")
+        vn = getattr(e, "voucher_number", None)
+        bilag = f"E-{e.date.year}-{vn:04d}" if vn else ""
         w.writerow([
+            bilag,
             e.date.isoformat() if hasattr(e.date, "isoformat") else str(e.date),
             cat_name,
             e.description or "",
@@ -282,13 +291,14 @@ def export_economic(user: User, db: Session, start: date, end: date) -> bytes:
         "VAT code",
     ])
 
-    voucher = 1
+    fallback = 1
     for s in sales:
         vat = "U0" if getattr(s, "is_tax_exempt", False) else "U25"
-        # Sale uses `notes`, not `description`
         desc = getattr(s, "item_name", None) or getattr(s, "notes", None) or "Salg"
+        vn = getattr(s, "voucher_number", None)
+        bilag = f"S-{s.date.year}-{vn:04d}" if vn else f"S{fallback:05d}"
         w.writerow([
-            f"S{voucher:05d}",
+            bilag,
             s.date.isoformat() if hasattr(s.date, "isoformat") else str(s.date),
             desc[:80],
             "1010",
@@ -296,15 +306,17 @@ def export_economic(user: User, db: Session, start: date, end: date) -> bytes:
             cur,
             vat,
         ])
-        voucher += 1
+        fallback += 1
 
-    voucher = 1
+    fallback = 1
     for e in expenses:
         vat = "I0" if getattr(e, "is_tax_exempt", False) else "I25"
         cat_name = cats.get(str(e.category_id), "Other")
         desc = f"{cat_name}: {e.description}" if e.description else cat_name
+        vn = getattr(e, "voucher_number", None)
+        bilag = f"E-{e.date.year}-{vn:04d}" if vn else f"E{fallback:05d}"
         w.writerow([
-            f"E{voucher:05d}",
+            bilag,
             e.date.isoformat() if hasattr(e.date, "isoformat") else str(e.date),
             desc[:80],
             "2750",
@@ -312,7 +324,7 @@ def export_economic(user: User, db: Session, start: date, end: date) -> bytes:
             cur,
             vat,
         ])
-        voucher += 1
+        fallback += 1
 
     return buf.getvalue().encode("utf-8-sig")
 
@@ -348,13 +360,16 @@ def export_generic(user: User, db: Session, start: date, end: date) -> bytes:
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=",", quoting=csv.QUOTE_MINIMAL, lineterminator="\n")
     w.writerow([
-        "Date", "Type", "Description", "Category", "Amount", "Currency", "VAT %", "Payment"
+        "Bilagsnummer", "Date", "Type", "Description", "Category",
+        "Amount", "Currency", "VAT %", "Payment",
     ])
     for s in sales:
         vat = "0" if getattr(s, "is_tax_exempt", False) else default_vat_str
-        # Sale uses `notes`, not `description`
         sale_text = getattr(s, "item_name", None) or getattr(s, "notes", None) or "Sale"
+        vn = getattr(s, "voucher_number", None)
+        bilag = f"S-{s.date.year}-{vn:04d}" if vn else ""
         w.writerow([
+            bilag,
             s.date.isoformat() if hasattr(s.date, "isoformat") else str(s.date),
             "Sale",
             sale_text[:120],
@@ -367,7 +382,10 @@ def export_generic(user: User, db: Session, start: date, end: date) -> bytes:
     for e in expenses:
         vat = "0" if getattr(e, "is_tax_exempt", False) else default_vat_str
         cat_name = cats.get(str(e.category_id), "Other")
+        vn = getattr(e, "voucher_number", None)
+        bilag = f"E-{e.date.year}-{vn:04d}" if vn else ""
         w.writerow([
+            bilag,
             e.date.isoformat() if hasattr(e.date, "isoformat") else str(e.date),
             "Expense",
             (e.description or cat_name)[:120],

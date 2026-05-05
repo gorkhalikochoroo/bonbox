@@ -23,13 +23,22 @@ from app.services.khata_sync import (
 router = APIRouter()
 
 
-def _customer_balance(db: Session, customer_id: uuid.UUID) -> float:
-    """Calculate balance (total purchases - total payments) for a customer."""
-    result = db.query(
+def _customer_balance(db: Session, customer_id: uuid.UUID, user_id=None) -> float:
+    """
+    Calculate balance (total purchases - total payments) for a customer.
+
+    Defense-in-depth: callers always filter customer_id against user_id
+    upstream, but we accept user_id here too so any future caller can't
+    accidentally compute another tenant's balance.
+    """
+    q = db.query(
         func.coalesce(func.sum(KhataTransaction.purchase_amount), 0)
         - func.coalesce(func.sum(KhataTransaction.paid_amount), 0)
-    ).filter(KhataTransaction.customer_id == customer_id).scalar()
-    return float(result)
+    ).filter(KhataTransaction.customer_id == customer_id)
+    if user_id is not None:
+        q = q.filter(KhataTransaction.user_id == user_id)
+    result = q.scalar()
+    return float(result or 0)
 
 
 # --- Customers ---

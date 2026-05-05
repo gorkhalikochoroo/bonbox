@@ -120,6 +120,11 @@ def create_transaction(
 ):
     if data.type not in ("cash_in", "cash_out"):
         raise HTTPException(status_code=400, detail="Type must be 'cash_in' or 'cash_out'")
+    # Sign semantics live in `type` — amount must be positive. Without this
+    # guard, a negative cash_in silently subtracts from balance (a really
+    # nasty audit trail). Defensive: float() coerces Decimal/int safely.
+    if float(data.amount or 0) <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than zero")
     txn = CashTransaction(user_id=user.id, **data.model_dump())
     db.add(txn)
     db.commit()
@@ -142,6 +147,8 @@ def update_transaction(
     for field, value in data.model_dump(exclude_unset=True).items():
         if field == "type" and value not in ("cash_in", "cash_out"):
             raise HTTPException(status_code=400, detail="Type must be 'cash_in' or 'cash_out'")
+        if field == "amount" and float(value or 0) <= 0:
+            raise HTTPException(status_code=400, detail="Amount must be greater than zero")
         setattr(txn, field, value)
     db.commit()
     db.refresh(txn)
