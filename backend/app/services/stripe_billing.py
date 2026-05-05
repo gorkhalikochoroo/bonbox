@@ -136,13 +136,41 @@ def get_or_create_customer(user: User, db: Session) -> Optional[str]:
     The customer's metadata embeds bonbox `user_id` so webhook handlers can
     find the right user even if our local stripe_customer_id mapping was lost.
     Multi-layer defense: never trust a client-supplied customer ID.
-    """
-    if user.stripe_customer_id:
-        return user.stripe_customer_id
 
+    Test→live recovery: if the stored customer ID belongs to test mode (or has
+    been deleted), Stripe returns "no such customer" when we try to use it.
+    We detect that, null the stored ID, and create a fresh customer in the
+    current mode. Without this, every user who tested before going live is
+    permanently locked out of checkout.
+    """
     s = _stripe()
     if not s:
         return None
+
+    if user.stripe_customer_id:
+        # Verify the stored ID still exists in the current Stripe mode. If the
+        # current key (live) doesn't recognize the ID (was created in test),
+        # Stripe raises InvalidRequestError with code='resource_missing'.
+        try:
+            s.Customer.retrieve(user.stripe_customer_id)
+            return user.stripe_customer_id
+        except Exception as e:
+            msg = str(e).lower()
+            if "no such customer" in msg or "resource_missing" in msg:
+                log.warning(
+                    "Stored stripe_customer_id=%s for user=%s no longer exists "
+                    "(likely test→live mismatch); creating fresh customer",
+                    user.stripe_customer_id, user.id,
+                )
+                user.stripe_customer_id = None
+                # also clear the linked subscription — that one's also test-mode
+                user.stripe_subscription_id = None
+                user.subscription_status = None
+                db.commit()
+                # fall through to creation below
+            else:
+                log.exception("Customer retrieve failed for user=%s: %s", user.id, e)
+                return None
 
     try:
         customer = s.Customer.create(
