@@ -372,10 +372,11 @@ def _find_customer_by_user_metadata(s, user: User) -> Optional[str]:
     us and is tenant-safe.
     """
     try:
-        # Stripe's search API supports metadata filters. Limit 5 keeps the
-        # response small; we only need the most recent match.
+        # Stripe's search API supports metadata filters. Query syntax requires
+        # single-quoted field name + value (double quotes silently return zero
+        # results — verified via stripe CLI). Limit 5 keeps the response small.
         result = s.Customer.search(
-            query=f'metadata["bonbox_user_id"]:"{user.id}"',
+            query=f"metadata['bonbox_user_id']:'{user.id}'",
             limit=5,
         )
         items = list(getattr(result, "data", []) or [])
