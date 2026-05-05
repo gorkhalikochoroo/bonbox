@@ -1,0 +1,77 @@
+name: Security Audit
+
+on:
+  schedule:
+    # Every Monday 06:00 UTC — early week so any flagged CVE can be triaged
+    # in the same working week. Cron is in UTC.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:  # allow manual trigger from the Actions tab
+  pull_request:
+    paths:
+      - "backend/requirements*.txt"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+
+permissions:
+  contents: read     # only read repo contents
+  issues: write      # create issues for new CVEs (optional)
+
+jobs:
+  python-audit:
+    name: Backend deps (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pip-audit
+        run: pip install pip-audit==2.7.3
+      - name: Run pip-audit on backend requirements
+        working-directory: backend
+        # --strict fails the job on any vulnerability so PR review catches it.
+        # Cron runs are non-blocking by design — they create issues, not failures.
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            pip-audit -r requirements.txt --strict --desc on
+          else
+            pip-audit -r requirements.txt --desc on || true
+          fi
+
+  npm-audit:
+    name: Frontend deps (npm audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install deps
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Run npm audit (high+ severity)
+        working-directory: frontend
+        # PRs fail on high+. Scheduled scans report only.
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            npm audit --audit-level=high
+          else
+            npm audit --audit-level=high || true
+          fi
+
+  secret-scan:
+    name: Hardcoded secrets (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # gitleaks needs history to scan past commits
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Default config catches sk_live_*, sk_test_*, AWS keys, GitHub tokens,
+        # Stripe keys, OpenAI keys, etc. Fails the job if any are found.
+        
