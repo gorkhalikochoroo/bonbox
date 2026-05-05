@@ -1330,6 +1330,30 @@ class PayrollPDFRequest(BaseModel):
     staff_ids: list[str] | None = None
 
 
+@router.get("/payroll/estimate")
+def estimate_payroll(
+    period_start: date,
+    period_end: date,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Danish payroll estimate for a period.
+
+    Returns gross + AM-bidrag + A-skat estimate + ATP + feriepenge,
+    aggregated and per-staff. Marked is_estimate=True — the official
+    A-skat figure comes from each employee's trækkort via eIndkomst,
+    which only certified providers can call. This is for planning the
+    10th-of-month deadline.
+
+    Multi-tenant: only this user's staff hours are aggregated. No CPR
+    handling, no SKAT submission, no bank file — pure math on the user's
+    own data.
+    """
+    from app.services.payroll_service import estimate_period_payroll
+    return estimate_period_payroll(db, user.id, period_start, period_end)
+
+
 @router.post("/payroll/pdf")
 def generate_payroll_pdf(
     body: PayrollPDFRequest,

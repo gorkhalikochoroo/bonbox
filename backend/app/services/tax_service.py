@@ -509,14 +509,35 @@ def get_tax_overview(user: User, db: Session) -> dict:
     # Generate alerts (with reconciliation context)
     alerts = _generate_tax_alerts(upcoming, config, currency, ytd, daily_close_recon)
 
-    # A-skat + AM-bidrag deadlines for DK employers (10th of next month)
+    # A-skat + AM-bidrag deadlines for DK employers (10th of next month).
+    # Each deadline gets an estimated amount from the payroll service if hours
+    # have been logged for the period. Multi-layer defense: payroll import is
+    # local so that if the staff module is missing, tax overview still works.
     payroll = []
     if currency == "DKK" and bool(getattr(user, "has_employees", False)):
-        for p in _payroll_deadlines(count=3):
-            p["deadline"] = str(p["deadline"])
-            p["period_start"] = str(p["period_start"])
-            p["period_end"] = str(p["period_end"])
-            payroll.append(p)
+        try:
+            from app.services.payroll_service import estimate_period_payroll
+            for p in _payroll_deadlines(count=3):
+                period_start_d = p["period_start"]
+                period_end_d = p["period_end"]
+                est = estimate_period_payroll(db, user.id, period_start_d, period_end_d)
+                p["deadline"] = str(p["deadline"])
+                p["period_start"] = str(period_start_d)
+                p["period_end"] = str(period_end_d)
+                p["estimated_amount"] = est["skat_remit"]["total"]
+                p["am_bidrag"] = est["skat_remit"]["am_bidrag"]
+                p["a_skat"] = est["skat_remit"]["a_skat"]
+                p["staff_count"] = est["staff_count"]
+                p["is_estimate"] = True
+                payroll.append(p)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("payroll estimate failed, falling back to deadline-only: %s", e)
+            for p in _payroll_deadlines(count=3):
+                p["deadline"] = str(p["deadline"])
+                p["period_start"] = str(p["period_start"])
+                p["period_end"] = str(p["period_end"])
+                p["estimated_amount"] = None
+                payroll.append(p)
 
     return {
         "tax_name": config["tax_name"],
