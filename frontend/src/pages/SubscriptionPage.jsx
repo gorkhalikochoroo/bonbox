@@ -432,6 +432,41 @@ export default function SubscriptionPage() {
         })}
       </div>
 
+      {/* What changes after trial — calm, transparent, no surprises */}
+      <div className="mt-10 max-w-3xl mx-auto bg-white dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-2xl p-5 sm:p-6">
+        <div className="flex items-start gap-3">
+          <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 flex items-center justify-center text-sm shrink-0 mt-0.5">i</div>
+          <div className="flex-1">
+            <h3 className="text-[15px] font-semibold text-gray-900 dark:text-white">What changes after the 14-day trial</h3>
+            <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+              Nothing dramatic. You stay signed in, your data is safe, every feature is still there.
+              Free is genuinely usable — these are the only caps that come back when the trial ends:
+            </p>
+            <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 mt-4 text-[13px] text-gray-700 dark:text-gray-300">
+              {[
+                "200 sales logged per month",
+                "100 expenses logged per month",
+                "30 receipt OCR scans per month",
+                "30 AI Copilot questions per day",
+                "Top 5 active AI insights at a time",
+                "1 vertical module (pick one)",
+                "90 days of full history (older stays read-only)",
+                "1 business, 1 user",
+              ].map((line) => (
+                <div key={line} className="flex items-start gap-2">
+                  <span className="mt-[7px] w-1 h-1 rounded-full bg-gray-400 dark:bg-gray-500 shrink-0" />
+                  <span>{line}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-4 leading-relaxed">
+              Card details? Never asked during the trial. Never charged automatically. If you outgrow Free,
+              you upgrade <em>when</em> you decide — not because a clock ran out.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Reassurance row */}
       <div className="grid sm:grid-cols-4 gap-3 mt-10">
         <Reassure icon="🆓" title="No card for trial" sub="14 days of Pro, no payment info needed." />

@@ -36,38 +36,33 @@ export default function TrialBanner() {
   // Three states: trial active (days > 0), trial ended recently, no trial
   if (days == null) return null; // Legacy user without trial — don't pester
 
-  // Active trial
+  // Active trial — calm, informational. We deliberately do NOT use red/amber
+  // alarm colors; nothing bad happens at trial end (you just go to Free, your
+  // data stays). A soft slate/blue card across all states keeps it from
+  // reading as "ACTION REQUIRED" — feedback was that the amber felt pushy.
   if (billing.trial_active && days > 0) {
-    // Tone differs based on urgency.
-    // 2-day-prior threshold per Manoj — banner turns amber and adds clearer
-    // CTA when ≤ 2 days remain, blue/informational before that.
-    const urgent = days <= 2;
+    const closing = days <= 2; // "closing" not "urgent" — wording matters
     return (
-      <div
-        className={`flex items-start gap-3 rounded-xl border px-4 py-3
-          ${urgent
-            ? "bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700"
-            : "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800"}`}
-      >
-        <span className="text-lg shrink-0">{urgent ? "⏰" : "🎁"}</span>
+      <div className="flex items-start gap-3 rounded-xl border bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700 px-4 py-3">
+        <span className="text-lg shrink-0">{closing ? "🌤️" : "🎁"}</span>
         <div className="flex-1 text-sm">
-          <span className={`font-semibold ${urgent ? "text-amber-800 dark:text-amber-300" : "text-blue-800 dark:text-blue-300"}`}>
-            {urgent
-              ? `Only ${days} day${days === 1 ? "" : "s"} left in your free Pro trial.`
+          <span className="font-semibold text-gray-800 dark:text-gray-200">
+            {closing
+              ? `${days} day${days === 1 ? "" : "s"} left in your free Pro trial.`
               : `${days} days left in your free Pro trial.`}
           </span>
-          <span className={`ml-1 ${urgent ? "text-amber-700 dark:text-amber-400" : "text-blue-700 dark:text-blue-400"}`}>
-            {urgent
-              ? "After it ends, you stay on Free (every feature still works, just with caps). Add a card later if you want to keep Pro — no charge until you decide."
-              : "No card needed. Lock in 99 kr/mo founding price (first 1,000 customers) before regular 169 kicks in."}
+          <span className="ml-1 text-gray-600 dark:text-gray-400">
+            {closing
+              ? "When it ends you stay on Free. Every feature still works — just with usage caps. No card, no surprises."
+              : "No card needed. If you decide to keep Pro, founding price 99 kr/mo is locked in for the first 1,000 customers."}
           </span>
         </div>
         <Link
           to="/subscription"
-          className={`shrink-0 px-3 py-1.5 text-xs font-semibold rounded-md text-white whitespace-nowrap
-            ${urgent ? "bg-amber-600 hover:bg-amber-700" : "bg-blue-600 hover:bg-blue-700"}`}
+          className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap
+            bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100"
         >
-          See plans
+          {closing ? "See what changes" : "See plans"}
         </Link>
         <button
           onClick={() => {
