@@ -463,32 +463,45 @@ def sync_user_subscription_from_stripe(user: User, db: Session, force: bool = Fa
     priority = {"active": 0, "trialing": 1, "past_due": 2, "canceled": 3, "unpaid": 4, "incomplete": 5, "incomplete_expired": 6}
     items.sort(key=lambda x: (priority.get(getattr(x, "status", ""), 99), -int(getattr(x, "created", 0) or 0)))
     chosen = items[0]
-    # Convert StripeObject to plain dict in a way that works across SDK versions.
-    # `dict(stripe_obj)` doesn't recursively convert; `to_dict_recursive` does
-    # but isn't on every version. `_previous_attributes` and `__values__` differ.
-    # Safest: use the SDK's built-in serializer if available, else cast to dict.
-    sub_obj = None
-    for converter in (
-        lambda x: x.to_dict_recursive() if hasattr(x, "to_dict_recursive") else None,
-        lambda x: dict(x.__dict__) if hasattr(x, "__dict__") else None,
-        lambda x: dict(x),
-    ):
-        try:
-            sub_obj = converter(chosen)
-            if sub_obj:
-                break
-        except Exception:
-            continue
-    if not sub_obj:
-        return {"status": "error", "stage": "convert_sub", "exception_msg": "could not coerce Stripe Subscription to dict"}
 
+    # Stripe StripeObject extends dict, so .get() works directly. No conversion
+    # needed. Pass chosen straight to _apply_subscription_state.
     try:
-        _apply_subscription_state(user, sub_obj, db)
+        _apply_subscription_state(user, chosen, db)
     except Exception as e:
         log.exception("apply state failed during sync for user=%s: %s", user.id, e)
         return {"status": "error", "stage": "apply_state", "exception_type": type(e).__name__, "exception_msg": str(e)[:300]}
 
-    return {"status": "synced", "sub_id": getattr(chosen, "id", None), "sub_status": getattr(chosen, "status", None)}
+    # Verify the write actually persisted. If _apply_subscription_state's
+    # internal commit silently failed (it's wrapped to never re-raise), we
+    # surface that here rather than reporting false success.
+    try:
+        db.refresh(user)
+    except Exception as e:
+        log.warning("Could not refresh user after sync (uncommitted state): %s", e)
+
+    persisted_status = user.subscription_status
+    persisted_plan = user.plan
+    expected_status = getattr(chosen, "status", None)
+
+    if persisted_status != expected_status:
+        return {
+            "status": "partial",
+            "stage": "post_commit_check",
+            "expected_status": expected_status,
+            "persisted_status": persisted_status,
+            "persisted_plan": persisted_plan,
+            "sub_id": getattr(chosen, "id", None),
+            "note": "apply_state ran but DB state did not match; commit may have failed silently",
+        }
+
+    return {
+        "status": "synced",
+        "sub_id": getattr(chosen, "id", None),
+        "sub_status": expected_status,
+        "persisted_status": persisted_status,
+        "persisted_plan": persisted_plan,
+    }
 
 
 # ─────────────────────────── Customer portal ───────────────────────────────
