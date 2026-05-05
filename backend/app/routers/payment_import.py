@@ -223,6 +223,20 @@ def confirm_payment_import(
     skipped = 0
     errors = []
 
+    # Voucher allocator (lazy + multi-layer defense)
+    try:
+        from app.services.voucher_service import allocate_voucher
+    except Exception:  # noqa: BLE001
+        allocate_voucher = None
+
+    def _allocate(kind: str, year: int) -> int | None:
+        if not allocate_voucher:
+            return None
+        try:
+            return allocate_voucher(db, user.id, kind, year)
+        except Exception:  # noqa: BLE001
+            return None
+
     for txn in body.transactions:
         ref_id = f"pay_{conn.provider}_{txn.ref_hash}"
 
@@ -250,6 +264,7 @@ def confirm_payment_import(
                 notes=txn.description,
                 reference_id=ref_id,
                 status="completed",
+                voucher_number=_allocate("sale", txn_date.year),
             )
             db.add(sale)
             db.flush()
@@ -289,6 +304,7 @@ def confirm_payment_import(
                 category_id=category.id,
                 payment_method=txn.payment_method,
                 reference_id=ref_id,
+                voucher_number=_allocate("expense", txn_date.year),
             )
             db.add(expense)
             db.flush()

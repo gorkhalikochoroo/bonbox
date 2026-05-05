@@ -49,6 +49,14 @@ def _import_transactions_for_connection(db: Session, conn: PaymentConnection, ra
                 skipped += 1
                 continue
 
+            # Voucher allocator (lazy, defensive — autosync runs every 6h
+            # so a voucher_service hiccup mustn't break the scheduled job)
+            try:
+                from app.services.voucher_service import allocate_voucher
+                vn = allocate_voucher(db, conn.user_id, "sale", txn_date.year)
+            except Exception:  # noqa: BLE001
+                vn = None
+
             sale = Sale(
                 id=uuid.uuid4(),
                 user_id=conn.user_id,
@@ -58,6 +66,7 @@ def _import_transactions_for_connection(db: Session, conn: PaymentConnection, ra
                 notes=txn.get("description", ""),
                 reference_id=ref_id,
                 status="completed",
+                voucher_number=vn,
             )
             db.add(sale)
             db.flush()
@@ -90,6 +99,12 @@ def _import_transactions_for_connection(db: Session, conn: PaymentConnection, ra
                 db.add(category)
                 db.flush()
 
+            try:
+                from app.services.voucher_service import allocate_voucher
+                vn = allocate_voucher(db, conn.user_id, "expense", txn_date.year)
+            except Exception:  # noqa: BLE001
+                vn = None
+
             expense = Expense(
                 id=uuid.uuid4(),
                 user_id=conn.user_id,
@@ -99,6 +114,7 @@ def _import_transactions_for_connection(db: Session, conn: PaymentConnection, ra
                 category_id=category.id,
                 payment_method=txn.get("payment_method", "mobilepay"),
                 reference_id=ref_id,
+                voucher_number=vn,
             )
             db.add(expense)
             db.flush()
