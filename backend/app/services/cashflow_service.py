@@ -100,51 +100,80 @@ def _get_recurring_expenses(user_id, db: Session) -> list[dict]:
     )
 
     results = []
+    today = date.today()
     for r in recurring:
-        # Estimate next due date based on last occurrence (monthly pattern)
         last = r.last_date
-        if last:
-            # Assume monthly: same day next month
-            next_month = last.month + 1 if last.month < 12 else 1
-            next_year = last.year if last.month < 12 else last.year + 1
-            try:
-                next_due = last.replace(year=next_year, month=next_month)
-            except ValueError:
-                next_due = last.replace(year=next_year, month=next_month, day=28)
-
-            # If next_due is in the past, push forward
-            while next_due < date.today():
-                next_month = next_due.month + 1 if next_due.month < 12 else 1
-                next_year = next_due.year if next_due.month < 12 else next_due.year + 1
-                try:
-                    next_due = next_due.replace(year=next_year, month=next_month)
-                except ValueError:
-                    next_due = next_due.replace(year=next_year, month=next_month, day=28)
-
-            results.append({
-                "description": r.description,
-                "amount": float(r.amount),
-                "category": r.category or "Other",
-                "next_due": next_due,
-            })
+        if not last:
+            continue
+        # Walk forward one month at a time until we land in the future
+        next_due = _add_one_month(last)
+        # Cap iterations defensively — in practice this terminates after 1-12
+        for _ in range(36):
+            if next_due >= today:
+                break
+            next_due = _add_one_month(next_due)
+        results.append({
+            "description": r.description,
+            "amount": float(r.amount),
+            "category": r.category or "Other",
+            "next_due": next_due,
+        })
 
     return results
 
 
 def _get_daily_expense_average(user_id, db: Session) -> float:
-    """Average daily expenses over last 30 days (for safety threshold)."""
+    """
+    Average daily expenses over the last 30 days.
+
+    Critical fix: previously always divided by 30. For new users with only
+    a few days of expense history, this understated the daily average by
+    a factor of 30/N → safety_threshold = 7 × understated_avg → cashflow
+    danger days were missed.
+
+    Now we divide by the actual number of distinct days with data
+    (clamped to >=1). For mature accounts with full 30 days of data, the
+    result is identical; for new users it correctly reflects their burn rate.
+    """
     cutoff = date.today() - timedelta(days=30)
-    total = float(
-        db.query(func.coalesce(func.sum(Expense.amount), 0))
+    rows = (
+        db.query(Expense.date, func.coalesce(func.sum(Expense.amount), 0).label("daily_total"))
         .filter(
             Expense.user_id == user_id,
             Expense.date >= cutoff,
             Expense.is_deleted.isnot(True),
             Expense.is_personal.isnot(True),
         )
-        .scalar()
+        .group_by(Expense.date)
+        .all()
     )
-    return round(total / 30, 2)
+    if not rows:
+        return 0.0
+    total = sum(float(r.daily_total or 0) for r in rows)
+    distinct_days = len(rows)
+    return round(total / max(distinct_days, 1), 2)
+
+
+def _add_one_month(d: date) -> date:
+    """
+    Add one calendar month, snapping to last day of month when day-of-month
+    doesn't exist in target (e.g. Jan 31 + 1 month → Feb 28/29, not Feb 28
+    forever onward — we keep going from the original day).
+
+    Why this matters: previously code used last.replace(month=...) and on
+    ValueError fell back to day=28 — which means a Jan 31 recurring expense
+    would project as Feb 28, then Mar 28 (lost the original "31st" anchor).
+    Now we snap each month independently so a Jan 31 → Feb 28 → Mar 31.
+    """
+    new_month = d.month + 1 if d.month < 12 else 1
+    new_year = d.year if d.month < 12 else d.year + 1
+    # Try original day; if invalid (e.g. Feb 31), snap to last day of new month
+    try:
+        return d.replace(year=new_year, month=new_month)
+    except ValueError:
+        from calendar import monthrange
+        last_day = monthrange(new_year, new_month)[1]
+        return date(new_year, new_month, last_day)
 
 
 def _get_khata_receivables(user_id, db: Session) -> list[dict]:

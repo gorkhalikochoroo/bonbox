@@ -240,7 +240,12 @@ def get_profit_ranking(
         if not effective_sell or effective_sell <= 0:
             continue
 
-        margin_pct = round(((effective_sell - cost) / cost) * 100, 1)
+        # Both margin and markup. Previously we labelled markup as "margin",
+        # which gave artificially-inflated numbers (markup = 100% on a 50%
+        # margin product). Now we ship both — frontend can pick the right
+        # one. margin_pct stays as the canonical accounting "gross margin".
+        markup_pct = round(((effective_sell - cost) / cost) * 100, 1)
+        margin_pct = round(((effective_sell - cost) / effective_sell) * 100, 1)
         profit_per_unit = round(effective_sell - cost, 2)
 
         result.append({
@@ -248,6 +253,7 @@ def get_profit_ranking(
             "cost": cost,
             "sell": effective_sell,
             "margin_pct": margin_pct,
+            "markup_pct": markup_pct,
             "profit_per_unit": profit_per_unit,
             "quantity": float(item.quantity),
         })
@@ -264,6 +270,18 @@ def record_pour(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    """
+    Record a bar pour and decrement liquid stock.
+
+    Critical accuracy fix: items stocked in bottles (unit='bottle' or
+    similar) were being treated as if quantity was already in ml. Pouring
+    2 × 30ml shots from "5 bottles" failed with "not enough stock" because
+    it compared 60ml > 5 (bottles).
+
+    Now we convert: if quantity is in bottles AND bottle_size is set, the
+    available volume is quantity × bottle_size. After the pour we keep
+    quantity in the same bottle unit (decimal — partial bottles allowed).
+    """
     item = db.query(InventoryItem).filter(
         InventoryItem.id == data.item_id,
         InventoryItem.user_id == user.id,
@@ -273,17 +291,50 @@ def record_pour(
     if not item.pour_size:
         raise HTTPException(status_code=400, detail="Item has no pour size configured")
 
-    total_ml = float(item.pour_size) * data.pours
-    current_ml = float(item.quantity)
-    if total_ml > current_ml:
-        raise HTTPException(status_code=400, detail=f"Not enough stock. Have {current_ml} {item.pour_unit or 'ml'}, need {total_ml}")
+    pour_size_ml = float(item.pour_size)
+    pours = data.pours
+    bottle_size_ml = float(item.bottle_size) if item.bottle_size else None
+    stocked_in_bottles = bool(bottle_size_ml and bottle_size_ml > 0)
+
+    total_pour_ml = pour_size_ml * pours
+    current_qty = float(item.quantity)
+
+    if stocked_in_bottles:
+        # quantity is in bottles; convert to ml for capacity check
+        available_ml = current_qty * bottle_size_ml
+        if total_pour_ml > available_ml:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Not enough stock. Have {available_ml:.0f}ml "
+                    f"({current_qty} bottles × {bottle_size_ml:.0f}ml), "
+                    f"need {total_pour_ml:.0f}ml"
+                ),
+            )
+        # Decrement in bottle units (decimal)
+        new_qty = current_qty - (total_pour_ml / bottle_size_ml)
+    else:
+        # Legacy mode: quantity is already in ml
+        if total_pour_ml > current_qty:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Not enough stock. Have {current_qty} {item.pour_unit or 'ml'}, "
+                    f"need {total_pour_ml}"
+                ),
+            )
+        new_qty = current_qty - total_pour_ml
 
     pour_date = data.date or date.today()
-    item.quantity = current_ml - total_ml
+    item.quantity = round(new_qty, 4)  # 4 decimals — preserves partial bottles
+    # Log change_qty in same units as item.quantity (consistency for stock
+    # history / audit trail). For bottle-stocked items this is a fractional
+    # bottle decrement; for ml-stocked it's the ml.
+    log_qty = -(total_pour_ml / bottle_size_ml) if stocked_in_bottles else -total_pour_ml
     log = InventoryLog(
         item_id=item.id,
-        change_qty=-total_ml,
-        reason=f"pour:{data.pours}x{item.pour_size}{item.pour_unit or 'ml'}",
+        change_qty=round(log_qty, 4),
+        reason=f"pour:{pours}x{pour_size_ml:.0f}{item.pour_unit or 'ml'}",
         date=pour_date,
     )
     db.add(log)
