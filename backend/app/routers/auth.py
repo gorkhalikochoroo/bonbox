@@ -432,13 +432,27 @@ def update_profile(
 
 
 @router.post("/change-password")
+@limiter.limit("5/minute")
 def change_password(
+    request: Request,
     data: PasswordChange,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """
+    Change an authenticated user's password.
+
+    Rate-limited to 5/min/IP — prevents an attacker who steals a session
+    token from probing the current_password field at high speed (bcrypt
+    cost is the first defense, this is the second).
+
+    Refuses no-op changes (new == current after hash) — better signal
+    that the change actually happened.
+    """
     if not verify_password(data.current_password, current_user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
+    if verify_password(data.new_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="New password must differ from current")
     current_user.password_hash = hash_password(data.new_password)
     db.commit()
     return {"message": "Password changed successfully"}
@@ -485,11 +499,27 @@ def forgot_password(request: Request, data: ForgotPasswordRequest, db: Session =
 @router.post("/reset-password")
 @limiter.limit("5/minute")
 def reset_password(request: Request, data: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """
+    Confirm a forgotten-password reset using the 6-digit code from email.
+
+    Constant-time token comparison via secrets.compare_digest defends
+    against timing attacks (the difference is microseconds for a 6-digit
+    string, but the principle matters). Code expires in 15 min from issue.
+    """
     user = db.query(User).filter(User.email == data.email).first()
-    if not user or not user.reset_token or user.reset_token != data.reset_token:
-        raise HTTPException(status_code=400, detail="Invalid or expired reset code")
+    # Use a single generic error so we don't leak whether the email exists,
+    # whether a token was issued, or whether it matched.
+    invalid = HTTPException(status_code=400, detail="Invalid or expired reset code")
+    if not user or not user.reset_token:
+        raise invalid
+    # Constant-time comparison — bytes form to satisfy compare_digest contract
+    if not secrets.compare_digest(
+        (user.reset_token or "").encode("utf-8"),
+        (data.reset_token or "").encode("utf-8"),
+    ):
+        raise invalid
     if user.reset_token_expires and user.reset_token_expires < datetime.utcnow():
-        raise HTTPException(status_code=400, detail="Reset code has expired")
+        raise invalid
 
     user.password_hash = hash_password(data.new_password)
     user.reset_token = None
