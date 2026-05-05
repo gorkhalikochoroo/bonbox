@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -75,6 +75,20 @@ export default function LoginPage() {
   // Hide Google sign-in on native iOS (Apple requires Sign in with Apple for third-party login)
   const isNative = typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
   const hasGoogle = !!import.meta.env.VITE_GOOGLE_CLIENT_ID && !isNative;
+
+  // Google button width is fixed-pixel — measure container so it fits any phone
+  const googleWrap = useRef(null);
+  const [googleWidth, setGoogleWidth] = useState(320);
+  useEffect(() => {
+    if (!googleWrap.current) return;
+    const measure = () => {
+      const w = googleWrap.current?.offsetWidth || 320;
+      setGoogleWidth(Math.max(240, Math.min(400, w)));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [hasGoogle]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -254,7 +268,7 @@ export default function LoginPage() {
                   <span className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">or</span>
                   <div className="flex-1 h-px bg-gray-200 dark:bg-gray-800"/>
                 </div>
-                <div className="flex justify-center [&>div]:w-full">
+                <div ref={googleWrap} className="flex justify-center [&>div]:w-full overflow-hidden">
                   <GoogleLogin
                     onSuccess={(res) => {
                       setError("");
@@ -271,7 +285,7 @@ export default function LoginPage() {
                     onError={() => setError("Google sign-in failed")}
                     shape="rectangular"
                     size="large"
-                    width="400"
+                    width={String(googleWidth)}
                     text="signin_with"
                     theme={typeof window !== "undefined" && document.documentElement.classList.contains("dark") ? "filled_black" : "outline"}
                   />
