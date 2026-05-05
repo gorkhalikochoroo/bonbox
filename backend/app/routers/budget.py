@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func, extract
 
@@ -60,6 +60,12 @@ def get_budget_summary(
     user: User = Depends(get_current_user),
 ):
     """Get budget vs actual spending for a month. mode=personal|business"""
+    # Validate month format up front — bad input previously raised ValueError
+    # → 500 to user. Now: 400 with clear message.
+    import re
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month or ""):
+        raise HTTPException(status_code=400, detail="month must be in YYYY-MM format (e.g. 2026-05)")
+
     # Get budgets for this month
     budget_rows = db.query(Budget).filter(
         Budget.user_id == user.id,
@@ -76,14 +82,14 @@ def get_budget_summary(
 
     # Get spending by category for this month
     year, mo = month.split("-")
-    personal_filter = Expense.is_personal == True if mode == "personal" else Expense.is_personal == False
+    personal_filter = Expense.is_personal == True if mode == "personal" else Expense.is_personal.isnot(True)
     spending_rows = (
         db.query(ExpenseCategory.name, func.sum(Expense.amount))
         .join(ExpenseCategory, Expense.category_id == ExpenseCategory.id)
         .filter(
             Expense.user_id == user.id,
             personal_filter,
-            Expense.is_deleted == False,
+            Expense.is_deleted.isnot(True),
             extract("year", Expense.date) == int(year),
             extract("month", Expense.date) == int(mo),
         )

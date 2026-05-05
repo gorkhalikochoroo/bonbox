@@ -16,16 +16,25 @@ from app.services.auth import get_current_user
 router = APIRouter()
 
 
-def _person_balances(db: Session, person_id: uuid.UUID):
-    """Returns (borrowed_balance, lent_balance).
-    borrowed_balance = sum(borrowed, not repayment) - sum(borrowed, repayment)
-    lent_balance = sum(lent, not repayment) - sum(lent, repayment)
+def _person_balances(db: Session, person_id: uuid.UUID, user_id=None):
     """
-    txns = db.query(LoanTransaction).filter(LoanTransaction.person_id == person_id).all()
+    Returns (borrowed_balance, lent_balance).
+
+      borrowed_balance = sum(borrowed, not repayment) - sum(borrowed, repayment)
+      lent_balance     = sum(lent,     not repayment) - sum(lent,     repayment)
+
+    Defense-in-depth: callers always scope by user upstream, but accept user_id
+    here too so any future caller can't accidentally compute another tenant's
+    balance (same hardening applied to khata._customer_balance).
+    """
+    q = db.query(LoanTransaction).filter(LoanTransaction.person_id == person_id)
+    if user_id is not None:
+        q = q.filter(LoanTransaction.user_id == user_id)
+    txns = q.all()
     borrowed = 0.0
     lent = 0.0
     for t in txns:
-        amt = float(t.amount)
+        amt = float(t.amount or 0)
         if t.type == "borrowed":
             if t.is_repayment:
                 borrowed -= amt
