@@ -46,11 +46,11 @@ def my_billing(
     from Stripe before responding. The sync is rate-limited per-user (30s
     cooldown) and wrapped in try/except so it can't crash this endpoint.
     """
-    if (
-        user.stripe_customer_id
-        and not user.subscription_status
-        and stripe_billing.is_configured()
-    ):
+    # Auto-sync: trigger when subscription_status is null. The sync function
+    # will recover an orphaned customer by metadata search if user.stripe_customer_id
+    # is null too. The 30s per-user cooldown inside sync_user_subscription_from_stripe
+    # caps Stripe API hits at ~2/min/user even if /billing/me is hammered.
+    if not user.subscription_status and stripe_billing.is_configured():
         try:
             stripe_billing.sync_user_subscription_from_stripe(user, db)
         except Exception:

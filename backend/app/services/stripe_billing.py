@@ -362,6 +362,33 @@ _LAST_SYNC: dict[str, datetime] = {}
 _SYNC_COOLDOWN_SECONDS = 30
 
 
+def _find_customer_by_user_metadata(s, user: User) -> Optional[str]:
+    """Find a Stripe customer that has this user's bonbox_user_id in metadata.
+
+    Used to recover orphaned customers — cases where Stripe successfully
+    created a customer (and possibly subscription) but the local DB rollback
+    failed, so user.stripe_customer_id is null even though the Stripe-side
+    record exists. Searches by metadata, never by email — metadata is set by
+    us and is tenant-safe.
+    """
+    try:
+        # Stripe's search API supports metadata filters. Limit 5 keeps the
+        # response small; we only need the most recent match.
+        result = s.Customer.search(
+            query=f'metadata["bonbox_user_id"]:"{user.id}"',
+            limit=5,
+        )
+        items = list(getattr(result, "data", []) or [])
+        if not items:
+            return None
+        # Prefer the most recently created customer
+        items.sort(key=lambda c: -int(getattr(c, "created", 0) or 0))
+        return items[0].id
+    except Exception as e:
+        log.warning("Customer search failed for user=%s: %s", user.id, e)
+        return None
+
+
 def sync_user_subscription_from_stripe(user: User, db: Session, force: bool = False) -> Optional[dict]:
     """Pull this user's subscription state directly from Stripe and write it to
     the DB. Self-healing fallback for when webhooks fail to fire / are mis-
@@ -370,9 +397,10 @@ def sync_user_subscription_from_stripe(user: User, db: Session, force: bool = Fa
     Multi-layer defense:
       L1 — Per-user 30s cooldown (set force=True to bypass) prevents loops if
            /billing/me is hammered or this is called recursively.
-      L2 — Hard requirement: user must have a stripe_customer_id. We never
-           "guess" by email; that would be cross-tenant if duplicate emails
-           ever happen.
+      L2 — Tenant-safe customer recovery: if user.stripe_customer_id is null
+           we recover by searching Stripe for a customer with this user's
+           bonbox_user_id in metadata. We NEVER look up by email — that
+           would risk cross-tenant if emails are reused.
       L3 — All Stripe API calls + DB writes wrapped — the function never
            re-raises, so callers in /billing/me can't 500.
       L4 — Refuses to run if Stripe isn't configured (e.g. local dev).
@@ -380,7 +408,7 @@ def sync_user_subscription_from_stripe(user: User, db: Session, force: bool = Fa
     Returns a small status dict for logging/telemetry, or None on hard error.
     """
     s = _stripe()
-    if not s or not user.stripe_customer_id:
+    if not s:
         return None
 
     if not force:
@@ -388,6 +416,19 @@ def sync_user_subscription_from_stripe(user: User, db: Session, force: bool = Fa
         if last and (datetime.utcnow() - last).total_seconds() < _SYNC_COOLDOWN_SECONDS:
             return {"status": "skipped", "reason": "cooldown"}
     _LAST_SYNC[str(user.id)] = datetime.utcnow()
+
+    # L2: recover orphaned customer link if missing
+    if not user.stripe_customer_id:
+        recovered = _find_customer_by_user_metadata(s, user)
+        if not recovered:
+            return {"status": "no_stripe_customer"}
+        log.info("Recovered orphaned Stripe customer %s for user %s", recovered, user.id)
+        try:
+            user.stripe_customer_id = recovered
+            db.commit()
+        except Exception:
+            db.rollback()
+            return None
 
     try:
         # Fetch all subs for this customer (live count is small per customer)
