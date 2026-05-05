@@ -27,7 +27,7 @@ export default function ProfilePage() {
   // backend silently drops every event_log write for this user.
   const [analyticsOptOut, setAnalyticsOptOut] = useState(false);
   const [privacyMsg, setPrivacyMsg] = useState("");
-  // Tax preferences live in /tax-autopilot now (next to where they take effect),
+  // Tax preferences live in /tax now (next to where they take effect),
   // so no local state for them here anymore — see TaxAutopilotPage.jsx.
   const { permission: pushPerm, supported: pushSupported, requestPermission: requestPush } = usePushNotifications();
   const [businessProfile, setBusinessProfile] = useState(null);
@@ -552,7 +552,7 @@ export default function ProfilePage() {
 
           {/* Tax preferences moved → Tax Autopilot page (next to the deadlines they drive). */}
           <a
-            href="/tax-autopilot"
+            href="/tax"
             className="block p-4 rounded-xl border border-green-200/70 dark:border-green-800/40 bg-green-50/60 dark:bg-green-900/15 hover:border-green-300 dark:hover:border-green-700 transition"
           >
             <div className="flex items-center gap-3">

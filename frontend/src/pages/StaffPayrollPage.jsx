@@ -94,7 +94,15 @@ export default function StaffPayrollPage() {
     setPeriodLoading(true);
     api.get("/staff/pay-period/current")
       .then(r => {
-        setPeriod(r.data);
+        // Backend returns { start_date, end_date }; the rest of this page
+        // reads period_start / period_end. Normalise here so we don't have
+        // to thread the legacy key names through every consumer below.
+        const d = r.data || {};
+        setPeriod({
+          period_start: d.period_start || d.start_date || null,
+          period_end: d.period_end || d.end_date || null,
+          period_type: d.period_type || null,
+        });
         setPeriodLoading(false);
       })
       .catch(() => {
@@ -668,7 +676,7 @@ export default function StaffPayrollPage() {
             <button
               onClick={generatePdf}
               disabled={pdfLoading || selectedIds.size === 0}
-              className="flex items-center gap-2 px-5 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-5 py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-semibold transition shadow-sm shadow-green-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {pdfLoading ? (
                 <>
