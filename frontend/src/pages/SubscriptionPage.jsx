@@ -279,6 +279,40 @@ export default function SubscriptionPage() {
         </div>
       )}
 
+      {/* How it works — only relevant while on trial */}
+      {trialDaysLeft != null && trialDaysLeft > 0 && (
+        <div className="mb-10 max-w-4xl mx-auto bg-white dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-2xl p-5 sm:p-6">
+          <h3 className="text-[15px] font-semibold text-gray-900 dark:text-white mb-4">
+            How your trial works
+          </h3>
+          <div className="grid sm:grid-cols-3 gap-4 sm:gap-5">
+            <div className="relative">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">Today</div>
+              <div className="text-sm font-semibold text-gray-900 dark:text-white mt-1">Trial started at sign-in</div>
+              <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
+                14 days of full Pro — every feature, no caps. No card, no charge.
+              </div>
+            </div>
+            <div className="relative sm:border-l sm:border-gray-200 sm:dark:border-gray-700 sm:pl-5">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">Anytime in the next {trialDaysLeft} day{trialDaysLeft === 1 ? "" : "s"}</div>
+              <div className="text-sm font-semibold text-gray-900 dark:text-white mt-1">Pick your path</div>
+              <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
+                <span className="block">→ <span className="font-semibold">Lock in 99 kr/mo</span>: add card now, founding rate locked for life</span>
+                <span className="block mt-1">→ <span className="font-semibold">Do nothing</span>: trial runs out, you drop to Free</span>
+              </div>
+            </div>
+            <div className="relative sm:border-l sm:border-gray-200 sm:dark:border-gray-700 sm:pl-5">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-green-600 dark:text-green-400">Day 14</div>
+              <div className="text-sm font-semibold text-gray-900 dark:text-white mt-1">What actually happens</div>
+              <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
+                <span className="block">If locked in: first 99 kr charged to your card</span>
+                <span className="block mt-1">If not: dropped to Free (caps return, data stays, no charge ever)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Hero */}
       <div className="text-center mb-10">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gradient-to-r from-purple-100 to-pink-100 dark:from-purple-900/30 dark:to-pink-900/30 border border-purple-200/60 dark:border-purple-700/40 text-xs font-semibold text-purple-700 dark:text-purple-300 mb-4">
@@ -460,8 +494,8 @@ export default function SubscriptionPage() {
               ))}
             </div>
             <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-4 leading-relaxed">
-              Card details? Never asked during the trial. Never charged automatically. If you outgrow Free,
-              you upgrade <em>when</em> you decide — not because a clock ran out.
+              No card needed to start the trial — it auto-runs when you sign up. You only enter a card if you
+              click "Lock in 99 kr/mo" to keep the founding rate. Otherwise the trial just ends and you drop to Free.
             </p>
           </div>
         </div>
@@ -481,7 +515,7 @@ export default function SubscriptionPage() {
         <div className="space-y-4">
           <FaqItem
             q="What happens when my 14-day trial ends?"
-            a="You automatically drop to Free. Every feature stays — only the usage caps come back. Your data stays untouched (sales, expenses, history). You will NEVER be charged automatically. We don't even ask for a card during the trial."
+            a="It depends on whether you locked in. If you did NOT lock in: you drop to Free automatically. Every feature stays, only the usage caps come back, your data is untouched, and you're never charged. If you DID lock in (clicked 'Lock in 99 kr/mo' and added a card): your card is charged 99 DKK on day 15 and monthly after, locked at the founding rate for life. Either way: no surprises — the trial banner counts the days down, and you choose."
           />
           <FaqItem
             q="Why does Free have every feature, just with caps?"
