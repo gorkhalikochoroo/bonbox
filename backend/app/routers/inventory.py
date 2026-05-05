@@ -46,18 +46,31 @@ def list_categories(
 
 @router.get("/expiring", response_model=list[InventoryItemResponse])
 def get_expiring(
-    days: int = Query(3),
+    days: int = Query(3, ge=1, le=365),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    cutoff = date.today() + timedelta(days=days)
+    """
+    Items expiring within `days` from today.
+
+    Critical fix: previously included already-expired items (expiry_date <
+    today), so a 30-day-old expired bottle showed up in "expiring in 3 days".
+    Now only items expiring TODAY or within the window appear.
+
+    Also requires quantity > 0 — sold-out items aren't actionable.
+    """
+    today = date.today()
+    cutoff = today + timedelta(days=days)
     return (
         db.query(InventoryItem)
         .filter(
             InventoryItem.user_id == user.id,
-            InventoryItem.expiry_date != None,
+            InventoryItem.expiry_date.is_not(None),
+            InventoryItem.expiry_date >= today,
             InventoryItem.expiry_date <= cutoff,
+            InventoryItem.quantity > 0,
         )
+        .order_by(InventoryItem.expiry_date)
         .all()
     )
 
@@ -136,6 +149,17 @@ def create_log(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    """
+    Adjust inventory quantity by `change_qty` (positive or negative).
+
+    Validates that change_qty != 0 (otherwise the log is meaningless).
+    Allows the resulting quantity to go negative (legitimate for credit
+    sales / unrecorded stock corrections) but logs a warning so the
+    audit trail flags it for the owner.
+    """
+    if not data.change_qty or float(data.change_qty) == 0:
+        raise HTTPException(status_code=400, detail="change_qty must be non-zero")
+
     item = db.query(InventoryItem).filter(
         InventoryItem.id == data.item_id,
         InventoryItem.user_id == user.id,
@@ -144,7 +168,16 @@ def create_log(
         raise HTTPException(status_code=404, detail="Item not found")
 
     log = InventoryLog(**data.model_dump())
-    item.quantity = float(item.quantity) + data.change_qty
+    new_qty = float(item.quantity) + float(data.change_qty)
+    if new_qty < 0:
+        # Permissive but visible — pre-order / unrecorded receipts can
+        # legitimately result in temporary negative stock. Audit trail keeps it.
+        import logging as _logging
+        _logging.getLogger("bonbox.inventory").warning(
+            "inventory log: %s would go negative (%.2f) for user=%s",
+            item.name, new_qty, user.id,
+        )
+    item.quantity = round(new_qty, 4)
     db.add(log)
     db.commit()
     db.refresh(log)
@@ -166,7 +199,7 @@ def get_dead_stock(
             Sale.item_name,
             func.max(Sale.date).label("last_sale_date"),
         )
-        .filter(Sale.user_id == user.id, Sale.is_deleted == False)
+        .filter(Sale.user_id == user.id, Sale.is_deleted.isnot(True))
         .group_by(Sale.item_name)
         .subquery()
     )
