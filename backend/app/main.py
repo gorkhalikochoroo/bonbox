@@ -144,6 +144,22 @@ _migrations = [
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS voucher_number INTEGER",
     "CREATE INDEX IF NOT EXISTS ix_sales_voucher ON sales (user_id, voucher_number)",
     "CREATE INDEX IF NOT EXISTS ix_expenses_voucher ON expenses (user_id, voucher_number)",
+    # Error log — observability without external dependencies (Sentry alternative)
+    """CREATE TABLE IF NOT EXISTS error_logs (
+        id VARCHAR(36) PRIMARY KEY,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        method VARCHAR(10),
+        path VARCHAR(500),
+        status_code INTEGER,
+        user_id VARCHAR(36),
+        ip_address VARCHAR(64),
+        user_agent VARCHAR(500),
+        error_type VARCHAR(100),
+        message TEXT,
+        traceback TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_error_logs_created ON error_logs (created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS ix_error_logs_status ON error_logs (status_code)",
     # Danish restaurant operations — Property Financial Report fields.
     # Modeled on the Sticks'n'Sushi closing format: order channel, guest count,
     # service charge, discount, and the void/error-correct ladder.
@@ -523,6 +539,29 @@ async def _global_exception_handler(request: Request, exc: Exception):
         "Unhandled exception in %s %s: %s",
         request.method, path, exc,
     )
+    # Persist to ErrorLog for super-admin observability — wrapped in
+    # try/except so logging failures NEVER break the response path.
+    try:
+        from app.models.error_log import ErrorLog as _ErrorLog
+        from app.database import SessionLocal as _SessionLocal
+        _db = _SessionLocal()
+        try:
+            _db.add(_ErrorLog(
+                method=request.method,
+                path=path[:500] if path else None,
+                status_code=500,
+                user_id=getattr(getattr(request, "state", None), "user_id", None),
+                ip_address=(request.client.host if request.client else None),
+                user_agent=(request.headers.get("user-agent") or "")[:500],
+                error_type=type(exc).__name__[:100],
+                message=str(exc)[:1000],
+                traceback=_tb.format_exc()[:5000],  # cap at 5KB to keep DB lean
+            ))
+            _db.commit()
+        finally:
+            _db.close()
+    except Exception:  # noqa: BLE001 — observability MUST never raise
+        pass
     # Audit spike detection: many exceptions from same IP looks like probing
     try:
         ip = request.client.host if request.client else ""

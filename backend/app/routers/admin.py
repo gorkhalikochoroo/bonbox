@@ -315,6 +315,46 @@ def admin_security_events(
     ]
 
 
+@router.get("/recent-errors")
+def admin_recent_errors(
+    limit: int = Query(50, ge=1, le=200),
+    status_code: int | None = Query(None),
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Last N server-side errors (Sentry alternative).
+
+    Populated automatically by the global exception handler in main.py
+    every time an uncaught Exception propagates out of any route. Filter
+    by status_code (typically 500) to narrow.
+
+    Truncated traceback (5KB) and message (1KB) for UI rendering.
+    """
+    from app.models.error_log import ErrorLog
+    q = db.query(ErrorLog)
+    if status_code:
+        q = q.filter(ErrorLog.status_code == status_code)
+    rows = q.order_by(ErrorLog.created_at.desc()).limit(limit).all()
+    return [
+        {
+            "id": str(r.id),
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "method": r.method,
+            "path": r.path,
+            "status_code": r.status_code,
+            "user_id": str(r.user_id) if r.user_id else None,
+            "ip_address": r.ip_address,
+            "error_type": r.error_type,
+            "message": (r.message or "")[:240],
+            # Last N lines of traceback are most useful in the UI; full text
+            # available if the admin clicks through.
+            "traceback_tail": "\n".join((r.traceback or "").splitlines()[-8:]),
+        }
+        for r in rows
+    ]
+
+
 # ─────────────────────── Spam cleanup ───────────────────────
 
 

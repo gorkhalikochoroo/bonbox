@@ -29,6 +29,7 @@ export default function AdminPage() {
   const [retention, setRetention] = useState(null);
   const [signups, setSignups] = useState([]);
   const [securityEvents, setSecurityEvents] = useState([]);
+  const [recentErrors, setRecentErrors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -38,7 +39,7 @@ export default function AdminPage() {
       setLoading(true);
       setError(null);
       try {
-        const [ov, us, bt, cur, ft, rt, su, se] = await Promise.all([
+        const [ov, us, bt, cur, ft, rt, su, se, er] = await Promise.all([
           api.get("/admin/overview"),
           api.get("/admin/users", { params: { limit: 100 } }),
           api.get("/admin/business-types"),
@@ -47,6 +48,7 @@ export default function AdminPage() {
           api.get("/admin/retention"),
           api.get("/admin/signups-timeline", { params: { days: 30 } }),
           api.get("/admin/security-events", { params: { limit: 30 } }),
+          api.get("/admin/recent-errors", { params: { limit: 20 } }).catch(() => ({ data: [] })),
         ]);
         if (cancelled) return;
         setOverview(ov.data);
@@ -57,6 +59,7 @@ export default function AdminPage() {
         setRetention(rt.data);
         setSignups(su.data);
         setSecurityEvents(se.data);
+        setRecentErrors(er.data || []);
       } catch (e) {
         if (cancelled) return;
         const status = e.response?.status;
@@ -311,6 +314,56 @@ export default function AdminPage() {
             </tbody>
           </table>
         </div>
+      </Section>
+
+      {/* Recent server errors — Sentry alternative for solo-founder phase */}
+      <Section title="🐛 Recent server errors" subtitle="Last 20 unhandled exceptions in the API. Empty = healthy.">
+        {recentErrors.length === 0 ? (
+          <p className="text-sm text-gray-500 dark:text-gray-400 py-2">
+            No errors logged. (Either all is well, or the migration just ran — refresh later.)
+          </p>
+        ) : (
+          <div className="overflow-x-auto -mx-4 sm:mx-0">
+            <table className="w-full text-xs text-gray-900 dark:text-gray-100">
+              <thead className="uppercase text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">
+                <tr>
+                  <th className="text-left px-2 py-2">When</th>
+                  <th className="text-left px-2 py-2">Status</th>
+                  <th className="text-left px-2 py-2">Method · Path</th>
+                  <th className="text-left px-2 py-2">Type</th>
+                  <th className="text-left px-2 py-2">Message</th>
+                  <th className="text-left px-2 py-2">User · IP</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentErrors.map((e) => (
+                  <tr key={e.id} className="border-b border-gray-100 dark:border-gray-800 align-top">
+                    <td className="px-2 py-1.5 text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                      {e.created_at ? relativeTime(e.created_at) : "—"}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300">
+                        {e.status_code || "?"}
+                      </span>
+                    </td>
+                    <td className="px-2 py-1.5 font-mono text-gray-700 dark:text-gray-300 truncate max-w-[260px]">
+                      {e.method} {e.path}
+                    </td>
+                    <td className="px-2 py-1.5 text-gray-700 dark:text-gray-300 whitespace-nowrap">{e.error_type}</td>
+                    <td className="px-2 py-1.5 text-gray-600 dark:text-gray-300 truncate max-w-[280px]" title={e.message}>
+                      {e.message}
+                    </td>
+                    <td className="px-2 py-1.5 font-mono text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                      {e.user_id ? e.user_id.slice(0, 8) : "—"}
+                      <span className="text-gray-400 mx-1">·</span>
+                      {e.ip_address || "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Section>
     </div>
   );
