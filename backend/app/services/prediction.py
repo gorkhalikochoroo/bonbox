@@ -16,7 +16,11 @@ def get_sales_patterns(db: Session, user_id, lookback_days: int = 90):
 
     sales = (
         db.query(Sale.date, Sale.amount)
-        .filter(Sale.user_id == user_id, Sale.date >= cutoff)
+        .filter(
+            Sale.user_id == user_id,
+            Sale.date >= cutoff,
+            Sale.is_deleted.isnot(True),
+        )
         .all()
     )
 
@@ -67,12 +71,21 @@ def forecast_next_days(db: Session, user_id, days: int = 14):
 
     recent_avg = (
         db.query(func.coalesce(func.avg(Sale.amount), 0))
-        .filter(Sale.user_id == user_id, Sale.date >= cutoff_recent)
+        .filter(
+            Sale.user_id == user_id,
+            Sale.date >= cutoff_recent,
+            Sale.is_deleted.isnot(True),
+        )
         .scalar()
     )
     prior_avg = (
         db.query(func.coalesce(func.avg(Sale.amount), 0))
-        .filter(Sale.user_id == user_id, Sale.date >= cutoff_prior, Sale.date < cutoff_recent)
+        .filter(
+            Sale.user_id == user_id,
+            Sale.date >= cutoff_prior,
+            Sale.date < cutoff_recent,
+            Sale.is_deleted.isnot(True),
+        )
         .scalar()
     )
 
