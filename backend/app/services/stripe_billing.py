@@ -253,10 +253,22 @@ def create_checkout_session(
     # Logic:
     #   • User has X days left in BonBox trial → pass them as Stripe trial_period_days.
     #     They get those X days free in Stripe (no charge), then auto-charge.
-    #   • User's BonBox trial already expired → trial_period_days=None, charge immediately.
-    # This avoids the double-trial UX bug where users got 14 BonBox days + 14 Stripe days.
-    from app.services.billing import trial_days_remaining
+    #   • User's trial_ends_at is null OR in the past → backfill a fresh 14-day
+    #     trial so the marketing promise ("14 days free, then 99 kr/mo") is
+    #     honored at the moment they click Lock In. Without this guard, users
+    #     who registered before the trial code shipped — or whose trial expired —
+    #     get charged immediately at checkout, which is a UX bug not a feature.
+    from app.services.billing import trial_days_remaining, TRIAL_DAYS
     remaining = trial_days_remaining(user) or 0
+    if remaining <= 0 and user.subscription_status not in ("active", "trialing", "past_due"):
+        log.info(
+            "User %s has no remaining trial (trial_ends_at=%s); backfilling %s days "
+            "for fair lock-in trial",
+            user.id, user.trial_ends_at, TRIAL_DAYS,
+        )
+        user.trial_ends_at = datetime.utcnow() + timedelta(days=TRIAL_DAYS)
+        db.commit()
+        remaining = TRIAL_DAYS
     sub_data = {
         # description appears on Stripe-side dashboards, invoices, and receipt
         # emails. Reinforces the BonBox brand even though the underlying Stripe
