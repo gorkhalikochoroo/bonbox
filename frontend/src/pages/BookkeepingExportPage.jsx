@@ -197,7 +197,7 @@ export default function BookkeepingExportPage() {
                 <span key={i}>
                   {part}
                   {i < arr.length - 1 && (
-                    <strong className="font-bold text-blue-900 dark:text-blue-100 mx-0.5">→</strong>
+                    <strong className="font-bold text-blue-900 dark:text-blue-100 text-base mx-1.5">➜</strong>
                   )}
                 </span>
               ))}
