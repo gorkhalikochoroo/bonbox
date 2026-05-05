@@ -133,19 +133,29 @@ export default function RegisterPage() {
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
       `}</style>
 
-      <div className="min-h-screen flex bg-white dark:bg-gray-900">
-        {/* Left panel — illustration */}
-        <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50 dark:from-gray-800 dark:via-gray-800 dark:to-gray-800 items-center justify-center p-12 relative overflow-hidden">
-          <div className="absolute top-10 right-10 w-64 h-64 bg-emerald-200/30 dark:bg-emerald-900/20 rounded-full blur-3xl" />
-          <div className="absolute bottom-20 left-10 w-48 h-48 bg-green-200/40 dark:bg-green-900/20 rounded-full blur-3xl" />
-          <div className="relative z-10 text-center" style={{ animation: "fadeIn 0.8s ease-out" }}>
-            <RegisterIllustration />
-            <h2 className="text-2xl font-bold text-gray-800 dark:text-white mt-6">
-              Start growing today.
+      <div className="min-h-screen flex bg-[#fafaf7] dark:bg-gray-950">
+        {/* Left panel — minimalist Copenhagen-style copy, no illustration overload */}
+        <div className="hidden lg:flex lg:w-1/2 items-center justify-center p-16 border-r border-gray-200/60 dark:border-gray-800">
+          <div className="max-w-sm" style={{ animation: "fadeIn 0.8s ease-out" }}>
+            <h2 className="text-[34px] font-semibold tracking-tight leading-[1.1] text-gray-900 dark:text-white">
+              Start your 14-day free trial.
             </h2>
-            <p className="text-gray-500 dark:text-gray-400 mt-2 max-w-xs mx-auto">
-              Join thousands of small businesses tracking their success with BonBox.
+            <p className="text-[15px] text-gray-600 dark:text-gray-400 mt-4 leading-relaxed">
+              No card required. Full Pro access for 14 days — AI Copilot, predictive insights,
+              receipt OCR. After the trial you stay on Free; every feature still works, just with caps.
             </p>
+            <ul className="mt-8 space-y-3 text-[14px] text-gray-700 dark:text-gray-300">
+              {[
+                "Built in Copenhagen · GDPR · EU-hosted",
+                "Cancel anytime · Export your data",
+                "Founding price 99 kr/mo locked in for first 1,000",
+              ].map((item) => (
+                <li key={item} className="flex items-start gap-2.5">
+                  <span className="mt-[7px] w-1 h-1 rounded-full bg-gray-400 dark:bg-gray-500 shrink-0" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
 
@@ -155,11 +165,12 @@ export default function RegisterPage() {
             {/* Logo + heading */}
             <div className="mb-6">
               <div className="flex items-center gap-3 mb-5">
-                <div className="w-11 h-11 bg-green-600 rounded-xl flex items-center justify-center shadow-lg shadow-green-600/20">
-                  <svg width="22" height="22" viewBox="0 0 28 28" fill="none">
-                    <rect x="4" y="2" width="20" height="24" rx="3" stroke="white" strokeWidth="2.5"/>
-                    <path d="M9 8h10M9 12h10M9 16h6" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
-                    <path d="M4 20h20" stroke="#FCD34D" strokeWidth="2"/>
+                <div className="w-10 h-10 bg-gray-900 dark:bg-white rounded-lg flex items-center justify-center">
+                  <svg width="20" height="20" viewBox="0 0 28 28" fill="none">
+                    <rect x="4" y="2" width="20" height="24" rx="3" stroke="currentColor"
+                          className="text-white dark:text-gray-900" strokeWidth="2.2"/>
+                    <path d="M9 8h10M9 12h10M9 16h6" stroke="currentColor"
+                          className="text-white dark:text-gray-900" strokeWidth="1.5" strokeLinecap="round"/>
                   </svg>
                 </div>
                 <span className="text-xl font-bold text-gray-800 dark:text-white">BonBox</span>
@@ -171,7 +182,7 @@ export default function RegisterPage() {
             {alreadyExists && (
               <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 p-4 rounded-xl mb-5 text-center" style={{ animation: "slideUp 0.3s ease-out" }}>
                 <p className="text-sm text-blue-800 dark:text-blue-300 font-medium mb-2">{t("emailAlreadyRegistered")}</p>
-                <Link to="/login" className="inline-block bg-green-600 text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-green-700 transition">
+                <Link to="/login" className="inline-block bg-gray-900 dark:bg-white text-white dark:text-gray-900 px-4 py-2 rounded-lg text-[13px] font-medium hover:bg-gray-800 dark:hover:bg-gray-100 transition">
                   {t("signInInstead")}
                 </Link>
               </div>
@@ -288,7 +299,10 @@ export default function RegisterPage() {
               )}
 
               <button type="submit" disabled={loading}
-                className="w-full bg-green-600 text-white py-3.5 rounded-xl hover:bg-green-700 active:scale-[0.98] transition-all font-semibold text-base disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-green-600/20 mt-2">
+                className="w-full bg-gray-900 dark:bg-white text-white dark:text-gray-900 py-2.5 rounded-lg
+                  text-[14px] font-medium hover:bg-gray-800 dark:hover:bg-gray-100
+                  disabled:opacity-60 disabled:cursor-not-allowed
+                  flex items-center justify-center gap-2 mt-2 transition">
                 {loading ? (
                   <>
                     <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
@@ -327,24 +341,24 @@ export default function RegisterPage() {
 
             <p className="mt-5 text-center text-sm text-gray-500 dark:text-gray-400">
               {t("alreadyHaveAccount")}{" "}
-              <Link to="/login" className="text-green-600 dark:text-green-400 hover:underline font-semibold">{t("signIn")}</Link>
+              <Link to="/login" className="text-gray-900 dark:text-white font-medium underline-offset-2 hover:underline">{t("signIn")}</Link>
             </p>
 
-            <div className="flex flex-wrap justify-center gap-1 mt-5">
-              {LANGUAGES.map((l) => (
-                <button
-                  key={l.code}
-                  onClick={() => setLang(l.code)}
-                  title={l.label}
-                  className={`w-9 h-9 rounded-lg text-base flex items-center justify-center transition ${
-                    lang === l.code
-                      ? "bg-green-50 dark:bg-green-900/30 ring-2 ring-green-400 dark:ring-green-500 scale-110"
-                      : "hover:bg-gray-100 dark:hover:bg-gray-800 opacity-60 hover:opacity-100"
-                  }`}
-                >
-                  {l.flag}
-                </button>
-              ))}
+            <div className="mt-6 flex justify-center">
+              <select
+                value={lang}
+                onChange={(e) => setLang(e.target.value)}
+                aria-label="Language"
+                className="text-[12px] bg-transparent border border-gray-200 dark:border-gray-700 rounded-md px-2.5 py-1
+                  text-gray-600 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500
+                  focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer"
+              >
+                {LANGUAGES.map((l) => (
+                  <option key={l.code} value={l.code} className="bg-white dark:bg-gray-900">
+                    {l.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         </div>
