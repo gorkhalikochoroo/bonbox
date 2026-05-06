@@ -136,7 +136,7 @@ export default function LoginPage() {
         {/* Top bar — wordmark left, language dropdown right (Copenhagen-style minimal nav) */}
         <header className="px-6 sm:px-10 py-5 flex items-center justify-between border-b border-gray-200/60">
           <Link to="/" className="flex items-center gap-2.5 group">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-gray-900">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[#22c55e]">
               <svg width="18" height="18" viewBox="0 0 28 28" fill="none">
                 <rect x="4" y="2" width="20" height="24" rx="3" stroke="currentColor"
                       className="text-white" strokeWidth="2.2"/>
@@ -244,8 +244,8 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-gray-900 text-white py-2.5 rounded-lg
-                  text-[14px] font-medium hover:bg-gray-800
+                className="w-full bg-[#22c55e] text-white py-2.5 rounded-lg
+                  text-[14px] font-medium hover:bg-[#16a34a]
                   disabled:opacity-60 disabled:cursor-not-allowed transition
                   flex items-center justify-center gap-2"
               >
