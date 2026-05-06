@@ -98,6 +98,21 @@ import RegisterPage from "./pages/RegisterPage";
 import ContactPage from "./pages/ContactPage";
 import TermsPage from "./pages/TermsPage";
 import CookiePolicyPage from "./pages/CookiePolicyPage";
+import CookieConsent from "./components/CookieConsent";
+
+/**
+ * Self-contained ErrorBoundary for the cookie banner. If anything inside the
+ * CookieConsent component throws (a hardened browser, weird locale, broken
+ * localStorage proxy, etc.) we silently render nothing rather than letting
+ * a non-essential UI surface crash the entire app. The user is still
+ * compliant — the banner just doesn't show this session, and we log it.
+ */
+class CookieConsentBoundary extends Component {
+  constructor(props) { super(props); this.state = { broken: false }; }
+  static getDerivedStateFromError() { return { broken: true }; }
+  componentDidCatch(err) { try { console.warn("CookieConsent crashed:", err); } catch {} }
+  render() { return this.state.broken ? null : this.props.children; }
+}
 
 // Retry wrapper for lazy imports — retries 2x on slow connections
 function lazyRetry(importFn) {
@@ -296,6 +311,13 @@ function AppInner() {
           <AuthProvider>
             <BranchProvider>
               <AppRoutes />
+              {/* Cookie consent renders on top of any route, including landing/
+                  login/register where pre-auth visitors must see it.
+                  Wrapped in its own boundary so a failure here NEVER breaks the
+                  rest of the app. */}
+              <CookieConsentBoundary>
+                <CookieConsent />
+              </CookieConsentBoundary>
             </BranchProvider>
           </AuthProvider>
         </LanguageProvider>
