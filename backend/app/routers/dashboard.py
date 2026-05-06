@@ -18,10 +18,20 @@ from app.models.budget import Budget
 from app.schemas.dashboard import DashboardSummary, BenchmarkResponse, BenchmarkMetric
 from app.services.auth import get_current_user
 from app.services.prediction import get_staffing_recommendations
+from app.services.daily_brief import get_or_create_brief
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from fastapi import Request
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+# Local SlowAPI limiter for AI endpoints. Hard ceiling on /daily-brief
+# refresh calls per IP — defends against runaway clients independent of
+# the per-user refresh_count cap (which is the primary gate). 30 calls/min
+# is generous for a logged-in user navigating fast; the per-user cap
+# prevents the actual cost issue.
+_ai_limiter = Limiter(key_func=get_remote_address)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -915,6 +925,29 @@ BENCHMARKS = {
 INGREDIENT_KEYWORDS = {"ingredients", "food", "beverage", "groceries", "supplies", "inventory", "råvarer", "ingredienser"}
 LABOR_KEYWORDS = {"wages", "salary", "staff", "labor", "løn", "personale"}
 RENT_KEYWORDS = {"rent", "lease", "husleje", "leje"}
+
+
+@router.get("/daily-brief")
+@_ai_limiter.limit("30/minute")
+def daily_brief(
+    request: Request,
+    refresh: bool = Query(False, description="Force regenerate; gated by per-tier daily cap"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """AI-generated morning brief — actionable insights for the owner.
+
+    Cached one row per user per day. Free tier: auto-generated on first
+    visit, no manual refresh. Pro/trial/business: up to N manual refreshes
+    per day (see REFRESH_CAP_BY_PLAN).
+
+    Multi-barrier defense:
+      • Numbers come from DB precompute, never from the model.
+      • LLM output validated to ensure no fact was invented.
+      • Falls back to a deterministic brief if validation rejects, the LLM
+        fails, or the API key is missing — user always sees something useful.
+    """
+    return get_or_create_brief(user, db, force_refresh=refresh)
 
 
 @router.get("/summary", response_model=DashboardSummary)

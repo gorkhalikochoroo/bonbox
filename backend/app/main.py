@@ -260,6 +260,24 @@ _migrations = [
     "CREATE INDEX IF NOT EXISTS ix_waitlist_email ON waitlist_entries (email)",
     "CREATE INDEX IF NOT EXISTS ix_waitlist_email_tier ON waitlist_entries (email, tier)",
     "CREATE INDEX IF NOT EXISTS ix_waitlist_created ON waitlist_entries (created_at)",
+    # Daily AI brief — one cached row per user per day. Schema mirrors
+    # app/models/daily_brief.py. Created here (rather than via SQLAlchemy
+    # create_all) so we don't need to bounce the whole DB schema on deploy.
+    """CREATE TABLE IF NOT EXISTS daily_briefs (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id),
+        brief_date DATE NOT NULL,
+        payload_json TEXT NOT NULL,
+        tier VARCHAR(16) NOT NULL DEFAULT 'free',
+        model VARCHAR(64) NOT NULL DEFAULT 'deterministic',
+        input_tokens INTEGER,
+        output_tokens INTEGER,
+        refresh_count INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_daily_brief_user_date UNIQUE (user_id, brief_date)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_daily_brief_user_date ON daily_briefs (user_id, brief_date)",
 ]
 
 def _run_migrations():

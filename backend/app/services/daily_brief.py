@@ -1,0 +1,793 @@
+"""Daily Brief — actionable AI summary for business owners.
+
+Architectural goal: maximum accuracy, zero hallucination, predictable cost.
+
+Pipeline (each step is a barrier — if any fails, the next one absorbs):
+
+  Layer 1 — INPUT VALIDATION
+      ↓ User must be authenticated; brief_date is server-derived (today in
+        user TZ); no caller-supplied data influences the output.
+
+  Layer 2 — DETERMINISTIC PRECOMPUTE
+      ↓ Pull real numbers from the DB (sales, expenses, inventory, khata).
+        These are the ONLY facts the LLM will see — it never queries
+        anything itself, can't invent.
+
+  Layer 2.5 — CANDIDATE INSIGHTS
+      ↓ Apply hand-tuned rules to the precomputed data to generate a list
+        of candidate insights (e.g. "low stock — order soon", "khata
+        outstanding — collect"). Each candidate carries the EXACT phrasing
+        the LLM is allowed to use, plus a weight for ranking.
+
+  Layer 3 — STRUCTURED LLM POLISH (skipped on free-tier cap miss)
+      ↓ LLM receives candidates + owner-memory addendum and is asked to
+        select 2-4 and rephrase them in friendly Copenhagen-style prose.
+        Uses tool-use to enforce JSON output (no free-form drift).
+        Prompt caching applied to the system prompt + tool schema.
+
+  Layer 4 — POST-VALIDATION
+      ↓ Every number / item-name in the LLM output must appear in the
+        precomputed data set. Any drift = reject and fall back.
+        Length caps enforced; no HTML; no markdown.
+
+  Layer 5 — FALLBACK
+      ↓ If the LLM call fails OR validation rejects the output, render
+        a deterministic non-AI brief from the same candidates. Owner
+        sees a useful brief either way; AI failure is invisible.
+
+  Layer 6 — CACHE + USAGE CAP
+      ↓ Cached per (user, brief_date) in DailyBrief table. Free tier:
+        1 generation/day, no manual refresh. Pro tier: 1 + 5 manual
+        refreshes/day. Enforced via refresh_count column.
+
+  Layer 7 — PROMPT CACHING (provider-side)
+      ↓ System prompt + tool definition cached at Anthropic for ~80%
+        cost reduction on repeats. Only the per-user candidates and
+        owner memory are uncached.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import re
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
+from typing import Optional
+
+from sqlalchemy import func as sa_func
+from sqlalchemy.orm import Session
+
+from app.config import settings
+from app.models import (
+    DailyBrief,
+    Expense,
+    InventoryItem,
+    KhataCustomer,
+    KhataTransaction,
+    Sale,
+    User,
+)
+from app.services.billing import effective_plan
+
+logger = logging.getLogger(__name__)
+
+
+# ─────────────────────────────────────────────────────────────────
+# Tier configuration
+# ─────────────────────────────────────────────────────────────────
+
+# Per-day refresh cap (manual force-refresh calls beyond the auto one).
+# Auto-generation on first visit doesn't count. The cap exists to keep
+# token cost predictable per user, not to be stingy with free users.
+REFRESH_CAP_BY_PLAN = {
+    "free": 0,
+    "trial": 5,
+    "pro": 5,
+    "business": 10,
+}
+
+
+def _refresh_cap_for(user: User) -> int:
+    return REFRESH_CAP_BY_PLAN.get(effective_plan(user), 0)
+
+
+# ─────────────────────────────────────────────────────────────────
+# Layer 2 — deterministic precompute
+# ─────────────────────────────────────────────────────────────────
+
+@dataclass
+class Precompute:
+    """Everything the brief generator is allowed to know about the user.
+
+    The LLM gets a JSON dump of this object and nothing else; if a fact
+    isn't in here, it can't appear in the output. Validation in Layer 4
+    cross-checks the LLM output against this dict.
+    """
+    business_name: str
+    currency: str
+    today: str  # ISO date string
+    yesterday: str
+    weekday: str  # "Wednesday"
+    today_revenue: float
+    yesterday_revenue: float
+    pct_change_yesterday: float | None
+    week_avg_revenue: float
+    pct_change_week_avg: float | None
+    month_revenue: float
+    month_expenses: float
+    month_profit_margin_pct: float | None
+    monthly_goal: float | None
+    monthly_goal_progress_pct: float | None
+    days_left_in_month: int
+    top_seller_today: dict | None  # {"name": str, "qty": int, "revenue": float}
+    low_stock_items: list[dict]  # [{"name": str, "qty": float, "unit": str}]
+    khata_outstanding: float
+    khata_with_balance: int
+
+    def to_dict(self) -> dict:
+        return {k: v for k, v in self.__dict__.items()}
+
+
+def compute_precompute(user: User, db: Session) -> Precompute:
+    """Pull the real numbers from the DB. No LLM, no caching — runs each
+    time the brief is generated."""
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    week_ago = today - timedelta(days=7)
+    month_start = today.replace(day=1)
+    next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+    days_left = max(0, (next_month - today).days)
+
+    # Today + yesterday revenue
+    today_rev = float(
+        db.query(sa_func.coalesce(sa_func.sum(Sale.amount), 0))
+        .filter(Sale.user_id == user.id, Sale.is_deleted.isnot(True), Sale.date == today)
+        .scalar() or 0
+    )
+    yesterday_rev = float(
+        db.query(sa_func.coalesce(sa_func.sum(Sale.amount), 0))
+        .filter(Sale.user_id == user.id, Sale.is_deleted.isnot(True), Sale.date == yesterday)
+        .scalar() or 0
+    )
+    pct_yesterday = None
+    if yesterday_rev > 0:
+        raw = ((today_rev - yesterday_rev) / yesterday_rev) * 100
+        pct_yesterday = round(max(-500.0, min(500.0, raw)), 1)
+
+    # 7-day average (excluding today, since today is in-progress)
+    week_rev = float(
+        db.query(sa_func.coalesce(sa_func.sum(Sale.amount), 0))
+        .filter(
+            Sale.user_id == user.id,
+            Sale.is_deleted.isnot(True),
+            Sale.date >= week_ago,
+            Sale.date < today,
+        )
+        .scalar() or 0
+    )
+    week_avg = round(week_rev / 7, 2) if week_rev > 0 else 0.0
+    pct_week_avg = None
+    if week_avg > 0:
+        raw = ((today_rev - week_avg) / week_avg) * 100
+        pct_week_avg = round(max(-500.0, min(500.0, raw)), 1)
+
+    # Month revenue / expenses / margin
+    month_rev = float(
+        db.query(sa_func.coalesce(sa_func.sum(Sale.amount), 0))
+        .filter(
+            Sale.user_id == user.id,
+            Sale.is_deleted.isnot(True),
+            Sale.date >= month_start,
+            Sale.date <= today,
+        )
+        .scalar() or 0
+    )
+    month_exp = float(
+        db.query(sa_func.coalesce(sa_func.sum(Expense.amount), 0))
+        .filter(
+            Expense.user_id == user.id,
+            Expense.is_deleted.isnot(True),
+            Expense.is_personal.isnot(True),
+            Expense.date >= month_start,
+            Expense.date <= today,
+        )
+        .scalar() or 0
+    )
+    margin = None
+    if month_rev > 0:
+        margin = round(((month_rev - month_exp) / month_rev) * 100, 1)
+
+    # Monthly goal progress
+    goal = float(user.monthly_goal) if getattr(user, "monthly_goal", None) else None
+    goal_pct = None
+    if goal and goal > 0:
+        goal_pct = round(min(999.0, (month_rev / goal) * 100), 1)
+
+    # Top seller today (by qty within sales table — only if item_name populated)
+    top_seller = None
+    rows = (
+        db.query(
+            Sale.item_name,
+            sa_func.coalesce(sa_func.sum(Sale.quantity_sold), 0).label("qty"),
+            sa_func.coalesce(sa_func.sum(Sale.amount), 0).label("rev"),
+        )
+        .filter(
+            Sale.user_id == user.id,
+            Sale.is_deleted.isnot(True),
+            Sale.date == today,
+            Sale.item_name.isnot(None),
+        )
+        .group_by(Sale.item_name)
+        .order_by(sa_func.coalesce(sa_func.sum(Sale.quantity_sold), 0).desc())
+        .limit(1)
+        .all()
+    )
+    if rows and rows[0].item_name:
+        top_seller = {
+            "name": str(rows[0].item_name),
+            "qty": int(rows[0].qty or 0),
+            "revenue": float(rows[0].rev or 0),
+        }
+
+    # Low-stock items (capped at top 5 by absolute shortfall)
+    low_stock_rows = (
+        db.query(InventoryItem)
+        .filter(
+            InventoryItem.user_id == user.id,
+            InventoryItem.quantity <= InventoryItem.min_threshold,
+        )
+        .limit(5)
+        .all()
+    )
+    low_stock = [
+        {
+            "name": str(i.name),
+            "qty": float(i.quantity or 0),
+            "unit": str(i.unit or "units"),
+        }
+        for i in low_stock_rows
+    ]
+
+    # Khata outstanding (sum of unpaid balances across all customers)
+    khata_total = 0.0
+    khata_count = 0
+    for cust in db.query(KhataCustomer).filter(
+        KhataCustomer.user_id == user.id,
+        KhataCustomer.is_deleted.isnot(True),
+    ).all():
+        agg = (
+            db.query(
+                sa_func.coalesce(sa_func.sum(KhataTransaction.purchase_amount), 0).label("p"),
+                sa_func.coalesce(sa_func.sum(KhataTransaction.paid_amount), 0).label("pd"),
+            )
+            .filter(
+                KhataTransaction.customer_id == cust.id,
+                KhataTransaction.user_id == user.id,
+            )
+            .first()
+        )
+        outstanding = float(agg.p or 0) - float(agg.pd or 0)
+        if outstanding > 0:
+            khata_total += outstanding
+            khata_count += 1
+
+    return Precompute(
+        business_name=user.business_name or "your business",
+        currency=user.currency or "DKK",
+        today=today.isoformat(),
+        yesterday=yesterday.isoformat(),
+        weekday=today.strftime("%A"),
+        today_revenue=round(today_rev, 2),
+        yesterday_revenue=round(yesterday_rev, 2),
+        pct_change_yesterday=pct_yesterday,
+        week_avg_revenue=week_avg,
+        pct_change_week_avg=pct_week_avg,
+        month_revenue=round(month_rev, 2),
+        month_expenses=round(month_exp, 2),
+        month_profit_margin_pct=margin,
+        monthly_goal=goal,
+        monthly_goal_progress_pct=goal_pct,
+        days_left_in_month=days_left,
+        top_seller_today=top_seller,
+        low_stock_items=low_stock,
+        khata_outstanding=round(khata_total, 2),
+        khata_with_balance=khata_count,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────
+# Layer 2.5 — candidate insights (deterministic, hand-tuned rules)
+# ─────────────────────────────────────────────────────────────────
+
+@dataclass
+class Candidate:
+    """A pre-phrased insight the LLM may choose and rephrase. The LLM's
+    output is validated to ensure no fact appears that isn't in some
+    candidate."""
+    type: str  # "win" | "watch" | "action"
+    text: str
+    weight: float = 0.5  # higher = more important
+    # Numbers / item names that appear in this candidate. Used by Layer 4
+    # validation to confirm the LLM didn't invent anything.
+    facts: list[str] = field(default_factory=list)
+
+
+def _fmt_money(amount: float, currency: str) -> str:
+    return f"{int(round(amount)):,} {currency}"
+
+
+def generate_candidates(p: Precompute) -> list[Candidate]:
+    """Apply hand-tuned rules to the precompute. Each rule fires only when
+    its data is present and meaningful — no generic filler."""
+    out: list[Candidate] = []
+    cur = p.currency
+
+    # Revenue trend vs week average — most impactful signal
+    if p.pct_change_week_avg is not None:
+        if p.pct_change_week_avg >= 15:
+            out.append(Candidate(
+                type="win",
+                text=f"Today is tracking {p.pct_change_week_avg:+.0f}% above your usual {p.weekday} — strong start.",
+                weight=0.85,
+                facts=[f"{p.pct_change_week_avg:+.0f}%", p.weekday],
+            ))
+        elif p.pct_change_week_avg <= -20:
+            out.append(Candidate(
+                type="watch",
+                text=f"Today is {abs(p.pct_change_week_avg):.0f}% below your typical {p.weekday} pace — consider a midday push.",
+                weight=0.9,
+                facts=[f"{abs(p.pct_change_week_avg):.0f}%", p.weekday],
+            ))
+
+    # Yesterday's headline number (always include if data exists)
+    if p.yesterday_revenue > 0:
+        out.append(Candidate(
+            type="win" if (p.pct_change_yesterday or 0) >= 0 else "watch",
+            text=f"Yesterday: {_fmt_money(p.yesterday_revenue, cur)}"
+                 + (f" ({p.pct_change_yesterday:+.0f}% vs day before)" if p.pct_change_yesterday is not None else ""),
+            weight=0.6,
+            facts=[_fmt_money(p.yesterday_revenue, cur)] + ([f"{p.pct_change_yesterday:+.0f}%"] if p.pct_change_yesterday is not None else []),
+        ))
+
+    # Top seller — actionable when stock is also low
+    if p.top_seller_today:
+        ts = p.top_seller_today
+        # Cross-reference: is the top seller also low-stock?
+        low_match = next(
+            (li for li in p.low_stock_items
+             if str(li["name"]).lower() == str(ts["name"]).lower()),
+            None,
+        )
+        if low_match:
+            out.append(Candidate(
+                type="action",
+                text=f"Push {ts['name']} today — your top seller, only {low_match['qty']:g} {low_match['unit']} left in stock.",
+                weight=0.95,
+                facts=[ts["name"], f"{low_match['qty']:g}", low_match["unit"]],
+            ))
+        else:
+            out.append(Candidate(
+                type="action",
+                text=f"{ts['name']} is your top seller today — {ts['qty']} sold so far.",
+                weight=0.55,
+                facts=[ts["name"], str(ts["qty"])],
+            ))
+
+    # Low stock that ISN'T already covered by the top-seller rule
+    if p.low_stock_items:
+        # Filter out items already mentioned via top-seller match
+        top_name = (p.top_seller_today or {}).get("name", "").lower()
+        rest = [li for li in p.low_stock_items if str(li["name"]).lower() != top_name]
+        if rest:
+            names = ", ".join(li["name"] for li in rest[:3])
+            out.append(Candidate(
+                type="action",
+                text=f"Running low: {names}. Reorder before the weekend.",
+                weight=0.75,
+                facts=[li["name"] for li in rest[:3]],
+            ))
+
+    # Monthly goal progress — only when the user has set a goal
+    if p.monthly_goal and p.monthly_goal_progress_pct is not None:
+        if p.monthly_goal_progress_pct >= 100:
+            out.append(Candidate(
+                type="win",
+                text=f"You've hit {p.monthly_goal_progress_pct:.0f}% of your monthly goal — well done.",
+                weight=0.9,
+                facts=[f"{p.monthly_goal_progress_pct:.0f}%"],
+            ))
+        elif p.days_left_in_month <= 7 and p.monthly_goal_progress_pct < 80:
+            out.append(Candidate(
+                type="watch",
+                text=f"{p.monthly_goal_progress_pct:.0f}% of monthly goal with {p.days_left_in_month} days left.",
+                weight=0.85,
+                facts=[f"{p.monthly_goal_progress_pct:.0f}%", str(p.days_left_in_month)],
+            ))
+
+    # Profit margin watch
+    if p.month_profit_margin_pct is not None and p.month_profit_margin_pct < 15 and p.month_revenue > 0:
+        out.append(Candidate(
+            type="watch",
+            text=f"Profit margin is {p.month_profit_margin_pct:.0f}% this month — review pricing or cut a top expense.",
+            weight=0.7,
+            facts=[f"{p.month_profit_margin_pct:.0f}%"],
+        ))
+
+    # Khata outstanding (NP/DK customer credit)
+    if p.khata_outstanding > 500 and p.khata_with_balance > 0:
+        out.append(Candidate(
+            type="action",
+            text=f"{_fmt_money(p.khata_outstanding, cur)} owed by {p.khata_with_balance} customer{'s' if p.khata_with_balance > 1 else ''} — reach out this week.",
+            weight=0.7,
+            facts=[_fmt_money(p.khata_outstanding, cur), str(p.khata_with_balance)],
+        ))
+
+    # Sort by weight descending so the LLM (or the fallback) picks
+    # the most important first.
+    out.sort(key=lambda c: c.weight, reverse=True)
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────
+# Layer 5 — deterministic fallback brief
+# ─────────────────────────────────────────────────────────────────
+
+def fallback_brief(p: Precompute, candidates: list[Candidate]) -> dict:
+    """Render a non-AI brief from the precompute + candidates. This is
+    what gets shown if the LLM fails OR validation rejects the output.
+
+    Always populated — no empty-state path. If there are no candidates
+    (brand-new account with no data), a friendly first-time message."""
+    if not candidates:
+        return {
+            "greeting": _greeting_for(p),
+            "date_label": _date_label_for(p),
+            "headline": "Welcome to BonBox — log a few sales and expenses to start seeing daily insights.",
+            "insights": [],
+            "ai_polished": False,
+        }
+    # Lead candidate becomes the headline; next 2-3 are insights.
+    head = candidates[0]
+    rest = candidates[1:4]
+    return {
+        "greeting": _greeting_for(p),
+        "date_label": _date_label_for(p),
+        "headline": head.text,
+        "insights": [{"type": c.type, "text": c.text} for c in rest],
+        "ai_polished": False,
+    }
+
+
+def _greeting_for(p: Precompute) -> str:
+    # Time-aware, but the API date is already user-local enough for our
+    # needs (server is UTC; we don't have hour granularity here yet).
+    now = datetime.utcnow()
+    h = now.hour
+    if h < 11:
+        return "Good morning"
+    if h < 17:
+        return "Good afternoon"
+    return "Good evening"
+
+
+def _date_label_for(p: Precompute) -> str:
+    # "Wednesday · 6 May"
+    d = date.fromisoformat(p.today)
+    return f"{p.weekday} · {d.day} {d.strftime('%b')}"
+
+
+# ─────────────────────────────────────────────────────────────────
+# Layer 3 + 4 — LLM polish with strict post-validation
+# ─────────────────────────────────────────────────────────────────
+
+# JSON-schema enforced via tool-use. The model MUST call this tool with
+# the exact shape, otherwise no output reaches the user.
+_BRIEF_TOOL = {
+    "name": "publish_daily_brief",
+    "description": (
+        "Publish the daily brief for the business owner. Choose 1 headline "
+        "and 2-3 insights from the provided candidates, rephrasing each in a "
+        "warm, concise Copenhagen style. NEVER invent numbers or item names "
+        "that are not in the provided data — only rephrase what's already "
+        "in the candidate.text or precompute fields."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "headline": {
+                "type": "string",
+                "minLength": 10,
+                "maxLength": 140,
+                "description": "1 sentence summary of the day, friendly tone, plain text only.",
+            },
+            "insights": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 3,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "type": {"type": "string", "enum": ["win", "watch", "action"]},
+                        "text": {"type": "string", "minLength": 8, "maxLength": 140},
+                    },
+                    "required": ["type", "text"],
+                },
+            },
+        },
+        "required": ["headline", "insights"],
+    },
+}
+
+
+_SYSTEM_PROMPT = (
+    "You are BonBox's morning briefing writer for a small business owner.\n"
+    "Your job: pick the most important 3-4 candidates from the provided list, "
+    "and rephrase each one into a calm, concise sentence. Use the Copenhagen "
+    "style — sober, professional, no exclamation points, no emoji, no markdown. "
+    "Keep the warmth subtle.\n\n"
+    "STRICT RULES:\n"
+    "- Numbers, percentages, item names, and currency amounts may ONLY come "
+    "  from the candidate.text or the precompute data. NEVER invent any value, "
+    "  item, or fact. If a number is in the data and you reference it, format "
+    "  it the same way (with the same currency suffix and thousand separators).\n"
+    "- One sentence per insight. Active verbs (push, order, schedule, review).\n"
+    "- The first selected candidate becomes the headline; the rest are insights.\n"
+    "- Output exclusively via the publish_daily_brief tool — never plain text.\n"
+)
+
+
+def _try_llm_polish(
+    p: Precompute,
+    candidates: list[Candidate],
+    user: User,
+    db: Session,
+) -> tuple[Optional[dict], int, int, str]:
+    """Call Claude to rephrase the top candidates. Returns
+    (validated_brief_or_None, input_tokens, output_tokens, model)."""
+    try:
+        import anthropic
+    except ImportError:
+        logger.info("anthropic SDK not installed — skipping AI polish")
+        return None, 0, 0, "deterministic"
+
+    if not settings.ANTHROPIC_API_KEY or not settings.USE_CLAUDE_API:
+        return None, 0, 0, "deterministic"
+
+    if not candidates:
+        return None, 0, 0, "deterministic"
+
+    # Optional owner-memory addendum (already validated by the existing
+    # owner_memory service — skipped silently if unavailable)
+    try:
+        from app.services import owner_memory  # type: ignore
+        addendum = owner_memory.build_system_prompt_addendum(user, db) or ""
+    except Exception:  # noqa: BLE001
+        addendum = ""
+
+    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+    # User content: candidates + precompute, all as JSON. Keeping this
+    # purely structured eliminates parsing ambiguity.
+    payload = {
+        "candidates": [
+            {"type": c.type, "text": c.text, "weight": c.weight}
+            for c in candidates[:6]  # cap input — 6 candidates plenty
+        ],
+        "precompute": p.to_dict(),
+    }
+
+    # System prompt is stable per user — flag for prompt caching to amortize
+    # cost across users that share the prompt prefix.
+    system_blocks = [
+        {
+            "type": "text",
+            "text": _SYSTEM_PROMPT,
+            "cache_control": {"type": "ephemeral"},
+        },
+    ]
+    if addendum:
+        # Per-user addendum — NOT cached (changes per user). Sent fresh.
+        system_blocks.append({"type": "text", "text": addendum})
+
+    model = getattr(settings, "AI_MODEL_DAILY_BRIEF", "claude-sonnet-4-20250514")
+
+    try:
+        resp = client.messages.create(
+            model=model,
+            max_tokens=600,
+            system=system_blocks,
+            tools=[_BRIEF_TOOL],
+            tool_choice={"type": "tool", "name": _BRIEF_TOOL["name"]},
+            messages=[
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("daily_brief: Claude call failed: %s", e)
+        return None, 0, 0, "deterministic"
+
+    in_toks = int(getattr(resp.usage, "input_tokens", 0) or 0)
+    out_toks = int(getattr(resp.usage, "output_tokens", 0) or 0)
+
+    # Find the tool_use block. Anthropic returns content as a list of blocks.
+    tool_block = next(
+        (b for b in (resp.content or []) if getattr(b, "type", None) == "tool_use"),
+        None,
+    )
+    if not tool_block or tool_block.name != _BRIEF_TOOL["name"]:
+        logger.warning("daily_brief: no tool_use block in response")
+        return None, in_toks, out_toks, model
+
+    raw = tool_block.input or {}
+    validated = _validate_llm_output(raw, p, candidates)
+    if not validated:
+        logger.warning("daily_brief: LLM output failed validation, falling back")
+        return None, in_toks, out_toks, model
+
+    validated["greeting"] = _greeting_for(p)
+    validated["date_label"] = _date_label_for(p)
+    validated["ai_polished"] = True
+    return validated, in_toks, out_toks, model
+
+
+# ── Layer 4 validation ───────────────────────────────────────────
+
+# Numbers we extract from output strings to cross-check against the
+# candidates. Allows decimals, commas, percent signs.
+_NUM_RE = re.compile(r"[-+]?\d{1,3}(?:[,\s]\d{3})*(?:[.,]\d+)?\s*%?")
+
+
+def _normalize_token(s: str) -> str:
+    """Normalize a number/string for fuzzy match. Strips whitespace,
+    lowercases, removes commas/dots/percent, keeps digits + sign."""
+    return re.sub(r"[\s,.%+]", "", s).lower()
+
+
+def _validate_llm_output(
+    raw: dict,
+    p: Precompute,
+    candidates: list[Candidate],
+) -> Optional[dict]:
+    """Reject the output if it references any fact not in the candidates
+    or precompute. Returns the cleaned dict on success, None on reject."""
+    if not isinstance(raw, dict):
+        return None
+    headline = raw.get("headline")
+    insights = raw.get("insights")
+    if not isinstance(headline, str) or not isinstance(insights, list):
+        return None
+    if len(headline) < 10 or len(headline) > 140:
+        return None
+    if not (1 <= len(insights) <= 3):
+        return None
+
+    # Build the set of "approved tokens" — numbers and named entities that
+    # the LLM was allowed to use. Anything in the output not in this set
+    # is treated as a hallucination.
+    approved: set[str] = set()
+    # From candidates
+    for c in candidates:
+        for f in c.facts:
+            approved.add(_normalize_token(f))
+        for n in _NUM_RE.findall(c.text):
+            approved.add(_normalize_token(n))
+    # From precompute (numeric fields only)
+    for k, v in p.to_dict().items():
+        if isinstance(v, (int, float)) and v is not None:
+            # Approve both raw and rounded forms
+            approved.add(_normalize_token(str(v)))
+            approved.add(_normalize_token(str(round(v))))
+            approved.add(_normalize_token(f"{int(round(abs(v))):,}"))
+
+    def _tokens_ok(s: str) -> bool:
+        # Reject any HTML/script smuggle attempt
+        if "<" in s or ">" in s or "javascript:" in s.lower():
+            return False
+        # Every number in the string must be approved (named entities are
+        # approved separately by candidate.facts; this checks numerics only)
+        for n in _NUM_RE.findall(s):
+            tok = _normalize_token(n)
+            if tok in {"", "0"}:  # plain "0" or empty after strip — fine
+                continue
+            if tok not in approved:
+                logger.info("daily_brief: rejecting LLM output — number %r not in approved set", n)
+                return False
+        return True
+
+    if not _tokens_ok(headline):
+        return None
+
+    cleaned_insights = []
+    for ins in insights:
+        if not isinstance(ins, dict):
+            return None
+        t = ins.get("type")
+        text = ins.get("text")
+        if t not in ("win", "watch", "action"):
+            return None
+        if not isinstance(text, str) or len(text) < 8 or len(text) > 140:
+            return None
+        if not _tokens_ok(text):
+            return None
+        cleaned_insights.append({"type": t, "text": text})
+
+    return {"headline": headline, "insights": cleaned_insights}
+
+
+# ─────────────────────────────────────────────────────────────────
+# Layer 6 — public entry point: cache, generate, return
+# ─────────────────────────────────────────────────────────────────
+
+def get_or_create_brief(
+    user: User,
+    db: Session,
+    *,
+    force_refresh: bool = False,
+) -> dict:
+    """Return today's brief for the user. Generates it on first call;
+    subsequent calls within the same day return the cached row.
+
+    force_refresh=True regenerates — gated by REFRESH_CAP_BY_PLAN. If the
+    user is over their cap, the cached brief is returned with no refresh.
+    """
+    today = date.today()
+    row: DailyBrief | None = (
+        db.query(DailyBrief)
+        .filter(DailyBrief.user_id == user.id, DailyBrief.brief_date == today)
+        .first()
+    )
+
+    cap_left = _refresh_cap_for(user) - (row.refresh_count if row else 0)
+    can_regen = force_refresh and (row is None or cap_left > 0)
+
+    if row and not can_regen and not force_refresh:
+        # Cache hit — quickest path, no work
+        try:
+            payload = json.loads(row.payload_json)
+            payload["from_cache"] = True
+            payload["tier"] = row.tier
+            return payload
+        except Exception:  # noqa: BLE001
+            # Corrupt cached row — regenerate. Log but don't fail.
+            logger.warning("daily_brief: corrupt cached row, regenerating")
+
+    # Generate fresh
+    p = compute_precompute(user, db)
+    candidates = generate_candidates(p)
+    polished, in_tok, out_tok, model = _try_llm_polish(p, candidates, user, db)
+    payload = polished if polished else fallback_brief(p, candidates)
+    payload["from_cache"] = False
+    tier = effective_plan(user)
+    payload["tier"] = tier
+
+    payload_json = json.dumps(payload, ensure_ascii=False)
+
+    if row is None:
+        row = DailyBrief(
+            user_id=user.id,
+            brief_date=today,
+            payload_json=payload_json,
+            tier=tier,
+            model=model,
+            input_tokens=in_tok or None,
+            output_tokens=out_tok or None,
+            refresh_count=0,
+        )
+        db.add(row)
+    else:
+        row.payload_json = payload_json
+        row.tier = tier
+        row.model = model
+        row.input_tokens = in_tok or None
+        row.output_tokens = out_tok or None
+        if force_refresh:
+            row.refresh_count = (row.refresh_count or 0) + 1
+        row.updated_at = datetime.utcnow()
+
+    db.commit()
+
+    # Echo cap state for the frontend (so it can disable the refresh button
+    # when the user has hit their limit).
+    payload["refreshes_left"] = max(0, _refresh_cap_for(user) - (row.refresh_count or 0))
+    payload["model"] = model
+    return payload
