@@ -10,6 +10,7 @@ import InsightsCard from "../components/InsightsCard";
 import TrialBanner from "../components/TrialBanner";
 import Onboarding from "../components/Onboarding";
 import DailyBriefCard from "../components/DailyBriefCard";
+import SmartSaleInput from "../components/SmartSaleInput";
 import DismissibleTip from "../components/DismissibleTip";
 import {
   AnimatedCounter,
@@ -1119,6 +1120,7 @@ export default function DashboardPage() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [lightboxImg, setLightboxImg] = useState(null);
   const [budgetSummary, setBudgetSummary] = useState(null);
+  const [smartSaleOpen, setSmartSaleOpen] = useState(false);
 
   // ── Keyboard shortcuts ──
   useKeyboardShortcuts({
@@ -1285,6 +1287,7 @@ export default function DashboardPage() {
         <ToastContainer />
         <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
         <QuickSaleModal open={saleModal} onClose={() => setSaleModal(false)} onSubmit={handleQuickSale} currency={currency} />
+        <SmartSaleInput open={smartSaleOpen} onClose={() => setSmartSaleOpen(false)} onSaved={fetchAll} />
 
         {/* ── HEADER ── */}
         <FadeIn className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -1321,6 +1324,17 @@ export default function DashboardPage() {
           <div className="flex flex-wrap gap-2">
             <button onClick={() => setSaleModal(true)} className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 transition-colors shadow-sm">
               + {t("quickSale")}
+            </button>
+            <button
+              onClick={() => setSmartSaleOpen(true)}
+              title="Type a sale in plain language"
+              className="px-4 py-2 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors flex items-center gap-1.5"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+                <circle cx="12" cy="12" r="4" />
+              </svg>
+              Smart entry
             </button>
             <ReceiptCapture onSaleCreated={fetchAll} />
             {/* Only render Repeat Yesterday when there's actually a yesterday-sale to repeat,
