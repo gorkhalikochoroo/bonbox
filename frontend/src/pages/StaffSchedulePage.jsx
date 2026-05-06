@@ -461,6 +461,7 @@ export default function StaffSchedulePage() {
    STAFF MANAGEMENT PANEL
    ═══════════════════════════════════════════════════════════ */
 function StaffPanel({ staff, currency, onRefresh, branchId }) {
+  const { t } = useLanguage();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -559,6 +560,12 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
         role: editForm.role || undefined,
         contract_type: editForm.contract_type || undefined,
         base_rate: editForm.base_rate !== undefined ? parseFloat(editForm.base_rate) : undefined,
+        // Trækkort fields — null/empty maps to NULL on server (treated as
+        // hovedkort default by payroll service).
+        tax_card_type: editForm.tax_card_type || null,
+        tax_card_rate: editForm.tax_card_rate
+          ? parseFloat(editForm.tax_card_rate) / 100  // UI shows %, backend stores decimal
+          : null,
       });
       setEditingId(null);
       setEditForm({});
@@ -589,6 +596,11 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
       role: member.role,
       contract_type: member.contract_type,
       base_rate: member.base_rate || "",
+      tax_card_type: member.tax_card_type || "",
+      // Backend stores decimal (0.36); UI shows percent (36)
+      tax_card_rate: member.tax_card_rate
+        ? Math.round(parseFloat(member.tax_card_rate) * 100 * 10) / 10
+        : "",
     });
   };
 
@@ -745,6 +757,41 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
                           className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none"
                         />
                       </div>
+                      {/* Trækkort row — only relevant for DK users; gracefully ignored
+                          when currency != DKK. UI uses % for friendliness; we convert
+                          to decimal at submit. */}
+                      {currency === "DKK" && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <label className="text-[11px] text-gray-500 dark:text-gray-400 font-medium uppercase tracking-wider">
+                            Trækkort
+                          </label>
+                          <select
+                            value={editForm.tax_card_type || ""}
+                            onChange={(e) => setEditForm({ ...editForm, tax_card_type: e.target.value })}
+                            className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none"
+                            title="Trækkort type — affects A-skat estimate"
+                          >
+                            <option value="">{t("auto") || "Auto (hovedkort)"}</option>
+                            <option value="hovedkort">Hovedkort (~36%)</option>
+                            <option value="bikort">Bikort (~42%)</option>
+                            <option value="frikort">Frikort (0%)</option>
+                          </select>
+                          <input
+                            type="number"
+                            value={editForm.tax_card_rate}
+                            onChange={(e) => setEditForm({ ...editForm, tax_card_rate: e.target.value })}
+                            placeholder={t("rateOverridePct") || "Override % (optional)"}
+                            min="0"
+                            max="60"
+                            step="0.1"
+                            className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none w-44"
+                            title="Paste exact rate from employee's eSkattekort (0–60%)"
+                          />
+                          <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                            {t("trækkortHint") || "From employee's eSkattekort"}
+                          </span>
+                        </div>
+                      )}
                       <div className="flex gap-2">
                         <button
                           onClick={() => handleUpdate(member.id)}

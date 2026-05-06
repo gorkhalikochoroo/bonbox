@@ -777,4 +777,8 @@ export const tr = {
   cookieCatMarketingDesc: "Hangi kanalların BonBox'la ilgilenenleri getirdiğini ölçmemizi sağlar. Varsayılan olarak kapalı.",
   close: "Kapat",
   cookieSettings: "Çerez ayarları",
+  // Trækkort (DK)
+  auto: "Otomatik (hovedkort)",
+  rateOverridePct: "Oran % (isteğe bağlı)",
+  trækkortHint: "Çalışanın eSkattekort'undan",
 };

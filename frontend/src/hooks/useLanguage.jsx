@@ -110,6 +110,10 @@ const translations = {
     cookieCatMarketingDesc: "Lets us measure which channels send us BonBox-curious people. Off by default.",
     close: "Close",
     cookieSettings: "Cookie settings",
+    // Trækkort (DK A-skat tax card)
+    auto: "Auto (hovedkort)",
+    rateOverridePct: "Override % (optional)",
+    trækkortHint: "From employee's eSkattekort",
     smartStaffing: "Smart Staffing", weatherSmart: "Weather Smart", wasteTracker: "Waste Tracker", weeklyReport: "Weekly Report",
     momsVat: "Tax/VAT", darkMode: "Dark Mode", lightMode: "Light Mode", signOut: "Sign Out", appearance: "Appearance",
     language: "Dansk",
@@ -915,6 +919,10 @@ const translations = {
     cookieCatMarketingDesc: "Lader os måle hvilke kanaler der sender BonBox-interesserede besøgende. Slået fra som standard.",
     close: "Luk",
     cookieSettings: "Cookieindstillinger",
+    // Trækkort
+    auto: "Auto (hovedkort)",
+    rateOverridePct: "Sats % (valgfrit)",
+    trækkortHint: "Fra medarbejderens eSkattekort",
     smartStaffing: "Vagtplanlægning", weatherSmart: "Vejr Smart", wasteTracker: "Madspild", weeklyReport: "Ugerapport",
     momsVat: "Moms", darkMode: "Mørk tilstand", lightMode: "Lys tilstand", signOut: "Log ud", appearance: "Udseende",
     language: "English",
@@ -1705,6 +1713,10 @@ const translations = {
     cookieCatMarketingDesc: "कुन च्यानलले BonBox-इच्छुक भिजिटर पठाउँछन् मापन गर्न दिन्छ। डिफल्टमा बन्द।",
     close: "बन्द गर्नुहोस्",
     cookieSettings: "कुकी सेटिङहरू",
+    // Trækkort
+    auto: "स्वत: (hovedkort)",
+    rateOverridePct: "ओभरराइड % (वैकल्पिक)",
+    trækkortHint: "कर्मचारीको eSkattekort बाट",
     smartStaffing: "स्मार्ट स्टाफिङ", weatherSmart: "मौसम स्मार्ट", wasteTracker: "फोहोर ट्र्याकर", weeklyReport: "हप्ताको रिपोर्ट",
     momsVat: "भ्याट", darkMode: "डार्क मोड", lightMode: "लाइट मोड", signOut: "लग आउट", appearance: "थिम",
     language: "भाषा",

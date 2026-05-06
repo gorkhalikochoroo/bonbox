@@ -781,4 +781,8 @@ export const vi = {
   cookieCatMarketingDesc: "Cho phép chúng tôi đo kênh nào dẫn người quan tâm tới BonBox. Tắt theo mặc định.",
   close: "Đóng",
   cookieSettings: "Cài đặt cookie",
+  // Trækkort (DK)
+  auto: "Tự động (hovedkort)",
+  rateOverridePct: "Tỷ lệ % (tuỳ chọn)",
+  trækkortHint: "Từ eSkattekort của nhân viên",
 };

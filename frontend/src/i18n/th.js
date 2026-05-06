@@ -776,4 +776,8 @@ export const th = {
   cookieCatMarketingDesc: "ให้เราวัดว่าช่องทางใดส่งผู้สนใจ BonBox มา ปิดเป็นค่าเริ่มต้น",
   close: "ปิด",
   cookieSettings: "การตั้งค่าคุกกี้",
+  // Trækkort (DK)
+  auto: "อัตโนมัติ (hovedkort)",
+  rateOverridePct: "อัตรา % (ไม่บังคับ)",
+  trækkortHint: "จาก eSkattekort ของพนักงาน",
 };
