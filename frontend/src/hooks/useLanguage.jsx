@@ -8,6 +8,9 @@ import { no_ } from "../i18n/no";
 import { pt } from "../i18n/pt";
 import { it } from "../i18n/it";
 import { ja } from "../i18n/ja";
+import { vi } from "../i18n/vi";
+import { th } from "../i18n/th";
+import { tr } from "../i18n/tr";
 
 const LanguageContext = createContext(null);
 
@@ -1290,6 +1293,8 @@ const translations = {
     welcome: "स्वागतम",
     goodMorning: "शुभ प्रभात", goodAfternoon: "शुभ अपराह्न", goodEvening: "शुभ साँझ",
     subscription: "योजना र बिलिंग",
+    bookkeepingExport: "लेखापरीक्षकलाई पठाउनुहोस्",
+    aiInsights: "AI सुझावहरू",
     todayRevenue: "आजको आम्दानी", monthlyProfit: "मासिक नाफा",
     topExpense: "सबैभन्दा ठूलो खर्च", inventoryAlerts: "स्टक अलर्ट", snapReceipt: "रसिद खिच्नुहोस्",
     repeatYesterday: "हिजोको बिक्री दोहोर्‍याउनुहोस्", downloadPdf: "PDF रिपोर्ट डाउनलोड",
@@ -1920,11 +1925,17 @@ translations.no = no_;
 translations.pt = pt;
 translations.it = it;
 translations.ja = ja;
+translations.vi = vi;
+translations.th = th;
+translations.tr = tr;
 
 const LANGUAGES = [
   { code: "en", label: "English", flag: "🇬🇧" },
   { code: "da", label: "Dansk", flag: "🇩🇰" },
   { code: "np", label: "नेपाली", flag: "🇳🇵" },
+  { code: "vi", label: "Tiếng Việt", flag: "🇻🇳" },
+  { code: "th", label: "ภาษาไทย", flag: "🇹🇭" },
+  { code: "tr", label: "Türkçe", flag: "🇹🇷" },
   { code: "de", label: "Deutsch", flag: "🇩🇪" },
   { code: "fr", label: "Français", flag: "🇫🇷" },
   { code: "es", label: "Español", flag: "🇪🇸" },
