@@ -39,7 +39,7 @@ export default function TermsPage() {
 
           <Section num={1} title="About BonBox">
             <p>
-              BonBox is a free business analytics dashboard that helps small business owners track daily sales, expenses, inventory, and financial performance. BonBox is operated by Manoj Kumar Chaudhary, based in Copenhagen, Denmark.
+              BonBox is a multi-terminal close consolidation tool for small hospitality businesses (restaurants, bars, cafés, takeaways). It helps front-of-house staff complete the end-of-shift cash reconciliation in roughly 90 seconds and delivers the consolidated daily-close PDF to owners and revisors. BonBox is operated by Manoj Kumar Chaudhary, based in Copenhagen, Denmark.
             </p>
             <p className="mt-2">By creating an account or using BonBox, you agree to these terms.</p>
           </Section>
@@ -47,17 +47,19 @@ export default function TermsPage() {
           <Section num={2} title="What BonBox is — and what it is not">
             <p className="font-semibold mb-2">BonBox is:</p>
             <ul className="list-disc pl-6 space-y-1">
-              <li>A daily business overview and analytics dashboard</li>
-              <li>A tool for tracking sales, expenses, inventory, waste, and cash flow</li>
-              <li>A generator of reports including Kasserapport and financial summaries</li>
-              <li>A personal finance tracker (in Personal Mode)</li>
+              <li>A multi-terminal end-of-shift close consolidation tool</li>
+              <li>An OCR-and-aggregation system for printed kasserapport receipts</li>
+              <li>A generator of daily-close PDFs (compatible with Bogf&oslash;ringsloven &sect;10 retention)</li>
+              <li>A reporting layer that exports to Dinero / Billy / e-conomic</li>
+              <li>An optional personal finance tracker (in Personal Mode)</li>
             </ul>
             <p className="font-semibold mt-4 mb-2">BonBox is NOT:</p>
             <ul className="list-disc pl-6 space-y-1">
               <li>Accounting software as defined under Danish Bogf&oslash;ringsloven (the Bookkeeping Act)</li>
               <li>A certified bookkeeping system</li>
+              <li>A point-of-sale (POS) system &mdash; BonBox does not process card transactions or replace your till hardware</li>
               <li>A tax advisory or tax filing service</li>
-              <li>A payment processor — BonBox does not move, hold, or transfer money</li>
+              <li>A payment processor &mdash; BonBox does not move, hold, or transfer money</li>
               <li>A replacement for professional accounting, legal, or financial advice</li>
             </ul>
           </Section>
