@@ -80,7 +80,7 @@ logger = logging.getLogger(__name__)
 # Auto-generation on first visit doesn't count. The cap exists to keep
 # token cost predictable per user, not to be stingy with free users.
 REFRESH_CAP_BY_PLAN = {
-    "free": 0,
+    "free": 1,      # one manual refresh — free users still see the button
     "trial": 5,
     "pro": 5,
     "business": 10,
@@ -432,7 +432,7 @@ def generate_candidates(p: Precompute) -> list[Candidate]:
 # Layer 5 — deterministic fallback brief
 # ─────────────────────────────────────────────────────────────────
 
-def fallback_brief(p: Precompute, candidates: list[Candidate]) -> dict:
+def fallback_brief(p: Precompute, candidates: list[Candidate], user: User | None = None) -> dict:
     """Render a non-AI brief from the precompute + candidates. This is
     what gets shown if the LLM fails OR validation rejects the output.
 
@@ -440,7 +440,7 @@ def fallback_brief(p: Precompute, candidates: list[Candidate]) -> dict:
     (brand-new account with no data), a friendly first-time message."""
     if not candidates:
         return {
-            "greeting": _greeting_for(p),
+            "greeting": _greeting_for(user),
             "date_label": _date_label_for(p),
             "headline": "Welcome to BonBox — log a few sales and expenses to start seeing daily insights.",
             "insights": [],
@@ -450,7 +450,7 @@ def fallback_brief(p: Precompute, candidates: list[Candidate]) -> dict:
     head = candidates[0]
     rest = candidates[1:4]
     return {
-        "greeting": _greeting_for(p),
+        "greeting": _greeting_for(user),
         "date_label": _date_label_for(p),
         "headline": head.text,
         "insights": [{"type": c.type, "text": c.text} for c in rest],
@@ -458,11 +458,22 @@ def fallback_brief(p: Precompute, candidates: list[Candidate]) -> dict:
     }
 
 
-def _greeting_for(p: Precompute) -> str:
-    # Time-aware, but the API date is already user-local enough for our
-    # needs (server is UTC; we don't have hour granularity here yet).
-    now = datetime.utcnow()
-    h = now.hour
+def _greeting_for(user: User | None = None) -> str:
+    """Time-aware greeting in the USER'S timezone — not UTC. Falls back
+    to UTC if the user has no timezone set or the zone string is invalid
+    (won't crash on bad data)."""
+    tz_name = getattr(user, "timezone", None) if user is not None else None
+    now_utc = datetime.utcnow()
+    h = now_utc.hour
+    if tz_name:
+        try:
+            from zoneinfo import ZoneInfo
+            from datetime import timezone as _tz
+            now_local = now_utc.replace(tzinfo=_tz.utc).astimezone(ZoneInfo(tz_name))
+            h = now_local.hour
+        except Exception:  # noqa: BLE001
+            # Bad / unknown TZ string — silently fall back to UTC
+            pass
     if h < 11:
         return "Good morning"
     if h < 17:
@@ -624,7 +635,7 @@ def _try_llm_polish(
         logger.warning("daily_brief: LLM output failed validation, falling back")
         return None, in_toks, out_toks, model
 
-    validated["greeting"] = _greeting_for(p)
+    validated["greeting"] = _greeting_for(user)
     validated["date_label"] = _date_label_for(p)
     validated["ai_polished"] = True
     return validated, in_toks, out_toks, model
@@ -755,7 +766,7 @@ def get_or_create_brief(
     p = compute_precompute(user, db)
     candidates = generate_candidates(p)
     polished, in_tok, out_tok, model = _try_llm_polish(p, candidates, user, db)
-    payload = polished if polished else fallback_brief(p, candidates)
+    payload = polished if polished else fallback_brief(p, candidates, user=user)
     payload["from_cache"] = False
     tier = effective_plan(user)
     payload["tier"] = tier
