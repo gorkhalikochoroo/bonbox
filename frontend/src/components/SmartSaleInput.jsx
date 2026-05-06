@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import api from "../services/api";
 import Modal from "./Modal";
+import { useLanguage } from "../hooks/useLanguage";
 
 /**
  * Smart Sale Entry — type natural language, AI parses to structured items,
@@ -20,6 +21,7 @@ import Modal from "./Modal";
  *      sale flow does today.
  */
 export default function SmartSaleInput({ open, onClose, onSaved }) {
+  const { t } = useLanguage();
   const [text, setText] = useState("");
   const [parsing, setParsing] = useState(false);
   const [parsed, setParsed] = useState(null);
@@ -69,7 +71,7 @@ export default function SmartSaleInput({ open, onClose, onSaved }) {
         if (data.payment_method) setPaymentMethod(data.payment_method);
       }
     } catch (err) {
-      setParseError(err?.response?.data?.detail || "Could not parse — please try again.");
+      setParseError(err?.response?.data?.detail || t("aiParseFailed") || "Could not parse — please try again.");
     } finally {
       setParsing(false);
     }
@@ -107,7 +109,7 @@ export default function SmartSaleInput({ open, onClose, onSaved }) {
       return isFinite(q) && q > 0 && isFinite(p) && p > 0 && (l.name || "").trim().length > 0;
     });
     if (validLines.length === 0) {
-      setParseError("Please fill in name, quantity, and price for at least one line.");
+      setParseError(t("fillNameQtyPrice") || "Please fill in name, quantity, and price for at least one line.");
       return;
     }
     setSaving(true);
@@ -140,27 +142,27 @@ export default function SmartSaleInput({ open, onClose, onSaved }) {
       // Close after a short success peek
       setTimeout(() => onClose?.(), 900);
     } else {
-      setParseError(`Could not save (${failed} failed). Please try the manual form.`);
+      setParseError((t("aiSaveFailed") || "Could not save ({n} failed). Please try the manual form.").replace("{n}", failed));
     }
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Smart Sale Entry">
+    <Modal open={open} onClose={onClose} title={t("smartSaleEntry") || "Smart Sale Entry"}>
       <div className="space-y-4">
         <div>
           <label className="block text-[13px] font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-            What did you sell?
+            {t("whatDidYouSell") || "What did you sell?"}
           </label>
           <textarea
             ref={taRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="e.g. 3 espressos and 1 croissant for 95 DKK on cash"
+            placeholder={t("smartSalePlaceholder") || "e.g. 3 espressos and 1 croissant for 95 DKK on cash"}
             rows={3}
             maxLength={500}
             className="w-full px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg text-[14.5px] text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#22c55e] focus:border-[#22c55e] resize-none"
           />
-          <p className="text-[11px] text-gray-400 mt-1">{text.length}/500 characters</p>
+          <p className="text-[11px] text-gray-400 mt-1">{text.length}/500 {t("characters") || "characters"}</p>
         </div>
 
         {!parsed && (
@@ -176,10 +178,10 @@ export default function SmartSaleInput({ open, onClose, onSaved }) {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                Parsing…
+                {t("parsing") || "Parsing…"}
               </>
             ) : (
-              "Parse with AI"
+              t("parseWithAI") || "Parse with AI"
             )}
           </button>
         )}
@@ -195,10 +197,12 @@ export default function SmartSaleInput({ open, onClose, onSaved }) {
             <div className="flex items-center justify-between text-[12px] text-gray-500 dark:text-gray-400">
               <span>
                 {parsed.unrecognized_count > 0
-                  ? `${parsed.lines.length - parsed.unrecognized_count} matched · ${parsed.unrecognized_count} new`
-                  : `${parsed.lines.length} item${parsed.lines.length > 1 ? "s" : ""} matched`}
+                  ? (t("matchedAndNew") || "{matched} matched · {new} new").replace("{matched}", parsed.lines.length - parsed.unrecognized_count).replace("{new}", parsed.unrecognized_count)
+                  : (parsed.lines.length === 1
+                      ? (t("oneItemMatched")    || "{n} item matched").replace("{n}", parsed.lines.length)
+                      : (t("nItemsMatched")    || "{n} items matched").replace("{n}", parsed.lines.length))}
               </span>
-              <span>Confidence: {Math.round((parsed.confidence || 0) * 100)}%</span>
+              <span>{t("confidence") || "Confidence"}: {Math.round((parsed.confidence || 0) * 100)}%</span>
             </div>
 
             <div className="space-y-2">
@@ -213,7 +217,7 @@ export default function SmartSaleInput({ open, onClose, onSaved }) {
                     />
                     {!l.matched && (
                       <p className="text-[10.5px] text-amber-700 dark:text-amber-400 mt-0.5">
-                        Not in inventory — saved as note
+                        {t("notInInventorySavedAsNote") || "Not in inventory — saved as note"}
                       </p>
                     )}
                   </div>
@@ -223,7 +227,7 @@ export default function SmartSaleInput({ open, onClose, onSaved }) {
                     onChange={(e) => updateLine(i, { qty: e.target.value })}
                     min="0"
                     step="any"
-                    aria-label="Quantity"
+                    aria-label={t("quantity") || "Quantity"}
                     className="w-16 px-2 py-1.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded text-[13px] text-right text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-[#22c55e]/40"
                   />
                   <span className="text-[12px] text-gray-400">×</span>
@@ -231,18 +235,18 @@ export default function SmartSaleInput({ open, onClose, onSaved }) {
                     type="number"
                     value={l.unit_price ?? ""}
                     onChange={(e) => updateLine(i, { unit_price: e.target.value })}
-                    placeholder="Price"
+                    placeholder={t("price") || "Price"}
                     min="0"
                     step="any"
-                    aria-label="Unit price"
+                    aria-label={t("unitPrice") || "Unit price"}
                     className="w-20 px-2 py-1.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded text-[13px] text-right text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-[#22c55e]/40"
                   />
                   <span className="text-[10.5px] uppercase tracking-wider text-gray-400">{parsed.currency}</span>
                   <button
                     type="button"
                     onClick={() => removeLine(i)}
-                    aria-label="Remove line"
-                    title="Remove line"
+                    aria-label={t("removeLine") || "Remove line"}
+                    title={t("removeLine") || "Remove line"}
                     className="w-7 h-7 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition flex items-center justify-center"
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -257,16 +261,16 @@ export default function SmartSaleInput({ open, onClose, onSaved }) {
               <select
                 value={paymentMethod}
                 onChange={(e) => setPaymentMethod(e.target.value)}
-                aria-label="Payment method"
+                aria-label={t("paymentMethod") || "Payment method"}
                 className="flex-1 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-[13.5px] text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#22c55e]/40"
               >
-                <option value="">Payment method…</option>
-                <option value="cash">Cash</option>
-                <option value="card">Card</option>
+                <option value="">{t("paymentMethodPlaceholder") || "Payment method…"}</option>
+                <option value="cash">{t("payCash") || "Cash"}</option>
+                <option value="card">{t("payCard") || "Card"}</option>
                 <option value="mobilepay">MobilePay</option>
                 <option value="dankort">Dankort</option>
-                <option value="bank_transfer">Bank transfer</option>
-                <option value="mixed">Mixed</option>
+                <option value="bank_transfer">{t("payBankTransfer") || "Bank transfer"}</option>
+                <option value="mixed">{t("payMixed") || "Mixed"}</option>
               </select>
               <div className="text-[14px] font-semibold text-gray-900 dark:text-white whitespace-nowrap">
                 {Math.round(linesTotal).toLocaleString()} {parsed.currency}
@@ -275,7 +279,7 @@ export default function SmartSaleInput({ open, onClose, onSaved }) {
 
             {savedCount > 0 ? (
               <div className="text-[13px] text-green-700 bg-green-50 dark:bg-green-900/20 dark:text-green-300 px-3 py-2 rounded-lg border border-green-200 dark:border-green-800/60">
-                ✓ {savedCount} sale{savedCount > 1 ? "s" : ""} logged
+                ✓ {(savedCount === 1 ? (t("saleLoggedSingular") || "{n} sale logged") : (t("saleLoggedPlural") || "{n} sales logged")).replace("{n}", savedCount)}
               </div>
             ) : (
               <button
@@ -284,7 +288,11 @@ export default function SmartSaleInput({ open, onClose, onSaved }) {
                 disabled={saving}
                 className="w-full bg-[#22c55e] text-white py-2.5 rounded-lg text-[14px] font-medium hover:bg-[#16a34a] disabled:opacity-60 disabled:cursor-not-allowed transition"
               >
-                {saving ? "Saving…" : `Confirm & log ${parsed.lines.length} line${parsed.lines.length > 1 ? "s" : ""}`}
+                {saving
+                  ? (t("saving") || "Saving…")
+                  : (parsed.lines.length === 1
+                      ? (t("confirmLogLine")  || "Confirm & log {n} line").replace("{n}", parsed.lines.length)
+                      : (t("confirmLogLines") || "Confirm & log {n} lines").replace("{n}", parsed.lines.length))}
               </button>
             )}
           </div>

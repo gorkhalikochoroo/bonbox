@@ -1,16 +1,21 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import api from "../services/api";
+import { useLanguage } from "../hooks/useLanguage";
 
-function timeAgo(date) {
-  const mins = Math.floor((Date.now() - new Date(date).getTime()) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
+function useTimeAgo() {
+  const { t } = useLanguage();
+  return (date) => {
+    const mins = Math.floor((Date.now() - new Date(date).getTime()) / 60000);
+    if (mins < 1) return t("justNow") || "just now";
+    if (mins < 60) return (t("minutesAgo") || "{n}m ago").replace("{n}", mins);
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return (t("hoursAgo") || "{n}h ago").replace("{n}", hrs);
+    return (t("daysAgo") || "{n}d ago").replace("{n}", Math.floor(hrs / 24));
+  };
 }
 
 export default function NotificationCenter() {
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -41,8 +46,8 @@ export default function NotificationCenter() {
             id: `alert_${a.category || a.type}_${now.toDateString()}`,
             type: "expense",
             icon: "📈",
-            title: a.title || "Expense Alert",
-            body: a.message || `${a.category}: unusual spending detected`,
+            title: a.title || t("expenseAlert") || "Expense Alert",
+            body: a.message || ((t("unusualSpending") || "{cat}: unusual spending detected").replace("{cat}", a.category)),
             time: now.toISOString(),
             severity: "warning",
           });
@@ -59,8 +64,8 @@ export default function NotificationCenter() {
             id: `stock_${item.id}`,
             type: "inventory",
             icon: "📦",
-            title: "Low Stock",
-            body: `${item.name}: ${item.quantity} left (min: ${item.min_threshold})`,
+            title: t("lowStockTitle") || "Low Stock",
+            body: ((t("lowStockBody") || "{name}: {qty} left (min: {min})").replace("{name}", item.name).replace("{qty}", item.quantity).replace("{min}", item.min_threshold)),
             time: now.toISOString(),
             severity: item.quantity <= 0 ? "critical" : "warning",
           });
@@ -81,8 +86,8 @@ export default function NotificationCenter() {
               id: `budget_${c.category}_${month}`,
               type: "budget",
               icon: c.status === "red" ? "🔴" : "🟡",
-              title: c.status === "red" ? "Over Budget" : "Near Budget Limit",
-              body: `${c.category}: ${c.pct}% used (${c.spent.toLocaleString()} / ${c.limit_amount.toLocaleString()})`,
+              title: c.status === "red" ? (t("overBudget") || "Over Budget") : (t("nearBudgetLimit") || "Near Budget Limit"),
+              body: ((t("budgetUsedFmt") || "{cat}: {pct}% used ({spent} / {limit})").replace("{cat}", c.category).replace("{pct}", c.pct).replace("{spent}", c.spent.toLocaleString()).replace("{limit}", c.limit_amount.toLocaleString())),
               time: now.toISOString(),
               severity: c.status === "red" ? "critical" : "warning",
             });
@@ -121,7 +126,7 @@ export default function NotificationCenter() {
       <button
         onClick={() => setOpen(!open)}
         className="relative p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
-        aria-label="Notifications"
+        aria-label={t("notifications") || "Notifications"}
       >
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
@@ -138,10 +143,10 @@ export default function NotificationCenter() {
         <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-xl z-50 overflow-hidden">
           {/* Header */}
           <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-800 dark:text-white">Notifications</h3>
+            <h3 className="text-sm font-semibold text-gray-800 dark:text-white">{t("notifications") || "Notifications"}</h3>
             {visible.length > 0 && (
               <button onClick={clearAll} className="text-xs text-blue-600 dark:text-blue-400 hover:underline">
-                Clear all
+                {t("clearAll") || "Clear all"}
               </button>
             )}
           </div>
@@ -149,11 +154,11 @@ export default function NotificationCenter() {
           {/* Body */}
           <div className="max-h-80 overflow-y-auto">
             {loading && visible.length === 0 ? (
-              <div className="p-6 text-center text-sm text-gray-400">Loading...</div>
+              <div className="p-6 text-center text-sm text-gray-400">{t("loading") || "Loading..."}</div>
             ) : visible.length === 0 ? (
               <div className="p-8 text-center">
                 <div className="text-3xl mb-2">🎉</div>
-                <p className="text-sm text-gray-500 dark:text-gray-400">All clear! No notifications.</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{t("allClearNoNotifs") || "All clear! No notifications."}</p>
               </div>
             ) : (
               visible.map((n) => (

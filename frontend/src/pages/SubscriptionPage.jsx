@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
+import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import api from "../services/api";
 import { safeExternalUrl } from "../utils/safeUrl";
@@ -122,6 +123,7 @@ function daysRemaining(iso) {
 
 export default function SubscriptionPage() {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const [annual, setAnnual] = useState(false);
   const [billing, setBilling] = useState(null);
   const [joined, setJoined] = useState(new Set());
@@ -206,15 +208,15 @@ export default function SubscriptionPage() {
           window.location.href = safeStripeUrl;
           return;
         }
-        setMsg("Couldn't open checkout. Please try again.");
+        setMsg(t("checkoutOpenFailed") || "Couldn't open checkout. Please try again.");
       } catch (e) {
         if (e?.response?.status === 403 && e.response.data?.redirect_to_web) {
           // Backend says native iOS — open web (we may have missed isNative check)
           window.open("https://bonbox.dk/subscription", "_blank");
         } else if (e?.response?.status === 429) {
-          setMsg("Too many requests — please try again in a minute.");
+          setMsg(t("tooManyRequests") || "Too many requests — please try again in a minute.");
         } else {
-          setMsg(e?.response?.data?.detail || "Could not start checkout. Please try again.");
+          setMsg(e?.response?.data?.detail || t("checkoutStartFailed") || "Could not start checkout. Please try again.");
         }
       } finally {
         setPending(null);
@@ -225,7 +227,7 @@ export default function SubscriptionPage() {
     // Fallback — Stripe not configured yet. Use the waitlist flow so we still
     // capture intent. This is the temporary path until Stripe keys are live.
     if (joined.has(tierId)) {
-      setMsg("You're already on the list — we'll be in touch when payment is ready.");
+      setMsg(t("alreadyOnWaitlist") || "You're already on the list — we'll be in touch when payment is ready.");
       setTimeout(() => setMsg(""), 4000);
       return;
     }
@@ -241,15 +243,15 @@ export default function SubscriptionPage() {
       trackEvent("waitlist_joined", "subscription", tierId);
       setMsg(
         tierId === "pro"
-          ? "🎉 You're on the founding-member list — when payment opens, you'll lock in 99 kr/mo for as long as you stay subscribed."
-          : `🎉 You're on the ${tierId} list — we'll email you when it opens.`
+          ? (t("waitlistJoinedPro") || "🎉 You're on the founding-member list — when payment opens, you'll lock in 99 kr/mo for as long as you stay subscribed.")
+          : ((t("waitlistJoinedTier") || "🎉 You're on the {tier} list — we'll email you when it opens.").replace("{tier}", tierId))
       );
       setTimeout(() => setMsg(""), 8000);
     } catch (e) {
       setMsg(
         e?.response?.status === 429
-          ? "Too many requests — please try again in a minute."
-          : "Couldn't add you to the list. Email hello@bonbox.dk if this keeps happening."
+          ? (t("tooManyRequests") || "Too many requests — please try again in a minute.")
+          : (t("waitlistJoinFailed") || "Couldn't add you to the list. Email hello@bonbox.dk if this keeps happening.")
       );
       setTimeout(() => setMsg(""), 5000);
     } finally {
@@ -270,9 +272,9 @@ export default function SubscriptionPage() {
         window.location.href = safePortalUrl;
         return;
       }
-      setMsg("Could not open the billing portal. Please try again.");
+      setMsg(t("billingPortalFailed") || "Could not open the billing portal. Please try again.");
     } catch (e) {
-      setMsg(e?.response?.data?.detail || "Could not open the billing portal. Please try again.");
+      setMsg(e?.response?.data?.detail || t("billingPortalFailed") || "Could not open the billing portal. Please try again.");
     } finally {
       setPending(null);
     }

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLanguage } from "../hooks/useLanguage";
 
 /**
  * DismissibleTip — small contextual hint that teaches owners how a section works.
@@ -58,6 +59,7 @@ export default function DismissibleTip({
   tone = "info",
   className = "",
 }) {
+  const { t } = useLanguage();
   // Start hidden to avoid a flash before localStorage is read.
   const [hidden, setHidden] = useState(true);
 
@@ -100,7 +102,7 @@ export default function DismissibleTip({
       <button
         type="button"
         onClick={dismiss}
-        aria-label="Dismiss tip"
+        aria-label={t("dismissTip") || "Dismiss tip"}
         className="absolute top-3 right-3 w-7 h-7 rounded-full inline-flex items-center justify-center hover:bg-black/5 dark:hover:bg-white/10 transition text-current opacity-60 hover:opacity-100"
       >
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
