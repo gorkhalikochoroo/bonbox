@@ -35,6 +35,14 @@ class KasserapportExtraction(Base):
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"), index=True)
 
+    # Optional terminal scoping. When the owner has multiple terminals
+    # (Mirabelle has 4) each scan is tagged with which terminal it came
+    # from so the aggregator can sum across them per close. NULL = single-
+    # terminal venue or pre-multi-terminal data.
+    terminal_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("terminals.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     # Source
     image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 

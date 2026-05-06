@@ -82,6 +82,7 @@ async def extract(
     request: Request,
     file: UploadFile = File(...),
     skip_classifier: bool = Form(False),
+    terminal_id: str | None = Form(None),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -90,7 +91,29 @@ async def extract(
     The owner taps "Snap kasserapport" in the daily-close flow, which sends
     the photo here as multipart/form-data. We return the structured fields
     + a `manual_review_needed` flag the UI uses to highlight what to verify.
+
+    Multi-terminal: pass `terminal_id` for venues like Mirabelle that close
+    from 4 separate kasserapports per night. Each scan is tagged with its
+    terminal so the aggregator can sum cards/payments correctly. Owners
+    with a single terminal can omit `terminal_id`.
     """
+    # Validate terminal_id (if provided) — defense layer against forged
+    # IDs trying to access other users' terminals.
+    validated_terminal_id = None
+    if terminal_id:
+        from app.models.terminal import Terminal
+        term = (
+            db.query(Terminal)
+            .filter(
+                Terminal.id == terminal_id,
+                Terminal.user_id == user.id,
+                Terminal.is_deleted.isnot(True),
+            )
+            .first()
+        )
+        if not term:
+            raise HTTPException(status_code=404, detail="Terminal not found")
+        validated_terminal_id = term.id
     # Defense-1: content-type whitelist
     if (file.content_type or "").lower() not in _ALLOWED_MIME:
         raise HTTPException(
@@ -188,6 +211,7 @@ async def extract(
         log_row = KasserapportExtraction(
             id=uuid.uuid4(),
             user_id=user.id,
+            terminal_id=validated_terminal_id,
             document_type=result.document_type,
             pos_system=result.pos_system,
             classifier_confidence=result.classifier_confidence,
