@@ -14,6 +14,72 @@ const COUNTRY_LABELS = {
   DK: "Denmark", NO: "Norway", NP: "Nepal", IN: "India", GB: "UK", SE: "Sweden",
 };
 
+/* ─── Field validators (frontend-only, opportunistic; backend remains the
+        authoritative validator on submit). Used to give "this looks ok / this
+        looks short" hints as the owner types. Permissive when no rule set. ─ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const FIELD_VALIDATORS = {
+  vipps_mobilepay: {
+    merchant_serial:  { regex: /^\d{6,8}$/,           hintKey: "fmtMsn" },
+    client_id:        { regex: UUID_RE,               hintKey: "fmtUuid" },
+    client_secret:    { minLength: 40,                hintKey: "fmtLong" },
+    subscription_key: { minLength: 32,                hintKey: "fmtSubKey" },
+  },
+  esewa: {
+    merchant_code:    { minLength: 4,                 hintKey: "fmtCode" },
+    api_key:          { minLength: 16,                hintKey: "fmtMid" },
+  },
+};
+function checkField(providerId, fieldKey, value) {
+  const rule = FIELD_VALIDATORS[providerId]?.[fieldKey];
+  if (!rule) return { state: "neutral" };
+  if (!value) return { state: "neutral" };
+  if (rule.regex && !rule.regex.test(value)) return { state: "warn", hintKey: rule.hintKey };
+  if (rule.minLength && value.length < rule.minLength) return { state: "warn", hintKey: rule.hintKey };
+  return { state: "ok" };
+}
+
+/* ─── Smart Paste — sniff a blob the owner pasted from the portal and
+        auto-route each token to its likely field. Heuristic-only; the owner
+        can still edit any field afterwards, and Test & Connect is the real
+        validator. ─────────────────────────────────────────────────────── */
+function smartPasteParse(text, providerId) {
+  if (!text || !text.trim()) return null;
+  // Tokenize: split on whitespace, newlines, commas, semicolons, equals signs.
+  // Strip surrounding quotes / leading "key:" labels Vipps copies sometimes
+  // include like "Client ID: a1b2c3d4-...".
+  const tokens = text
+    .split(/[\s\n,;=]+/)
+    .map((t) => t.replace(/^["'`]+|["'`]+$/g, "").replace(/^.*?:/, "").trim())
+    .filter((t) => t.length >= 4);
+
+  if (providerId === "vipps_mobilepay") {
+    const msn = tokens.find((t) => /^\d{6,8}$/.test(t)) || "";
+    const uuid = tokens.find((t) => UUID_RE.test(t)) || "";
+    // Remaining long random strings are either client_secret or subscription_key.
+    const longs = tokens.filter(
+      (t) => t.length >= 32 && t !== msn && t !== uuid && !UUID_RE.test(t)
+    );
+    // Heuristic: Vipps subscription keys are 32 hex chars; client secrets are
+    // typically longer (40-80). When ambiguous, fall back to declaration order.
+    longs.sort((a, b) => a.length - b.length);
+    const sub = longs[0] || "";
+    const sec = longs.find((t) => t !== sub) || "";
+    const filled = { merchant_serial: msn, client_id: uuid, subscription_key: sub, client_secret: sec };
+    const found = Object.values(filled).filter(Boolean).length;
+    return { creds: filled, found, total: 4 };
+  }
+  if (providerId === "esewa") {
+    // Two fields; not enough format diversity to disambiguate. Fill in order.
+    const filled = {};
+    if (tokens[0]) filled.merchant_code = tokens[0];
+    if (tokens[1]) filled.api_key = tokens[1];
+    const found = Object.values(filled).filter(Boolean).length;
+    return { creds: filled, found, total: 2 };
+  }
+  return null;
+}
+
 /* ─── Setup Wizard ───────────────────────────────────────── */
 function SetupWizard({ provider, onDone, onCancel, t }) {
   const [step, setStep] = useState(0); // 0 = intro, 1 = fields, 2 = testing
@@ -21,11 +87,32 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
   const [label, setLabel] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [pasteAck, setPasteAck] = useState(null); // { found, total } briefly after smart paste
+  const [pasteText, setPasteText] = useState("");
 
   const totalSteps = (provider.setup_steps || []).length;
   const allFieldsFilled = provider.fields.every(
     (f) => (creds[f.key] || "").trim().length > 0
   );
+  const supportsSmartPaste = !!FIELD_VALIDATORS[provider.id];
+
+  const handleSmartPaste = (text) => {
+    setPasteText(text);
+    if (!text.trim()) { setPasteAck(null); return; }
+    const result = smartPasteParse(text, provider.id);
+    if (!result) return;
+    // Only overwrite empty fields by default — never clobber what the owner
+    // already typed. If they want to redo, the textarea has a Clear button.
+    setCreds((prev) => {
+      const next = { ...prev };
+      for (const [k, v] of Object.entries(result.creds)) {
+        if (!prev[k] && v) next[k] = v;
+      }
+      return next;
+    });
+    setPasteAck({ found: result.found, total: result.total });
+  };
+  const clearSmartPaste = () => { setPasteText(""); setPasteAck(null); };
 
   const handleSave = async () => {
     setSaving(true);
@@ -39,7 +126,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
       });
       onDone(res.data);
     } catch (err) {
-      setError(err.response?.data?.detail || "Connection failed. Double-check your keys and try again.");
+      setError(err.response?.data?.detail || t("connectionFailedDoubleCheck") || "Connection failed. Double-check your keys and try again.");
       setStep(1);
     }
     setSaving(false);
@@ -58,7 +145,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
                 {t("connect") || "Connect"} {provider.name}
               </h3>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                {provider.setup_time && `Takes about ${provider.setup_time}`}
+                {provider.setup_time && (t("takesAbout") || "Takes about {time}").replace("{time}", provider.setup_time)}
               </p>
             </div>
           </div>
@@ -68,7 +155,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
           {/* What you'll need */}
           <div>
             <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
-              Here's what you'll do:
+              {t("hereIsWhatYoullDo") || "Here's what you'll do:"}
             </h4>
             <div className="space-y-2.5">
               {(provider.setup_steps || []).map((step, i) => (
@@ -99,7 +186,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
               </div>
               <div className="flex-1">
                 <p className="text-sm font-medium text-gray-800 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition">
-                  Open {provider.portal_name || provider.name}
+                  {(t("openPortal") || "Open {portal}").replace("{portal}", provider.portal_name || provider.name)}
                 </p>
                 <p className="text-xs text-gray-400">{provider.portal_url.replace("https://", "")}</p>
               </div>
@@ -110,8 +197,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
           )}
 
           <p className="text-xs text-gray-400 dark:text-gray-500">
-            Your keys are stored securely and only used to fetch your transactions.
-            BonBox never stores your customers' payment details.
+            {t("keysStoredSecurely") || "Your keys are stored securely and only used to fetch your transactions. BonBox never stores your customers' payment details."}
           </p>
 
           {/* Actions */}
@@ -120,7 +206,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
               onClick={() => setStep(1)}
               className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition text-sm"
             >
-              I have my keys — let's go
+              {t("iHaveKeysLetsGo") || "I have my keys — let's go"}
             </button>
             <button
               onClick={onCancel}
@@ -145,9 +231,9 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
           </svg>
         </div>
         <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-          Connecting to {provider.name}...
+          {(t("connectingTo") || "Connecting to {provider}...").replace("{provider}", provider.name)}
         </p>
-        <p className="text-xs text-gray-400 mt-1">Verifying your keys</p>
+        <p className="text-xs text-gray-400 mt-1">{t("verifyingYourKeys") || "Verifying your keys"}</p>
       </div>
     );
   }
@@ -168,9 +254,9 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
           </button>
           <div>
             <h3 className="text-sm font-bold text-gray-900 dark:text-white">
-              {provider.logo_emoji} Enter your {provider.name} keys
+              {provider.logo_emoji} {(t("enterYourKeysFor") || "Enter your {provider} keys").replace("{provider}", provider.name)}
             </h3>
-            <p className="text-xs text-gray-400">Paste them from the {provider.portal_name || "portal"}</p>
+            <p className="text-xs text-gray-400">{(t("pasteThemFromPortal") || "Paste them from the {portal}").replace("{portal}", provider.portal_name || "portal")}</p>
           </div>
         </div>
         {safeExternalUrl(provider.portal_url) && (
@@ -180,7 +266,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
             rel="noopener noreferrer"
             className="text-xs text-blue-500 hover:text-blue-600 font-medium flex items-center gap-1"
           >
-            Open portal
+            {t("openPortalShort") || "Open portal"}
             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
             </svg>
@@ -192,40 +278,99 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
         {/* Optional label */}
         <div>
           <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
-            Name this connection (optional)
+            {t("nameConnection") || "Name this connection (optional)"}
           </label>
           <input
             type="text"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
-            placeholder={`e.g. "My café" or "Main store"`}
+            placeholder={t("connectionNameExample") || `e.g. "My café" or "Main store"`}
             className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-blue-300 dark:focus:ring-blue-700 outline-none transition"
           />
         </div>
 
-        {/* Credential fields */}
-        {provider.fields.map((field, idx) => (
-          <div key={field.key}>
-            <label className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1.5">
-              <span className="w-5 h-5 rounded-md bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center text-[10px] font-bold shrink-0">
-                {idx + 1}
-              </span>
-              {field.label}
-            </label>
-            <input
-              type={field.type}
-              value={creds[field.key] || ""}
-              onChange={(e) => setCreds({ ...creds, [field.key]: e.target.value })}
-              placeholder={field.placeholder}
-              className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200 font-mono focus:ring-2 focus:ring-blue-300 dark:focus:ring-blue-700 outline-none transition"
+        {/* Smart Paste — single textarea, auto-routes tokens to their fields. */}
+        {supportsSmartPaste && (
+          <div className="rounded-xl border border-blue-100 dark:border-blue-900/30 bg-blue-50/30 dark:bg-blue-900/10 p-3.5">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-semibold text-blue-700 dark:text-blue-300 flex items-center gap-1.5">
+                <span className="text-sm">⚡</span>
+                {t("smartPasteTitle") || "Paste all keys at once"}
+              </label>
+              {pasteText && (
+                <button
+                  onClick={clearSmartPaste}
+                  className="text-[11px] text-blue-500 hover:text-blue-700 font-medium"
+                >
+                  {t("clear") || "Clear"}
+                </button>
+              )}
+            </div>
+            <textarea
+              value={pasteText}
+              onChange={(e) => handleSmartPaste(e.target.value)}
+              rows={3}
+              placeholder={t("smartPastePlaceholder") || "Paste your 4 keys (or the whole block from the portal) — BonBox sorts them into the right fields"}
+              className="w-full px-3 py-2 rounded-lg border border-blue-200 dark:border-blue-800/40 bg-white dark:bg-gray-800 text-xs text-gray-800 dark:text-gray-200 font-mono focus:ring-2 focus:ring-blue-300 dark:focus:ring-blue-700 outline-none transition resize-none"
             />
-            {field.help && (
-              <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1 ml-0.5">
-                {field.help}
+            {pasteAck && (
+              <p className={`text-[11px] mt-1.5 font-medium flex items-center gap-1 ${pasteAck.found === pasteAck.total ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400"}`}>
+                {pasteAck.found === pasteAck.total ? "✓" : "⚠"}
+                {pasteAck.found === pasteAck.total
+                  ? (t("smartPasteAllFilled") || `All ${pasteAck.total} fields auto-filled — review below and tap Test & Connect`).replace("{n}", pasteAck.total)
+                  : (t("smartPastePartialFilled") || `Found ${pasteAck.found} of ${pasteAck.total} keys — fill the rest below`).replace("{found}", pasteAck.found).replace("{total}", pasteAck.total)
+                }
               </p>
             )}
           </div>
-        ))}
+        )}
+
+        {/* Credential fields with live format validation */}
+        {provider.fields.map((field, idx) => {
+          const value = creds[field.key] || "";
+          const check = checkField(provider.id, field.key, value);
+          const borderClass =
+            check.state === "ok"   ? "border-green-300 dark:border-green-700/50 bg-green-50/40 dark:bg-green-900/10" :
+            check.state === "warn" ? "border-amber-300 dark:border-amber-700/50 bg-amber-50/40 dark:bg-amber-900/10" :
+                                     "border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700";
+          const formatHint =
+            check.state === "warn" && check.hintKey ? (t(check.hintKey) || "")  : "";
+          return (
+            <div key={field.key}>
+              <label className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1.5">
+                <span className="w-5 h-5 rounded-md bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center text-[10px] font-bold shrink-0">
+                  {idx + 1}
+                </span>
+                {field.label}
+                {check.state === "ok" && (
+                  <span className="ml-auto text-[11px] text-green-600 dark:text-green-400 font-semibold flex items-center gap-0.5">
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    {t("looksGood") || "Looks good"}
+                  </span>
+                )}
+              </label>
+              <input
+                type={field.type}
+                value={value}
+                onChange={(e) => setCreds({ ...creds, [field.key]: e.target.value })}
+                placeholder={field.placeholder}
+                className={`w-full px-3 py-2.5 rounded-xl border text-sm text-gray-800 dark:text-gray-200 font-mono focus:ring-2 focus:ring-blue-300 dark:focus:ring-blue-700 outline-none transition ${borderClass}`}
+              />
+              {formatHint && (
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 ml-0.5">
+                  {formatHint}
+                </p>
+              )}
+              {!formatHint && field.help && (
+                <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1 ml-0.5">
+                  {field.help}
+                </p>
+              )}
+            </div>
+          );
+        })}
 
         {/* Error */}
         {error && (
@@ -236,7 +381,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
             <div>
               <p className="text-sm text-red-600 dark:text-red-400 font-medium">{error}</p>
               <p className="text-xs text-red-400 dark:text-red-500 mt-0.5">
-                Make sure you copied the full value with no extra spaces.
+                {t("connFailHint") || "Make sure you copied the full value with no extra spaces."}
               </p>
             </div>
           </div>
@@ -252,7 +397,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
-            Test & Connect
+            {t("testAndConnect") || "Test & Connect"}
           </button>
           <button
             onClick={onCancel}
