@@ -887,6 +887,13 @@ export const th = {
   channelSlackPlaceholder: "Webhook URL หรือชื่อช่อง",
   yourRecipients: "ผู้รับของคุณ",
   openShareSheet: "เปิดเมนูแชร์",
+  sharePdf: "แชร์ PDF",
+  pdfShareHint: "แนบ PDF ผ่าน WhatsApp / อีเมล",
+  downloadPdf: "ดาวน์โหลด PDF",
+  pdfShared: "แชร์ PDF แล้ว",
+  pdfDownloaded: "ดาวน์โหลด PDF แล้ว",
+  pdfFailed: "สร้าง PDF ไม่ได้",
+  generating: "กำลังสร้าง…",
 };
 
 

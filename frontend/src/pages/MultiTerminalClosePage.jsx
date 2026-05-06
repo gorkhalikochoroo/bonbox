@@ -599,6 +599,7 @@ function ReviewView({ aggregated, currency, t, onBack, onSend, sending }) {
 function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
   const [shareState, setShareState] = useState({ status: "idle", message: "" });
   const [recipients, setRecipients] = useState([]);
+  const [pdfState, setPdfState] = useState({ status: "idle", message: "" });
 
   const aggData = aggregated?.aggregated;
   const businessName = user?.business_name || "";
@@ -629,6 +630,80 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
     () => buildShareMessage(aggData, { businessName, dateLabel, currency }),
     [aggData, businessName, dateLabel, currency],
   );
+
+  /**
+   * Generate the close as a PDF and either:
+   *   1. Share via Web Share API with `files: [pdf]` (iOS 15+, Chrome
+   *      Android with appropriate permissions), OR
+   *   2. Download as a regular file via blob URL.
+   *
+   * Caller picks via `mode = "share" | "download"`.
+   */
+  async function doPdf(mode = "download") {
+    if (!aggData) return;
+    setPdfState({ status: "loading", message: "" });
+    try {
+      const res = await api.post(
+        "/kasserapport/close-pdf",
+        { aggregated: aggData, date_label: dateLabel, currency },
+        { responseType: "blob" },
+      );
+      const blob = new Blob([res.data], { type: "application/pdf" });
+
+      // Try Web Share Files API first if requested
+      if (mode === "share" && navigator.share && typeof File !== "undefined") {
+        try {
+          const file = new File(
+            [blob],
+            `lukning-${(businessName || "bonbox").toLowerCase().replace(/\W+/g, "_")}.pdf`,
+            { type: "application/pdf" },
+          );
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              title: shareTitle,
+              text: shareText,
+              files: [file],
+            });
+            setPdfState({
+              status: "success",
+              message: t("pdfShared") || "PDF shared",
+            });
+            return;
+          }
+        } catch (e) {
+          if (e?.name !== "AbortError") {
+            // Fall through to download path
+          } else {
+            setPdfState({ status: "success", message: t("pdfShared") || "PDF shared" });
+            return;
+          }
+        }
+      }
+
+      // Download fallback (also covers desktop browsers)
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download =
+        `lukning-${(businessName || "bonbox").toLowerCase().replace(/\W+/g, "_")}-${
+          dateLabel.split(" ")[0]?.replace(/\./g, "-") || "today"
+        }.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // Revoke after the click registers (small timeout for Safari quirk)
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setPdfState({
+        status: "success",
+        message: t("pdfDownloaded") || "PDF downloaded",
+      });
+    } catch (e) {
+      setPdfState({
+        status: "error",
+        message: e?.response?.data?.detail || t("pdfFailed") || "Could not generate PDF",
+      });
+    }
+  }
 
   async function doShare() {
     if (!shareText) return;
@@ -743,8 +818,37 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
                 ? (t("opening") || "Opening…")
                 : `📨 ${recipients.length > 0 ? (t("openShareSheet") || "Open share sheet") : (t("sendNow") || "Send now")}`}
             </button>
+            <button
+              onClick={() => doPdf("share")}
+              disabled={pdfState.status === "loading"}
+              className="px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50 transition"
+              title={t("pdfShareHint") || "Share as PDF attachment via WhatsApp / email"}
+            >
+              {pdfState.status === "loading"
+                ? `📄 ${t("generating") || "Generating…"}`
+                : `📄 ${t("sharePdf") || "Share PDF"}`}
+            </button>
+            <button
+              onClick={() => doPdf("download")}
+              disabled={pdfState.status === "loading"}
+              className="px-4 py-2.5 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50 transition"
+            >
+              ⬇ {t("downloadPdf") || "Download PDF"}
+            </button>
             <CopyButton text={`${shareTitle}\n\n${shareText}`} t={t} />
           </div>
+
+          {pdfState.message && (
+            <div
+              className={`mx-4 mb-3 px-3 py-2 rounded-lg text-xs ${
+                pdfState.status === "error"
+                  ? "bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-300"
+                  : "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+              }`}
+            >
+              {pdfState.message}
+            </div>
+          )}
         </div>
       )}
 

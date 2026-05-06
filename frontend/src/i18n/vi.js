@@ -892,4 +892,11 @@ export const vi = {
   channelSlackPlaceholder: "Webhook URL hoặc kênh",
   yourRecipients: "Người nhận của bạn",
   openShareSheet: "Mở bảng chia sẻ",
+  sharePdf: "Chia sẻ PDF",
+  pdfShareHint: "Đính kèm PDF qua WhatsApp / email",
+  downloadPdf: "Tải PDF",
+  pdfShared: "Đã chia sẻ PDF",
+  pdfDownloaded: "Đã tải PDF",
+  pdfFailed: "Không tạo được PDF",
+  generating: "Đang tạo…",
 };

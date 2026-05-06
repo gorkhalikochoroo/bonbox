@@ -471,3 +471,67 @@ def aggregate(
         "excel_rows": to_excel_rows(close),
         "threshold_used": threshold_f,
     }
+
+
+# ────────────────────────────────────────────────────────────────────────
+# PDF rendering — Mirabelle-format clean attachment
+# ────────────────────────────────────────────────────────────────────────
+
+@router.post("/close-pdf")
+def close_pdf(
+    body: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Render the aggregated multi-terminal close as a PDF.
+
+    Body shape: same as /aggregate output (the frontend already has it
+    in memory after the close completes), so we don't re-aggregate
+    server-side. Caller passes:
+      {
+        "aggregated":  { ...AggregatedClose dict... },
+        "date_label":  "9.3.2026 (Mandag)",   # display string
+        "currency":    "DKK"                   # optional, defaults DKK
+      }
+
+    Returns PDF as application/pdf with a sensible filename. ~50KB
+    typical, fits on a single A4 portrait page even with 6 terminals.
+
+    Defense:
+      • Auth gate (per-user — no public PDF surface)
+      • Pure render — no DB writes, no LLM, no external network
+      • render_close_pdf() never raises; falls back to a minimal
+        error PDF so caller's UX flow continues
+    """
+    from fastapi.responses import Response
+    from app.services.kasserapport_pdf import render_close_pdf
+
+    aggregated = body.get("aggregated") or {}
+    if not isinstance(aggregated, dict):
+        raise HTTPException(status_code=400, detail="aggregated must be an object")
+
+    date_label = (body.get("date_label") or "").strip()
+    currency = (body.get("currency") or user.currency or "DKK").strip()
+    business_name = (user.business_name or "").strip()
+
+    pdf_bytes = render_close_pdf(
+        aggregated=aggregated,
+        business_name=business_name,
+        date_label=date_label,
+        currency=currency,
+    )
+
+    # Filename: lukning_<businessSlug>_<isoDate>.pdf — predictable, no
+    # special chars (closer's email client / WhatsApp don't choke).
+    iso_date = (date_label.split(" ")[0] if date_label else "today").replace(".", "-")
+    biz_slug = "".join(c if c.isalnum() else "_" for c in (business_name or "bonbox").lower())[:32]
+    filename = f"lukning_{biz_slug}_{iso_date}.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(pdf_bytes)),
+        },
+    )
