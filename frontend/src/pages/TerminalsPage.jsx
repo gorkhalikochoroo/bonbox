@@ -156,7 +156,7 @@ export default function TerminalsPage() {
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-xl">
               {t("terminalsPageSubtitle") ||
-                "Configure your physical POS stations. The daily-close flow scans one kasserapport per terminal and aggregates them automatically."}
+                "Each physical till station you close out at end of night. Takes 30 seconds to set up — once."}
             </p>
           </div>
           {!editing && (
@@ -169,6 +169,65 @@ export default function TerminalsPage() {
           )}
         </div>
       </FadeIn>
+
+      {/* "How this works" 3-step explainer — only shows while the
+          owner is still figuring it out (≤1 terminal configured).
+          Once they have ≥2 terminals they've clearly got the model,
+          and the panel just clutters the page so we hide it. */}
+      {!loading && terminals.length <= 1 && !editing && (
+        <FadeIn delay={0.02}>
+          <details
+            open={terminals.length === 0}
+            className="mt-4 mb-2 bg-white dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-2xl group"
+          >
+            <summary className="cursor-pointer px-5 py-3 text-[13px] font-semibold text-gray-800 dark:text-gray-200 flex items-center justify-between list-none">
+              <span className="flex items-center gap-2">
+                <span className="text-base">💡</span>
+                {t("terminalsHowTitle") || "How this works"}
+              </span>
+              <span className="text-gray-400 transition-transform group-open:rotate-180">▾</span>
+            </summary>
+            <div className="px-5 pb-5 grid sm:grid-cols-3 gap-4 sm:gap-5 border-t border-gray-100 dark:border-gray-700/60 pt-4">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                  {t("terminalsHowStep1Tag") || "Step 1 (one-time)"}
+                </div>
+                <div className="text-sm font-semibold text-gray-900 dark:text-white mt-1">
+                  {t("terminalsHowStep1Title") || "List your terminals here"}
+                </div>
+                <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
+                  {t("terminalsHowStep1Body") ||
+                    "One row per physical till — front bar, terrace, takeaway window, etc. Set the payment methods each one takes."}
+                </div>
+              </div>
+              <div className="sm:border-l sm:border-gray-200 sm:dark:border-gray-700 sm:pl-5">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                  {t("terminalsHowStep2Tag") || "Step 2 (every night)"}
+                </div>
+                <div className="text-sm font-semibold text-gray-900 dark:text-white mt-1">
+                  {t("terminalsHowStep2Title") || "Snap each kasserapport"}
+                </div>
+                <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
+                  {t("terminalsHowStep2Body") ||
+                    "Open the daily close, photograph each terminal's printed totals receipt. AI reads Dankort, MobilePay, cash, and the rest in ~6 seconds."}
+                </div>
+              </div>
+              <div className="sm:border-l sm:border-gray-200 sm:dark:border-gray-700 sm:pl-5">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-green-600 dark:text-green-400">
+                  {t("terminalsHowStep3Tag") || "Step 3 (automatic)"}
+                </div>
+                <div className="text-sm font-semibold text-gray-900 dark:text-white mt-1">
+                  {t("terminalsHowStep3Title") || "BonBox merges them into one close"}
+                </div>
+                <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
+                  {t("terminalsHowStep3Body") ||
+                    "All terminals roll up to a single daily total. Cash difference flagged. Send the consolidated PDF to owner or revisor in one tap."}
+                </div>
+              </div>
+            </div>
+          </details>
+        </FadeIn>
+      )}
 
       {/* Inline editor — sits above the list when active so the user
           sees their changes appear in context */}
