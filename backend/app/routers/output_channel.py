@@ -71,6 +71,17 @@ def create_channel(
             detail=f"Channel limit reached ({_CAP_PER_USER}). Delete unused ones first.",
         )
 
+    # Validate role against the allowed set if supplied; legacy create
+    # calls (no role) still work — column is nullable.
+    role = (data.role or "").strip() or None
+    if role is not None:
+        from app.models.output_channel import RECIPIENT_ROLES
+        if role not in RECIPIENT_ROLES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid role: {role!r}. Use one of {RECIPIENT_ROLES}.",
+            )
+
     chan = OutputChannel(
         id=uuid.uuid4(),
         user_id=user.id,
@@ -78,6 +89,7 @@ def create_channel(
         target=(data.target or "").strip() or None,
         label=data.label.strip(),
         display_order=data.display_order,
+        role=role,
     )
     db.add(chan)
     db.commit()
@@ -109,6 +121,17 @@ def update_channel(
         updates["label"] = updates["label"].strip()
     if "target" in updates:
         updates["target"] = (updates["target"] or "").strip() or None
+    # Validate role on update too — same allow-list as create
+    if "role" in updates:
+        role = (updates["role"] or "").strip() or None
+        if role is not None:
+            from app.models.output_channel import RECIPIENT_ROLES
+            if role not in RECIPIENT_ROLES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid role: {role!r}. Use one of {RECIPIENT_ROLES}.",
+                )
+        updates["role"] = role
 
     for k, v in updates.items():
         setattr(chan, k, v)

@@ -197,3 +197,134 @@ def test_email_target_can_carry_multiple_addresses(db, owner):
     )
     assert "," in c.target
     # Frontend handles the comma-split before sending; we just store it.
+
+
+# ─── Role tag — stakes the closer ≠ owner segment in the data model ───
+
+from app.models.output_channel import RECIPIENT_ROLES
+from app.schemas.output_channel import (
+    OutputChannelCreate,
+    OutputChannelUpdate,
+    _validate_role,
+)
+
+
+def test_recipient_roles_set_match_codebase():
+    """Lock the canonical role list. Adding/removing a role must be a
+    deliberate code change — frontend onboarding flow + i18n keys
+    depend on this list."""
+    assert "closer" in RECIPIENT_ROLES
+    assert "owner" in RECIPIENT_ROLES
+    assert "revisor" in RECIPIENT_ROLES
+    assert "team" in RECIPIENT_ROLES
+    assert "other" in RECIPIENT_ROLES
+
+
+def test_role_validator_accepts_canonical_values():
+    for r in RECIPIENT_ROLES:
+        assert _validate_role(r) == r
+
+
+def test_role_validator_normalizes_case_and_whitespace():
+    assert _validate_role("CLOSER") == "closer"
+    assert _validate_role("  Owner  ") == "owner"
+
+
+def test_role_validator_returns_none_for_empty_or_unknown():
+    assert _validate_role(None) is None
+    assert _validate_role("") is None
+    assert _validate_role("manager") is None  # not in allowlist
+    assert _validate_role("admin") is None
+    assert _validate_role(42) is None  # type: ignore
+
+
+def test_create_schema_accepts_valid_role():
+    """Pydantic Create schema validates role against allowlist."""
+    payload = OutputChannelCreate(
+        channel_type="email",
+        target="caro@mirabelle.dk",
+        label="Caro (closer)",
+        role="closer",
+    )
+    assert payload.role == "closer"
+
+
+def test_create_schema_normalizes_role():
+    payload = OutputChannelCreate(
+        channel_type="email",
+        target="caro@mirabelle.dk",
+        label="Caro",
+        role="CLOSER",
+    )
+    assert payload.role == "closer"
+
+
+def test_create_schema_rejects_invalid_role():
+    with pytest.raises(ValueError):
+        OutputChannelCreate(
+            channel_type="email",
+            target="caro@mirabelle.dk",
+            label="Caro",
+            role="not_a_role",
+        )
+
+
+def test_create_schema_role_optional():
+    """Legacy create calls without a role still work — column is nullable
+    so frontend rollout can be gradual."""
+    payload = OutputChannelCreate(
+        channel_type="email",
+        target="caro@mirabelle.dk",
+        label="Caro",
+    )
+    assert payload.role is None
+
+
+def test_update_schema_accepts_role_changes():
+    p = OutputChannelUpdate(role="owner")
+    assert p.role == "owner"
+
+
+def test_update_schema_clears_role_with_empty_string():
+    """Allow owner to UNSET a role by passing empty string."""
+    p = OutputChannelUpdate(role="")
+    assert p.role is None
+
+
+def test_update_schema_rejects_invalid_role():
+    with pytest.raises(ValueError):
+        OutputChannelUpdate(role="garbage_role")
+
+
+def test_role_persists_to_database(db, owner):
+    """End-to-end: a role set on a row survives a refresh."""
+    c = _make(db, owner, channel_type="email", label="Caro", target="caro@mirabelle.dk", role="closer")
+    db.expire(c)
+    db.refresh(c)
+    assert c.role == "closer"
+
+
+def test_role_default_null_for_legacy_rows(db, owner):
+    """Existing rows that pre-date the role column have role=None.
+    Test by NOT supplying role at create time — same behavior."""
+    c = _make(db, owner, channel_type="email", label="Old recipient", target="old@example.com")
+    assert c.role is None
+
+
+def test_two_actor_segment_modeled(db, owner):
+    """Stake the segment in the data: an owner can have a closer + an
+    owner-recipient + a revisor-recipient as three distinct rows. This
+    is the structural distinction from generic dashboards."""
+    closer = _make(db, owner, channel_type="email", label="Caro", target="caro@mirabelle.dk", role="closer")
+    self_recip = _make(db, owner, channel_type="email", label="Lars (me)", target="lars@mirabelle.dk", role="owner")
+    revisor = _make(db, owner, channel_type="csv_to_accountant", label="Anna revisor", target="anna@revisor.dk", role="revisor")
+
+    rows = (
+        db.query(OutputChannel)
+        .filter(OutputChannel.user_id == owner.id, OutputChannel.is_deleted.isnot(True))
+        .all()
+    )
+    by_role = {r.role: r.label for r in rows if r.role}
+    assert by_role.get("closer") == "Caro"
+    assert by_role.get("owner") == "Lars (me)"
+    assert by_role.get("revisor") == "Anna revisor"

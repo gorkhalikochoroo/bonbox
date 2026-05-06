@@ -13,6 +13,7 @@ import DailyBriefCard from "../components/DailyBriefCard";
 import SmartSaleInput from "../components/SmartSaleInput";
 import AnomalyAlertsCard from "../components/AnomalyAlertsCard";
 import DismissibleTip from "../components/DismissibleTip";
+import CloserPromptCard from "../components/CloserPromptCard";
 import {
   AnimatedCounter,
   SkeletonCard,
@@ -1367,6 +1368,11 @@ export default function DashboardPage() {
         {quickMsg && (
           <div className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-4 py-2.5 rounded-xl text-sm font-medium">{quickMsg}</div>
         )}
+
+        {/* Two-actor onboarding stake — auto-hides once a closer is set
+            or owner explicitly dismisses. Models the closer ≠ owner
+            split as a structural product step, not just marketing copy. */}
+        <CloserPromptCard user={user} />
 
         {/* ── TRIAL COUNTDOWN — only renders during/just-after trial ── */}
         <TrialBanner />

@@ -1031,6 +1031,22 @@ export const th = {
   faqQ8: "ข้อมูลของฉันปลอดภัยไหม?",
   faqA8: "โฮสต์ใน EU เข้ารหัสทั้งตอนพักและส่ง ตามกฎ GDPR ไม่ขาย ไม่แชร์กับนักการตลาด ไม่ใช้ฝึก AI โมเดล มีเครื่องมือส่งออก/ลบครบถ้วน",
   pricingTrademarkNotice: "Dinero, Billy, e-conomic, MobilePay และ Dankort เป็นเครื่องหมายการค้าของเจ้าของที่เกี่ยวข้อง BonBox ไม่ได้สังกัดหรือรับรองโดยบริษัทเหล่านี้ การอ้างอิงทำเพื่อความเข้ากันและการเปรียบเทียบภายใต้ nominative fair use",
+  closerPromptTitle: "ใครปิดยอดให้คุณ?",
+  closerPromptBody: "ในร้านอาหารส่วนใหญ่ front-of-house (พนักงานเสิร์ฟ / บาร์เทนเดอร์) เป็นคนปิดกะ — ไม่ใช่เจ้าของ บอกเราว่าใครเป็นคนปิดเพื่อให้เขาได้รับการยืนยันการปิดยอดประจำวัน (เจ้าของยังได้ PDF รวมเหมือนเดิม)",
+  closerPromptAddCloser: "เพิ่มคนปิดของฉัน",
+  closerPromptIClose: "ฉันปิดเอง",
+  closerPromptSkip: "ข้ามไปก่อน",
+  closerPromptSelfLabel: "ฉัน (ปิดเอง)",
+  closerPromptNameLabel: "ชื่อคนปิด",
+  closerPromptNamePlaceholder: "เช่น Caro, Lars, ผู้จัดการบาร์",
+  closerPromptEmailLabel: "อีเมล",
+  closerPromptEmailHint: "เขาจะได้รับการยืนยันทุกครั้งที่ส่งปิดยอดประจำวัน",
+  closerPromptEmailRequired: "ต้องระบุอีเมลของคนปิด",
+  closerPromptNoOwnerEmail: "ไม่พบอีเมลของบัญชีคุณ",
+  closerPromptSaveFailed: "บันทึกไม่ได้ — ลองใหม่",
+  dismiss: "ปิด",
+  back: "ย้อนกลับ",
+  saving: "กำลังบันทึก…",
 };
 
 

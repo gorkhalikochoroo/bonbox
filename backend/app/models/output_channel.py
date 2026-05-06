@@ -50,6 +50,18 @@ CHANNEL_TYPES = (
     "csv_to_accountant",
 )
 
+# Allowed role values. The role tags WHO this recipient is in the actor
+# flow — captures the closer ≠ owner segment definition that distinguishes
+# BonBox from generic dashboards. Optional: legacy rows have role=NULL
+# until the owner revisits and tags them.
+RECIPIENT_ROLES = (
+    "closer",   # front-of-house staff who runs the close
+    "owner",    # business owner / manager (the buyer)
+    "revisor",  # Danish bookkeeper / accountant
+    "team",     # group recipient (Slack channel, kitchen lead, etc.)
+    "other",    # explicit catch-all
+)
+
 
 class OutputChannel(Base):
     """One row per configured recipient/channel for daily-close reports."""
@@ -61,6 +73,10 @@ class OutputChannel(Base):
     channel_type: Mapped[str] = mapped_column(String(40))
     target: Mapped[str | None] = mapped_column(Text, nullable=True)
     label: Mapped[str] = mapped_column(String(120))
+
+    # Optional role tag — see RECIPIENT_ROLES. Nullable for backward compat
+    # with rows created before the column existed (added migration 009).
+    role: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # Display order — lower numbers shown first. Two recipients with the
     # same order tie-break on created_at so behaviour is deterministic.
