@@ -5,8 +5,19 @@
  */
 import axios from "axios";
 
+// Same defaulting logic as api.js — bonbox.dk pages point at api.bonbox.dk.
+const _DEFAULT_API_URL = (() => {
+  try {
+    const h = (typeof window !== "undefined" && window.location?.hostname) || "";
+    if (h === "bonbox.dk" || h.endsWith(".bonbox.dk")) {
+      return "https://api.bonbox.dk/api";
+    }
+  } catch { /* SSR / sandboxed */ }
+  return "http://localhost:8000/api";
+})();
+
 const portalApi = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000/api",
+  baseURL: import.meta.env.VITE_API_URL || _DEFAULT_API_URL,
   timeout: 30000,
 });
 

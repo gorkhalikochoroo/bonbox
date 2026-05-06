@@ -44,14 +44,42 @@ router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
 
 
-def _set_auth_cookie(response: Response, token: str) -> None:
+def _cookie_scope(request: Request | None) -> tuple[str | None, str]:
+    """Decide cookie Domain attribute + SameSite based on the request host.
+
+    The backend serves both the legacy bonbox-api.onrender.com (cross-site
+    relative to bonbox.dk) AND the new api.bonbox.dk (same-site). We detect
+    which one this request hit and scope the cookie accordingly:
+
+      • api.bonbox.dk / *.bonbox.dk → Domain=.bonbox.dk, SameSite=Lax
+        cookies are first-party; JS on bonbox.dk CAN read the
+        non-HttpOnly CSRF cookie (which is the whole point of Round 2)
+      • onrender.com → no Domain (default to host), SameSite=None
+        cross-site; same as before, kept working during the migration
+
+    Returns (cookie_domain, samesite). cookie_domain may be None.
+    """
+    if request is None:
+        return None, "none" if settings.ENVIRONMENT == "production" else "lax"
+    host = (request.headers.get("host") or "").split(":")[0].lower()
+    if host == "bonbox.dk" or host.endswith(".bonbox.dk"):
+        return ".bonbox.dk", "lax"
+    # Legacy / dev — keep the previous behaviour
+    return None, "none" if settings.ENVIRONMENT == "production" else "lax"
+
+
+def _set_auth_cookie(response: Response, token: str, request: Request | None = None) -> None:
     """Attach the JWT as an HttpOnly cookie + a non-HttpOnly CSRF token.
+
+    Cookie scope is decided by _cookie_scope(): when the API is reached via
+    api.bonbox.dk we set Domain=.bonbox.dk and SameSite=Lax (first-party,
+    JS-readable CSRF cookie on the frontend). When reached via the legacy
+    onrender.com host we keep the cross-site SameSite=None setup.
 
     Multi-layer defense:
       • HttpOnly auth cookie: JS in the page (and any XSS payload) cannot read it
       • Secure: HTTPS-only — cookie is dropped in any plaintext context
-      • SameSite=None: required because frontend (bonbox.dk) and API
-        (bonbox-api.onrender.com) are different origins
+      • Domain/SameSite scoped per request host (see _cookie_scope)
       • max_age matches the JWT expiry (24h) so the cookie disappears
         when the token would have expired anyway
       • Path=/ so all API endpoints can read it; backend explicitly
@@ -65,7 +93,7 @@ def _set_auth_cookie(response: Response, token: str) -> None:
     Authorization: Bearer keep working — this is purely additive defense.
     """
     is_secure = settings.ENVIRONMENT == "production"
-    same_site = "none" if is_secure else "lax"
+    cookie_domain, same_site = _cookie_scope(request)
     max_age = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
     response.set_cookie(
         key=AUTH_COOKIE_NAME,
@@ -73,15 +101,13 @@ def _set_auth_cookie(response: Response, token: str) -> None:
         max_age=max_age,
         httponly=True,
         secure=is_secure,
-        # SameSite None is required for cross-origin (bonbox.dk → onrender.com).
-        # Browsers reject SameSite=None without Secure, so dev (HTTP) falls
-        # back to Lax — same-origin only, which is fine since dev runs both
-        # services on localhost.
         samesite=same_site,
         path="/",
+        domain=cookie_domain,
     )
-    # Double-submit CSRF token. Random per-login, JS-readable on the frontend
-    # origin only. Same lifetime as the JWT — they expire together, no drift.
+    # Double-submit CSRF token. Random per-login. When scoped to .bonbox.dk
+    # (Round 2 cutover), JS on the frontend can read it via document.cookie
+    # — the whole point of moving to the api.bonbox.dk subdomain.
     response.set_cookie(
         key=CSRF_COOKIE_NAME,
         value=secrets.token_urlsafe(32),
@@ -90,21 +116,28 @@ def _set_auth_cookie(response: Response, token: str) -> None:
         secure=is_secure,
         samesite=same_site,
         path="/",
+        domain=cookie_domain,
     )
 
 
-def _clear_auth_cookie(response: Response) -> None:
+def _clear_auth_cookie(response: Response, request: Request | None = None) -> None:
     """Wipe the auth and CSRF cookies. Same attributes as _set_auth_cookie so
     the browser actually replaces the existing ones (mismatched attributes
-    silently leave the old cookie in place)."""
+    silently leave the old cookie in place).
+
+    During the migration we may have BOTH a host-scoped cookie (legacy) AND
+    a Domain=.bonbox.dk cookie for the same user. We delete with the host
+    scope chosen by _cookie_scope; the other one will expire on its own at
+    JWT max_age (24h)."""
     is_secure = settings.ENVIRONMENT == "production"
-    same_site = "none" if is_secure else "lax"
+    cookie_domain, same_site = _cookie_scope(request)
     response.delete_cookie(
         key=AUTH_COOKIE_NAME,
         path="/",
         secure=is_secure,
         samesite=same_site,
         httponly=True,
+        domain=cookie_domain,
     )
     response.delete_cookie(
         key=CSRF_COOKIE_NAME,
@@ -112,6 +145,7 @@ def _clear_auth_cookie(response: Response) -> None:
         secure=is_secure,
         samesite=same_site,
         httponly=False,
+        domain=cookie_domain,
     )
 
 
@@ -299,7 +333,7 @@ def register(request: Request, response: Response, data: UserRegister, db: Sessi
     # filters out 90%+ of fake-account noise from the admin inbox.
 
     token = create_access_token(str(user.id))
-    _set_auth_cookie(response, token)
+    _set_auth_cookie(response, token, request)
     return Token(access_token=token, user=UserResponse.model_validate(user))
 
 
@@ -371,7 +405,7 @@ def google_auth(request: Request, response: Response, data: GoogleAuthRequest, d
                 pass
 
     token = create_access_token(str(user.id))
-    _set_auth_cookie(response, token)
+    _set_auth_cookie(response, token, request)
     return Token(access_token=token, user=UserResponse.model_validate(user))
 
 
@@ -386,16 +420,16 @@ def login(request: Request, response: Response, data: UserLogin, db: Session = D
         )
 
     token = create_access_token(str(user.id))
-    _set_auth_cookie(response, token)
+    _set_auth_cookie(response, token, request)
     return Token(access_token=token, user=UserResponse.model_validate(user))
 
 
 @router.post("/logout")
-def logout(response: Response):
+def logout(request: Request, response: Response):
     """Clear the HttpOnly auth cookie. Frontend should also drop its
     localStorage token. Returns 200 even if no cookie was set (idempotent).
     """
-    _clear_auth_cookie(response)
+    _clear_auth_cookie(response, request)
     return {"status": "ok"}
 
 
@@ -473,16 +507,22 @@ def get_me(request: Request, response: Response, current_user: User = Depends(ge
     # don't have a bonbox_csrf cookie yet. Issue one here so their next POST
     # doesn't 403. Skipped if a token is already present (don't rotate
     # mid-session — would race with concurrent requests).
+    #
+    # Cookie scope follows the request host: served via api.bonbox.dk →
+    # Domain=.bonbox.dk + SameSite=Lax (first-party, JS-readable). Served
+    # via legacy onrender.com → host-scoped cross-site as before.
     if not request.cookies.get(CSRF_COOKIE_NAME):
         is_secure = settings.ENVIRONMENT == "production"
+        cookie_domain, same_site = _cookie_scope(request)
         response.set_cookie(
             key=CSRF_COOKIE_NAME,
             value=secrets.token_urlsafe(32),
             max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
             httponly=False,
             secure=is_secure,
-            samesite="none" if is_secure else "lax",
+            samesite=same_site,
             path="/",
+            domain=cookie_domain,
         )
     return current_user
 
