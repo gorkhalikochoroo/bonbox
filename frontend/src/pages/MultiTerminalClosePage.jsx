@@ -598,10 +598,28 @@ function ReviewView({ aggregated, currency, t, onBack, onSend, sending }) {
 
 function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
   const [shareState, setShareState] = useState({ status: "idle", message: "" });
+  const [recipients, setRecipients] = useState([]);
 
   const aggData = aggregated?.aggregated;
   const businessName = user?.business_name || "";
   const dateLabel = formatDanishDateLabel(new Date());
+
+  // Load configured recipients once when the done view mounts. Wrapped
+  // so a fetch failure doesn't break the share UI — closer can still
+  // tap the generic Send button. Empty result is fine and common
+  // (owner hasn't configured any recipients yet).
+  useEffect(() => {
+    let cancelled = false;
+    api.get("/output-channels")
+      .then((res) => {
+        if (cancelled) return;
+        setRecipients(Array.isArray(res.data) ? res.data : []);
+      })
+      .catch(() => {
+        // silent — recipients are optional
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const shareTitle = useMemo(
     () => buildShareTitle({ businessName, dateLabel }),
@@ -691,6 +709,30 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
             </div>
           )}
 
+          {/* Configured recipients — quick-tap buttons. The native share
+              sheet doesn't let us preselect a contact across all
+              channels, so we use channel-specific deep links where
+              possible (mailto:, sms:, whatsapp://) and fall back to
+              the share sheet otherwise. */}
+          {recipients.length > 0 && (
+            <div className="px-4 pt-3 pb-1">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">
+                {t("yourRecipients") || "Your recipients"}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {recipients.map((r) => (
+                  <RecipientButton
+                    key={r.id}
+                    recipient={r}
+                    title={shareTitle}
+                    text={shareText}
+                    t={t}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex items-center gap-2 flex-wrap">
             <button
               onClick={doShare}
@@ -699,7 +741,7 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
             >
               {shareState.status === "sharing"
                 ? (t("opening") || "Opening…")
-                : `📨 ${t("sendNow") || "Send now"}`}
+                : `📨 ${recipients.length > 0 ? (t("openShareSheet") || "Open share sheet") : (t("sendNow") || "Send now")}`}
             </button>
             <CopyButton text={`${shareTitle}\n\n${shareText}`} t={t} />
           </div>
@@ -721,6 +763,88 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
         </button>
       </div>
     </div>
+  );
+}
+
+
+/**
+ * RecipientButton — channel-specific quick-tap that uses deep links
+ * where available so the closer doesn't have to scroll the native
+ * share sheet to find Lars's WhatsApp.
+ *
+ * Handled directly without the share sheet:
+ *   email             → mailto: with subject + body
+ *   sms               → sms: with body
+ *   whatsapp          → wa.me/<phone>?text=  (opens the right chat)
+ *   csv_to_accountant → mailto: with subject pinned to "Daily close CSV"
+ *
+ * Falls back to navigator.share() (with the recipient label appended
+ * to the title so the closer knows which channel they were aiming for):
+ *   messenger / slack / pdf_only — these don't have reliable deep
+ *   links across iOS/Android, so we open the share sheet.
+ */
+function RecipientButton({ recipient, title, text, t }) {
+  const channelMeta = {
+    email:             { icon: "📧" },
+    whatsapp:          { icon: "📱" },
+    messenger:         { icon: "💬" },
+    sms:               { icon: "💌" },
+    slack:             { icon: "💻" },
+    csv_to_accountant: { icon: "📊" },
+    pdf_only:          { icon: "📄" },
+  };
+  const meta = channelMeta[recipient.channel_type] || { icon: "📨" };
+
+  function handleClick() {
+    const target = (recipient.target || "").trim();
+    const encodedSubject = encodeURIComponent(title);
+    const encodedBody = encodeURIComponent(text);
+
+    switch (recipient.channel_type) {
+      case "email":
+      case "csv_to_accountant": {
+        if (!target) return;
+        const subjectLabel = recipient.channel_type === "csv_to_accountant"
+          ? `Daily close · ${title}`
+          : title;
+        window.location.href = `mailto:${encodeURIComponent(target)}?subject=${encodeURIComponent(subjectLabel)}&body=${encodedBody}`;
+        return;
+      }
+      case "sms": {
+        if (!target) return;
+        // sms: takes phone as path; iOS uses ?body= with body=
+        const phone = target.replace(/[^0-9+]/g, "");
+        window.location.href = `sms:${phone}?body=${encodedBody}`;
+        return;
+      }
+      case "whatsapp": {
+        if (!target) return;
+        const phone = target.replace(/[^0-9]/g, "");
+        // wa.me handles the protocol cleanly across iOS/Android
+        window.open(`https://wa.me/${phone}?text=${encodedBody}`, "_blank");
+        return;
+      }
+      default: {
+        // Open the share sheet, the closer picks the channel manually
+        if (typeof navigator !== "undefined" && navigator.share) {
+          navigator.share({ title: `${title} → ${recipient.label}`, text }).catch(() => {});
+        } else if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(`${title}\n\n${text}`).catch(() => {});
+        }
+        return;
+      }
+    }
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      className="px-3 py-1.5 text-xs font-medium bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-gray-300 dark:hover:border-gray-500 rounded-lg transition flex items-center gap-1.5"
+      title={recipient.target || ""}
+    >
+      <span>{meta.icon}</span>
+      <span>{recipient.label}</span>
+    </button>
   );
 }
 

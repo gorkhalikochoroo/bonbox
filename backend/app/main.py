@@ -38,7 +38,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, ai as ai_router
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, ai as ai_router
 from app.database import engine, Base
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -1019,6 +1019,7 @@ app.include_router(billing.router, prefix="/api/billing", tags=["Billing"])
 app.include_router(ai_router.router, prefix="/api/ai", tags=["AI"])
 app.include_router(kasserapport.router, prefix="/api/kasserapport", tags=["Kasserapport"])
 app.include_router(terminal.router, prefix="/api/terminals", tags=["Terminals"])
+app.include_router(output_channel.router, prefix="/api/output-channels", tags=["OutputChannels"])
 # Property Financial Report — Danish-restaurant daily close in the format
 # Aloha / Restwave / Pos+ users already recognize. Sales conversation hook.
 app.include_router(property_report.router, prefix="/api/property-report", tags=["PropertyReport"])
