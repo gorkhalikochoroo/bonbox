@@ -36,75 +36,88 @@ const FOUNDING_USED = 38;          // bumped manually as customers lock in;
                                    // negative space ("62 pladser tilbage")
                                    // is what prospects actually want to see
 
-const TIERS = [
+/**
+ * Build the pricing tiers from the i18n dictionary so every visible string
+ * routes through `t()` and renders in the user's selected language. Pricing
+ * SKU + numeric values stay constant across languages — only the label
+ * text translates. This eliminates the mixed Danish-in-English bug where
+ * hardcoded "Lukning på 90 sekunder" / "kasserapport" / "revisor" leaked
+ * into English / Vietnamese / Thai / etc. UIs.
+ *
+ * Some terms intentionally stay Danish even in English UI per the
+ * jurisdiction-language rule (kasserapport, revisor, Moms, lønseddel,
+ * Dinero, Billy, e-conomic, Dankort, MobilePay) — these are bookkeeping
+ * + tax terms that lose meaning when translated.
+ */
+const buildTiers = (t) => [
   {
     id: "free",
-    name: "Free",
-    tagline: "Lukning på 90 sekunder. Hver dag, gratis.",
+    name: t("pricingTierFree") || "Free",
+    tagline: t("pricingTaglineFree") || "Daily close in 90 seconds. Every day, free.",
     price_monthly: 0,
     price_annual: 0,
-    cta: "Start free",
-    cta_unauth: "Sign up free",
+    cta: t("pricingStartFree") || "Start free",
+    cta_unauth: t("pricingSignUpFree") || "Sign up free",
     highlight: false,
     features: [
-      { text: "Daily close in 90 seconds", included: true, header: true },
-      { text: "Snap kasserapport — AI reads it in 6 seconds", included: true },
-      { text: "Send til ejer / revisor (PDF + Danish SMS)", included: true },
-      { text: "30 AI Copilot questions / day + voice input", included: true },
+      { text: t("featFreeHeader") || "Daily close in 90 seconds", included: true, header: true },
+      { text: t("featFreeKasse") || "Snap kasserapport — AI reads it in 6 seconds", included: true },
+      { text: t("featFreeSend") || "Send to owner / accountant (PDF + Danish SMS)", included: true },
+      { text: t("featFreeCopilot") || "30 AI Copilot questions / day + voice input", included: true },
       { divider: true },
-      { text: "200 sales logged / month", included: true },
-      { text: "100 expenses logged / month", included: true },
-      { text: "30 receipt OCR scans / month", included: true },
-      { text: "90 days of full history (older stays read-only)", included: true },
-      { text: "1 business, 1 user", included: true },
+      { text: t("featFree200Sales") || "200 sales logged / month", included: true },
+      { text: t("featFree100Expenses") || "100 expenses logged / month", included: true },
+      { text: t("featFree30OCR") || "30 receipt OCR scans / month", included: true },
+      { text: t("featFree90Days") || "90 days of full history (older stays read-only)", included: true },
+      { text: t("featFree1Biz") || "1 business, 1 user", included: true },
     ],
   },
   {
     id: "starter",
-    name: "Starter",
-    tagline: "For den café eller butik der lukker hver aften.",
+    name: t("pricingTierStarter") || "Starter",
+    tagline: t("pricingTaglineStarter") || "For the café or shop that closes every night.",
     price_monthly: 199,
     price_annual: 159,
     founding_price: 129,
     founding_limit: FOUNDING_LIMIT,
-    cta: "Upgrade to Starter",
-    cta_unauth: "Start 14-day free trial",
+    cta: t("pricingUpgradeStarter") || "Upgrade to Starter",
+    cta_unauth: t("pricingStartTrial") || "Start 14-day free trial",
     highlight: false,
-    badge: "🎁 14 days free · No card required",
+    badge: t("pricingBadgeFreeTrial") || "🎁 14 days free · No card required",
     features: [
-      { text: "Everything in Free — without the caps:", included: true, header: true },
-      { text: "Unlimited daily closes + receipt OCR", included: true },
-      { text: "Unlimited sales + expenses + AI Copilot", included: true },
-      { text: "Direct Dinero / Billy / e-conomic CSV export", included: true },
+      { text: t("featStarterHeader") || "Everything in Free — without the caps:", included: true, header: true },
+      { text: t("featStarterUnlimitedClose") || "Unlimited daily closes + receipt OCR", included: true },
+      { text: t("featStarterUnlimitedSales") || "Unlimited sales + expenses + AI Copilot", included: true },
+      { text: t("featStarterCsvExport") || "Direct Dinero / Billy / e-conomic CSV export", included: true },
       { divider: true },
-      { text: "Up to 1 business, 3 users with role permissions", included: true },
-      { text: "Send-til-revisor automation (monthly digest)", included: true },
-      { text: "AI anomaly detection on sales & wages", included: true },
-      { text: "Email support", included: true },
+      { text: t("featStarter1Biz3Users") || "Up to 1 business, 3 users with role permissions", included: true },
+      { text: t("featStarterSendRevisor") || "Send-to-accountant automation (monthly digest)", included: true },
+      { text: t("featStarterAnomaly") || "AI anomaly detection on sales & wages", included: true },
+      { text: t("featStarterEmailSupport") || "Email support", included: true },
     ],
   },
   {
     id: "pro",
-    name: "Pro",
-    tagline: "For 2-3 lokationer. AI der tænker på tværs.",
+    name: t("pricingTierPro") || "Pro",
+    tagline: t("pricingTaglinePro") || "For 2-3 locations. AI that thinks across them.",
     price_monthly: 349,
     price_annual: 279,
     founding_price: 249,
     founding_limit: FOUNDING_LIMIT,
-    cta: "Upgrade to Pro",
-    cta_unauth: "Start 14-day free trial",
+    cta: t("pricingUpgradePro") || "Upgrade to Pro",
+    cta_unauth: t("pricingStartTrial") || "Start 14-day free trial",
     highlight: true,
-    badge: "🎁 14 days free · No card required · Most popular",
+    badge: t("pricingBadgeFreeTrialPopular") || "🎁 14 days free · No card required · Most popular",
     features: [
-      { text: "Everything in Starter, plus:", included: true, header: true },
-      { text: "Up to 3 businesses, 5 users", included: true },
-      { text: "Cross-outlet daily close consolidation", included: true },
-      { text: "Predictive AI: revenue forecast, churn risk, stockout alerts", included: true },
-      { text: "Custom AI playbooks tuned to YOUR business pattern", included: true },
+      { text: t("featProHeader") || "Everything in Starter, plus:", included: true, header: true },
+      { text: t("featPro3Biz5Users") || "Up to 3 businesses, 5 users", included: true },
+      { text: t("featProCrossOutlet") || "Cross-outlet daily close consolidation", included: true },
+      { text: t("featProPredictive") || "Predictive AI: revenue forecast, churn risk, stockout alerts", included: true },
+      { text: t("featProPlaybooks") || "Custom AI playbooks tuned to YOUR business pattern", included: true },
       { divider: true },
-      { text: "ALL vertical modules at once (Bar Pour + Workshop + etc.)", included: true },
-      { text: "Bank import (multi-bank, multi-currency)", included: true },
-      { text: "Priority email support", included: true },
+      { text: t("featProAllVerticals") || "ALL vertical modules at once (Bar Pour + Workshop + etc.)", included: true },
+      { text: t("featProBankImport") || "Bank import (multi-bank, multi-currency)", included: true },
+      { text: t("featProPrioritySupport") || "Priority email support", included: true },
     ],
   },
 ];
@@ -124,6 +137,10 @@ export default function SubscriptionPage() {
   const [joined, setJoined] = useState(new Set());
   const [pending, setPending] = useState(null);
   const [msg, setMsg] = useState("");
+
+  // Tiers re-build on every render so language changes pick up immediately.
+  // Cheap — three plain objects, no DB / network involved.
+  const TIERS = buildTiers(t);
 
   // Load current plan + waitlist status in parallel
   useEffect(() => {
@@ -289,15 +306,22 @@ export default function SubscriptionPage() {
           <div className="flex-1">
             <div className="text-sm font-semibold text-green-800 dark:text-green-300">
               {billing?.subscription_status === "trialing"
-                ? `Locked in at founding rate — first charge ${trialDaysLeft != null && trialDaysLeft > 0 ? `in ${trialDaysLeft} day${trialDaysLeft === 1 ? "" : "s"}` : "soon"}`
+                ? (t("pricingLockedTrialing") || "Locked in at founding rate — first charge {when}").replace(
+                    "{when}",
+                    trialDaysLeft != null && trialDaysLeft > 0
+                      ? trialDaysLeft === 1
+                        ? (t("pricingLockedTrialingInOne") || "in 1 day")
+                        : (t("pricingLockedTrialingIn") || "in {n} days").replace("{n}", trialDaysLeft)
+                      : (t("pricingLockedTrialingSoon") || "soon")
+                  )
                 : billing?.subscription_status === "active"
-                  ? "Subscription active — billed monthly at your founding rate"
+                  ? (t("pricingLockedActive") || "Subscription active — billed monthly at your founding rate")
                   : billing?.subscription_status === "past_due"
-                    ? "Payment failed — please update your card to keep your plan"
-                    : "Subscription active"}
+                    ? (t("pricingLockedPastDue") || "Payment failed — please update your card to keep your plan")
+                    : (t("pricingLockedGeneric") || "Subscription active")}
             </div>
             <div className="text-xs text-green-700 dark:text-green-400 mt-0.5">
-              All Pro features unlocked. Founding-member rate is locked for life as long as you stay subscribed.
+              {t("pricingLockedSubtitle") || "All Pro features unlocked. Founding-member rate is locked for life as long as you stay subscribed."}
             </div>
           </div>
           <button
@@ -305,7 +329,7 @@ export default function SubscriptionPage() {
             disabled={pending === "manage"}
             className="px-4 py-2 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-900 dark:text-white text-sm font-semibold rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 whitespace-nowrap disabled:opacity-60"
           >
-            {pending === "manage" ? "Opening…" : "Manage subscription"}
+            {pending === "manage" ? (t("pricingOpening") || "Opening…") : (t("pricingManageSubscription") || "Manage subscription")}
           </button>
         </div>
       ) : trialDaysLeft != null && trialDaysLeft > 0 ? (
@@ -313,18 +337,19 @@ export default function SubscriptionPage() {
           <div className="text-3xl">⏳</div>
           <div className="flex-1">
             <div className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-              Your free Pro trial ends in {trialDaysLeft} day{trialDaysLeft === 1 ? "" : "s"}.
+              {(t("pricingTrialEndsIn") || "Your free Pro trial ends in {n} day{s}.")
+                .replace("{n}", trialDaysLeft)
+                .replace("{s}", trialDaysLeft === 1 ? "" : "s")}
             </div>
             <div className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
-              You're using all Pro features right now — AI insights, unlimited Copilot, full history,
-              vertical modules. After the trial you can stay on Free (limited) or upgrade.
+              {t("pricingTrialUsing") || "You're using all Pro features right now — AI insights, unlimited Copilot, full history, vertical modules. After the trial you can stay on Free (limited) or upgrade."}
             </div>
           </div>
           <button
             onClick={() => handleCta("pro")}
             className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded-lg shadow-sm whitespace-nowrap"
           >
-            Lock in founding rate
+            {t("pricingLockInRate") || "Lock in founding rate"}
           </button>
         </div>
       ) : null}
@@ -333,30 +358,34 @@ export default function SubscriptionPage() {
       {trialDaysLeft != null && trialDaysLeft > 0 && (
         <div className="mb-10 max-w-4xl mx-auto bg-white dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-2xl p-5 sm:p-6">
           <h3 className="text-[15px] font-semibold text-gray-900 dark:text-white mb-4">
-            How your trial works
+            {t("pricingHowTrialWorks") || "How your trial works"}
           </h3>
           <div className="grid sm:grid-cols-3 gap-4 sm:gap-5">
             <div className="relative">
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">Today</div>
-              <div className="text-sm font-semibold text-gray-900 dark:text-white mt-1">Trial started at sign-in</div>
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">{t("pricingTrialStep1Tag") || "Today"}</div>
+              <div className="text-sm font-semibold text-gray-900 dark:text-white mt-1">{t("pricingTrialStep1Title") || "Trial started at sign-in"}</div>
               <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
-                14 days of full Pro — every feature, no caps. No card, no charge.
+                {t("pricingTrialStep1Body") || "14 days of full Pro — every feature, no caps. No card, no charge."}
               </div>
             </div>
             <div className="relative sm:border-l sm:border-gray-200 sm:dark:border-gray-700 sm:pl-5">
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">Anytime in the next {trialDaysLeft} day{trialDaysLeft === 1 ? "" : "s"}</div>
-              <div className="text-sm font-semibold text-gray-900 dark:text-white mt-1">Pick your path</div>
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                {(t("pricingTrialStep2Tag") || "Anytime in the next {n} day{s}")
+                  .replace("{n}", trialDaysLeft)
+                  .replace("{s}", trialDaysLeft === 1 ? "" : "s")}
+              </div>
+              <div className="text-sm font-semibold text-gray-900 dark:text-white mt-1">{t("pricingTrialStep2Title") || "Pick your path"}</div>
               <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
-                <span className="block">→ <span className="font-semibold">Lock in founding rate</span>: add card now, your founding price (Starter 129 / Pro 249) is locked for life</span>
-                <span className="block mt-1">→ <span className="font-semibold">Do nothing</span>: trial runs out, you drop to Free</span>
+                <span className="block">→ {t("pricingTrialStep2BodyLock") || "Lock in founding rate: add card now, your founding price (Starter 129 / Pro 249) is locked for life"}</span>
+                <span className="block mt-1">→ {t("pricingTrialStep2BodyDoNothing") || "Do nothing: trial runs out, you drop to Free"}</span>
               </div>
             </div>
             <div className="relative sm:border-l sm:border-gray-200 sm:dark:border-gray-700 sm:pl-5">
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-green-600 dark:text-green-400">Day 14</div>
-              <div className="text-sm font-semibold text-gray-900 dark:text-white mt-1">What actually happens</div>
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-green-600 dark:text-green-400">{t("pricingTrialStep3Tag") || "Day 14"}</div>
+              <div className="text-sm font-semibold text-gray-900 dark:text-white mt-1">{t("pricingTrialStep3Title") || "What actually happens"}</div>
               <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
-                <span className="block">If locked in: founding rate charged to your card</span>
-                <span className="block mt-1">If not: dropped to Free (caps return, data stays, no charge ever)</span>
+                <span className="block">{t("pricingTrialStep3BodyLocked") || "If locked in: founding rate charged to your card"}</span>
+                <span className="block mt-1">{t("pricingTrialStep3BodyDropped") || "If not: dropped to Free (caps return, data stays, no charge ever)"}</span>
               </div>
             </div>
           </div>
@@ -366,17 +395,17 @@ export default function SubscriptionPage() {
       {/* Hero */}
       <div className="text-center mb-10">
         <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-white">
-          Lukning på 90 sekunder.
+          {t("pricingHeroTitle1") || "Daily close in 90 seconds."}
           <br className="sm:hidden" />
-          <span className="text-green-600 dark:text-green-400"> Tjener går hjem til tiden.</span>
+          <span className="text-green-600 dark:text-green-400"> {t("pricingHeroTitle2") || "Staff go home on time."}</span>
         </h1>
         <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-3 max-w-2xl mx-auto">
-          Snap en kasserapport. AI læser den på 6 sekunder. Send ren PDF til ejer eller revisor
-          med ét klik. 14 dage gratis Pro. Intet kort. Ingen overraskelser.
+          {t("pricingHeroSubtitle") || "Snap a kasserapport. AI reads it in 6 seconds. Send a clean PDF to the owner or accountant in one tap. 14 days of Pro free. No card. No surprises."}
         </p>
         <div className="mt-4 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
-          🔥 {Math.max(FOUNDING_LIMIT - FOUNDING_USED, 0)}/{FOUNDING_LIMIT} pladser tilbage —
-          <span className="ml-1">lås founding-pris (Starter 129 kr / Pro 249 kr) for livstid</span>
+          🔥 {(t("pricingFoundingBanner") || "{remaining}/{limit} spots left — lock founding price (Starter 129 kr / Pro 249 kr) for life")
+            .replace("{remaining}", Math.max(FOUNDING_LIMIT - FOUNDING_USED, 0))
+            .replace("{limit}", FOUNDING_LIMIT)}
         </div>
 
         {/* Annual / monthly toggle */}
@@ -385,13 +414,13 @@ export default function SubscriptionPage() {
             onClick={() => setAnnual(false)}
             className={`px-4 py-1.5 rounded-full text-sm font-medium transition ${!annual ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm" : "text-gray-500 dark:text-gray-400"}`}
           >
-            Monthly
+            {t("pricingMonthly") || "Monthly"}
           </button>
           <button
             onClick={() => setAnnual(true)}
             className={`px-4 py-1.5 rounded-full text-sm font-medium transition relative ${annual ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm" : "text-gray-500 dark:text-gray-400"}`}
           >
-            Annual
+            {t("pricingAnnual") || "Annual"}
             <span className="ml-2 inline-block bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 text-[10px] px-1.5 py-0.5 rounded font-semibold">
               -20%
             </span>
@@ -426,7 +455,7 @@ export default function SubscriptionPage() {
             >
               {tier.highlight && (
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gradient-to-r from-green-500 to-emerald-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-md whitespace-nowrap">
-                  Most popular
+                  {t("mostPopular") || "Most popular"}
                 </div>
               )}
               {isCurrent && (
@@ -442,23 +471,23 @@ export default function SubscriptionPage() {
 
               <div className="mt-4 mb-1">
                 {tier.custom ? (
-                  <div className="text-2xl font-bold text-gray-900 dark:text-white">Custom</div>
+                  <div className="text-2xl font-bold text-gray-900 dark:text-white">{t("pricingCustom") || "Custom"}</div>
                 ) : isFoundingPro ? (
                   <>
                     <div className="text-3xl font-bold text-gray-900 dark:text-white">
                       {tier.founding_price}
-                      <span className="text-sm font-normal text-gray-500 dark:text-gray-400 ml-1">kr/mo</span>
+                      <span className="text-sm font-normal text-gray-500 dark:text-gray-400 ml-1">{t("pricingKrPerMonth") || "kr/mo"}</span>
                     </div>
-                    <div className="text-xs text-gray-400 line-through">{price} kr/mo regular</div>
+                    <div className="text-xs text-gray-400 line-through">{price} {t("pricingKrPerMonth") || "kr/mo"} {t("pricingRegular") || "regular"}</div>
                   </>
                 ) : (
                   <div className="text-3xl font-bold text-gray-900 dark:text-white">
-                    {price === 0 ? "Free" : `${price}`}
-                    {price > 0 && <span className="text-sm font-normal text-gray-500 dark:text-gray-400 ml-1">kr/mo</span>}
+                    {price === 0 ? (t("pricingFree") || "Free") : `${price}`}
+                    {price > 0 && <span className="text-sm font-normal text-gray-500 dark:text-gray-400 ml-1">{t("pricingKrPerMonth") || "kr/mo"}</span>}
                   </div>
                 )}
                 {annual && price > 0 && !isFoundingPro && !tier.custom && (
-                  <div className="text-[11px] text-green-600 dark:text-green-400">billed annually</div>
+                  <div className="text-[11px] text-green-600 dark:text-green-400">{t("pricingBilledAnnually") || "billed annually"}</div>
                 )}
               </div>
 
@@ -485,9 +514,9 @@ export default function SubscriptionPage() {
                     ? (t("onTrialFullPro") || "On trial — full Pro features")
                     : `✓ ${t("currentPlan") || "Current plan"}`
                   : pending === tier.id
-                    ? "Joining…"
+                    ? (t("pricingJoining") || "Joining…")
                     : joined.has(tier.id) && tier.id !== "business"
-                      ? "✓ On the list"
+                      ? (t("pricingOnTheList") || "✓ On the list")
                       : cta}
               </button>
 
@@ -498,7 +527,7 @@ export default function SubscriptionPage() {
                   disabled={pending === "manage"}
                   className="w-full text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline mt-1 mb-3 disabled:opacity-50"
                 >
-                  {pending === "manage" ? "Opening…" : "Manage subscription / cancel"}
+                  {pending === "manage" ? (t("pricingOpening") || "Opening…") : (t("pricingManageOrCancel") || "Manage subscription / cancel")}
                 </button>
               )}
 
@@ -533,21 +562,20 @@ export default function SubscriptionPage() {
         <div className="flex items-start gap-3">
           <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 flex items-center justify-center text-sm shrink-0 mt-0.5">i</div>
           <div className="flex-1">
-            <h3 className="text-[15px] font-semibold text-gray-900 dark:text-white">What changes after the 14-day trial</h3>
+            <h3 className="text-[15px] font-semibold text-gray-900 dark:text-white">{t("pricingAfterTrialTitle") || "What changes after the 14-day trial"}</h3>
             <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
-              Nothing dramatic. You stay signed in, your data is safe, every feature is still there.
-              Free is genuinely usable — these are the only caps that come back when the trial ends:
+              {t("pricingAfterTrialBody") || "Nothing dramatic. You stay signed in, your data is safe, every feature is still there. Free is genuinely usable — these are the only caps that come back when the trial ends:"}
             </p>
             <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 mt-4 text-[13px] text-gray-700 dark:text-gray-300">
               {[
-                "200 sales logged per month",
-                "100 expenses logged per month",
-                "30 receipt OCR scans per month",
-                "30 AI Copilot questions per day",
-                "Top 5 active AI insights at a time",
-                "1 vertical module (pick one)",
-                "90 days of full history (older stays read-only)",
-                "1 business, 1 user",
+                t("pricingAfterTrialCap1") || "200 sales logged per month",
+                t("pricingAfterTrialCap2") || "100 expenses logged per month",
+                t("pricingAfterTrialCap3") || "30 receipt OCR scans per month",
+                t("pricingAfterTrialCap4") || "30 AI Copilot questions per day",
+                t("pricingAfterTrialCap5") || "Top 5 active AI insights at a time",
+                t("pricingAfterTrialCap6") || "1 vertical module (pick one)",
+                t("pricingAfterTrialCap7") || "90 days of full history (older stays read-only)",
+                t("pricingAfterTrialCap8") || "1 business, 1 user",
               ].map((line) => (
                 <div key={line} className="flex items-start gap-2">
                   <span className="mt-[7px] w-1 h-1 rounded-full bg-gray-400 dark:bg-gray-500 shrink-0" />
@@ -556,8 +584,7 @@ export default function SubscriptionPage() {
               ))}
             </div>
             <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-4 leading-relaxed">
-              No card needed to start the trial — it auto-runs when you sign up. You only enter a card if you
-              click "Lock in 99 kr/mo" to keep the founding rate. Otherwise the trial just ends and you drop to Free.
+              {t("pricingAfterTrialClosing") || "No card needed to start the trial — it auto-runs when you sign up. You only enter a card if you click \"Lock in 99 kr/mo\" to keep the founding rate. Otherwise the trial just ends and you drop to Free."}
             </p>
           </div>
         </div>
@@ -565,56 +592,29 @@ export default function SubscriptionPage() {
 
       {/* Reassurance row */}
       <div className="grid sm:grid-cols-4 gap-3 mt-10">
-        <Reassure icon="🆓" title="No card for trial" sub="14 days of Pro, no payment info needed." />
-        <Reassure icon="🇩🇰" title="Built in Denmark" sub="GDPR-first · EU-hosted · DKK + Moms native" />
-        <Reassure icon="🤝" title="Cancel anytime" sub="No contracts. Export your data on the way out." />
-        <Reassure icon="🌏" title="12 languages" sub="Dansk, English, नेपाली, اردو + 8 more" />
+        <Reassure icon="🆓" title={t("pricingReassureNoCard") || "No card for trial"} sub={t("pricingReassureNoCardSub") || "14 days of Pro, no payment info needed."} />
+        <Reassure icon="🇩🇰" title={t("pricingReassureDenmark") || "Built in Denmark"} sub={t("pricingReassureDenmarkSub") || "GDPR-first · EU-hosted · DKK + Moms native"} />
+        <Reassure icon="🤝" title={t("pricingReassureCancel") || "Cancel anytime"} sub={t("pricingReassureCancelSub") || "No contracts. Export your data on the way out."} />
+        <Reassure icon="🌏" title={t("pricingReassureLanguages") || "12 languages"} sub={t("pricingReassureLanguagesSub") || "Dansk, English, नेपाली, اردو + 8 more"} />
       </div>
 
       {/* FAQ */}
       <div className="mt-12 max-w-3xl mx-auto">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">Common questions</h2>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">{t("faqHeading") || "Common questions"}</h2>
         <div className="space-y-4">
-          <FaqItem
-            q="What happens when my 14-day trial ends?"
-            a="It depends on whether you locked in. If you did NOT lock in: you drop to Free automatically. Every feature stays, only the usage caps come back, your data is untouched, and you're never charged. If you DID lock in (clicked 'Lock in 99 kr/mo' and added a card): your card is charged 99 DKK on day 15 and monthly after, locked at the founding rate for life. Either way: no surprises — the trial banner counts the days down, and you choose."
-          />
-          <FaqItem
-            q="Why does Free have every feature, just with caps?"
-            a="Because feature-gating is a tax on small shops. A side-business owner shouldn't be locked out of AI insights just because they only do 50 sales a month — they need the insights MORE than a busy shop does. Caps mean Free users get full value, and only upgrade when they've actually outgrown what Free can support."
-          />
-          <FaqItem
-            q="How does the founding-member price work?"
-            a="The first 1,000 Pro subscribers lock in 99 kr/mo for as long as they stay subscribed — even when our regular Pro price kicks in at 169 kr/mo. Cancel and rejoin? You'd pay regular price. Stay subscribed continuously? You're locked in. That's a 41% discount, locked for life."
-          />
-          <FaqItem
-            q="I run a chain with multiple branches — what fits?"
-            a="The Business plan is built for multi-branch chains: group-level daily close consolidation, per-branch P&L, manager-scoped dashboards (so each location only sees its own numbers), centralised SOPs, and a custom integration path for your existing POS, payroll, and supplier systems. Pricing is custom because chain setups vary enormously — a 3-branch café group has very different needs than a 25-location restaurant chain. Click 'Talk to sales' on the Business card and we'll quote you within 1 business day."
-          />
-          <FaqItem
-            q="Do I have to switch from Dinero / Billy / e-conomic?"
-            a="No. BonBox sits ALONGSIDE your bookkeeping platform — keep using whichever one your accountant prefers. We even export clean CSVs to all three. We focus on the operational + AI layer that bookkeeping platforms don't build."
-          />
-          <FaqItem
-            q="What about VAT (Moms)?"
-            a="All prices shown are excl. moms. Danish businesses are invoiced with 25% Moms automatically. EU businesses with valid VAT numbers are reverse-charged."
-          />
-          <FaqItem
-            q="Can I cancel anytime?"
-            a="Yes. No contracts, no notice period. You'll keep access until the end of the current billing period and can export all your data at any time."
-          />
-          <FaqItem
-            q="Is my data safe?"
-            a="EU-hosted, encrypted at rest and in transit, GDPR-compliant, never sold, never shared with marketers, never used to train AI models. Full export and delete tools are built in."
-          />
+          <FaqItem q={t("faqQ1") || "What happens when my 14-day trial ends?"} a={t("faqA1") || ""} />
+          <FaqItem q={t("faqQ2") || "Why does Free have every feature, just with caps?"} a={t("faqA2") || ""} />
+          <FaqItem q={t("faqQ3") || "How does the founding-member price work?"} a={t("faqA3") || ""} />
+          <FaqItem q={t("faqQ4") || "I run a chain with multiple branches — what fits?"} a={t("faqA4") || ""} />
+          <FaqItem q={t("faqQ5") || "Do I have to switch from Dinero / Billy / e-conomic?"} a={t("faqA5") || ""} />
+          <FaqItem q={t("faqQ6") || "What about VAT (Moms)?"} a={t("faqA6") || ""} />
+          <FaqItem q={t("faqQ7") || "Can I cancel anytime?"} a={t("faqA7") || ""} />
+          <FaqItem q={t("faqQ8") || "Is my data safe?"} a={t("faqA8") || ""} />
         </div>
 
         {/* Trademark notice */}
         <p className="mt-10 text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed text-center">
-          Dinero, Billy, e-conomic, MobilePay and Dankort are trademarks of their
-          respective owners. BonBox is not affiliated with or endorsed by any of
-          these companies. References are made for interoperability and
-          comparative purposes under nominative fair use.
+          {t("pricingTrademarkNotice") || "Dinero, Billy, e-conomic, MobilePay and Dankort are trademarks of their respective owners. BonBox is not affiliated with or endorsed by any of these companies. References are made for interoperability and comparative purposes under nominative fair use."}
         </p>
       </div>
     </div>
