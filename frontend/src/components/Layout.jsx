@@ -79,6 +79,7 @@ const navGroups = [
       { to: "/daily-report", icon: "🌙", labelKey: "dailyReport" },
       { to: "/reports", icon: "📋", labelKey: "reports" },
       { to: "/daily-close", icon: "🧾", labelKey: "dailyClose" },
+      { to: "/daily-close/multi", icon: "🌙", labelKey: "multiClose" },
       { to: "/tax", icon: "💰", labelKey: "taxAutopilot" },
       { to: "/bookkeeping-export", icon: "📤", labelKey: "sendToAccountant" },
     ],

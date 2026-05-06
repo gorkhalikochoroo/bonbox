@@ -158,6 +158,7 @@ const OutletPage = lazyRetry(() => import("./pages/OutletPage"));
 const CompetitorPage = lazyRetry(() => import("./pages/CompetitorPage"));
 const BranchPage = lazyRetry(() => import("./pages/BranchPage"));
 const TerminalsPage = lazyRetry(() => import("./pages/TerminalsPage"));
+const MultiTerminalClosePage = lazyRetry(() => import("./pages/MultiTerminalClosePage"));
 const DailyClosePage = lazyRetry(() => import("./pages/DailyClosePage"));
 const WorkshopPage = lazyRetry(() => import("./pages/WorkshopPage"));
 const WineListPage = lazyRetry(() => import("./pages/WineListPage"));
@@ -265,6 +266,7 @@ function AppRoutes() {
           <Route path="/competitors" element={<CompetitorPage />} />
           <Route path="/branches" element={<BranchPage />} />
           <Route path="/terminals" element={<TerminalsPage />} />
+          <Route path="/daily-close/multi" element={<MultiTerminalClosePage />} />
           <Route path="/daily-close" element={<DailyClosePage />} />
           <Route path="/workshop" element={<WorkshopPage />} />
           <Route path="/wine-list" element={<WineListPage />} />

@@ -330,3 +330,144 @@ def commit_corrections(
         "committed_at": row.committed_at.isoformat() if row.committed_at else None,
         "promoted_to_example_id": promoted_id,
     }
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Multi-terminal aggregation — the Mirabelle-format consolidated close
+# ────────────────────────────────────────────────────────────────────────
+
+@router.post("/aggregate")
+def aggregate(
+    body: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Consolidate multiple per-terminal kasserapport extractions into
+    one daily close payload.
+
+    Body shape:
+      {
+        "extraction_ids": ["uuid1", "uuid2", ...],
+        "manual": {
+          "cash_closing": 18799,
+          "mobilepay_total": 0,
+          "gift_cards_total": 0,
+          "sales_pos": 100292.54,
+          "closed_by": "Caro",
+          "money_to_bank": 0,
+          "paid_out": 0,
+          "paid_in": 0,
+          "cash_opening": 0
+        },
+        "threshold": 100  // optional, default 100 kr
+      }
+
+    Returns the AggregatedClose payload + the Excel-mirror rows so the
+    UI can render the Mirabelle-format review screen directly without
+    further computation.
+
+    Defense:
+      • Each extraction_id verified to belong to this user (no cross-
+        tenant leak via forged IDs)
+      • Aggregator is pure-Python; no LLM cost
+    """
+    from app.services.kasserapport_aggregator import (
+        DEFAULT_CASH_DIFF_THRESHOLD,
+        aggregate_terminals,
+        to_excel_rows,
+    )
+    from app.models.terminal import Terminal
+
+    extraction_ids = body.get("extraction_ids") or []
+    if not isinstance(extraction_ids, list):
+        raise HTTPException(status_code=400, detail="extraction_ids must be a list")
+
+    manual = body.get("manual") or {}
+    threshold = body.get("threshold")
+    try:
+        threshold_f = float(threshold) if threshold is not None else DEFAULT_CASH_DIFF_THRESHOLD
+    except (TypeError, ValueError):
+        threshold_f = DEFAULT_CASH_DIFF_THRESHOLD
+
+    # Fetch every requested extraction with strict tenant scoping.
+    rows = (
+        db.query(KasserapportExtraction)
+        .filter(
+            KasserapportExtraction.id.in_(extraction_ids),
+            KasserapportExtraction.user_id == user.id,
+        )
+        .all()
+    )
+    found_ids = {str(r.id) for r in rows}
+    missing = [eid for eid in extraction_ids if str(eid) not in found_ids]
+    if missing:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Extractions not found or not yours: {missing}",
+        )
+
+    # Build the per-terminal extraction dicts the aggregator expects
+    extractions = []
+    terminal_ids = []
+    for r in rows:
+        data = dict(r.extracted_json or {})
+        data["terminal_id"] = str(r.terminal_id) if r.terminal_id else None
+        data["extraction_confidence"] = (
+            float(r.extraction_confidence) if r.extraction_confidence is not None else None
+        )
+        data["_extraction_id"] = str(r.id)
+        extractions.append(data)
+        if r.terminal_id:
+            terminal_ids.append(r.terminal_id)
+
+    # Pull terminal names for human-readable rows
+    terminals_meta = []
+    if terminal_ids:
+        terms = (
+            db.query(Terminal)
+            .filter(Terminal.id.in_(terminal_ids), Terminal.user_id == user.id)
+            .all()
+        )
+        terminals_meta = [{"id": str(t.id), "name": t.name} for t in terms]
+
+    close = aggregate_terminals(
+        extractions,
+        terminals_meta=terminals_meta,
+        manual=manual,
+        threshold=threshold_f,
+    )
+
+    return {
+        "aggregated": {
+            "cash_closing": close.cash_closing,
+            "money_to_bank": close.money_to_bank,
+            "paid_out": close.paid_out,
+            "paid_in": close.paid_in,
+            "cash_opening": close.cash_opening,
+            "cash_total": close.cash_total,
+            "gift_cards_total": close.gift_cards_total,
+            "mobilepay_total": close.mobilepay_total,
+            "cards_total": close.cards_total,
+            "payments_total": close.payments_total,
+            "sales_pos": close.sales_pos,
+            "cash_difference": close.cash_difference,
+            "cash_diff_flagged": close.cash_diff_flagged,
+            "flagged_reason": close.flagged_reason,
+            "closed_by": close.closed_by,
+            "terminals": [
+                {
+                    "terminal_id": t.terminal_id,
+                    "terminal_name": t.terminal_name,
+                    "dankort": t.dankort,
+                    "teller": t.teller,
+                    "amex": t.amex,
+                    "total": t.total,
+                    "extraction_id": t.extraction_id,
+                    "extraction_confidence": t.extraction_confidence,
+                }
+                for t in close.terminals
+            ],
+        },
+        "excel_rows": to_excel_rows(close),
+        "threshold_used": threshold_f,
+    }
