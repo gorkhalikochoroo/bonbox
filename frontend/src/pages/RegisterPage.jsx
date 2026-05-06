@@ -151,17 +151,16 @@ export default function RegisterPage() {
         <div className="hidden lg:flex lg:w-1/2 items-center justify-center p-16 border-r border-gray-200/60 dark:border-gray-800">
           <div className="max-w-sm" style={{ animation: "fadeIn 0.8s ease-out" }}>
             <h2 className="text-[34px] font-semibold tracking-tight leading-[1.1] text-gray-900 dark:text-white">
-              Start your 14-day free trial.
+              {t("startFreeTrial")}
             </h2>
             <p className="text-[15px] text-gray-600 dark:text-gray-400 mt-4 leading-relaxed">
-              No card required. Full Pro access for 14 days — AI Copilot, predictive insights,
-              receipt OCR. After the trial you stay on Free; every feature still works, just with caps.
+              {t("trialDescription")}
             </p>
             <ul className="mt-8 space-y-3 text-[14px] text-gray-700 dark:text-gray-300">
               {[
-                "Built in Copenhagen · GDPR · EU-hosted",
-                "Cancel anytime · Export your data",
-                "Founding price 99 kr/mo locked in for first 1,000",
+                t("trialBenefit1"),
+                t("trialBenefit2"),
+                t("trialBenefit3"),
               ].map((item) => (
                 <li key={item} className="flex items-start gap-2.5">
                   <span className="mt-[7px] w-1 h-1 rounded-full bg-gray-400 dark:bg-gray-500 shrink-0" />
@@ -189,7 +188,7 @@ export default function RegisterPage() {
                 <span className="text-xl font-bold text-gray-800 dark:text-white">BonBox</span>
               </div>
               <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t("createYourAccount")}</h1>
-              <p className="text-gray-500 dark:text-gray-400 mt-1.5">Set up in 30 seconds. Start tracking today.</p>
+              <p className="text-gray-500 dark:text-gray-400 mt-1.5">{t("registerSubheading")}</p>
             </div>
 
             {alreadyExists && (
@@ -238,7 +237,7 @@ export default function RegisterPage() {
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
                   </span>
                   <input type="text" name="business_name" value={form.business_name} onChange={handleChange}
-                    placeholder="My Awesome Shop" className={inputCls} required />
+                    placeholder={t("businessNamePlaceholder")} className={inputCls} required />
                 </div>
               </div>
               {/* Hide business type/currency on native iOS (Apple 3.1.1 compliance) */}
@@ -339,9 +338,9 @@ export default function RegisterPage() {
                       setError("");
                       googleLogin(res.credential)
                         .then(() => navigate("/dashboard"))
-                        .catch((err) => setError(err.response?.data?.detail || "Google sign-up failed"));
+                        .catch((err) => setError(err.response?.data?.detail || t("googleSignupFailed")));
                     }}
-                    onError={() => setError("Google sign-up failed")}
+                    onError={() => setError(t("googleSignupFailed"))}
                     shape="rectangular"
                     size="large"
                     width={String(googleWidth)}

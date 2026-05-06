@@ -65,7 +65,7 @@ function HeroIllustration() {
 
 export default function LoginPage() {
   const { login, googleLogin, needsEmailVerification } = useAuth();
-  const { lang, setLang, LANGUAGES } = useLanguage();
+  const { lang, setLang, LANGUAGES, t } = useLanguage();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -167,10 +167,10 @@ export default function LoginPage() {
         <main className="flex-1 flex items-center justify-center px-6 py-12 sm:py-20">
           <div className="w-full max-w-[400px]" style={{ animation: "slideUp 0.4s ease-out" }}>
             <h1 className="text-[28px] sm:text-[32px] font-semibold tracking-tight leading-[1.15] text-gray-900">
-              Welcome back
+              {t("welcomeBack")}
             </h1>
             <p className="text-[15px] text-gray-500 mt-2 leading-relaxed">
-              Sign in to continue with BonBox.
+              {t("signInDescription")}
             </p>
 
             {error && (
@@ -187,14 +187,14 @@ export default function LoginPage() {
             <form onSubmit={handleSubmit} className="mt-7 space-y-4">
               <div>
                 <label htmlFor="email" className="block text-[13px] font-medium text-gray-700 mb-1.5">
-                  Email
+                  {t("emailLabel")}
                 </label>
                 <input
                   id="email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@company.com"
+                  placeholder={t("emailPlaceholder")}
                   autoComplete="email"
                   className="w-full px-3.5 py-2.5 bg-white border border-gray-300
                     rounded-lg text-[15px] text-gray-900 placeholder:text-gray-400
@@ -206,11 +206,11 @@ export default function LoginPage() {
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label htmlFor="password" className="block text-[13px] font-medium text-gray-700">
-                    Password
+                    {t("passwordLabel")}
                   </label>
                   <Link to="/forgot-password"
                         className="text-[13px] text-gray-600 hover:text-gray-900 underline-offset-2 hover:underline">
-                    Forgot?
+                    {t("forgotShort")}
                   </Link>
                 </div>
                 <div className="relative">
@@ -229,7 +229,7 @@ export default function LoginPage() {
                   <button
                     type="button"
                     onClick={() => setShowPass(!showPass)}
-                    aria-label={showPass ? "Hide password" : "Show password"}
+                    aria-label={showPass ? t("hidePassword") : t("showPassword")}
                     className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-gray-700"
                   >
                     {showPass ? (
@@ -255,9 +255,9 @@ export default function LoginPage() {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
                     </svg>
-                    Signing in…
+                    {t("signingIn")}
                   </>
-                ) : "Sign in"}
+                ) : t("signIn")}
               </button>
             </form>
 
@@ -265,7 +265,7 @@ export default function LoginPage() {
               <>
                 <div className="flex items-center gap-3 my-5">
                   <div className="flex-1 h-px bg-gray-200"/>
-                  <span className="text-[11px] uppercase tracking-wider text-gray-400">or</span>
+                  <span className="text-[11px] uppercase tracking-wider text-gray-400">{t("or")}</span>
                   <div className="flex-1 h-px bg-gray-200"/>
                 </div>
                 <div ref={googleWrap} className="flex justify-center [&>div]:w-full overflow-hidden">
@@ -280,9 +280,9 @@ export default function LoginPage() {
                             navigate("/dashboard");
                           }
                         })
-                        .catch((err) => setError(err.response?.data?.detail || "Google sign-in failed"));
+                        .catch((err) => setError(err.response?.data?.detail || t("googleSigninFailed")));
                     }}
-                    onError={() => setError("Google sign-in failed")}
+                    onError={() => setError(t("googleSigninFailed"))}
                     shape="rectangular"
                     size="large"
                     width={String(googleWidth)}
@@ -294,9 +294,9 @@ export default function LoginPage() {
             )}
 
             <p className="mt-7 text-center text-[13px] text-gray-500">
-              New to BonBox?{" "}
+              {t("newToBonBox")}{" "}
               <Link to="/register" className="text-gray-900 font-medium underline-offset-2 hover:underline">
-                Create an account
+                {t("createAccount")}
               </Link>
             </p>
           </div>
@@ -304,10 +304,10 @@ export default function LoginPage() {
 
         {/* Footer — quietly Danish */}
         <footer className="px-6 sm:px-10 py-5 text-[12px] text-gray-400 flex items-center justify-between border-t border-gray-200/60">
-          <span>Made in Copenhagen · GDPR · EU-hosted</span>
+          <span>{t("madeInCph")}</span>
           <div className="flex items-center gap-4">
-            <Link to="/privacy" className="hover:text-gray-700">Privacy</Link>
-            <Link to="/terms" className="hover:text-gray-700">Terms</Link>
+            <Link to="/privacy" className="hover:text-gray-700">{t("privacyLink")}</Link>
+            <Link to="/terms" className="hover:text-gray-700">{t("termsLink")}</Link>
           </div>
         </footer>
       </div>
