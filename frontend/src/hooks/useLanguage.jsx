@@ -17,6 +17,11 @@ const LanguageContext = createContext(null);
 const translations = {
   en: {
     dashboard: "Dashboard", sales: "Sales", expenses: "Expenses", inventory: "Inventory",
+    navMoney: "Money", navStock: "Stock", navStaff: "Staff", navReports: "Reports",
+    navIntel: "Intelligence", navWorkshop: "Workshop", navManage: "Manage", navAccount: "Account", navPlatform: "Platform",
+    recommendedHeadcount: "Recommended headcount", staffShort: "Staff", peopleAbbrev: "ppl", precip: "Precip",
+    tapDayForDetails: "Tap any day for details", viewFullForecast: "View full forecast",
+    day_mon_short: "Mon", day_tue_short: "Tue", day_wed_short: "Wed", day_thu_short: "Thu", day_fri_short: "Fri", day_sat_short: "Sat", day_sun_short: "Sun",
     smartStaffing: "Smart Staffing", weatherSmart: "Weather Smart", wasteTracker: "Waste Tracker", weeklyReport: "Weekly Report",
     momsVat: "Tax/VAT", darkMode: "Dark Mode", lightMode: "Light Mode", signOut: "Sign Out", appearance: "Appearance",
     language: "Dansk",
@@ -729,6 +734,11 @@ const translations = {
   },
   da: {
     dashboard: "Oversigt", sales: "Salg", expenses: "Udgifter", inventory: "Lager",
+    navMoney: "Penge", navStock: "Lager", navStaff: "Personale", navReports: "Rapporter",
+    navIntel: "Intelligens", navWorkshop: "Værksted", navManage: "Administrer", navAccount: "Konto", navPlatform: "Platform",
+    recommendedHeadcount: "Anbefalet bemanding", staffShort: "Personale", peopleAbbrev: "pers.", precip: "Nedbør",
+    tapDayForDetails: "Tryk på en dag for detaljer", viewFullForecast: "Se fuld prognose",
+    day_mon_short: "Man", day_tue_short: "Tir", day_wed_short: "Ons", day_thu_short: "Tor", day_fri_short: "Fre", day_sat_short: "Lør", day_sun_short: "Søn",
     smartStaffing: "Vagtplanlægning", weatherSmart: "Vejr Smart", wasteTracker: "Madspild", weeklyReport: "Ugerapport",
     momsVat: "Moms", darkMode: "Mørk tilstand", lightMode: "Lys tilstand", signOut: "Log ud", appearance: "Udseende",
     language: "English",
@@ -1426,6 +1436,11 @@ const translations = {
   },
   np: {
     dashboard: "ड्यासबोर्ड", sales: "बिक्री", expenses: "खर्च", inventory: "स्टक",
+    navMoney: "पैसा", navStock: "स्टक", navStaff: "कर्मचारी", navReports: "रिपोर्टहरू",
+    navIntel: "इन्टेलिजेन्स", navWorkshop: "कार्यशाला", navManage: "व्यवस्थापन", navAccount: "खाता", navPlatform: "प्लेटफर्म",
+    recommendedHeadcount: "सिफारिस गरिएको कर्मचारी", staffShort: "कर्मचारी", peopleAbbrev: "जना", precip: "वर्षा",
+    tapDayForDetails: "विवरणको लागि कुनै दिन ट्याप गर्नुहोस्", viewFullForecast: "पूर्ण पूर्वानुमान हेर्नुहोस्",
+    day_mon_short: "सोम", day_tue_short: "मंगल", day_wed_short: "बुध", day_thu_short: "बिही", day_fri_short: "शुक्र", day_sat_short: "शनि", day_sun_short: "आइत",
     smartStaffing: "स्मार्ट स्टाफिङ", weatherSmart: "मौसम स्मार्ट", wasteTracker: "फोहोर ट्र्याकर", weeklyReport: "हप्ताको रिपोर्ट",
     momsVat: "भ्याट", darkMode: "डार्क मोड", lightMode: "लाइट मोड", signOut: "लग आउट", appearance: "थिम",
     language: "भाषा",

@@ -189,7 +189,17 @@ function RevenueTrendChart({ data, currency, onNavigate }) {
 const WEATHER_ICONS = { clear: "☀️", cloudy: "☁️", rain: "🌧️", drizzle: "🌦️", snow: "❄️", storm: "⛈️", fog: "🌫️" };
 const CONDITION_ICON = (c) => WEATHER_ICONS[c] || "⛅";
 
+// Translate backend-supplied day name (always English) to current locale's 3-char abbrev
+const translateDayShort = (day, t) => {
+  if (!day) return "";
+  const key = day.slice(0, 3).toLowerCase(); // mon/tue/wed/thu/fri/sat/sun
+  const translated = t("day_" + key + "_short");
+  // Fall back to original 3-char slice if no translation key set
+  return translated && translated !== "day_" + key + "_short" ? translated : day.slice(0, 3);
+};
+
 function ForecastWeatherStaffing({ forecast, weather, staffing, currency, onNavigate }) {
+  const { t } = useLanguage();
   const [sel, setSel] = useState(null);
   if (!forecast?.forecast?.length) return null;
 
@@ -212,10 +222,10 @@ function ForecastWeatherStaffing({ forecast, weather, staffing, currency, onNavi
       <div className="p-5 sm:p-6 pb-0">
         <div className="flex items-start justify-between mb-2">
           <div>
-            <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Revenue Forecast</h3>
+            <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("revenueForecastTitle")}</h3>
             <p className="text-xs text-gray-400 mt-0.5">
-              Next 7 days &bull; {forecast.confidence || 95}% confidence
-              &bull; {forecast.trend_direction === "up" ? "📈 Up" : forecast.trend_direction === "down" ? "📉 Down" : "📊 Stable"}
+              {t("nextDays")} &bull; {forecast.confidence || 95}% {t("confidence")}
+              &bull; {forecast.trend_direction === "up" ? `📈 ${t("trendUp")}` : forecast.trend_direction === "down" ? `📉 ${t("trendDown")}` : `📊 ${t("trendStable")}`}
             </p>
           </div>
           <div className="text-right flex-shrink-0">
@@ -246,7 +256,7 @@ function ForecastWeatherStaffing({ forecast, weather, staffing, currency, onNavi
                   }}
                 />
                 <span className={`text-[11px] font-medium ${isActive ? "text-blue-400" : isWeekend ? "text-blue-500 dark:text-blue-400" : "text-gray-500 dark:text-gray-400"}`}>
-                  {(f.day || "").slice(0, 3)}
+                  {translateDayShort(f.day, t)}
                 </span>
               </div>
             );
@@ -277,8 +287,8 @@ function ForecastWeatherStaffing({ forecast, weather, staffing, currency, onNavi
       {staffDays.length > 0 && (
         <div className="px-5 sm:px-6 py-2.5 border-t border-gray-100 dark:border-gray-700/40">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">Smart Staffing</span>
-            <span className="text-[10px] text-gray-400">Recommended headcount</span>
+            <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">{t("smartStaffing")}</span>
+            <span className="text-[10px] text-gray-400">{t("recommendedHeadcount")}</span>
           </div>
           <div className="flex gap-1">
             {staffDays.slice(0, 7).map((s, i) => {
@@ -306,7 +316,7 @@ function ForecastWeatherStaffing({ forecast, weather, staffing, currency, onNavi
         <div className="px-5 sm:px-6 py-3 border-t border-gray-100 dark:border-gray-700/40 bg-gray-50/50 dark:bg-gray-700/10">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-bold text-gray-800 dark:text-white">{selected.day}</span>
+              <span className="text-sm font-bold text-gray-800 dark:text-white">{translateDayShort(selected.day, t)}</span>
               {selWeather && <span className="text-sm">{CONDITION_ICON(selWeather.condition)} {Math.round(selWeather.temp_max || 0)}°</span>}
             </div>
             {selStaff && (
@@ -314,23 +324,23 @@ function ForecastWeatherStaffing({ forecast, weather, staffing, currency, onNavi
                 style={{
                   background: selStaff.business_level === "Busy" ? "rgba(239,68,68,0.1)" : "rgba(59,130,246,0.1)",
                   color: selStaff.business_level === "Busy" ? "#EF4444" : "#3B82F6",
-                }}>{selStaff.business_level || "Normal"}</span>
+                }}>{selStaff.business_level === "Busy" ? t("busy") : selStaff.business_level === "Quiet" || selStaff.business_level === "Slow" ? t("slow") : t("normal")}</span>
             )}
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <p className="text-[10px] text-gray-400">Revenue</p>
+              <p className="text-[10px] text-gray-400">{t("revenue")}</p>
               <p className="text-sm font-bold text-gray-800 dark:text-white">{selected.predicted_revenue.toLocaleString()}</p>
             </div>
             {selStaff && (
               <div>
-                <p className="text-[10px] text-gray-400">Staff</p>
-                <p className="text-sm font-bold text-blue-500">{selStaff.recommended_staff} ppl</p>
+                <p className="text-[10px] text-gray-400">{t("staffShort")}</p>
+                <p className="text-sm font-bold text-blue-500">{selStaff.recommended_staff} {t("peopleAbbrev")}</p>
               </div>
             )}
             {selWeather && (
               <div>
-                <p className="text-[10px] text-gray-400">Precip</p>
+                <p className="text-[10px] text-gray-400">{t("precip")}</p>
                 <p className="text-sm font-bold text-gray-600 dark:text-gray-300">{selWeather.precipitation || 0}mm</p>
               </div>
             )}
@@ -341,7 +351,7 @@ function ForecastWeatherStaffing({ forecast, weather, staffing, currency, onNavi
       {!selected && (
         <div className="px-5 sm:px-6 py-2 border-t border-gray-100 dark:border-gray-700/40">
           <p className="text-center text-[11px] text-gray-400 py-1 border border-dashed border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer" onClick={onNavigate}>
-            Tap any day for details &bull; View full forecast →
+            {t("tapDayForDetails")} &bull; {t("viewFullForecast")} →
           </p>
         </div>
       )}

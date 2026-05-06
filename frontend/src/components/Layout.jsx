@@ -35,7 +35,7 @@ const navGroups = [
   },
   {
     id: "money",
-    label: "Money",
+    labelKey: "navMoney",
     icon: "💳",
     visibleFor: null,
     items: [
@@ -48,7 +48,7 @@ const navGroups = [
   },
   {
     id: "stock",
-    label: "Stock",
+    labelKey: "navStock",
     icon: "📦",
     visibleFor: null,
     items: [
@@ -60,7 +60,7 @@ const navGroups = [
   },
   {
     id: "staff",
-    label: "Staff",
+    labelKey: "navStaff",
     icon: "👥",
     visibleFor: null,
     items: [
@@ -72,7 +72,7 @@ const navGroups = [
   },
   {
     id: "reports",
-    label: "Reports",
+    labelKey: "navReports",
     icon: "📋",
     visibleFor: null,
     items: [
@@ -85,7 +85,7 @@ const navGroups = [
   },
   {
     id: "intel",
-    label: "Intelligence",
+    labelKey: "navIntel",
     icon: "🧠",
     visibleFor: ["restaurant", "retail", "service", "general"],
     items: [
@@ -98,7 +98,7 @@ const navGroups = [
   },
   {
     id: "workshop",
-    label: "Workshop",
+    labelKey: "navWorkshop",
     icon: "🔧",
     visibleFor: ["workshop"],
     items: [
@@ -107,7 +107,7 @@ const navGroups = [
   },
   {
     id: "manage",
-    label: "Manage",
+    labelKey: "navManage",
     icon: "⚙️",
     visibleFor: null,
     items: [
@@ -122,7 +122,7 @@ const navGroups = [
   },
   {
     id: "account",
-    label: "Account",
+    labelKey: "navAccount",
     icon: "💎",
     visibleFor: null,
     items: [
@@ -190,7 +190,7 @@ export default function Layout() {
         ...baseVisible,
         {
           id: "platform",
-          label: "Platform",
+          labelKey: "navPlatform",
           icon: "🛡",
           visibleFor: null,
           items: [
@@ -371,7 +371,7 @@ export default function Layout() {
                       }`}
                     >
                       <span className="text-xs">{group.icon}</span>
-                      <span>{group.label}</span>
+                      <span>{t(group.labelKey)}</span>
                       {hasActiveChild && !isOpen && (
                         <span className="w-1.5 h-1.5 rounded-full bg-green-500 ml-0.5" />
                       )}
