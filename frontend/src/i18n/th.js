@@ -894,6 +894,12 @@ export const th = {
   pdfShared: "แชร์ PDF แล้ว",
   pdfDownloaded: "ดาวน์โหลด PDF แล้ว",
   pdfFailed: "สร้าง PDF ไม่ได้",
+  shareExcel: "แชร์ Excel",
+  excelShareHint: "แนบ Excel — วางในเวิร์กบุ๊กรายสัปดาห์ของคุณ",
+  downloadExcel: "ดาวน์โหลด Excel",
+  excelShared: "แชร์ Excel แล้ว",
+  excelDownloaded: "ดาวน์โหลด Excel แล้ว",
+  excelFailed: "สร้าง Excel ไม่ได้",
   generating: "กำลังสร้าง…",
 };
 

@@ -895,5 +895,11 @@ export const tr = {
   pdfShared: "PDF paylaşıldı",
   pdfDownloaded: "PDF indirildi",
   pdfFailed: "PDF oluşturulamadı",
+  shareExcel: "Excel paylaş",
+  excelShareHint: "Excel eki olarak paylaş — haftalık çalışma kitabınıza yapıştırın",
+  downloadExcel: "Excel indir",
+  excelShared: "Excel paylaşıldı",
+  excelDownloaded: "Excel indirildi",
+  excelFailed: "Excel oluşturulamadı",
   generating: "Oluşturuluyor…",
 };

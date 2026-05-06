@@ -600,6 +600,7 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
   const [shareState, setShareState] = useState({ status: "idle", message: "" });
   const [recipients, setRecipients] = useState([]);
   const [pdfState, setPdfState] = useState({ status: "idle", message: "" });
+  const [xlsxState, setXlsxState] = useState({ status: "idle", message: "" });
 
   const aggData = aggregated?.aggregated;
   const businessName = user?.business_name || "";
@@ -701,6 +702,80 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
       setPdfState({
         status: "error",
         message: e?.response?.data?.detail || t("pdfFailed") || "Could not generate PDF",
+      });
+    }
+  }
+
+  /**
+   * Generate the close as a Mirabelle-format .xlsx workbook. Same modes
+   * as PDF: "share" tries Web Share Files API first, "download" goes
+   * straight to blob → <a download>. Owner can paste the rows into their
+   * weekly workbook or hand the file to the revisor.
+   */
+  async function doXlsx(mode = "download") {
+    if (!aggData) return;
+    setXlsxState({ status: "loading", message: "" });
+    try {
+      const res = await api.post(
+        "/kasserapport/close-excel",
+        { aggregated: aggData, date_label: dateLabel, currency },
+        { responseType: "blob" },
+      );
+      const xlsxMime =
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      const blob = new Blob([res.data], { type: xlsxMime });
+
+      if (mode === "share" && navigator.share && typeof File !== "undefined") {
+        try {
+          const file = new File(
+            [blob],
+            `lukning-${(businessName || "bonbox").toLowerCase().replace(/\W+/g, "_")}.xlsx`,
+            { type: xlsxMime },
+          );
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              title: shareTitle,
+              text: shareText,
+              files: [file],
+            });
+            setXlsxState({
+              status: "success",
+              message: t("excelShared") || "Excel shared",
+            });
+            return;
+          }
+        } catch (e) {
+          if (e?.name === "AbortError") {
+            setXlsxState({
+              status: "success",
+              message: t("excelShared") || "Excel shared",
+            });
+            return;
+          }
+          // else: fall through to download path
+        }
+      }
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download =
+        `lukning-${(businessName || "bonbox").toLowerCase().replace(/\W+/g, "_")}-${
+          dateLabel.split(" ")[0]?.replace(/\./g, "-") || "today"
+        }.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setXlsxState({
+        status: "success",
+        message: t("excelDownloaded") || "Excel downloaded",
+      });
+    } catch (e) {
+      setXlsxState({
+        status: "error",
+        message:
+          e?.response?.data?.detail || t("excelFailed") || "Could not generate Excel",
       });
     }
   }
@@ -835,6 +910,23 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
             >
               ⬇ {t("downloadPdf") || "Download PDF"}
             </button>
+            <button
+              onClick={() => doXlsx("share")}
+              disabled={xlsxState.status === "loading"}
+              className="px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50 transition"
+              title={t("excelShareHint") || "Share as Excel attachment — paste into your weekly workbook"}
+            >
+              {xlsxState.status === "loading"
+                ? `📊 ${t("generating") || "Generating…"}`
+                : `📊 ${t("shareExcel") || "Share Excel"}`}
+            </button>
+            <button
+              onClick={() => doXlsx("download")}
+              disabled={xlsxState.status === "loading"}
+              className="px-4 py-2.5 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50 transition"
+            >
+              ⬇ {t("downloadExcel") || "Download Excel"}
+            </button>
             <CopyButton text={`${shareTitle}\n\n${shareText}`} t={t} />
           </div>
 
@@ -847,6 +939,17 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
               }`}
             >
               {pdfState.message}
+            </div>
+          )}
+          {xlsxState.message && (
+            <div
+              className={`mx-4 mb-3 px-3 py-2 rounded-lg text-xs ${
+                xlsxState.status === "error"
+                  ? "bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-300"
+                  : "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+              }`}
+            >
+              {xlsxState.message}
             </div>
           )}
         </div>

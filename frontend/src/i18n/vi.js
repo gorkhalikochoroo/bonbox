@@ -899,5 +899,11 @@ export const vi = {
   pdfShared: "Đã chia sẻ PDF",
   pdfDownloaded: "Đã tải PDF",
   pdfFailed: "Không tạo được PDF",
+  shareExcel: "Chia sẻ Excel",
+  excelShareHint: "Đính kèm Excel — dán vào sổ làm việc hàng tuần của bạn",
+  downloadExcel: "Tải Excel",
+  excelShared: "Đã chia sẻ Excel",
+  excelDownloaded: "Đã tải Excel",
+  excelFailed: "Không tạo được Excel",
   generating: "Đang tạo…",
 };

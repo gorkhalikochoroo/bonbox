@@ -566,3 +566,99 @@ def close_pdf(
             "Content-Length": str(len(pdf_bytes)),
         },
     )
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Excel rendering — Mirabelle-format .xlsx alongside the PDF
+# ────────────────────────────────────────────────────────────────────────
+
+@router.post("/close-excel")
+def close_excel(
+    body: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Render the aggregated multi-terminal close as an .xlsx workbook.
+
+    Same body shape as /close-pdf — frontend already has aggregated in
+    memory, so no re-aggregate. Caller passes:
+      {
+        "aggregated":    { ...AggregatedClose dict... },
+        "date_label":    "9.3.2026 (Mandag)",
+        "currency":      "DKK",          # optional
+        "bilagsnummer":  "B-2026-0042"   # optional
+      }
+
+    Returns .xlsx (~10KB) with the same Mirabelle layout as the PDF, but
+    cells are real numbers (number_format applied) so the customer can
+    SUM, pivot, paste into their weekly workbook, etc.
+
+    Why this matters:
+      • Mirabelle's old workflow = weekly Excel built from daily photos
+        emailed to Caro. Owner replaces that flow without learning anything.
+      • Investor / revisor exports prefer .xlsx over PDF for spreadsheet
+        downstream work (per Manoj's interview with his old boss).
+
+    Defense:
+      • Auth gate (per-user — no public Excel surface)
+      • Pure render — no DB writes, no LLM, no external network
+      • render_close_xlsx() never raises; falls back to a minimal error
+        workbook so the caller's UX flow continues
+    """
+    from fastapi.responses import Response
+    from app.services.kasserapport_excel import render_close_xlsx
+
+    aggregated = body.get("aggregated") or {}
+    if not isinstance(aggregated, dict):
+        raise HTTPException(status_code=400, detail="aggregated must be an object")
+
+    date_label = (body.get("date_label") or "").strip()
+    currency = (body.get("currency") or user.currency or "DKK").strip()
+    business_name = (user.business_name or "").strip()
+    bilagsnummer = (body.get("bilagsnummer") or "").strip() or None
+
+    # Pull BusinessProfile for the workbook header (CVR, address) — same
+    # rule as the PDF endpoint. Optional: if absent, the workbook still
+    # renders with just the business_name.
+    from app.models.business_profile import BusinessProfile
+    bp_row = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == user.id)
+        .first()
+    )
+    business_profile_dict: dict = {}
+    if bp_row is not None:
+        business_profile_dict = {
+            "company_name": bp_row.company_name or "",
+            "org_number": bp_row.org_number or "",
+            "vat_number": bp_row.vat_number or "",
+            "country": bp_row.country or "DK",
+            "address": bp_row.address or "",
+            "city": bp_row.city or "",
+            "zipcode": bp_row.zipcode or "",
+        }
+        if bp_row.company_name and not business_name:
+            business_name = bp_row.company_name
+
+    xlsx_bytes = render_close_xlsx(
+        aggregated=aggregated,
+        business_name=business_name,
+        date_label=date_label,
+        currency=currency,
+        business_profile=business_profile_dict,
+        bilagsnummer=bilagsnummer,
+    )
+
+    # Filename: lukning_<businessSlug>_<isoDate>.xlsx — same scheme as PDF.
+    iso_date = (date_label.split(" ")[0] if date_label else "today").replace(".", "-")
+    biz_slug = "".join(c if c.isalnum() else "_" for c in (business_name or "bonbox").lower())[:32]
+    filename = f"lukning_{biz_slug}_{iso_date}.xlsx"
+
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(xlsx_bytes)),
+        },
+    )
