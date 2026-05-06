@@ -19,9 +19,11 @@ from app.schemas.dashboard import DashboardSummary, BenchmarkResponse, Benchmark
 from app.services.auth import get_current_user
 from app.services.prediction import get_staffing_recommendations
 from app.services.daily_brief import get_or_create_brief
+from app.services.anomaly_detector import run_daily_scan, serialize_alert, dismiss_alert
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from fastapi import Request
+from fastapi import Request, HTTPException
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -948,6 +950,50 @@ def daily_brief(
         fails, or the API key is missing — user always sees something useful.
     """
     return get_or_create_brief(user, db, force_refresh=refresh)
+
+
+# ─────────────────────────────────────────────────────────────────
+# Anomaly Alerts — Round C
+# ─────────────────────────────────────────────────────────────────
+
+@router.get("/anomalies")
+@_ai_limiter.limit("60/minute")
+def get_anomalies(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Open (un-dismissed) anomaly alerts for the dashboard. Triggers
+    today's scan if not already done — idempotent.
+
+    Owner sees the list of un-resolved flags from the past 7 days. Each
+    one can be dismissed via POST /anomalies/{id}/dismiss.
+    """
+    rows = run_daily_scan(user, db)
+    return {"alerts": [serialize_alert(r) for r in rows]}
+
+
+class DismissAlertRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=40)
+
+
+@router.post("/anomalies/{alert_id}/dismiss")
+@_ai_limiter.limit("60/minute")
+def dismiss_anomaly(
+    request: Request,
+    alert_id: str,
+    body: DismissAlertRequest | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Dismiss an open alert. Idempotent — dismissing an already-
+    dismissed alert is a no-op. Refuses to dismiss alerts that don't
+    belong to this user (404, not 403, to avoid revealing existence)."""
+    reason = (body.reason if body else None) or None
+    ok = dismiss_alert(alert_id, user, db, reason=reason)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return {"status": "ok"}
 
 
 @router.get("/summary", response_model=DashboardSummary)

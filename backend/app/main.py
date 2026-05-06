@@ -278,6 +278,25 @@ _migrations = [
         CONSTRAINT uq_daily_brief_user_date UNIQUE (user_id, brief_date)
     )""",
     "CREATE INDEX IF NOT EXISTS ix_daily_brief_user_date ON daily_briefs (user_id, brief_date)",
+    # Anomaly alerts — flagged unusual events surfaced on the dashboard.
+    # Schema mirrors app/models/anomaly_alert.py.
+    """CREATE TABLE IF NOT EXISTS anomaly_alerts (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id),
+        scan_date DATE NOT NULL,
+        kind VARCHAR(40) NOT NULL,
+        severity VARCHAR(16) NOT NULL DEFAULT 'medium',
+        title VARCHAR(140) NOT NULL,
+        detail TEXT NOT NULL DEFAULT '',
+        reference_id VARCHAR(64),
+        reference_type VARCHAR(32),
+        polished_by_ai BOOLEAN NOT NULL DEFAULT FALSE,
+        dismissed_at TIMESTAMP,
+        dismissed_reason VARCHAR(40),
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_anomaly_user_date ON anomaly_alerts (user_id, scan_date)",
+    "CREATE INDEX IF NOT EXISTS ix_anomaly_user_open ON anomaly_alerts (user_id, dismissed_at)",
 ]
 
 def _run_migrations():

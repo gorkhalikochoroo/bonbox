@@ -11,6 +11,7 @@ import TrialBanner from "../components/TrialBanner";
 import Onboarding from "../components/Onboarding";
 import DailyBriefCard from "../components/DailyBriefCard";
 import SmartSaleInput from "../components/SmartSaleInput";
+import AnomalyAlertsCard from "../components/AnomalyAlertsCard";
 import DismissibleTip from "../components/DismissibleTip";
 import {
   AnimatedCounter,
@@ -1362,6 +1363,9 @@ export default function DashboardPage() {
 
         {/* ── AI DAILY BRIEF — actionable morning brief, top of fold ── */}
         <DailyBriefCard />
+
+        {/* ── AI ANOMALY ALERTS — only renders when there are open alerts ── */}
+        <AnomalyAlertsCard />
 
         {/* ── First-run tip on the Dashboard ── */}
         <DismissibleTip
