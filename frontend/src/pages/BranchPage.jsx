@@ -98,9 +98,9 @@ export default function BranchPage() {
         <form onSubmit={handleCreate} className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm space-y-3">
           <h3 className="font-bold text-gray-700 dark:text-gray-200">Create Branch</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Branch name (e.g. Downtown, Mall Branch) *"
+            <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder={t("branchNamePlaceholder")}
               className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 text-sm" required />
-            <input value={newAddress} onChange={(e) => setNewAddress(e.target.value)} placeholder="Address (optional)"
+            <input value={newAddress} onChange={(e) => setNewAddress(e.target.value)} placeholder={t("addressOptionalPlaceholder")}
               className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 text-sm" />
             <select value={newType} onChange={(e) => setNewType(e.target.value)}
               className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 text-sm dark:text-gray-200">

@@ -188,11 +188,11 @@ export default function CompetitorPage() {
         <form onSubmit={handleAddManual} className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm space-y-3 border border-gray-100 dark:border-gray-700">
           <h3 className="font-bold text-gray-700 dark:text-gray-200 text-sm">Add Competitor Manually</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Business name *"
+            <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder={t("businessNameRequired")}
               className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" required />
-            <input value={newAddress} onChange={(e) => setNewAddress(e.target.value)} placeholder="Address (optional)"
+            <input value={newAddress} onChange={(e) => setNewAddress(e.target.value)} placeholder={t("addressOptionalPlaceholder")}
               className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" />
-            <input value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="Type (cafe, restaurant...)"
+            <input value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder={t("competitorTypePlaceholder")}
               className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" />
           </div>
           <div className="flex gap-2">
@@ -387,7 +387,7 @@ export default function CompetitorPage() {
                   <option value="">Select competitor</option>
                   {competitors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
-                <input value={priceItem} onChange={(e) => setPriceItem(e.target.value)} placeholder="Item name (e.g. Latte, Burger)"
+                <input value={priceItem} onChange={(e) => setPriceItem(e.target.value)} placeholder={t("itemNamePlaceholder")}
                   className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" required />
                 <input type="number" step="0.01" value={theirPrice} onChange={(e) => setTheirPrice(e.target.value)}
                   placeholder={`Their price (${currency})`} className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" required />

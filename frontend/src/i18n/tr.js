@@ -637,4 +637,11 @@ export const tr = {
   noCashStep2: "2. adımda nakit ödeme yok — bu adımı atlayabilirsin.",
   staffCountPrompt: "Bu gece kaç personel?",
   todaysExpenses: "Bugünün Giderleri",
+  // Branch / Budget / Competitor placeholders
+  branchNamePlaceholder: "Şube adı (örn. Şehir Merkezi, AVM) *",
+  addressOptionalPlaceholder: "Adres (isteğe bağlı)",
+  newCategoryPlaceholder: "Yeni kategori adı",
+  businessNameRequired: "İşletme adı *",
+  competitorTypePlaceholder: "Tür (kafe, restoran...)",
+  itemNamePlaceholder: "Ürün adı (örn. Latte, Burger)",
 };

@@ -719,6 +719,13 @@ const translations = {
     noCashStep2: "No cash payments entered in Step 2 — you can skip this step.",
     staffCountPrompt: "How many staff tonight?",
     todaysExpenses: "Today's Expenses",
+    // Branch / Budget / Competitor placeholders
+    branchNamePlaceholder: "Branch name (e.g. Downtown, Mall Branch) *",
+    addressOptionalPlaceholder: "Address (optional)",
+    newCategoryPlaceholder: "New category name",
+    businessNameRequired: "Business name *",
+    competitorTypePlaceholder: "Type (cafe, restaurant...)",
+    itemNamePlaceholder: "Item name (e.g. Latte, Burger)",
   },
   da: {
     dashboard: "Oversigt", sales: "Salg", expenses: "Udgifter", inventory: "Lager",
@@ -1409,6 +1416,13 @@ const translations = {
     noCashStep2: "Ingen kontantbetalinger registreret i trin 2 — du kan springe dette trin over.",
     staffCountPrompt: "Hvor mange ansatte i aften?",
     todaysExpenses: "Dagens udgifter",
+    // Branch / Budget / Competitor placeholders
+    branchNamePlaceholder: "Filialnavn (f.eks. Centrum, Mall) *",
+    addressOptionalPlaceholder: "Adresse (valgfri)",
+    newCategoryPlaceholder: "Nyt kategorinavn",
+    businessNameRequired: "Forretningsnavn *",
+    competitorTypePlaceholder: "Type (café, restaurant...)",
+    itemNamePlaceholder: "Varenavn (f.eks. Latte, Burger)",
   },
   np: {
     dashboard: "ड्यासबोर्ड", sales: "बिक्री", expenses: "खर्च", inventory: "स्टक",
@@ -2101,6 +2115,13 @@ const translations = {
     noCashStep2: "चरण 2 मा नगद भुक्तानी छैन — तपाईं यो चरण छाड्न सक्नुहुन्छ।",
     staffCountPrompt: "आज राति कति कर्मचारी?",
     todaysExpenses: "आजको खर्च",
+    // Branch / Budget / Competitor placeholders
+    branchNamePlaceholder: "शाखाको नाम (जस्तै, सिटी सेन्टर, मल) *",
+    addressOptionalPlaceholder: "ठेगाना (वैकल्पिक)",
+    newCategoryPlaceholder: "नयाँ कोटिको नाम",
+    businessNameRequired: "व्यवसायको नाम *",
+    competitorTypePlaceholder: "प्रकार (क्याफे, रेस्टुरेन्ट...)",
+    itemNamePlaceholder: "मालसामानको नाम (जस्तै, लाते, बर्गर)",
   },
 };
 

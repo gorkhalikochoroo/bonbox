@@ -636,4 +636,11 @@ export const th = {
   noCashStep2: "ไม่มีการชำระด้วยเงินสดในขั้นตอนที่ 2 — คุณสามารถข้ามขั้นตอนนี้ได้",
   staffCountPrompt: "พนักงานคืนนี้มีกี่คน?",
   todaysExpenses: "ค่าใช้จ่ายวันนี้",
+  // Branch / Budget / Competitor placeholders
+  branchNamePlaceholder: "ชื่อสาขา (เช่น ใจกลางเมือง, ห้างสรรพสินค้า) *",
+  addressOptionalPlaceholder: "ที่อยู่ (ไม่บังคับ)",
+  newCategoryPlaceholder: "ชื่อหมวดหมู่ใหม่",
+  businessNameRequired: "ชื่อธุรกิจ *",
+  competitorTypePlaceholder: "ประเภท (คาเฟ่, ร้านอาหาร...)",
+  itemNamePlaceholder: "ชื่อรายการ (เช่น ลาเต้, เบอร์เกอร์)",
 };

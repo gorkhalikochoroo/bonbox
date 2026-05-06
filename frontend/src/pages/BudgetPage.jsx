@@ -216,7 +216,7 @@ export default function BudgetPage() {
                 <input
                   value={newCat}
                   onChange={(e) => setNewCat(e.target.value)}
-                  placeholder="New category name"
+                  placeholder={t("newCategoryPlaceholder")}
                   className="flex-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200"
                 />
               )}

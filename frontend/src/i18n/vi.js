@@ -641,4 +641,11 @@ export const vi = {
   noCashStep2: "Chưa có thanh toán tiền mặt ở bước 2 — bạn có thể bỏ qua bước này.",
   staffCountPrompt: "Bao nhiêu nhân viên tối nay?",
   todaysExpenses: "Chi phí hôm nay",
+  // Branch / Budget / Competitor placeholders
+  branchNamePlaceholder: "Tên chi nhánh (vd. Trung tâm, Trung tâm thương mại) *",
+  addressOptionalPlaceholder: "Địa chỉ (tùy chọn)",
+  newCategoryPlaceholder: "Tên danh mục mới",
+  businessNameRequired: "Tên doanh nghiệp *",
+  competitorTypePlaceholder: "Loại (quán cà phê, nhà hàng...)",
+  itemNamePlaceholder: "Tên mặt hàng (vd. Latte, Burger)",
 };
