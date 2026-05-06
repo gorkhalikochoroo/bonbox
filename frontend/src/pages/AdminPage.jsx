@@ -107,7 +107,7 @@ export default function AdminPage() {
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6 pb-24">
       {/* Admin-mode banner — visual reminder this is privileged */}
-      <div className="bg-gradient-to-r from-red-50 to-orange-50 dark:from-red-900/20 dark:to-orange-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 flex items-center justify-between">
+      <div className="bg-gradient-to-r from-red-50 to-orange-50 dark:from-red-900/20 dark:to-orange-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 flex items-center justify-between flex-wrap gap-3">
         <div>
           <div className="text-xs uppercase tracking-wide text-red-700 dark:text-red-400 font-bold">
             🛡️ Super Admin Mode
@@ -116,8 +116,18 @@ export default function AdminPage() {
             Signed in as <span className="font-mono">{user?.email}</span>. All access is audited.
           </div>
         </div>
-        <div className="text-xs text-gray-500 dark:text-gray-400">
-          {overview && new Date(overview.as_of).toLocaleString()}
+        <div className="flex items-center gap-2 flex-wrap">
+          <a
+            href="/admin/training"
+            className="px-3 py-1.5 text-xs font-semibold bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-lg transition"
+          >
+            🧠 Training dashboard →
+          </a>
+          {overview && (
+            <div className="text-xs text-gray-500 dark:text-gray-400">
+              {new Date(overview.as_of).toLocaleString()}
+            </div>
+          )}
         </div>
       </div>
 

@@ -173,6 +173,7 @@ const MorePage = lazyRetry(() => import("./pages/MorePage"));
 const StaffPortalPage = lazyRetry(() => import("./pages/StaffPortalPage"));
 const VerifyEmailPage = lazyRetry(() => import("./pages/VerifyEmailPage"));
 const AdminPage = lazyRetry(() => import("./pages/AdminPage"));
+const AdminTrainingPage = lazyRetry(() => import("./pages/AdminTrainingPage"));
 const SubscriptionPage = lazyRetry(() => import("./pages/SubscriptionPage"));
 const BookkeepingExportPage = lazyRetry(() => import("./pages/BookkeepingExportPage"));
 const InsightsPage = lazyRetry(() => import("./pages/InsightsPage"));
@@ -300,6 +301,7 @@ function AppRoutes() {
           }
         >
           <Route path="/admin" element={<AdminPage />} />
+          <Route path="/admin/training" element={<AdminTrainingPage />} />
         </Route>
       </Routes>
     </Suspense>
