@@ -30,11 +30,13 @@ def test_a_skat_estimate_is_36_percent():
 
 
 def test_personfradrag_is_monthly_2026():
-    assert PERSONFRADRAG_MONTHLY == 4300.0
+    # 2026: ~52,800 kr/year ÷ 12 ≈ 4,400 kr/month.
+    assert PERSONFRADRAG_MONTHLY == 4400.0
 
 
 def test_atp_full_time_monthly():
-    assert ATP_MONTHLY_FULL_TIME == 90.0
+    # 2024+: 284 kr/quarter ÷ 3 = 94.65 kr/month per full-time employee.
+    assert ATP_MONTHLY_FULL_TIME == 94.65
 
 
 def test_feriepenge_rate_is_125_percent():
@@ -45,27 +47,28 @@ def test_feriepenge_rate_is_125_percent():
 # calc_employee_period — full pipeline at realistic numbers
 # ─────────────────────────────────────────────────────────────────
 def test_calc_employee_30k_full_time():
-    """A 30,000 kr/month café manager — typical Copenhagen SMB wage."""
+    """A 30,000 kr/month café manager — typical Copenhagen SMB wage.
+    Defaults to hovedkort (36% A-skat, with personfradrag)."""
     result = calc_employee_period(gross=30000, contract_type="full")
 
     # AM-bidrag: 8% of 30,000 = 2,400
     assert result["am_bidrag"] == 2400.0
 
-    # Taxable base: 30,000 - 2,400 - 4,300 = 23,300
-    # A-skat: 36% of 23,300 = 8,388
-    assert result["a_skat"] == 8388.0
+    # Taxable base: 30,000 - 2,400 - 4,400 = 23,200
+    # A-skat: 36% of 23,200 = 8,352
+    assert result["a_skat"] == 8352.0
 
-    # ATP: 90 (full time)
-    assert result["atp"] == 90.0
+    # ATP: 94.65 (full time, 2024+ rate)
+    assert result["atp"] == 94.65
 
     # Feriepenge: 12.5% of 30,000 = 3,750
     assert result["feriepenge"] == 3750.0
 
-    # Net to employee: 30,000 - 2,400 - 8,388 = 19,212
-    assert result["net_pay"] == 19212.0
+    # Net to employee: 30,000 - 2,400 - 8,352 = 19,248
+    assert result["net_pay"] == 19248.0
 
-    # Employer total cost: 30,000 + 90 (ATP) + 3,750 (feriepenge) = 33,840
-    assert result["employer_total_cost"] == 33840.0
+    # Employer total cost: 30,000 + 94.65 (ATP) + 3,750 (feriepenge) = 33,844.65
+    assert result["employer_total_cost"] == 33844.65
 
 
 def test_calc_employee_below_personfradrag():
@@ -120,8 +123,77 @@ def test_part_time_no_atp():
     """Part-time contracts don't accrue ATP in our simplified model."""
     full = calc_employee_period(gross=20000, contract_type="full")
     part = calc_employee_period(gross=20000, contract_type="part")
-    assert full["atp"] == 90.0
+    assert full["atp"] == 94.65
     assert part["atp"] == 0.0
+
+
+# ─────────────────────────────────────────────────────────────────
+# Trækkort — per-employee A-skat resolution (multi-barrier)
+# ─────────────────────────────────────────────────────────────────
+def test_hovedkort_default_36_pct_with_personfradrag():
+    """No explicit trækkort = hovedkort default = 36% with personfradrag."""
+    result = calc_employee_period(gross=30000, contract_type="full",
+                                  tax_card_type="hovedkort")
+    # Same as the default test above — 8,352 A-skat
+    assert result["a_skat"] == 8352.0
+    assert result["a_skat_rate"] == 0.36
+    assert result["include_personfradrag"] is True
+
+
+def test_bikort_42_pct_no_personfradrag():
+    """Bikort = 42% applied to the FULL post-AM amount (no personfradrag).
+    For 30k gross: AM=2,400, then 42% of 27,600 = 11,592 A-skat."""
+    result = calc_employee_period(gross=30000, contract_type="full",
+                                  tax_card_type="bikort")
+    assert result["a_skat_rate"] == 0.42
+    assert result["include_personfradrag"] is False
+    # 30,000 - 2,400 = 27,600. 42% of that = 11,592.
+    assert result["a_skat"] == 11592.0
+    # Bikort produces HIGHER A-skat than hovedkort at same gross
+    hovedkort = calc_employee_period(gross=30000, tax_card_type="hovedkort")
+    assert result["a_skat"] > hovedkort["a_skat"]
+
+
+def test_frikort_zero_a_skat():
+    """Frikort = student under annual limit = 0% A-skat."""
+    result = calc_employee_period(gross=30000, contract_type="full",
+                                  tax_card_type="frikort")
+    assert result["a_skat"] == 0.0
+    assert result["a_skat_rate"] == 0.0
+
+
+def test_explicit_rate_override_clamped():
+    """Owner pastes a rate from eSkattekort. Sane values used; bad ones rejected."""
+    # Valid: 0.385 (38.5%, between hovedkort and bikort)
+    a = calc_employee_period(gross=30000, tax_card_rate=0.385,
+                             tax_card_type="hovedkort")
+    assert a["a_skat_rate"] == 0.385
+    # Negative rejected → falls through to default
+    b = calc_employee_period(gross=30000, tax_card_rate=-0.5)
+    assert b["a_skat_rate"] == 0.36
+    # >60% rejected (no Danish A-skat exceeds ~52%) → default
+    c = calc_employee_period(gross=30000, tax_card_rate=0.99)
+    assert c["a_skat_rate"] == 0.36
+    # Garbage string rejected → default
+    d = calc_employee_period(gross=30000, tax_card_rate="garbage")
+    assert d["a_skat_rate"] == 0.36
+
+
+def test_unknown_tax_card_type_falls_back_to_default():
+    """Multi-barrier: drive-by injection of a bad enum doesn't break the calc."""
+    result = calc_employee_period(gross=30000, tax_card_type="totally-fake")
+    assert result["a_skat_rate"] == 0.36  # default-hovedkort fallback
+
+
+def test_tax_card_source_label_returned():
+    """UI uses tax_card_source to show 'Estimat (hovedkort)' badge."""
+    a = calc_employee_period(gross=30000, tax_card_type="bikort")
+    assert a["tax_card_source"] == "bikort"
+    b = calc_employee_period(gross=30000)  # no card set
+    assert b["tax_card_source"] == "default-hovedkort"
+    c = calc_employee_period(gross=30000, tax_card_rate=0.4,
+                             tax_card_type="hovedkort")
+    assert c["tax_card_source"] == "override"
 
 
 # ─────────────────────────────────────────────────────────────────

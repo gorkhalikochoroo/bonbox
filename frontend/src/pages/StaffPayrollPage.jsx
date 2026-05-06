@@ -194,17 +194,24 @@ export default function StaffPayrollPage() {
       .filter(s => selectedIds.has(s.id))
       .map(s => {
         const h = hoursMap[s.id] || {};
+        // Backend `/staff/hours/summary` returns: total_hours, total_earned,
+        // overtime_hours, tips_received. We accept legacy field names too
+        // (base_earned / overtime_pay / tips) so a stale schema mid-deploy
+        // won't render zeros — multi-layer fallback.
+        const baseEarned = h.total_earned ?? h.base_earned ?? 0;
+        const overtimePay = h.overtime_pay ?? 0; // not yet computed by backend
+        const tips = h.tips_received ?? h.tips ?? 0;
         return {
           id: s.id,
           name: s.name || s.staff_name || "—",
           role: s.role || "Staff",
           contract_type: s.contract_type || "hourly",
           hours: h.total_hours || 0,
-          base_earned: h.base_earned || 0,
-          overtime: h.overtime_pay || 0,
+          base_earned: baseEarned,
+          overtime: overtimePay,
           overtime_hours: h.overtime_hours || 0,
-          tips: h.tips || 0,
-          total: (h.base_earned || 0) + (h.overtime_pay || 0) + (h.tips || 0),
+          tips,
+          total: baseEarned + overtimePay + tips,
         };
       });
   }, [staffList, hoursSummary, selectedIds]);

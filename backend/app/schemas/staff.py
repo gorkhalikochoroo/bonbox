@@ -6,6 +6,33 @@ from pydantic import BaseModel
 # ── Staff Members ──────────────────────────────────────────────────────────
 
 
+_TAX_CARD_TYPES = {"hovedkort", "bikort", "frikort"}
+
+
+def _validate_tax_card_type(v: str | None) -> str | None:
+    """Multi-barrier validator: accept None, normalize case, reject unknown values."""
+    if v is None or v == "":
+        return None
+    v = str(v).strip().lower()
+    if v not in _TAX_CARD_TYPES:
+        return None  # silently ignore unknown — defaults to hovedkort downstream
+    return v
+
+
+def _validate_tax_card_rate(v: float | None) -> float | None:
+    """Clamp to 0.0–0.6 (max realistic Danish A-skat including topskat ~52%).
+    Returns None for unparseable / out-of-range input."""
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if f < 0.0 or f > 0.6:
+        return None
+    return f
+
+
 class StaffMemberCreate(BaseModel):
     name: str
     phone: str | None = None
@@ -18,6 +45,8 @@ class StaffMemberCreate(BaseModel):
     holiday_rate: float | None = None
     max_hours_month: float | None = None
     max_hours_week: float | None = None
+    tax_card_type: str | None = None
+    tax_card_rate: float | None = None
 
 
 class StaffMemberUpdate(BaseModel):
@@ -32,6 +61,8 @@ class StaffMemberUpdate(BaseModel):
     holiday_rate: float | None = None
     max_hours_month: float | None = None
     max_hours_week: float | None = None
+    tax_card_type: str | None = None
+    tax_card_rate: float | None = None
     active: bool | None = None
 
 
@@ -48,6 +79,8 @@ class StaffMemberResponse(BaseModel):
     holiday_rate: float | None = None
     max_hours_month: float | None = None
     max_hours_week: float | None = None
+    tax_card_type: str | None = None
+    tax_card_rate: float | None = None
     active: bool = True
     is_deleted: bool = False
     created_at: datetime.datetime | None = None

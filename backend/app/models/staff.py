@@ -29,6 +29,13 @@ class StaffMember(Base):
     holiday_rate: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
     max_hours_month: Mapped[Optional[float]] = mapped_column(Numeric(6, 1), nullable=True)
     max_hours_week: Mapped[Optional[float]] = mapped_column(Numeric(5, 1), nullable=True)
+    # Danish A-skat trækkort — affects A-skat rate + personfradrag eligibility.
+    # Values: "hovedkort" (default, 36% w/ personfradrag), "bikort" (42% no
+    # personfradrag), "frikort" (0% until annual limit). NULL = treated as
+    # hovedkort. tax_card_rate is an optional override (0.0–0.6) for owners
+    # who copy the exact rate from the employee's eSkattekort.
+    tax_card_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    tax_card_rate: Mapped[Optional[float]] = mapped_column(Numeric(5, 4), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

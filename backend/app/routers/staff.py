@@ -216,6 +216,10 @@ def create_staff_member(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    # Defense-in-depth: re-run the schema validators at the boundary even
+    # though Pydantic already coerced. Catches malformed clients sending
+    # raw strings/etc bypassing the Pydantic model.
+    from app.schemas.staff import _validate_tax_card_type, _validate_tax_card_rate
     member = StaffMember(
         id=uuid.uuid4(),
         user_id=user.id,
@@ -230,6 +234,8 @@ def create_staff_member(
         holiday_rate=data.holiday_rate,
         max_hours_month=data.max_hours_month,
         max_hours_week=data.max_hours_week,
+        tax_card_type=_validate_tax_card_type(data.tax_card_type),
+        tax_card_rate=_validate_tax_card_rate(data.tax_card_rate),
     )
     db.add(member)
     db.commit()
@@ -252,7 +258,15 @@ def update_staff_member(
     if not member:
         raise HTTPException(status_code=404, detail="Staff member not found")
 
+    # Validate trækkort fields before applying — multi-barrier defense so
+    # a malformed value can't poison the DB and break payroll estimates.
+    from app.schemas.staff import _validate_tax_card_type, _validate_tax_card_rate
     updates = data.model_dump(exclude_unset=True)
+    if "tax_card_type" in updates:
+        updates["tax_card_type"] = _validate_tax_card_type(updates["tax_card_type"])
+    if "tax_card_rate" in updates:
+        updates["tax_card_rate"] = _validate_tax_card_rate(updates["tax_card_rate"])
+
     for field, value in updates.items():
         setattr(member, field, value)
 

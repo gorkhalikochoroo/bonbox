@@ -43,76 +43,146 @@ AM_BIDRAG_RATE = 0.08
 # (~24% avg, varies 22.5%–26.3% by kommune). Total ≈ 36% before topskat.
 # Topskat adds 15% above 588k DKK/year (2025). For our SMB target market
 # most staff are below topskat, so 36% is the safer planning estimate.
-# User can override per-staff via tax_card_rate (planned, not yet added).
-ESTIMATED_A_SKAT_RATE = 0.36
+#
+# Owner can override per-staff via StaffMember.tax_card_type / tax_card_rate
+# (added 2026-05). Defaults below are used when not set:
+#   hovedkort  → 36% (main job, includes personfradrag)
+#   bikort     → 42% (second job, NO personfradrag)
+#   frikort    → 0%  (student under annual income limit)
+DEFAULT_A_SKAT_RATE = 0.36
+TAX_CARD_DEFAULT_RATES = {
+    "hovedkort": 0.36,
+    "bikort":    0.42,
+    "frikort":   0.00,
+}
+ESTIMATED_A_SKAT_RATE = DEFAULT_A_SKAT_RATE  # backwards-compat alias
 
 # Personal allowance (personfradrag) — monthly equivalent.
-# 2026 personfradrag ≈ 51,600 kr/year ÷ 12 ≈ 4,300 kr/month.
-PERSONFRADRAG_MONTHLY = 4300.0
+# 2026 personfradrag ≈ 52,800 kr/year ÷ 12 ≈ 4,400 kr/month.
+PERSONFRADRAG_MONTHLY = 4400.0
 
-# ATP (Arbejdsmarkedets Tillægspension) — flat employer contribution,
-# 270 kr/quarter for full-time employees split across the 3 months.
-# Simplified to monthly 90 kr per full-time employee.
-ATP_MONTHLY_FULL_TIME = 90.0
+# ATP (Arbejdsmarkedets Tillægspension) — flat employer contribution.
+# 2024+ rate is 94.65 kr/month per full-time employee (284 kr/quarter ÷ 3).
+ATP_MONTHLY_FULL_TIME = 94.65
 
 # Feriepenge (holiday allowance) — 12.5% of gross, paid to FerieKonto
 # under "ny ferielov" (since 2020). Employers pay quarterly on top of wages.
 FERIEPENGE_RATE = 0.125
 
 
+def _resolve_a_skat_rate(
+    tax_card_type: str | None,
+    tax_card_rate: float | None,
+) -> tuple[float, str, bool]:
+    """
+    Multi-barrier resolution of the A-skat rate to use, with each layer
+    failing-closed to the safe DEFAULT_A_SKAT_RATE if input is bad.
+
+      Layer 1: explicit per-staff rate override (clamped to 0.0-0.6)
+      Layer 2: trækkort type default (hovedkort/bikort/frikort)
+      Layer 3: fall back to DEFAULT_A_SKAT_RATE (36%, hovedkort default)
+
+    Bikort = no personfradrag — caller must check the second return value
+    and pass include_personfradrag accordingly.
+
+    Returns (rate, source_label, include_personfradrag).
+    """
+    # Layer 1: explicit override
+    if tax_card_rate is not None:
+        try:
+            r = float(tax_card_rate)
+            # Sanity-clamp: 0 ≤ r ≤ 0.6 (no Danish A-skat exceeds ~52% incl topskat)
+            if 0.0 <= r <= 0.6:
+                # Owner-supplied rate. We assume hovedkort (with personfradrag)
+                # unless the trækkort type explicitly says otherwise.
+                include_pf = (tax_card_type != "bikort")
+                return (r, "override", include_pf)
+        except (TypeError, ValueError):
+            pass  # fall through to layer 2
+
+    # Layer 2: trækkort-type default
+    if tax_card_type and isinstance(tax_card_type, str):
+        normalized = tax_card_type.strip().lower()
+        if normalized in TAX_CARD_DEFAULT_RATES:
+            rate = TAX_CARD_DEFAULT_RATES[normalized]
+            # Frikort + bikort have no personfradrag; only hovedkort does
+            include_pf = (normalized == "hovedkort")
+            return (rate, normalized, include_pf)
+
+    # Layer 3: safe default (hovedkort)
+    return (DEFAULT_A_SKAT_RATE, "default-hovedkort", True)
+
+
 def calc_employee_period(
     *,
     gross: float,
     contract_type: str = "full",
-    include_personfradrag: bool = True,
+    tax_card_type: str | None = None,
+    tax_card_rate: float | None = None,
+    include_personfradrag: bool | None = None,  # legacy param; auto-derived if None
 ) -> dict[str, float]:
     """
     Compute one employee's deductions for a single pay period given gross wage.
 
     Returns dict with keys: gross, am_bidrag, a_skat, atp, feriepenge,
-    net_pay, employer_total_cost.
+    net_pay, employer_total_cost, plus tax_card_source (which layer was
+    used) so the UI can show "estimat" badges accurately.
 
     All values are kr (rounded to 2 decimals). Caller is responsible for
     summing across the period if needed.
 
-    Order of operations matters and matches SKAT's lønsystem rules:
+    Order of operations matches SKAT's lønsystem rules:
       1. AM-bidrag = 8% of gross (always, no allowance)
-      2. Taxable base = gross - AM-bidrag - personfradrag (cannot go negative)
-      3. A-skat = taxable_base × ESTIMATED_A_SKAT_RATE
-      4. ATP — flat employer contribution (not from gross)
-      5. Feriepenge — 12.5% of gross (paid to FerieKonto, not to employee)
-      6. Net pay = gross - AM-bidrag - A-skat
-      7. Employer total cost = gross + ATP + feriepenge + (any pension)
+      2. Resolve A-skat rate from per-staff trækkort (or default)
+      3. Taxable base = gross - AM-bidrag - personfradrag (cannot go negative)
+         — personfradrag only for hovedkort, NOT for bikort/frikort
+      4. A-skat = taxable_base × resolved_rate
+      5. ATP — flat employer contribution (not from gross)
+      6. Feriepenge — 12.5% of gross (paid to FerieKonto, not to employee)
+      7. Net pay = gross - AM-bidrag - A-skat
+      8. Employer total cost = gross + ATP + feriepenge + (any pension)
     """
     gross = max(0.0, float(gross or 0))
 
-    # 1. AM-bidrag
+    # 1. AM-bidrag (8% always, no allowance)
     am_bidrag = round(gross * AM_BIDRAG_RATE, 2)
 
-    # 2. Taxable base
+    # 2. Resolve A-skat rate (multi-barrier defense — see _resolve_a_skat_rate)
+    a_skat_rate, rate_source, default_include_pf = _resolve_a_skat_rate(
+        tax_card_type, tax_card_rate
+    )
+    # Honor explicit `include_personfradrag` arg if caller set it (legacy
+    # callers / tests). Otherwise derive from trækkort type.
+    if include_personfradrag is None:
+        include_personfradrag = default_include_pf
+
+    # 3. Taxable base
     after_am = gross - am_bidrag
     allowance = PERSONFRADRAG_MONTHLY if include_personfradrag else 0.0
     taxable_base = max(0.0, after_am - allowance)
 
-    # 3. A-skat (estimate)
-    a_skat = round(taxable_base * ESTIMATED_A_SKAT_RATE, 2)
+    # 4. A-skat
+    a_skat = round(taxable_base * a_skat_rate, 2)
 
-    # 4. ATP — only for full-time contracts (part-time get pro-rata, simplified to 0)
+    # 5. ATP — only for full-time contracts (part-time get pro-rata, simplified to 0)
     atp = ATP_MONTHLY_FULL_TIME if contract_type == "full" else 0.0
 
-    # 5. Feriepenge
+    # 6. Feriepenge
     feriepenge = round(gross * FERIEPENGE_RATE, 2)
 
-    # 6. Net pay (what hits employee's bank)
+    # 7. Net pay (what hits employee's bank)
     net_pay = round(gross - am_bidrag - a_skat, 2)
 
-    # 7. Employer total cost
+    # 8. Employer total cost
     employer_total_cost = round(gross + atp + feriepenge, 2)
 
     return {
         "gross": round(gross, 2),
         "am_bidrag": am_bidrag,
         "a_skat": a_skat,
+        "a_skat_rate": a_skat_rate,
+        "tax_card_source": rate_source,
+        "include_personfradrag": include_personfradrag,
         "atp": atp,
         "feriepenge": feriepenge,
         "net_pay": net_pay,
@@ -195,15 +265,24 @@ def estimate_period_payroll(
     }
     for sid, gross in gross_by_staff.items():
         staff = staff_map[sid]
+        # Pull trækkort overrides if present on the staff record. Wrapped in
+        # getattr so the service is forward/backward compatible during the
+        # migration window — stale rows without these columns just fall back
+        # to default-hovedkort (36%, includes personfradrag).
+        tax_card_type = getattr(staff, "tax_card_type", None)
+        tax_card_rate = getattr(staff, "tax_card_rate", None)
         deductions = calc_employee_period(
             gross=gross,
             contract_type=str(staff.contract_type or "full"),
+            tax_card_type=tax_card_type,
+            tax_card_rate=float(tax_card_rate) if tax_card_rate is not None else None,
         )
         per_staff.append({
             "staff_id": sid,
             "name": staff.name,
             "role": staff.role,
             "contract_type": staff.contract_type,
+            "tax_card_type": tax_card_type or "hovedkort",
             "hours": round(hours_by_staff.get(sid, 0.0), 2),
             **deductions,
         })
@@ -238,10 +317,13 @@ def estimate_period_payroll(
         },
         "is_estimate": True,
         "estimate_note": (
-            "A-skat is a flat-rate estimate (38% after personfradrag). Real A-skat "
-            "depends on each employee's trækkort and is computed by your lønsystem "
-            "or by SKAT directly via eIndkomst. Use this number for planning the "
-            "10th-of-month deadline; the official figure comes from your reporting."
+            "A-skat varies per employee — typical hovedkort is ~36% after "
+            "personfradrag, bikort is ~42% (no personfradrag), frikort is 0% "
+            "until the annual limit. BonBox uses each staff member's trækkort "
+            "type when set, otherwise defaults to hovedkort. The official A-skat "
+            "comes from each employee's eSkattekort and your lønsystem's "
+            "eIndkomst submission — use this estimate for planning the "
+            "10th-of-month deadline only."
         ),
     }
 
