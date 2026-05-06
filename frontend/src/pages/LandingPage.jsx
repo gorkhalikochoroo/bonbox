@@ -527,9 +527,13 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
             {[
-              { val: 25, suffix: "+", label: t("landingStatFeatures") },
-              { val: 21, suffix: "+", label: t("landingStatBusinessTypes") },
-              { val: 12, suffix: "", label: t("landingStatLanguages") },
+              // Stats reframed around the segment — these are what matter for
+              // a multi-terminal hospitality buyer, not generic SaaS feature
+              // counts. 90 / 6 / 6 / 5 all match claims made elsewhere on the
+              // site (hero, pricing, founding banner) so no contradictions.
+              { val: 90, suffix: " sec", label: t("landingStatCloseTime") },
+              { val: 6, suffix: "+", label: t("landingStatTerminals") },
+              { val: 6, suffix: "", label: t("landingStatLanguages") },
               { val: 5, suffix: "", label: t("landingStatSetup"), prefix: "" },
             ].map((s) => (
               <FadeIn key={s.label}>
