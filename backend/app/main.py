@@ -851,22 +851,39 @@ async def csrf_protect(request: Request, call_next):
         return await call_next(request)
     header_token = request.headers.get(CSRF_HEADER_NAME.lower(), "")
     cookie_token = request.cookies.get(CSRF_COOKIE_NAME, "")
-    # KNOWN GAP — the double-submit cookie design assumes the frontend can
-    # read the CSRF cookie via document.cookie. That only works same-site;
-    # in our current cross-origin setup (bonbox.dk → bonbox-api.onrender.com),
-    # the cookie set by the API origin is invisible to JS on bonbox.dk, so
-    # legitimate web requests arrive with the cookie present but the header
-    # empty. Until the backend moves to api.bonbox.dk (or we switch to
-    # in-memory token storage with the token returned in JSON), tolerate
-    # the missing-header case to avoid breaking real users. We still hard-
-    # reject explicit mismatches because those can only come from an
-    # attacker that somehow guessed the cookie value.
+    # Round 2 cutover: the API now lives at api.bonbox.dk (same registrable
+    # domain as the frontend), so cookies are scoped to .bonbox.dk and
+    # readable by JS on bonbox.dk. The frontend echoes the CSRF cookie back
+    # as X-CSRF-Token; the middleware strictly enforces match.
+    #
+    # Legacy host bonbox-api.onrender.com still works for native iOS
+    # (Bearer auth, bypassed at the top of this handler) and as a fallback
+    # for any in-flight cookie-auth client during the migration. Such a
+    # request would arrive with the auth cookie + no CSRF header — we let
+    # it through with a log line to avoid breaking those clients while
+    # they pick up the new api.bonbox.dk URL on their next page load.
     import logging as _logging
     import secrets as _s
+    host = (request.headers.get("host") or "").split(":")[0].lower()
+    is_first_party = host == "bonbox.dk" or host.endswith(".bonbox.dk")
+
     if not header_token:
+        if is_first_party:
+            # First-party request — no excuse for missing CSRF header.
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "detail": "CSRF token missing",
+                    "_error": "Please refresh the page and try again.",
+                    "_recoverable": True,
+                },
+            )
+        # Legacy onrender.com path — log and let through (transition only;
+        # tighten or remove this branch once analytics show no traffic
+        # hitting the legacy host)
         _logging.getLogger(__name__).info(
-            "csrf_protect: header missing on %s %s (cross-origin gap; passing through)",
-            method, path,
+            "csrf_protect: header missing on legacy host %s %s %s — passing through",
+            host, method, path,
         )
         return await call_next(request)
     if not cookie_token or not _s.compare_digest(
