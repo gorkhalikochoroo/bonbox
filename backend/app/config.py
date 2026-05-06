@@ -48,10 +48,20 @@ class Settings(BaseSettings):
     STRIPE_SECRET_KEY: str = ""
     STRIPE_PUBLISHABLE_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
-    STRIPE_PRICE_ID_PRO: str = ""           # Regular Pro price (e.g. 169 kr/mo) used after the founding-member cap is hit
-    STRIPE_PRICE_ID_PRO_FOUNDING: str = ""  # 99 kr/mo founding-member price for first FOUNDING_MEMBER_LIMIT customers; falls back to PRO if empty
-    FOUNDING_MEMBER_LIMIT: int = 1000       # First N customers (active+trialing) get the founding price, locked for life by Stripe
-    STRIPE_PRICE_ID_BUSINESS: str = ""      # Multi-branch chains — custom quote, no public price
+    # ── Subscription price IDs ────────────────────────────────────────
+    # Tier structure (May 2026): Free → Starter (199/founding 129) →
+    # Pro (349/founding 249). Existing customers locked in at older
+    # prices keep their rate — Stripe never retroactively reprices an
+    # active subscription, that's the founding-rate guarantee.
+    STRIPE_PRICE_ID_STARTER: str = ""           # 199 kr/mo regular
+    STRIPE_PRICE_ID_STARTER_FOUNDING: str = ""  # 129 kr/mo founding
+    STRIPE_PRICE_ID_PRO: str = ""               # 349 kr/mo regular
+    STRIPE_PRICE_ID_PRO_FOUNDING: str = ""      # 249 kr/mo founding
+    FOUNDING_MEMBER_LIMIT: int = 100            # First N (active+trialing) lock founding rate
+    # Legacy — Business tier was dropped May 2026 but env var kept for
+    # webhook back-compat (existing Business customers, if any, still
+    # have their subscription routed correctly).
+    STRIPE_PRICE_ID_BUSINESS: str = ""
     # URL Stripe sends user back to after checkout. We use the frontend URL.
     STRIPE_SUCCESS_URL: str = ""  # default = FRONTEND_URL + /subscription?success=1
     STRIPE_CANCEL_URL: str = ""   # default = FRONTEND_URL + /subscription?canceled=1

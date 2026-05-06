@@ -202,28 +202,48 @@ def create_checkout_session(
     """Create a Stripe Checkout session for the user to upgrade.
 
     Returns a dict with `url` to redirect to, or None on failure.
+
+    Plan routing:
+      • plan="starter" → Starter price (199 kr/mo or 129 kr/mo founding)
+      • plan="pro"     → Pro price (349 kr/mo or 249 kr/mo founding)
+
+    Founding-member price selection: the first FOUNDING_MEMBER_LIMIT
+    subscribers (active or still in Stripe trial) get the *_FOUNDING
+    price. Existing subscribers keep their rate — Stripe never
+    retroactively reprices an active subscription. After the cap, new
+    checkouts use the regular price.
     """
     s = _stripe()
     if not s:
         return None
 
-    # Founding-member price selection. The first FOUNDING_MEMBER_LIMIT
-    # subscribers (active or still in Stripe trial) get STRIPE_PRICE_ID_PRO_FOUNDING.
-    # Existing subscribers keep their rate — Stripe never retroactively reprices
-    # an active subscription. After the cap, new checkouts use the regular price.
     is_founding = _is_founding_member_slot_open(user, db)
+
+    # Plan-specific price routing. Default to Pro for unknown plan
+    # values (back-compat with existing checkout calls that didn't pass
+    # an explicit plan).
+    plan_normalized = (plan or "pro").lower().strip()
     if price_id:
+        # Caller passed an explicit price_id (e.g. webhook back-fill) —
+        # respect it without further logic.
         price = price_id
-    elif is_founding and settings.STRIPE_PRICE_ID_PRO_FOUNDING:
-        price = settings.STRIPE_PRICE_ID_PRO_FOUNDING
-    else:
-        price = settings.STRIPE_PRICE_ID_PRO
+    elif plan_normalized == "starter":
+        if is_founding and settings.STRIPE_PRICE_ID_STARTER_FOUNDING:
+            price = settings.STRIPE_PRICE_ID_STARTER_FOUNDING
+        else:
+            price = settings.STRIPE_PRICE_ID_STARTER
+    else:  # "pro" or unknown → Pro
+        if is_founding and settings.STRIPE_PRICE_ID_PRO_FOUNDING:
+            price = settings.STRIPE_PRICE_ID_PRO_FOUNDING
+        else:
+            price = settings.STRIPE_PRICE_ID_PRO
+
     if not price:
-        log.warning("No price ID configured for plan=%s", plan)
+        log.warning("No price ID configured for plan=%s (founding=%s)", plan_normalized, is_founding)
         return None
     log.info(
-        "Checkout for user=%s: founding=%s price=%s",
-        user.id, is_founding, price,
+        "Checkout for user=%s: plan=%s founding=%s price=%s",
+        user.id, plan_normalized, is_founding, price,
     )
 
     customer_id = get_or_create_customer(user, db)
