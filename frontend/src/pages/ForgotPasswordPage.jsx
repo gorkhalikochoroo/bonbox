@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
+import { useLanguage } from "../hooks/useLanguage";
 
 const inputCls = "w-full pl-11 pr-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent text-base text-gray-800 dark:text-gray-200 placeholder:text-gray-400 transition";
 
 export default function ForgotPasswordPage() {
+  const { t } = useLanguage();
   const [step, setStep] = useState(1);
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -22,7 +24,7 @@ export default function ForgotPasswordPage() {
       await api.post("/auth/forgot-password", { email });
       setStep(2);
     } catch (err) {
-      setError(err.response?.data?.detail || "Something went wrong. Please try again.");
+      setError(err.response?.data?.detail || t("somethingWentWrong"));
     } finally {
       setLoading(false);
     }
@@ -32,11 +34,11 @@ export default function ForgotPasswordPage() {
     e.preventDefault();
     setError("");
     if (newPassword !== confirmPassword) {
-      setError("Passwords do not match");
+      setError(t("passwordsDontMatch"));
       return;
     }
     if (newPassword.length < 8) {
-      setError("Password must be at least 8 characters");
+      setError(t("passwordMinLength"));
       return;
     }
     setLoading(true);
@@ -49,7 +51,7 @@ export default function ForgotPasswordPage() {
       setSuccess(res.data.message);
       setStep(3);
     } catch (err) {
-      setError(err.response?.data?.detail || "Invalid code or something went wrong.");
+      setError(err.response?.data?.detail || t("invalidCodeErr"));
     } finally {
       setLoading(false);
     }
@@ -121,8 +123,8 @@ export default function ForgotPasswordPage() {
               </div>
               <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Reset password</h1>
               <p className="text-gray-500 dark:text-gray-400 mt-1.5">
-                {step === 1 && "Enter your email and we'll send a reset code"}
-                {step === 2 && "Enter the code from your email"}
+                {step === 1 && t("forgotPwStep1")}
+                {step === 2 && t("forgotPwStep2")}
                 {step === 3 && "You're all set!"}
               </p>
             </div>
@@ -167,14 +169,14 @@ export default function ForgotPasswordPage() {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       className={inputCls}
-                      placeholder="you@company.com"
+                      placeholder={t("emailPlaceholder")}
                       required
                     />
                   </div>
                 </div>
                 <button type="submit" disabled={loading}
                   className="w-full bg-green-600 text-white py-3.5 rounded-xl hover:bg-green-700 active:scale-[0.98] transition-all font-semibold text-base disabled:opacity-50 shadow-lg shadow-green-600/20">
-                  {loading ? "Sending..." : "Send Reset Code"}
+                  {loading ? t("sending") : t("sendResetCode")}
                 </button>
                 <p className="text-center text-sm text-gray-500 dark:text-gray-400">
                   <Link to="/login" className="text-green-600 dark:text-green-400 hover:underline font-medium">Back to sign in</Link>
@@ -211,7 +213,7 @@ export default function ForgotPasswordPage() {
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
                       </span>
                       <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
-                        className={inputCls} placeholder="Min 8 characters" required minLength={8} />
+                        className={inputCls} placeholder={t("min8chars")} required minLength={8} />
                     </div>
                   </div>
                   <div>
@@ -221,12 +223,12 @@ export default function ForgotPasswordPage() {
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                       </span>
                       <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
-                        className={inputCls} placeholder="Re-enter password" required minLength={8} />
+                        className={inputCls} placeholder={t("reenterPassword")} required minLength={8} />
                     </div>
                   </div>
                   <button type="submit" disabled={loading || code.length !== 6}
                     className="w-full bg-green-600 text-white py-3.5 rounded-xl hover:bg-green-700 active:scale-[0.98] transition-all font-semibold text-base disabled:opacity-50 shadow-lg shadow-green-600/20">
-                    {loading ? "Resetting..." : "Reset Password"}
+                    {loading ? t("resettingDots") : t("resetPasswordBtn")}
                   </button>
                   <div className="flex justify-between text-sm">
                     <button type="button" onClick={() => { setStep(1); setError(""); setCode(""); }}

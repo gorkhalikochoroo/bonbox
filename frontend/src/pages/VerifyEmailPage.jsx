@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
 
 export default function VerifyEmailPage() {
   const { user, setEmailVerified } = useAuth();
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const [code, setCode] = useState(["", "", "", "", "", ""]);
   const [error, setError] = useState("");
@@ -84,22 +86,22 @@ export default function VerifyEmailPage() {
   const handleVerify = async (codeStr) => {
     const fullCode = codeStr || code.join("");
     if (fullCode.length !== 6) {
-      setError("Please enter all 6 digits");
+      setError(t("enter6Digits"));
       return;
     }
     setError("");
     setLoading(true);
     try {
       await api.post("/auth/verify-email", { code: fullCode });
-      setSuccess("Email verified successfully!");
+      setSuccess(t("emailVerifiedOk"));
       setEmailVerified();
       setTimeout(() => navigate("/dashboard"), 1200);
     } catch (err) {
       const detail = err.response?.data?.detail;
       if (err.response?.status === 429) {
-        setError("Too many attempts. Please wait a moment and try again.");
+        setError(t("tooManyAttempts"));
       } else {
-        setError(detail || "Verification failed. Please try again.");
+        setError(detail || t("verificationFailed"));
       }
       // Clear code on failure
       setCode(["", "", "", "", "", ""]);
@@ -115,13 +117,13 @@ export default function VerifyEmailPage() {
     try {
       await api.post("/auth/resend-verification");
       setResendCooldown(60);
-      setSuccess("New code sent! Check your inbox.");
+      setSuccess(t("newCodeSent"));
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
       if (err.response?.status === 429) {
-        setError("Too many resend attempts. Please wait a moment.");
+        setError(t("tooManyResendAttempts"));
       } else {
-        setError("Could not resend code. Please try again.");
+        setError(t("couldNotResendCode"));
       }
     }
   };
@@ -271,10 +273,10 @@ export default function VerifyEmailPage() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
                   </svg>
-                  Verifying...
+                  {t("verifying") || "Verifying..."}
                 </>
               ) : (
-                "Verify Email"
+                t("verifyEmailBtn")
               )}
             </button>
 
@@ -291,8 +293,8 @@ export default function VerifyEmailPage() {
                 }`}
               >
                 {resendCooldown > 0
-                  ? `Resend code in ${resendCooldown}s`
-                  : "Resend code"}
+                  ? `${t("resendCode")} (${resendCooldown}s)`
+                  : t("resendCode")}
               </button>
             </div>
 
