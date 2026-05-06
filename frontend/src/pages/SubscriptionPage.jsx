@@ -255,7 +255,7 @@ export default function SubscriptionPage() {
       trackEvent("waitlist_joined", "subscription", tierId);
       setMsg(
         tierId === "pro"
-          ? (t("waitlistJoinedPro") || "🎉 You're on the founding-member list — when payment opens, you'll lock in 99 kr/mo for as long as you stay subscribed.")
+          ? (t("waitlistJoinedPro") || "🎉 You're on the founding-member list — when payment opens, you'll lock in 249 kr/mo for as long as you stay subscribed.")
           : ((t("waitlistJoinedTier") || "🎉 You're on the {tier} list — we'll email you when it opens.").replace("{tier}", tierId))
       );
       setTimeout(() => setMsg(""), 8000);
@@ -587,7 +587,7 @@ export default function SubscriptionPage() {
               ))}
             </div>
             <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-4 leading-relaxed">
-              {t("pricingAfterTrialClosing") || "No card needed to start the trial — it auto-runs when you sign up. You only enter a card if you click \"Lock in 99 kr/mo\" to keep the founding rate. Otherwise the trial just ends and you drop to Free."}
+              {t("pricingAfterTrialClosing") || "No card needed to start the trial — it auto-runs when you sign up. You only enter a card if you click \"Lock in founding rate\" to keep your founding price (Starter 129 kr/mo or Pro 249 kr/mo) for life. Otherwise the trial just ends and you drop to Free."}
             </p>
           </div>
         </div>

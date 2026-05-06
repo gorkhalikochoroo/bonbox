@@ -54,7 +54,7 @@ export default function TrialBanner() {
           <span className="ml-1 text-gray-600 dark:text-gray-400">
             {closing
               ? (t("trialClosingDetail") || "When it ends you stay on Free. Every feature still works — just with usage caps. No card, no surprises.")
-              : (t("trialOpenDetail") || "No card needed. If you decide to keep Pro, founding price 99 kr/mo is locked in for the first 1,000 customers.")}
+              : (t("trialOpenDetail") || "No card needed. If you decide to keep Pro, founding price 249 kr/mo is locked in for the first 100 customers.")}
           </span>
         </div>
         <Link
@@ -96,7 +96,7 @@ export default function TrialBanner() {
                   : (t("trialEndedAgoPlural")   || "Your trial ended {n} days ago.").replace("{n}", daysSince))}
           </span>
           <span className="ml-1 text-gray-600 dark:text-gray-400">
-            {t("trialEndedBackOnFree") || "You're back on Free — every feature still works, just with usage caps. Founding-member 99 kr/mo is still available (first 1,000 customers)."}
+            {t("trialEndedBackOnFree") || "You're back on Free — every feature still works, just with usage caps. Founding-member 249 kr/mo is still available (first 100 customers)."}
           </span>
         </div>
         <Link
