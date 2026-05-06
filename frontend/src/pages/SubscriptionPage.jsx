@@ -443,7 +443,10 @@ export default function SubscriptionPage() {
             (tier.id === "free" && currentPlan === "free") ||
             (tier.id === "business" && currentPlan === "business");
           const price = annual ? tier.price_annual : tier.price_monthly;
-          const isFoundingPro = tier.id === "pro" && tier.founding_price;
+          // Founding-price treatment applies to ANY tier with a founding_price
+          // set (Starter 129 kr / Pro 249 kr). Was previously gated to Pro only,
+          // which silently dropped Starter back to its 199 kr regular price.
+          const isFounding = !!tier.founding_price;
           const cta = user ? tier.cta : tier.cta_unauth;
           return (
             <div
@@ -472,7 +475,7 @@ export default function SubscriptionPage() {
               <div className="mt-4 mb-1">
                 {tier.custom ? (
                   <div className="text-2xl font-bold text-gray-900 dark:text-white">{t("pricingCustom") || "Custom"}</div>
-                ) : isFoundingPro ? (
+                ) : isFounding ? (
                   <>
                     <div className="text-3xl font-bold text-gray-900 dark:text-white">
                       {tier.founding_price}
@@ -486,7 +489,7 @@ export default function SubscriptionPage() {
                     {price > 0 && <span className="text-sm font-normal text-gray-500 dark:text-gray-400 ml-1">{t("pricingKrPerMonth") || "kr/mo"}</span>}
                   </div>
                 )}
-                {annual && price > 0 && !isFoundingPro && !tier.custom && (
+                {annual && price > 0 && !isFounding && !tier.custom && (
                   <div className="text-[11px] text-green-600 dark:text-green-400">{t("pricingBilledAnnually") || "billed annually"}</div>
                 )}
               </div>
