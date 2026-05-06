@@ -32,7 +32,7 @@ from app.schemas.auth import (
     UserRegister, UserLogin, Token, UserResponse, UserUpdate, PasswordChange,
     ForgotPasswordRequest, ResetPasswordRequest, VerifyEmailRequest,
 )
-from app.services.auth import hash_password, verify_password, create_access_token, get_current_user, AUTH_COOKIE_NAME
+from app.services.auth import hash_password, verify_password, create_access_token, get_current_user, AUTH_COOKIE_NAME, CSRF_COOKIE_NAME
 from app.services.email_service import send_email
 from app.config import settings
 
@@ -45,10 +45,10 @@ limiter = Limiter(key_func=get_remote_address)
 
 
 def _set_auth_cookie(response: Response, token: str) -> None:
-    """Attach the JWT as an HttpOnly cookie alongside the body response.
+    """Attach the JWT as an HttpOnly cookie + a non-HttpOnly CSRF token.
 
     Multi-layer defense:
-      • HttpOnly: JS in the page (and any XSS payload) cannot read it
+      • HttpOnly auth cookie: JS in the page (and any XSS payload) cannot read it
       • Secure: HTTPS-only — cookie is dropped in any plaintext context
       • SameSite=None: required because frontend (bonbox.dk) and API
         (bonbox-api.onrender.com) are different origins
@@ -57,36 +57,61 @@ def _set_auth_cookie(response: Response, token: str) -> None:
       • Path=/ so all API endpoints can read it; backend explicitly
         accepts cookie OR Authorization header in get_current_user
 
+    The companion CSRF cookie is intentionally NOT HttpOnly — the frontend JS
+    must be able to read it to echo back as X-CSRF-Token on writes. The CSRF
+    middleware in main.py rejects state-changing requests where header≠cookie.
+
     Existing clients that store the token in localStorage and send it as
     Authorization: Bearer keep working — this is purely additive defense.
     """
     is_secure = settings.ENVIRONMENT == "production"
+    same_site = "none" if is_secure else "lax"
+    max_age = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
     response.set_cookie(
         key=AUTH_COOKIE_NAME,
         value=token,
-        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        max_age=max_age,
         httponly=True,
         secure=is_secure,
         # SameSite None is required for cross-origin (bonbox.dk → onrender.com).
         # Browsers reject SameSite=None without Secure, so dev (HTTP) falls
         # back to Lax — same-origin only, which is fine since dev runs both
         # services on localhost.
-        samesite="none" if is_secure else "lax",
+        samesite=same_site,
+        path="/",
+    )
+    # Double-submit CSRF token. Random per-login, JS-readable on the frontend
+    # origin only. Same lifetime as the JWT — they expire together, no drift.
+    response.set_cookie(
+        key=CSRF_COOKIE_NAME,
+        value=secrets.token_urlsafe(32),
+        max_age=max_age,
+        httponly=False,
+        secure=is_secure,
+        samesite=same_site,
         path="/",
     )
 
 
 def _clear_auth_cookie(response: Response) -> None:
-    """Wipe the auth cookie. Same attributes as _set_auth_cookie so the
-    browser actually replaces the existing one (mismatched attributes
+    """Wipe the auth and CSRF cookies. Same attributes as _set_auth_cookie so
+    the browser actually replaces the existing ones (mismatched attributes
     silently leave the old cookie in place)."""
     is_secure = settings.ENVIRONMENT == "production"
+    same_site = "none" if is_secure else "lax"
     response.delete_cookie(
         key=AUTH_COOKIE_NAME,
         path="/",
         secure=is_secure,
-        samesite="none" if is_secure else "lax",
+        samesite=same_site,
         httponly=True,
+    )
+    response.delete_cookie(
+        key=CSRF_COOKIE_NAME,
+        path="/",
+        secure=is_secure,
+        samesite=same_site,
+        httponly=False,
     )
 
 
@@ -443,7 +468,22 @@ def resend_verification(
 
 
 @router.get("/me", response_model=UserResponse)
-def get_me(current_user: User = Depends(get_current_user)):
+def get_me(request: Request, response: Response, current_user: User = Depends(get_current_user)):
+    # CSRF backfill: users whose session was minted before the CSRF rollout
+    # don't have a bonbox_csrf cookie yet. Issue one here so their next POST
+    # doesn't 403. Skipped if a token is already present (don't rotate
+    # mid-session — would race with concurrent requests).
+    if not request.cookies.get(CSRF_COOKIE_NAME):
+        is_secure = settings.ENVIRONMENT == "production"
+        response.set_cookie(
+            key=CSRF_COOKIE_NAME,
+            value=secrets.token_urlsafe(32),
+            max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            httponly=False,
+            secure=is_secure,
+            samesite="none" if is_secure else "lax",
+            path="/",
+        )
     return current_user
 
 

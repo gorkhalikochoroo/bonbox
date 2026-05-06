@@ -57,6 +57,19 @@ api.interceptors.response.use((res) => {
   return res;
 });
 
+// Read a cookie from document.cookie. Returns the decoded value, or empty
+// string if the cookie isn't set. We only call this for the CSRF token,
+// which is intentionally non-HttpOnly so JS can echo it back as a header.
+function _readCookie(name) {
+  try {
+    const prefix = encodeURIComponent(name) + "=";
+    for (const part of document.cookie.split("; ")) {
+      if (part.startsWith(prefix)) return decodeURIComponent(part.slice(prefix.length));
+    }
+  } catch { /* document.cookie blocked — fail open, request will 403 if needed */ }
+  return "";
+}
+
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
   if (token) {
@@ -64,14 +77,25 @@ api.interceptors.request.use((config) => {
   }
   // Tell the backend whether we're inside a Capacitor native shell so it can
   // apply iOS-IAP-compliance rules to billing endpoints. Web requests get "web".
+  let isNative = false;
   try {
     if (window.Capacitor?.isNativePlatform?.()) {
+      isNative = true;
       config.headers["X-BonBox-Platform"] = window.Capacitor.getPlatform?.() || "native";
     } else {
       config.headers["X-BonBox-Platform"] = "web";
     }
   } catch (_) {
     config.headers["X-BonBox-Platform"] = "web";
+  }
+  // CSRF: web sessions echo the bonbox_csrf cookie back as X-CSRF-Token. The
+  // backend rejects state-changing cookie-auth requests where the header is
+  // missing or doesn't match the cookie. Native shells skip this — they
+  // authenticate via Authorization: Bearer, which the backend treats as
+  // already CSRF-safe (the bearer token isn't auto-attached cross-origin).
+  if (!isNative) {
+    const csrf = _readCookie("bonbox_csrf");
+    if (csrf) config.headers["X-CSRF-Token"] = csrf;
   }
   return config;
 });

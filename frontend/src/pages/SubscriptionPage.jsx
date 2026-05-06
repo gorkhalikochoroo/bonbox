@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { trackEvent } from "../hooks/useEventLog";
 import api from "../services/api";
+import { safeExternalUrl } from "../utils/safeUrl";
 
 /**
  * isNative — running inside Capacitor (iOS or Android).
@@ -194,14 +195,15 @@ export default function SubscriptionPage() {
       setMsg("");
       try {
         const res = await api.post("/billing/stripe/checkout-session", {});
-        if (res.data?.url) {
+        const safeStripeUrl = safeExternalUrl(res.data?.url);
+        if (safeStripeUrl) {
           // Already paid → portal URL was returned; otherwise checkout URL
           if (res.data.already_subscribed) {
             trackEvent("stripe_portal_opened", "subscription", "pro");
           } else {
             trackEvent("stripe_checkout_started", "subscription", "pro");
           }
-          window.location.href = res.data.url;
+          window.location.href = safeStripeUrl;
           return;
         }
         setMsg("Couldn't open checkout. Please try again.");
@@ -263,8 +265,9 @@ export default function SubscriptionPage() {
     setMsg("");
     try {
       const res = await api.post("/billing/stripe/portal-session", {});
-      if (res.data?.url) {
-        window.location.href = res.data.url;
+      const safePortalUrl = safeExternalUrl(res.data?.url);
+      if (safePortalUrl) {
+        window.location.href = safePortalUrl;
         return;
       }
       setMsg("Could not open the billing portal. Please try again.");

@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
 import { trackEvent } from "../hooks/useEventLog";
+import { safeImageUrl } from "../utils/safeUrl";
 import ReceiptCapture from "../components/ReceiptCapture";
 import InsightsCard from "../components/InsightsCard";
 import TrialBanner from "../components/TrialBanner";
@@ -1559,21 +1560,26 @@ export default function DashboardPage() {
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm">
             <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100 mb-4">{t("recentReceipts")}</h3>
             <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-7 gap-3">
-              {receipts.map((r) => (
-                <div key={r.id} className="group relative cursor-pointer rounded-xl overflow-hidden" onClick={() => r.receipt_photo && setLightboxImg(r.receipt_photo)}>
-                  {r.receipt_photo ? (
-                    <img src={r.receipt_photo} alt={`Receipt ${r.date}`}
+              {receipts.map((r) => {
+                // Validate receipt URL once per render — blocks data:/javascript:/
+                // SVG-onload XSS even if a malicious receipt URL ever lands in the DB.
+                const safeReceipt = safeImageUrl(r.receipt_photo);
+                return (
+                <div key={r.id} className="group relative cursor-pointer rounded-xl overflow-hidden" onClick={() => safeReceipt && setLightboxImg(safeReceipt)}>
+                  {safeReceipt ? (
+                    <img src={safeReceipt} alt={`Receipt ${r.date}`}
                       className="w-full h-24 object-cover"
                       onError={(e) => { e.target.style.display = "none"; e.target.nextSibling.style.display = "flex"; }} />
                   ) : null}
-                  <div className="w-full h-24 bg-gray-50 dark:bg-gray-700 flex items-center justify-center" style={{ display: r.receipt_photo ? "none" : "flex" }}>
+                  <div className="w-full h-24 bg-gray-50 dark:bg-gray-700 flex items-center justify-center" style={{ display: safeReceipt ? "none" : "flex" }}>
                     <span className="text-2xl">🧾</span>
                   </div>
                   <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent text-white text-[10px] px-2 py-1.5">
                     <p className="font-semibold">{r.amount.toLocaleString()} {currency}</p>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

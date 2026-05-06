@@ -7,6 +7,7 @@ import { displayCurrency } from "../utils/currency";
 import { trackEvent } from "../hooks/useEventLog";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
+import { safeImageUrl } from "../utils/safeUrl";
 
 /* ═══════════════════════════════════════════════════════════
    OFFLINE QUEUE — store pending daily close submissions
@@ -759,9 +760,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               <div className="flex items-center gap-3">
                 <span className="text-xs text-gray-400 shrink-0">📷 {scanPhotos.length} photo{scanPhotos.length > 1 ? "s" : ""} scanned</span>
                 <div className="flex gap-2 overflow-x-auto">
-                  {scanPhotos.map((p, i) => (
-                    <img key={i} src={p.url} alt={p.name} className="w-12 h-12 rounded-lg object-cover border-2 border-green-500/50" />
-                  ))}
+                  {scanPhotos.map((p, i) => {
+                    const safe = safeImageUrl(p.url);
+                    return safe ? (
+                      <img key={i} src={safe} alt={p.name} className="w-12 h-12 rounded-lg object-cover border-2 border-green-500/50" />
+                    ) : null;
+                  })}
                 </div>
               </div>
             )}

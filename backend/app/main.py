@@ -691,7 +691,7 @@ app.add_middleware(
     allow_origins=origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-BonBox-Platform", "Stripe-Signature"],
+    allow_headers=["Content-Type", "Authorization", "X-BonBox-Platform", "Stripe-Signature", "X-CSRF-Token"],
     max_age=600,  # cache preflights for 10min — fewer OPTIONS roundtrips
 )
 
@@ -736,6 +736,79 @@ async def admin_scan_blocker(request: Request, call_next):
             _admin_ip_banned[ip] = now + _ADMIN_BAN_DURATION_SEC
             strikes.clear()
     return response
+
+
+# --- CSRF Protection (double-submit cookie) ---
+# State-changing requests authenticated via cookie must echo the bonbox_csrf
+# cookie back as the X-CSRF-Token header. An attacker on another origin can't
+# read the cookie (Same-Origin Policy) so they can't forge the header — even
+# if the user is logged in, a malicious page can't trigger writes on their
+# behalf. Defense-in-depth on top of CORS allow-credentials origin pinning.
+#
+# Bypassed when:
+#   • Method is GET / HEAD / OPTIONS (no state change)
+#   • Request authenticates via Authorization: Bearer (native iOS — bearer
+#     token is itself unforgeable cross-origin, same protection as a CSRF token)
+#   • Path is in the public-auth allowlist (login, register, password reset,
+#     Google OAuth, Stripe webhook — these MUST work without prior session)
+#   • Path is the staff portal (/api/staff-portal/*) — uses URL-token auth
+#     scoped to that staff member, not the JWT cookie
+from app.services.auth import AUTH_COOKIE_NAME, CSRF_COOKIE_NAME, CSRF_HEADER_NAME
+
+# Endpoints that legitimately have no prior session, so a CSRF cookie can't
+# exist yet. Each one has its own anti-abuse mitigation (rate limiting,
+# verification codes, signed Stripe webhook, etc.) — CSRF is the wrong layer.
+_CSRF_EXEMPT_PATHS = frozenset({
+    "/api/auth/login",
+    "/api/auth/register",
+    "/api/auth/google",
+    "/api/auth/forgot-password",
+    "/api/auth/reset-password",
+    # Stripe webhook is signed; CSRF would just block legitimate Stripe POSTs.
+    # The handler verifies Stripe-Signature inside, no cookie is involved.
+    "/api/billing/stripe/webhook",
+})
+
+
+@app.middleware("http")
+async def csrf_protect(request: Request, call_next):
+    method = request.method
+    if method in ("GET", "HEAD", "OPTIONS"):
+        return await call_next(request)
+    # Bearer-authenticated requests skip CSRF — the bearer token itself is in
+    # a header that browsers won't auto-attach cross-origin, so CSRF for cookie
+    # auth doesn't apply. Native iOS uses this path.
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        return await call_next(request)
+    path = request.url.path
+    if path in _CSRF_EXEMPT_PATHS or path.startswith("/api/staff-portal"):
+        return await call_next(request)
+    # Only enforce on authenticated cookie-based requests. If there's no
+    # session cookie, there's nothing to protect — the underlying handler
+    # will 401 anyway. This avoids 403-ing public unauthenticated POSTs we
+    # might add later without remembering to update the exempt list.
+    if not request.cookies.get(AUTH_COOKIE_NAME):
+        return await call_next(request)
+    header_token = request.headers.get(CSRF_HEADER_NAME.lower(), "")
+    cookie_token = request.cookies.get(CSRF_COOKIE_NAME, "")
+    # Constant-time comparison — defends against timing oracles even though
+    # the values aren't secrets-equivalent (they're per-session randoms)
+    import secrets as _s
+    if (
+        not header_token
+        or not cookie_token
+        or not _s.compare_digest(header_token.encode("utf-8"), cookie_token.encode("utf-8"))
+    ):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "detail": "CSRF token missing or mismatched",
+                "_error": "Session expired — please refresh the page",
+                "_recoverable": True,
+            },
+        )
+    return await call_next(request)
 
 
 # --- Security Headers Middleware ---

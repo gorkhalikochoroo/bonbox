@@ -21,6 +21,14 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=Fals
 # clients), then this cookie (newer clients that opt in via withCredentials).
 AUTH_COOKIE_NAME = "bonbox_session"
 
+# Double-submit CSRF cookie. Issued alongside the auth cookie on login/register/
+# google. NON-HttpOnly so the frontend JS can read it and echo it back as the
+# X-CSRF-Token header on state-changing requests; the CSRF middleware verifies
+# the header equals the cookie. An attacker on another origin can't read the
+# cookie (Same-Origin Policy) so they can't forge the header.
+CSRF_COOKIE_NAME = "bonbox_csrf"
+CSRF_HEADER_NAME = "X-CSRF-Token"
+
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)

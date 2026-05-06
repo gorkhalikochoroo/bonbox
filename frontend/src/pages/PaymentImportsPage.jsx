@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { useAuth } from "../hooks/useAuth";
+import { safeExternalUrl } from "../utils/safeUrl";
 
 const PROVIDER_LOGOS = {
   vipps_mobilepay: "📱",
@@ -81,10 +82,12 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
             </div>
           </div>
 
-          {/* Portal link */}
-          {provider.portal_url && (
+          {/* Portal link — only render when URL is https; safeExternalUrl
+              defends against javascript: / data: / scheme smuggling if the
+              provider record is ever attacker-influenced. */}
+          {safeExternalUrl(provider.portal_url) && (
             <a
-              href={provider.portal_url}
+              href={safeExternalUrl(provider.portal_url)}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 px-4 py-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition group"
@@ -170,9 +173,9 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
             <p className="text-xs text-gray-400">Paste them from the {provider.portal_name || "portal"}</p>
           </div>
         </div>
-        {provider.portal_url && (
+        {safeExternalUrl(provider.portal_url) && (
           <a
-            href={provider.portal_url}
+            href={safeExternalUrl(provider.portal_url)}
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs text-blue-500 hover:text-blue-600 font-medium flex items-center gap-1"
