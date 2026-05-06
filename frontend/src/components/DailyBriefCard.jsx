@@ -12,14 +12,37 @@ import api from "../services/api";
  * Loading: skeleton placeholder.
  * Error: silently hidden (fail-quiet — never tell the user "AI unavailable",
  *   the dashboard is still useful below).
+ * Dismiss: × button stores bonbox_brief_dismissed_YYYY-MM-DD in localStorage;
+ *   the card stays hidden for the rest of that day. Resets at next day's brief.
  */
+
+function _todayKey() {
+  // Use the user's local date, not UTC — same key the backend uses.
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function _dismissKey() {
+  return `bonbox_brief_dismissed_${_todayKey()}`;
+}
+
 export default function DailyBriefCard() {
   const [brief, setBrief] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [hidden, setHidden] = useState(false);
 
+  // Respect the user's choice to dismiss for the day before we even fetch
+  // — saves an API round trip if they've already dismissed today.
   useEffect(() => {
+    try {
+      if (localStorage.getItem(_dismissKey()) === "1") {
+        setHidden(true);
+        setLoading(false);
+        return;
+      }
+    } catch { /* localStorage blocked — fall through and show */ }
+
     let mounted = true;
     api
       .get("/dashboard/daily-brief")
@@ -28,6 +51,11 @@ export default function DailyBriefCard() {
       .finally(() => { if (mounted) setLoading(false); });
     return () => { mounted = false; };
   }, []);
+
+  const onDismiss = () => {
+    try { localStorage.setItem(_dismissKey(), "1"); } catch { /* fine, it'll just show again next refresh */ }
+    setHidden(true);
+  };
 
   const onRefresh = async () => {
     if (refreshing) return;
@@ -80,17 +108,30 @@ export default function DailyBriefCard() {
             <p className="text-[12.5px] text-gray-500 dark:text-gray-400 mt-0.5">{brief.date_label}</p>
           </div>
         </div>
-        {canRefresh && (
+        <div className="flex items-center gap-3 shrink-0">
+          {canRefresh && (
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={refreshing}
+              aria-label="Refresh brief"
+              className="text-[12px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-50 transition"
+            >
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </button>
+          )}
           <button
             type="button"
-            onClick={onRefresh}
-            disabled={refreshing}
-            aria-label="Refresh brief"
-            className="text-[12px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-50 transition shrink-0"
+            onClick={onDismiss}
+            aria-label="Dismiss brief for today"
+            title="Dismiss for today"
+            className="w-7 h-7 -mr-1 -mt-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700/60 dark:hover:text-gray-200 transition flex items-center justify-center"
           >
-            {refreshing ? "Refreshing…" : "Refresh"}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
           </button>
-        )}
+        </div>
       </div>
 
       <p className="text-[15.5px] sm:text-[16px] leading-snug text-gray-900 dark:text-gray-100 mb-4">
