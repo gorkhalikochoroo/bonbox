@@ -888,6 +888,7 @@ export const tr = {
   channelSlackPlaceholder: "Webhook URL veya kanal",
   yourRecipients: "Alıcılarınız",
   openShareSheet: "Paylaşım menüsünü aç",
+  send: "Gönder",
   sharePdf: "PDF paylaş",
   pdfShareHint: "PDF eki olarak WhatsApp / e-postada paylaş",
   downloadPdf: "PDF indir",

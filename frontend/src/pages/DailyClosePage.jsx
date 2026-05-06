@@ -8,6 +8,12 @@ import { trackEvent } from "../hooks/useEventLog";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
 import { safeImageUrl } from "../utils/safeUrl";
+import {
+  buildShareMessage,
+  buildShareTitle,
+  formatDanishDateLabel,
+  shareCloseSummary,
+} from "../utils/shareClose";
 
 /* ═══════════════════════════════════════════════════════════
    OFFLINE QUEUE — store pending daily close submissions
@@ -1183,7 +1189,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
    HISTORY VIEW
    ═══════════════════════════════════════════════════════════ */
 function HistoryView({ data, currency, t, onRefresh, insights }) {
+  const { user } = useAuth();
   const [downloading, setDownloading] = useState(null);
+  const [sharing, setSharing] = useState(null);
+  const [shareToast, setShareToast] = useState("");
   const [unlockId, setUnlockId] = useState(null);
   const [unlockReason, setUnlockReason] = useState("");
   const [unlocking, setUnlocking] = useState(false);
@@ -1218,6 +1227,74 @@ function HistoryView({ data, currency, t, onRefresh, insights }) {
     }
   };
 
+  /**
+   * Map a single-terminal DailyClose row to the `aggregated` shape that
+   * buildShareMessage() expects from the multi-terminal aggregator.
+   * Single-terminal closes have no per-terminal breakdown, so terminals=[]
+   * and the payment numbers all come from payment_categories.
+   */
+  const dcToAggregated = (dc) => {
+    // Parse pipe-delimited "cash:4200|card:13500|mobilepay:3150" string
+    const parsePayments = (s) => {
+      const out = {};
+      if (!s) return out;
+      for (const pair of String(s).split("|")) {
+        const [k, v] = pair.split(":");
+        if (k && v != null) out[k.trim().toLowerCase()] = parseFloat(v) || 0;
+      }
+      return out;
+    };
+    const pay = parsePayments(dc.payment_categories);
+    return {
+      closed_by: dc.closed_by || "",
+      cash_closing: pay.cash || 0,
+      mobilepay_total: pay.mobilepay || pay.mobile_pay || 0,
+      gift_cards_total: pay.gift_card || pay.giftcard || 0,
+      cards_total: pay.card || pay.cards || 0,
+      payments_total: parseFloat(dc.payment_total) || 0,
+      sales_pos: parseFloat(dc.revenue_total) || 0,
+      cash_difference: parseFloat(dc.cash_difference) || 0,
+      cash_diff_flagged: Math.abs(parseFloat(dc.cash_difference) || 0) > 100,
+      flagged_reason: null,
+      terminals: [],
+    };
+  };
+
+  const shareDc = async (dc) => {
+    setSharing(dc.id);
+    setShareToast("");
+    try {
+      const aggregated = dcToAggregated(dc);
+      const dateLabel = formatDanishDateLabel(new Date(dc.date));
+      const title = buildShareTitle({
+        businessName: user?.business_name,
+        dateLabel,
+      });
+      const text = buildShareMessage(aggregated, {
+        businessName: user?.business_name,
+        dateLabel,
+        currency,
+      });
+      const res = await shareCloseSummary({ title, text });
+      if (res.ok) {
+        setShareToast(
+          res.channel === "clipboard"
+            ? (t("shareCopiedToClipboard") || "Copied to clipboard — paste into your group")
+            : (t("shareOpened") || "Share sheet opened"),
+        );
+        setTimeout(() => setShareToast(""), 3000);
+      } else {
+        setShareToast(t("shareFailed") || "Could not open share sheet");
+        setTimeout(() => setShareToast(""), 4000);
+      }
+    } catch {
+      setShareToast(t("shareFailed") || "Could not open share sheet");
+      setTimeout(() => setShareToast(""), 4000);
+    } finally {
+      setSharing(null);
+    }
+  };
+
   if (!data.length) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 text-center border border-gray-100 dark:border-gray-700">
@@ -1230,6 +1307,15 @@ function HistoryView({ data, currency, t, onRefresh, insights }) {
 
   return (
     <div className="space-y-3">
+      {/* Share-to-team status toast — appears briefly after a Send tap.
+          Floats above the list rather than inline so the closer's eye
+          isn't pulled away from where they were tapping. */}
+      {shareToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-xs font-semibold rounded-full shadow-lg">
+          {shareToast}
+        </div>
+      )}
+
       {/* Active cash streak warning banner */}
       {activeStreak && (
         <div className={`rounded-xl p-3 flex items-center gap-2 border ${
@@ -1332,6 +1418,10 @@ function HistoryView({ data, currency, t, onRefresh, insights }) {
                     🔓 Unlock
                   </button>
                 )}
+                <button onClick={() => shareDc(dc)} disabled={sharing === dc.id}
+                  className="text-xs px-3 py-1.5 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/50 font-medium disabled:opacity-50">
+                  {sharing === dc.id ? "..." : `📨 ${t("send") || "Send"}`}
+                </button>
                 <button onClick={() => downloadPdf(dc.id, dc.date)} disabled={downloading === dc.id}
                   className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 font-medium dark:text-gray-300">
                   {downloading === dc.id ? "..." : "📄 PDF"}
