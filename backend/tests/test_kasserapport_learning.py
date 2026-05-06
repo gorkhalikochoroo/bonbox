@@ -244,6 +244,103 @@ def test_detect_patterns_db_error_returns_empty():
     assert patterns == []
 
 
+def test_detect_patterns_scale_x100():
+    """AI returns øre when user expects kr — user always corrects by *100."""
+    db = MagicMock()
+
+    def make_row(ai_val, user_val):
+        r = MagicMock()
+        r.extracted_json = {"revenue": {"total_incl_moms": ai_val}}
+        r.final_json = {"revenue": {"total_incl_moms": user_val}}
+        return r
+
+    db.query.return_value.filter.return_value.all.return_value = [
+        make_row(148.54, 14854),
+        make_row(923.50, 92350),
+        make_row(1485.40, 148540),
+    ]
+    patterns = detect_correction_patterns(db, "user-id", "oasis")
+    scale_pattern = next(
+        (p for p in patterns if p["direction"] == "scale_x100"
+         and "total_incl_moms" in p["field_path"]),
+        None,
+    )
+    assert scale_pattern is not None
+    assert scale_pattern["count"] == 3
+
+
+def test_detect_patterns_scale_div100():
+    """AI returns kr-with-extra-zero — user always corrects by /100."""
+    db = MagicMock()
+
+    def make_row(ai_val, user_val):
+        r = MagicMock()
+        r.extracted_json = {"revenue": {"total_incl_moms": ai_val}}
+        r.final_json = {"revenue": {"total_incl_moms": user_val}}
+        return r
+
+    db.query.return_value.filter.return_value.all.return_value = [
+        make_row(1485400, 14854),
+        make_row(9235000, 92350),
+        make_row(14854000, 148540),
+    ]
+    patterns = detect_correction_patterns(db, "user-id", "oasis")
+    scale_pattern = next(
+        (p for p in patterns if p["direction"] == "scale_div100"),
+        None,
+    )
+    assert scale_pattern is not None
+
+
+def test_detect_patterns_rounding():
+    """AI returns øre-precision, user rounds to whole kr."""
+    db = MagicMock()
+
+    def make_row(ai_val, user_val):
+        r = MagicMock()
+        r.extracted_json = {"tip": ai_val}
+        r.final_json = {"tip": user_val}
+        return r
+
+    db.query.return_value.filter.return_value.all.return_value = [
+        make_row(125.50, 126),
+        make_row(75.25, 75),
+        make_row(50.75, 51),
+    ]
+    patterns = detect_correction_patterns(db, "user-id", "oasis")
+    rounding_pattern = next(
+        (p for p in patterns if p["direction"] == "rounding"),
+        None,
+    )
+    assert rounding_pattern is not None
+    assert rounding_pattern["count"] == 3
+
+
+def test_detect_patterns_unknown_direction_for_random_edits():
+    """If corrections don't match any known pattern, fall through to
+    'unknown' so the founder still sees the field is being edited
+    a lot — useful signal even without auto-classification."""
+    db = MagicMock()
+
+    def make_row(ai_val, user_val):
+        r = MagicMock()
+        r.extracted_json = {"weird_field": ai_val}
+        r.final_json = {"weird_field": user_val}
+        return r
+
+    db.query.return_value.filter.return_value.all.return_value = [
+        make_row("a", "b"),
+        make_row("c", "d"),
+        make_row("e", "f"),
+    ]
+    patterns = detect_correction_patterns(db, "user-id", "oasis")
+    unknown_pattern = next(
+        (p for p in patterns if p["direction"] == "unknown"),
+        None,
+    )
+    assert unknown_pattern is not None
+
+
 # ─── Configuration sanity ──────────────────────────────────────────────
 
 def test_max_examples_per_user_pos_is_reasonable():

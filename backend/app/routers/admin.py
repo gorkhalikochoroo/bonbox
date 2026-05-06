@@ -526,3 +526,150 @@ def admin_triage_notes(
         q = q.filter(TriageNote.severity == severity)
     rows = q.order_by(TriageNote.created_at.desc()).limit(limit).all()
     return [serialize_note(r) for r in rows]
+
+
+# ─── Kasserapport learning admin (the /admin/training page backend) ────
+
+@router.get("/training/drift")
+def admin_training_drift(
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Per-POS-system drift signals. Returns the latest computed drift
+    signal for each known POS system, OR null if no drift detected.
+
+    Frontend renders this as a list with:
+      - green if signal is None (healthy)
+      - amber if drop is 5-10pp (degrading)
+      - red if drop > 10pp (refresh prompt urgently)
+    """
+    from app.services.kasserapport_learning import compute_drift_signal
+    from app.jobs.kasserapport_learning_jobs import KNOWN_POS_SYSTEMS
+
+    out = []
+    for pos in KNOWN_POS_SYSTEMS:
+        try:
+            signal = compute_drift_signal(db, pos)
+        except Exception:  # noqa: BLE001
+            signal = None
+        out.append({
+            "pos_system": pos,
+            "signal": signal,  # None means healthy / not enough data
+        })
+    return {"systems": out, "checked_at": datetime.utcnow().isoformat()}
+
+
+@router.get("/training/recent-examples")
+def admin_training_recent_examples(
+    limit: int = Query(20, ge=1, le=100),
+    pos_system: str | None = Query(None),
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Recent KasserapportExample rows that got auto-promoted. Founder
+    reviews these during weekly admin triage to spot bad promotions
+    (e.g. an extraction that scored 0.86 confidence but actually had
+    a wrong field that wasn't caught by the validator).
+
+    Filterable by pos_system so you can audit one format at a time.
+    """
+    from app.models.kasserapport import KasserapportExample
+
+    q = db.query(KasserapportExample).filter(KasserapportExample.is_global.is_(False))
+    if pos_system:
+        q = q.filter(KasserapportExample.pos_system == pos_system)
+    rows = q.order_by(KasserapportExample.created_at.desc()).limit(limit).all()
+    return [
+        {
+            "id": str(r.id),
+            "user_id": str(r.user_id) if r.user_id else None,
+            "pos_system": r.pos_system,
+            "notes": r.notes,
+            "promoted_from_extraction_id": (
+                str(r.promoted_from_extraction_id) if r.promoted_from_extraction_id else None
+            ),
+            "truth_json": r.truth_json,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rows
+    ]
+
+
+@router.get("/training/extraction-stats")
+def admin_training_extraction_stats(
+    days: int = Query(30, ge=1, le=180),
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Cross-user aggregate stats for the training dashboard.
+
+    Returns per-POS-system: total scans, avg extraction confidence,
+    %manual_review_needed (validator-flagged), %user_corrected (owner
+    edited before commit), total tokens consumed.
+
+    The %manual_review and %user_corrected curves over time are the
+    headline KPIs for the training loop's effectiveness — both should
+    trend DOWN as the example library grows per user.
+    """
+    from sqlalchemy import case
+    from app.models.kasserapport import KasserapportExtraction
+
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    rows = (
+        db.query(
+            KasserapportExtraction.pos_system,
+            func.count(KasserapportExtraction.id).label("total"),
+            func.avg(KasserapportExtraction.extraction_confidence).label("avg_conf"),
+            func.sum(
+                case((KasserapportExtraction.manual_review_needed.is_(True), 1), else_=0)
+            ).label("flagged"),
+            func.sum(
+                case((KasserapportExtraction.user_corrected.is_(True), 1), else_=0)
+            ).label("corrected"),
+            func.sum(KasserapportExtraction.input_tokens).label("input_tokens"),
+            func.sum(KasserapportExtraction.output_tokens).label("output_tokens"),
+        )
+        .filter(KasserapportExtraction.created_at >= cutoff)
+        .group_by(KasserapportExtraction.pos_system)
+        .all()
+    )
+    return {
+        "window_days": days,
+        "by_pos": [
+            {
+                "pos_system": r.pos_system,
+                "total_scans": int(r.total or 0),
+                "avg_confidence": round(float(r.avg_conf or 0), 3),
+                "pct_flagged_manual_review": (
+                    round(float(r.flagged or 0) / float(r.total or 1) * 100, 1)
+                ),
+                "pct_user_corrected": (
+                    round(float(r.corrected or 0) / float(r.total or 1) * 100, 1)
+                ),
+                "input_tokens": int(r.input_tokens or 0),
+                "output_tokens": int(r.output_tokens or 0),
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.post("/training/run-drift-now")
+def admin_training_run_drift_now(
+    admin: User = Depends(require_super_admin),
+):
+    """Trigger the daily drift sweep on demand instead of waiting for
+    03:00 UTC. Useful when you've just deployed a prompt change and
+    want immediate feedback on impact."""
+    from app.jobs.kasserapport_learning_jobs import daily_drift_sweep
+    return daily_drift_sweep()
+
+
+@router.post("/training/run-pattern-sweep-now")
+def admin_training_run_pattern_sweep_now(
+    lookback_days: int = Query(30, ge=1, le=180),
+    admin: User = Depends(require_super_admin),
+):
+    """Trigger the weekly correction-pattern sweep on demand."""
+    from app.jobs.kasserapport_learning_jobs import weekly_pattern_sweep
+    return weekly_pattern_sweep(lookback_days=lookback_days)

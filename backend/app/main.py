@@ -1056,6 +1056,10 @@ try:
     from apscheduler.triggers.cron import CronTrigger
     from app.services.payment_autosync import run_auto_sync
     from app.jobs.retention_and_patterns import daily_maintenance
+    from app.jobs.kasserapport_learning_jobs import (
+        daily_drift_sweep,
+        weekly_pattern_sweep,
+    )
 
     _scheduler = BackgroundScheduler()
     _scheduler.add_job(
@@ -1074,8 +1078,26 @@ try:
         name="GDPR retention + pattern detection",
         replace_existing=True,
     )
+    # Kasserapport learning loop — daily drift sweep (03:00 UTC) +
+    # weekly correction-pattern sweep (Sunday 03:30 UTC). These run
+    # AFTER nightly maintenance so they see fresh data.
+    _scheduler.add_job(
+        daily_drift_sweep,
+        trigger=CronTrigger(hour=3, minute=0),
+        id="kasserapport_drift_sweep",
+        name="Kasserapport drift monitor — confidence trend per POS",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
+        weekly_pattern_sweep,
+        trigger=CronTrigger(day_of_week="sun", hour=3, minute=30),
+        id="kasserapport_pattern_sweep",
+        name="Kasserapport correction-pattern sweep (weekly)",
+        replace_existing=True,
+    )
     _scheduler.start()
-    print("Schedulers started: payment auto-sync (6h), nightly maintenance (02:30 UTC)")
+    print("Schedulers started: payment auto-sync (6h), nightly maintenance (02:30), "
+          "kasserapport drift (03:00), kasserapport patterns (Sun 03:30)")
 
     @app.on_event("shutdown")
     def _shutdown_scheduler():

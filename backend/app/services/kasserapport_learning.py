@@ -369,11 +369,16 @@ def detect_correction_patterns(
     for path, diffs in field_diffs.items():
         if len(diffs) < min_occurrences:
             continue
-        # Pattern: sign flip (tip frequently AI=-X user=+X)
-        sign_flips = sum(
-            1 for d in diffs
+
+        numeric_diffs = [
+            d for d in diffs
             if isinstance(d["ai"], (int, float)) and isinstance(d["user"], (int, float))
-            and d["ai"] != 0 and d["user"] != 0
+        ]
+
+        # Detector 1: sign flip (e.g. tip frequently AI=-X user=+X)
+        sign_flips = sum(
+            1 for d in numeric_diffs
+            if d["ai"] != 0 and d["user"] != 0
             and (d["ai"] < 0) != (d["user"] < 0)
             and abs(abs(d["ai"]) - abs(d["user"])) < 0.5
         )
@@ -382,19 +387,78 @@ def detect_correction_patterns(
                 "field_path": path,
                 "direction": "sign_flip",
                 "count": sign_flips,
-                "rule_text": f"For this owner, the AI tends to flip the sign on {path}. Trust the magnitude but check the sign carefully.",
+                "rule_text": (
+                    f"For this owner, the AI tends to flip the sign on {path}. "
+                    f"Trust the magnitude but check the sign carefully."
+                ),
             })
             continue
 
-        # Pattern: consistent off-by-one type drift (less common)
-        # Could add more pattern detectors here later — kept minimal for v1.
+        # Detector 2: scale / unit mismatch — AI returns øre when user expects kr
+        # (or vice versa). Detect by ratio: if user_value ≈ ai_value * 100 or
+        # ai_value / 100 across most edits, that's a unit mismatch pattern.
+        scale_100x = sum(
+            1 for d in numeric_diffs
+            if d["ai"] != 0 and d["user"] != 0
+            and 0.95 < (d["user"] / d["ai"]) / 100 < 1.05
+        )
+        scale_div100 = sum(
+            1 for d in numeric_diffs
+            if d["ai"] != 0 and d["user"] != 0
+            and 0.95 < (d["user"] / d["ai"]) * 100 < 1.05
+        )
+        if scale_100x >= min_occurrences:
+            patterns.append({
+                "field_path": path,
+                "direction": "scale_x100",
+                "count": scale_100x,
+                "rule_text": (
+                    f"For this owner, the AI's {path} is consistently 100x too small "
+                    f"(possibly reading øre as if it were kr). Multiply by 100 to verify."
+                ),
+            })
+            continue
+        if scale_div100 >= min_occurrences:
+            patterns.append({
+                "field_path": path,
+                "direction": "scale_div100",
+                "count": scale_div100,
+                "rule_text": (
+                    f"For this owner, the AI's {path} is consistently 100x too large "
+                    f"(possibly reading kr as if it were øre). Divide by 100 to verify."
+                ),
+            })
+            continue
+
+        # Detector 3: rounding — AI returns øre precision, user always
+        # rounds to whole kr (or vice versa). Lower-priority signal.
+        rounding_drift = sum(
+            1 for d in numeric_diffs
+            if d["ai"] != 0 and d["user"] != 0
+            and abs(d["ai"] - d["user"]) <= 1.0  # within 1 kr
+            and d["ai"] != d["user"]
+        )
+        if rounding_drift >= min_occurrences:
+            patterns.append({
+                "field_path": path,
+                "direction": "rounding",
+                "count": rounding_drift,
+                "rule_text": (
+                    f"For this owner, the AI's {path} is consistently off by < 1 kr "
+                    f"(rounding artifact). Cosmetic — tolerate or round at display."
+                ),
+            })
+            continue
 
         # Otherwise: log as "unknown systematic" for founder review
         patterns.append({
             "field_path": path,
             "direction": "unknown",
             "count": len(diffs),
-            "rule_text": f"For this owner, the AI's {path} is often edited (n={len(diffs)}). Worth double-checking on extraction.",
+            "rule_text": (
+                f"For this owner, the AI's {path} is often edited (n={len(diffs)}). "
+                f"Worth double-checking on extraction."
+            ),
         })
 
     return patterns
