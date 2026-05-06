@@ -846,4 +846,13 @@ export const th = {
   flaggedReviewWithOwner: "ถูกตั้งค่าให้เจ้าของตรวจ",
   openHistory: "เปิดประวัติปิดวัน",
   newClose: "เริ่มปิดวันใหม่",
+  sendToTeam: "ส่งให้เจ้าของ / ทีม",
+  sendToTeamHint: "WhatsApp · Messenger · อีเมล — คุณเลือก",
+  sendNow: "ส่งเลย",
+  opening: "กำลังเปิด…",
+  shareCopiedToClipboard: "คัดลอกแล้ว — วางในกลุ่มของคุณ",
+  shareOpened: "เปิดเมนูแชร์แล้ว",
+  shareFailed: "เปิดเมนูแชร์ไม่ได้",
+  copied: "คัดลอกแล้ว",
+  copyText: "คัดลอก",
 };

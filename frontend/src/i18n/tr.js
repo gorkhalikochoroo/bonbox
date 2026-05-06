@@ -847,4 +847,13 @@ export const tr = {
   flaggedReviewWithOwner: "Sahip incelemesi için işaretlendi",
   openHistory: "Kapanış geçmişini aç",
   newClose: "Yeni kapanış başlat",
+  sendToTeam: "Sahibine / ekibe gönder",
+  sendToTeamHint: "WhatsApp · Messenger · e-posta — siz seçin",
+  sendNow: "Şimdi gönder",
+  opening: "Açılıyor…",
+  shareCopiedToClipboard: "Panoya kopyalandı — grubunuza yapıştırın",
+  shareOpened: "Paylaşım menüsü açıldı",
+  shareFailed: "Paylaşım menüsü açılamadı",
+  copied: "Kopyalandı",
+  copyText: "Metni kopyala",
 };

@@ -851,4 +851,13 @@ export const vi = {
   flaggedReviewWithOwner: "Đã đánh dấu để chủ xem lại",
   openHistory: "Mở lịch sử đóng",
   newClose: "Bắt đầu đóng mới",
+  sendToTeam: "Gửi cho chủ / nhóm",
+  sendToTeamHint: "WhatsApp · Messenger · email — bạn chọn",
+  sendNow: "Gửi ngay",
+  opening: "Đang mở…",
+  shareCopiedToClipboard: "Đã sao chép — dán vào nhóm của bạn",
+  shareOpened: "Đã mở bảng chia sẻ",
+  shareFailed: "Không mở được bảng chia sẻ",
+  copied: "Đã sao chép",
+  copyText: "Sao chép",
 };

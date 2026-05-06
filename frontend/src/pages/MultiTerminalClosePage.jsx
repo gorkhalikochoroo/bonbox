@@ -4,6 +4,12 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
+import {
+  buildShareMessage,
+  buildShareTitle,
+  formatDanishDateLabel,
+  shareCloseSummary,
+} from "../utils/shareClose";
 
 /**
  * Multi-terminal daily close — Mirabelle-format flow.
@@ -427,52 +433,29 @@ export default function MultiTerminalClosePage() {
         </FadeIn>
       )}
 
-      {/* ─── STEP 4: done ──────────────────────────────────────── */}
+      {/* ─── STEP 4: done + share ───────────────────────────── */}
       {step === "done" && doneSummary && (
         <FadeIn>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-green-200 dark:border-green-800 p-6 sm:p-8 text-center">
-            <div className="text-5xl mb-3">✅</div>
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">
-              {t("closeSentTitle") || "Lukning sendt"}
-            </h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
-              {(t("closeSentSubtitle") ||
-                "{count} terminals consolidated. Cash difference: {diff}.")
-                .replace("{count}", doneSummary.terminal_count)
-                .replace("{diff}", fmtKr(doneSummary.cash_difference, currency, ""))}
-            </p>
-            {doneSummary.flagged && (
-              <div className="text-xs px-3 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 rounded-lg mb-4 inline-block">
-                ⚠ {t("flaggedReviewWithOwner") || "Flagged for owner review — exceeds threshold"}
-              </div>
-            )}
-            <div className="flex gap-2 justify-center flex-wrap">
-              <a
-                href="/daily-close"
-                className="px-5 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition"
-              >
-                {t("openHistory") || "Open daily-close history"}
-              </a>
-              <button
-                onClick={() => {
-                  setScans({});
-                  setManual({
-                    cash_closing: "",
-                    mobilepay_total: "",
-                    gift_cards_total: "",
-                    sales_pos: "",
-                    closed_by: user?.full_name || user?.email || "",
-                  });
-                  setAggregated(null);
-                  setDoneSummary(null);
-                  setStep("scan");
-                }}
-                className="px-5 py-2 bg-[#22c55e] hover:bg-[#16a34a] text-white text-sm font-semibold rounded-lg transition"
-              >
-                {t("newClose") || "Start another close"}
-              </button>
-            </div>
-          </div>
+          <DoneView
+            doneSummary={doneSummary}
+            aggregated={aggregated}
+            currency={currency}
+            user={user}
+            t={t}
+            onReset={() => {
+              setScans({});
+              setManual({
+                cash_closing: "",
+                mobilepay_total: "",
+                gift_cards_total: "",
+                sales_pos: "",
+                closed_by: user?.full_name || user?.email || "",
+              });
+              setAggregated(null);
+              setDoneSummary(null);
+              setStep("scan");
+            }}
+          />
         </FadeIn>
       )}
     </div>
@@ -607,6 +590,159 @@ function ReviewView({ aggregated, currency, t, onBack, onSend, sending }) {
         </button>
       </div>
     </div>
+  );
+}
+
+
+/* ─── Done step + share-to-team ──────────────────────────────────────── */
+
+function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
+  const [shareState, setShareState] = useState({ status: "idle", message: "" });
+
+  const aggData = aggregated?.aggregated;
+  const businessName = user?.business_name || "";
+  const dateLabel = formatDanishDateLabel(new Date());
+
+  const shareTitle = useMemo(
+    () => buildShareTitle({ businessName, dateLabel }),
+    [businessName, dateLabel],
+  );
+  const shareText = useMemo(
+    () => buildShareMessage(aggData, { businessName, dateLabel, currency }),
+    [aggData, businessName, dateLabel, currency],
+  );
+
+  async function doShare() {
+    if (!shareText) return;
+    setShareState({ status: "sharing", message: "" });
+    try {
+      const res = await shareCloseSummary({ title: shareTitle, text: shareText });
+      if (res.ok) {
+        setShareState({
+          status: "success",
+          message: res.channel === "clipboard"
+            ? (t("shareCopiedToClipboard") || "Copied to clipboard — paste into your group")
+            : (t("shareOpened") || "Share sheet opened"),
+        });
+      } else {
+        setShareState({
+          status: "error",
+          message: t("shareFailed") || "Could not open share sheet",
+        });
+      }
+    } catch {
+      setShareState({
+        status: "error",
+        message: t("shareFailed") || "Could not open share sheet",
+      });
+    }
+  }
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-green-200 dark:border-green-800 p-6 sm:p-8">
+      <div className="text-center">
+        <div className="text-5xl mb-3">✅</div>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">
+          {t("closeSentTitle") || "Lukning sendt"}
+        </h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+          {(t("closeSentSubtitle") ||
+            "{count} terminals consolidated. Cash difference: {diff}.")
+            .replace("{count}", doneSummary.terminal_count)
+            .replace("{diff}", fmtKr(doneSummary.cash_difference, currency, ""))}
+        </p>
+        {doneSummary.flagged && (
+          <div className="text-xs px-3 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 rounded-lg mb-4 inline-block">
+            ⚠ {t("flaggedReviewWithOwner") || "Flagged for owner review — exceeds threshold"}
+          </div>
+        )}
+      </div>
+
+      {/* Share-to-team — the killer differentiator. Owner reviews the
+          formatted Danish summary, taps "Send til ejer/team", native
+          share sheet opens (WhatsApp / Messenger / email) and the
+          message goes wherever they already share their closing. */}
+      {aggData && shareText && (
+        <div className="mt-2 mb-6 rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30">
+          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between flex-wrap gap-2">
+            <div className="text-sm font-semibold text-gray-800 dark:text-white">
+              📨 {t("sendToTeam") || "Send til ejer / team"}
+            </div>
+            <span className="text-[11px] text-gray-400 dark:text-gray-500">
+              {t("sendToTeamHint") || "WhatsApp · Messenger · email — your choice"}
+            </span>
+          </div>
+
+          {/* Preview the exact text that will be shared. Owners trust
+              what they see — no surprises in Messenger. */}
+          <pre className="px-4 py-3 text-[12px] sm:text-[13px] font-mono text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed max-h-72 overflow-y-auto">
+            {shareText}
+          </pre>
+
+          {shareState.message && (
+            <div
+              className={`mx-4 mb-3 px-3 py-2 rounded-lg text-xs ${
+                shareState.status === "error"
+                  ? "bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-300"
+                  : "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+              }`}
+            >
+              {shareState.message}
+            </div>
+          )}
+
+          <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex items-center gap-2 flex-wrap">
+            <button
+              onClick={doShare}
+              disabled={shareState.status === "sharing"}
+              className="flex-1 sm:flex-none px-5 py-2.5 bg-[#22c55e] hover:bg-[#16a34a] text-white text-sm font-semibold rounded-lg disabled:opacity-50 transition"
+            >
+              {shareState.status === "sharing"
+                ? (t("opening") || "Opening…")
+                : `📨 ${t("sendNow") || "Send now"}`}
+            </button>
+            <CopyButton text={`${shareTitle}\n\n${shareText}`} t={t} />
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-2 justify-center flex-wrap">
+        <a
+          href="/daily-close"
+          className="px-5 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition"
+        >
+          {t("openHistory") || "Open daily-close history"}
+        </a>
+        <button
+          onClick={onReset}
+          className="px-5 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-semibold rounded-lg transition"
+        >
+          {t("newClose") || "Start another close"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+function CopyButton({ text, t }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Silent fail — not worth surfacing if the share button is right there
+    }
+  }
+  return (
+    <button
+      onClick={copy}
+      className="px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition"
+    >
+      {copied ? `✓ ${t("copied") || "Copied"}` : (t("copyText") || "Copy text")}
+    </button>
   );
 }
 
