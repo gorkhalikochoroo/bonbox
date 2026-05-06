@@ -337,7 +337,7 @@ export default function Layout() {
                 const hasActiveChild = group.items.some((i) => location.pathname.startsWith(i.to));
 
                 // Core group has no header — always visible
-                if (!group.label) {
+                if (!group.labelKey) {
                   return (
                     <div key={group.id} className="space-y-0.5">
                       {group.items.map((item) => (
