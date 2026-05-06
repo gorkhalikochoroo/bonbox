@@ -643,7 +643,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
           <div className="space-y-5">
             {/* Confidence indicator */}
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold dark:text-white">Scan Results</h2>
+              <h2 className="text-lg font-bold dark:text-white">{t("scanResults")}</h2>
               <span className={`text-sm font-medium px-3 py-1 rounded-full ${
                 scanFieldsDetected >= 5 ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300"
                   : scanFieldsDetected >= 3 ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300"
@@ -920,11 +920,11 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             ))}
             <div className="pt-3 border-t dark:border-gray-700">
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">Payment Total:</span>
+                <span className="text-sm text-gray-500">{t("paymentTotal")}:</span>
                 <span className="text-xl font-bold dark:text-white">{paymentTotal.toLocaleString()} {currency}</span>
               </div>
               <div className="flex justify-between items-center mt-1">
-                <span className="text-sm text-gray-500">Revenue Total:</span>
+                <span className="text-sm text-gray-500">{t("revenueTotal")}:</span>
                 <span className="text-sm dark:text-gray-300">{revenueTotal.toLocaleString()} {currency}</span>
               </div>
               {revenueTotal > 0 && (
@@ -946,14 +946,14 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               Count the physical cash in your drawer and enter the amount below. We'll compare it against what the system expects.
             </div>
             <div>
-              <label className={labelClass}>Expected (from payment step)</label>
+              <label className={labelClass}>{t("expectedFromPayment")}</label>
               <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl text-right text-lg font-semibold dark:text-gray-300">
                 {cashExpected.toLocaleString()} {currency}
               </div>
             </div>
             <div>
               <label className={labelClass}>💵 Counted Amount</label>
-              <input type="number" inputMode="decimal" placeholder="Count your drawer..." className={inputClass}
+              <input type="number" inputMode="decimal" placeholder={t("countYourDrawer")} className={inputClass}
                 value={cashCounted} onChange={e => setCashCounted(e.target.value)} />
             </div>
             {cashDiff !== null && (
@@ -966,7 +966,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               </div>
             )}
             {!cashExpected && (
-              <p className="text-sm text-gray-400 text-center">No cash payments entered in Step 2 — you can skip this step.</p>
+              <p className="text-sm text-gray-400 text-center">{t("noCashStep2")}</p>
             )}
           </div>
         )}
@@ -981,7 +981,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             </div>
             <div>
               <label className={labelClass}>👥 Staff Count</label>
-              <input type="number" inputMode="numeric" placeholder="How many staff tonight?" className={inputClass}
+              <input type="number" inputMode="numeric" placeholder={t("staffCountPrompt")} className={inputClass}
                 value={staffCount} onChange={e => setStaffCount(e.target.value)} />
             </div>
             {tipsPP !== null && (
@@ -1102,7 +1102,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             {/* Expenses (from synced data) */}
             {prefill && prefill.expenses.total > 0 && (
               <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4">
-                <h3 className="font-semibold text-sm text-red-500 dark:text-red-400 mb-2">Today's Expenses</h3>
+                <h3 className="font-semibold text-sm text-red-500 dark:text-red-400 mb-2">{t("todaysExpenses")}</h3>
                 {Object.entries(prefill.expenses.by_category).map(([cat, val]) => (
                   <div key={cat} className="flex justify-between text-sm py-0.5 text-red-700 dark:text-red-300">
                     <span>{cat}</span>

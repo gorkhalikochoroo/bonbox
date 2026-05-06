@@ -617,4 +617,23 @@ export const th = {
   couldNotResendCode: "ไม่สามารถส่งรหัสใหม่ได้ กรุณาลองใหม่",
   verifyEmailBtn: "ยืนยันอีเมล",
   resendCode: "ส่งรหัสใหม่",
+  // Profile page strings (added 2026-05-06)
+  pushNotificationsLabel: "การแจ้งเตือนแบบพุช",
+  pushNotificationsDesc: "รับการแจ้งเตือนผ่านเบราว์เซอร์เกี่ยวกับงบประมาณและสต็อก",
+  blockedInBrowser: "ถูกบล็อกในการตั้งค่าเบราว์เซอร์",
+  privacyDataSection: "ความเป็นส่วนตัวและข้อมูล",
+  privacyDataDesc: "คุณควบคุมสิ่งที่ BonBox เรียนรู้จากการใช้งานของคุณ",
+  pauseAnalytics: "หยุดการวิเคราะห์ผลิตภัณฑ์",
+  taxPrefsMoved: "ย้ายการตั้งค่าภาษีแล้ว",
+  tipsHints: "เคล็ดลับและคำใบ้",
+  accentDesc: "เลือกสีเน้นที่ใช่สำหรับคุณ ใช้ได้ทั้งโหมดสว่างและมืด",
+  // DailyClose UI chrome
+  scanResults: "ผลการสแกน",
+  paymentTotal: "ยอดชำระรวม",
+  revenueTotal: "รายรับรวม",
+  expectedFromPayment: "คาดหวัง (จากขั้นชำระเงิน)",
+  countYourDrawer: "นับเงินในลิ้นชัก...",
+  noCashStep2: "ไม่มีการชำระด้วยเงินสดในขั้นตอนที่ 2 — คุณสามารถข้ามขั้นตอนนี้ได้",
+  staffCountPrompt: "พนักงานคืนนี้มีกี่คน?",
+  todaysExpenses: "ค่าใช้จ่ายวันนี้",
 };

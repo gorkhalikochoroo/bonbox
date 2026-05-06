@@ -618,4 +618,23 @@ export const tr = {
   couldNotResendCode: "Kod yeniden gönderilemedi. Lütfen tekrar dene.",
   verifyEmailBtn: "E-postayı Doğrula",
   resendCode: "Kodu yeniden gönder",
+  // Profile page strings (added 2026-05-06)
+  pushNotificationsLabel: "Anlık Bildirimler",
+  pushNotificationsDesc: "Bütçe ve stok uyarıları için tarayıcı bildirimi al",
+  blockedInBrowser: "Tarayıcı ayarlarında engellendi",
+  privacyDataSection: "Gizlilik ve Veri",
+  privacyDataDesc: "BonBox'ın kullanımından ne öğrendiği senin kontrolünde.",
+  pauseAnalytics: "Ürün analizini duraklat",
+  taxPrefsMoved: "Vergi tercihleri taşındı",
+  tipsHints: "İpuçları ve hatırlatmalar",
+  accentDesc: "Sana uygun vurgu rengini seç. Hem açık hem koyu modda çalışır.",
+  // DailyClose UI chrome
+  scanResults: "Tarama Sonuçları",
+  paymentTotal: "Ödeme Toplamı",
+  revenueTotal: "Gelir Toplamı",
+  expectedFromPayment: "Beklenen (ödeme adımından)",
+  countYourDrawer: "Kasanı say...",
+  noCashStep2: "2. adımda nakit ödeme yok — bu adımı atlayabilirsin.",
+  staffCountPrompt: "Bu gece kaç personel?",
+  todaysExpenses: "Bugünün Giderleri",
 };

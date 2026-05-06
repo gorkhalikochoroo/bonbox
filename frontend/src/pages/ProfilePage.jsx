@@ -354,13 +354,13 @@ export default function ProfilePage() {
           {pushSupported && (
             <div className="flex items-center justify-between py-2">
               <div>
-                <p className="text-sm font-medium text-gray-800 dark:text-gray-200">Push Notifications</p>
-                <p className="text-xs text-gray-400">Get browser alerts for budget & stock warnings</p>
+                <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{t("pushNotificationsLabel")}</p>
+                <p className="text-xs text-gray-400">{t("pushNotificationsDesc")}</p>
               </div>
               {pushPerm === "granted" ? (
                 <span className="text-xs font-medium text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 px-2.5 py-1 rounded-full">Enabled</span>
               ) : pushPerm === "denied" ? (
-                <span className="text-xs text-red-500">Blocked in browser settings</span>
+                <span className="text-xs text-red-500">{t("blockedInBrowser")}</span>
               ) : (
                 <button
                   onClick={requestPush}
@@ -393,15 +393,15 @@ export default function ProfilePage() {
             </svg>
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Privacy & Data</h2>
-            <p className="text-xs text-gray-400 dark:text-gray-500">You're in control of what BonBox learns from your use.</p>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t("privacyDataSection")}</h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500">{t("privacyDataDesc")}</p>
           </div>
         </div>
 
         <div className="space-y-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1">
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Pause product analytics</p>
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("pauseAnalytics")}</p>
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
                 When ON, BonBox stops recording your clicks, page views and AI questions.
                 Your business data (sales, expenses, inventory) is unaffected.
@@ -558,7 +558,7 @@ export default function ProfilePage() {
             <div className="flex items-center gap-3">
               <span className="text-xl">🧾</span>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-green-900 dark:text-green-100">Tax preferences moved</p>
+                <p className="text-sm font-medium text-green-900 dark:text-green-100">{t("taxPrefsMoved")}</p>
                 <p className="text-xs text-green-800/80 dark:text-green-200/80 mt-0.5">
                   Filing frequency, Moms inclusion and employee flag now live in Tax Autopilot — next to the deadlines they affect.
                 </p>
@@ -570,7 +570,7 @@ export default function ProfilePage() {
           {/* Help — show all dismissed tips again (works across all pages) */}
           <div className="p-4 bg-gray-50 dark:bg-gray-800/40 rounded-xl">
             <div className="mb-3">
-              <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Tips &amp; hints</p>
+              <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{t("tipsHints")}</p>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 We show small contextual tips around the app. Dismissed them all and want a refresher?
               </p>
@@ -592,7 +592,7 @@ export default function ProfilePage() {
           <div className="p-4 bg-gray-50 dark:bg-gray-800/40 rounded-xl">
             <div className="mb-3">
               <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{t("appearance") || "Appearance"}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Pick the accent that feels right. Works in both light and dark mode.</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t("accentDesc")}</p>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {THEMES.map((th) => {

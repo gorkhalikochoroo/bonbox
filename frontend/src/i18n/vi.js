@@ -622,4 +622,23 @@ export const vi = {
   couldNotResendCode: "Không thể gửi lại mã. Vui lòng thử lại.",
   verifyEmailBtn: "Xác minh email",
   resendCode: "Gửi lại mã",
+  // Profile page strings (added 2026-05-06)
+  pushNotificationsLabel: "Thông báo đẩy",
+  pushNotificationsDesc: "Nhận cảnh báo trình duyệt về ngân sách & tồn kho",
+  blockedInBrowser: "Đã chặn trong cài đặt trình duyệt",
+  privacyDataSection: "Quyền riêng tư & Dữ liệu",
+  privacyDataDesc: "Bạn kiểm soát những gì BonBox học từ cách bạn sử dụng.",
+  pauseAnalytics: "Tạm dừng phân tích sản phẩm",
+  taxPrefsMoved: "Tùy chọn thuế đã được di chuyển",
+  tipsHints: "Mẹo & gợi ý",
+  accentDesc: "Chọn màu nhấn phù hợp với bạn. Hoạt động ở cả chế độ sáng và tối.",
+  // DailyClose UI chrome
+  scanResults: "Kết quả quét",
+  paymentTotal: "Tổng thanh toán",
+  revenueTotal: "Tổng doanh thu",
+  expectedFromPayment: "Dự kiến (từ bước thanh toán)",
+  countYourDrawer: "Đếm két của bạn...",
+  noCashStep2: "Chưa có thanh toán tiền mặt ở bước 2 — bạn có thể bỏ qua bước này.",
+  staffCountPrompt: "Bao nhiêu nhân viên tối nay?",
+  todaysExpenses: "Chi phí hôm nay",
 };
