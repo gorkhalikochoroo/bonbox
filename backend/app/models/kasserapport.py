@@ -64,6 +64,13 @@ class KasserapportExtraction(Base):
     timing_ms: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Audit trail. image_sha256 enables idempotency dedup + tying owner
+    # corrections back to the exact bytes the model saw. prompt_version
+    # lets the training review correlate prompt revisions with failure
+    # rates ("did errors spike after the v2 prompt change?").
+    image_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    prompt_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     committed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

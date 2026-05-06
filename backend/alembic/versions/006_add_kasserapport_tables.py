@@ -42,11 +42,14 @@ def upgrade():
         sa.Column("output_tokens", sa.Integer(), nullable=True),
         sa.Column("timing_ms", json_type, nullable=True),
         sa.Column("error", sa.Text(), nullable=True),
+        sa.Column("image_sha256", sa.String(64), nullable=True),
+        sa.Column("prompt_version", sa.String(80), nullable=True),
         sa.Column("created_at", sa.DateTime(), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
         sa.Column("committed_at", sa.DateTime(), nullable=True),
     )
     op.create_index("ix_kasse_extractions_user_created", "kasserapport_extractions", ["user_id", "created_at"])
     op.create_index("ix_kasse_extractions_pos_system", "kasserapport_extractions", ["pos_system"])
+    op.create_index("ix_kasse_extractions_image_sha256", "kasserapport_extractions", ["image_sha256"])
     op.create_index("ix_kasserapport_extractions_user_id", "kasserapport_extractions", ["user_id"])
     op.create_index("ix_kasserapport_extractions_created_at", "kasserapport_extractions", ["created_at"])
 
@@ -68,6 +71,7 @@ def upgrade():
 def downgrade():
     op.drop_index("ix_kasserapport_extractions_created_at", table_name="kasserapport_extractions")
     op.drop_index("ix_kasserapport_extractions_user_id", table_name="kasserapport_extractions")
+    op.drop_index("ix_kasse_extractions_image_sha256", table_name="kasserapport_extractions")
     op.drop_index("ix_kasse_extractions_pos_system", table_name="kasserapport_extractions")
     op.drop_index("ix_kasse_extractions_user_created", table_name="kasserapport_extractions")
     op.drop_table("kasserapport_examples")

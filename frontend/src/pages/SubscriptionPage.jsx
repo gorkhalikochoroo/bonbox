@@ -24,92 +24,87 @@ const isNative =
  *
  * Three tiers only — no "Coming soon" placeholders. Cleaner choice.
  *   Free: forever, real but limited
- *   Pro: 14-day trial → 99 kr/mo founding (first 1000 customers, regular 169)
- *   Business: talk to sales — multi-branch chains (no public price, custom)
+ *   Starter: 14-day trial → 129 kr/mo founding (first 100, regular 199)
+ *   Pro:     14-day trial → 249 kr/mo founding (first 100, regular 349)
  */
+
+// Founding-member counter. Hard-coded for now — wire to a backend
+// `/api/billing/founding-stats` endpoint when you have it. Manoj's
+// principle: be honest. "62/100 pladser tilbage" beats "First 1,000".
+const FOUNDING_LIMIT = 100;
+const FOUNDING_USED = 38;          // bumped manually as customers lock in;
+                                   // negative space ("62 pladser tilbage")
+                                   // is what prospects actually want to see
 
 const TIERS = [
   {
     id: "free",
     name: "Free",
-    tagline: "Every feature, including AI. Casual usage. Forever.",
+    tagline: "Lukning på 90 sekunder. Hver dag, gratis.",
     price_monthly: 0,
     price_annual: 0,
     cta: "Start free",
     cta_unauth: "Sign up free",
     highlight: false,
     features: [
-      { text: "AI Copilot + AI insights included — every plan, even Free:", included: true, header: true },
+      { text: "Daily close in 90 seconds", included: true, header: true },
+      { text: "Snap kasserapport — AI reads it in 6 seconds", included: true },
+      { text: "Send til ejer / revisor (PDF + Danish SMS)", included: true },
       { text: "30 AI Copilot questions / day + voice input", included: true },
-      { text: "Top 5 active AI insights at a time", included: true },
-      { text: "AI receipt OCR — 30 scans / month", included: true },
-      { text: "AI anomaly detection on sales & expenses", included: true },
       { divider: true },
       { text: "200 sales logged / month", included: true },
       { text: "100 expenses logged / month", included: true },
-      { text: "1 vertical module (Bar Pour, Workshop, etc. — pick one)", included: true },
+      { text: "30 receipt OCR scans / month", included: true },
       { text: "90 days of full history (older stays read-only)", included: true },
-      { text: "Generic CSV export to your accountant", included: true },
       { text: "1 business, 1 user", included: true },
+    ],
+  },
+  {
+    id: "starter",
+    name: "Starter",
+    tagline: "For den café eller butik der lukker hver aften.",
+    price_monthly: 199,
+    price_annual: 159,
+    founding_price: 129,
+    founding_limit: FOUNDING_LIMIT,
+    cta: "Upgrade to Starter",
+    cta_unauth: "Start 14-day free trial",
+    highlight: false,
+    badge: "🎁 14 days free · No card required",
+    features: [
+      { text: "Everything in Free — without the caps:", included: true, header: true },
+      { text: "Unlimited daily closes + receipt OCR", included: true },
+      { text: "Unlimited sales + expenses + AI Copilot", included: true },
+      { text: "Direct Dinero / Billy / e-conomic CSV export", included: true },
+      { divider: true },
+      { text: "Up to 1 business, 3 users with role permissions", included: true },
+      { text: "Send-til-revisor automation (monthly digest)", included: true },
+      { text: "AI anomaly detection on sales & wages", included: true },
+      { text: "Email support", included: true },
     ],
   },
   {
     id: "pro",
     name: "Pro",
-    tagline: "Unleash the AI. Every cap removed. Most popular.",
-    price_monthly: 169,
-    price_annual: 135,
-    founding_price: 99,
-    founding_limit: 1000, // first N customers lock in this price
+    tagline: "For 2-3 lokationer. AI der tænker på tværs.",
+    price_monthly: 349,
+    price_annual: 279,
+    founding_price: 249,
+    founding_limit: FOUNDING_LIMIT,
     cta: "Upgrade to Pro",
     cta_unauth: "Start 14-day free trial",
     highlight: true,
-    badge: "🎁 14 days free · No card required",
+    badge: "🎁 14 days free · No card required · Most popular",
     features: [
-      { text: "AI, no limits — the way it was meant to work:", included: true, header: true },
-      { text: "Unlimited AI Copilot conversations + voice input", included: true },
-      { text: "Unlimited AI insights archive — never auto-dropped", included: true },
+      { text: "Everything in Starter, plus:", included: true, header: true },
+      { text: "Up to 3 businesses, 5 users", included: true },
+      { text: "Cross-outlet daily close consolidation", included: true },
       { text: "Predictive AI: revenue forecast, churn risk, stockout alerts", included: true },
-      { text: "AI-powered receipt OCR (unlimited scans)", included: true },
-      { text: "AI staff & wage anomaly detection", included: true },
       { text: "Custom AI playbooks tuned to YOUR business pattern", included: true },
       { divider: true },
-      { text: "Unlimited sales, expenses, history", included: true },
       { text: "ALL vertical modules at once (Bar Pour + Workshop + etc.)", included: true },
-      { text: "Direct Dinero / Billy / e-conomic CSV exports", included: true },
-      { text: "Up to 3 businesses, 5 users with role permissions", included: true },
       { text: "Bank import (multi-bank, multi-currency)", included: true },
       { text: "Priority email support", included: true },
-    ],
-  },
-  {
-    id: "business",
-    name: "Business",
-    tagline: "Multi-branch chains. AI that thinks across every location.",
-    price_monthly: null, // hidden — custom quote per chain
-    cta: "Talk to sales",
-    cta_unauth: "Talk to sales",
-    highlight: false,
-    custom: true,
-    features: [
-      { text: "Chain-level AI — Pro's AI, but across every branch:", included: true, header: true },
-      { text: "Group AI Copilot — asks span all branches, not just one", included: true },
-      { text: "Cross-branch AI benchmarking — spot the underperformer in seconds", included: true },
-      { text: "AI staffing optimiser — predicts shifts per branch + day", included: true },
-      { text: "Group-level revenue forecasting + cash flow projection", included: true },
-      { text: "AI churn detection across your entire customer base", included: true },
-      { text: "Custom AI playbooks per branch type (kitchen / bar / retail)", included: true },
-      { divider: true },
-      { text: "Everything in Pro, plus chain operations:", included: true, header: true },
-      { text: "Unlimited branches + group-level daily close consolidation", included: true },
-      { text: "Per-branch P&L + manager-scoped dashboards", included: true },
-      { text: "Branch-manager role (sees only their location)", included: true },
-      { text: "Centralised chart of accounts + standard SOPs", included: true },
-      { text: "Multi-location inventory & wage tracking", included: true },
-      { text: "Unlimited users with role permissions", included: true },
-      { text: "API + custom integrations (POS, payroll, suppliers)", included: true },
-      { text: "Dedicated onboarding, training & quarterly review", included: true },
-      { text: "SLA + 24h priority support", included: true },
     ],
   },
 ];
@@ -294,12 +289,12 @@ export default function SubscriptionPage() {
           <div className="flex-1">
             <div className="text-sm font-semibold text-green-800 dark:text-green-300">
               {billing?.subscription_status === "trialing"
-                ? `Locked in at 99 kr/mo — first charge ${trialDaysLeft != null && trialDaysLeft > 0 ? `in ${trialDaysLeft} day${trialDaysLeft === 1 ? "" : "s"}` : "soon"}`
+                ? `Locked in at founding rate — first charge ${trialDaysLeft != null && trialDaysLeft > 0 ? `in ${trialDaysLeft} day${trialDaysLeft === 1 ? "" : "s"}` : "soon"}`
                 : billing?.subscription_status === "active"
-                  ? "Pro active — billed monthly at your founding rate"
+                  ? "Subscription active — billed monthly at your founding rate"
                   : billing?.subscription_status === "past_due"
-                    ? "Payment failed — please update your card to keep Pro"
-                    : "Pro subscription active"}
+                    ? "Payment failed — please update your card to keep your plan"
+                    : "Subscription active"}
             </div>
             <div className="text-xs text-green-700 dark:text-green-400 mt-0.5">
               All Pro features unlocked. Founding-member rate is locked for life as long as you stay subscribed.
@@ -329,7 +324,7 @@ export default function SubscriptionPage() {
             onClick={() => handleCta("pro")}
             className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded-lg shadow-sm whitespace-nowrap"
           >
-            Lock in 99 kr/mo
+            Lock in founding rate
           </button>
         </div>
       ) : null}
@@ -352,7 +347,7 @@ export default function SubscriptionPage() {
               <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">Anytime in the next {trialDaysLeft} day{trialDaysLeft === 1 ? "" : "s"}</div>
               <div className="text-sm font-semibold text-gray-900 dark:text-white mt-1">Pick your path</div>
               <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
-                <span className="block">→ <span className="font-semibold">Lock in 99 kr/mo</span>: add card now, founding rate locked for life</span>
+                <span className="block">→ <span className="font-semibold">Lock in founding rate</span>: add card now, your founding price (Starter 129 / Pro 249) is locked for life</span>
                 <span className="block mt-1">→ <span className="font-semibold">Do nothing</span>: trial runs out, you drop to Free</span>
               </div>
             </div>
@@ -360,7 +355,7 @@ export default function SubscriptionPage() {
               <div className="text-[11px] font-semibold uppercase tracking-wider text-green-600 dark:text-green-400">Day 14</div>
               <div className="text-sm font-semibold text-gray-900 dark:text-white mt-1">What actually happens</div>
               <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
-                <span className="block">If locked in: first 99 kr charged to your card</span>
+                <span className="block">If locked in: founding rate charged to your card</span>
                 <span className="block mt-1">If not: dropped to Free (caps return, data stays, no charge ever)</span>
               </div>
             </div>
@@ -370,19 +365,18 @@ export default function SubscriptionPage() {
 
       {/* Hero */}
       <div className="text-center mb-10">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gradient-to-r from-purple-100 to-pink-100 dark:from-purple-900/30 dark:to-pink-900/30 border border-purple-200/60 dark:border-purple-700/40 text-xs font-semibold text-purple-700 dark:text-purple-300 mb-4">
-          ✨ AI-first business platform
-        </div>
         <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-white">
-          AI that runs your business with you.
+          Lukning på 90 sekunder.
+          <br className="sm:hidden" />
+          <span className="text-green-600 dark:text-green-400"> Tjener går hjem til tiden.</span>
         </h1>
         <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-3 max-w-2xl mx-auto">
-          Every plan — even Free — includes the BonBox AI Copilot, predictive insights, anomaly
-          detection, and receipt OCR. Pro removes the caps. Business spreads it across every branch.
-          New signups get 14 days of fully-uncapped Pro, no card required.
+          Snap en kasserapport. AI læser den på 6 sekunder. Send ren PDF til ejer eller revisor
+          med ét klik. 14 dage gratis Pro. Intet kort. Ingen overraskelser.
         </p>
         <div className="mt-4 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
-          🔥 First 1,000 customers lock in 99 kr/mo Pro for life
+          🔥 {Math.max(FOUNDING_LIMIT - FOUNDING_USED, 0)}/{FOUNDING_LIMIT} pladser tilbage —
+          <span className="ml-1">lås founding-pris (Starter 129 kr / Pro 249 kr) for livstid</span>
         </div>
 
         {/* Annual / monthly toggle */}
@@ -437,7 +431,9 @@ export default function SubscriptionPage() {
               )}
               {isCurrent && (
                 <div className="absolute -top-3 right-4 bg-blue-600 text-white text-[10px] font-bold px-2.5 py-1 rounded-full shadow whitespace-nowrap">
-                  {currentPlan === "trial" ? "Your trial" : "Current plan"}
+                  {currentPlan === "trial"
+                    ? (t("yourTrial") || "Your trial")
+                    : (t("currentPlan") || "Current plan")}
                 </div>
               )}
 
@@ -486,8 +482,8 @@ export default function SubscriptionPage() {
               >
                 {isCurrent
                   ? currentPlan === "trial"
-                    ? "On trial — full Pro features"
-                    : "✓ Current plan"
+                    ? (t("onTrialFullPro") || "On trial — full Pro features")
+                    : `✓ ${t("currentPlan") || "Current plan"}`
                   : pending === tier.id
                     ? "Joining…"
                     : joined.has(tier.id) && tier.id !== "business"

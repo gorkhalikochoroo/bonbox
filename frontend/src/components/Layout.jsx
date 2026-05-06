@@ -462,11 +462,20 @@ export default function Layout() {
       {/* Mobile bottom nav — iOS tab bar pattern */}
       <MobileBottomNav />
 
-      {/* Floating widgets */}
-      <Suspense fallback={null}>
-        <QuickAdd />
-        <BonBoxAgent />
-      </Suspense>
+      {/* Floating widgets — hidden on pricing/subscription pages so they
+          don't visually compete with the CTA cards. The "+" QuickAdd
+          implies "log a sale" which is wrong context when someone is
+          deciding whether to upgrade; the ✨ BonBoxAgent likewise
+          distracts from the pricing decision. */}
+      {!_HIDE_FLOATING_ON.some((p) => location.pathname.startsWith(p)) && (
+        <Suspense fallback={null}>
+          <QuickAdd />
+          <BonBoxAgent />
+        </Suspense>
+      )}
     </div>
   );
 }
+
+// Routes where floating action buttons should be suppressed.
+const _HIDE_FLOATING_ON = ["/pricing", "/subscription"];

@@ -51,9 +51,11 @@ and only on commit do we persist anything.
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -64,6 +66,19 @@ from PIL import Image
 from app.config import settings
 
 logger = logging.getLogger("bonbox.kasserapport_extractor")
+
+# ─── Pillow defenses (set once, at module import) ──────────────────────
+# Cap pixel count to defeat decompression-bomb attacks. ~30MP = more
+# than any real phone photo; anything bigger is either a stitched
+# panorama or a malicious crafted image.
+Image.MAX_IMAGE_PIXELS = 90_000_000
+
+# ─── Prompt version stamp ──────────────────────────────────────────────
+# Bump this when ANY of the system prompts (_CLASSIFIER_SYSTEM,
+# _FORMAT_SYSTEM, _EXTRACTOR_SYSTEM_GENERIC) or the tool schemas change
+# materially. Stored on every extraction record so the admin training
+# review can correlate "errors increased after this prompt revision".
+PROMPT_VERSION = "kasserapport-2026-05-06-v1"
 
 # ─── Models — falls back to project default if env var not set ─────────────
 _DEFAULT_MODEL_CLASSIFIER = "claude-haiku-4-5"
@@ -78,8 +93,48 @@ MAX_TOKENS_EXTRACTOR    = 4000   # kasserapports are LONG (~50 line items)
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Image prep — defense layer 0 (compress & re-encode before any LLM call)
+# Image prep — defense layer 0 (validate, fingerprint, compress, re-encode)
 # ────────────────────────────────────────────────────────────────────────
+
+def validate_image_bytes(data: bytes) -> tuple[bool, str]:
+    """Magic-byte check BEFORE handing the bytes to Pillow. Returns
+    (ok, format_or_reason). The router already enforces a content-type
+    whitelist, but a forged Content-Type header could still slip a
+    non-image file through. Magic-byte sniffing is the second wall.
+
+    Defenses against:
+      • prompt-injection text files renamed to .jpg
+      • zip/exe payloads sent with image MIME
+      • truncated images that would crash Pillow's decoder
+
+    Recognized: JPEG, PNG, WebP, BMP, HEIC/HEIF (ISO-BMFF family).
+    """
+    if not data or len(data) < 12:
+        return False, "too small (<12 bytes)"
+    if data[:3] == b"\xff\xd8\xff":
+        return True, "JPEG"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return True, "PNG"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return True, "WebP"
+    if data[:2] == b"BM":
+        return True, "BMP"
+    # ISO-BMFF (HEIC, HEIF, AVIF, etc.) — ftyp box at offset 4
+    if len(data) >= 12 and data[4:8] == b"ftyp":
+        return True, "HEIF/HEIC/AVIF"
+    return False, "unrecognized magic bytes"
+
+
+def image_sha256(data: bytes) -> str:
+    """Stable hex hash of the raw upload bytes. Used for:
+      • Idempotency — if same image scanned twice (double-tap, retry),
+        we can dedupe at the extraction-log layer instead of charging
+        twice for the LLM call.
+      • Audit — owner edits to extracted_json can be tied back to the
+        exact bytes the model saw.
+    """
+    return hashlib.sha256(data).hexdigest()
+
 
 def _image_to_base64_jpeg(image_path: str | Path, max_side: int = MAX_INPUT_IMAGE_SIDE_PX) -> str:
     """Read image (any format incl HEIC), normalize, base64-encode JPEG.
@@ -133,6 +188,10 @@ class KasserapportResult:
     timing_ms: dict[str, int] = field(default_factory=dict)
     models_used: dict[str, str] = field(default_factory=dict)
     tokens_used: dict[str, int] = field(default_factory=dict)
+    # Audit trail — populated by extract_kasserapport_full so the admin
+    # training review can correlate prompt revisions to failure rates.
+    image_sha256: str | None = None
+    prompt_version: str = PROMPT_VERSION
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -173,8 +232,23 @@ def _call_anthropic_with_image(
     tools: list[dict],
     user_blocks: list[dict],
     max_tokens: int,
+    timeout: float = 30.0,
+    max_retries: int = 1,
 ):
-    """Centralized Anthropic call. Returns (tool_input or None, input_tok, output_tok)."""
+    """Centralized Anthropic call. Returns (tool_input or None, input_tok, output_tok).
+
+    Hardening:
+      • Hard timeout per call (default 30s) — prevents hanging on a slow
+        upstream from blocking the request thread indefinitely.
+      • One retry with exponential backoff on transient errors (5xx,
+        timeouts, connection errors). 4xx errors (bad request, auth) are
+        NOT retried — those are deterministic, retrying just wastes
+        tokens.
+      • All exceptions caught — never raises into the caller. Caller
+        handles None as "graceful failure → manual entry fallback".
+      • Tool-use forces structured output via the tool schema; even a
+        prompt-injected image cannot drift to free-form text.
+    """
     try:
         import anthropic
     except ImportError:
@@ -186,18 +260,44 @@ def _call_anthropic_with_image(
         logger.warning("ANTHROPIC_API_KEY not set")
         return None, 0, 0
 
-    client = anthropic.Anthropic(api_key=api_key)
-    try:
-        resp = client.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            system=system,
-            tools=tools,
-            tool_choice={"type": "tool", "name": tools[0]["name"]},
-            messages=[{"role": "user", "content": user_blocks}],
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.exception("anthropic call failed: %s", e)
+    client = anthropic.Anthropic(api_key=api_key, timeout=timeout)
+    last_error: str | None = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            resp = client.messages.create(
+                model=model,
+                max_tokens=max_tokens,
+                system=system,
+                tools=tools,
+                tool_choice={"type": "tool", "name": tools[0]["name"]},
+                messages=[{"role": "user", "content": user_blocks}],
+            )
+            break  # success
+        except Exception as e:  # noqa: BLE001
+            last_error = type(e).__name__
+            # Retryable: timeouts, connection errors, 5xx upstream.
+            # Non-retryable: 4xx (bad request, auth, content-policy).
+            err_name = last_error.lower()
+            is_transient = any(
+                marker in err_name
+                for marker in ("timeout", "connection", "apistatus", "internal", "overload")
+            )
+            # APIStatusError check: only retry on 5xx
+            status = getattr(e, "status_code", None)
+            if status is not None and 400 <= status < 500:
+                is_transient = False  # 4xx — bail
+            if is_transient and attempt < max_retries:
+                # Exponential backoff: 0.5s, 1s, 2s, ...
+                time.sleep(0.5 * (2 ** attempt))
+                logger.info("anthropic transient %s, retrying (attempt %d/%d)",
+                            last_error, attempt + 2, max_retries + 1)
+                continue
+            logger.warning("anthropic call failed (final): %s", last_error)
+            return None, 0, 0
+    else:
+        # Loop fell through without break — never happens with the explicit
+        # break above, but defensive nonetheless.
         return None, 0, 0
 
     tool_input = None
@@ -205,6 +305,11 @@ def _call_anthropic_with_image(
         if getattr(block, "type", None) == "tool_use":
             tool_input = block.input
             break
+
+    # Defensive: even with tool_choice forced, validate we got a dict back
+    if tool_input is not None and not isinstance(tool_input, dict):
+        logger.warning("anthropic returned non-dict tool input: %r", type(tool_input).__name__)
+        tool_input = None
 
     return (
         tool_input,
@@ -509,15 +614,59 @@ def validate(data: dict) -> list[str]:
     sess = data.get("session") or {}
     servers = data.get("servers") or []
 
-    # 1. revenue components reconcile
+    # ─── Revenue checks: type/sign first, then arithmetic ────────────
+    # Order matters here — if a value is a string ("fourteen thousand"
+    # is what an LLM might hallucinate), the type check catches it
+    # BEFORE the sum-check tries to add it and crashes.
     sub = rev.get("subtotal_excl_moms")
     moms = rev.get("moms_amount")
     tot = rev.get("total_incl_moms")
-    if sub is not None and moms is not None and tot is not None:
-        if not _approx(sub + moms, tot, tolerance=1.0):
+
+    # 1. Negative or non-numeric revenue is impossible — Danish
+    # kasserapports never show negative subtotals/moms/totals (returns
+    # are line-items, not netted into the headline).
+    revenue_numeric = {}  # parsed-and-validated values for use below
+    for key in ("subtotal_excl_moms", "moms_amount", "total_incl_moms"):
+        val = rev.get(key)
+        if val is None:
+            continue
+        try:
+            f = float(val)
+        except (TypeError, ValueError):
+            failures.append(f"Revenue.{key} is not a number ({val!r})")
+            continue
+        if f < 0:
+            failures.append(f"Revenue.{key} is negative ({val}) — impossible")
+            continue
+        revenue_numeric[key] = f
+
+    # 2. Revenue components reconcile (only if all three parsed cleanly)
+    if {"subtotal_excl_moms", "moms_amount", "total_incl_moms"} <= revenue_numeric.keys():
+        s = revenue_numeric["subtotal_excl_moms"]
+        m = revenue_numeric["moms_amount"]
+        t = revenue_numeric["total_incl_moms"]
+        if not _approx(s + m, t, tolerance=1.0):
             failures.append(
-                f"Revenue: subtotal ({sub}) + moms ({moms}) = {sub+moms}, but total shows {tot}"
+                f"Revenue: subtotal ({s}) + moms ({m}) = {s+m}, but total shows {t}"
             )
+
+    # 3. Moms ratio sanity. Danish moms is exactly 25% of subtotal_excl_moms.
+    # If moms_amount/subtotal is wildly off (>30%), the extractor
+    # probably misread one of the numbers. We don't flag below 25% —
+    # some receipts include 0%-VAT line items (e.g. takeaway treated
+    # differently in some setups) which legitimately lowers the ratio.
+    s = revenue_numeric.get("subtotal_excl_moms")
+    m = revenue_numeric.get("moms_amount")
+    if s is not None and m is not None and s > 100:
+        # >100 kr threshold avoids noisy false-positives on test data
+        try:
+            ratio = m / s
+            if ratio > 0.30:
+                failures.append(
+                    f"Moms is {ratio*100:.1f}% of subtotal — Danish max is 25%"
+                )
+        except ZeroDivisionError:
+            pass
 
     # 2. card_betalingskort + card_softpay = card_total
     cb = pay.get("card_betalingskort")
@@ -603,10 +752,31 @@ def extract_kasserapport_full(
     """
     result = KasserapportResult()
 
+    # ─── Layer 1 (input validation) ────────────────────────────────
+    # Read raw bytes, magic-byte check, hash for idempotency, THEN
+    # hand to Pillow. This ordering is deliberate — we never let Pillow
+    # touch a buffer we haven't verified is shaped like an image.
+    try:
+        with open(str(image_path), "rb") as f:
+            raw = f.read()
+    except Exception as e:  # noqa: BLE001
+        result.error = f"image_read_failed: {type(e).__name__}"
+        return result
+
+    ok, fmt = validate_image_bytes(raw)
+    if not ok:
+        result.error = f"invalid_image: {fmt}"
+        return result
+
+    result.image_sha256 = image_sha256(raw)
+
     try:
         b64 = _image_to_base64_jpeg(image_path)
+    except Image.DecompressionBombError:
+        result.error = "image_too_large_pixel_count"
+        return result
     except Exception as e:  # noqa: BLE001
-        result.error = f"image_load_failed: {e}"
+        result.error = f"image_load_failed: {type(e).__name__}"
         return result
 
     timing: dict[str, int] = {}

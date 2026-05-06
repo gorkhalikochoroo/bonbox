@@ -29,7 +29,11 @@ from app.models.kasserapport import KasserapportExtraction
 from app.models.user import User
 from app.services.auth import get_current_user
 from app.services.billing import effective_plan
-from app.services.kasserapport_extractor import extract_kasserapport_full
+from app.services.kasserapport_extractor import (
+    extract_kasserapport_full,
+    image_sha256,
+    validate_image_bytes,
+)
 
 logger = logging.getLogger("bonbox.kasserapport_router")
 
@@ -99,6 +103,17 @@ async def extract(
     if len(body) > _MAX_BYTES:
         raise HTTPException(status_code=413, detail="Image too large (max 12 MB)")
 
+    # Defense-2b: magic-byte sniff (router-level second wall before the
+    # service even sees the bytes). The service does the same check —
+    # double-checking is cheap and means a forged Content-Type can't get
+    # past the perimeter.
+    ok, fmt_or_reason = validate_image_bytes(body)
+    if not ok:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Image content doesn't match a known format: {fmt_or_reason}",
+        )
+
     # Defense-3: per-tier daily cap
     plan = effective_plan(user) or "free"
     cap = _KASSE_CAP_BY_PLAN.get(plan, 5)
@@ -108,6 +123,47 @@ async def extract(
             status_code=429,
             detail=f"Daily kasserapport scan limit reached ({used}/{cap}). Upgrade or try again tomorrow.",
         )
+
+    # Defense-4: idempotency. Compute image hash; if this exact image has
+    # been scanned by this user in the last 30 minutes, return the cached
+    # extraction instead of charging the LLM again. Stops double-tap and
+    # accidental retry from doubling cost.
+    img_hash = image_sha256(body)
+    from datetime import timedelta as _td
+    recent_cutoff = datetime.utcnow() - _td(minutes=30)
+    cached = (
+        db.query(KasserapportExtraction)
+        .filter(
+            KasserapportExtraction.user_id == user.id,
+            KasserapportExtraction.image_sha256 == img_hash,
+            KasserapportExtraction.created_at >= recent_cutoff,
+            KasserapportExtraction.error.is_(None),
+        )
+        .order_by(KasserapportExtraction.created_at.desc())
+        .first()
+    )
+    if cached is not None:
+        return {
+            "extraction_id": str(cached.id),
+            "document_type": cached.document_type,
+            "pos_system": cached.pos_system,
+            "confidences": {
+                "classifier": float(cached.classifier_confidence) if cached.classifier_confidence is not None else None,
+                "format": float(cached.format_confidence) if cached.format_confidence is not None else None,
+                "extraction": float(cached.extraction_confidence) if cached.extraction_confidence is not None else None,
+            },
+            "data": cached.extracted_json,
+            "validator_failures": cached.validator_failures,
+            "manual_review_needed": cached.manual_review_needed,
+            "error": cached.error,
+            "timing_ms": cached.timing_ms,
+            "tokens_used": {"input": cached.input_tokens, "output": cached.output_tokens},
+            "models_used": {},
+            "usage": {"used_today": used, "daily_cap": cap, "plan": plan},
+            "cached": True,
+            "image_sha256": cached.image_sha256,
+            "prompt_version": cached.prompt_version,
+        }
 
     # Write to a temp file for the extractor (Pillow needs a path)
     tmp = NamedTemporaryFile(delete=False, suffix=Path(file.filename or "").suffix or ".jpg")
@@ -125,7 +181,9 @@ async def extract(
             pass  # best-effort cleanup
 
     # Always log the attempt — even failures, so the admin review can spot
-    # patterns in what's going wrong.
+    # patterns in what's going wrong. Log row carries the audit trail
+    # (image_sha256, prompt_version) so post-hoc analysis can correlate
+    # prompt revisions with failure modes.
     try:
         log_row = KasserapportExtraction(
             id=uuid.uuid4(),
@@ -142,6 +200,8 @@ async def extract(
             output_tokens=result.tokens_used.get("output"),
             timing_ms=result.timing_ms or None,
             error=result.error,
+            image_sha256=result.image_sha256 or img_hash,
+            prompt_version=result.prompt_version,
         )
         db.add(log_row)
         db.commit()
@@ -167,6 +227,9 @@ async def extract(
         "tokens_used": result.tokens_used,
         "models_used": result.models_used,
         "usage": {"used_today": used + 1, "daily_cap": cap, "plan": plan},
+        "cached": False,
+        "image_sha256": result.image_sha256,
+        "prompt_version": result.prompt_version,
     }
 
 
