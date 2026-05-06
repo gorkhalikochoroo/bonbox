@@ -34,6 +34,10 @@ from app.services.kasserapport_extractor import (
     image_sha256,
     validate_image_bytes,
 )
+from app.services.kasserapport_learning import (
+    auto_promote_to_examples,
+    fetch_few_shot_examples,
+)
 
 logger = logging.getLogger("bonbox.kasserapport_router")
 
@@ -188,6 +192,17 @@ async def extract(
             "prompt_version": cached.prompt_version,
         }
 
+    # Build the few-shot examples fetcher closure. Called by the
+    # extractor AFTER Layer 2 detects the POS system, so the fetched
+    # examples match the actual detected format. Closes over `db` and
+    # `user.id` for tenant scoping.
+    def _examples_fetcher(detected_pos: str) -> list:
+        try:
+            return fetch_few_shot_examples(db, user.id, detected_pos)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("kasserapport: few-shot fetch failed (non-fatal): %s", e)
+            return []
+
     # Write to a temp file for the extractor (Pillow needs a path)
     tmp = NamedTemporaryFile(delete=False, suffix=Path(file.filename or "").suffix or ".jpg")
     try:
@@ -195,8 +210,14 @@ async def extract(
         tmp.flush()
         tmp.close()
 
-        # Run the pipeline
-        result = extract_kasserapport_full(tmp.name, skip_classifier=skip_classifier)
+        # Run the pipeline. examples_fetcher is invoked after Layer 2
+        # detects the POS system, so this owner's past good extractions
+        # of THE SAME format get injected as worked examples.
+        result = extract_kasserapport_full(
+            tmp.name,
+            skip_classifier=skip_classifier,
+            examples_fetcher=_examples_fetcher,
+        )
     finally:
         try:
             Path(tmp.name).unlink(missing_ok=True)
@@ -291,8 +312,21 @@ def commit_corrections(
     row.committed_at = datetime.utcnow()
     db.commit()
 
+    # Auto-promote to examples library if the extraction was clean.
+    # This is the back-half of the learning loop: high-confidence
+    # uncorrected extractions become few-shot examples for the same
+    # owner's NEXT scan. Wrapped in try so a learning-loop failure
+    # NEVER affects the commit response.
+    promoted_id: str | None = None
+    try:
+        promoted = auto_promote_to_examples(db, row.id)
+        promoted_id = str(promoted.id) if promoted else None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("commit: auto-promote failed (non-fatal): %s", e)
+
     return {
         "extraction_id": str(row.id),
         "user_corrected": row.user_corrected,
         "committed_at": row.committed_at.isoformat() if row.committed_at else None,
+        "promoted_to_example_id": promoted_id,
     }

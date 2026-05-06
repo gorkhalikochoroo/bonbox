@@ -560,28 +560,53 @@ def extract_kasserapport(
     *,
     pos_system: str = "unknown",
     model: str | None = None,
+    few_shot_examples: list[dict[str, Any]] | None = None,
 ) -> tuple[dict, int, int]:
     """Layer 3 — pull structured fields from the kasserapport image.
 
     pos_system steers which prompt variant we use. For now Oasis is the
     fully-tuned one; everything else falls through to the generic prompt
-    (which still works — just with less domain-specific guidance)."""
-    # Future: per-POS prompt switch. For Session 1 we use the generic
-    # Oasis-tuned prompt for everything; format-specific prompts will be
-    # forked into _EXTRACTOR_SYSTEM_ONLINEPOS / _LIGHTSPEED / etc as we
-    # see real data.
+    (which still works — just with less domain-specific guidance).
+
+    few_shot_examples: optional list of past correctly-extracted
+    kasserapports for THIS owner (provided by
+    `kasserapport_learning.fetch_few_shot_examples`). When present, we
+    inject them as a worked-example block in the user message BEFORE
+    the new image. This is what makes the extractor get steadily more
+    accurate per-owner as their scan history grows. System prompt stays
+    cached (cache_control ephemeral); only the user message varies per
+    call, which is the right side of the cache boundary anyway.
+    """
     system_text = _EXTRACTOR_SYSTEM_GENERIC
 
     system = [{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}]
-    user_text = (
-        f"Extract this kasserapport. Detected POS system: {pos_system}. "
-        "Return only via the extract_kasserapport tool."
-    )
+
+    # Build user message blocks: optional few-shot text → image → instruction
+    user_blocks: list[dict[str, Any]] = []
+    if few_shot_examples:
+        try:
+            from app.services.kasserapport_learning import format_examples_as_prompt_block
+            few_shot_text = format_examples_as_prompt_block(few_shot_examples)
+            if few_shot_text:
+                user_blocks.append({"type": "text", "text": few_shot_text})
+        except Exception as e:  # noqa: BLE001
+            # Learning-loop failure must never block extraction.
+            logger.warning("extract_kasserapport: few-shot inject failed: %s", e)
+
+    user_blocks.append(_image_block(b64_jpeg))
+    user_blocks.append({
+        "type": "text",
+        "text": (
+            f"Extract this kasserapport. Detected POS system: {pos_system}. "
+            "Return only via the extract_kasserapport tool."
+        ),
+    })
+
     tool_input, in_tok, out_tok = _call_anthropic_with_image(
         model=model or getattr(settings, "AI_MODEL_KASSE_EXTRACTOR", _DEFAULT_MODEL_EXTRACTOR),
         system=system,
         tools=[_EXTRACTOR_TOOL],
-        user_blocks=[_image_block(b64_jpeg), {"type": "text", "text": user_text}],
+        user_blocks=user_blocks,
         max_tokens=MAX_TOKENS_EXTRACTOR,
     )
     return (tool_input or {}, in_tok, out_tok)
@@ -741,6 +766,8 @@ def extract_kasserapport_full(
     *,
     skip_classifier: bool = False,
     skip_format_detection: bool = False,
+    few_shot_examples: list[dict[str, Any]] | None = None,
+    examples_fetcher: "callable | None" = None,
 ) -> KasserapportResult:
     """Run the full 4-layer pipeline. Returns a KasserapportResult that
     the API endpoint can serialize directly to JSON.
@@ -749,6 +776,11 @@ def extract_kasserapport_full(
     caller already knows it's a kasserapport (because the user pressed
     the "Snap kasserapport" button rather than generic "Snap receipt"),
     we skip Layer 1.
+
+    few_shot_examples: pass-through to Layer 3. Caller (router) fetches
+    via `kasserapport_learning.fetch_few_shot_examples` and threads them
+    here so the extractor sees this owner's past good extractions as
+    worked examples. This is the closing piece of the learning loop.
     """
     result = KasserapportResult()
 
@@ -812,9 +844,28 @@ def extract_kasserapport_full(
     else:
         result.pos_system = "unknown"
 
-    # Layer 3: extractor
+    # Resolve few-shot examples for the detected POS system. Caller
+    # supplies either a static list (for tests / pre-fetched examples)
+    # OR a fetcher callback that this function calls AFTER Layer 2
+    # detects the pos_system. Callback wins when both are provided so
+    # the dynamically-fetched list reflects the actual detection.
+    resolved_examples = few_shot_examples or []
+    if examples_fetcher is not None:
+        try:
+            fetched = examples_fetcher(result.pos_system)
+            if fetched:
+                resolved_examples = fetched
+        except Exception as e:  # noqa: BLE001
+            # Learning-loop failure must NEVER block extraction.
+            logger.warning("examples_fetcher raised, continuing without examples: %s", e)
+
+    # Layer 3: extractor (with optional few-shot examples from learning loop)
     t0 = time.monotonic()
-    extracted, in_tok, out_tok = extract_kasserapport(b64, pos_system=result.pos_system)
+    extracted, in_tok, out_tok = extract_kasserapport(
+        b64,
+        pos_system=result.pos_system,
+        few_shot_examples=resolved_examples or None,
+    )
     timing["extractor_ms"] = int((time.monotonic() - t0) * 1000)
     tokens_in_total += in_tok
     tokens_out_total += out_tok
