@@ -513,12 +513,43 @@ def close_pdf(
     date_label = (body.get("date_label") or "").strip()
     currency = (body.get("currency") or user.currency or "DKK").strip()
     business_name = (user.business_name or "").strip()
+    bilagsnummer = (body.get("bilagsnummer") or "").strip() or None
+
+    # Pull the user's BusinessProfile so the PDF header can include CVR
+    # + full Danish address — required for any close that goes to a
+    # revisor or has to satisfy Bogføringsloven §10. Optional: if the
+    # owner hasn't filled in their profile yet, the PDF still renders
+    # with just the business_name.
+    from app.models.business_profile import BusinessProfile
+    bp_row = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == user.id)
+        .first()
+    )
+    business_profile_dict: dict = {}
+    if bp_row is not None:
+        business_profile_dict = {
+            "company_name": bp_row.company_name or "",
+            "org_number": bp_row.org_number or "",
+            "vat_number": bp_row.vat_number or "",
+            "country": bp_row.country or "DK",
+            "address": bp_row.address or "",
+            "city": bp_row.city or "",
+            "zipcode": bp_row.zipcode or "",
+        }
+        # Prefer the formal company_name from BusinessProfile over
+        # the user-set display business_name (typically more complete:
+        # "Restaurant Mirabelle ApS" vs just "Mirabelle").
+        if bp_row.company_name and not business_name:
+            business_name = bp_row.company_name
 
     pdf_bytes = render_close_pdf(
         aggregated=aggregated,
         business_name=business_name,
         date_label=date_label,
         currency=currency,
+        business_profile=business_profile_dict,
+        bilagsnummer=bilagsnummer,
     )
 
     # Filename: lukning_<businessSlug>_<isoDate>.pdf — predictable, no

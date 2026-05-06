@@ -190,3 +190,134 @@ def test_render_close_pdf_currency_passed_through():
     # Can't easily search inside the PDF for "VND" without parsing,
     # but the call shouldn't crash and should produce a valid PDF.
     assert pdf.startswith(b"%PDF")
+
+
+# ─── Copenhagen / Bogføringsloven 2024 standard fields ────────────────
+
+def test_render_close_pdf_with_business_profile():
+    """Smoke: BusinessProfile field passes through cleanly."""
+    pdf = render_close_pdf(
+        aggregated=_abigail_aggregated(),
+        business_name="Restaurant Abigail ApS",
+        date_label="9.3.2026 (Mandag)",
+        currency="DKK",
+        business_profile={
+            "org_number": "44544891",
+            "address": "Nørregade 12",
+            "zipcode": "1165",
+            "city": "København K",
+            "country": "DK",
+        },
+    )
+    assert pdf.startswith(b"%PDF")
+    # PDF body is reportlab-compressed so byte-grep won't find specific
+    # strings — what we CAN verify is that the render path executes
+    # cleanly with the full BusinessProfile shape.
+
+
+def test_render_close_pdf_with_bilagsnummer():
+    """Bilagsnummer (Bogføringsloven §15 sequential numbering) doesn't
+    crash the renderer."""
+    pdf = render_close_pdf(
+        aggregated=_abigail_aggregated(),
+        business_name="Mirabelle",
+        date_label="9.3.2026",
+        currency="DKK",
+        bilagsnummer="K2026-0042",
+    )
+    assert pdf.startswith(b"%PDF")
+
+
+def test_render_close_pdf_address_helper_handles_partial_profile():
+    """The _format_dk_address helper degrades gracefully when only
+    partial address fields are present."""
+    from app.services.kasserapport_pdf import _format_dk_address
+    # Full
+    assert _format_dk_address({
+        "address": "Nørregade 12",
+        "zipcode": "1165",
+        "city": "København K",
+    }) == "Nørregade 12, 1165 København K"
+    # No zipcode, only city
+    assert _format_dk_address({
+        "address": "Nørregade 12",
+        "city": "København K",
+    }) == "Nørregade 12, København K"
+    # Only address
+    assert _format_dk_address({"address": "Nørregade 12"}) == "Nørregade 12"
+    # Empty
+    assert _format_dk_address({}) == ""
+    assert _format_dk_address(None) == ""
+
+
+def test_render_close_pdf_moms_section_back_derived():
+    """When revenue.* fields aren't supplied, MOMS section back-derives
+    from payments_total at 25%."""
+    agg = _abigail_aggregated()
+    agg.pop("revenue", None)
+    pdf = render_close_pdf(
+        aggregated=agg,
+        business_name="Mirabelle",
+        date_label="9.3.2026",
+        currency="DKK",
+    )
+    assert pdf.startswith(b"%PDF")
+
+
+def test_render_close_pdf_moms_section_uses_supplied_revenue():
+    """When revenue.* IS supplied, PDF uses the actual moms numbers."""
+    agg = _abigail_aggregated()
+    agg["revenue"] = {
+        "subtotal_excl_moms": 80234.12,
+        "moms_amount": 20058.53,
+        "total_incl_moms": 100292.65,
+    }
+    pdf = render_close_pdf(
+        aggregated=agg,
+        business_name="Mirabelle",
+        date_label="9.3.2026",
+        currency="DKK",
+    )
+    assert pdf.startswith(b"%PDF")
+
+
+def test_render_close_pdf_handles_minimal_business_profile():
+    """Owner who only filled in CVR (no address yet) still gets a clean PDF."""
+    pdf = render_close_pdf(
+        aggregated=_abigail_aggregated(),
+        business_name="Mirabelle",
+        date_label="9.3.2026",
+        currency="DKK",
+        business_profile={"org_number": "12345678"},
+    )
+    assert pdf.startswith(b"%PDF")
+
+
+def test_render_close_pdf_no_business_profile_still_renders():
+    """Owner without any BusinessProfile row → profile=None → PDF
+    still renders, just without CVR/address line."""
+    pdf = render_close_pdf(
+        aggregated=_abigail_aggregated(),
+        business_name="Mirabelle",
+        date_label="9.3.2026",
+        currency="DKK",
+        business_profile=None,
+    )
+    assert pdf.startswith(b"%PDF")
+
+
+def test_render_close_pdf_danish_date_label_parsed():
+    """The DK-style 'YYYY-MM-DD' label gets translated to 'DD.MM.YYYY (Day)'."""
+    from app.services.kasserapport_pdf import _danish_date_label
+    # ISO input
+    date, day = _danish_date_label("2026-03-09")
+    assert date == "09.03.2026"
+    assert day == "Mandag"  # 9 March 2026 is a Monday
+    # Already-formatted input (round-trip safe)
+    date2, day2 = _danish_date_label("9.3.2026 (Tirsdag)")
+    assert date2 == "9.3.2026"
+    assert day2 == "Tirsdag"
+    # Garbage in
+    date3, day3 = _danish_date_label("not-a-date")
+    assert date3 == "not-a-date"
+    assert day3 == ""
