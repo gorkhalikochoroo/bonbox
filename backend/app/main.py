@@ -297,6 +297,28 @@ _migrations = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_anomaly_user_date ON anomaly_alerts (user_id, scan_date)",
     "CREATE INDEX IF NOT EXISTS ix_anomaly_user_open ON anomaly_alerts (user_id, dismissed_at)",
+    # AI Triage notes — first-responder summary of error fingerprints.
+    """CREATE TABLE IF NOT EXISTS triage_notes (
+        id UUID PRIMARY KEY,
+        fingerprint VARCHAR(32) NOT NULL,
+        severity VARCHAR(16) NOT NULL DEFAULT 'medium',
+        error_type VARCHAR(100),
+        path_template VARCHAR(500),
+        sample_message TEXT,
+        probable_cause TEXT NOT NULL DEFAULT '',
+        blast_radius TEXT NOT NULL DEFAULT '',
+        suggested_actions TEXT NOT NULL DEFAULT '',
+        polished_by_ai BOOLEAN NOT NULL DEFAULT FALSE,
+        sample_error_id UUID,
+        occurrence_count INTEGER NOT NULL DEFAULT 1,
+        affected_users INTEGER NOT NULL DEFAULT 0,
+        first_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        latest_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        email_sent BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_triage_fingerprint ON triage_notes (fingerprint)",
+    "CREATE INDEX IF NOT EXISTS ix_triage_created ON triage_notes (created_at)",
 ]
 
 def _run_migrations():

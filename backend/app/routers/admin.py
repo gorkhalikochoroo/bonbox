@@ -21,8 +21,10 @@ from app.models.event_log import EventLog
 from app.models.expense import Expense
 from app.models.sale import Sale
 from app.models.security_event import SecurityEvent
+from app.models.triage_note import TriageNote
 from app.models.user import User
 from app.services.admin_security import require_super_admin
+from app.services.triage_service import run_triage, serialize_note
 
 router = APIRouter()
 
@@ -482,3 +484,45 @@ def admin_cleanup_spam(
         "skipped_with_data": skipped_with_data,
         "min_age_days": min_age_days,
     }
+
+
+# ─────────────────────────────────────────────────────────────────
+# AI On-call Triage — Round D
+# ─────────────────────────────────────────────────────────────────
+
+@router.post("/run-triage")
+def run_triage_endpoint(
+    window_minutes: int = Query(60, ge=10, le=10080),  # 10 min – 7 days
+    send_emails: bool = Query(True),
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Manually trigger an AI triage scan over the last N minutes of
+    error_logs. Groups by fingerprint, generates AI triage notes for
+    new groups, emails admin once per fingerprint per 24h cooldown.
+
+    Wire to cron-job.org (POST every 15 min) once you're happy with
+    the output, or trigger ad-hoc when something's on fire.
+    """
+    result = run_triage(db, window_minutes=window_minutes, send_emails=send_emails)
+    return {
+        "window_minutes": result.window_minutes,
+        "errors_in_window": result.error_count,
+        "new_triage_notes": [serialize_note(n) for n in result.new_notes],
+        "fingerprints_skipped_cooldown": result.skipped_count,
+    }
+
+
+@router.get("/triage-notes")
+def admin_triage_notes(
+    limit: int = Query(30, ge=1, le=200),
+    severity: str | None = Query(None),
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Recent AI triage notes — for the admin panel UI."""
+    q = db.query(TriageNote)
+    if severity in ("low", "medium", "high", "critical"):
+        q = q.filter(TriageNote.severity == severity)
+    rows = q.order_by(TriageNote.created_at.desc()).limit(limit).all()
+    return [serialize_note(r) for r in rows]
