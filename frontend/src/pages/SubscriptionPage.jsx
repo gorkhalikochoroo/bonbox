@@ -595,7 +595,7 @@ export default function SubscriptionPage() {
         <Reassure icon="🆓" title={t("pricingReassureNoCard") || "No card for trial"} sub={t("pricingReassureNoCardSub") || "14 days of Pro, no payment info needed."} />
         <Reassure icon="🇩🇰" title={t("pricingReassureDenmark") || "Built in Denmark"} sub={t("pricingReassureDenmarkSub") || "GDPR-first · EU-hosted · DKK + Moms native"} />
         <Reassure icon="🤝" title={t("pricingReassureCancel") || "Cancel anytime"} sub={t("pricingReassureCancelSub") || "No contracts. Export your data on the way out."} />
-        <Reassure icon="🌏" title={t("pricingReassureLanguages") || "12 languages"} sub={t("pricingReassureLanguagesSub") || "Dansk, English, नेपाली, اردو + 8 more"} />
+        <Reassure icon="🌏" title={t("pricingReassureLanguages") || "6 languages"} sub={t("pricingReassureLanguagesSub") || "Dansk, English, नेपाली, Tiếng Việt, ภาษาไทย, Türkçe"} />
       </div>
 
       {/* FAQ */}

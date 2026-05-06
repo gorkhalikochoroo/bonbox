@@ -185,8 +185,8 @@ const translations = {
     pricingReassureDenmarkSub: "GDPR-first · EU-hosted · DKK + Moms native",
     pricingReassureCancel: "Cancel anytime",
     pricingReassureCancelSub: "No contracts. Export your data on the way out.",
-    pricingReassureLanguages: "12 languages",
-    pricingReassureLanguagesSub: "Dansk, English, नेपाली, اردو + 8 more",
+    pricingReassureLanguages: "6 languages",
+    pricingReassureLanguagesSub: "Dansk, English, नेपाली, Tiếng Việt, ภาษาไทย, Türkçe",
     // After-trial section
     pricingAfterTrialTitle: "What changes after the 14-day trial",
     pricingAfterTrialBody: "Nothing dramatic. You stay signed in, your data is safe, every feature is still there. Free is genuinely usable — these are the only caps that come back when the trial ends:",
@@ -890,9 +890,9 @@ const translations = {
     landingSignIn: "Sign In", landingStartFree: "Get Started",
     landingBadge: "AI-powered · Built for SMEs",
     landingHeroLine1: "Ask your business", landingHeroLine2: "anything.",
-    landingHeroSub: "BonBox is the AI copilot for small businesses. Ask in plain language. Spot anomalies before they become problems. Get insights only YOUR business has. Available on web, iOS, and Android — in 12 languages.",
+    landingHeroSub: "BonBox is the AI copilot for small businesses. Ask in plain language. Spot anomalies before they become problems. Get insights only YOUR business has. Available on web, iOS, and Android — in 6 languages.",
     landingCtaPrimary: "Get Started Now", landingMobileApp: "Mobile App",
-    landingCheck1: "AI insights from day one", landingCheck2: "Works in 12 languages", landingCheck3: "EU-hosted · GDPR-first",
+    landingCheck1: "AI insights from day one", landingCheck2: "Works in 6 languages", landingCheck3: "EU-hosted · GDPR-first",
     landingDemoCaption: "Interactive dashboard preview — click the tabs",
     landingDemoTabDashboard: "Dashboard", landingDemoTabSales: "Sales", landingDemoTabInventory: "Inventory",
     landingDemoWelcome: "Welcome back, Your Shop", landingDemoLowStock: "low stock",
@@ -923,7 +923,7 @@ const translations = {
     landingTagCashBook: "Cash Book", landingTagKhata: "Khata Credit Book", landingTagVat: "VAT Reports",
     landingTagPdf: "PDF Export", landingTagLoan: "Loan Tracker", landingTagPersonal: "Personal Finance",
     landingTagDark: "Dark Mode", landingTagSeasonal: "Seasonal Patterns",
-    landingTagMultiCurrency: "Multi-currency", landingTagMultiLang: "12 Languages",
+    landingTagMultiCurrency: "Multi-currency", landingTagMultiLang: "6 Languages",
     landingTagTax: "Tax Autopilot", landingTagBudget: "Budget Tracker", landingTagExpiry: "Expiry Alerts",
     landingTagCompetitor: "Competitor Intel", landingTagBranch: "Branch Bookkeeping",
     landingTagWorkshop: "Workshop / Garage", landingTagDailyClose: "Daily Close / Kasserapport", landingTagMultiBiz: "Multi-Business",
@@ -964,7 +964,7 @@ const translations = {
     landingTestimonial3: "Finally an app that works in my language and currency. The health score motivates me to keep improving.",
     landingTestimonial3Role: "Restaurant Owner, Mumbai",
     landingGlobalTitle: "Works where you work",
-    landingGlobalSub: "12 languages, 17+ currencies, 21+ business types, and growing.",
+    landingGlobalSub: "6 languages, 17+ currencies, 21+ business types, and growing.",
     landingCredibility1: "Built by Manoj — MSc Data-Driven Business, SDU Denmark",
     landingCredibility2: "Available on web + mobile",
     landingCredibility3: "Your data is yours. Always encrypted. Never sold.",
@@ -1234,8 +1234,8 @@ const translations = {
     pricingReassureDenmarkSub: "GDPR-først · EU-hostet · DKK + Moms indbygget",
     pricingReassureCancel: "Opsig når som helst",
     pricingReassureCancelSub: "Ingen kontrakter. Eksporter dine data, hvis du går.",
-    pricingReassureLanguages: "12 sprog",
-    pricingReassureLanguagesSub: "Dansk, English, नेपाली, اردو + 8 mere",
+    pricingReassureLanguages: "6 sprog",
+    pricingReassureLanguagesSub: "Dansk, English, नेपाली, Tiếng Việt, ภาษาไทย, Türkçe",
     pricingAfterTrialTitle: "Hvad der ændrer sig efter de 14 dages prøveperiode",
     pricingAfterTrialBody: "Intet dramatisk. Du forbliver logget ind, dine data er sikre, alle funktioner er der stadig. Free er reelt brugbart — det er kun disse lofter der vender tilbage, når prøveperioden slutter:",
     pricingAfterTrialCap1: "200 salg logget pr. måned",
@@ -1927,9 +1927,9 @@ const translations = {
     landingSignIn: "Log ind", landingStartFree: "Kom i gang",
     landingBadge: "AI-drevet · Bygget til SMV'er",
     landingHeroLine1: "Spørg din forretning", landingHeroLine2: "om hvad som helst.",
-    landingHeroSub: "BonBox er AI-copiloten for små virksomheder. Spørg på almindeligt sprog. Spot afvigelser før de bliver problemer. Få indsigter som kun DIN forretning har. Tilgængelig på web, iOS og Android — på 12 sprog.",
+    landingHeroSub: "BonBox er AI-copiloten for små virksomheder. Spørg på almindeligt sprog. Spot afvigelser før de bliver problemer. Få indsigter som kun DIN forretning har. Tilgængelig på web, iOS og Android — på 6 sprog.",
     landingCtaPrimary: "Kom i gang nu", landingMobileApp: "Mobilapp",
-    landingCheck1: "AI-indsigter fra dag ét", landingCheck2: "Virker på 12 sprog", landingCheck3: "EU-hostet · GDPR-først",
+    landingCheck1: "AI-indsigter fra dag ét", landingCheck2: "Virker på 6 sprog", landingCheck3: "EU-hostet · GDPR-først",
     landingDemoCaption: "Interaktiv dashboard-demo — klik på fanerne",
     landingDemoTabDashboard: "Oversigt", landingDemoTabSales: "Salg", landingDemoTabInventory: "Lager",
     landingDemoWelcome: "Velkommen tilbage, Din Butik", landingDemoLowStock: "lav beholdning",
@@ -1959,7 +1959,7 @@ const translations = {
     landingTagCashBook: "Kassebog", landingTagKhata: "Khata kreditbog", landingTagVat: "Momsrapporter",
     landingTagPdf: "PDF-eksport", landingTagLoan: "Låneoversigt", landingTagPersonal: "Privat økonomi",
     landingTagDark: "Mørk tilstand", landingTagSeasonal: "Sæsonmønstre",
-    landingTagMultiCurrency: "Multi-valuta", landingTagMultiLang: "12 sprog",
+    landingTagMultiCurrency: "Multi-valuta", landingTagMultiLang: "6 sprog",
     landingTagTax: "Skat Autopilot", landingTagBudget: "Budgetsporing", landingTagExpiry: "Udløbsadvarsler",
     landingTagCompetitor: "Konkurrentintel", landingTagBranch: "Filialbogføring",
     landingTagWorkshop: "Værksted / Garage", landingTagDailyClose: "Daglig Lukning / Kasserapport", landingTagMultiBiz: "Multi-Forretning",
@@ -1997,7 +1997,7 @@ const translations = {
     landingTestimonial3: "Endelig en app der virker på mit sprog og i min valuta. Sundhedsscoren motiverer mig til at blive bedre.",
     landingTestimonial3Role: "Restaurantejer, Mumbai",
     landingGlobalTitle: "Virker hvor du arbejder",
-    landingGlobalSub: "12 sprog, 17+ valutaer, 21+ virksomhedstyper og voksende.",
+    landingGlobalSub: "6 sprog, 17+ valutaer, 21+ virksomhedstyper og voksende.",
     landingCredibility1: "Bygget af Manoj — MSc Data-Driven Business, SDU Danmark",
     landingCredibility2: "Tilgængelig på web + mobil",
     landingCredibility3: "Dine data er dine. Altid krypteret. Aldrig solgt.",
@@ -2266,8 +2266,8 @@ const translations = {
     pricingReassureDenmarkSub: "GDPR-पहिले · EU-होस्ट · DKK + Moms नेटिभ",
     pricingReassureCancel: "जुनसुकै बेला रद्द",
     pricingReassureCancelSub: "कुनै सम्झौता छैन। बाहिर निस्किँदा डाटा निर्यात गर्नुहोस्।",
-    pricingReassureLanguages: "१२ भाषा",
-    pricingReassureLanguagesSub: "Dansk, English, नेपाली, اردو + ८ अरू",
+    pricingReassureLanguages: "६ भाषा",
+    pricingReassureLanguagesSub: "Dansk, English, नेपाली, Tiếng Việt, ภาษาไทย, Türkçe",
     pricingAfterTrialTitle: "१४-दिने ट्रायल पछि के परिवर्तन हुन्छ",
     pricingAfterTrialBody: "केहि नाटकीय छैन। तपाईं साइन-इन रहनुहुन्छ, डाटा सुरक्षित छ, हरेक सुविधा अझै छ। Free वास्तवमा प्रयोगयोग्य छ — ट्रायल सकिएपछि यी सीमा मात्र फर्किन्छन्:",
     pricingAfterTrialCap1: "२०० बिक्री प्रति महिना",
@@ -2961,9 +2961,9 @@ const translations = {
     landingSignIn: "साइन इन", landingStartFree: "सुरु गर्नुहोस्",
     landingBadge: "AI-संचालित · SME का लागि बनाइएको",
     landingHeroLine1: "आफ्नो व्यापारलाई", landingHeroLine2: "जे पनि सोध्नुहोस्।",
-    landingHeroSub: "BonBox साना व्यवसायहरूका लागि AI सहयोगी हो। सामान्य भाषामा सोध्नुहोस्। समस्या बन्नु अघि असामान्यताहरू पत्ता लगाउनुहोस्। केवल तपाईंको व्यापारका विशेष सूक्ष्म जानकारीहरू पाउनुहोस्। वेब, iOS र Android मा उपलब्ध — १२ भाषामा।",
+    landingHeroSub: "BonBox साना व्यवसायहरूका लागि AI सहयोगी हो। सामान्य भाषामा सोध्नुहोस्। समस्या बन्नु अघि असामान्यताहरू पत्ता लगाउनुहोस्। केवल तपाईंको व्यापारका विशेष सूक्ष्म जानकारीहरू पाउनुहोस्। वेब, iOS र Android मा उपलब्ध — ६ भाषामा।",
     landingCtaPrimary: "अहिले सुरु गर्नुहोस्", landingMobileApp: "मोबाइल एप",
-    landingCheck1: "पहिलो दिनदेखि AI सूक्ष्म जानकारी", landingCheck2: "१२ भाषामा काम गर्छ", landingCheck3: "EU-होस्टेड · GDPR-पहिलो",
+    landingCheck1: "पहिलो दिनदेखि AI सूक्ष्म जानकारी", landingCheck2: "६ भाषामा काम गर्छ", landingCheck3: "EU-होस्टेड · GDPR-पहिलो",
     landingDemoCaption: "इन्टरयाक्टिभ ड्यासबोर्ड — ट्याबमा क्लिक गर्नुहोस्",
     landingDemoTabDashboard: "ड्यासबोर्ड", landingDemoTabSales: "बिक्री", landingDemoTabInventory: "स्टक",
     landingDemoWelcome: "स्वागतम्, तपाईंको पसल", landingDemoLowStock: "कम स्टक",
@@ -2993,7 +2993,7 @@ const translations = {
     landingTagCashBook: "क्यास बुक", landingTagKhata: "खाता क्रेडिट बुक", landingTagVat: "कर रिपोर्ट",
     landingTagPdf: "PDF निर्यात", landingTagLoan: "ऋण ट्र्याकर", landingTagPersonal: "व्यक्तिगत वित्त",
     landingTagDark: "डार्क मोड", landingTagSeasonal: "मौसमी ढाँचा",
-    landingTagMultiCurrency: "बहु-मुद्रा", landingTagMultiLang: "१२ भाषाहरू",
+    landingTagMultiCurrency: "बहु-मुद्रा", landingTagMultiLang: "६ भाषाहरू",
     landingTagTax: "कर अटोपाइलट", landingTagBudget: "बजेट ट्र्याकर", landingTagExpiry: "म्याद अलर्ट",
     landingTagCompetitor: "प्रतिस्पर्धी इन्टेल", landingTagBranch: "शाखा लेखा",
     landingTagWorkshop: "कार्यशाला / ग्यारेज", landingTagDailyClose: "दैनिक बन्द", landingTagMultiBiz: "बहु-व्यापार",
@@ -3031,7 +3031,7 @@ const translations = {
     landingTestimonial3: "अन्तमा मेरो भाषा र मुद्रामा काम गर्ने एप। स्वास्थ्य स्कोरले मलाई सुधार गर्न प्रेरित गर्छ।",
     landingTestimonial3Role: "रेस्टुरेन्ट मालिक, मुम्बई",
     landingGlobalTitle: "तपाईं काम गर्ने ठाउँमा काम गर्छ",
-    landingGlobalSub: "१२ भाषा, १७+ मुद्रा, २१+ व्यापार प्रकार, र बढ्दै।",
+    landingGlobalSub: "६ भाषा, १७+ मुद्रा, २१+ व्यापार प्रकार, र बढ्दै।",
     landingCredibility1: "मनोजद्वारा निर्मित — MSc Data-Driven Business, SDU डेनमार्क",
     landingCredibility2: "वेब + मोबाइलमा उपलब्ध",
     landingCredibility3: "तपाईंको डाटा तपाईंकै हो। सधैं इन्क्रिप्टेड। कहिल्यै बेचिँदैन।",
@@ -3155,6 +3155,17 @@ translations.vi = vi;
 translations.th = th;
 translations.tr = tr;
 
+// Priority languages — these are the only ones with full translation
+// coverage (~1000+ keys each: every UI string, pricing page, FAQ,
+// error states). The 9 European/Asian stub packs (de/fr/es/nl/sv/no/pt/it/ja)
+// only had ~400 keys each — half the UI fell back to English in those
+// languages, which felt deceptive in the picker. Removed until we have
+// full translation coverage for any of them.
+//
+// The stub translation files (i18n/{de,es,fr,nl,sv,no,pt,it,ja}.js) are
+// kept on disk so the import statements still resolve and so we can
+// re-enable individual languages by adding them back here once they're
+// fully translated.
 const LANGUAGES = [
   { code: "en", label: "English", flag: "🇬🇧" },
   { code: "da", label: "Dansk", flag: "🇩🇰" },
@@ -3162,23 +3173,18 @@ const LANGUAGES = [
   { code: "vi", label: "Tiếng Việt", flag: "🇻🇳" },
   { code: "th", label: "ภาษาไทย", flag: "🇹🇭" },
   { code: "tr", label: "Türkçe", flag: "🇹🇷" },
-  { code: "de", label: "Deutsch", flag: "🇩🇪" },
-  { code: "fr", label: "Français", flag: "🇫🇷" },
-  { code: "es", label: "Español", flag: "🇪🇸" },
-  { code: "nl", label: "Nederlands", flag: "🇳🇱" },
-  { code: "sv", label: "Svenska", flag: "🇸🇪" },
-  { code: "no", label: "Norsk", flag: "🇳🇴" },
-  { code: "pt", label: "Português", flag: "🇵🇹" },
-  { code: "it", label: "Italiano", flag: "🇮🇹" },
-  { code: "ja", label: "日本語", flag: "🇯🇵" },
 ];
 
-// Auto-detect language from currency
+// Auto-detect language from currency. Currencies whose native language
+// is in stub-only state (SEK→sv, NOK→no, CHF→de, JPY→ja, BRL→pt, MXN→es)
+// fall through to "en" until we have full translation coverage for those
+// languages. THB→th and TRY→tr added since both are now fully translated.
 const CURRENCY_LANG_MAP = {
   DKK: "da", NPR: "np", EUR: "en", USD: "en", GBP: "en",
-  SEK: "sv", NOK: "no", CHF: "de", JPY: "ja",
-  INR: "en", BRL: "pt", MXN: "es", AUD: "en", CAD: "en",
-  NZD: "en", ZAR: "en", THB: "en", PHP: "en",
+  THB: "th", VND: "vi", TRY: "tr",
+  SEK: "en", NOK: "en", CHF: "en", JPY: "en",
+  INR: "en", BRL: "en", MXN: "en", AUD: "en", CAD: "en",
+  NZD: "en", ZAR: "en", PHP: "en",
 };
 
 export function getLangForCurrency(currencyCode) {
