@@ -77,6 +77,7 @@ from app.services.inventory_learning import (
     promote_corrections, prune_stale_examples,
 )
 from app.services.inventory_perishable import mark_perishable_if_needed
+from app.services.storage import compose_key, get_storage
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -211,6 +212,7 @@ def _persist_import(
         source_filename=source_filename,
         source_size_bytes=source_size_bytes,
         source_sha256=source_sha,
+        storage_key=extractor_meta.get("storage_key") if isinstance(extractor_meta, dict) else None,
         extracted_json=extracted_items,
         categorized_json=categorized_items,
         item_count=len(extracted_items),
@@ -358,6 +360,27 @@ async def import_file(
             )
             if extractor_meta.get("error"):
                 error_msg = f"extractor:{extractor_meta['error']}"
+
+            # Persist the upload bytes to durable storage for review
+            # screen + audit. Best-effort — a storage failure does NOT
+            # block the extraction (owner gets their items regardless).
+            try:
+                ext = (media_type.split("/")[-1] or "jpg").lower()
+                if ext == "jpeg":
+                    ext = "jpg"
+                if ext not in {"jpg", "png", "webp", "heic"}:
+                    ext = "jpg"
+                storage_key = compose_key(
+                    user.id, "inventory_import", sha, ext,
+                )
+                get_storage().put(storage_key, raw, content_type=media_type)
+                # Capture in extractor_meta so it gets persisted on the
+                # InventoryImport row via timing/etc passthrough.
+                extractor_meta = {**extractor_meta, "storage_key": storage_key}
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "smart-import: failed to persist image to storage (non-fatal)"
+                )
     except HTTPException:
         raise
     except Exception as e:  # noqa: BLE001
@@ -410,6 +433,54 @@ def get_draft(
     if not imp:
         raise HTTPException(status_code=404, detail="Import draft not found")
     return _draft_response(imp)
+
+
+@router.get("/{import_id}/image")
+def get_import_image(
+    import_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Return the original uploaded image for review.
+
+    Multi-layer defense (mirrors /api/kasserapport/{id}/image):
+      L1 — auth.
+      L2 — tenant scope: row.user_id == user.id (filter below).
+      L3 — storage path prefix check (compose_key invariant).
+      L4 — generic 404 on every miss.
+    Only image-kind imports have a stored blob; text/CSV/Excel return 404.
+    """
+    from fastapi.responses import Response as _Response
+
+    imp = (
+        db.query(InventoryImport)
+        .filter(InventoryImport.id == import_id, InventoryImport.user_id == user.id)
+        .first()
+    )
+    if not imp or not imp.storage_key:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    if not imp.storage_key.startswith(f"{user.id}/"):
+        logger.error(
+            "smart-import: storage_key path mismatch for import %s (user %s, key %s)",
+            import_id, user.id, imp.storage_key,
+        )
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    data = get_storage().get(imp.storage_key)
+    if not data:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    ext = imp.storage_key.rsplit(".", 1)[-1].lower() if "." in imp.storage_key else "jpg"
+    media_type = {
+        "jpg": "image/jpeg", "jpeg": "image/jpeg",
+        "png": "image/png", "webp": "image/webp", "heic": "image/heic",
+    }.get(ext, "image/jpeg")
+    return _Response(
+        content=data,
+        media_type=media_type,
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 @router.post("/{import_id}/commit", status_code=201)

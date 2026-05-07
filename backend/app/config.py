@@ -26,6 +26,14 @@ class Settings(BaseSettings):
     GOOGLE_VISION_API_KEY: str = ""
     SUPABASE_URL: str = ""
     SUPABASE_ANON_KEY: str = ""
+    # Service-role key (sb_secret_…) for backend → Supabase Storage writes.
+    # Required for persisting receipt images to the `receipts` bucket. If
+    # empty, the storage abstraction falls back to local-disk (dev mode).
+    # Never expose to frontend — server-side ONLY.
+    SUPABASE_SERVICE_KEY: str = ""
+    # Bucket names. Must already exist in Supabase project as PRIVATE
+    # buckets (RLS off; access mediated entirely by our backend's auth).
+    SUPABASE_RECEIPTS_BUCKET: str = "receipts"
     ANTHROPIC_API_KEY: str = ""
     COMPANIES_HOUSE_API_KEY: str = ""
     GOOGLE_CLIENT_ID: str = ""  # Google OAuth client ID

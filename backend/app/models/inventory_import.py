@@ -67,6 +67,10 @@ class InventoryImport(Base):
     # SHA256 of the raw upload bytes — used for dedup + tying corrections
     # back to the exact input the extractor saw.
     source_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # Storage path for the original upload (image kind only). Format:
+    # `<user_id>/inventory_import/<sha>.<ext>`. NULL for non-image
+    # kinds. Served via /api/inventory/smart-import/{id}/image.
+    storage_key: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
     # Pipeline outputs.
     # extracted_json: list of {name, qty, unit, ...} the extractor returned.

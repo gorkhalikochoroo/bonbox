@@ -224,6 +224,30 @@ async def extract(
         except Exception:  # noqa: BLE001
             pass  # best-effort cleanup
 
+    # Persist the receipt photo to durable storage so the owner can
+    # re-view it later (Bogføringsloven §10 source-document retention,
+    # plus debugging extraction errors). Best-effort — a storage
+    # failure must NOT block the extraction response. We log the
+    # storage path only after a successful upload so a failed upload
+    # doesn't leave a dangling reference in the DB.
+    storage_key: str | None = None
+    try:
+        from app.services.storage import compose_key, get_storage
+        # Pick extension from sniffed format if available, else jpg.
+        sniffed_ext = (fmt_or_reason or "jpg").lower().split("/")[-1]
+        if sniffed_ext == "jpeg":
+            sniffed_ext = "jpg"
+        if sniffed_ext not in {"jpg", "png", "webp", "heic"}:
+            sniffed_ext = "jpg"
+        storage_key = compose_key(
+            user.id, "kasserapport",
+            (result.image_sha256 or img_hash), sniffed_ext,
+        )
+        get_storage().put(storage_key, body, content_type=file.content_type or "image/jpeg")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("kasserapport: storage upload failed: %s", e)
+        storage_key = None  # don't write a path we couldn't actually upload
+
     # Always log the attempt — even failures, so the admin review can spot
     # patterns in what's going wrong. Log row carries the audit trail
     # (image_sha256, prompt_version) so post-hoc analysis can correlate
@@ -233,6 +257,7 @@ async def extract(
             id=uuid.uuid4(),
             user_id=user.id,
             terminal_id=validated_terminal_id,
+            image_url=storage_key,                       # storage path (not public URL)
             document_type=result.document_type,
             pos_system=result.pos_system,
             classifier_confidence=result.classifier_confidence,
@@ -276,6 +301,64 @@ async def extract(
         "image_sha256": result.image_sha256,
         "prompt_version": result.prompt_version,
     }
+
+
+@router.get("/{extraction_id}/image")
+def get_extraction_image(
+    extraction_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Return the original receipt photo for review.
+
+    Multi-layer defense:
+      L1 — auth (get_current_user dep).
+      L2 — tenant scope: row.user_id MUST equal user.id (enforced via
+           the .filter() below).
+      L3 — storage path is itself prefixed with the owner's user_id
+           (compose_key invariant), so even a misrouted storage call
+           can't leak across tenants.
+      L4 — generic 404 on any miss so an attacker can't probe whether
+           an extraction_id exists or who owns it.
+    """
+    from fastapi.responses import Response as _Response
+    from app.services.storage import get_storage
+
+    row = (
+        db.query(KasserapportExtraction)
+        .filter(
+            KasserapportExtraction.id == extraction_id,
+            KasserapportExtraction.user_id == user.id,
+        )
+        .first()
+    )
+    if not row or not row.image_url:
+        raise HTTPException(status_code=404, detail="Receipt image not found")
+
+    # Belt-and-braces: storage key must start with this user's id.
+    # Defends against any future code path that writes a wrong key.
+    if not row.image_url.startswith(f"{user.id}/"):
+        logger.error(
+            "kasserapport: image_url path mismatch for extraction %s (user %s, key %s)",
+            extraction_id, user.id, row.image_url,
+        )
+        raise HTTPException(status_code=404, detail="Receipt image not found")
+
+    data = get_storage().get(row.image_url)
+    if not data:
+        raise HTTPException(status_code=404, detail="Receipt image not found")
+
+    # Pick MIME from extension on the storage path.
+    ext = row.image_url.rsplit(".", 1)[-1].lower() if "." in row.image_url else "jpg"
+    media_type = {
+        "jpg": "image/jpeg", "jpeg": "image/jpeg",
+        "png": "image/png", "webp": "image/webp", "heic": "image/heic",
+    }.get(ext, "image/jpeg")
+    return _Response(
+        content=data,
+        media_type=media_type,
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 @router.post("/{extraction_id}/commit")

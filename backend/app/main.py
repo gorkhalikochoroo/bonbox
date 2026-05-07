@@ -28,7 +28,7 @@ if _SENTRY_DSN:
         import warnings
         warnings.warn(f"Sentry init failed: {e}")
 
-from fastapi import FastAPI, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -39,7 +39,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, inventory_smart_import, modules as modules_router, ai as ai_router
-from app.database import engine, Base
+from app.database import engine, Base, get_db
 from app.models import *  # noqa: ensure all models are loaded
 
 # DB readiness flag — set once tables + migrations are done
@@ -385,6 +385,12 @@ _migrations = [
     "CREATE INDEX IF NOT EXISTS ix_inv_imp_examples_user_id ON inventory_import_examples (user_id)",
     "CREATE INDEX IF NOT EXISTS ix_inv_imp_examples_user_kind ON inventory_import_examples (user_id, kind)",
     "CREATE INDEX IF NOT EXISTS ix_inv_imp_examples_user_extracted ON inventory_import_examples (user_id, extracted_name)",
+    # ── Migration 013: storage_key on inventory_imports ──
+    # Path to the original uploaded image in Supabase Storage so the
+    # owner can re-view their upload from the review screen + we have
+    # a Bogføringsloven §10 source-document trail. NULL for text/CSV/
+    # Excel imports (no image to retain).
+    "ALTER TABLE inventory_imports ADD COLUMN IF NOT EXISTS storage_key VARCHAR(300)",
 ]
 
 def _run_migrations():
@@ -532,6 +538,8 @@ def _run_migrations():
             ok += _add("output_channels", "role", "VARCHAR(20)")
             # Migration 010 mirror — vertical-module gating
             ok += _add("users", "enabled_modules", "TEXT")
+            # Migration 013 mirror — storage_key for inventory_imports
+            ok += _add("inventory_imports", "storage_key", "VARCHAR(300)")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",
@@ -1107,27 +1115,98 @@ app.include_router(property_report.router, prefix="/api/property-report", tags=[
 app.include_router(admin.router, prefix="/api/admin", tags=["Super Admin"])
 
 
-# --- Protected Uploads (user can only access own receipts) ---
+# --- Protected Uploads — owner can only access own receipts ---
+#
+# Multi-layer defense (parity with the rest of the codebase):
+#   L1 — auth: require_current_user dep.
+#   L2 — tenant scope: filename MUST start with `<user_id>_`. The
+#        legacy filename convention prefixes every upload with the
+#        owner's user_id, so a path like `4d6e..._a1b2.jpg` belongs
+#        to user 4d6e... and only that user.
+#   L3 — path-traversal guard: resolved path must stay inside uploads_dir.
+#   L4 — generic 404 on any failure so an attacker can't probe for
+#        existence vs ownership.
+#
+# Note: this endpoint serves the legacy local-disk uploads. Going
+# forward, new receipts persist to Supabase Storage and are served
+# via the model-specific endpoints (e.g. /api/kasserapport/{id}/image)
+# which scope by row.user_id directly. This local-disk path stays for
+# backwards-compat with already-uploaded files, with the IDOR closed.
 uploads_dir = Path("uploads/receipts")
 uploads_dir.mkdir(parents=True, exist_ok=True)
 
 
+def _serve_receipt_unauth_404(detail: str = "File not found"):
+    """Generic 404 — never leak whether the path exists, who owns it,
+    or whether auth is the issue. An attacker probing this endpoint
+    sees the same response for every failure mode."""
+    return JSONResponse(status_code=404, content={"detail": detail})
+
+
 @app.get("/uploads/receipts/{filename}")
 def serve_receipt(filename: str, request: Request):
-    """Serve receipt images — files are prefixed with user_id so no cross-user access."""
-    file_path = uploads_dir / filename
-    if not file_path.exists() or not file_path.is_file():
-        return JSONResponse(status_code=404, content={"detail": "File not found"})
-    # Prevent path traversal
+    """Serve a receipt image. Auth-required + filename must be
+    prefixed with the requesting user's id (legacy convention)."""
+    # Resolve auth manually — this endpoint sits outside the API
+    # routers (mounted at root) so we can't use Depends(get_current_user)
+    # cleanly without restructuring. Manual call replicates the same
+    # JWT/cookie resolution.
+    from app.services.auth import get_current_user
+    from app.database import SessionLocal
+    db = SessionLocal()
     try:
-        file_path.resolve().relative_to(uploads_dir.resolve())
-    except ValueError:
-        return JSONResponse(status_code=403, content={"detail": "Access denied"})
-    return Response(
-        content=file_path.read_bytes(),
-        media_type="image/jpeg",
-        headers={"Cache-Control": "private, max-age=3600"},
-    )
+        # Manually resolve the token because FastAPI's Depends won't
+        # inject here. We support both bearer header and session cookie,
+        # matching app/services/auth.py:get_current_user.
+        from app.services.auth import (
+            AUTH_COOKIE_NAME, _decode_token,
+        )
+        from jose import JWTError
+        from app.models.user import User as _User
+
+        bearer = request.headers.get("authorization", "")
+        token = None
+        if bearer.lower().startswith("bearer "):
+            token = bearer.split(" ", 1)[1].strip()
+        if not token:
+            token = request.cookies.get(AUTH_COOKIE_NAME)
+        if not token:
+            return _serve_receipt_unauth_404()
+
+        try:
+            payload = _decode_token(token)
+            user_id = payload.get("sub")
+            if not user_id:
+                return _serve_receipt_unauth_404()
+        except JWTError:
+            return _serve_receipt_unauth_404()
+
+        user = db.query(_User).filter(_User.id == user_id).first()
+        if not user:
+            return _serve_receipt_unauth_404()
+
+        # L2 — tenant scope: filename MUST begin with `<user_id>_`.
+        user_prefix = f"{user.id}_"
+        if not filename.startswith(user_prefix):
+            return _serve_receipt_unauth_404()
+
+        file_path = uploads_dir / filename
+        if not file_path.exists() or not file_path.is_file():
+            return _serve_receipt_unauth_404()
+
+        # L3 — path traversal guard.
+        try:
+            file_path.resolve().relative_to(uploads_dir.resolve())
+        except ValueError:
+            return _serve_receipt_unauth_404()
+
+        return Response(
+            content=file_path.read_bytes(),
+            media_type="image/jpeg",
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
+    finally:
+        db.close()
 
 
 # --- Background scheduler: auto-sync payment providers + nightly maintenance ---
