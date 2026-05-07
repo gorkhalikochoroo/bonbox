@@ -4,23 +4,26 @@ import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 
 /**
- * Small trial countdown chip — sits in the sidebar above the
- * navigation. Replaces the older full-width TrialBanner that
- * occupied a stripe across the dashboard.
+ * Trial countdown chip — small floating pill in the top-right
+ * corner of every page on desktop. NOT in the sidebar (cluttered
+ * the header) and NOT a full-width banner (too pushy).
  *
  * Design:
- *   • Compact pill that lives in the sidebar header — always
- *     visible without competing for content area attention.
- *   • Calm by default (cool blue tint with 🎁 icon) — informational.
- *   • Shifts to warm amber + 🌤️ icon when ≤ 3 days remain. Still
- *     not red-alarm: nothing bad happens at trial end (downgrade
- *     to Free with usage caps), so urgency stays gentle.
- *   • Clickable — taps go to /subscription.
- *   • Dismissible — × hides for 24 hours, persisted in localStorage.
+ *   • Compact pill: just "🎁 14d" (icon + abbreviated days).
+ *     Hover/aria reveals the full "14 days left in trial" text.
+ *   • Fixed top-right, just inside the viewport (top-3, right-4).
+ *     Doesn't take up layout space — floats above content.
+ *   • Calm slate-on-white default with a subtle border.
+ *     Shifts to amber when ≤ 3 days remain (gentle urgency,
+ *     not red-alarm — nothing bad happens at trial end).
+ *   • Inline × button to dismiss for 24h.
+ *   • Click anywhere else on the pill → /subscription.
+ *   • Hidden on mobile (md-) — mobile users have the dashboard
+ *     final-stretch tip kick in at ≤ 2 days, which is enough
+ *     signal without crowding their tighter top bar.
  *
  * Renders nothing for paid users, expired trials, or legacy users
- * without trial state. Self-loads /api/billing/me; silent on
- * failure.
+ * without trial state.
  */
 
 const DISMISS_KEY = "bonbox_trial_chip_dismissed_until";
@@ -50,47 +53,45 @@ export default function TrialChip() {
   if (days == null || !billing.trial_active || days <= 0) return null;
 
   const urgent = days <= 3;
-  const label = days === 1
+  const tooltip = days === 1
     ? (t("trialChipOneDay") || "1 day left in trial")
     : (t("trialChipManyDays") || "{n} days left in trial").replace("{n}", days);
 
+  const dismiss = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    localStorage.setItem(DISMISS_KEY, String(Date.now() + 86400000));
+    setHidden(true);
+  };
+
   return (
-    <div className="px-3 pb-2">
+    <div
+      className="hidden md:flex fixed top-3 right-4 z-30 items-center gap-1"
+      role="status"
+      aria-label={tooltip}
+    >
       <Link
         to="/subscription"
-        className={`group relative block px-2.5 py-1.5 rounded-lg text-[11px] font-medium border transition ${
+        title={tooltip}
+        className={`group inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium border shadow-sm transition ${
           urgent
-            ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/30"
-            : "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800/60 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/30"
+            ? "bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50"
+            : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600 hover:text-gray-900 dark:hover:text-white"
         }`}
-        title={urgent
-          ? (t("trialChipUrgentTooltip") || "Trial ends soon — see plans")
-          : (t("trialChipTooltip") || "View Pro plans")}
       >
-        <span className="flex items-center gap-1.5">
-          <span className="shrink-0">{urgent ? "🌤️" : "🎁"}</span>
-          <span className="flex-1 truncate">{label}</span>
-          <svg
-            className="w-2.5 h-2.5 opacity-50 group-hover:opacity-100 shrink-0"
-            fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}
-            aria-hidden="true"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-        </span>
+        <span aria-hidden="true">{urgent ? "🌤️" : "🎁"}</span>
+        <span>{days}d</span>
       </Link>
-      {/* Tiny "Hide for today" link below — separate from the chip
-          so a casual click on the chip itself navigates rather than
-          dismisses. Single-tap interactions feel less hostile. */}
       <button
         type="button"
-        onClick={() => {
-          localStorage.setItem(DISMISS_KEY, String(Date.now() + 86400000));
-          setHidden(true);
-        }}
-        className="mt-0.5 w-full text-[9px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 text-right"
+        onClick={dismiss}
+        title={t("hideForToday") || "Hide for today"}
+        aria-label={t("hideForToday") || "Hide for today"}
+        className="w-5 h-5 inline-flex items-center justify-center rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/60 transition"
       >
-        {t("hideForToday") || "hide for today"}
+        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5} aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
       </button>
     </div>
   );

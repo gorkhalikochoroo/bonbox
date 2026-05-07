@@ -485,12 +485,6 @@ export default function Layout() {
           </button>
         </div>
 
-        {/* Trial countdown — small pill, only renders for trial
-            users. Self-loads /billing/me. Replaces the older full-
-            width TrialBanner that occupied a stripe across the
-            dashboard. Click → /subscription. Dismissible per day. */}
-        <TrialChip />
-
         {/* Global search trigger — kept compact + visually quieter
             than the business-mode toggle right above so the two
             don't compete. Borderless, smaller padding + smaller
@@ -689,6 +683,16 @@ export default function Layout() {
 
       {/* Mobile bottom nav — iOS tab bar pattern */}
       <MobileBottomNav />
+
+      {/* Trial countdown — small floating pill in the top-right
+          corner of the viewport (desktop only; mobile relies on the
+          dashboard final-stretch tip at ≤ 2 days). Position is
+          fixed inside TrialChip itself, so it lives at the layout
+          root rather than inside the sidebar (felt cluttered) or
+          a per-page header (would disappear on inner pages). Self-
+          loads /billing/me; renders nothing for paid users / no
+          trial / expired. */}
+      <TrialChip />
 
       {/* Floating widgets — hidden on pricing/subscription pages so they
           don't visually compete with the CTA cards. The "+" QuickAdd
