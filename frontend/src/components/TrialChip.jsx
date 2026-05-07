@@ -14,13 +14,17 @@ import { useLanguage } from "../hooks/useLanguage";
  *     Hover/aria reveals the full "14 days left in trial" text.
  *   • Fixed bottom-left, just inside the viewport. Doesn't take
  *     up layout space — floats above content.
- *   • Stacked at bottom-left ABOVE the existing QuickAdd ➕ widget
- *     (which is at md:bottom-6 left-6). Chip sits at bottom-20
- *     (~80px from bottom edge) so the two stack cleanly without
- *     overlap. Bottom-right is occupied by the ✨ BonBoxAgent.
- *     Top-right is occupied by per-page action buttons (Quick
- *     Sale / Download PDF / etc.). Bottom-left has just QuickAdd
- *     so we get a clean two-pill stack.
+ *   • Position: fixed bottom-CENTER (left-1/2 with -translate-x-1/2).
+ *     Picked deliberately to sit out of the way of the four
+ *     occupied corners:
+ *       - top-left   : sidebar
+ *       - top-right  : per-page action buttons (Download PDF /
+ *                      Quick Sale / Snap Receipt)
+ *       - bottom-left: QuickAdd ➕ widget (at left-6)
+ *       - bottom-right: ✨ BonBoxAgent (at right-6)
+ *     The bottom-center stripe is empty everywhere — no fights
+ *     with sidebar z-index either (the chip sits in the main
+ *     content area horizontally).
  *   • Calm slate-on-white default with a subtle border + shadow.
  *     Shifts to amber when ≤ 3 days remain (gentle urgency,
  *     not red-alarm — nothing bad happens at trial end).
@@ -74,7 +78,7 @@ export default function TrialChip() {
 
   return (
     <div
-      className="hidden md:flex fixed bottom-20 left-6 z-40 items-center gap-1"
+      className="hidden md:flex fixed bottom-4 left-1/2 -translate-x-1/2 z-40 items-center gap-1"
       role="status"
       aria-label={tooltip}
     >
