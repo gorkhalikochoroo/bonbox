@@ -235,6 +235,11 @@ const translations = {
     dismiss: "Dismiss",
     back: "Back",
     saving: "Saving…",
+    // Final 48-hour trial conversion tip — separate from the calm TrialBanner
+    trialFinalLastDay: "Last day",
+    trialFinalTwoDays: "2 days left",
+    trialFinalSavings: "Lock founding 249 kr/mo for life — saves 1,200 kr/year vs regular 349.",
+    trialFinalLockNow: "Lock now",
     // Cookie consent banner
     cookieBannerAria: "Cookie consent",
     cookieBannerTitle: "We use cookies",
@@ -1310,6 +1315,10 @@ const translations = {
     dismiss: "Luk",
     back: "Tilbage",
     saving: "Gemmer…",
+    trialFinalLastDay: "Sidste dag",
+    trialFinalTwoDays: "2 dage tilbage",
+    trialFinalSavings: "Lås founding 249 kr/md for livet — sparer 1.200 kr/år vs normal 349.",
+    trialFinalLockNow: "Lås nu",
     // Cookie consent banner
     cookieBannerAria: "Cookiesamtykke",
     cookieBannerTitle: "Vi bruger cookies",
@@ -2369,6 +2378,10 @@ const translations = {
     dismiss: "बन्द",
     back: "फिर्ता",
     saving: "सेभ हुँदै…",
+    trialFinalLastDay: "अन्तिम दिन",
+    trialFinalTwoDays: "२ दिन बाँकी",
+    trialFinalSavings: "founding 249 kr/महिना जीवनभर लक — नियमित 349 भन्दा वार्षिक 1,200 kr बचत।",
+    trialFinalLockNow: "अहिले लक",
     // Cookie consent banner
     cookieBannerAria: "कुकी सहमति",
     cookieBannerTitle: "हामी कुकी प्रयोग गर्छौं",

@@ -14,6 +14,7 @@ import SmartSaleInput from "../components/SmartSaleInput";
 import AnomalyAlertsCard from "../components/AnomalyAlertsCard";
 import DismissibleTip from "../components/DismissibleTip";
 import CloserPromptCard from "../components/CloserPromptCard";
+import TrialFinalStretchTip from "../components/TrialFinalStretchTip";
 import {
   AnimatedCounter,
   SkeletonCard,
@@ -1376,6 +1377,12 @@ export default function DashboardPage() {
 
         {/* ── TRIAL COUNTDOWN — only renders during/just-after trial ── */}
         <TrialBanner />
+
+        {/* ── FINAL 48-HOUR CONVERSION NUDGE — appears alongside TrialBanner
+             only when trial_days_remaining ∈ {1, 2}. The calm TrialBanner
+             keeps users informed; this small tip gives a specific, honest
+             reason to lock founding pricing before regular kicks in. ── */}
+        <TrialFinalStretchTip />
 
         {/* ── AI DAILY BRIEF — actionable morning brief, top of fold ── */}
         <DailyBriefCard />

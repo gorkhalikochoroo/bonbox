@@ -1047,6 +1047,10 @@ export const th = {
   dismiss: "ปิด",
   back: "ย้อนกลับ",
   saving: "กำลังบันทึก…",
+  trialFinalLastDay: "วันสุดท้าย",
+  trialFinalTwoDays: "เหลือ 2 วัน",
+  trialFinalSavings: "ล็อกราคา founding 249 kr/เดือน ตลอดชีพ — ประหยัด 1,200 kr/ปี เทียบกับราคาปกติ 349",
+  trialFinalLockNow: "ล็อกเลย",
 };
 
 

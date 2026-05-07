@@ -1052,4 +1052,8 @@ export const vi = {
   dismiss: "Đóng",
   back: "Quay lại",
   saving: "Đang lưu…",
+  trialFinalLastDay: "Ngày cuối",
+  trialFinalTwoDays: "Còn 2 ngày",
+  trialFinalSavings: "Khóa founding 249 kr/tháng trọn đời — tiết kiệm 1.200 kr/năm so với 349 thường.",
+  trialFinalLockNow: "Khóa ngay",
 };

@@ -1048,4 +1048,8 @@ export const tr = {
   dismiss: "Kapat",
   back: "Geri",
   saving: "Kaydediliyor…",
+  trialFinalLastDay: "Son gün",
+  trialFinalTwoDays: "2 gün kaldı",
+  trialFinalSavings: "Founding 249 kr/ay'ı ömür boyu kilitle — 349 normal fiyata göre yılda 1.200 kr tasarruf.",
+  trialFinalLockNow: "Şimdi kilitle",
 };
