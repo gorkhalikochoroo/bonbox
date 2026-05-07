@@ -91,13 +91,9 @@ class ErrorBoundary extends Component {
   }
 }
 
-// Landing, Login, Register load immediately (small)
-import LandingPage from "./pages/LandingPage";
-import LoginPage from "./pages/LoginPage";
-import RegisterPage from "./pages/RegisterPage";
-import ContactPage from "./pages/ContactPage";
-import TermsPage from "./pages/TermsPage";
-import CookiePolicyPage from "./pages/CookiePolicyPage";
+// CookieConsent is shown on every route (incl. login/register/landing)
+// so it stays statically imported — lazy-loading it would flash the
+// banner in late after first paint.
 import CookieConsent from "./components/CookieConsent";
 
 /**
@@ -126,6 +122,15 @@ function lazyRetry(importFn) {
 }
 
 // Everything else lazy-loaded (only downloaded when needed)
+// Public-facing pages — lazy because authenticated users hitting
+// /dashboard never need to download these. Saves ~250KB in the main
+// bundle (LandingPage alone is heavy with marketing animations).
+const LandingPage = lazyRetry(() => import("./pages/LandingPage"));
+const LoginPage = lazyRetry(() => import("./pages/LoginPage"));
+const RegisterPage = lazyRetry(() => import("./pages/RegisterPage"));
+const ContactPage = lazyRetry(() => import("./pages/ContactPage"));
+const TermsPage = lazyRetry(() => import("./pages/TermsPage"));
+const CookiePolicyPage = lazyRetry(() => import("./pages/CookiePolicyPage"));
 const Layout = lazyRetry(() => import("./components/Layout"));
 const ForgotPasswordPage = lazyRetry(() => import("./pages/ForgotPasswordPage"));
 const DashboardPage = lazyRetry(() => import("./pages/DashboardPage"));

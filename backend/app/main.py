@@ -831,6 +831,21 @@ def _init_db():
         _run_data_migration()
     except Exception as e:
         print(f"Data migration warning: {e}")
+    # Pre-seed canonical global smart-inventory examples on first deploy.
+    # Idempotent — skips entirely if any global example already exists,
+    # so founder-curated corrections that flow into is_global via the
+    # super_admin path are never clobbered.
+    try:
+        from app.services.global_inventory_examples_seed import seed_if_empty
+        from app.database import SessionLocal
+        with SessionLocal() as seed_db:
+            result = seed_if_empty(seed_db)
+        if result.get("inserted"):
+            print(f"Global smart-import examples seeded: +{result['inserted']} canonical entries")
+    except Exception as e:
+        # Non-fatal — the AI extraction still works without bootstrap
+        # examples (it just starts colder for fresh tenants).
+        print(f"Global examples seed warning: {e}")
     _db_ready.set()
     print("DB init complete — ready to serve requests")
 
