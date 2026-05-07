@@ -11,8 +11,18 @@ class DailyCloseCreate(BaseModel):
     status: str = "confirmed"               # "draft" (auto-save) | "confirmed" (final submit)
     revenue_breakdown: dict | None = None   # {"food": 12400, "drinks": 5800, ...}
     payment_breakdown: dict | None = None   # {"cash": 4200, "card": 13500, ...}
+    # Override for the breakdown-sum. Set when the OCR detected only the
+    # bottom-line total but couldn't split into food/drinks/takeaway.
+    # The router uses this when revenue_breakdown is empty so the close
+    # still saves the real revenue (instead of the previous 0 DKK bug).
+    revenue_total_override: float | None = Field(None, ge=0, le=1_000_000_000)
     moms_total: float | None = None         # VAT amount — auto-calculated or from receipt
     moms_mode: str | None = None            # "auto" | "manual"
+    # Per-close override for the user's prices_include_moms preference.
+    # Set when the OCR scan UI offered a "with MOMS / without MOMS" toggle
+    # and the owner picked one. Lets B2C (gross input) and B2B (net
+    # input) modes coexist on the same account day-by-day.
+    prices_include_moms_override: bool | None = None
     tips_total: float | None = None
     tips_staff_count: int | None = None
     cash_counted: float | None = None

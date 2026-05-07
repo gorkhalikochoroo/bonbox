@@ -91,7 +91,17 @@ def create_daily_close(
         .first()
     )
 
-    revenue_total = sum((data.revenue_breakdown or {}).values())
+    # Revenue total: prefer the breakdown sum when categories are filled,
+    # but fall back to revenue_total_override when the OCR only detected
+    # the bottom-line total without a category split. Without this, a
+    # close scanned from a "totals only" receipt previously saved as 0.
+    breakdown_sum = sum((data.revenue_breakdown or {}).values())
+    if breakdown_sum > 0:
+        revenue_total = breakdown_sum
+    elif data.revenue_total_override is not None and data.revenue_total_override > 0:
+        revenue_total = float(data.revenue_total_override)
+    else:
+        revenue_total = 0
     payment_total = sum((data.payment_breakdown or {}).values())
 
     # Cash expected — explicit None check so 0 (legitimate "no cash today")
@@ -124,7 +134,12 @@ def create_daily_close(
             vat_rate = _get_vat_rate(user.currency or "DKK")
         except Exception:  # noqa: BLE001
             vat_rate = 0.25  # safe DK fallback if tax service load fails
-        prices_incl_moms = bool(getattr(user, "prices_include_moms", True))
+        # Per-close override beats user-level default (e.g. "this Z-report
+        # is gross because the user picked 'with MOMS' before scanning").
+        if data.prices_include_moms_override is not None:
+            prices_incl_moms = bool(data.prices_include_moms_override)
+        else:
+            prices_incl_moms = bool(getattr(user, "prices_include_moms", True))
         if revenue_total > 0 and vat_rate > 0:
             if prices_incl_moms:
                 # Gross-input mode (B2C): extract VAT from total

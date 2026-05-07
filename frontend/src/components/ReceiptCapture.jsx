@@ -24,6 +24,11 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
   const [preview, setPreview] = useState(null);
   const [success, setSuccess] = useState("");
   const [desc, setDesc] = useState("");
+  // "with-moms" (gross — typical Danish receipt) | "without-moms" (net).
+  // Default to gross because most printed receipts include MOMS in the
+  // total. The flag is passed through to the OCR endpoint so server-
+  // side amount detection picks the right line ('Total' vs 'Net').
+  const [momsMode, setMomsMode] = useState("with-moms");
   const fileRef = useRef();
 
   const uploadEndpoint = isExpense ? "/expenses/upload-receipt" : "/sales/upload-receipt";
@@ -37,6 +42,11 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
 
     const formData = new FormData();
     formData.append("file", file);
+    // Pass the with/without-MOMS choice to the upload endpoint. Backend
+    // currently ignores it for /sales/upload-receipt and /expenses/upload-
+    // receipt (MOMS is computed at the daily-close level), but sending it
+    // future-proofs the API for per-receipt VAT-mode awareness.
+    formData.append("prices_include_moms", momsMode === "with-moms" ? "true" : "false");
 
     try {
       const res = await api.post(uploadEndpoint, formData, { timeout: 60000 });
@@ -112,6 +122,38 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
           </div>
         ) : (
           <div className="space-y-4">
+            {/* MOMS toggle — show before file picker so the owner picks
+                whether the receipt amounts are gross (with VAT) or net.
+                Default 'with-moms' covers most printed Danish receipts.
+                Currently informational at the per-sale level — MOMS is
+                computed at daily-close — but sent to backend for future
+                per-receipt VAT awareness. */}
+            {!preview && (
+              <div className="flex items-center justify-center gap-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg px-3 py-2">
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  Receipt amounts are:
+                </span>
+                <button
+                  onClick={() => setMomsMode("with-moms")}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
+                    momsMode === "with-moms"
+                      ? "bg-blue-600 text-white shadow"
+                      : "bg-white dark:bg-gray-600 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-500 hover:bg-gray-100 dark:hover:bg-gray-500"
+                  }`}>
+                  with MOMS
+                </button>
+                <button
+                  onClick={() => setMomsMode("without-moms")}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
+                    momsMode === "without-moms"
+                      ? "bg-blue-600 text-white shadow"
+                      : "bg-white dark:bg-gray-600 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-500 hover:bg-gray-100 dark:hover:bg-gray-500"
+                  }`}>
+                  without MOMS
+                </button>
+              </div>
+            )}
+
             {!preview && (
               <label className="block border-2 border-dashed border-gray-200 dark:border-gray-600 rounded-xl p-8 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition group">
                 <svg className="w-10 h-10 mx-auto mb-3 text-gray-300 dark:text-gray-500 group-hover:text-blue-400 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24">

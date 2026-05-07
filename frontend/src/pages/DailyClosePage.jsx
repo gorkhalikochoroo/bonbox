@@ -312,6 +312,11 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // the source document later (Bogføringsloven §10 retention).
   const [receiptPhotoUrl, setReceiptPhotoUrl] = useState(null);
   const [scanError, setScanError] = useState("");
+  // "with-moms" | "without-moms" — owner picks before scan so the OCR
+  // numbers are interpreted correctly. Most DK Z-reports show gross
+  // amounts (with MOMS); some POS exports give net only. Defaults to
+  // "with-moms" because it's the common case.
+  const [scanMomsMode, setScanMomsMode] = useState("with-moms");
   const fileInputRef = useRef(null);
 
   // Merge two OCR scan results — newer non-null values overwrite
@@ -485,6 +490,23 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     revCats.forEach(c => { if (revAmounts[c.key]) revenue_breakdown[c.key] = parseFloat(revAmounts[c.key]); });
     const payment_breakdown = {};
     payMethods.forEach(m => { if (payAmounts[m.key]) payment_breakdown[m.key] = parseFloat(payAmounts[m.key]); });
+
+    // If the breakdown is empty but the OCR detected a total, send it
+    // as revenue_total_override so the close saves the real number
+    // instead of zero (was the "save shows 0" bug owners complained
+    // about). Also forwards the with/without-MOMS toggle so VAT calc
+    // matches the receipt format.
+    const hasBreakdownValues = Object.values(revenue_breakdown).some(v => v && v > 0);
+    const ocrTotal = scanResult?.revenue_total;
+    const revenue_total_override = !hasBreakdownValues && ocrTotal && ocrTotal > 0
+      ? Number(ocrTotal)
+      : null;
+    // Only override when the user actually scanned with the toggle —
+    // otherwise leave null and let the user's account-level
+    // prices_include_moms preference apply.
+    const prices_include_moms_override = scanMode === "skipped" || scanMode === "result"
+      ? scanMomsMode === "with-moms"
+      : null;
     return {
       date: businessDate,
       branch_id: branchId || null,
@@ -502,6 +524,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       // Only sent if the owner actually scanned a photo this session;
       // null preserves the existing value on update (server-side guard).
       receipt_photo: receiptPhotoUrl || null,
+      // Total-only fallback (banner-driven) and per-close MOMS-mode
+      // override. Both are accepted by the backend in DailyCloseCreate.
+      revenue_total_override,
+      prices_include_moms_override,
     };
   };
 
@@ -624,6 +650,30 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   📁 Upload Image
                 </button>
               </div>
+              {/* MOMS toggle — owner picks before scan so OCR'd numbers
+                  are interpreted right. Most DK Z-reports are gross
+                  (with MOMS); B2B / Excel exports may be net. */}
+              <div className="mt-4 flex items-center gap-2 justify-center">
+                <span className="text-xs text-green-100">Receipt amounts are:</span>
+                <button
+                  onClick={() => setScanMomsMode("with-moms")}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
+                    scanMomsMode === "with-moms"
+                      ? "bg-white text-green-700 shadow"
+                      : "bg-white/10 text-white hover:bg-white/20"
+                  }`}>
+                  with MOMS (gross)
+                </button>
+                <button
+                  onClick={() => setScanMomsMode("without-moms")}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
+                    scanMomsMode === "without-moms"
+                      ? "bg-white text-green-700 shadow"
+                      : "bg-white/10 text-white hover:bg-white/20"
+                  }`}>
+                  without MOMS (net)
+                </button>
+              </div>
             </div>
             {/* Upload zone */}
             <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-6 text-center cursor-pointer hover:border-green-400 dark:hover:border-green-500 transition-colors"
@@ -671,6 +721,27 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 🎯 {scanFieldsDetected >= 5 ? "High" : scanFieldsDetected >= 3 ? "Medium" : "Low"} confidence — {scanFieldsDetected}/{scanFieldsTotal} fields detected
               </span>
             </div>
+
+            {/* Total-only banner — OCR caught the bottom-line total but
+                couldn't split into food/drinks/takeaway. We save the
+                total anyway (revenue_total_override) so the close isn't
+                lost; owner can fill the breakdown manually if needed. */}
+            {(() => {
+              const breakdownVals = Object.values(scanResult.revenue || {}).filter(v => v != null && v !== 0);
+              const hasTotal = (scanResult.revenue_total || 0) > 0;
+              const breakdownEmpty = breakdownVals.length === 0;
+              if (hasTotal && breakdownEmpty) {
+                return (
+                  <div className="rounded-xl p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-200">
+                    ℹ️ <strong>We couldn't detect the food/drinks/takeaway breakdown</strong> from
+                    this receipt — only the total ({scanResult.revenue_total.toLocaleString()} {currency}).
+                    Saving the total revenue anyway. Add the per-category
+                    split manually if you need it.
+                  </div>
+                );
+              }
+              return null;
+            })()}
 
             {/* Revenue (med moms) */}
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 space-y-3">
