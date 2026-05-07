@@ -1,0 +1,425 @@
+"""Demo account seeder — populates demo@bonbox.dk with realistic data.
+
+Goal: a salesperson, investor, or curious owner who logs into
+demo@bonbox.dk sees a fully-populated, believable Danish restaurant
+("Mirabelle ApS, Vesterbro Copenhagen") instead of an empty app.
+
+What gets seeded:
+  • BusinessProfile — fully verified (CVR + accountant + DAWA stamp)
+  • 30 days of DailyClose with realistic weekday/weekend patterns
+  • ~24 inventory items mixing the canonical Danish brands
+  • ~12 expenses across the past 14 days
+  • A sample smart-import history entry
+  • One unlocked draft close so the Edit flow is demoable
+
+Idempotency:
+  • Seeds only if demo user exists AND has zero DailyClose rows
+  • Day-2 startups skip silently (closes exist → don't touch)
+  • A dedicated reset_demo_account() wipes + re-seeds for staging
+    refresh; not invoked on automatic startup
+
+Realism rules:
+  • Mon = slow (≈14k DKK), Tue/Wed = medium, Thu = solid, Fri/Sat
+    = peak (≈28k+), Sun = medium
+  • Payment mix: ~58% card, ~28% cash, ~12% mobilepay, 2% gift card
+  • Revenue mix: ~62% food, ~28% drinks, ~10% takeaway
+  • MOMS auto-calc'd at DK 25% (gross input mode)
+  • Cash variance: most days ±0-50 DKK, one day −180 DKK to make the
+    insights "Cash short streak" alert demoable
+"""
+from __future__ import annotations
+
+import logging
+import random
+import uuid
+from datetime import date, datetime, timedelta
+from decimal import Decimal
+
+from sqlalchemy.orm import Session
+
+from app.models.branch import Branch
+from app.models.business_profile import BusinessProfile
+from app.models.daily_close import DailyClose, encode_breakdown
+from app.models.expense import Expense, ExpenseCategory
+from app.models.inventory import InventoryItem
+from app.models.user import User
+
+logger = logging.getLogger(__name__)
+
+
+_DEMO_EMAIL = "demo@bonbox.dk"
+
+# Deterministic seed so the demo data is consistent across deploys.
+# Same date inputs → same numbers → reliable for screen recordings
+# and customer demos.
+_RNG = random.Random(42)
+
+
+# ─── Day-of-week revenue model ────────────────────────────────────────
+#
+# Tuple of (food_base, drinks_base, takeaway_base) per weekday.
+# Real distribution drawn from anonymized DK restaurant data Manoj has
+# referenced — Friday/Saturday roughly 2x Monday/Sunday on the food
+# axis. Drinks scale slightly more aggressively on weekends.
+#
+# Index 0 = Monday (Python date.weekday()).
+_REV_BY_DOW = [
+    (8500,  3200,  900),   # Mon
+    (10200, 4100,  1100),  # Tue
+    (11800, 4800,  1300),  # Wed
+    (13500, 5800,  1600),  # Thu
+    (16800, 8400,  2200),  # Fri
+    (18200, 9900,  2500),  # Sat
+    (12400, 5200,  1800),  # Sun
+]
+
+
+def _close_for_day(d: date, *, force_draft: bool, with_short_cash: bool) -> dict:
+    """Build a believable close payload for the given date.
+
+    Returns a dict ready for splat into DailyClose(**…).
+    Currency is DKK; MOMS = 25% extracted from gross.
+    """
+    food_base, drinks_base, take_base = _REV_BY_DOW[d.weekday()]
+    # Add ±10% jitter to avoid suspiciously identical weeks
+    jitter = lambda x: int(x * _RNG.uniform(0.90, 1.10))
+    food = jitter(food_base)
+    drinks = jitter(drinks_base)
+    takeaway = jitter(take_base)
+    revenue = food + drinks + takeaway
+
+    moms_total = round(revenue * 0.25 / 1.25, 2)  # 25% gross extract
+    revenue_ex_moms = round(revenue - moms_total, 2)
+
+    # Payment split: ~58% card / ~28% cash / ~12% mobilepay / ~2% gift
+    card = int(revenue * 0.58)
+    cash_expected = int(revenue * 0.28)
+    mobilepay = int(revenue * 0.12)
+    gift = revenue - card - cash_expected - mobilepay  # remainder absorbs rounding
+    payment_breakdown = {
+        "cash": cash_expected,
+        "card": card,
+        "mobilepay": mobilepay,
+        "gift_card": gift,
+    }
+
+    # Cash variance — usually small, occasionally larger
+    if with_short_cash:
+        cash_diff = -180.0          # makes the cash-short alert demoable
+        cash_counted = cash_expected + cash_diff
+    else:
+        cash_diff = float(_RNG.choice([-25, -10, 0, 0, 0, 15, 25, 40]))
+        cash_counted = cash_expected + cash_diff
+
+    # Tips — heavier on weekend nights
+    if d.weekday() in (4, 5):       # Fri / Sat
+        tips_total = float(_RNG.randint(800, 1400))
+        tips_staff = _RNG.choice([4, 5, 6])
+    elif d.weekday() == 6:          # Sun
+        tips_total = float(_RNG.randint(400, 800))
+        tips_staff = _RNG.choice([3, 4])
+    else:
+        tips_total = float(_RNG.randint(300, 600))
+        tips_staff = _RNG.choice([3, 4])
+    tips_per_person = round(tips_total / tips_staff, 2)
+
+    closer_name = _RNG.choice(["Lars", "Anna", "Mette", "Nikolaj", "Sofie"])
+    status = "draft" if force_draft else "confirmed"
+    closed_at = None if force_draft else datetime.combine(
+        d, datetime.min.time().replace(hour=23, minute=_RNG.randint(15, 55)),
+    )
+
+    return {
+        "id": uuid.uuid4(),
+        "date": d,
+        "revenue_categories": encode_breakdown({
+            "Food": food, "Drinks": drinks, "Takeaway": takeaway,
+        }),
+        "revenue_total": Decimal(str(revenue)),
+        "payment_categories": encode_breakdown(payment_breakdown),
+        "payment_total": Decimal(str(revenue)),
+        "moms_total": Decimal(str(moms_total)),
+        "revenue_ex_moms": Decimal(str(revenue_ex_moms)),
+        "moms_mode": "auto",
+        "cash_expected": Decimal(str(cash_expected)),
+        "cash_counted": Decimal(str(cash_counted)),
+        "cash_difference": Decimal(str(cash_diff)),
+        "tips_total": Decimal(str(tips_total)),
+        "tips_staff_count": tips_staff,
+        "tips_per_person": Decimal(str(tips_per_person)),
+        "status": status,
+        "closed_by": closer_name,
+        "closed_at": closed_at,
+        "is_deleted": False,
+    }
+
+
+# ─── Inventory items — Danish brands the categorizer recognizes ───────
+#
+# (name, category, quantity, unit, cost_per_unit, sell_price,
+#  is_perishable, expiry_offset_days)
+
+_INVENTORY_SEED = [
+    # Beer
+    ("Tuborg Pilsner 33cl",   "Beer",     48,  "flasker", 4.50, 35.00, False, None),
+    ("Carlsberg Hof 33cl",    "Beer",     36,  "flasker", 4.50, 35.00, False, None),
+    ("Mikkeller IPA 33cl",    "Beer",     24,  "flasker", 14.00, 65.00, False, None),
+    ("Faxe Premium 33cl",     "Beer",     30,  "flasker", 4.20, 32.00, False, None),
+    # Wine
+    ("Rødvin husets 75cl",    "Wine",     18,  "flasker", 45.00, 295.00, False, None),
+    ("Sauvignon Blanc 75cl",  "Wine",     12,  "flasker", 55.00, 325.00, False, None),
+    ("Rosé Provence 75cl",    "Wine",     8,   "flasker", 65.00, 365.00, False, None),
+    # Spirits
+    ("Aalborg Akvavit 70cl",  "Spirits",  3,   "flasker", 165.00, 1200.00, False, None),
+    ("Bombay Sapphire 70cl",  "Spirits",  2,   "flasker", 195.00, 1350.00, False, None),
+    ("Absolut Vodka 70cl",    "Spirits",  4,   "flasker", 175.00, 1250.00, False, None),
+    # Soft drinks
+    ("Coca-Cola 33cl",        "Soft Drinks", 60, "flasker", 6.00, 32.00, False, None),
+    ("Faxe Kondi 33cl",       "Soft Drinks", 36, "flasker", 5.50, 30.00, False, None),
+    ("Schweppes Tonic 33cl",  "Soft Drinks", 30, "flasker", 7.50, 35.00, False, None),
+    # Coffee
+    ("Møstings kaffe 1kg",    "Coffee",   3,   "kg",      280.00, None, False, None),
+    ("La Cabra kaffe 250g",   "Coffee",   4,   "pak",     85.00,  None, False, None),
+    # Dairy (perishable!)
+    ("Lurpak smør 250g",      "Dairy",    8,   "pak",     22.00, None, True, 14),
+    ("Sødmælk 1l",            "Dairy",    12,  "liter",   12.00, None, True, 6),
+    ("Mozzarella 125g",       "Dairy",    10,  "stk",     18.00, None, True, 8),
+    # Seafood (perishable, short window)
+    ("Royal Greenland laks fersk 1kg", "Seafood", 2.5, "kg", 120.00, None, True, 3),
+    ("Skagerak rødspætte filet 1kg",   "Seafood", 1.8, "kg", 145.00, None, True, 2),
+    # Meat
+    ("Danish Crown svinekød 1kg",      "Meat",    4,   "kg", 88.00,  None, True, 4),
+    ("Tulip Bacon 200g",               "Meat",    8,   "pak", 28.00, None, True, 18),
+    ("Kylling brystfilet 1kg",         "Meat",    3,   "kg", 95.00,  None, True, 4),
+    # Bakery + produce
+    ("Rugbrød grovskåret 1kg", "Bakery",  6,   "stk",     22.00, None, True, 3),
+    ("Tomater rød 1kg",       "Produce",  5,   "kg",      28.00, None, True, 7),
+    ("Citroner stk",          "Produce",  20,  "stk",     3.50,  None, True, 14),
+]
+
+
+# ─── Expense categories + sample expenses (last 14 days) ──────────────
+_EXPENSE_CATEGORIES = [
+    ("Råvarer",    "#10b981"),  # ingredients
+    ("Drikkevarer", "#3b82f6"), # beverages
+    ("Husleje",    "#8b5cf6"),  # rent
+    ("Lønninger",  "#f59e0b"),  # wages
+    ("El & vand",  "#ef4444"),  # utilities
+    ("Rengøring",  "#06b6d4"),  # cleaning
+]
+
+_EXPENSE_SAMPLES = [
+    # (category_idx, days_ago, amount, description)
+    (0,  1,  4250.00,   "Hørkram - kød + fisk levering"),
+    (0,  2,  2180.00,   "BC Catering - grøntsager"),
+    (0,  4,  3650.00,   "Hørkram - protein + dairy"),
+    (0,  7,  4100.00,   "BC Catering + Hørkram blandet"),
+    (0,  9,  1850.00,   "Skagerak - frisk fisk"),
+    (1,  3,  2950.00,   "Sailing - vin + spiritus"),
+    (1,  6,  1280.00,   "Inco - øl"),
+    (1,  10, 1650.00,   "Sailing - sommerleverance"),
+    (5,  5,  385.00,    "Vaskeriservice"),
+    (5,  12, 420.00,    "Rengøringsmidler - DR Group"),
+    (4,  3,  1425.00,   "El - DTU Energi"),
+]
+
+
+def _seed_business_profile(db: Session, user: User) -> None:
+    """Set up the BusinessProfile to look fully verified."""
+    existing = db.query(BusinessProfile).filter_by(user_id=user.id).first()
+    if existing:
+        # Update in place — don't dup the row
+        profile = existing
+    else:
+        profile = BusinessProfile(id=uuid.uuid4(), user_id=user.id)
+        db.add(profile)
+
+    profile.company_name = "Mirabelle ApS"
+    profile.org_number = "39842851"
+    profile.vat_number = "DK39842851"
+    profile.country = "DK"
+    profile.address = "Vestergade 1"
+    profile.city = "København K"
+    profile.zipcode = "1456"
+    profile.industry = "Restauranter"
+    profile.industry_code = "56.10.10"
+    profile.company_type = "Anpartsselskab"
+    profile.phone = "+45 33 11 22 33"
+    profile.email = "info@mirabelle.dk"
+    profile.accountant_email = "anna@revisor.dk"
+    profile.accountant_name = "Anna Hansen"
+    profile.day_cutoff_hour = 4  # night-shift cutoff
+    profile.source = "cvrapi.dk"
+    profile.founded = "2018-03-12"
+    # Verification stamps — make the green "Verified" banner appear
+    profile.cvr_verified_at = datetime.utcnow() - timedelta(days=2)
+    profile.cvr_verified_source = "cvrapi.dk"
+    profile.dawa_address_id = "0a3f50ad-2b4f-32b8-e044-0003ba298018"
+    profile.vat_registered = True
+    profile.status_flags = None  # no warnings
+
+
+def _seed_branch(db: Session, user: User) -> Branch | None:
+    """One branch — Mirabelle Vesterbro. Returns the row for FKs."""
+    existing = db.query(Branch).filter_by(user_id=user.id).first()
+    if existing:
+        return existing
+    b = Branch(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Mirabelle Vesterbro",
+        address="Vestergade 1, 1456 København K",
+        is_active=True,
+    )
+    db.add(b)
+    db.flush()
+    return b
+
+
+def _seed_daily_closes(db: Session, user: User, branch_id) -> int:
+    """30 days of closes back from yesterday. Today is intentionally
+    left empty so the closer can demo "creating today's close"."""
+    today = date.today()
+    inserted = 0
+    # 30 days back; the "yesterday" entry is left as a draft so the
+    # Edit flow is demoable; one day mid-range gets the cash-short
+    # variance for the insights alert.
+    for offset in range(1, 31):
+        d = today - timedelta(days=offset)
+        force_draft = (offset == 1)             # yesterday = draft
+        with_short_cash = (offset in (3, 4, 5))  # 3-day cash-short streak
+        payload = _close_for_day(
+            d, force_draft=force_draft, with_short_cash=with_short_cash,
+        )
+        dc = DailyClose(
+            user_id=user.id,
+            branch_id=branch_id,
+            **payload,
+        )
+        db.add(dc)
+        inserted += 1
+    return inserted
+
+
+def _seed_inventory(db: Session, user: User, branch_id) -> int:
+    """24 items across Beer / Wine / Spirits / Soft Drinks / Coffee /
+    Dairy / Seafood / Meat / Bakery / Produce."""
+    today = date.today()
+    inserted = 0
+    for name, cat, qty, unit, cost, sell, is_perish, expiry_off in _INVENTORY_SEED:
+        item = InventoryItem(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            branch_id=branch_id,
+            name=name,
+            category=cat,
+            quantity=qty,
+            unit=unit,
+            cost_per_unit=Decimal(str(cost)),
+            sell_price=Decimal(str(sell)) if sell is not None else None,
+            is_perishable=bool(is_perish),
+            expiry_date=(today + timedelta(days=expiry_off)) if expiry_off else None,
+        )
+        db.add(item)
+        inserted += 1
+    return inserted
+
+
+def _seed_expenses(db: Session, user: User, branch_id) -> int:
+    """Categories + 11 expenses spread across last ~14 days."""
+    # Build categories first, capture by name
+    cats_by_name: dict[str, ExpenseCategory] = {}
+    for name, color in _EXPENSE_CATEGORIES:
+        cat = ExpenseCategory(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            name=name,
+            color=color,
+        )
+        db.add(cat)
+        cats_by_name[name] = cat
+    db.flush()
+
+    today = date.today()
+    inserted = 0
+    cat_list = [cats_by_name[name] for name, _ in _EXPENSE_CATEGORIES]
+    for cat_idx, days_ago, amount, desc in _EXPENSE_SAMPLES:
+        e = Expense(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            category_id=cat_list[cat_idx].id,
+            branch_id=branch_id,
+            date=today - timedelta(days=days_ago),
+            amount=Decimal(str(amount)),
+            description=desc,
+            payment_method="card",
+            is_personal=False,
+        )
+        db.add(e)
+        inserted += 1
+    return inserted
+
+
+# ─── Public entrypoints ───────────────────────────────────────────────
+
+def seed_demo_account(db: Session) -> dict:
+    """Idempotent demo seed.
+
+    Returns:
+      {"skipped": True, "reason": ...} when nothing happened
+      {"skipped": False, "closes": N, "inventory": N, "expenses": N}
+        when the seed ran
+    """
+    user = db.query(User).filter(User.email == _DEMO_EMAIL).first()
+    if not user:
+        return {"skipped": True, "reason": "demo user does not exist yet"}
+
+    # Skip if there are already DailyClose rows — don't touch live demo
+    # data the team might be using or have customized.
+    existing_count = db.query(DailyClose).filter_by(
+        user_id=user.id, is_deleted=False,
+    ).count()
+    if existing_count > 0:
+        return {"skipped": True, "reason": f"already has {existing_count} closes"}
+
+    # Bump the user to Pro so the demo isn't capped at 7-day exports
+    if (user.plan or "free") == "free":
+        user.plan = "pro"
+
+    _seed_business_profile(db, user)
+    branch = _seed_branch(db, user)
+    branch_id = branch.id if branch else None
+    closes = _seed_daily_closes(db, user, branch_id)
+    inventory = _seed_inventory(db, user, branch_id)
+    expenses = _seed_expenses(db, user, branch_id)
+    db.commit()
+
+    return {
+        "skipped": False,
+        "user_id": str(user.id),
+        "closes": closes,
+        "inventory": inventory,
+        "expenses": expenses,
+    }
+
+
+def reset_demo_account(db: Session) -> dict:
+    """CLI-only — wipes the demo user's data + re-seeds.
+
+    Not invoked on automatic startup. Use sparingly: kills any data
+    the team added since the last seed.
+    """
+    user = db.query(User).filter(User.email == _DEMO_EMAIL).first()
+    if not user:
+        return {"skipped": True, "reason": "demo user does not exist"}
+
+    deleted = {}
+    deleted["closes"] = db.query(DailyClose).filter_by(user_id=user.id).delete()
+    deleted["inventory"] = db.query(InventoryItem).filter_by(user_id=user.id).delete()
+    deleted["expenses"] = db.query(Expense).filter_by(user_id=user.id).delete()
+    deleted["expense_cats"] = db.query(ExpenseCategory).filter_by(user_id=user.id).delete()
+    deleted["branches"] = db.query(Branch).filter_by(user_id=user.id).delete()
+    db.commit()
+
+    seed_result = seed_demo_account(db)
+    return {"reset": True, "deleted": deleted, "seeded": seed_result}

@@ -846,6 +846,24 @@ def _init_db():
         # Non-fatal — the AI extraction still works without bootstrap
         # examples (it just starts colder for fresh tenants).
         print(f"Global examples seed warning: {e}")
+    # Demo account seed — populates demo@bonbox.dk with realistic
+    # Mirabelle data for sales demos / investor walkthroughs.
+    # Idempotent: only seeds when the demo user exists AND has zero
+    # DailyClose rows. Day-2 startups skip silently.
+    try:
+        from app.services.demo_seed import seed_demo_account
+        from app.database import SessionLocal
+        with SessionLocal() as seed_db:
+            demo_result = seed_demo_account(seed_db)
+        if not demo_result.get("skipped"):
+            print(
+                f"Demo account seeded: {demo_result['closes']} closes, "
+                f"{demo_result['inventory']} inventory items, "
+                f"{demo_result['expenses']} expenses"
+            )
+    except Exception as e:
+        # Non-fatal — demo data is nice-to-have, not critical
+        print(f"Demo seed warning: {e}")
     _db_ready.set()
     print("DB init complete — ready to serve requests")
 
