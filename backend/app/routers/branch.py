@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.routers.auth import get_current_user
 from app.services.billing import at_cap, get_cap, effective_plan
+from app.services.consolidated_close import aggregate_branches
 from app.models.user import User
 from app.models.branch import Branch
 from app.models.sale import Sale
@@ -315,3 +316,76 @@ def branch_summary(
             "expenses": round(unassigned_exp, 2),
         },
     }
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Cross-outlet consolidated daily close — Layer 5 of Pro feature build
+# ─────────────────────────────────────────────────────────────────────
+
+class ConsolidatedCloseRequest(BaseModel):
+    """Body shape for POST /branch/consolidated-close."""
+    date: str  # ISO date "YYYY-MM-DD"
+    branch_ids: list[str] | None = None  # None means "all branches"
+
+
+@router.post("/consolidated-close")
+def consolidated_close(
+    body: ConsolidatedCloseRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Roll up per-branch DailyClose rows for a single date into one
+    consolidated payload (per-branch rows + totals).
+
+    Multi-layer gating:
+      Layer A — Plan: Pro / trial / Business only. Free + Starter return
+        403 with upgrade message — multi-location consolidation is the
+        Pro tier's headline feature.
+      Layer B — Tenant: only branches owned by current_user are included
+        (branch_ids list is silently filtered against ownership).
+      Layer C — Defensive aggregation: malformed rows are skipped with
+        warnings, not raised — never 5xx on bad data.
+    """
+    plan = effective_plan(current_user)
+    if plan not in ("pro", "trial", "business"):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Cross-outlet consolidated daily close requires Pro. "
+                f"You're on {plan}. Upgrade for multi-location aggregation."
+            ),
+        )
+
+    # Parse date defensively
+    try:
+        from datetime import date as _d
+        target_date = _d.fromisoformat(body.date)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid date {body.date!r} — expected ISO format YYYY-MM-DD",
+        )
+
+    # Tenant filter: even if caller supplied branch_ids, only include
+    # branches actually owned by them (silent drop = no enumeration leak)
+    requested_ids: list = []
+    if body.branch_ids:
+        owned = (
+            db.query(Branch.id)
+            .filter(
+                Branch.user_id == current_user.id,
+                Branch.id.in_(body.branch_ids),
+            )
+            .all()
+        )
+        requested_ids = [r[0] for r in owned]
+    # If branch_ids not supplied OR all filtered out → service uses
+    # "all owner's closes for that date" semantics
+
+    result = aggregate_branches(
+        db,
+        user_id=current_user.id,
+        target_date=target_date,
+        branch_ids=requested_ids if requested_ids else None,
+    )
+    return result

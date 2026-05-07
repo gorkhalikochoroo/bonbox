@@ -995,7 +995,7 @@ export const vi = {
   featPro3Biz5Users: "Tối đa 3 doanh nghiệp, 5 người dùng",
   featProCrossOutlet: "Chốt sổ hợp nhất xuyên cơ sở",
   featProPredictive: "AI dự đoán: doanh thu, rủi ro mất khách, cảnh báo hết hàng",
-  featProPlaybooks: "Playbook AI tùy chỉnh theo mô hình kinh doanh CỦA BẠN",
+  featProPlaybooks: "Phát hiện mô hình theo từng chủ + đề xuất cá nhân hoá",
   featProAllVerticals: "TẤT CẢ mô-đun chuyên ngành cùng lúc (Bar Pour + Workshop + v.v.)",
   featBankImport: "Nhập ngân hàng (đa ngân hàng, đa tiền tệ)",
   featProPrioritySupport: "Hỗ trợ email ưu tiên",

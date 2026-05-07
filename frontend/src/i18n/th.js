@@ -990,7 +990,7 @@ export const th = {
   featPro3Biz5Users: "สูงสุด 3 ธุรกิจ 5 ผู้ใช้",
   featProCrossOutlet: "ปิดยอดรวมข้ามสาขา",
   featProPredictive: "AI พยากรณ์: ยอดรายได้ ความเสี่ยงลูกค้าหาย แจ้งของหมด",
-  featProPlaybooks: "AI Playbooks ปรับให้เหมาะกับรูปแบบธุรกิจของคุณ",
+  featProPlaybooks: "ตรวจจับรูปแบบรายเจ้าของ + คำแนะนำเฉพาะบุคคล",
   featProAllVerticals: "โมดูลเฉพาะทางทั้งหมดพร้อมกัน (Bar Pour + Workshop + ฯลฯ)",
   featBankImport: "นำเข้าธนาคาร (หลายธนาคาร หลายสกุล)",
   featProPrioritySupport: "การสนับสนุนทางอีเมลแบบเร่งด่วน",

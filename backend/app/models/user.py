@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, Numeric, Boolean, ForeignKey
+from sqlalchemy import String, DateTime, Numeric, Boolean, ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
@@ -48,11 +48,17 @@ class User(Base):
     # Subscription / trial state.
     #   trial_ends_at: when the auto-started 14-day Pro trial expires.
     #     null = no trial (legacy users) — they keep Free indefinitely.
-    #   plan: free | trial | pro | business
+    #   plan: free | trial | starter | pro | business
     #     Source of truth for what features the user can access. Once
-    #     payments are wired, the upgrade flow flips this to "pro".
+    #     payments are wired, the upgrade flow flips this to "starter"
+    #     or "pro" via the Stripe webhook (not from client input).
     trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     plan: Mapped[str] = mapped_column(String(20), default="free")
+    # Vertical-module entitlements (added migration 010). Comma-separated
+    # module IDs from app/services/modules.py:MODULES allowlist. Free /
+    # Starter pick 1 (cap = PLAN_CAPS["modules"]); Pro/trial unlimited.
+    # NULL or empty = no modules picked yet (UI shows core close-flow only).
+    enabled_modules: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Stripe subscription state — source-of-truth for paid plan is the webhook.
     # Code never trusts a client-side claim about plan; plan only flips to
     # "pro"/"business" when Stripe sends customer.subscription.updated and we

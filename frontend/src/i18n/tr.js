@@ -991,7 +991,7 @@ export const tr = {
   featPro3Biz5Users: "3 işletmeye kadar, 5 kullanıcı",
   featProCrossOutlet: "Lokasyonlar arası birleştirilmiş günlük kapanış",
   featProPredictive: "Tahmine dayalı AI: gelir tahmini, churn riski, stok uyarıları",
-  featProPlaybooks: "İŞLETMENİZE özel ayarlanmış AI playbook'ları",
+  featProPlaybooks: "Sahibe-özgü desen tespiti + kişiselleştirilmiş öneriler",
   featProAllVerticals: "Tüm vertical modülleri aynı anda (Bar Pour + Workshop + vb.)",
   featBankImport: "Banka içe aktarımı (çok bankalı, çok para birimli)",
   featProPrioritySupport: "Öncelikli e-posta desteği",
