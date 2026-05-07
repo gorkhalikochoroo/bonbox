@@ -38,7 +38,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, inventory_smart_import, modules as modules_router, ai as ai_router
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, inventory_smart_import, search as search_router, modules as modules_router, ai as ai_router
 from app.database import engine, Base, get_db
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -1165,6 +1165,7 @@ app.include_router(bank_import.router, prefix="/api/bank-import", tags=["Bank Im
 app.include_router(payment_import.router, prefix="/api/payment-import", tags=["Payment Import"])
 app.include_router(team.router, prefix="/api/team", tags=["Team"])
 app.include_router(business_profile.router, prefix="/api/business", tags=["Business Profile"])
+app.include_router(search_router.router, prefix="/api/search", tags=["Search"])
 app.include_router(cashflow.router, prefix="/api/cashflow", tags=["Cash Flow"])
 app.include_router(tax.router, prefix="/api/tax", tags=["Tax Autopilot"])
 app.include_router(pricing.router, prefix="/api/pricing", tags=["Price Optimization"])

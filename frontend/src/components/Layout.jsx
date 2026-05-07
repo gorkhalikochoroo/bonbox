@@ -6,6 +6,9 @@ import { useLanguage } from "../hooks/useLanguage";
 import { getVatTerms } from "../utils/currency";
 import { usePageTracking } from "../hooks/useEventLog";
 import NotificationCenter from "./NotificationCenter";
+// Lazy-load the search modal — only fetched when the user actually
+// opens it (⌘K or button), keeping main bundle lean.
+const GlobalSearchModal = lazy(() => import("./GlobalSearchModal"));
 import BranchSelector, { useBranch } from "./BranchSelector";
 import MobileBottomNav from "./MobileBottomNav";
 import { useAppLifecycle } from "../hooks/useAppLifecycle";
@@ -255,6 +258,23 @@ export default function Layout() {
     });
   };
 
+  // Global ⌘K command palette state. Listens for ⌘K (Mac) and Ctrl+K
+  // (Win/Linux) at window level so the shortcut works from any page.
+  // Modal contents handle their own ESC + arrow key navigation once
+  // open. Cleanup on unmount.
+  const [searchOpen, setSearchOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e) => {
+      const isCmdOrCtrl = e.metaKey || e.ctrlKey;
+      if (isCmdOrCtrl && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // Listen for orientation changes (iPad rotating from portrait to
   // landscape, phone rotating, etc). Respects an explicit user
   // preference if present in localStorage; otherwise re-applies the
@@ -379,14 +399,25 @@ export default function Layout() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-gray-900">
       {/* Mobile top bar */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-30 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+      <div className="md:hidden fixed top-0 left-0 right-0 z-30 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between gap-3" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         <button onClick={() => setSidebarOpen(true)} className="text-gray-600 dark:text-gray-300">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
         <h1 className="text-base font-bold text-green-600 dark:text-green-400">BonBox</h1>
-        <NotificationCenter />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setSearchOpen(true)}
+            aria-label={t("search") || "Search"}
+            className="text-gray-600 dark:text-gray-300 hover:text-green-600 dark:hover:text-green-400 transition"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
+            </svg>
+          </button>
+          <NotificationCenter />
+        </div>
       </div>
 
       {/* Overlay */}
@@ -450,6 +481,28 @@ export default function Layout() {
             <svg className="w-3 h-3 ml-auto opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
             </svg>
+          </button>
+        </div>
+
+        {/* Global search trigger — Claude-style pill with the ⌘K
+            shortcut hint on desktop. Tapping opens the modal; ⌘K
+            also works from anywhere. */}
+        <div className="px-3 pb-2">
+          <button
+            onClick={() => setSearchOpen(true)}
+            aria-label={t("search") || "Search"}
+            className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition
+              bg-gray-50 dark:bg-gray-700/40 text-gray-500 dark:text-gray-400
+              border border-gray-200 dark:border-gray-600
+              hover:bg-white dark:hover:bg-gray-700 hover:border-green-400 dark:hover:border-green-500 hover:text-gray-700 dark:hover:text-gray-200"
+          >
+            <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
+            </svg>
+            <span className="flex-1 text-left truncate">{t("search") || "Search"}</span>
+            <kbd className="hidden md:inline-flex items-center px-1 py-0.5 text-[9px] font-mono bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-600 text-gray-400 dark:text-gray-500 shrink-0">
+              ⌘K
+            </kbd>
           </button>
         </div>
 
@@ -639,6 +692,16 @@ export default function Layout() {
           <BonBoxAgent />
         </Suspense>
       )}
+
+      {/* Global search palette — mounted always but only fetches its
+          chunk when actually opened (lazy import). Available via
+          ⌘K / Ctrl+K, the search button in the sidebar, and the
+          search button in the mobile top bar. */}
+      <Suspense fallback={null}>
+        {searchOpen && (
+          <GlobalSearchModal open={searchOpen} onClose={() => setSearchOpen(false)} />
+        )}
+      </Suspense>
     </div>
   );
 }
