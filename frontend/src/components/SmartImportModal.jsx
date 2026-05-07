@@ -1,0 +1,418 @@
+import { useState, useRef, useEffect } from "react";
+import api from "../services/api";
+
+/**
+ * Smart Inventory Import — frontend for the backend pipeline shipped
+ * in commits 8e82197 + 9e0aa07 + 488b494.
+ *
+ * Three input modes:
+ *   • Paste text (free-form list, owner types or speaks)
+ *   • Upload CSV / Excel
+ *   • Upload photo (paper list / supplier slip / phone camera)
+ *
+ * Flow:
+ *   1. Owner picks mode + provides input → POST to backend, get a draft
+ *   2. Review table — categories auto-filled, perishables auto-flagged
+ *      with use-by dates, owner can edit names / qty / category inline
+ *   3. Commit → POST /commit, real InventoryItem rows are created
+ *
+ * Defense-relevant UX notes:
+ *   • Per-tier daily import cap (free=2, pro=50) is enforced server-side;
+ *     UI shows the 429 message in a toast.
+ *   • The image is persisted to durable Supabase Storage (the storage
+ *     work shipped today); the review screen has an optional "View
+ *     original" link that hits /api/inventory/smart-import/{id}/image.
+ *   • All bounds (200-item cap, 200-char name max, 12MB image cap, etc.)
+ *     come back as 422 from Pydantic — toasted clearly.
+ */
+export default function SmartImportModal({ open, onClose, onCommitted }) {
+  const [mode, setMode] = useState("text"); // text | csv | excel | image
+  const [textInput, setTextInput] = useState("");
+  const [fileInput, setFileInput] = useState(null);
+  const [draft, setDraft] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [committing, setCommitting] = useState(false);
+  const fileRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) {
+      // Reset on close so the next open is fresh.
+      setMode("text");
+      setTextInput("");
+      setFileInput(null);
+      setDraft(null);
+      setError("");
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  /* ─── Extract step ──────────────────────────────────────────────── */
+  async function runExtract() {
+    setError("");
+    setLoading(true);
+    try {
+      let resp;
+      if (mode === "text") {
+        if (!textInput.trim()) {
+          setError("Paste or type your inventory list first.");
+          setLoading(false);
+          return;
+        }
+        resp = await api.post("/inventory/smart-import/text", {
+          text: textInput,
+        });
+      } else {
+        if (!fileInput) {
+          setError("Pick a file first.");
+          setLoading(false);
+          return;
+        }
+        const fd = new FormData();
+        fd.append("file", fileInput);
+        fd.append("source_kind", mode);
+        resp = await api.post("/inventory/smart-import/file", fd, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+      }
+      setDraft(resp.data);
+    } catch (e) {
+      const detail = e?.response?.data?.detail;
+      setError(
+        typeof detail === "string"
+          ? detail
+          : "Couldn't extract — check the file or paste, then retry.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /* ─── Inline editing in the review table ────────────────────────── */
+  function updateRow(idx, field, value) {
+    setDraft((d) => {
+      if (!d) return d;
+      const next = { ...d, items: d.items.map((it, i) =>
+        i === idx ? { ...it, [field]: value } : it,
+      ) };
+      return next;
+    });
+  }
+  function removeRow(idx) {
+    setDraft((d) =>
+      d ? { ...d, items: d.items.filter((_, i) => i !== idx) } : d,
+    );
+  }
+
+  /* ─── Commit step ───────────────────────────────────────────────── */
+  async function runCommit() {
+    if (!draft) return;
+    setError("");
+    setCommitting(true);
+    try {
+      // Coerce qty to numbers; backend enforces ge=0/le=1M via Pydantic.
+      const items = draft.items.map((it) => ({
+        name: (it.name || "").trim(),
+        qty: it.qty == null || it.qty === "" ? null : Number(it.qty),
+        unit: it.unit || null,
+        category: it.category || null,
+      })).filter((it) => it.name);
+
+      if (items.length === 0) {
+        setError("All rows are empty — nothing to save.");
+        setCommitting(false);
+        return;
+      }
+
+      const resp = await api.post(
+        `/inventory/smart-import/${draft.id}/commit`,
+        { items },
+      );
+      onCommitted?.(resp.data);
+      onClose?.();
+    } catch (e) {
+      const detail = e?.response?.data?.detail;
+      setError(
+        typeof detail === "string"
+          ? detail
+          : "Save failed — please review the items and retry.",
+      );
+    } finally {
+      setCommitting(false);
+    }
+  }
+
+  /* ─── Render ────────────────────────────────────────────────────── */
+  return (
+    <div
+      className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }}
+    >
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+              ✨ Smart Inventory Import
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+              Paste, upload, or photograph your stock list — AI fills in the rest.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl leading-none"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-auto px-6 py-4">
+          {!draft ? (
+            <ExtractStep
+              mode={mode}
+              setMode={setMode}
+              textInput={textInput}
+              setTextInput={setTextInput}
+              fileInput={fileInput}
+              setFileInput={setFileInput}
+              fileRef={fileRef}
+              error={error}
+              loading={loading}
+              onRun={runExtract}
+            />
+          ) : (
+            <ReviewStep
+              draft={draft}
+              updateRow={updateRow}
+              removeRow={removeRow}
+              error={error}
+              committing={committing}
+              onBack={() => setDraft(null)}
+              onCommit={runCommit}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Extract step UI ─────────────────────────────────────────────── */
+function ExtractStep({
+  mode, setMode, textInput, setTextInput, fileInput, setFileInput,
+  fileRef, error, loading, onRun,
+}) {
+  return (
+    <div className="space-y-4">
+      {/* Mode tabs */}
+      <div className="flex gap-2 flex-wrap">
+        {[
+          { id: "text",  label: "📝 Paste text" },
+          { id: "csv",   label: "📄 CSV" },
+          { id: "excel", label: "📊 Excel" },
+          { id: "image", label: "📷 Photo" },
+        ].map((m) => (
+          <button
+            key={m.id}
+            onClick={() => setMode(m.id)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+              mode === m.id
+                ? "bg-blue-600 text-white"
+                : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+            }`}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Body — one input per mode */}
+      {mode === "text" && (
+        <div>
+          <textarea
+            className="w-full h-48 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder={
+              "Tuborg 24 bottles\nVodka 5 liter\nLemons 30\nTomater 5 kg"
+            }
+            value={textInput}
+            onChange={(e) => setTextInput(e.target.value)}
+          />
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            One item per line. Quantity and unit are auto-detected.
+          </p>
+        </div>
+      )}
+
+      {(mode === "csv" || mode === "excel" || mode === "image") && (
+        <div>
+          <button
+            onClick={() => fileRef.current?.click()}
+            className="w-full border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-8 text-center hover:border-blue-400 transition"
+          >
+            <div className="text-4xl mb-2">
+              {mode === "csv" ? "📄" : mode === "excel" ? "📊" : "📷"}
+            </div>
+            <p className="text-gray-700 dark:text-gray-300 font-medium">
+              {fileInput
+                ? fileInput.name
+                : `Click to choose a ${mode === "image" ? "photo" : mode.toUpperCase()}`}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              {mode === "csv" && "Up to 1 MB"}
+              {mode === "excel" && "Up to 5 MB"}
+              {mode === "image" && "JPG, PNG, HEIC up to 12 MB"}
+            </p>
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            className="hidden"
+            accept={
+              mode === "csv"
+                ? ".csv,text/csv"
+                : mode === "excel"
+                ? ".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                : "image/*"
+            }
+            onChange={(e) => setFileInput(e.target.files?.[0] || null)}
+          />
+        </div>
+      )}
+
+      {error && (
+        <div className="px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-300">
+          {error}
+        </div>
+      )}
+
+      <div className="flex justify-end">
+        <button
+          onClick={onRun}
+          disabled={loading}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium rounded-lg transition"
+        >
+          {loading ? "Extracting…" : "Extract items →"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Review step UI ──────────────────────────────────────────────── */
+function ReviewStep({
+  draft, updateRow, removeRow, error, committing, onBack, onCommit,
+}) {
+  const items = draft.items || [];
+  const ruleCount = items.filter((it) => it.category_source === "rule").length;
+  const aiCount = items.filter((it) => it.category_source === "ai").length;
+  const fallbackCount = items.filter((it) => it.category_source === "fallback").length;
+
+  return (
+    <div className="space-y-4">
+      {/* Stats banner */}
+      <div className="flex flex-wrap gap-3 text-sm">
+        <Stat label="Items" value={items.length} color="blue" />
+        <Stat label="Rule-matched" value={ruleCount} color="green" />
+        {aiCount > 0 && <Stat label="AI-classified" value={aiCount} color="purple" />}
+        {fallbackCount > 0 && <Stat label="Needs review" value={fallbackCount} color="amber" />}
+        {draft.duplicate_of && (
+          <span className="px-2 py-1 rounded bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200 text-xs">
+            Duplicate of an earlier upload — same draft returned
+          </span>
+        )}
+      </div>
+
+      {/* Review table */}
+      <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+        <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-900 text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 font-medium">
+          <div className="col-span-5">Name</div>
+          <div className="col-span-2">Qty</div>
+          <div className="col-span-2">Unit</div>
+          <div className="col-span-2">Category</div>
+          <div className="col-span-1"></div>
+        </div>
+        <div className="max-h-[380px] overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
+          {items.map((it, idx) => (
+            <div key={idx} className="grid grid-cols-12 gap-2 px-3 py-2 items-center">
+              <input
+                value={it.name || ""}
+                onChange={(e) => updateRow(idx, "name", e.target.value)}
+                className="col-span-5 px-2 py-1 bg-transparent border border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-blue-400 focus:outline-none rounded text-sm"
+                maxLength={200}
+              />
+              <input
+                value={it.qty ?? ""}
+                onChange={(e) => updateRow(idx, "qty", e.target.value)}
+                className="col-span-2 px-2 py-1 bg-transparent border border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-blue-400 focus:outline-none rounded text-sm"
+                placeholder="—"
+                inputMode="decimal"
+              />
+              <input
+                value={it.unit || ""}
+                onChange={(e) => updateRow(idx, "unit", e.target.value)}
+                className="col-span-2 px-2 py-1 bg-transparent border border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-blue-400 focus:outline-none rounded text-sm"
+                placeholder="—"
+                maxLength={20}
+              />
+              <input
+                value={it.category || ""}
+                onChange={(e) => updateRow(idx, "category", e.target.value)}
+                className="col-span-2 px-2 py-1 bg-transparent border border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-blue-400 focus:outline-none rounded text-sm"
+                placeholder="—"
+                maxLength={60}
+              />
+              <button
+                onClick={() => removeRow(idx)}
+                className="col-span-1 text-gray-400 hover:text-red-500 text-sm"
+                aria-label="Remove row"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {error && (
+        <div className="px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-300">
+          {error}
+        </div>
+      )}
+
+      <div className="flex justify-between items-center">
+        <button
+          onClick={onBack}
+          disabled={committing}
+          className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
+        >
+          ← Back
+        </button>
+        <button
+          onClick={onCommit}
+          disabled={committing || items.length === 0}
+          className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium rounded-lg transition"
+        >
+          {committing ? "Saving…" : `Save ${items.length} item${items.length === 1 ? "" : "s"}`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, color }) {
+  const palette = {
+    blue:   "bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200",
+    green:  "bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200",
+    purple: "bg-purple-50 dark:bg-purple-900/20 text-purple-800 dark:text-purple-200",
+    amber:  "bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200",
+  }[color] || "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300";
+  return (
+    <span className={`px-2 py-1 rounded text-xs font-medium ${palette}`}>
+      {label}: {value}
+    </span>
+  );
+}

@@ -5,6 +5,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
+import SmartImportModal from "../components/SmartImportModal";
 
 const TEMPLATES = [
   // Food & Drink
@@ -74,6 +75,7 @@ export default function InventoryPage() {
   const [selected, setSelected] = useState(new Set());
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [showSmartImport, setShowSmartImport] = useState(false);
   const [templateLoading, setTemplateLoading] = useState(false);
   const [templateLoaded, setTemplateLoaded] = useState(null);
   const [templateFilter, setTemplateFilter] = useState(null);
@@ -349,6 +351,13 @@ export default function InventoryPage() {
         <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("inventoryMonitor")}</h1></FadeIn>
         <div className="flex items-center gap-3">
           <button
+            onClick={() => setShowSmartImport(true)}
+            className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition font-medium flex items-center gap-1.5"
+            title="Paste, upload or photograph your stock list — AI fills in the rest"
+          >
+            ✨ Smart Import
+          </button>
+          <button
             onClick={() => setShowTemplateModal(true)}
             className="px-4 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 transition font-medium"
           >
@@ -356,6 +365,15 @@ export default function InventoryPage() {
           </button>
         </div>
       </div>
+
+      <SmartImportModal
+        open={showSmartImport}
+        onClose={() => setShowSmartImport(false)}
+        onCommitted={() => {
+          // Refresh the items list so the new rows appear immediately.
+          fetchData();
+        }}
+      />
 
       {success && <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
       {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-300 px-4 py-3 rounded-xl text-sm">{error}</div>}
