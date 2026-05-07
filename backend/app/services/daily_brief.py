@@ -669,7 +669,11 @@ def _validate_llm_output(
         return None
     if len(headline) < 10 or len(headline) > 140:
         return None
-    if not (1 <= len(insights) <= 3):
+    # 0-3 because the post-validation may dedup an insight that
+    # duplicates the headline (see _norm_for_dedup below) — leaving
+    # the bullet list empty is acceptable; the headline alone is
+    # still a complete brief.
+    if not (0 <= len(insights) <= 3):
         return None
 
     # Build the set of "approved tokens" — numbers and named entities that
@@ -708,6 +712,13 @@ def _validate_llm_output(
     if not _tokens_ok(headline):
         return None
 
+    # Dedup helper — collapses whitespace + case so trivial differences
+    # ("running LOW: cheese..." vs "Running low: Cheese...") still
+    # match. Used to drop insights that duplicate the headline.
+    def _norm_for_dedup(s: str) -> str:
+        return " ".join(s.split()).strip().lower()
+
+    norm_headline = _norm_for_dedup(headline)
     cleaned_insights = []
     for ins in insights:
         if not isinstance(ins, dict):
@@ -720,6 +731,17 @@ def _validate_llm_output(
             return None
         if not _tokens_ok(text):
             return None
+        # Drop insights that duplicate the headline. The LLM occasionally
+        # emits the same string in both fields when there's only one
+        # strong candidate — the frontend then renders the same text
+        # twice ("Running low: Cheese, Butter…" as the body paragraph
+        # AND as a bullet underneath). Trivial whitespace/case
+        # differences are normalized before comparing.
+        if _norm_for_dedup(text) == norm_headline:
+            logger.info(
+                "daily_brief: dropping insight identical to headline (LLM dup)"
+            )
+            continue
         cleaned_insights.append({"type": t, "text": text})
 
     return {"headline": headline, "insights": cleaned_insights}

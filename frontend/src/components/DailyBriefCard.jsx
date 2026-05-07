@@ -87,7 +87,17 @@ export default function DailyBriefCard() {
 
   // Empty-state path: no candidates yet (brand-new user). The backend
   // already returns a friendly headline; just don't render the divider/footer
-  const isEmpty = (!brief.insights || brief.insights.length === 0);
+  // Defensive dedup — drop any insight whose text matches the headline.
+  // Backend already dedups in _validate_llm_output, but cached briefs
+  // generated before that fix shipped (or any future drift) won't have
+  // run through it. Doing it here too means the UI stays clean
+  // regardless of when the brief was generated.
+  const _normForDedup = (s) => (s || "").replace(/\s+/g, " ").trim().toLowerCase();
+  const _headNorm = _normForDedup(brief.headline);
+  const visibleInsights = (brief.insights || []).filter(
+    (ins) => _normForDedup(ins?.text) !== _headNorm,
+  );
+  const isEmpty = visibleInsights.length === 0;
   const canRefresh = (brief.refreshes_left ?? 0) > 0;
 
   return (
@@ -140,7 +150,7 @@ export default function DailyBriefCard() {
 
       {!isEmpty && (
         <ul className="space-y-2.5">
-          {brief.insights.map((ins, i) => (
+          {visibleInsights.map((ins, i) => (
             <li key={i} className="flex items-start gap-2.5">
               <span
                 className="w-1.5 h-1.5 rounded-full mt-[8px] shrink-0"
