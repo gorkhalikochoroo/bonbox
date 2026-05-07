@@ -169,10 +169,10 @@ def test_quota_passes_when_no_imports_today(db, free_user):
 
 
 def test_quota_blocks_free_user_at_cap(db, free_user):
-    """Free user has 2/day cap. After 2 imports, the 3rd must 429."""
+    """Free user has 3/day cap. After 3 imports, the 4th must 429."""
     from fastapi import HTTPException
 
-    for _ in range(2):
+    for _ in range(3):
         imp = InventoryImport(
             id=uuid.uuid4(),
             user_id=free_user.id,
@@ -219,7 +219,7 @@ def test_quota_resets_at_midnight(db, free_user):
     from fastapi import HTTPException
     yesterday = _today_midnight() - timedelta(days=1)
 
-    for _ in range(5):  # well over free's 2/day, but yesterday
+    for _ in range(5):  # well over free's 3/day, but yesterday
         imp = InventoryImport(
             id=uuid.uuid4(),
             user_id=free_user.id,

@@ -46,11 +46,19 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
     # (text/CSV/Excel/image upload → AI categorization → save) per
     # 24h rolling window. Image extractions cost the most so the cap
     # mostly protects our Anthropic spend; text/CSV/Excel could be
-    # higher but we keep ONE number per tier for simplicity. Free
-    # users get a meaningful taste; Pro covers any realistic workflow.
-    "free":     {"branches": 1, "team_users": 1, "modules": 1, "smart_imports_per_day": 2},
+    # higher but we keep ONE number per tier for simplicity.
+    #
+    # Tier philosophy (Manoj, May 2026):
+    #   Free 3       — meaningful taste of the AI feature.
+    #   Starter 15   — symmetric with Z-report scan cap (15/15) —
+    #                  easy to remember, supports a small kitchen
+    #                  doing a daily fish/produce drop + 14 oddball
+    #                  items per day.
+    #   Pro 50       — covers multi-terminal venues + heavy stocktake
+    #                  weeks (Mirabelle-scale).
+    "free":     {"branches": 1, "team_users": 1, "modules": 1, "smart_imports_per_day": 3},
     "trial":    {"branches": 3, "team_users": 5, "modules": -1, "smart_imports_per_day": 50},  # = full Pro
-    "starter":  {"branches": 1, "team_users": 3, "modules": 1, "smart_imports_per_day": 10},
+    "starter":  {"branches": 1, "team_users": 3, "modules": 1, "smart_imports_per_day": 15},
     "pro":      {"branches": 3, "team_users": 5, "modules": -1, "smart_imports_per_day": 50},
     "business": {"branches": 999, "team_users": 999, "modules": -1, "smart_imports_per_day": 500},
 }
