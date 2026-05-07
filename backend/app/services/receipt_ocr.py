@@ -1,3 +1,4 @@
+import hashlib
 import re
 import os
 import io
@@ -392,42 +393,72 @@ def extract_amount_from_image(image_path: str) -> dict:
     }
 
 
-def _upload_to_supabase(file_bytes: bytes, safe_name: str) -> str | None:
-    """Upload image to Supabase Storage and return public URL."""
-    supabase_url = os.environ.get("SUPABASE_URL", "")
-    supabase_key = os.environ.get("SUPABASE_ANON_KEY", "")
+def _upload_to_supabase(
+    file_bytes: bytes,
+    safe_name: str,
+    user_id: str | None = None,
+    kind: str = "expense",
+) -> str | None:
+    """Upload image to Supabase Storage and return a signed URL.
 
-    if not supabase_url or not supabase_key:
-        print("[Storage] No Supabase credentials set")
+    Migrated in 2026-05 from anon-key + public bucket to service-key +
+    private bucket (matches the kasserapport storage path). The bucket
+    flip means the old `/object/public/...` URL pattern stops working;
+    we now generate a 1-year signed URL so existing callers (which
+    persist the URL string in DB.receipt_photo) keep working without
+    schema changes.
+
+    Returns:
+      • Signed URL string when Supabase storage is configured and upload
+        succeeds. Frontend uses it directly as <img src=...>.
+      • None on failure / no service key — caller falls back to local
+        path which still serves via /uploads/receipts/{filename}.
+    """
+    if not user_id:
+        # Receipt has no owner scoping → don't upload to durable store
+        # (would corrupt the per-user path invariant). Caller falls back
+        # to local-disk save for OCR-only use.
         return None
-
-    upload_url = f"{supabase_url}/storage/v1/object/receipts/{safe_name}"
-    req = Request(
-        upload_url,
-        data=file_bytes,
-        headers={
-            "Authorization": f"Bearer {supabase_key}",
-            "apikey": supabase_key,
-            "Content-Type": "image/jpeg",
-            "x-upsert": "true",
-        },
-        method="POST",
-    )
 
     try:
-        with urlopen(req, timeout=30) as resp:
-            resp.read()
-            public_url = f"{supabase_url}/storage/v1/object/public/receipts/{safe_name}"
-            print(f"[Storage] Uploaded to Supabase: {safe_name}")
-            return public_url
-    except Exception as e:
-        print(f"[Storage] Supabase upload error: {e}")
-        if hasattr(e, 'read'):
-            try:
-                print(f"[Storage] Error details: {e.read().decode()[:300]}")
-            except Exception:
-                pass
+        from app.services.storage import compose_key, get_storage
+    except Exception as e:  # noqa: BLE001
+        print(f"[Storage] storage module import failed: {e}")
         return None
+
+    storage = get_storage()
+    if not storage.is_durable:
+        # Local backend — no point uploading to non-durable storage,
+        # caller already wrote the local copy for OCR.
+        return None
+
+    sha = hashlib.sha256(file_bytes).hexdigest()
+    try:
+        key = compose_key(user_id, kind, sha, "jpg")
+    except ValueError as e:
+        print(f"[Storage] compose_key rejected inputs: {e}")
+        return None
+
+    try:
+        storage.put(key, file_bytes, content_type="image/jpeg")
+    except Exception as e:  # noqa: BLE001
+        print(f"[Storage] Supabase upload error: {e}")
+        return None
+
+    # 1-year signed URL — covers the typical receipt-photo viewing
+    # window without forcing a schema change. Bogføringsloven §10
+    # 5-year retention is satisfied at the storage layer (the bytes
+    # persist); the URL just needs occasional regeneration via a
+    # follow-up endpoint we'll add when retention becomes a real query.
+    one_year = 60 * 60 * 24 * 365
+    signed = storage.signed_url(key, ttl_seconds=one_year)
+    if signed:
+        print(f"[Storage] Uploaded receipt to Supabase: {key}")
+        return signed
+    # Upload succeeded but signing failed → return the storage key as
+    # a fallback marker. Callers store it in receipt_photo; until the
+    # backend-proxy endpoint lands, the UI shows a placeholder.
+    return key
 
 
 def save_receipt_photo(file_bytes: bytes, filename: str, user_id: str) -> str:
@@ -468,10 +499,13 @@ def save_receipt_photo(file_bytes: bytes, filename: str, user_id: str) -> str:
     except Exception as e:
         raise ValueError(f"Could not process image ({e})")
 
-    # Upload to Supabase Storage for persistent display
-    public_url = _upload_to_supabase(jpeg_bytes, safe_name)
+    # Upload to durable storage (Supabase) for persistent display.
+    # Per-user scoping enforced via compose_key inside _upload_to_supabase.
+    public_url = _upload_to_supabase(jpeg_bytes, safe_name, user_id=user_id)
     if public_url:
         return public_url
 
-    # Fallback: return local path
+    # Fallback: return local path. Render free/starter tiers wipe local
+    # disk on redeploy, so this is dev-only durable. Production with
+    # SUPABASE_SERVICE_KEY set will always go through the path above.
     return str(filepath)

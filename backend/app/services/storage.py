@@ -90,6 +90,18 @@ class StorageBackend(ABC):
     def delete(self, key: str) -> bool:
         """Delete blob at `key`. Returns True iff something was removed."""
 
+    def signed_url(self, key: str, ttl_seconds: int = 3600) -> str | None:
+        """Return a time-limited URL the browser can fetch directly.
+
+        Used by the legacy expense/sale receipt-photo flow which stores
+        a URL (not a key) in the DB. Backends that don't natively
+        support signed URLs return None — caller falls back to backend-
+        proxied serving via the regular GET endpoint.
+
+        Default implementation returns None; override per backend.
+        """
+        return None
+
 
 # ─── Supabase backend (production) ─────────────────────────────────────
 
@@ -148,6 +160,40 @@ class SupabaseStorageBackend(StorageBackend):
         url = f"{self.base}/object/{self.bucket}/{key}"
         resp = self._client.delete(url, headers=self._headers)
         return resp.status_code < 400
+
+    def signed_url(self, key: str, ttl_seconds: int = 3600) -> str | None:
+        """Generate a signed URL valid for `ttl_seconds`. Used by the
+        legacy receipt_photo flow that stores a URL string in DB.
+
+        Supabase returns a path like `/object/sign/<bucket>/<key>?token=...`
+        — we prefix with the project URL so the result is browser-fetchable
+        as-is. Returns None on failure (caller falls back to local path /
+        backend proxy)."""
+        url = f"{self.base}/object/sign/{self.bucket}/{key}"
+        try:
+            resp = self._client.post(
+                url,
+                json={"expiresIn": int(ttl_seconds)},
+                headers=self._headers,
+            )
+        except httpx.HTTPError as e:
+            logger.warning("Supabase signed_url failed for %s: %s", key, e)
+            return None
+        if resp.status_code >= 400:
+            logger.warning(
+                "Supabase signed_url %s -> %s: %s",
+                key, resp.status_code, resp.text[:200],
+            )
+            return None
+        data = resp.json()
+        signed = data.get("signedURL") or data.get("signed_url") or ""
+        if not signed:
+            return None
+        # Supabase returns the path portion; prefix with project URL.
+        if signed.startswith("/"):
+            base_root = self.base.rsplit("/storage/v1", 1)[0]
+            return f"{base_root}/storage/v1{signed}"
+        return signed
 
 
 # ─── Local backend (dev fallback) ──────────────────────────────────────
