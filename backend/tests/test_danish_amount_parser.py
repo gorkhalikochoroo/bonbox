@@ -107,3 +107,35 @@ def test_returns_none_for_no_digits():
     assert _parse_danish_amount("Total: ---") is None
     assert _parse_danish_amount("kr.") is None
     assert _parse_danish_amount("DKK") is None
+
+
+# ─── Layer 2 defense — sanity threshold ────────────────────────────────
+# Even if pattern matching regresses and lets '1.82' through (English
+# decimal interpretation of '1.820'), the downstream sanity check in
+# _find_amount_near_keyword refuses sub-1 DKK values in revenue/payment
+# contexts. This is layer 2 on top of the parser fix in commit 6a15215.
+
+from app.services.receipt_ocr import _is_implausibly_small
+
+
+@pytest.mark.parametrize("value,implausible", [
+    (0.50, True),       # Sub-1 DKK — never a real revenue line
+    (0.99, True),       # Same
+    (1.0,  False),      # 1 DKK exactly — borderline but allowed
+    (1.82, False),      # Borderline kept (could be a real micro-charge)
+    (50,   False),      # Coffee
+    (14854, False),     # Mirabelle's daily total
+    (None, False),      # None passes through unchanged
+    (0,    False),      # 0 isn't 'implausible', it's just 'not found'
+])
+def test_implausibly_small_threshold(value, implausible):
+    assert _is_implausibly_small(value) is implausible
+
+
+def test_layer_2_does_not_undercut_legitimate_small_amounts():
+    """A real receipt could legitimately have a 1 DKK rounding line
+    (e.g. '1,00 kr afrunding' on Danish receipts). The sanity threshold
+    is set to STRICTLY less than 1, so 1.00 DKK passes through. Pin this
+    so a future tightening doesn't break the rounding-line case."""
+    assert _is_implausibly_small(1.0) is False
+    assert _is_implausibly_small(1.00) is False

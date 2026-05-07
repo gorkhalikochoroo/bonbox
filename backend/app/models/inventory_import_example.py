@@ -38,7 +38,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    DateTime, ForeignKey, Index, Integer, JSON, String, Text,
+    Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -68,7 +68,18 @@ class InventoryImportExample(Base):
     __tablename__ = "inventory_import_examples"
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"), index=True)
+    # Nullable when is_global=True (founder-curated examples that benefit
+    # every owner — same shape as KasserapportExample in the kasserapport
+    # learning loop).
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("users.id"), nullable=True, index=True,
+    )
+    # When True, this example is included in every owner's few-shot
+    # prompt. Set automatically when a super_admin commits a corrected
+    # import — their corrections become global training data. Privacy
+    # is preserved: examples only carry the {extracted_name → final_name,
+    # category} delta, never sale amounts or other private data.
+    is_global: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
 
     # 'name_correction' | 'category_correction'
     kind: Mapped[str] = mapped_column(String(30), default="name_correction")

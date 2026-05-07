@@ -87,6 +87,7 @@ def promote_corrections(
     import_id,
     extracted: list[dict] | None,
     final: list[dict],
+    is_global: bool = False,
 ) -> int:
     """Persist owner corrections from a /commit as few-shot examples.
 
@@ -95,6 +96,12 @@ def promote_corrections(
     review time), we fall back to name-based matching — pair each
     final item with the extracted item whose name is closest. This
     keeps the diff sane even when the user reorders or trims.
+
+    `is_global` (default False): when True, examples are stored with
+    `is_global=True` and `user_id=None` so they benefit every owner.
+    The router sets this when the committing user has role='super_admin'
+    — founder-curated training data. Same pattern as
+    KasserapportExample.is_global in the kasserapport learning loop.
 
     Returns the number of NEW or UPDATED example rows.
     """
@@ -134,17 +141,25 @@ def promote_corrections(
             continue
 
         # Look for an existing identical example — bump hit_count
-        # rather than storing a duplicate row.
-        existing = (
-            db.query(InventoryImportExample)
-            .filter(
-                InventoryImportExample.user_id == user_id,
+        # rather than storing a duplicate row. Dedup is per-(user_id,
+        # is_global) so a super_admin's global example doesn't collide
+        # with their personal example for the same correction.
+        if is_global:
+            existing_q = db.query(InventoryImportExample).filter(
+                InventoryImportExample.is_global == True,  # noqa: E712
                 InventoryImportExample.kind == kind,
                 InventoryImportExample.extracted_name == ext_name,
                 InventoryImportExample.final_name == fin_name,
             )
-            .first()
-        )
+        else:
+            existing_q = db.query(InventoryImportExample).filter(
+                InventoryImportExample.user_id == user_id,
+                InventoryImportExample.is_global == False,  # noqa: E712
+                InventoryImportExample.kind == kind,
+                InventoryImportExample.extracted_name == ext_name,
+                InventoryImportExample.final_name == fin_name,
+            )
+        existing = existing_q.first()
         if existing:
             existing.hit_count = (existing.hit_count or 1) + 1
             existing.updated_at = datetime.utcnow()
@@ -152,7 +167,10 @@ def promote_corrections(
             continue
 
         ex = InventoryImportExample(
-            user_id=user_id,
+            # Global examples have user_id=NULL so they're not pinned to
+            # one owner; per-user examples carry the original user_id.
+            user_id=None if is_global else user_id,
+            is_global=is_global,
             kind=kind,
             extracted_name=ext_name,
             extracted_category=ext_cat,
@@ -176,21 +194,41 @@ def get_examples_for_user(
     *,
     kind: str | None = None,
     limit: int = 10,
+    include_global: bool = True,
 ) -> list[InventoryImportExample]:
     """Top-N examples for a user, ordered by hit_count DESC, then
     most-recent. Caller renders these into a prompt block.
+
+    Returns BOTH per-user examples AND founder-curated global ones
+    (is_global=True), so a super_admin's training data benefits every
+    owner. Global examples take precedence in tie-breaks because
+    founder-curated patterns are higher-signal than a single owner's
+    one-off correction.
+
+    `include_global=False` opts out (used when an admin tool wants to
+    isolate per-user corrections for a privacy review).
 
     `kind` filter lets the caller pick "just name corrections" or
     "just category corrections" depending on which surface they're
     enriching (extractor vs categorizer).
     """
-    q = db.query(InventoryImportExample).filter(
-        InventoryImportExample.user_id == user_id
-    )
+    from sqlalchemy import or_
+    if include_global:
+        scope = or_(
+            InventoryImportExample.user_id == user_id,
+            InventoryImportExample.is_global == True,  # noqa: E712
+        )
+    else:
+        scope = (InventoryImportExample.user_id == user_id)
+    q = db.query(InventoryImportExample).filter(scope)
     if kind:
         q = q.filter(InventoryImportExample.kind == kind)
     return (
+        # Global examples sort first (boolean True > False in DESC), then
+        # by hit_count, then most-recent. Founder-curated patterns get
+        # priority in the limited prompt budget.
         q.order_by(
+            InventoryImportExample.is_global.desc(),
             InventoryImportExample.hit_count.desc(),
             InventoryImportExample.updated_at.desc(),
         )
@@ -205,16 +243,22 @@ def prune_stale_examples(db: Session, user_id) -> int:
     """Trim a user's example library to MAX_EXAMPLES_PER_USER and drop
     rows older than RETENTION_DAYS. Idempotent + safe to call often.
 
+    Global (founder-curated) examples are NEVER pruned by this — they
+    represent intentionally-curated training data that benefits all
+    owners. Only per-user, non-global rows are subject to the cap +
+    retention cutoff.
+
     Returns the number of rows deleted.
     """
     deleted = 0
 
-    # Stale by age.
+    # Stale by age (per-user only — globals are intentional, not aged).
     cutoff = datetime.utcnow() - timedelta(days=RETENTION_DAYS)
     stale = (
         db.query(InventoryImportExample)
         .filter(
             InventoryImportExample.user_id == user_id,
+            InventoryImportExample.is_global == False,  # noqa: E712
             InventoryImportExample.updated_at < cutoff,
         )
         .all()
@@ -223,10 +267,15 @@ def prune_stale_examples(db: Session, user_id) -> int:
         db.delete(row)
         deleted += 1
 
-    # Trim to cap.
+    # Trim per-user examples to cap. Globals don't count toward the
+    # per-user MAX so they never trigger eviction of someone's actual
+    # corrections.
     total = (
         db.query(func.count(InventoryImportExample.id))
-        .filter(InventoryImportExample.user_id == user_id)
+        .filter(
+            InventoryImportExample.user_id == user_id,
+            InventoryImportExample.is_global == False,  # noqa: E712
+        )
         .scalar()
     ) or 0
     if total > MAX_EXAMPLES_PER_USER:
@@ -234,7 +283,10 @@ def prune_stale_examples(db: Session, user_id) -> int:
         keep_ids = [
             r.id for r in
             db.query(InventoryImportExample.id)
-            .filter(InventoryImportExample.user_id == user_id)
+            .filter(
+                InventoryImportExample.user_id == user_id,
+                InventoryImportExample.is_global == False,  # noqa: E712
+            )
             .order_by(
                 InventoryImportExample.hit_count.desc(),
                 InventoryImportExample.updated_at.desc(),
@@ -246,6 +298,7 @@ def prune_stale_examples(db: Session, user_id) -> int:
             db.query(InventoryImportExample)
             .filter(
                 InventoryImportExample.user_id == user_id,
+                InventoryImportExample.is_global == False,  # noqa: E712
                 InventoryImportExample.id.notin_(keep_ids),
             )
             .all()

@@ -404,6 +404,14 @@ _migrations = [
     # never persisted on the close row, so owners couldn't re-view
     # the source document later. Bogføringsloven §10 retention.
     "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS receipt_photo TEXT",
+    # ── Migration 016: is_global on inventory_import_examples ──
+    # When the founder (super_admin) uploads + corrects a smart import,
+    # those corrections become global training data benefiting every
+    # owner — same pattern as KasserapportExample.is_global. user_id
+    # becomes nullable so global examples don't pin to one owner.
+    "ALTER TABLE inventory_import_examples ADD COLUMN IF NOT EXISTS is_global BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE inventory_import_examples ALTER COLUMN user_id DROP NOT NULL",
+    "CREATE INDEX IF NOT EXISTS ix_inv_imp_examples_is_global ON inventory_import_examples (is_global)",
 ]
 
 def _run_migrations():
@@ -555,6 +563,14 @@ def _run_migrations():
             ok += _add("inventory_imports", "storage_key", "VARCHAR(300)")
             # Migration 015 mirror — receipt_photo on daily_closes
             ok += _add("daily_closes", "receipt_photo", "TEXT")
+            # Migration 016 mirror — is_global flag for founder-curated
+            # smart-inventory examples. SQLite is permissive about
+            # nullable columns; existing rows with NOT NULL user_id
+            # stay valid because we only ADD columns, never relax
+            # existing constraints (SQLite ALTER COLUMN isn't supported
+            # — fresh installs use the model definition which already
+            # has user_id nullable).
+            ok += _add("inventory_import_examples", "is_global", "BOOLEAN NOT NULL DEFAULT 0")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",

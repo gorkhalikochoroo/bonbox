@@ -349,3 +349,148 @@ def test_prompt_block_handles_category_correction():
     block = build_examples_prompt_block([ex])
     assert "Garnish" in block
     assert "Produce" in block
+
+
+# ─── Global training (super_admin → benefits every owner) ──────────────
+# Same is_global pattern as KasserapportExample. Founder uploads
+# Hørkram / BC Catering / Fisketorvet patterns → corrects misreads →
+# examples flagged is_global=True with user_id=NULL → every owner's
+# extractor pulls them in via get_examples_for_user(include_global=True).
+
+def test_global_promotion_creates_user_id_null_row(db, lars, fake_import):
+    """Super_admin commit (is_global=True) → example has user_id=NULL
+    and is_global=True, so it isn't pinned to one owner."""
+    promote_corrections(
+        db, user_id=lars.id, import_id=fake_import.id,
+        extracted=[{"name": "Hørkram laks fersk"}],
+        final=[{"name": "Hørkram - Atlantic Salmon 2.5kg"}],
+        is_global=True,
+    )
+    rows = db.query(InventoryImportExample).all()
+    assert len(rows) == 1
+    assert rows[0].is_global is True
+    assert rows[0].user_id is None  # not pinned to lars
+    assert rows[0].extracted_name == "Hørkram laks fersk"
+
+
+def test_global_examples_visible_to_other_users(db, lars, other_owner, fake_import):
+    """Super_admin's global example must reach OTHER owners' extractor
+    prompts. Defense-in-depth check: include_global=True (default)
+    fetches both per-user + global; without globals leaking
+    cross-tenant in any other way."""
+    # Founder commits a global pattern
+    promote_corrections(
+        db, user_id=lars.id, import_id=fake_import.id,
+        extracted=[{"name": "Hørkram laks"}],
+        final=[{"name": "Hørkram - Atlantic Salmon 2.5kg"}],
+        is_global=True,
+    )
+    # Other owner has zero personal examples but should see the global one
+    examples_for_other = get_examples_for_user(db, other_owner.id)
+    assert len(examples_for_other) == 1
+    assert examples_for_other[0].is_global is True
+    assert examples_for_other[0].extracted_name == "Hørkram laks"
+
+
+def test_per_user_example_does_not_leak_to_other_users(db, lars, other_owner, fake_import):
+    """Tenant isolation invariant — non-global examples MUST stay
+    per-user even with the new is_global flag in play."""
+    promote_corrections(
+        db, user_id=lars.id, import_id=fake_import.id,
+        extracted=[{"name": "Lars's secret stock name"}],
+        final=[{"name": "Lars's preferred long form"}],
+        is_global=False,  # explicit
+    )
+    other_examples = get_examples_for_user(db, other_owner.id)
+    assert other_examples == []
+
+
+def test_global_examples_sort_first_in_prompt_budget(db, lars, fake_import):
+    """When the prompt has a 10-example budget, globals should win
+    over per-user one-offs because founder-curated patterns are
+    higher-signal."""
+    # Add 3 personal, hit_count=1 each
+    for i in range(3):
+        promote_corrections(
+            db, user_id=lars.id, import_id=fake_import.id,
+            extracted=[{"name": f"Personal{i}"}],
+            final=[{"name": f"PersonalFull{i}"}],
+            is_global=False,
+        )
+    # Add 1 global, hit_count=1
+    promote_corrections(
+        db, user_id=lars.id, import_id=fake_import.id,
+        extracted=[{"name": "Global pattern"}],
+        final=[{"name": "Global expanded"}],
+        is_global=True,
+    )
+    examples = get_examples_for_user(db, lars.id, limit=10)
+    assert examples[0].is_global is True  # global wins the top slot
+
+
+def test_include_global_false_isolates_to_per_user(db, lars, fake_import):
+    """Admin-tool path can opt out of globals for a privacy review.
+    Pin the include_global=False contract."""
+    promote_corrections(
+        db, user_id=lars.id, import_id=fake_import.id,
+        extracted=[{"name": "Personal"}],
+        final=[{"name": "Personal Full"}],
+        is_global=False,
+    )
+    promote_corrections(
+        db, user_id=lars.id, import_id=fake_import.id,
+        extracted=[{"name": "Global"}],
+        final=[{"name": "Global Full"}],
+        is_global=True,
+    )
+    only_personal = get_examples_for_user(db, lars.id, include_global=False)
+    assert len(only_personal) == 1
+    assert only_personal[0].is_global is False
+
+
+def test_global_dedup_separate_from_per_user_dedup(db, lars, fake_import):
+    """Same correction can exist as BOTH a personal example (early in
+    the founder's first owner-mode test) AND a global example (after
+    they switched to super_admin mode and re-confirmed). Dedup must
+    not collapse them — they have different scopes."""
+    # Founder first commits as 'regular user' (is_global=False)
+    promote_corrections(
+        db, user_id=lars.id, import_id=fake_import.id,
+        extracted=[{"name": "Tuborg"}],
+        final=[{"name": "Tuborg Pilsner 33cl"}],
+        is_global=False,
+    )
+    # Then as super_admin (is_global=True) on a separate session
+    promote_corrections(
+        db, user_id=lars.id, import_id=fake_import.id,
+        extracted=[{"name": "Tuborg"}],
+        final=[{"name": "Tuborg Pilsner 33cl"}],
+        is_global=True,
+    )
+    rows = db.query(InventoryImportExample).all()
+    # Both rows persist — separate scopes
+    assert len(rows) == 2
+    assert any(r.is_global for r in rows)
+    assert any(not r.is_global for r in rows)
+
+
+def test_prune_stale_does_not_evict_global_examples(db, lars, fake_import):
+    """Globals are intentionally curated — never aged out. Pin this
+    so a future prune refactor can't accidentally delete training data."""
+    from datetime import timedelta
+    # One stale global from 200 days ago
+    promote_corrections(
+        db, user_id=lars.id, import_id=fake_import.id,
+        extracted=[{"name": "Old global"}],
+        final=[{"name": "Old global full"}],
+        is_global=True,
+    )
+    # Backdate it
+    row = db.query(InventoryImportExample).first()
+    row.updated_at = datetime.utcnow() - timedelta(days=200)
+    db.commit()
+
+    deleted = prune_stale_examples(db, lars.id)
+    assert deleted == 0
+    # Global row still there
+    assert db.query(InventoryImportExample).count() == 1

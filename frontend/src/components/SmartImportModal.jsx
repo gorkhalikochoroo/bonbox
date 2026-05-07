@@ -369,6 +369,19 @@ function HistoryList({ history }) {
           excel: "📊",
           image: "📷",
         }[h.source_kind] || "📦";
+        const openPhoto = async () => {
+          try {
+            const res = await api.get(
+              `/inventory/smart-import/${h.id}/image`,
+              { responseType: "blob" },
+            );
+            const url = URL.createObjectURL(res.data);
+            window.open(url, "_blank", "noopener,noreferrer");
+            setTimeout(() => URL.revokeObjectURL(url), 60_000);
+          } catch (e) {
+            console.error("Failed to load original photo", e);
+          }
+        };
         return (
           <div key={h.id}
             className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
@@ -397,9 +410,22 @@ function HistoryList({ history }) {
                 </p>
               </div>
             </div>
-            <span className={`shrink-0 text-[10px] uppercase font-bold px-2 py-1 rounded ${statusStyle}`}>
-              {h.status}
-            </span>
+            <div className="flex items-center gap-2 shrink-0">
+              {/* Photo button — same pattern as daily close history rows.
+                  Only shows for image-kind imports; the storage_key on
+                  the row guarantees a backing blob in Supabase. */}
+              {h.source_kind === "image" && (
+                <button
+                  onClick={openPhoto}
+                  title="View the original uploaded photo"
+                  className="text-xs px-2 py-1 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/40 font-medium">
+                  📷
+                </button>
+              )}
+              <span className={`text-[10px] uppercase font-bold px-2 py-1 rounded ${statusStyle}`}>
+                {h.status}
+              </span>
+            </div>
           </div>
         );
       })}

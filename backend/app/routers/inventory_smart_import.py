@@ -575,19 +575,33 @@ def commit_draft(
             detail=f"Commit failed: {type(e).__name__}",
         )
 
-    # Learning loop — promote owner corrections to per-owner few-shot
-    # examples so the NEXT extraction for this owner is more accurate.
-    # Best-effort: a learning failure must not break the user-visible
+    # Learning loop — promote owner corrections to few-shot examples
+    # so the NEXT extraction is more accurate.
+    #
+    # Super_admin (founder) commits → examples flagged is_global=True so
+    # they benefit EVERY owner. This is the canonical training-data path:
+    # Manoj uploads Hørkram / BC Catering / Fisketorvet patterns from
+    # his admin account, corrects misreads once, and every BonBox owner
+    # sees better extractions on the next supplier slip.
+    #
+    # Regular owner commits → examples are per-user-scoped (default).
+    # Privacy is preserved either way: examples carry only the
+    # {extracted_name → final_name, category} delta — no sale amounts,
+    # no PII.
+    #
+    # Best-effort: a learning failure must NOT break the user-visible
     # commit (their items already exist).
     examples_promoted = 0
     if imp.user_corrected:
         try:
+            is_super_admin = (getattr(user, "role", None) == "super_admin")
             examples_promoted = promote_corrections(
                 db,
                 user_id=user.id,
                 import_id=imp.id,
                 extracted=imp.extracted_json or [],
                 final=final,
+                is_global=is_super_admin,
             )
             prune_stale_examples(db, user.id)
         except Exception:  # noqa: BLE001

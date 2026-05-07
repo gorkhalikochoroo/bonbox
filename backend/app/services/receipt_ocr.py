@@ -298,23 +298,49 @@ def _parse_danish_amount(text: str) -> float | None:
     return None
 
 
+# Defense layer 2 — sanity threshold for revenue-context amounts.
+# A real Danish kasserapport line for revenue / payment / MOMS is
+# essentially never sub-1 DKK; even a single coffee runs 30+ DKK. If
+# the parser returns 1.82 (the Manoj-hit bug class), that's almost
+# certainly a misread — drop it instead of letting it propagate. The
+# downstream max(breakdown_sum, override) logic then keeps the close
+# safe. This is layer 2 on top of the parser fix in commit 6a15215.
+_MIN_PLAUSIBLE_REVENUE_DKK = 1.0
+
+
+def _is_implausibly_small(value: float | None) -> bool:
+    """Return True for values that can't be a real DKK amount on a
+    revenue / payment / MOMS line. Sub-1 kroner is the threshold."""
+    return value is not None and 0 < value < _MIN_PLAUSIBLE_REVENUE_DKK
+
+
 def _find_amount_near_keyword(lines: list[str], keyword_pattern: str) -> float | None:
-    """Search lines for a keyword and extract the amount on that line or the next."""
+    """Search lines for a keyword and extract the amount on that line or the next.
+
+    Multi-layer defense:
+      L1 — Parser disambiguates Danish thousands vs English decimal
+           (commit 6a15215, _parse_danish_amount).
+      L2 — Sanity check: if the parsed amount is sub-1 DKK in a
+           revenue context, treat as 'not found' so it doesn't
+           overwrite a legitimate value. The downstream override-
+           protection (max breakdown vs. OCR total) then preserves
+           the right number.
+    """
     for i, line in enumerate(lines):
         if re.search(keyword_pattern, line, re.IGNORECASE):
             # Try the same line first
             amount = _parse_danish_amount(line.split(re.search(keyword_pattern, line, re.IGNORECASE).group())[-1])
-            if amount is not None and amount > 0:
+            if amount is not None and amount > 0 and not _is_implausibly_small(amount):
                 return amount
             # Also try parsing the whole line after the keyword
             after_kw = re.split(keyword_pattern, line, flags=re.IGNORECASE)[-1]
             amount = _parse_danish_amount(after_kw)
-            if amount is not None and amount > 0:
+            if amount is not None and amount > 0 and not _is_implausibly_small(amount):
                 return amount
             # Try the next line
             if i + 1 < len(lines):
                 amount = _parse_danish_amount(lines[i + 1])
-                if amount is not None and amount > 0:
+                if amount is not None and amount > 0 and not _is_implausibly_small(amount):
                     return amount
     return None
 
