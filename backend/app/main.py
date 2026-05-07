@@ -1,5 +1,6 @@
 import os
 import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 # Optional Sentry init — only loaded if SENTRY_DSN env var set AND the
@@ -693,6 +694,56 @@ limiter = Limiter(key_func=get_remote_address, default_limits=["120/minute"])
 # --- App Setup ---
 is_prod = settings.ENVIRONMENT == "production"
 
+
+# ─── Lifespan context manager (replaces @app.on_event) ─────────────
+#
+# FastAPI 0.93+ deprecated @app.on_event in favour of an ASGI
+# lifespan async context manager. on_event is scheduled for removal
+# in a future FastAPI release; migrating now removes 3 deprecation
+# warnings + future-proofs the bootstrap.
+#
+# Two phases — order pinned by yield:
+#
+#   STARTUP (runs before the app accepts requests)
+#     • Kick off DB init + idempotent migrations + demo seed in a
+#       BACKGROUND thread so uvicorn can bind the port immediately.
+#       The db_readiness_gate middleware returns 503 until _db_ready
+#       fires, so requests that arrive during init are rejected
+#       cleanly rather than blocking the event loop.
+#
+#   SHUTDOWN (runs as the app drains)
+#     • Stop the APScheduler if it was ever started. The scheduler
+#       lives in module-level _scheduler (assigned in the try block
+#       further down). It may NOT exist if scheduler init failed at
+#       import time — we use globals().get() to handle that without
+#       a NameError. wait=False so shutdown doesn't block on a long-
+#       running job; the daemon thread will be cleaned up by the
+#       process exit.
+#
+# Forward-reference safety: this function REFERENCES _init_db and
+# _scheduler (defined / assigned later in the module). Python looks
+# up names lazily at call time — by the time ASGI fires the lifespan
+# protocol, the whole module is loaded.
+@asynccontextmanager
+async def lifespan(app):
+    # ─── STARTUP ─────────────────────────────────────────────────
+    _startup_thread = threading.Thread(target=_init_db, daemon=True)
+    _startup_thread.start()
+
+    yield
+
+    # ─── SHUTDOWN ────────────────────────────────────────────────
+    sched = globals().get("_scheduler")
+    if sched is not None:
+        try:
+            sched.shutdown(wait=False)
+        except Exception:  # noqa: BLE001
+            # APScheduler.shutdown() should be quiet, but guard
+            # anyway so a transient error here doesn't poison
+            # graceful shutdown.
+            pass
+
+
 app = FastAPI(
     title="BonBox",
     description="Din digitale bonkasse — smart analytics for small businesses",
@@ -700,6 +751,7 @@ app = FastAPI(
     docs_url=None if is_prod else "/docs",
     redoc_url=None if is_prod else "/redoc",
     openapi_url=None if is_prod else "/openapi.json",
+    lifespan=lifespan,
 )
 
 app.state.limiter = limiter
@@ -868,11 +920,9 @@ def _init_db():
     print("DB init complete — ready to serve requests")
 
 
-@app.on_event("startup")
-async def startup_db():
-    """Start DB init in background so uvicorn can bind port immediately."""
-    t = threading.Thread(target=_init_db, daemon=True)
-    t.start()
+# Startup behaviour migrated to the `lifespan` async context manager
+# defined alongside the FastAPI() constructor (replaces the deprecated
+# @app.on_event("startup") API). See the lifespan docstring for why.
 
 
 # --- DB readiness middleware: block API requests until DB is ready ---
@@ -1373,9 +1423,10 @@ try:
     print("Schedulers started: payment auto-sync (6h), nightly maintenance (02:30), "
           "kasserapport drift (03:00), demo refresh (03:15), kasserapport patterns (Sun 03:30)")
 
-    @app.on_event("shutdown")
-    def _shutdown_scheduler():
-        _scheduler.shutdown(wait=False)
+    # Scheduler shutdown migrated to the `lifespan` context manager
+    # near the FastAPI() constructor. It checks globals() for the
+    # _scheduler symbol so it cleanly no-ops if THIS try block
+    # failed before assignment.
 
 except Exception as e:
     print(f"Scheduler warning: {e}")
