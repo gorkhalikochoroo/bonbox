@@ -444,15 +444,30 @@ export default function SubscriptionPage() {
       {/* Tiers — 3 cards now */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {TIERS.map((tier) => {
-          // Map currentPlan to tier card highlight. Starter is a real paid
-          // tier now (Stripe webhook in stripe_billing.py maps it correctly).
-          // Trial users see Pro as "Your trial" since the trial gives full
-          // Pro entitlements; that's the marketing-honest framing.
+          // "isCurrent" = user IS a PAID subscriber on this exact tier.
+          // Trial does NOT count — a trial user has full Pro features
+          // during 14 days, but they still need to ACTIVELY lock in
+          // either Starter or Pro to keep founding pricing past day 14.
+          // The previous logic treated trial as "isCurrent Pro" which
+          // disabled the Pro lock-in button + the trial user couldn't
+          // choose either tier.
           const isCurrent =
-            (tier.id === "pro" && (currentPlan === "pro" || currentPlan === "trial")) ||
+            (tier.id === "pro" && currentPlan === "pro") ||
             (tier.id === "starter" && currentPlan === "starter") ||
             (tier.id === "free" && currentPlan === "free") ||
             (tier.id === "business" && currentPlan === "business");
+          // Visual-only marker for the Pro card during trial — communicates
+          // "you have these features right now" without disabling the
+          // Lock-in CTA. The trial user still needs to click to lock in.
+          const showTrialBadge = tier.id === "pro" && currentPlan === "trial";
+          // During trial, swap the generic "Upgrade to X" CTA on Starter +
+          // Pro buttons for the more concrete "Lock founding rate" label.
+          // Reuses the existing pricingLockInRate i18n key.
+          const showTrialLockCTA = currentPlan === "trial" && (tier.id === "starter" || tier.id === "pro");
+          // Stripe-ready flag — once configured server-side, every paid
+          // tier click goes straight to Stripe Checkout. The legacy
+          // waitlist-state disable doesn't make sense anymore.
+          const stripeReady = !!billing?.stripe_configured;
           const price = annual ? tier.price_annual : tier.price_monthly;
           // Founding-price treatment applies to ANY tier with a founding_price
           // set (Starter 129 kr / Pro 249 kr). Was previously gated to Pro only,
@@ -472,9 +487,9 @@ export default function SubscriptionPage() {
                   {t("mostPopular") || "Most popular"}
                 </div>
               )}
-              {isCurrent && (
+              {(isCurrent || showTrialBadge) && (
                 <div className="absolute -top-3 right-4 bg-blue-600 text-white text-[10px] font-bold px-2.5 py-1 rounded-full shadow whitespace-nowrap">
-                  {currentPlan === "trial"
+                  {showTrialBadge
                     ? (t("yourTrial") || "Your trial")
                     : (t("currentPlan") || "Current plan")}
                 </div>
@@ -513,25 +528,37 @@ export default function SubscriptionPage() {
 
               <button
                 onClick={() => handleCta(tier.id)}
-                disabled={isCurrent || pending === tier.id || (tier.id !== "business" && joined.has(tier.id))}
+                disabled={
+                  isCurrent
+                  || pending === tier.id
+                  // Waitlist "On the list" disable ONLY when Stripe isn't
+                  // configured yet (early-launch fallback). Once Stripe is
+                  // live, every click routes to checkout — waitlist state
+                  // shouldn't block a real upgrade.
+                  || (!stripeReady && tier.id !== "business" && joined.has(tier.id))
+                }
                 className={`w-full py-2 rounded-lg text-sm font-medium transition mt-3 mb-4
                   ${isCurrent
                     ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800 cursor-default"
-                    : joined.has(tier.id) && tier.id !== "business"
+                    : (!stripeReady && joined.has(tier.id) && tier.id !== "business")
                       ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800"
                       : tier.highlight
                         ? "bg-green-600 hover:bg-green-700 text-white shadow-sm disabled:opacity-60"
                         : "bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-60"}`}
               >
                 {isCurrent
-                  ? currentPlan === "trial"
-                    ? (t("onTrialFullPro") || "On trial — full Pro features")
-                    : `✓ ${t("currentPlan") || "Current plan"}`
+                  ? `✓ ${t("currentPlan") || "Current plan"}`
                   : pending === tier.id
                     ? (t("pricingJoining") || "Joining…")
-                    : joined.has(tier.id) && tier.id !== "business"
+                    : (!stripeReady && joined.has(tier.id) && tier.id !== "business")
                       ? (t("pricingOnTheList") || "✓ On the list")
-                      : cta}
+                      : showTrialLockCTA
+                        // During trial both Starter + Pro buttons offer
+                        // a clear "Lock founding rate" CTA — the price is
+                        // already shown above the button so the tier is
+                        // unambiguous from the click.
+                        ? (t("pricingLockInRate") || "Lock in founding rate")
+                        : cta}
               </button>
 
               {/* Manage / Cancel — only when user has a real Stripe sub
