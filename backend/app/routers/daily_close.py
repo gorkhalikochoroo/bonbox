@@ -21,7 +21,7 @@ from io import BytesIO
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy import func
@@ -39,6 +39,10 @@ from app.schemas.daily_close import DailyCloseCreate, DailyCloseResponse, DailyC
 from app.services.auth import get_current_user
 from app.services.billing import effective_plan
 from app.services.receipt_ocr import save_receipt_photo, parse_z_report
+from app.services.daily_close_range_export import (
+    build_daily_close_range_pdf,
+    closes_to_csv_bytes,
+)
 
 router = APIRouter()
 
@@ -876,6 +880,144 @@ async def scan_z_report(
     parsed["image_url"] = image_url
 
     return parsed
+
+
+# ─── GET — date-range PDF / CSV export (accountant handoff) ───
+#
+# These two endpoints aggregate a date range into a single document so
+# the owner can hand off a week / month / quarter to the accountant in
+# one click. Distinct from /{close_id}/pdf (single close, polished
+# receipt) — this is the "weekly review" / "month-end" format with
+# totals + averages.
+#
+# Path order: declared BEFORE /{close_id} so FastAPI matches the
+# literal "export.pdf" / "export.csv" path before falling through to
+# the parametric close_id.
+
+# Hard-cap the date range to prevent both abuse and accidental
+# unbounded queries. 366 covers leap years + a comfortable yearly
+# review; anything longer should be done in chunks.
+_MAX_RANGE_DAYS = 366
+
+
+def _resolve_range(from_date: date | None, to_date: date | None) -> tuple[date, date]:
+    """Validate + default the (from, to) inputs.
+
+    Defaults: today minus 30 days → today.
+    Raises 422 if from > to or the span exceeds _MAX_RANGE_DAYS.
+    """
+    if not to_date:
+        to_date = date.today()
+    if not from_date:
+        from_date = to_date - timedelta(days=30)
+    if from_date > to_date:
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid date range: 'from' must be on or before 'to'.",
+        )
+    span = (to_date - from_date).days + 1
+    if span > _MAX_RANGE_DAYS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Date range too large ({span} days). Max is {_MAX_RANGE_DAYS} days.",
+        )
+    return from_date, to_date
+
+
+def _fetch_range_closes(
+    db: Session, *, user_id, from_date: date, to_date: date,
+    branch_id: str | None,
+) -> list[DailyClose]:
+    """Tenant-scoped fetch of closes in the requested range."""
+    q = db.query(DailyClose).filter(
+        DailyClose.user_id == user_id,
+        DailyClose.is_deleted.isnot(True),
+        DailyClose.date >= from_date,
+        DailyClose.date <= to_date,
+    )
+    if branch_id:
+        q = q.filter(DailyClose.branch_id == branch_id)
+    return q.order_by(DailyClose.date.asc()).all()
+
+
+@router.get("/export.pdf")
+@_limiter.limit("5/minute")
+def export_range_pdf(
+    request: Request,
+    from_date: date = Query(None, alias="from"),
+    to_date: date = Query(None, alias="to"),
+    branch_id: str = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Multi-day daily-close PDF for accountant handoff.
+
+    Layered defense (same shape as scan-report):
+      L1 auth → L2 input bounds (max 366d) → L3 rate limit (5/min)
+      L4 tenant scope (user_id filter) → L5 plan: free; this is read-only
+      and trivially cheap, no Anthropic calls, so no quota beyond the
+      rate limit. L6 the file is streamed not stored — no audit row.
+    """
+    f, t = _resolve_range(from_date, to_date)
+    closes = _fetch_range_closes(
+        db, user_id=user.id, from_date=f, to_date=t, branch_id=branch_id,
+    )
+
+    # Business name for the title page — falls back through profile, user,
+    # then a generic label so the PDF always has something readable.
+    profile = db.query(BusinessProfile).filter(
+        BusinessProfile.user_id == user.id,
+    ).first()
+    business_name = (
+        (profile.business_name if profile and profile.business_name else None)
+        or getattr(user, "business_name", None)
+        or "Daily Close Report"
+    )
+    currency = user.currency or "DKK"
+
+    pdf_bytes = build_daily_close_range_pdf(
+        closes, from_date=f, to_date=t,
+        business_name=business_name, currency=currency,
+    )
+    filename = f"daily-close_{f.isoformat()}_to_{t.isoformat()}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
+@router.get("/export.csv")
+@_limiter.limit("10/minute")
+def export_range_csv(
+    request: Request,
+    from_date: date = Query(None, alias="from"),
+    to_date: date = Query(None, alias="to"),
+    branch_id: str = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Multi-day daily-close CSV. UTF-8 + BOM + semicolon delimiter so
+    Danish Excel opens it cleanly with Æ/Ø/Å intact. Encoded breakdown
+    columns ("food:12400|drinks:5800") so the accountant can re-import
+    or pivot in Excel."""
+    f, t = _resolve_range(from_date, to_date)
+    closes = _fetch_range_closes(
+        db, user_id=user.id, from_date=f, to_date=t, branch_id=branch_id,
+    )
+    csv_bytes = closes_to_csv_bytes(closes)
+    filename = f"daily-close_{f.isoformat()}_to_{t.isoformat()}.csv"
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "private, no-store",
+        },
+    )
 
 
 # ─── GET — single close ───

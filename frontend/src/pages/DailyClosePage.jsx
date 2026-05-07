@@ -1392,6 +1392,70 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
   const [unlockReason, setUnlockReason] = useState("");
   const [unlocking, setUnlocking] = useState(false);
 
+  // ── Date-range export state ──────────────────────────────────
+  // The accountant handoff: pick a window (7d / 14d / 1m / 3m /
+  // custom), then download all closes in that range as one PDF or
+  // one CSV. Default 7 days because that's what most owners want
+  // for a weekly review with their bookkeeper.
+  const todayIso = () => new Date().toISOString().slice(0, 10);
+  const isoDaysAgo = (n) => {
+    const d = new Date();
+    d.setDate(d.getDate() - n);
+    return d.toISOString().slice(0, 10);
+  };
+  const [rangePreset, setRangePreset] = useState("7d"); // 7d | 14d | 1m | 3m | custom
+  const [customFrom, setCustomFrom] = useState(isoDaysAgo(7));
+  const [customTo, setCustomTo] = useState(todayIso());
+  const [exportingFmt, setExportingFmt] = useState(null); // 'pdf' | 'csv' | null
+  const [exportError, setExportError] = useState("");
+
+  // Compute the active (from, to) for whichever preset is selected.
+  const activeRange = useMemo(() => {
+    const to = todayIso();
+    if (rangePreset === "7d") return { from: isoDaysAgo(7), to };
+    if (rangePreset === "14d") return { from: isoDaysAgo(14), to };
+    if (rangePreset === "1m") return { from: isoDaysAgo(30), to };
+    if (rangePreset === "3m") return { from: isoDaysAgo(90), to };
+    // Custom: use whatever the user typed; basic guard against
+    // inverted ranges so the API doesn't bounce a 422 visibly.
+    const f = customFrom > customTo ? customTo : customFrom;
+    const t = customFrom > customTo ? customFrom : customTo;
+    return { from: f, to: t };
+  }, [rangePreset, customFrom, customTo]);
+
+  // Count closes that match the chosen range — gives the user
+  // confidence ("Export 14 closes for this range") before they tap.
+  const rangeCount = useMemo(
+    () => data.filter(dc => dc.date >= activeRange.from && dc.date <= activeRange.to).length,
+    [data, activeRange],
+  );
+
+  const downloadRange = async (fmt) => {
+    setExportingFmt(fmt);
+    setExportError("");
+    try {
+      const url = `/daily-close/export.${fmt}?from=${activeRange.from}&to=${activeRange.to}`;
+      const res = await api.get(url, { responseType: "blob" });
+      const blob = new Blob([res.data], {
+        type: fmt === "pdf" ? "application/pdf" : "text/csv;charset=utf-8",
+      });
+      const objectUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = `daily-close_${activeRange.from}_to_${activeRange.to}.${fmt}`;
+      a.click();
+      window.URL.revokeObjectURL(objectUrl);
+    } catch (e) {
+      const detail = e?.response?.data?.detail
+        || (e?.response?.status === 429 ? "Too many exports — wait a minute and try again." : null)
+        || "Could not export. Please try again.";
+      setExportError(detail);
+      setTimeout(() => setExportError(""), 5000);
+    } finally {
+      setExportingFmt(null);
+    }
+  };
+
   const activeStreak = insights?.insights?.find(i => i.type === "cash_streak" && i.is_active);
 
   const handleUnlock = async () => {
@@ -1529,6 +1593,103 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
           </p>
         </div>
       )}
+
+      {/* Date-range export panel — accountant handoff.
+          Lets the owner pick a window (7d / 14d / 1m / 3m / custom)
+          and pull a multi-day PDF or CSV in one click. Distinct from
+          the per-close PDF on each row below — this is the
+          "send the whole month to my bookkeeper" format. */}
+      <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-lg">📦</span>
+          <h3 className="font-bold dark:text-white text-sm">Export to accountant</h3>
+        </div>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+          Pick a date range and download all closes as PDF or CSV. CSV is
+          semicolon-delimited + UTF-8 BOM so Danish Excel opens it cleanly.
+        </p>
+
+        {/* Preset buttons */}
+        <div className="flex flex-wrap gap-2 mb-3">
+          {[
+            { id: "7d", label: "Last 7 days" },
+            { id: "14d", label: "Last 14 days" },
+            { id: "1m", label: "Last 1 month" },
+            { id: "3m", label: "Last 3 months" },
+            { id: "custom", label: "Custom" },
+          ].map(p => (
+            <button
+              key={p.id}
+              onClick={() => setRangePreset(p.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                rangePreset === p.id
+                  ? "bg-green-600 text-white border-green-600"
+                  : "bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:border-green-400"
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Custom range pickers — shown only when preset === 'custom' */}
+        {rangePreset === "custom" && (
+          <div className="flex flex-wrap items-end gap-3 mb-3">
+            <label className="text-xs text-gray-500 dark:text-gray-400">
+              From
+              <input
+                type="date"
+                value={customFrom}
+                max={customTo}
+                onChange={(e) => setCustomFrom(e.target.value)}
+                className="block mt-1 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 dark:text-white text-sm"
+              />
+            </label>
+            <label className="text-xs text-gray-500 dark:text-gray-400">
+              To
+              <input
+                type="date"
+                value={customTo}
+                min={customFrom}
+                max={todayIso()}
+                onChange={(e) => setCustomTo(e.target.value)}
+                className="block mt-1 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 dark:text-white text-sm"
+              />
+            </label>
+          </div>
+        )}
+
+        {/* Range summary + download buttons */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            <strong className="text-gray-700 dark:text-gray-300">{activeRange.from}</strong>
+            {" → "}
+            <strong className="text-gray-700 dark:text-gray-300">{activeRange.to}</strong>
+            {"  ·  "}
+            {rangeCount} close{rangeCount === 1 ? "" : "s"}
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => downloadRange("pdf")}
+              disabled={!!exportingFmt || rangeCount === 0}
+              className="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition"
+            >
+              {exportingFmt === "pdf" ? "⏳ Generating…" : "📄 PDF"}
+            </button>
+            <button
+              onClick={() => downloadRange("csv")}
+              disabled={!!exportingFmt || rangeCount === 0}
+              className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition"
+            >
+              {exportingFmt === "csv" ? "⏳ Generating…" : "📊 CSV"}
+            </button>
+          </div>
+        </div>
+
+        {exportError && (
+          <p className="mt-2 text-xs text-red-500 dark:text-red-400">⚠️ {exportError}</p>
+        )}
+      </div>
 
       {/* Calendar heat map */}
       <CalendarHeatMap data={data} currency={currency} />
