@@ -89,7 +89,16 @@ export default function InventoryPage() {
   const [expandedStat, setExpandedStat] = useState(null); // "total" | "low" | "fresh" | "categories" | "priced"
 
   const fetchData = () => {
-    api.get("/inventory").then((res) => setItems(res.data)).catch(() => {});
+    // Pour-tracked items (bottles with pour_size set) live on /bar now —
+    // filter them out of /inventory so the view stays focused on general
+    // kitchen / shop / pantry stock. Owners with the bar_pour vertical
+    // module enabled see them on the dedicated 🍸 Bar page in their sidebar.
+    api.get("/inventory")
+      .then((res) => {
+        const all = Array.isArray(res.data) ? res.data : [];
+        setItems(all.filter((i) => !i.pour_size || i.pour_size <= 0));
+      })
+      .catch(() => {});
     api.get("/inventory/alerts").then((res) => setAlerts(res.data)).catch(() => {});
     api.get("/inventory/categories").then((res) => setCategories(res.data)).catch(() => {});
     api.get("/inventory/dead-stock").then((res) => setDeadStock(res.data)).catch(() => {});
@@ -426,50 +435,10 @@ export default function InventoryPage() {
         </div>
       )}
 
-      {/* Bar Quick Pour — only shows when bar template was loaded */}
-      {showBarSection && barItems.length > 0 && (
-        <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-gray-800 dark:to-gray-800 p-5 rounded-2xl border border-amber-200 dark:border-amber-800">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold text-amber-800 dark:text-amber-400 flex items-center gap-2">
-              <span>🍸</span> {t("barTapToPour")}
-            </h3>
-            <button onClick={() => { setShowBarSection(false); localStorage.removeItem("bonbox_bar_mode"); }}
-              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">{t("hide")}</button>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
-            {barItems.map((item) => {
-              const remaining = item.pour_size > 0 ? Math.floor(item.quantity / item.pour_size) : 0;
-              const isEmpty = remaining <= 0;
-              return (
-                <div key={item.id} className={`p-3 rounded-xl border transition ${isEmpty
-                  ? "border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10"
-                  : "border-amber-200 dark:border-amber-700"}`}>
-                  <p className="text-sm font-semibold text-gray-800 dark:text-white truncate">{item.name}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                    {Math.round(item.quantity)} {item.pour_unit || "ml"} · {remaining} {t("pours")}
-                  </p>
-                  {item.sell_price_per_pour > 0 && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">{item.sell_price_per_pour} {currency}/{t("perGlass")}</p>
-                  )}
-                  <div className="flex gap-1 mt-2">
-                    {isEmpty ? (
-                      <button onClick={() => { setRestockItem(item); setRestockBottles(1); }}
-                        className="flex-1 bg-green-500 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-green-600">+ {t("restock")}</button>
-                    ) : (
-                      <>
-                        <button onClick={() => { setPourModal(item); setPourCount(1); }}
-                          className="flex-1 bg-amber-500 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-amber-600">{t("pour")}</button>
-                        <button onClick={() => { setRestockItem(item); setRestockBottles(1); }}
-                          className="bg-green-500 text-white text-xs font-bold px-2 py-1.5 rounded-lg hover:bg-green-600">+</button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {/* Bar pour items now live on /bar — extracted to a dedicated page
+          gated by the bar_pour vertical module. Owners who run a bar see
+          a 🍸 Bar entry in their sidebar; everyone else gets a calmer
+          inventory page focused on general kitchen / shop / pantry stock. */}
 
       {/* Financial overview — auto-calculated from buy/sell prices */}
       {stats.itemsWithMargin >= 10 ? (

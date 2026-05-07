@@ -160,6 +160,7 @@ const BranchPage = lazyRetry(() => import("./pages/BranchPage"));
 const TerminalsPage = lazyRetry(() => import("./pages/TerminalsPage"));
 const ModulesPage = lazyRetry(() => import("./pages/ModulesPage"));
 const ConsolidatedClosePage = lazyRetry(() => import("./pages/ConsolidatedClosePage"));
+const BarPage = lazyRetry(() => import("./pages/BarPage"));
 const MultiTerminalClosePage = lazyRetry(() => import("./pages/MultiTerminalClosePage"));
 const ShareRecipientsPage = lazyRetry(() => import("./pages/ShareRecipientsPage"));
 const DailyClosePage = lazyRetry(() => import("./pages/DailyClosePage"));
@@ -277,6 +278,7 @@ function AppRoutes() {
           <Route path="/daily-close" element={<DailyClosePage />} />
           <Route path="/workshop" element={<WorkshopPage />} />
           <Route path="/wine-list" element={<WineListPage />} />
+          <Route path="/bar" element={<BarPage />} />
           <Route path="/workshop/job/:id" element={<JobCardPage />} />
           <Route path="/workshop/new-job" element={<NewJobPage />} />
           <Route path="/recently-deleted" element={<RecentlyDeletedPage />} />

@@ -1099,6 +1099,18 @@ export const th = {
   teamCapHitTitle: "{cap} ที่นั่งในแพลนของคุณ",
   teamCapHitBody: "อัปเกรด Pro เพื่อ 5 ที่นั่ง หรือ Business เพื่อไม่จำกัด",
   seePlans: "ดูแพลน →",
+  bar: "บาร์",
+  barPageTitle: "บาร์ — รินขาย",
+  barPageSubtitle: "รายการที่ติดตาม pour-cost — สุรา เบียร์ ไวน์เป็นแก้ว มิกเซอร์ แตะเพื่อริน แตะ + เพื่อเติมสต็อกตามขวด",
+  barManageInInventory: "แก้ไข / เพิ่มขวดในสต็อก →",
+  barEmptyTitle: "ยังไม่มีรายการบาร์",
+  barEmptyHelp: "เพิ่มขวดในสต็อกพร้อมขนาดขวด + ขนาดริน (เช่น ขวด 750 มล. รินที่ 30 มล.) จะปรากฏที่นี่เป็นกระเบื้อง tap-to-pour",
+  barEmptyCta: "เพิ่มขวดในสต็อก",
+  barLoadFailed: "โหลดรายการบาร์ไม่ได้",
+  barUnstockedTitle: "อยู่ในรายการบาร์ ยังไม่ได้เติมสต็อก",
+  barEmptyBottle: "ไม่มีสต็อก",
+  stockedItems: "มีสต็อก",
+  perBottle: "ต่อขวด",
 };
 
 

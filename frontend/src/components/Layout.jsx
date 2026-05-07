@@ -52,8 +52,16 @@ const navGroups = [
     icon: "📦",
     visibleFor: null,
     items: [
+      // Inventory always visible — it's the general kitchen / shop / pantry stock.
       { to: "/inventory", icon: "📦", labelKey: "inventory" },
-      { to: "/wine-list", icon: "🍷", labelKey: "wineList", visibleFor: ["restaurant", "general"] },
+      // Bar Pour — extracted from inventory in this commit. Gated on the
+      // bar_pour vertical module so non-bar businesses (takeaways, retail,
+      // workshops) never see it cluttering their nav.
+      { to: "/bar", icon: "🍸", labelKey: "bar", requiresModule: "bar_pour" },
+      // Wine list — gated on wine_sommelier module instead of business_type
+      // so a Pro restaurant that doesn't sell wine can hide it, and a wine
+      // bar (technically business_type=restaurant) gets it without fuss.
+      { to: "/wine-list", icon: "🍷", labelKey: "wineList", requiresModule: "wine_sommelier" },
       { to: "/expiry", icon: "⏰", labelKey: "expiryForecasting", visibleFor: ["restaurant", "retail", "general"] },
       { to: "/waste", icon: "🗑️", labelKey: "wasteTracker", visibleFor: ["restaurant", "retail", "general"] },
     ],
@@ -101,9 +109,14 @@ const navGroups = [
     id: "workshop",
     labelKey: "navWorkshop",
     icon: "🔧",
+    // Show the group when EITHER the branch is workshop-typed OR the
+    // owner has explicitly enabled the workshop module via /modules.
+    // The latter lets a multi-business owner with one workshop branch
+    // see the group regardless of which branch they're viewing.
     visibleFor: ["workshop"],
+    requiresAnyModule: ["workshop"],
     items: [
-      { to: "/workshop", icon: "🔧", labelKey: "workshop" },
+      { to: "/workshop", icon: "🔧", labelKey: "workshop", requiresModule: "workshop" },
     ],
   },
   {
@@ -136,28 +149,51 @@ const navGroups = [
   },
 ];
 
-/** Filter nav groups based on active branch business_type.
- *  branchType=null means "All Branches" → show everything the user has access to.
- *  businessTypes = all unique types across user's branches.
+/** Filter nav groups based on active branch business_type AND the owner's
+ *  enabled vertical modules.
+ *
+ *  Two-layer filter:
+ *    1. business_type (existing) — branch-scoped relevance ("workshop only
+ *       shows for workshop branches")
+ *    2. enabled module (new) — owner explicitly opted into this vertical
+ *       via /modules. Gates Bar / Wine / Workshop / Staff Payroll so
+ *       non-bar / non-wine / non-workshop businesses get a calm sidebar.
+ *
+ *  An item is shown iff:
+ *    • visibleFor is null OR matches active business types, AND
+ *    • requiresModule is null OR is in enabledModules
+ *
+ *  Default state for a new owner = no modules enabled = clean sidebar
+ *  with just core + general inventory. The /modules picker is the
+ *  single explicit place to opt in.
  */
-function filterNavGroups(groups, branchType, businessTypes) {
-  // "All branches" or no branches at all → show everything
-  if (!branchType && businessTypes.length <= 1) return groups;
-
-  // Determine which types to check against
+function filterNavGroups(groups, branchType, businessTypes, enabledModules) {
   const activeTypes = branchType ? [branchType] : businessTypes;
+  const enabled = enabledModules instanceof Set ? enabledModules : new Set();
+
+  // Helper — does this nav element pass both filters?
+  const passesType = (vf) => {
+    if (!vf) return true;
+    // No active branch context → don't gate by type (e.g. fresh signup
+    // with no branches yet). The module gate still applies.
+    if (!activeTypes || activeTypes.length === 0) return true;
+    return vf.some((t) => activeTypes.includes(t));
+  };
+  const passesModule = (req, reqAny) => {
+    if (!req && !reqAny) return true;
+    if (req && !enabled.has(req)) return false;
+    if (reqAny && !reqAny.some((m) => enabled.has(m))) return false;
+    return true;
+  };
 
   return groups
-    .filter((g) => {
-      if (!g.visibleFor) return true; // always visible
-      return g.visibleFor.some((t) => activeTypes.includes(t));
-    })
+    .filter((g) => passesType(g.visibleFor) && passesModule(g.requiresModule, g.requiresAnyModule))
     .map((g) => {
-      // Also filter individual items within a group
-      const filteredItems = g.items.filter((item) => {
-        if (!item.visibleFor) return true;
-        return item.visibleFor.some((t) => activeTypes.includes(t));
-      });
+      const filteredItems = g.items.filter(
+        (item) =>
+          passesType(item.visibleFor) &&
+          passesModule(item.requiresModule, item.requiresAnyModule),
+      );
       return filteredItems.length > 0 ? { ...g, items: filteredItems } : null;
     })
     .filter(Boolean);
@@ -184,8 +220,31 @@ export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mode, setMode] = useState(localStorage.getItem("bonbox_mode") || "business");
 
-  // Filter sidebar groups based on active branch business type
-  const baseVisible = filterNavGroups(navGroups, branchType, businessTypes);
+  // Owner's enabled vertical modules — drives sidebar gating for Bar,
+  // Wine, Workshop, etc. Empty Set on first render = strict default
+  // (only core + general inventory visible). Once /api/modules resolves,
+  // the sidebar re-renders with whatever the owner has opted into.
+  const [enabledModules, setEnabledModules] = useState(() => new Set());
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    // Lazy import to avoid pulling axios into the layout chunk on first paint
+    import("../services/api").then(({ default: api }) => {
+      api.get("/modules")
+        .then((res) => {
+          if (cancelled) return;
+          const enabledIds = (res.data?.modules || [])
+            .filter((m) => m.enabled)
+            .map((m) => m.id);
+          setEnabledModules(new Set(enabledIds));
+        })
+        .catch(() => { /* silent — sidebar stays in strict default */ });
+    });
+    return () => { cancelled = true; };
+  }, [user]);
+
+  // Filter sidebar groups by both business_type (branch) and enabled modules
+  const baseVisible = filterNavGroups(navGroups, branchType, businessTypes, enabledModules);
   // For super_admin owners, show an extra "Platform" group with the admin
   // dashboard. Frontend gating is cosmetic — real enforcement is server-side
   // (services/admin_security.py). A non-admin clicking this link sees an empty
