@@ -7,6 +7,7 @@ from sqlalchemy import Date, DateTime, Numeric, String, Text, Boolean, ForeignKe
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base, GUID
+from app.utils.time import utc_now
 
 
 class DailyClose(Base):
@@ -67,8 +68,8 @@ class DailyClose(Base):
     # Soft delete
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 
 
 def encode_breakdown(data: dict | None) -> str | None:

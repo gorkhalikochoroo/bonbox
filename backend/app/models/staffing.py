@@ -5,6 +5,7 @@ from sqlalchemy import String, Date, DateTime, Numeric, Integer, Text, ForeignKe
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
+from app.utils.time import utc_now
 
 
 class StaffingRule(Base):
@@ -17,7 +18,7 @@ class StaffingRule(Base):
     revenue_min: Mapped[float] = mapped_column(Numeric(12, 2))  # lower bound
     revenue_max: Mapped[float] = mapped_column(Numeric(12, 2))  # upper bound
     recommended_staff: Mapped[int] = mapped_column(Integer)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     user: Mapped["User"] = relationship()
 
@@ -36,4 +37,4 @@ class DailyStaffing(Base):
     total_hours: Mapped[float | None] = mapped_column(Numeric(6, 1), nullable=True)
     labor_cost: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

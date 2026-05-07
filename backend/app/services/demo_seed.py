@@ -43,6 +43,7 @@ from app.models.daily_close import DailyClose, encode_breakdown
 from app.models.expense import Expense, ExpenseCategory
 from app.models.inventory import InventoryItem
 from app.models.user import User
+from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -252,7 +253,7 @@ def _seed_business_profile(db: Session, user: User) -> None:
     profile.source = "cvrapi.dk"
     profile.founded = "2018-03-12"
     # Verification stamps — make the green "Verified" banner appear
-    profile.cvr_verified_at = datetime.utcnow() - timedelta(days=2)
+    profile.cvr_verified_at = utc_now() - timedelta(days=2)
     profile.cvr_verified_source = "cvrapi.dk"
     profile.dawa_address_id = "0a3f50ad-2b4f-32b8-e044-0003ba298018"
     profile.vat_registered = True
@@ -402,10 +403,10 @@ def seed_demo_account(db: Session) -> dict:
     # Refresh trial only when it's missing or about to expire.
     needs_trial_refresh = (
         user.trial_ends_at is None
-        or user.trial_ends_at < datetime.utcnow() + timedelta(days=7)
+        or user.trial_ends_at < utc_now() + timedelta(days=7)
     )
     if needs_trial_refresh:
-        user.trial_ends_at = datetime.utcnow() + timedelta(days=14)
+        user.trial_ends_at = utc_now() + timedelta(days=14)
         plan_dirty = True
     if plan_dirty:
         db.commit()

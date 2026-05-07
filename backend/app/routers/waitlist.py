@@ -16,6 +16,7 @@ from app.database import get_db
 from app.models.user import User
 from app.models.waitlist import WaitlistEntry
 from app.services.auth import get_current_user
+from app.utils.time import utc_now
 
 router = APIRouter()
 
@@ -105,7 +106,7 @@ def join_waitlist(
     user = _try_get_user(request, db)
 
     # Dedup: same (email, tier) within 30 days = treat as already-joined
-    cutoff = datetime.utcnow() - timedelta(days=30)
+    cutoff = utc_now() - timedelta(days=30)
     existing = (
         db.query(WaitlistEntry)
         .filter(

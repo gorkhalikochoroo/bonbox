@@ -64,6 +64,7 @@ from app.models import (
     User,
 )
 from app.services.billing import effective_plan
+from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -551,7 +552,7 @@ def run_daily_scan(user: User, db: Session) -> list[AnomalyAlert]:
                 severity="low",
                 title="(scan completed — no anomalies)",
                 detail="Internal marker; not shown to user.",
-                dismissed_at=datetime.utcnow(),
+                dismissed_at=utc_now(),
                 dismissed_reason="auto",
             )
             db.add(marker)
@@ -600,7 +601,7 @@ def dismiss_alert(alert_id: str, user: User, db: Session, reason: str | None = N
     if not row:
         return False
     if row.dismissed_at is None:
-        row.dismissed_at = datetime.utcnow()
+        row.dismissed_at = utc_now()
         # Coerce reason to allowed bucket
         allowed = {"not_anomalous", "fixed", "snoozed", "ignore", "auto"}
         row.dismissed_reason = reason if reason in allowed else "ignore"

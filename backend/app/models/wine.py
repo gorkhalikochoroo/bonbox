@@ -9,6 +9,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base, GUID
+from app.utils.time import utc_now
 
 
 WINE_TYPES = ("red", "white", "rosé", "sparkling", "natural", "dessert", "orange")
@@ -49,9 +50,9 @@ class Wine(Base):
     # ── Meta ─────────────────────────────────────────────────
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow,
+        DateTime, default=utc_now, onupdate=utc_now,
     )
 
 
@@ -71,5 +72,5 @@ class WineSale(Base):
     # preserves legacy behaviour for any pre-existing rows.
     unit_type: Mapped[str] = mapped_column(String(10), default="bottle")
     sale_price: Mapped[float] = mapped_column(Numeric(12, 2))
-    sold_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    sold_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

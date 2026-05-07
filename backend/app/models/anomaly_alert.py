@@ -21,6 +21,7 @@ from sqlalchemy import Date, DateTime, String, Text, ForeignKey, Index, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base, GUID
+from app.utils.time import utc_now
 
 
 # Allowed values — checked at write time. Frontend ships a matching enum
@@ -66,4 +67,4 @@ class AnomalyAlert(Base):
     dismissed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Reason categories: "not_anomalous", "fixed", "snoozed", "ignore".
     dismissed_reason: Mapped[str | None] = mapped_column(String(40), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

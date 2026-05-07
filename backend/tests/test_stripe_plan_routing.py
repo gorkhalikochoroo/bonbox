@@ -23,6 +23,7 @@ from unittest.mock import patch
 import pytest
 
 from app.config import settings
+from app.utils.time import utc_now
 
 
 def _stub_user(plan: str = "free", subscription_status: str | None = None,
@@ -31,7 +32,7 @@ def _stub_user(plan: str = "free", subscription_status: str | None = None,
     Default: free user with active 14-day trial — matches the real
     onboarding state, so tests reflect actual signup behavior."""
     if trial_ends_at is None:
-        trial_ends_at = datetime.utcnow() + timedelta(days=14)
+        trial_ends_at = utc_now() + timedelta(days=14)
     return SimpleNamespace(
         id="u1",
         email="t@t.t",

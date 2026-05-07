@@ -5,6 +5,7 @@ from sqlalchemy import String, DateTime, ForeignKey, Text, Integer, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
+from app.utils.time import utc_now
 
 
 class BusinessProfile(Base):
@@ -69,5 +70,5 @@ class BusinessProfile(Base):
     # split.
     status_flags: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)

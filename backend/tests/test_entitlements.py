@@ -44,6 +44,7 @@ from app.services.billing import (
     min_plan_for_cap,
     min_plan_for_feature,
 )
+from app.utils.time import utc_now
 
 
 def _u(plan: str | None = None, trial_days: int | None = None) -> User:
@@ -58,7 +59,7 @@ def _u(plan: str | None = None, trial_days: int | None = None) -> User:
         plan=plan or "free",
     )
     if trial_days is not None:
-        u.trial_ends_at = datetime.utcnow() + timedelta(days=trial_days)
+        u.trial_ends_at = utc_now() + timedelta(days=trial_days)
     return u
 
 

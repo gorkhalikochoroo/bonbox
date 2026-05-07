@@ -10,6 +10,7 @@ from app.models.user import User
 from app.models.cashbook import CashTransaction
 from app.schemas.cashbook import CashTransactionCreate, CashTransactionUpdate, CashTransactionResponse
 from app.services.auth import get_current_user
+from app.utils.time import utc_now
 
 router = APIRouter()
 
@@ -171,5 +172,5 @@ def delete_transaction(
         db.delete(txn)
     else:
         txn.is_deleted = True
-        txn.deleted_at = datetime.utcnow()
+        txn.deleted_at = utc_now()
     db.commit()

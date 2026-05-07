@@ -21,6 +21,7 @@ from app.schemas.output_channel import (
     OutputChannelUpdate,
 )
 from app.services.auth import get_current_user
+from app.utils.time import utc_now
 
 logger = logging.getLogger("bonbox.output_channel_router")
 router = APIRouter()
@@ -135,7 +136,7 @@ def update_channel(
 
     for k, v in updates.items():
         setattr(chan, k, v)
-    chan.updated_at = datetime.utcnow()
+    chan.updated_at = utc_now()
     db.commit()
     db.refresh(chan)
     return chan
@@ -160,6 +161,6 @@ def delete_channel(
         raise HTTPException(status_code=404, detail="Channel not found")
     chan.is_deleted = True
     chan.is_active = False
-    chan.updated_at = datetime.utcnow()
+    chan.updated_at = utc_now()
     db.commit()
     return

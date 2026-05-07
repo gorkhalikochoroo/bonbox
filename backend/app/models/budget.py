@@ -5,6 +5,7 @@ from sqlalchemy import String, DateTime, Numeric, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
+from app.utils.time import utc_now
 
 
 class Budget(Base):
@@ -18,7 +19,7 @@ class Budget(Base):
     month: Mapped[str] = mapped_column(String(7))  # "2026-03"
     category: Mapped[str] = mapped_column(String(100))  # category name or "__TOTAL__"
     limit_amount: Mapped[float] = mapped_column(Numeric(12, 2))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 
     user: Mapped["User"] = relationship()

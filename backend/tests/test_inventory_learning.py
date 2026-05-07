@@ -31,6 +31,7 @@ from app.services.inventory_learning import (
     promote_corrections,
     prune_stale_examples,
 )
+from app.utils.time import utc_now
 
 
 @pytest.fixture
@@ -291,7 +292,7 @@ def test_prune_drops_stale_examples(db, lars, fake_import):
     )
     # Backdate the example so prune treats it as stale.
     row = db.query(InventoryImportExample).filter_by(user_id=lars.id).first()
-    row.updated_at = datetime.utcnow() - timedelta(days=200)
+    row.updated_at = utc_now() - timedelta(days=200)
     db.commit()
 
     deleted = prune_stale_examples(db, lars.id)
@@ -487,7 +488,7 @@ def test_prune_stale_does_not_evict_global_examples(db, lars, fake_import):
     )
     # Backdate it
     row = db.query(InventoryImportExample).first()
-    row.updated_at = datetime.utcnow() - timedelta(days=200)
+    row.updated_at = utc_now() - timedelta(days=200)
     db.commit()
 
     deleted = prune_stale_examples(db, lars.id)

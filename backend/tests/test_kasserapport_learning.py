@@ -22,6 +22,7 @@ from app.services.kasserapport_learning import (
     format_examples_as_prompt_block,
     should_promote,
 )
+from app.utils.time import utc_now
 
 
 # ─── should_promote — gate logic ───────────────────────────────────────
@@ -32,7 +33,7 @@ def _good_extraction() -> MagicMock:
     e.error = None
     e.manual_review_needed = False
     e.user_corrected = False
-    e.committed_at = datetime.utcnow()
+    e.committed_at = utc_now()
     e.extraction_confidence = 0.92
     e.final_json = {"revenue": {"total_incl_moms": 14854}}
     e.pos_system = "oasis"

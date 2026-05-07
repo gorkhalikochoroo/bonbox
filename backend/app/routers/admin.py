@@ -25,6 +25,7 @@ from app.models.triage_note import TriageNote
 from app.models.user import User
 from app.services.admin_security import require_super_admin
 from app.services.triage_service import run_triage, serialize_note
+from app.utils.time import utc_now
 
 router = APIRouter()
 
@@ -35,7 +36,7 @@ def admin_overview(
     db: Session = Depends(get_db),
 ):
     """Top-level platform KPIs."""
-    now = datetime.utcnow()
+    now = utc_now()
     day_ago = now - timedelta(days=1)
     week_ago = now - timedelta(days=7)
     month_ago = now - timedelta(days=30)
@@ -187,7 +188,7 @@ def admin_feature_usage(
     db: Session = Depends(get_db),
 ):
     """Most-used pages across all users in the last N days."""
-    since = datetime.utcnow() - timedelta(days=days)
+    since = utc_now() - timedelta(days=days)
     rows = (
         db.query(
             EventLog.page,
@@ -244,7 +245,7 @@ def admin_retention(
     users = db.query(User.id, User.created_at).all()
     cohorts = {"d1": 0, "d7": 0, "d30": 0}
     eligible = {"d1": 0, "d7": 0, "d30": 0}
-    now = datetime.utcnow()
+    now = utc_now()
     for uid, created in users:
         age = now - created
         for label, days in (("d1", 1), ("d7", 7), ("d30", 30)):
@@ -280,7 +281,7 @@ def admin_signups_timeline(
     db: Session = Depends(get_db),
 ):
     """Daily new signups for the past N days."""
-    since = datetime.utcnow() - timedelta(days=days)
+    since = utc_now() - timedelta(days=days)
     rows = (
         db.query(func.date(User.created_at), func.count(User.id))
         .filter(User.created_at >= since)
@@ -375,7 +376,7 @@ def admin_spam_candidates(
     Read-only — does NOT delete. The admin UI calls this first to show what
     WOULD be deleted, then the user clicks confirm to call /cleanup-spam.
     """
-    cutoff = datetime.utcnow() - timedelta(days=min_age_days)
+    cutoff = utc_now() - timedelta(days=min_age_days)
     users = (
         db.query(User)
         .filter(
@@ -397,7 +398,7 @@ def admin_spam_candidates(
                 "email": u.email,
                 "business_name": u.business_name,
                 "created_at": u.created_at.isoformat(),
-                "age_days": (datetime.utcnow() - u.created_at).days,
+                "age_days": (utc_now() - u.created_at).days,
             })
     return {
         "count": len(candidates),
@@ -426,7 +427,7 @@ def admin_cleanup_spam(
     if not confirm:
         return {"deleted": 0, "skipped": "confirm=true required to actually delete"}
 
-    cutoff = datetime.utcnow() - timedelta(days=min_age_days)
+    cutoff = utc_now() - timedelta(days=min_age_days)
     users = (
         db.query(User)
         .filter(
@@ -556,7 +557,7 @@ def admin_training_drift(
             "pos_system": pos,
             "signal": signal,  # None means healthy / not enough data
         })
-    return {"systems": out, "checked_at": datetime.utcnow().isoformat()}
+    return {"systems": out, "checked_at": utc_now().isoformat()}
 
 
 @router.get("/training/recent-examples")
@@ -614,7 +615,7 @@ def admin_training_extraction_stats(
     from sqlalchemy import case
     from app.models.kasserapport import KasserapportExtraction
 
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = utc_now() - timedelta(days=days)
     rows = (
         db.query(
             KasserapportExtraction.pos_system,

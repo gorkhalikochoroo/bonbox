@@ -86,6 +86,7 @@ from app.services.notification_service import (
     ShiftChange,
 )
 from app.database import SessionLocal
+from app.utils.time import utc_now
 
 router = APIRouter()
 
@@ -288,7 +289,7 @@ def deactivate_staff_member(
     if not member:
         raise HTTPException(status_code=404, detail="Staff member not found")
     member.active = False
-    member.updated_at = datetime.utcnow()
+    member.updated_at = utc_now()
     db.commit()
 
 
@@ -456,7 +457,7 @@ def upsert_pay_period_config(
     if config:
         config.period_type = data.period_type
         config.custom_start_day = data.custom_start_day
-        config.updated_at = datetime.utcnow()
+        config.updated_at = utc_now()
     else:
         config = PayPeriodConfig(
             id=uuid.uuid4(),
@@ -1936,7 +1937,7 @@ def generate_payroll_pdf(
     story.append(HRFlowable(width="100%", color=colors.grey))
     story.append(Spacer(1, 3 * mm))
     story.append(Paragraph(
-        f"Generated from BonBox on {datetime.utcnow().strftime('%d/%m/%Y %H:%M')}",
+        f"Generated from BonBox on {utc_now().strftime('%d/%m/%Y %H:%M')}",
         styles["Normal"],
     ))
 

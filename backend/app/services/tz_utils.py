@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from app.utils.time import utc_now
 
 
 def _user_zone(user) -> ZoneInfo:
@@ -51,6 +52,6 @@ def utc_window_for_local_day(user, d: date) -> tuple[datetime, datetime]:
 
 
 def utc_now() -> datetime:
-    """UTC now — naive (compatible with default datetime.utcnow() callsites
+    """UTC now — naive (compatible with default utc_now() callsites
     that this codebase already uses)."""
-    return datetime.utcnow()
+    return utc_now()

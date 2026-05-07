@@ -5,6 +5,7 @@ from sqlalchemy import String, Date, DateTime, Numeric, Text, Boolean, ForeignKe
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base, GUID
+from app.utils.time import utc_now
 
 
 class SickCall(Base):
@@ -16,7 +17,7 @@ class SickCall(Base):
     date: Mapped[date] = mapped_column(Date)
     weather_condition: Mapped[str | None] = mapped_column(String(50), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class DailyWeather(Base):
@@ -35,4 +36,4 @@ class DailyWeather(Base):
     wind_max_kmh: Mapped[float | None] = mapped_column(Numeric(5, 1), nullable=True)
     weather_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     condition: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

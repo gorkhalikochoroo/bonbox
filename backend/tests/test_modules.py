@@ -32,6 +32,7 @@ from app.services.modules import (
     serialize_enabled,
     set_enabled,
 )
+from app.utils.time import utc_now
 
 
 # ─── Fixtures ──────────────────────────────────────────────────────────
@@ -58,7 +59,7 @@ def _user(db, plan: str = "free", in_trial: bool = False) -> User:
         plan=plan,
     )
     if in_trial:
-        u.trial_ends_at = datetime.utcnow() + timedelta(days=7)
+        u.trial_ends_at = utc_now() + timedelta(days=7)
     db.add(u); db.commit(); db.refresh(u)
     return u
 

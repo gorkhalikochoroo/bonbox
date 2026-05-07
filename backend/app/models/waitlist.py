@@ -5,6 +5,7 @@ from sqlalchemy import String, DateTime, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base, GUID
+from app.utils.time import utc_now
 
 
 class WaitlistEntry(Base):
@@ -31,7 +32,7 @@ class WaitlistEntry(Base):
     tier: Mapped[str] = mapped_column(String(32))  # free | starter | pro | business
     source: Mapped[str | None] = mapped_column(String(64), nullable=True)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, index=True)
 
     __table_args__ = (
         Index("ix_waitlist_email_tier", "email", "tier"),

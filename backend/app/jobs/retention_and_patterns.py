@@ -23,6 +23,7 @@ from app.models.event_log import EventLog
 from app.models.owner_pattern import OwnerPattern
 from app.models.user import User
 from app.services.owner_patterns import run_for_user
+from app.utils.time import utc_now
 
 # Retain raw event_log rows for 180 days. After that, individual events are
 # purged but aggregated counts in owner_patterns persist. Adjust here, not
@@ -34,7 +35,7 @@ def purge_old_events() -> int:
     """Delete event_log rows older than EVENT_RETENTION_DAYS. Returns count."""
     db: Session = SessionLocal()
     try:
-        cutoff = datetime.utcnow() - timedelta(days=EVENT_RETENTION_DAYS)
+        cutoff = utc_now() - timedelta(days=EVENT_RETENTION_DAYS)
         n = (
             db.query(EventLog)
             .filter(EventLog.created_at < cutoff)
@@ -54,7 +55,7 @@ def expire_stale_patterns() -> int:
     """Mark active patterns whose valid_until has passed as 'expired'."""
     db: Session = SessionLocal()
     try:
-        now = datetime.utcnow()
+        now = utc_now()
         n = (
             db.query(OwnerPattern)
             .filter(
@@ -101,5 +102,5 @@ def daily_maintenance() -> dict:
         "events_purged": purge_old_events(),
         "patterns_expired": expire_stale_patterns(),
         **detect_patterns_for_all(),
-        "ran_at": datetime.utcnow().isoformat(),
+        "ran_at": utc_now().isoformat(),
     }

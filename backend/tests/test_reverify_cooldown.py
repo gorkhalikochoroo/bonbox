@@ -21,6 +21,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from app.routers.business_profile import _REVERIFY_COOLDOWN_SECONDS
+from app.utils.time import utc_now
 
 
 def test_cooldown_is_one_hour():
@@ -30,8 +31,8 @@ def test_cooldown_is_one_hour():
 
 def test_cooldown_calculation_with_30_minutes_elapsed():
     """30 min after last verify → 30 min remain."""
-    last_verify = datetime.utcnow() - timedelta(minutes=30)
-    elapsed = (datetime.utcnow() - last_verify).total_seconds()
+    last_verify = utc_now() - timedelta(minutes=30)
+    elapsed = (utc_now() - last_verify).total_seconds()
     remaining = _REVERIFY_COOLDOWN_SECONDS - elapsed
     # Some tolerance for execution time
     assert 1700 <= remaining <= 1800
@@ -39,15 +40,15 @@ def test_cooldown_calculation_with_30_minutes_elapsed():
 
 def test_cooldown_passed_after_61_minutes():
     """Just past the cooldown window — should allow re-verify."""
-    last_verify = datetime.utcnow() - timedelta(minutes=61)
-    elapsed = (datetime.utcnow() - last_verify).total_seconds()
+    last_verify = utc_now() - timedelta(minutes=61)
+    elapsed = (utc_now() - last_verify).total_seconds()
     assert elapsed >= _REVERIFY_COOLDOWN_SECONDS
 
 
 def test_cooldown_just_inside_window():
     """1 second short of the cooldown — should still be blocked."""
-    last_verify = datetime.utcnow() - timedelta(seconds=_REVERIFY_COOLDOWN_SECONDS - 1)
-    elapsed = (datetime.utcnow() - last_verify).total_seconds()
+    last_verify = utc_now() - timedelta(seconds=_REVERIFY_COOLDOWN_SECONDS - 1)
+    elapsed = (utc_now() - last_verify).total_seconds()
     assert elapsed < _REVERIFY_COOLDOWN_SECONDS
 
 

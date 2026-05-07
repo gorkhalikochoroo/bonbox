@@ -60,6 +60,7 @@ from app.config import settings
 from app.models.error_log import ErrorLog
 from app.models.triage_note import TriageNote
 from app.services.email_service import send_email
+from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -309,7 +310,7 @@ def run_triage(db: Session, *, window_minutes: int = 60, send_emails: bool = Tru
         window_minutes = 10
     if window_minutes > 7 * 24 * 60:
         window_minutes = 7 * 24 * 60
-    cutoff = datetime.utcnow() - timedelta(minutes=window_minutes)
+    cutoff = utc_now() - timedelta(minutes=window_minutes)
 
     rows = (
         db.query(ErrorLog)
@@ -330,7 +331,7 @@ def run_triage(db: Session, *, window_minutes: int = 60, send_emails: bool = Tru
     skipped = 0
     error_count = len(rows)
 
-    cooldown_cutoff = datetime.utcnow() - timedelta(hours=COOLDOWN_HOURS)
+    cooldown_cutoff = utc_now() - timedelta(hours=COOLDOWN_HOURS)
 
     for fp, occurrences in list(groups.items())[:MAX_TRIAGES_PER_RUN * 4]:
         if len(new_notes) >= MAX_TRIAGES_PER_RUN:
@@ -349,8 +350,8 @@ def run_triage(db: Session, *, window_minutes: int = 60, send_emails: bool = Tru
             # Bump counts on the existing row instead of creating a duplicate
             recent.occurrence_count = (recent.occurrence_count or 0) + len(occurrences)
             recent.latest_seen_at = max(
-                recent.latest_seen_at or datetime.utcnow(),
-                max((o.created_at for o in occurrences if o.created_at), default=datetime.utcnow()),
+                recent.latest_seen_at or utc_now(),
+                max((o.created_at for o in occurrences if o.created_at), default=utc_now()),
             )
             recent.affected_users = max(
                 recent.affected_users or 0,
@@ -393,8 +394,8 @@ def run_triage(db: Session, *, window_minutes: int = 60, send_emails: bool = Tru
             sample_error_id=sample.id,
             occurrence_count=len(occurrences),
             affected_users=affected_users,
-            first_seen_at=datetime.fromisoformat(summary["first_seen"]) if summary["first_seen"] else datetime.utcnow(),
-            latest_seen_at=datetime.fromisoformat(summary["latest_seen"]) if summary["latest_seen"] else datetime.utcnow(),
+            first_seen_at=datetime.fromisoformat(summary["first_seen"]) if summary["first_seen"] else utc_now(),
+            latest_seen_at=datetime.fromisoformat(summary["latest_seen"]) if summary["latest_seen"] else utc_now(),
             email_sent=False,
         )
         db.add(note)

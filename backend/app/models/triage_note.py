@@ -19,6 +19,7 @@ from sqlalchemy import String, DateTime, Text, Integer, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base, GUID
+from app.utils.time import utc_now
 
 
 class TriageNote(Base):
@@ -52,9 +53,9 @@ class TriageNote(Base):
     # Window stats — how many occurrences within the scan that produced this note
     occurrence_count: Mapped[int] = mapped_column(Integer, default=1)
     affected_users: Mapped[int] = mapped_column(Integer, default=0)
-    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    latest_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    latest_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     # Whether the admin email was sent (so we can verify in the panel)
     email_sent: Mapped[bool] = mapped_column(default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

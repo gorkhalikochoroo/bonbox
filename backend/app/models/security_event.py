@@ -5,6 +5,7 @@ from sqlalchemy import String, DateTime, Text, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base, GUID
+from app.utils.time import utc_now
 
 
 class SecurityEvent(Base):
@@ -33,7 +34,7 @@ class SecurityEvent(Base):
     user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, index=True
+        DateTime, default=utc_now, index=True
     )
 
     __table_args__ = (

@@ -68,6 +68,7 @@ from app.models import (
     User,
 )
 from app.services.billing import effective_plan, get_cap
+from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -459,7 +460,7 @@ def _greeting_for(user: User | None = None) -> str:
     to UTC if the user has no timezone set or the zone string is invalid
     (won't crash on bad data)."""
     tz_name = getattr(user, "timezone", None) if user is not None else None
-    now_utc = datetime.utcnow()
+    now_utc = utc_now()
     h = now_utc.hour
     if tz_name:
         try:
@@ -811,7 +812,7 @@ def get_or_create_brief(
         row.output_tokens = out_tok or None
         if force_refresh:
             row.refresh_count = (row.refresh_count or 0) + 1
-        row.updated_at = datetime.utcnow()
+        row.updated_at = utc_now()
 
     db.commit()
 

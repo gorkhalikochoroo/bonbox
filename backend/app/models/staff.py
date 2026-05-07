@@ -11,6 +11,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
+from app.utils.time import utc_now
 
 
 class StaffMember(Base):
@@ -38,9 +39,9 @@ class StaffMember(Base):
     tax_card_rate: Mapped[Optional[float]] = mapped_column(Numeric(5, 4), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=utc_now, onupdate=utc_now
     )
 
     schedules: Mapped[list["Schedule"]] = relationship(back_populates="staff_member")
@@ -58,9 +59,9 @@ class PayPeriodConfig(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"), unique=True)
     period_type: Mapped[str] = mapped_column(String(20), nullable=False)
     custom_start_day: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=utc_now, onupdate=utc_now
     )
 
 
@@ -77,7 +78,7 @@ class Schedule(Base):
     role_on_shift: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="draft")
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     staff_member: Mapped["StaffMember"] = relationship(back_populates="schedules")
 
@@ -98,7 +99,7 @@ class HoursLogged(Base):
     entry_method: Mapped[str] = mapped_column(String(20), default="quick")
     is_overtime: Mapped[bool] = mapped_column(Boolean, default=False)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     staff_member: Mapped["StaffMember"] = relationship(back_populates="hours_logged")
 
@@ -113,7 +114,7 @@ class Tip(Base):
     split_method: Mapped[str] = mapped_column(String(20), default="by_hours")
     confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     distributions: Mapped[list["TipDistribution"]] = relationship(
         back_populates="tip", cascade="all, delete-orphan"
@@ -145,7 +146,7 @@ class StaffLink(Base):
     token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     pin_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     last_accessed: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
@@ -162,4 +163,4 @@ class NotificationLog(Base):
     body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="sent")  # sent, failed
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

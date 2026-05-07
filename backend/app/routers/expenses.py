@@ -16,6 +16,7 @@ from app.schemas.expense import (
 )
 from app.services.auth import get_current_user
 from app.services.cash_sync import sync_cash_out_for_expense, delete_cash_entry_by_ref, update_cash_entry_for_ref
+from app.utils.time import utc_now
 
 router = APIRouter()
 
@@ -375,7 +376,7 @@ def delete_expense(
     if expense.payment_method == "cash" and not expense.is_personal:
         delete_cash_entry_by_ref(db, f"expense_{expense.id}", user.id)
     expense.is_deleted = True
-    expense.deleted_at = datetime.utcnow()
+    expense.deleted_at = utc_now()
     db.commit()
 
 

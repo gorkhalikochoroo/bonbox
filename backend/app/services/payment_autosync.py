@@ -20,6 +20,7 @@ from app.models.sale import Sale
 from app.models.expense import Expense, ExpenseCategory
 from app.services.payment_providers import fetch_transactions, PROVIDERS
 from app.services.cash_sync import sync_cash_in_for_sale, sync_cash_out_for_expense
+from app.utils.time import utc_now
 
 
 # How far back to look on each auto-sync (days)
@@ -151,7 +152,7 @@ async def _sync_one_connection(conn_id: uuid.UUID, provider: str, creds_json: st
         # Update last_synced_at and last_auto_imported
         conn = db.query(PaymentConnection).filter(PaymentConnection.id == conn_id).first()
         if conn:
-            conn.last_synced_at = datetime.utcnow()
+            conn.last_synced_at = utc_now()
             conn.last_auto_imported = imported
         db.commit()
         return imported, skipped
@@ -168,7 +169,7 @@ def run_auto_sync():
 
     Finds all active auto_sync connections and fetches their recent transactions.
     """
-    print(f"[Auto-sync] Starting payment auto-sync at {datetime.utcnow().isoformat()}")
+    print(f"[Auto-sync] Starting payment auto-sync at {utc_now().isoformat()}")
 
     db = SessionLocal()
     try:

@@ -32,6 +32,7 @@ from app.models.staff import (
 from app.models.business_profile import BusinessProfile
 
 import re
+from app.utils.time import utc_now
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -122,7 +123,7 @@ def _get_staff_from_token(token: str, db: Session):
         raise HTTPException(status_code=404, detail="Staff member not found")
 
     # Update last accessed
-    link.last_accessed = datetime.utcnow()
+    link.last_accessed = utc_now()
     db.commit()
 
     return link, member

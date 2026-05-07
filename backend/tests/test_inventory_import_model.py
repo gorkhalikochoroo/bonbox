@@ -25,6 +25,7 @@ from sqlalchemy.orm import sessionmaker
 from app.database import Base
 from app.models.inventory_import import InventoryImport
 from app.models.user import User
+from app.utils.time import utc_now
 
 
 @pytest.fixture
@@ -100,7 +101,7 @@ def test_inventory_import_records_all_pipeline_outputs(db, owner):
         timing_ms={"extract": 2400, "categorize": 800},
         prompt_version="inventory_extract_v1",
         status="committed",
-        committed_at=datetime.utcnow(),
+        committed_at=utc_now(),
     )
     db.add(imp); db.commit(); db.refresh(imp)
 

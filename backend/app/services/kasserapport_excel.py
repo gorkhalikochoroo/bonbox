@@ -48,6 +48,7 @@ import io
 import logging
 from datetime import datetime
 from typing import Any
+from app.utils.time import utc_now
 
 logger = logging.getLogger("bonbox.kasserapport_excel")
 
@@ -318,7 +319,7 @@ def _render_close_xlsx(
     ws.cell(row=row, column=1, value=(
         f"Opbevares i 5 år iht. Bogføringsloven §10  ·  "
         f"Genereret af BonBox  ·  bonbox.dk  ·  "
-        f"{datetime.utcnow().strftime('%d.%m.%Y %H:%M UTC')}"
+        f"{utc_now().strftime('%d.%m.%Y %H:%M UTC')}"
     )).font = font_footer
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
 
@@ -382,7 +383,7 @@ _DK_DAYS = ["Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søn
 
 def _danish_date_label(date_label: str) -> tuple[str, str]:
     if not date_label:
-        d = datetime.utcnow()
+        d = utc_now()
         return (d.strftime("%d.%m.%Y"), _DK_DAYS[d.weekday()])
     if "(" in date_label and ")" in date_label:
         date_part = date_label.split("(")[0].strip()

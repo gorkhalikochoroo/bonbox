@@ -5,6 +5,7 @@ from sqlalchemy import String, DateTime, Text, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
+from app.utils.time import utc_now
 
 
 class EventLog(Base):
@@ -15,6 +16,6 @@ class EventLog(Base):
     event: Mapped[str] = mapped_column(String(100))  # e.g. "page_view", "sale_logged", "receipt_scanned"
     page: Mapped[str | None] = mapped_column(String(50), nullable=True)  # e.g. "dashboard", "sales"
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)  # any extra context
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     user: Mapped["User"] = relationship()

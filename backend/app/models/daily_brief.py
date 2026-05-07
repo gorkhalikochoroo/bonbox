@@ -18,6 +18,7 @@ from sqlalchemy import Date, DateTime, String, Text, ForeignKey, UniqueConstrain
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base, GUID
+from app.utils.time import utc_now
 
 
 class DailyBrief(Base):
@@ -43,5 +44,5 @@ class DailyBrief(Base):
     # per-tier daily refresh cap (free=0, pro=5). Auto-generation on first
     # visit doesn't count — only explicit refresh calls do.
     refresh_count: Mapped[int] = mapped_column(default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)

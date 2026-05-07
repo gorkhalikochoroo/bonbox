@@ -11,6 +11,7 @@ from app.models.waste import WasteLog
 from app.models.expense import Expense, ExpenseCategory
 from app.schemas.waste import WasteLogCreate, WasteLogUpdate, WasteLogResponse, WasteSummary
 from app.services.auth import get_current_user
+from app.utils.time import utc_now
 
 
 def _get_or_create_waste_category(db: Session, user_id) -> ExpenseCategory:
@@ -170,7 +171,7 @@ def delete_waste(
     if not log:
         raise HTTPException(status_code=404, detail="Waste log not found")
     log.is_deleted = True
-    log.deleted_at = datetime.utcnow()
+    log.deleted_at = utc_now()
     # Remove synced expense
     _delete_expense_for_waste(db, log.id, user.id)
     db.commit()

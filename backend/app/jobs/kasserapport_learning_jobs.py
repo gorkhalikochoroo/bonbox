@@ -32,6 +32,7 @@ from app.services.kasserapport_learning import (
     compute_drift_signal,
     detect_correction_patterns,
 )
+from app.utils.time import utc_now
 
 logger = logging.getLogger("bonbox.kasserapport_jobs")
 
@@ -58,7 +59,7 @@ def daily_drift_sweep() -> dict:
     """
     db: Session = SessionLocal()
     summary = {
-        "ran_at": datetime.utcnow().isoformat(),
+        "ran_at": utc_now().isoformat(),
         "systems_checked": 0,
         "drifts_detected": 0,
         "alerts": [],
@@ -102,12 +103,12 @@ def weekly_pattern_sweep(*, lookback_days: int = 30) -> dict:
     """
     db: Session = SessionLocal()
     summary = {
-        "ran_at": datetime.utcnow().isoformat(),
+        "ran_at": utc_now().isoformat(),
         "users_swept": 0,
         "patterns_found": 0,
         "patterns": [],
     }
-    cutoff = datetime.utcnow() - timedelta(days=lookback_days)
+    cutoff = utc_now() - timedelta(days=lookback_days)
     try:
         # Find users who scanned at least once in the lookback window
         active_user_ids = (

@@ -24,6 +24,7 @@ from app.models.expense import Expense
 from app.models.owner_pattern import OwnerPattern
 from app.models.sale import Sale
 from app.models.user import User
+from app.utils.time import utc_now
 
 
 def _safe_avg(values: list[float]) -> float:
@@ -38,7 +39,7 @@ def build_owner_context(user: User, db: Session, max_patterns: int = 5) -> str:
     Output stays small — <2k chars in typical case. Designed to be skimmable
     by both humans (debugging) and Claude (context injection).
     """
-    now = datetime.utcnow()
+    now = utc_now()
     week_ago = now - timedelta(days=7)
     month_ago = now - timedelta(days=30)
 

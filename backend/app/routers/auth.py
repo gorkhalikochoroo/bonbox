@@ -37,6 +37,7 @@ from app.services.email_service import send_email
 from app.config import settings
 
 import logging
+from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +184,7 @@ def _welcome_email_html(name: str) -> str:
 
 def _admin_signup_email_html(email: str, business_name: str, business_type: str) -> str:
     from datetime import datetime
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    now = utc_now().strftime("%Y-%m-%d %H:%M UTC")
     return f"""\
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#ffffff">
   <div style="text-align:center;margin-bottom:20px">
@@ -299,7 +300,7 @@ def register(request: Request, response: Response, data: UserRegister, db: Sessi
         currency=data.currency,
         email_verified=False,
         verification_code=verification_code,
-        verification_code_expires=datetime.utcnow() + timedelta(minutes=30),
+        verification_code_expires=utc_now() + timedelta(minutes=30),
     )
     # Start the 14-day Pro trial — full features, no card required
     from app.services.billing import start_trial
@@ -448,7 +449,7 @@ def verify_email(
     if not current_user.verification_code:
         raise HTTPException(status_code=400, detail="No verification code found. Please request a new one.")
 
-    if current_user.verification_code_expires and current_user.verification_code_expires < datetime.utcnow():
+    if current_user.verification_code_expires and current_user.verification_code_expires < utc_now():
         raise HTTPException(status_code=400, detail="Verification code has expired. Please request a new one.")
 
     if current_user.verification_code != data.code:
@@ -487,7 +488,7 @@ def resend_verification(
 
     code = _generate_verification_code()
     current_user.verification_code = code
-    current_user.verification_code_expires = datetime.utcnow() + timedelta(minutes=30)
+    current_user.verification_code_expires = utc_now() + timedelta(minutes=30)
     db.commit()
 
     email_sent = send_email(
@@ -607,7 +608,7 @@ def forgot_password(request: Request, data: ForgotPasswordRequest, db: Session =
     # Generate a short 6-digit code instead of a long token
     code = f"{secrets.randbelow(900000) + 100000}"
     user.reset_token = code
-    user.reset_token_expires = datetime.utcnow() + timedelta(minutes=15)
+    user.reset_token_expires = utc_now() + timedelta(minutes=15)
     db.commit()
 
     email_sent = send_email(
@@ -656,7 +657,7 @@ def reset_password(request: Request, data: ResetPasswordRequest, db: Session = D
         (data.reset_token or "").encode("utf-8"),
     ):
         raise invalid
-    if user.reset_token_expires and user.reset_token_expires < datetime.utcnow():
+    if user.reset_token_expires and user.reset_token_expires < utc_now():
         raise invalid
 
     user.password_hash = hash_password(data.new_password)
@@ -720,7 +721,7 @@ def export_all_data(
     # --- Profile ---
     w.writerow(["BonBox Data Export"])
     w.writerow([f"User: {current_user.email}"])
-    w.writerow([f"Exported: {datetime.utcnow().isoformat()}"])
+    w.writerow([f"Exported: {utc_now().isoformat()}"])
     _write_csv_section(w, "Profile", [
         "id", "email", "business_name", "business_type", "currency",
         "daily_goal", "monthly_goal", "role", "created_at",
@@ -882,7 +883,7 @@ def export_all_data(
     return StreamingResponse(
         iter([buf.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=bonbox_export_{current_user.email}_{datetime.utcnow().strftime('%Y%m%d')}.csv"},
+        headers={"Content-Disposition": f"attachment; filename=bonbox_export_{current_user.email}_{utc_now().strftime('%Y%m%d')}.csv"},
     )
 
 

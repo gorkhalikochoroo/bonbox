@@ -7,6 +7,7 @@ from sqlalchemy import String, DateTime, Date, Numeric, Text, ForeignKey, Float
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
+from app.utils.time import utc_now
 
 
 class Competitor(Base):
@@ -25,7 +26,7 @@ class Competitor(Base):
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     photo_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)  # Google photo reference
     total_ratings: Mapped[int | None] = mapped_column(nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     user: Mapped["User"] = relationship()
     price_checks: Mapped[list["CompetitorPrice"]] = relationship(back_populates="competitor", cascade="all, delete-orphan")
@@ -41,6 +42,6 @@ class CompetitorPrice(Base):
     our_price: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     date_checked: Mapped[date] = mapped_column(Date)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     competitor: Mapped["Competitor"] = relationship(back_populates="price_checks")

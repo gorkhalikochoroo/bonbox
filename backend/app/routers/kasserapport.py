@@ -38,6 +38,7 @@ from app.services.kasserapport_learning import (
     auto_promote_to_examples,
     fetch_few_shot_examples,
 )
+from app.utils.time import utc_now
 
 logger = logging.getLogger("bonbox.kasserapport_router")
 
@@ -153,7 +154,7 @@ async def extract(
     # accidental retry from doubling cost.
     img_hash = image_sha256(body)
     from datetime import timedelta as _td
-    recent_cutoff = datetime.utcnow() - _td(minutes=30)
+    recent_cutoff = utc_now() - _td(minutes=30)
     cached = (
         db.query(KasserapportExtraction)
         .filter(
@@ -390,7 +391,7 @@ def commit_corrections(
     extracted = row.extracted_json or {}
     row.user_corrected = (extracted != final_json)
     row.final_json = final_json
-    row.committed_at = datetime.utcnow()
+    row.committed_at = utc_now()
     db.commit()
 
     # Auto-promote to examples library if the extraction was clean.

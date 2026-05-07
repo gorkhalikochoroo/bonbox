@@ -43,6 +43,7 @@ from app.services.daily_close_range_export import (
     build_daily_close_range_pdf,
     closes_to_csv_bytes,
 )
+from app.utils.time import utc_now
 
 router = APIRouter()
 
@@ -257,7 +258,7 @@ def create_daily_close(
         if data.receipt_photo:
             existing.receipt_photo = data.receipt_photo
         if status == "confirmed":
-            existing.closed_at = datetime.utcnow()
+            existing.closed_at = utc_now()
             # Clear unlock audit when re-confirming
             existing.unlock_reason = None
             existing.unlocked_by = None
@@ -287,7 +288,7 @@ def create_daily_close(
         status=status,
         notes=data.notes,
         closed_by=data.closed_by,
-        closed_at=datetime.utcnow() if status == "confirmed" else None,
+        closed_at=utc_now() if status == "confirmed" else None,
         receipt_photo=data.receipt_photo,
     )
     db.add(dc)
@@ -324,7 +325,7 @@ def unlock_daily_close(
     dc.status = "draft"
     dc.unlock_reason = data.reason.strip()
     dc.unlocked_by = user.email or str(user.id)
-    dc.unlocked_at = datetime.utcnow()
+    dc.unlocked_at = utc_now()
     db.commit()
     db.refresh(dc)
     return _to_response(dc)
@@ -1385,5 +1386,5 @@ def delete_daily_close(
     if not dc:
         raise HTTPException(status_code=404, detail="Daily close not found")
     dc.is_deleted = True
-    dc.deleted_at = datetime.utcnow()
+    dc.deleted_at = utc_now()
     db.commit()

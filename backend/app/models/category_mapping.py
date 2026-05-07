@@ -5,6 +5,7 @@ from sqlalchemy import String, DateTime, Integer, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base, GUID
+from app.utils.time import utc_now
 
 
 class CategoryMapping(Base):
@@ -15,4 +16,4 @@ class CategoryMapping(Base):
     keyword: Mapped[str] = mapped_column(String(100))  # lowercase
     category_name: Mapped[str] = mapped_column(String(100))  # category name (not ID, for portability)
     usage_count: Mapped[int] = mapped_column(Integer, default=1)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

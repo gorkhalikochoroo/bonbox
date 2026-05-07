@@ -115,6 +115,7 @@ async def search_business(
 # free-tier quota, not about protecting "secret" data.
 
 import re
+from app.utils.time import utc_now
 
 _DOMAIN_RE = re.compile(r"^[a-z0-9.-]+\.[a-z]{2,}$", re.IGNORECASE)
 
@@ -273,7 +274,7 @@ async def reverify_profile(
     # for never-verified profiles (cvr_verified_at is NULL → first
     # verification proceeds immediately).
     if profile.cvr_verified_at:
-        elapsed = (datetime.utcnow() - profile.cvr_verified_at).total_seconds()
+        elapsed = (utc_now() - profile.cvr_verified_at).total_seconds()
         if elapsed < _REVERIFY_COOLDOWN_SECONDS:
             wait_seconds = int(_REVERIFY_COOLDOWN_SECONDS - elapsed)
             wait_minutes = max(1, wait_seconds // 60)
@@ -335,7 +336,7 @@ async def reverify_profile(
 
     # Always bump the verified-at timestamp + source — even if nothing
     # changed, the "fresh check" itself is valuable info for the UI.
-    profile.cvr_verified_at = datetime.utcnow()
+    profile.cvr_verified_at = utc_now()
     profile.cvr_verified_source = fresh.get("source", "cvrapi.dk")
 
     db.commit()
@@ -401,7 +402,7 @@ def save_profile(
     # verified. Manual entries leave cvr_verified_at = NULL so the UI
     # shows the "Re-verify with CVR" prompt.
     if (data.source or "").lower() in ("cvrapi.dk", "virk.dk", "companies_house"):
-        profile.cvr_verified_at = datetime.utcnow()
+        profile.cvr_verified_at = utc_now()
         profile.cvr_verified_source = data.source
 
     # Also update user's business_name if company_name provided

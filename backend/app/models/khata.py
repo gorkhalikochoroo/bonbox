@@ -5,6 +5,7 @@ from sqlalchemy import String, Date, DateTime, Numeric, Text, Boolean, ForeignKe
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
+from app.utils.time import utc_now
 
 
 class KhataCustomer(Base):
@@ -15,7 +16,7 @@ class KhataCustomer(Base):
     name: Mapped[str] = mapped_column(String(200))
     phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
 
     user: Mapped["User"] = relationship()
@@ -32,7 +33,7 @@ class KhataTransaction(Base):
     purchase_amount: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     paid_amount: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     user: Mapped["User"] = relationship()
     customer: Mapped["KhataCustomer"] = relationship(back_populates="transactions")

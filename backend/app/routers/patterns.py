@@ -17,6 +17,7 @@ from app.models.owner_pattern import OwnerPattern
 from app.models.user import User
 from app.services.auth import get_current_user
 from app.services.owner_patterns import run_for_user
+from app.utils.time import utc_now
 
 router = APIRouter()
 
@@ -157,6 +158,6 @@ def feedback_pattern(
     """
     p = _get_owned(pattern_id, user, db)
     p.feedback = body.feedback
-    p.feedback_at = datetime.utcnow()
+    p.feedback_at = utc_now()
     db.commit()
     return {"ok": True, "feedback": body.feedback}

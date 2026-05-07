@@ -20,6 +20,7 @@ from fastapi import HTTPException
 from app.models.user import User
 from app.routers.daily_close import _MAX_RANGE_DAYS, _resolve_range
 from app.services.billing import PLAN_CAPS, get_cap
+from app.utils.time import utc_now
 
 
 # ─── Fixtures ─────────────────────────────────────────────────────────
@@ -33,7 +34,7 @@ def _user(plan="free", trial_active=False):
         plan=plan,
     )
     if trial_active:
-        u.trial_ends_at = datetime.utcnow() + timedelta(days=7)
+        u.trial_ends_at = utc_now() + timedelta(days=7)
     return u
 
 

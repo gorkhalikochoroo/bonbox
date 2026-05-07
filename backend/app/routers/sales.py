@@ -24,6 +24,7 @@ from app.schemas.sale import SaleCreate, SaleUpdate, SaleResponse, SaleReturnReq
 from app.services.auth import get_current_user
 from app.services.receipt_ocr import extract_amount_from_image, save_receipt_photo
 from app.services.cash_sync import sync_cash_in_for_sale, delete_cash_entry_by_ref, update_cash_entry_for_ref
+from app.utils.time import utc_now
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -188,7 +189,7 @@ def delete_sale(
     if sale.payment_method == "cash":
         delete_cash_entry_by_ref(db, f"sale_{sale.id}", user.id)
     sale.is_deleted = True
-    sale.deleted_at = datetime.utcnow()
+    sale.deleted_at = utc_now()
     db.commit()
 
 
@@ -269,7 +270,7 @@ def process_return(
     sale.return_reason = data.reason
     sale.return_action = data.action
     sale.return_amount = refund_amount
-    sale.returned_at = datetime.utcnow()
+    sale.returned_at = utc_now()
 
     # If the sale was linked to an inventory item and action is restock/exchange,
     # add the quantity back to inventory
@@ -770,5 +771,4 @@ def list_receipt_sales(
             "receipt_photo": photo,
         })
     return results
-
 

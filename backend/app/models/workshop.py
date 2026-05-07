@@ -12,6 +12,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
+from app.utils.time import utc_now
 
 
 class Vehicle(Base):
@@ -34,8 +35,8 @@ class Vehicle(Base):
     customer_type: Mapped[str] = mapped_column(String(20), default="individual")  # individual | company
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 
     job_cards: Mapped[list["JobCard"]] = relationship(back_populates="vehicle")
 
@@ -71,8 +72,8 @@ class JobCard(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 
     vehicle: Mapped["Vehicle"] = relationship(back_populates="job_cards")
     parts: Mapped[list["JobCardPart"]] = relationship(back_populates="job_card", cascade="all, delete-orphan")
@@ -91,7 +92,7 @@ class JobCardPart(Base):
     unit_cost: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     total_cost: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     is_from_stock: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     job_card: Mapped["JobCard"] = relationship(back_populates="parts")
 
@@ -106,6 +107,6 @@ class JobCardLabor(Base):
     hours: Mapped[float] = mapped_column(Numeric(6, 2), default=0)
     hourly_rate: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
     total_cost: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     job_card: Mapped["JobCard"] = relationship(back_populates="labor")

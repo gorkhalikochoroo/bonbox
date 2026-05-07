@@ -5,6 +5,7 @@ from sqlalchemy import String, Integer, DateTime, ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
+from app.utils.time import utc_now
 
 
 class Feedback(Base):
@@ -15,6 +16,6 @@ class Feedback(Base):
     rating: Mapped[int] = mapped_column(Integer)
     category: Mapped[str] = mapped_column(String(50))
     message: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     user: Mapped["User"] = relationship()

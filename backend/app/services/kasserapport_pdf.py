@@ -36,6 +36,7 @@ import io
 import logging
 from datetime import datetime
 from typing import Any
+from app.utils.time import utc_now
 
 logger = logging.getLogger("bonbox.kasserapport_pdf")
 
@@ -86,7 +87,7 @@ def _danish_date_label(date_label: str) -> tuple[str, str]:
     """Parse our ISO/DK date label and return (DD.MM.YYYY, Mandag).
     Falls back gracefully if the input is unparseable."""
     if not date_label:
-        d = datetime.utcnow()
+        d = utc_now()
         return (d.strftime("%d.%m.%Y"), _DK_DAYS[d.weekday()])
 
     # Already DK-formatted? "9.3.2026 (Mandag)" — extract both halves
@@ -175,7 +176,7 @@ def _render_close_pdf(
         canv.drawCentredString(
             doc.pagesize[0] / 2,
             12 * mm,
-            datetime.utcnow().strftime("%d.%m.%Y %H:%M UTC"),
+            utc_now().strftime("%d.%m.%Y %H:%M UTC"),
         )
         canv.restoreState()
 

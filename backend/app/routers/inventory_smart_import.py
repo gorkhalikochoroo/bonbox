@@ -78,6 +78,7 @@ from app.services.inventory_learning import (
 )
 from app.services.inventory_perishable import mark_perishable_if_needed
 from app.services.storage import compose_key, get_storage
+from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -130,7 +131,7 @@ class ImportDraftResponse(BaseModel):
 # ─── Helpers ───────────────────────────────────────────────────────────
 
 def _today_midnight() -> datetime:
-    return datetime.combine(datetime.utcnow().date(), dtime.min)
+    return datetime.combine(utc_now().date(), dtime.min)
 
 
 def _check_daily_quota(db: Session, user: User) -> None:
@@ -532,7 +533,7 @@ def commit_draft(
 
     try:
         created: list[InventoryItem] = []
-        today = datetime.utcnow().date()
+        today = utc_now().date()
         perishable_count = 0
         for entry in body.items:
             # Auto-fill is_perishable + expiry_date for known-perishable
@@ -561,7 +562,7 @@ def commit_draft(
             created.append(item)
 
         imp.status = "committed"
-        imp.committed_at = datetime.utcnow()
+        imp.committed_at = utc_now()
         imp.manual_review_needed = False
         db.commit()
     except Exception as e:  # noqa: BLE001

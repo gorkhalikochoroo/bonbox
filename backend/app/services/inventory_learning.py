@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session
 from app.models.inventory_import_example import (
     MAX_EXAMPLES_PER_USER, RETENTION_DAYS, InventoryImportExample,
 )
+from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +163,7 @@ def promote_corrections(
         existing = existing_q.first()
         if existing:
             existing.hit_count = (existing.hit_count or 1) + 1
-            existing.updated_at = datetime.utcnow()
+            existing.updated_at = utc_now()
             promoted += 1
             continue
 
@@ -253,7 +254,7 @@ def prune_stale_examples(db: Session, user_id) -> int:
     deleted = 0
 
     # Stale by age (per-user only — globals are intentional, not aged).
-    cutoff = datetime.utcnow() - timedelta(days=RETENTION_DAYS)
+    cutoff = utc_now() - timedelta(days=RETENTION_DAYS)
     stale = (
         db.query(InventoryImportExample)
         .filter(

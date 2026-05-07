@@ -27,6 +27,7 @@ from app.database import get_db
 from app.models.security_event import SecurityEvent
 from app.models.user import User
 from app.services.auth import get_current_user
+from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +141,7 @@ def require_super_admin(
         raise _DENIED
 
     # L6 — account must be at least 24 hours old
-    age = datetime.utcnow() - user.created_at
+    age = utc_now() - user.created_at
     if age < timedelta(hours=24):
         _audit(
             db,
@@ -158,7 +159,7 @@ def require_super_admin(
     threshold = int(getattr(settings, "ADMIN_LOCKOUT_THRESHOLD", 5))
     window_min = int(getattr(settings, "ADMIN_LOCKOUT_WINDOW_MIN", 10))
     cooldown_min = int(getattr(settings, "ADMIN_LOCKOUT_COOLDOWN_MIN", 15))
-    window_start = datetime.utcnow() - timedelta(minutes=window_min)
+    window_start = utc_now() - timedelta(minutes=window_min)
     recent_denials = (
         db.query(SecurityEvent)
         .filter(
@@ -180,7 +181,7 @@ def require_super_admin(
             .first()
         )
         if last_denial:
-            since_last = datetime.utcnow() - last_denial[0]
+            since_last = utc_now() - last_denial[0]
             if since_last < timedelta(minutes=cooldown_min):
                 _audit(
                     db,

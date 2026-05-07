@@ -18,6 +18,7 @@ from sqlalchemy import String, DateTime, Text, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base, GUID
+from app.utils.time import utc_now
 
 
 class OwnerPattern(Base):
@@ -42,7 +43,7 @@ class OwnerPattern(Base):
     detail: Mapped[str] = mapped_column(Text)
     suggested_action: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    detected_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    detected_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, index=True)
     # When this pattern's recommendation goes stale (e.g. a daily revenue
     # anomaly is irrelevant after 24h)
     valid_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

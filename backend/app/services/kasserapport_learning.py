@@ -65,6 +65,7 @@ from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
 from app.models.kasserapport import KasserapportExample, KasserapportExtraction
+from app.utils.time import utc_now
 
 logger = logging.getLogger("bonbox.kasserapport_learning")
 
@@ -340,7 +341,7 @@ def detect_correction_patterns(
     per-scan. Defensive — never raises, always returns a (possibly
     empty) list.
     """
-    cutoff = datetime.utcnow() - timedelta(days=lookback_days)
+    cutoff = utc_now() - timedelta(days=lookback_days)
     try:
         rows = (
             db.query(KasserapportExtraction)
@@ -499,8 +500,8 @@ def compute_drift_signal(
     signal dict the admin dashboard can surface. Returns None if no
     drift detected.
     """
-    cutoff_recent = datetime.utcnow() - timedelta(days=window_days)
-    cutoff_baseline = datetime.utcnow() - timedelta(days=window_days * 2)
+    cutoff_recent = utc_now() - timedelta(days=window_days)
+    cutoff_baseline = utc_now() - timedelta(days=window_days * 2)
     try:
         recent_avg = (
             db.query(func.avg(KasserapportExtraction.extraction_confidence))

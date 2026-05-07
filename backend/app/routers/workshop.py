@@ -36,6 +36,7 @@ from app.models.user import User
 from app.models.workshop import Vehicle, JobCard, JobCardPart, JobCardLabor
 from app.models.inventory import InventoryItem
 from app.services.auth import get_current_user
+from app.utils.time import utc_now
 
 router = APIRouter()
 
@@ -402,7 +403,7 @@ def delete_job(
     if not job:
         raise HTTPException(404, "Job card not found")
     job.is_deleted = True
-    job.deleted_at = datetime.utcnow()
+    job.deleted_at = utc_now()
     db.commit()
 
 

@@ -26,6 +26,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, Nume
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base, GUID
+from app.utils.time import utc_now
 
 
 class KasserapportExtraction(Base):
@@ -79,7 +80,7 @@ class KasserapportExtraction(Base):
     image_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     prompt_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, index=True)
     committed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     __table_args__ = (
@@ -114,7 +115,7 @@ class KasserapportExample(Base):
         GUID(), ForeignKey("kasserapport_extractions.id"), nullable=True
     )
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=utc_now, onupdate=utc_now
     )

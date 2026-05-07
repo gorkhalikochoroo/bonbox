@@ -29,6 +29,7 @@ from app.services.prediction import (
     get_sales_patterns,
     has_recent_activity,
 )
+from app.utils.time import utc_now
 
 
 @pytest.fixture
@@ -66,7 +67,7 @@ def _sale(db, owner, sale_date, amount=10000):
         payment_method="cash",
         status="completed",
         is_deleted=False,
-        created_at=datetime.utcnow(),
+        created_at=utc_now(),
     )
     db.add(s); db.commit()
     return s

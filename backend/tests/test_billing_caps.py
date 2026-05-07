@@ -26,6 +26,7 @@ from app.services.billing import (
     effective_plan,
     get_cap,
 )
+from app.utils.time import utc_now
 
 
 # ─── Fixtures: a User in each plan state ────────────────────────────────
@@ -43,7 +44,7 @@ def _user(plan: str | None = None, *, in_trial: bool = False) -> User:
     if plan is not None:
         u.plan = plan
     if in_trial:
-        u.trial_ends_at = datetime.utcnow() + timedelta(days=7)
+        u.trial_ends_at = utc_now() + timedelta(days=7)
     else:
         u.trial_ends_at = None
     return u
@@ -212,7 +213,7 @@ def test_effective_plan_paid_plan_beats_active_trial():
 
 def test_effective_plan_expired_trial_drops_to_free():
     u = _user("free")
-    u.trial_ends_at = datetime.utcnow() - timedelta(days=1)
+    u.trial_ends_at = utc_now() - timedelta(days=1)
     assert effective_plan(u) == "free"
 
 

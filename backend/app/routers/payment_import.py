@@ -30,6 +30,7 @@ from app.schemas.payment_import import (
 
 # Reuse categorization from expenses router
 from app.routers.expenses import suggest_category_for, learn_category
+from app.utils.time import utc_now
 
 router = APIRouter()
 
@@ -188,7 +189,7 @@ async def sync_transactions(
         transactions.append(PaymentTransaction(**txn))
 
     # Update last synced
-    conn.last_synced_at = datetime.utcnow()
+    conn.last_synced_at = utc_now()
     db.commit()
 
     return SyncResponse(

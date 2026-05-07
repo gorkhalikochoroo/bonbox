@@ -6,6 +6,7 @@ from sqlalchemy import String, DateTime, ForeignKey, Text, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base, GUID
+from app.utils.time import utc_now
 
 
 class PaymentConnection(Base):
@@ -24,4 +25,4 @@ class PaymentConnection(Base):
     auto_sync: Mapped[bool] = mapped_column(Boolean, default=True)  # auto-import daily
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_auto_imported: Mapped[int] = mapped_column(default=0)  # count from last auto-run
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

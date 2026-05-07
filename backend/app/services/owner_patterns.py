@@ -36,6 +36,7 @@ from app.models.owner_pattern import OwnerPattern
 from app.models.sale import Sale
 from app.models.user import User
 from app.services.tz_utils import today_local, week_start_local
+from app.utils.time import utc_now
 
 
 # ───────────────────────────── data classes ─────────────────────────────
@@ -73,7 +74,7 @@ def _z_score(value: float, sample: list[float]) -> float | None:
 def _days_since(dt: datetime | None) -> float | None:
     if not dt:
         return None
-    return (datetime.utcnow() - dt).total_seconds() / 86400
+    return (utc_now() - dt).total_seconds() / 86400
 
 
 # ───────────────────────────── detectors ─────────────────────────────
@@ -87,7 +88,7 @@ def detect_usage_routine(user: User, db: Session) -> list[DetectedPattern]:
     `ai_question_asked` events. If 5+ instances cluster within a 1-hour
     window on the same weekday, that's a habit worth surfacing.
     """
-    cutoff = datetime.utcnow() - timedelta(days=30)
+    cutoff = utc_now() - timedelta(days=30)
     rows = (
         db.query(EventLog.event, EventLog.created_at)
         .filter(
@@ -219,7 +220,7 @@ def detect_dormant_feature(user: User, db: Session) -> list[DetectedPattern]:
     last 14 days. Surfaces re-engagement opportunities — also flags whether
     the feature is structurally not useful for them (signal for product).
     """
-    now = datetime.utcnow()
+    now = utc_now()
     recent_cutoff = now - timedelta(days=14)
     history_cutoff = now - timedelta(days=60)
 
@@ -532,7 +533,7 @@ _MIN_DAYS_ACTIVE = 14
 
 def _has_enough_data(user: User, db: Session) -> bool:
     """User must have at least _MIN_DAYS_ACTIVE distinct days of events."""
-    cutoff = datetime.utcnow() - timedelta(days=90)
+    cutoff = utc_now() - timedelta(days=90)
     days = (
         db.query(func.count(func.distinct(func.date(EventLog.created_at))))
         .filter(EventLog.user_id == user.id, EventLog.created_at >= cutoff)
@@ -565,7 +566,7 @@ def run_for_user(user: User, db: Session) -> int:
             print(f"[owner_patterns] {fn.__name__} failed for user {user.id}: {e}")
 
     # Auto-expire stale active patterns first
-    now = datetime.utcnow()
+    now = utc_now()
     db.query(OwnerPattern).filter(
         OwnerPattern.user_id == user.id,
         OwnerPattern.state == "active",

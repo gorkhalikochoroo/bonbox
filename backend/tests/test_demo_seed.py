@@ -33,6 +33,7 @@ from app.services.demo_seed import (
     reset_demo_account,
     seed_demo_account,
 )
+from app.utils.time import utc_now
 
 
 @pytest.fixture
@@ -167,7 +168,7 @@ def test_seed_keeps_demo_user_on_free_plan(db, demo_user):
     assert demo_user.plan == "free"
     assert demo_user.trial_ends_at is not None
     # Trial should be ~14 days out
-    delta = demo_user.trial_ends_at - datetime.utcnow()
+    delta = demo_user.trial_ends_at - utc_now()
     assert 13 <= delta.total_seconds() / 86400 <= 14.5
 
 
@@ -176,7 +177,7 @@ def test_seed_does_not_refresh_trial_when_more_than_7_days_remain(db):
     chip naturally counts down day-by-day. Refresh only kicks in
     when trial would expire within 7 days."""
     from datetime import datetime, timedelta
-    pinned = datetime.utcnow() + timedelta(days=10)  # 10 days out
+    pinned = utc_now() + timedelta(days=10)  # 10 days out
     u = User(
         email=_DEMO_EMAIL,
         password_hash="x",
@@ -202,13 +203,13 @@ def test_seed_refreshes_trial_when_expiring_soon(db):
         business_name="X",
         currency="DKK",
         plan="free",
-        trial_ends_at=datetime.utcnow() + timedelta(days=3),  # near expiry
+        trial_ends_at=utc_now() + timedelta(days=3),  # near expiry
     )
     db.add(u); db.commit(); db.refresh(u)
     seed_demo_account(db)
     db.refresh(u)
     # Trial is now ~14 days out
-    delta = u.trial_ends_at - datetime.utcnow()
+    delta = u.trial_ends_at - utc_now()
     assert 13 <= delta.total_seconds() / 86400 <= 14.5
 
 

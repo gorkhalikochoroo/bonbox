@@ -6,6 +6,7 @@ from sqlalchemy import String, Boolean, Date, DateTime, Numeric, ForeignKey, Tex
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
+from app.utils.time import utc_now
 
 
 class InventoryItem(Base):
@@ -34,9 +35,9 @@ class InventoryItem(Base):
     pour_size: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)     # e.g. 30 ml per shot
     pour_unit: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)           # e.g. "ml", "cl"
     sell_price_per_pour: Mapped[Optional[float]] = mapped_column(Numeric(12, 2), nullable=True)  # price per glass/shot
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=utc_now, onupdate=utc_now
     )
 
     user: Mapped["User"] = relationship(back_populates="inventory_items")
@@ -52,7 +53,7 @@ class InventoryLog(Base):
     reason: Mapped[str] = mapped_column(String(50), default="adjustment")
     date: Mapped[date] = mapped_column(Date)
     batch_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     item: Mapped["InventoryItem"] = relationship(back_populates="logs")
 
@@ -68,4 +69,4 @@ class InventoryTemplate(Base):
     default_category: Mapped[str] = mapped_column(Text, default="General")
     is_perishable: Mapped[bool] = mapped_column(Boolean, default=False)
     default_reorder_level: Mapped[int] = mapped_column(default=5)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

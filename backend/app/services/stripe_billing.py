@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models.user import User
+from app.utils.time import utc_now
 
 log = logging.getLogger("bonbox.stripe")
 
@@ -286,7 +287,7 @@ def create_checkout_session(
             "for fair lock-in trial",
             user.id, user.trial_ends_at, TRIAL_DAYS,
         )
-        user.trial_ends_at = datetime.utcnow() + timedelta(days=TRIAL_DAYS)
+        user.trial_ends_at = utc_now() + timedelta(days=TRIAL_DAYS)
         db.commit()
         remaining = TRIAL_DAYS
     sub_data = {
@@ -342,7 +343,7 @@ def create_checkout_session(
         # submit-button context line so the customer sees commitment + first-charge
         # date in one beat.
         if remaining > 0:
-            first_charge = datetime.utcnow() + timedelta(days=int(remaining))
+            first_charge = utc_now() + timedelta(days=int(remaining))
             charge_date = f"{first_charge.day} {first_charge.strftime('%B %Y')}"
             if is_founding:
                 submit_msg = (
@@ -434,9 +435,9 @@ def sync_user_subscription_from_stripe(user: User, db: Session, force: bool = Fa
 
     if not force:
         last = _LAST_SYNC.get(str(user.id))
-        if last and (datetime.utcnow() - last).total_seconds() < _SYNC_COOLDOWN_SECONDS:
+        if last and (utc_now() - last).total_seconds() < _SYNC_COOLDOWN_SECONDS:
             return {"status": "skipped", "reason": "cooldown"}
-    _LAST_SYNC[str(user.id)] = datetime.utcnow()
+    _LAST_SYNC[str(user.id)] = utc_now()
 
     # L2: recover orphaned customer link if missing
     if not user.stripe_customer_id:

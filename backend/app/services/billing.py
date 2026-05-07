@@ -74,6 +74,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from app.models.user import User
+from app.utils.time import utc_now
 
 
 TRIAL_DAYS = 14
@@ -266,7 +267,7 @@ def effective_plan(user: User) -> str:
         # Treat as Pro so the user keeps top-tier entitlements.
         return "pro"
     # Plan is "free" or unset — but a live trial overrides
-    if getattr(user, "trial_ends_at", None) and user.trial_ends_at > datetime.utcnow():
+    if getattr(user, "trial_ends_at", None) and user.trial_ends_at > utc_now():
         return "trial"
     return "free"
 
@@ -352,7 +353,7 @@ def trial_days_remaining(user: User) -> int | None:
     end = getattr(user, "trial_ends_at", None)
     if not end:
         return None
-    delta = end - datetime.utcnow()
+    delta = end - utc_now()
     if delta.total_seconds() <= 0:
         return 0
     return int(delta.total_seconds() // 86400) + (
@@ -364,7 +365,7 @@ def start_trial(user: User) -> None:
     """Set trial_ends_at to TRIAL_DAYS from now. Idempotent — won't re-start."""
     if getattr(user, "trial_ends_at", None):
         return  # Already had a trial; don't reset
-    user.trial_ends_at = datetime.utcnow() + timedelta(days=TRIAL_DAYS)
+    user.trial_ends_at = utc_now() + timedelta(days=TRIAL_DAYS)
 
 
 def billing_summary(user: User) -> dict:

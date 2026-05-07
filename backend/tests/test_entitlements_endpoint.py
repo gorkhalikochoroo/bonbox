@@ -28,6 +28,7 @@ from fastapi.testclient import TestClient
 from app.main import app, _db_ready
 from app.models.user import User
 from app.services.auth import get_current_user
+from app.utils.time import utc_now
 
 # Flip the DB-readiness gate ON for tests. In production this gets set
 # by the startup hook after migrations run; in TestClient context the
@@ -47,7 +48,7 @@ def _build_user(plan: str = "free", *, in_trial: bool = False) -> User:
         plan=plan,
     )
     if in_trial:
-        u.trial_ends_at = datetime.utcnow() + timedelta(days=7)
+        u.trial_ends_at = utc_now() + timedelta(days=7)
     return u
 
 

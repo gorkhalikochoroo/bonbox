@@ -37,6 +37,7 @@ from app.database import get_db
 from app.models.user import User
 from app.models.wine import Wine, WineSale
 from app.services.auth import get_current_user
+from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -254,7 +255,7 @@ def wine_summary(
         type_counts[w.wine_type] = type_counts.get(w.wine_type, 0) + 1
 
     # Top sellers (last 30 days)
-    thirty_ago = datetime.utcnow() - timedelta(days=30)
+    thirty_ago = utc_now() - timedelta(days=30)
     top_sales = (
         db.query(WineSale.wine_id, func.sum(WineSale.quantity).label("qty"))
         .filter(WineSale.user_id == user.id, WineSale.sold_at >= thirty_ago)
@@ -411,7 +412,7 @@ def delete_wine(
         raise HTTPException(404, "Wine not found")
 
     wine.is_deleted = True
-    wine.deleted_at = datetime.utcnow()
+    wine.deleted_at = utc_now()
     db.commit()
     return {"message": f"'{wine.name}' deleted"}
 
@@ -614,7 +615,7 @@ def export_wine_pdf(
     doc.build(elements)
     buf.seek(0)
 
-    filename = f"wine_menu_{datetime.utcnow().strftime('%Y%m%d')}.pdf"
+    filename = f"wine_menu_{utc_now().strftime('%Y%m%d')}.pdf"
     return StreamingResponse(
         buf, media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},

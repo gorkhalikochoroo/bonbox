@@ -27,6 +27,7 @@ from app.models.terminal import Terminal
 from app.models.user import User
 from app.schemas.terminal import TerminalCreate, TerminalResponse, TerminalUpdate
 from app.services.auth import get_current_user
+from app.utils.time import utc_now
 
 logger = logging.getLogger("bonbox.terminal_router")
 
@@ -157,7 +158,7 @@ def update_terminal(
 
     for field_name, value in updates.items():
         setattr(term, field_name, value)
-    term.updated_at = datetime.utcnow()
+    term.updated_at = utc_now()
     db.commit()
     db.refresh(term)
     return term
@@ -186,6 +187,6 @@ def delete_terminal(
 
     term.is_deleted = True
     term.is_active = False
-    term.updated_at = datetime.utcnow()
+    term.updated_at = utc_now()
     db.commit()
     return  # 204 No Content
