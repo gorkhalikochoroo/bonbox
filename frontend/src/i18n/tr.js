@@ -993,7 +993,7 @@ export const tr = {
   featProPredictive: "Tahmine dayalı AI: gelir tahmini, churn riski, stok uyarıları",
   featProPlaybooks: "İŞLETMENİZE özel ayarlanmış AI playbook'ları",
   featProAllVerticals: "Tüm vertical modülleri aynı anda (Bar Pour + Workshop + vb.)",
-  featProBankImport: "Banka içe aktarımı (çok bankalı, çok para birimli)",
+  featBankImport: "Banka içe aktarımı (çok bankalı, çok para birimli)",
   featProPrioritySupport: "Öncelikli e-posta desteği",
   pricingReassureNoCard: "Deneme için kart gerekmez",
   pricingReassureNoCardSub: "14 gün Pro, ödeme bilgisi gerekmez.",

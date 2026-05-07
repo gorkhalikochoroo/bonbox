@@ -997,7 +997,7 @@ export const vi = {
   featProPredictive: "AI dự đoán: doanh thu, rủi ro mất khách, cảnh báo hết hàng",
   featProPlaybooks: "Playbook AI tùy chỉnh theo mô hình kinh doanh CỦA BẠN",
   featProAllVerticals: "TẤT CẢ mô-đun chuyên ngành cùng lúc (Bar Pour + Workshop + v.v.)",
-  featProBankImport: "Nhập ngân hàng (đa ngân hàng, đa tiền tệ)",
+  featBankImport: "Nhập ngân hàng (đa ngân hàng, đa tiền tệ)",
   featProPrioritySupport: "Hỗ trợ email ưu tiên",
   pricingReassureNoCard: "Không cần thẻ để dùng thử",
   pricingReassureNoCardSub: "14 ngày Pro, không cần thông tin thanh toán.",

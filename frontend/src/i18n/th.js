@@ -992,7 +992,7 @@ export const th = {
   featProPredictive: "AI พยากรณ์: ยอดรายได้ ความเสี่ยงลูกค้าหาย แจ้งของหมด",
   featProPlaybooks: "AI Playbooks ปรับให้เหมาะกับรูปแบบธุรกิจของคุณ",
   featProAllVerticals: "โมดูลเฉพาะทางทั้งหมดพร้อมกัน (Bar Pour + Workshop + ฯลฯ)",
-  featProBankImport: "นำเข้าธนาคาร (หลายธนาคาร หลายสกุล)",
+  featBankImport: "นำเข้าธนาคาร (หลายธนาคาร หลายสกุล)",
   featProPrioritySupport: "การสนับสนุนทางอีเมลแบบเร่งด่วน",
   pricingReassureNoCard: "ทดลองโดยไม่ใช้บัตร",
   pricingReassureNoCardSub: "Pro 14 วัน ไม่ต้องให้ข้อมูลการชำระเงิน",
