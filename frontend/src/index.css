@@ -2,6 +2,32 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Restore the hand-cursor on clickable controls.
+   Tailwind v4 reverted to the W3C-spec default of cursor:default for
+   buttons — technically correct, but every user expects a hand on
+   anything they can click. We override globally so the entire app
+   feels responsive without each button needing cursor-pointer.
+   :disabled rule keeps disabled buttons showing the default arrow. */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+a[href],
+label[for],
+summary,
+select:not(:disabled),
+input[type="submit"]:not(:disabled),
+input[type="button"]:not(:disabled),
+input[type="reset"]:not(:disabled),
+input[type="checkbox"]:not(:disabled),
+input[type="radio"]:not(:disabled),
+input[type="file"]:not(:disabled) {
+  cursor: pointer;
+}
+
+button:disabled,
+[role="button"][aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
 body {
   margin: 0;
   font-family: system-ui, -apple-system, sans-serif;
