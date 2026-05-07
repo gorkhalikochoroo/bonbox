@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { useEntitlements } from "../hooks/useEntitlements";
 
 /**
  * TrialFinalStretchTip — single-line conversion nudge in the last 48 hours
@@ -27,24 +27,17 @@ const DISMISS_KEY = "bonbox.trialFinalStretch.dismissedUntil";
 
 export default function TrialFinalStretchTip() {
   const { t } = useLanguage();
-  const [billing, setBilling] = useState(null);
+  const ent = useEntitlements();
   const [hidden, setHidden] = useState(() => {
     const until = parseInt(localStorage.getItem(DISMISS_KEY) || "0", 10);
     return until > Date.now();
   });
 
-  useEffect(() => {
-    if (hidden) return;
-    api.get("/billing/me")
-      .then((res) => setBilling(res.data))
-      .catch(() => {});
-  }, [hidden]);
+  if (hidden || ent.loading) return null;
+  if (ent.isPaid) return null;
+  if (!ent.inTrial) return null;
 
-  if (hidden || !billing) return null;
-  if (billing.is_paid) return null;
-  if (!billing.trial_active) return null;
-
-  const days = billing.trial_days_remaining;
+  const days = ent.trialDaysRemaining;
   if (days == null || days < 1 || days > 2) return null;
 
   const dismiss = () => {

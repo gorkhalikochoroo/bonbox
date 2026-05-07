@@ -1343,6 +1343,33 @@ const translations = {
     onbStepDailyGoal: "Set your daily revenue goal",
 
     // ───────────────────────────────────────────────────────────
+    // Tier-gating UI (Locked / UpgradePrompt / TierBadge)
+    // ───────────────────────────────────────────────────────────
+    planFree: "Free",
+    planStarter: "Starter",
+    planTrial: "Trial",
+    planPro: "Pro",
+    planBusiness: "Business",
+    upgradeRequired: "required",
+    upgradeFeatureHeadline: "Upgrade to unlock this feature",
+    upgradeFeatureBody: "This feature is available on {target} and above.",
+    upgradeCapHeadline: "You've reached your plan limit",
+    upgradeCapBody: "You're on the {plan} plan. Upgrade to {target} for higher limits.",
+    upgradeWhatYouGet: "What you get on",
+    upgradeUnlimitedBranches: "Unlimited businesses",
+    upgradeNumBranches: "{n} businesses",
+    upgradeUnlimitedTeam: "Unlimited team members",
+    upgradeNumTeam: "{n} team members",
+    upgradeFullYearExport: "Full-year accountant export",
+    upgradeDayExport: "{n}-day accountant export",
+    upgradeAIAnomaly: "AI anomaly detection",
+    upgradeWhiteLabelPdf: "White-label PDFs (no BonBox branding)",
+    upgradePrioritySupport: "Priority support",
+    upgradeMaybeLater: "Maybe later",
+    upgradeCTA: "See plans →",
+    close: "Close",
+
+    // ───────────────────────────────────────────────────────────
     // Global search command palette (⌘K)
     // ───────────────────────────────────────────────────────────
     search: "Search",
@@ -2624,6 +2651,31 @@ const translations = {
     onbStepBusinessProfile: "Verificer din virksomhed (CVR)",
     onbStepAccountant: "Tilføj din revisors e-mail",
     onbStepDailyGoal: "Sæt dit daglige omsætningsmål",
+
+    // Tier-gating UI (Locked / UpgradePrompt / TierBadge)
+    planFree: "Gratis",
+    planStarter: "Starter",
+    planTrial: "Prøveperiode",
+    planPro: "Pro",
+    planBusiness: "Business",
+    upgradeRequired: "kræves",
+    upgradeFeatureHeadline: "Opgrader for at låse op",
+    upgradeFeatureBody: "Denne funktion er tilgængelig på {target} og opefter.",
+    upgradeCapHeadline: "Du har nået din plans grænse",
+    upgradeCapBody: "Du er på {plan}-planen. Opgrader til {target} for højere grænser.",
+    upgradeWhatYouGet: "Hvad du får på",
+    upgradeUnlimitedBranches: "Ubegrænsede virksomheder",
+    upgradeNumBranches: "{n} virksomheder",
+    upgradeUnlimitedTeam: "Ubegrænsede teammedlemmer",
+    upgradeNumTeam: "{n} teammedlemmer",
+    upgradeFullYearExport: "Helårs revisor-eksport",
+    upgradeDayExport: "{n} dages revisor-eksport",
+    upgradeAIAnomaly: "AI afvigelsesdetektering",
+    upgradeWhiteLabelPdf: "PDF uden BonBox-branding",
+    upgradePrioritySupport: "Prioriteret support",
+    upgradeMaybeLater: "Måske senere",
+    upgradeCTA: "Se planer →",
+    close: "Luk",
 
     // Global search command palette (⌘K)
     search: "Søg",

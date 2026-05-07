@@ -3,7 +3,8 @@ storage push:
 
   1. DailyCloseCreate schema bounds (revenue_total_override 0-1B,
      receipt_photo max 2000 chars, prices_include_moms_override bool).
-  2. Per-tier daily Z-report scan quota (_today_scan_count + _SCAN_CAP_BY_PLAN).
+  2. Per-tier daily Z-report scan quota (_today_scan_count +
+     PLAN_CAPS["z_report_scans_per_day"]).
 
 The router-level rate limits (12/minute on /scan-report etc.) are
 exercised by SlowAPI's middleware and are integration-only — pinning
@@ -23,7 +24,8 @@ from app.database import Base
 from app.models.daily_close import DailyClose
 from app.models.user import User
 from app.schemas.daily_close import DailyCloseCreate
-from app.routers.daily_close import _SCAN_CAP_BY_PLAN, _today_scan_count
+from app.routers.daily_close import _today_scan_count
+from app.services.billing import PLAN_CAPS
 
 
 @pytest.fixture
@@ -123,12 +125,13 @@ def test_receipt_photo_at_upper_bound_passes():
 def test_scan_caps_pinned_per_tier():
     """Marketing claims 'Free: limited scans, Pro: generous' — pin the
     actual numbers so a future shuffle requires a deliberate decision
-    (and a marketing-page update)."""
-    assert _SCAN_CAP_BY_PLAN["free"] == 5
-    assert _SCAN_CAP_BY_PLAN["starter"] == 15
-    assert _SCAN_CAP_BY_PLAN["pro"] == 50
-    assert _SCAN_CAP_BY_PLAN["trial"] == 50  # = full Pro
-    assert _SCAN_CAP_BY_PLAN["business"] == 500
+    (and a marketing-page update). Read from the unified PLAN_CAPS
+    source-of-truth (May 2026 consolidation)."""
+    assert PLAN_CAPS["free"]["z_report_scans_per_day"] == 5
+    assert PLAN_CAPS["starter"]["z_report_scans_per_day"] == 15
+    assert PLAN_CAPS["pro"]["z_report_scans_per_day"] == 50
+    assert PLAN_CAPS["trial"]["z_report_scans_per_day"] == 50  # = full Pro
+    assert PLAN_CAPS["business"]["z_report_scans_per_day"] == 500
 
 
 def test_today_scan_count_zero_for_new_user(db, lars):

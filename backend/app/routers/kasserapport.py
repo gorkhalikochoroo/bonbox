@@ -28,7 +28,7 @@ from app.database import get_db
 from app.models.kasserapport import KasserapportExtraction
 from app.models.user import User
 from app.services.auth import get_current_user
-from app.services.billing import effective_plan
+from app.services.billing import effective_plan, get_cap
 from app.services.kasserapport_extractor import (
     extract_kasserapport_full,
     image_sha256,
@@ -45,15 +45,11 @@ router = APIRouter()
 _limiter = Limiter(key_func=get_remote_address)
 
 
-# Per-tier daily caps. Kasserapport extraction costs ~2-3 øre per scan
-# (Sonnet for the heavy extractor); even Pro at 100/day = ~3 kr/day in
-# inference cost. Free tier at 5/day is enough for the trial demo.
-_KASSE_CAP_BY_PLAN = {
-    "free": 5,
-    "trial": 100,
-    "pro": 100,
-    "business": 500,
-}
+# Per-tier daily caps live in PLAN_CAPS ("kasse_extracts_per_day") —
+# see services/billing.py for the source of truth. Local dict removed
+# (May 2026 consolidation). Kasserapport extraction costs ~2-3 øre per
+# scan (Sonnet for the heavy extractor); even Pro at 100/day = ~3 kr/day
+# in inference cost. Free tier at 5/day is enough for the trial demo.
 
 # Allowed image MIME types — Capacitor camera + browser file picker both
 # produce one of these. We re-encode to JPEG before sending to Anthropic
@@ -141,9 +137,9 @@ async def extract(
             detail=f"Image content doesn't match a known format: {fmt_or_reason}",
         )
 
-    # Defense-3: per-tier daily cap
+    # Defense-3: per-tier daily cap (PLAN_CAPS["kasse_extracts_per_day"]).
     plan = effective_plan(user) or "free"
-    cap = _KASSE_CAP_BY_PLAN.get(plan, 5)
+    cap = get_cap(user, "kasse_extracts_per_day")
     used = _today_count(db, user.id)
     if used >= cap:
         raise HTTPException(

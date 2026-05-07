@@ -67,7 +67,7 @@ from app.models import (
     Sale,
     User,
 )
-from app.services.billing import effective_plan
+from app.services.billing import effective_plan, get_cap
 
 logger = logging.getLogger(__name__)
 
@@ -79,16 +79,12 @@ logger = logging.getLogger(__name__)
 # Per-day refresh cap (manual force-refresh calls beyond the auto one).
 # Auto-generation on first visit doesn't count. The cap exists to keep
 # token cost predictable per user, not to be stingy with free users.
-REFRESH_CAP_BY_PLAN = {
-    "free": 1,      # one manual refresh — free users still see the button
-    "trial": 5,
-    "pro": 5,
-    "business": 10,
-}
-
-
+# Refresh caps live in PLAN_CAPS ("ai_brief_refreshes_per_day") — see
+# services/billing.py for the source of truth. Local dict removed (May
+# 2026 consolidation): previously had a Starter-tier leak (Starter
+# missing → fell through to default 0 = no refreshes despite paying).
 def _refresh_cap_for(user: User) -> int:
-    return REFRESH_CAP_BY_PLAN.get(effective_plan(user), 0)
+    return get_cap(user, "ai_brief_refreshes_per_day")
 
 
 # ─────────────────────────────────────────────────────────────────

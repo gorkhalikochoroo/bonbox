@@ -53,17 +53,10 @@ router = APIRouter()
 # audit) used everywhere else.
 _limiter = Limiter(key_func=get_remote_address)
 
-# Per-tier daily Z-report scan caps — prevents Free users (or a script
-# probing as Free) from draining Anthropic quota on the OCR pass.
-# Numbers conservative: most owners scan once at end-of-day, multi-
-# terminal venues might scan up to 4x. Pro generously covers all.
-_SCAN_CAP_BY_PLAN = {
-    "free":     5,
-    "starter":  15,
-    "trial":    50,
-    "pro":      50,
-    "business": 500,
-}
+# Per-tier daily Z-report scan caps live in PLAN_CAPS
+# ("z_report_scans_per_day") — see services/billing.py for the source
+# of truth. Local dict removed (May 2026 consolidation) so cap changes
+# happen in one place.
 
 
 def _today_scan_count(db: Session, user_id) -> int:
@@ -820,9 +813,10 @@ async def scan_z_report(
            because each call may run a Sonnet vision pass = real $.
       L4 — tenant scope: image bytes go to <user_id>/kasserapport/<sha>.jpg
            via the storage abstraction.
-      L5 — daily quota: per-tier _SCAN_CAP_BY_PLAN — Free=5/day,
-           Pro=50/day. Refuses 429 when exceeded so a script can't
-           drain Anthropic spend even within a single rate-limit window.
+      L5 — daily quota: PLAN_CAPS["z_report_scans_per_day"] — Free=5/day,
+           Starter=15/day, Pro=50/day. Refuses 429 when exceeded so a
+           script can't drain Anthropic spend even within a single
+           rate-limit window.
       L6 — audit trail: the resulting DailyClose row carries the
            image_url + receipt_photo path for §10 retention.
     """
@@ -835,9 +829,9 @@ async def scan_z_report(
     if len(file_bytes) > 12 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="File too large (max 12 MB)")
 
-    # L5 — per-tier daily quota.
+    # L5 — per-tier daily quota (PLAN_CAPS["z_report_scans_per_day"]).
     plan = effective_plan(user) or "free"
-    cap = _SCAN_CAP_BY_PLAN.get(plan, 5)
+    cap = get_cap(user, "z_report_scans_per_day")
     used = _today_scan_count(db, user.id)
     if used >= cap:
         raise HTTPException(

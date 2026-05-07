@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.services.auth import get_current_user
-from app.services.billing import billing_summary
+from app.services.billing import billing_summary, entitlements_payload
 from app.services import stripe_billing
 
 router = APIRouter()
@@ -66,6 +66,28 @@ def my_billing(
         user.subscription_period_end.isoformat() if user.subscription_period_end else None
     )
     return summary
+
+
+@router.get("/entitlements")
+def my_entitlements(
+    user: User = Depends(get_current_user),
+):
+    """Unified entitlements payload for the frontend's useEntitlements hook.
+
+    Same data as /billing/me but with two additions:
+      1. min_plan_by_feature — the lowest plan that unlocks each boolean
+         feature, so the upgrade modal can render
+         "Upgrade to Starter to unlock anomaly detection" without the
+         frontend having to know plan ordering.
+      2. plans — every purchasable plan's full caps + features matrix,
+         so the upgrade modal renders "what you'd get" without a second
+         round-trip.
+
+    This is read-only and computed entirely from PLAN_CAPS / PLAN_FEATURES
+    + the user's effective plan. No Stripe sync side-effect (use /billing/me
+    for that path).
+    """
+    return entitlements_payload(user)
 
 
 @router.post("/stripe/sync")

@@ -1,21 +1,21 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { useEntitlements } from "../hooks/useEntitlements";
 
 /**
  * Dashboard countdown banner — shown when user has an active trial OR
  * when their trial ended in the last 7 days (gives them a re-upgrade nudge).
  *
- * Renders nothing for paid users or users without trial state. Self-loads
- * billing summary from /api/billing/me on mount; gracefully no-ops on error.
+ * Renders nothing for paid users or users without trial state. Reads
+ * entitlements from the unified hook (no per-component round-trip).
  */
 
 const DISMISS_KEY = "bonbox_trial_banner_dismissed_until";
 
 export default function TrialBanner() {
   const { t } = useLanguage();
-  const [billing, setBilling] = useState(null);
+  const ent = useEntitlements();
   const [hidden, setHidden] = useState(false);
 
   useEffect(() => {
@@ -23,18 +23,13 @@ export default function TrialBanner() {
     const until = parseInt(localStorage.getItem(DISMISS_KEY) || "0", 10);
     if (until > Date.now()) {
       setHidden(true);
-      return;
     }
-    api
-      .get("/billing/me")
-      .then((res) => setBilling(res.data))
-      .catch(() => {});
   }, []);
 
-  if (hidden || !billing) return null;
-  if (billing.is_paid) return null;
+  if (hidden || ent.loading) return null;
+  if (ent.isPaid) return null;
 
-  const days = billing.trial_days_remaining;
+  const days = ent.trialDaysRemaining;
   // Three states: trial active (days > 0), trial ended recently, no trial
   if (days == null) return null; // Legacy user without trial — don't pester
 
@@ -42,7 +37,7 @@ export default function TrialBanner() {
   // alarm colors; nothing bad happens at trial end (you just go to Free, your
   // data stays). A soft slate/blue card across all states keeps it from
   // reading as "ACTION REQUIRED" — feedback was that the amber felt pushy.
-  if (billing.trial_active && days > 0) {
+  if (ent.inTrial && days > 0) {
     const closing = days <= 2; // "closing" not "urgent" — wording matters
     return (
       <div className="flex items-start gap-3 rounded-xl border bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700 px-4 py-3">
@@ -80,8 +75,8 @@ export default function TrialBanner() {
   }
 
   // Trial just expired (within 7 days) — gentle nudge
-  if (billing.trial_active === false && billing.plan === "free" && billing.trial_ends_at) {
-    const endTime = new Date(billing.trial_ends_at).getTime();
+  if (!ent.inTrial && ent.plan === "free" && ent.trialEndsAt) {
+    const endTime = new Date(ent.trialEndsAt).getTime();
     const daysSince = Math.floor((Date.now() - endTime) / 86400000);
     if (daysSince < 0 || daysSince > 7) return null;
     return (

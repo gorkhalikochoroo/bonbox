@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { useEntitlements } from "../hooks/useEntitlements";
 import { FadeIn } from "../components/AnimationKit";
 
 /**
@@ -28,24 +29,26 @@ import { FadeIn } from "../components/AnimationKit";
  */
 export default function ConsolidatedClosePage() {
   const { t } = useLanguage();
-  const [billing, setBilling] = useState(null);
+  // Tier gating now goes through the unified entitlements hook — the
+  // backend feature flag "multi_branch_dashboard" is the single source
+  // of truth (Pro/trial/business have it, Free/Starter don't). Old
+  // hard-coded plan-string check ["pro","trial","business"] removed.
+  const ent = useEntitlements();
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // Currency still comes from /billing/me (entitlements payload doesn't
+  // include it — locale data, not entitlement data).
+  const [currency, setCurrency] = useState("DKK");
 
   useEffect(() => {
     api.get("/billing/me")
-      .then((res) => setBilling(res.data))
-      .catch(() => setBilling({ plan: "free" }));
+      .then((res) => setCurrency(res.data?.currency || "DKK"))
+      .catch(() => {});
   }, []);
 
-  const isPro = useMemo(() => {
-    if (!billing) return null; // unknown
-    return ["pro", "trial", "business"].includes(billing.plan);
-  }, [billing]);
-
-  const currency = billing?.currency || "DKK";
+  const isPro = ent.loading ? null : ent.hasFeature("multi_branch_dashboard");
 
   async function fetchConsolidated() {
     setLoading(true);
@@ -70,7 +73,7 @@ export default function ConsolidatedClosePage() {
     }
   }
 
-  if (billing === null) {
+  if (isPro === null) {
     return (
       <div className="px-4 sm:px-6 py-6 max-w-4xl mx-auto">
         <div className="text-sm text-gray-500 dark:text-gray-400">

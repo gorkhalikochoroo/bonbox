@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { useEntitlements } from "../hooks/useEntitlements";
 
 /**
  * Trial countdown — thin status strip at the very top of <main>,
@@ -31,26 +31,24 @@ const DISMISS_KEY = "bonbox_trial_chip_dismissed_until";
 
 export default function TrialChip() {
   const { t } = useLanguage();
-  const [billing, setBilling] = useState(null);
+  // Migrated to the unified entitlements hook (May 2026 consolidation)
+  // — no per-component /billing/me round-trip; the provider caches one
+  // shared payload across the whole app.
+  const ent = useEntitlements();
   const [hidden, setHidden] = useState(false);
 
   useEffect(() => {
     const until = parseInt(localStorage.getItem(DISMISS_KEY) || "0", 10);
     if (until > Date.now()) {
       setHidden(true);
-      return;
     }
-    api
-      .get("/billing/me")
-      .then((res) => setBilling(res.data))
-      .catch(() => {});
   }, []);
 
-  if (hidden || !billing) return null;
-  if (billing.is_paid) return null;
+  if (hidden || ent.loading) return null;
+  if (ent.isPaid) return null;
 
-  const days = billing.trial_days_remaining;
-  if (days == null || !billing.trial_active || days <= 0) return null;
+  const days = ent.trialDaysRemaining;
+  if (days == null || !ent.inTrial || days <= 0) return null;
 
   const urgent = days <= 3;
   const label = days === 1

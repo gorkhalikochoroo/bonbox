@@ -25,7 +25,7 @@ from app.database import get_db
 from app.models.user import User
 from app.models.event_log import EventLog
 from app.services.auth import get_current_user
-from app.services.billing import effective_plan
+from app.services.billing import effective_plan, get_cap
 from app.services.sale_parser import parse_sale_text
 
 logger = logging.getLogger(__name__)
@@ -38,15 +38,10 @@ _limiter = Limiter(key_func=get_remote_address)
 # Per-tier daily caps (primary cost control)
 # ─────────────────────────────────────────────────────────────────
 
-# Smart Sale parses per user per day. Far more generous than the daily
-# brief cap because each parse is one-shot (~$0.002 each) and users may
-# realistically log 20-50 sales/day during a busy shift.
-_SALE_PARSE_CAP_BY_PLAN = {
-    "free": 15,
-    "trial": 100,
-    "pro": 100,
-    "business": 250,
-}
+# Smart Sale parses per user per day are governed by PLAN_CAPS
+# ("sale_parse_per_day") — see services/billing.py for the source of
+# truth. Previously a local dict here had a Starter-tier leak (Starter
+# missing → fell through to free's cap). Consolidation closed that hole.
 
 
 def _today_count(db: Session, user_id, event: str) -> int:
@@ -90,7 +85,7 @@ def parse_sale(
     router enforces auth, rate-limit, and per-user daily cap.
     """
     plan = effective_plan(user)
-    cap = _SALE_PARSE_CAP_BY_PLAN.get(plan, _SALE_PARSE_CAP_BY_PLAN["free"])
+    cap = get_cap(user, "sale_parse_per_day")
     used = _today_count(db, user.id, "ai_sale_parsed")
     if used >= cap:
         # Stable shape, frontend can show a "daily AI limit reached" hint
