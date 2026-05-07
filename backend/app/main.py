@@ -391,6 +391,14 @@ _migrations = [
     # a Bogføringsloven §10 source-document trail. NULL for text/CSV/
     # Excel imports (no image to retain).
     "ALTER TABLE inventory_imports ADD COLUMN IF NOT EXISTS storage_key VARCHAR(300)",
+    # ── Migration 014: widen receipt_photo to TEXT ──
+    # When the legacy save_receipt_photo flow was migrated to private
+    # bucket + signed URLs (commit 35fdeb6), the returned URL grew from
+    # ~150 chars (public URL) to ~700 chars (signed URL with JWT token).
+    # The old VARCHAR(500) overflows on insert → 500 errors on
+    # POST /api/sales/from-receipt. TEXT has no length cap.
+    "ALTER TABLE sales ALTER COLUMN receipt_photo TYPE TEXT",
+    "ALTER TABLE expenses ALTER COLUMN receipt_photo TYPE TEXT",
 ]
 
 def _run_migrations():

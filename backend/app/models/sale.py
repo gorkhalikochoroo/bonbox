@@ -21,7 +21,10 @@ class Sale(Base):
     amount: Mapped[float] = mapped_column(Numeric(12, 2))
     payment_method: Mapped[str] = mapped_column(String(20), default="mixed")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    receipt_photo: Mapped[str | None] = mapped_column(String(500), nullable=True)  # file path
+    # Stores either a local filepath (dev) or a Supabase signed URL (prod).
+    # Signed URLs include a JWT token and run ~700 chars total — TEXT, not
+    # VARCHAR(500), so the long URL doesn't overflow on insert.
+    receipt_photo: Mapped[str | None] = mapped_column(Text, nullable=True)
     reference_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # Bilagsnummer — sequential voucher number per fiscal year per user.
     # Required by Bogføringsloven 2024 (DK Bookkeeping Act): every transaction
