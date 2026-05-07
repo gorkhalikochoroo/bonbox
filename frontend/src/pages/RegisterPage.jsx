@@ -84,6 +84,94 @@ export default function RegisterPage() {
   const [alreadyExists, setAlreadyExists] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // ── Email-domain CVR autofill ──────────────────────────────────────
+  // Watches the email field. When the domain looks like a real
+  // company domain (.dk / .no / .co.uk), debounces a background CVR
+  // search. If we find a match, shows a "Are you Mirabelle ApS?" banner
+  // below the email input — one tap prefills business_name +
+  // business_type + currency, and the CVR data is saved to the
+  // BusinessProfile immediately after register so the new owner lands
+  // on a fully-set-up profile with the Verified badge already showing.
+  const [cvrSuggestions, setCvrSuggestions] = useState([]);  // up to 3 matches
+  const [cvrSelected, setCvrSelected] = useState(null);      // applied suggestion
+  const [cvrSearching, setCvrSearching] = useState(false);
+  const [cvrDismissed, setCvrDismissed] = useState(false);
+  const cvrTimer = useRef(null);
+
+  // Map branchekode_inference.business_type → dropdown option value.
+  // Direct match for most; workshop maps to closest dropdown option.
+  const _BT_FROM_BRANCHEKODE = {
+    restaurant: "restaurant",
+    cafe:       "cafe",
+    bar:        "bar",
+    bakery:     "bakery",
+    kiosk:      "kiosk",
+    workshop:   "mobile_repair",  // closest dropdown match
+    retail:     "retail",
+  };
+
+  // Country → currency default. Used when applying a CVR suggestion
+  // to set the form's currency field correctly.
+  const _CCY_FROM_COUNTRY = { DK: "DKK", NO: "NOK", GB: "GBP" };
+
+  // Debounced lookup — fires when email looks like user@domain.tld.
+  useEffect(() => {
+    if (cvrDismissed) return;
+    clearTimeout(cvrTimer.current);
+    const m = /^[^\s@]+@([a-z0-9.-]+\.[a-z]{2,})$/i.exec(form.email.trim());
+    if (!m) { setCvrSuggestions([]); return; }
+    const domain = m[1].toLowerCase();
+    // Skip the obvious freemail providers — they yield no useful CVR
+    const freemail = new Set([
+      "gmail.com", "googlemail.com", "yahoo.com", "yahoo.dk", "yahoo.co.uk",
+      "hotmail.com", "hotmail.dk", "outlook.com", "outlook.dk",
+      "live.com", "live.dk", "icloud.com", "me.com", "protonmail.com",
+      "proton.me", "msn.com", "aol.com", "mail.ru", "yandex.com",
+    ]);
+    if (freemail.has(domain)) { setCvrSuggestions([]); return; }
+    // Country derived from TLD; default DK
+    const tld = domain.split(".").pop();
+    const country = tld === "no" ? "NO"
+                  : (tld === "uk" || tld === "co" || domain.endsWith(".co.uk")) ? "GB"
+                  : "DK";
+
+    cvrTimer.current = setTimeout(async () => {
+      setCvrSearching(true);
+      try {
+        const res = await api.get("/business/signup-lookup", {
+          params: { domain, country },
+        });
+        setCvrSuggestions(Array.isArray(res.data) ? res.data : []);
+      } catch {
+        // Silent — never block signup. User just fills the form manually.
+        setCvrSuggestions([]);
+      } finally {
+        setCvrSearching(false);
+      }
+    }, 700);
+
+    return () => clearTimeout(cvrTimer.current);
+  }, [form.email, cvrDismissed]);
+
+  const applyCvrSuggestion = (sug) => {
+    const inferredBt = sug?.branchekode_inference?.business_type;
+    const mappedBt = inferredBt ? _BT_FROM_BRANCHEKODE[inferredBt] : "";
+    const ccy = _CCY_FROM_COUNTRY[sug.country] || "DKK";
+    setForm(f => ({
+      ...f,
+      business_name: sug.name || f.business_name,
+      business_type: mappedBt || f.business_type,
+      currency: ccy,
+    }));
+    setCvrSelected(sug);  // remember for post-register PUT /business
+    setCvrSuggestions([]);  // collapse the suggestion strip
+  };
+
+  const dismissCvrSuggestion = () => {
+    setCvrSuggestions([]);
+    setCvrDismissed(true);
+  };
+
   const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
   const handleSubmit = async (e) => {
@@ -107,6 +195,29 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       await register(submitData);
+
+      // If the user accepted a CVR auto-fill suggestion, persist it
+      // to BusinessProfile NOW (the auth session is active immediately
+      // after register). This means the new owner lands on a fully
+      // set-up profile with the "✓ Verified · cvrapi.dk · just now"
+      // banner already showing. Failure is silent — they can still
+      // re-enter on the Profile page later.
+      if (cvrSelected) {
+        try {
+          await api.put("/business", {
+            company_name: cvrSelected.name || submitData.business_name,
+            org_number: cvrSelected.org_number || "",
+            country: cvrSelected.country || "DK",
+            address: cvrSelected.address || "",
+            city: cvrSelected.city || "",
+            zipcode: cvrSelected.zipcode || "",
+            industry: cvrSelected.industry || "",
+            industry_code: cvrSelected.industry_code || "",
+            source: "cvrapi.dk",  // backend stamps cvr_verified_at on this signal
+          });
+        } catch { /* signup proceeds even if profile save fails */ }
+      }
+
       // On native apps, skip email verification and go straight to dashboard
       if (isNative) {
         sessionStorage.setItem("skip_email_verify", "1");
@@ -218,6 +329,78 @@ export default function RegisterPage() {
                   <input type="email" name="email" value={form.email} onChange={handleChange}
                     placeholder="you@company.com" className={inputCls} required />
                 </div>
+
+                {/* CVR auto-detect suggestion — only on web (skip in
+                    native iOS for App Store compliance / friction). */}
+                {!isNative && (cvrSearching || cvrSuggestions.length > 0 || cvrSelected) && (
+                  <div className="mt-2">
+                    {cvrSearching && (
+                      <p className="text-[11px] text-gray-400 dark:text-gray-500 px-2">
+                        🎯 {t("cvrSignupSearching") || "Looking up your company in CVR…"}
+                      </p>
+                    )}
+
+                    {/* Selected — show a confirmation chip */}
+                    {cvrSelected && (
+                      <div className="px-3 py-2 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 text-xs flex items-center gap-2">
+                        <span className="text-green-600">✓</span>
+                        <span className="text-green-700 dark:text-green-300 flex-1">
+                          {t("cvrSignupApplied") || "Auto-filled from"}{" "}
+                          <strong>{cvrSelected.name}</strong>
+                          {cvrSelected.org_number && (
+                            <span className="ml-1 opacity-70">· CVR {cvrSelected.org_number}</span>
+                          )}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => { setCvrSelected(null); setCvrDismissed(true); }}
+                          className="text-[11px] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 underline"
+                        >
+                          {t("cvrSignupClear") || "Clear"}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Active suggestions strip */}
+                    {!cvrSelected && cvrSuggestions.length > 0 && (
+                      <div className="px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 text-xs space-y-2">
+                        <p className="text-blue-700 dark:text-blue-300 font-semibold">
+                          🎯 {t("cvrSignupTitle") || "Found a match in the company register"}
+                        </p>
+                        <div className="space-y-1.5">
+                          {cvrSuggestions.map((s, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => applyCvrSuggestion(s)}
+                              className="block w-full text-left px-2.5 py-1.5 rounded bg-white dark:bg-gray-800 border border-blue-200 dark:border-blue-700 hover:border-blue-500 transition"
+                            >
+                              <p className="font-semibold text-gray-800 dark:text-gray-200">
+                                {s.name}
+                                {s.org_number && (
+                                  <span className="ml-2 text-[10px] font-normal text-gray-500">CVR {s.org_number}</span>
+                                )}
+                              </p>
+                              {s.address && (
+                                <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate">{s.address}</p>
+                              )}
+                              {s.industry && (
+                                <p className="text-[10px] text-blue-500 dark:text-blue-400 mt-0.5">{s.industry}</p>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={dismissCvrSuggestion}
+                          className="text-[11px] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 underline"
+                        >
+                          {t("cvrSignupNotMine") || "None of these — I'll type manually"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">{t("password")}</label>

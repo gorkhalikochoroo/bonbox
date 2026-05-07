@@ -94,6 +94,83 @@ async def search_business(
         raise HTTPException(status_code=503, detail=str(e))
 
 
+# ─── Signup-time domain lookup (unauthenticated) ──────────────────────
+#
+# Used by the registration form to suggest "Are you Mirabelle ApS?"
+# when the user types an email like manoj@mirabelle.dk. Pre-signup
+# means no user object → can't share the authenticated /lookup gate.
+#
+# Stricter than the authenticated variant:
+#   • Domain-only input (rejects CVR numbers + free-text names) —
+#     the only legitimate signup-time use case is "I just typed my
+#     email; what's the company?"
+#   • Tighter rate limit (5/min/IP) since unauth'd
+#   • Only returns the top 3 results — fewer signals = less surface
+#     for company enumeration abuse
+#   • Skips PII fields (phone, email, status_flags) in the response —
+#     pre-signup users don't need contact info, just identity.
+#
+# cvrapi.dk + virk.dk are public anyway — an attacker can scrape
+# them directly. The rate limit is about protecting OUR cvrapi
+# free-tier quota, not about protecting "secret" data.
+
+import re
+
+_DOMAIN_RE = re.compile(r"^[a-z0-9.-]+\.[a-z]{2,}$", re.IGNORECASE)
+
+
+@router.get("/signup-lookup")
+@_limiter.limit("5/minute")
+async def signup_lookup(
+    request: Request,
+    domain: str = Query(..., min_length=4, max_length=120,
+                        description="Bare domain like mirabelle.dk"),
+    country: str = Query("DK", description="DK | NO | GB"),
+):
+    """Unauthenticated domain → company lookup for the signup form.
+
+    Returns up to 3 candidates with reduced fields so the signup
+    page can prefill business_name + business_type + currency from
+    the user's email domain alone. No auth needed — this only
+    surfaces data already public on virk.dk / Companies House.
+    """
+    domain = domain.strip().lower()
+    if not _DOMAIN_RE.match(domain):
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid domain format. Expected something like 'mirabelle.dk'.",
+        )
+
+    # Country normalize — we only support DK/NO/GB lookups
+    country_norm = (country or "DK").upper()
+    if country_norm not in ("DK", "NO", "GB"):
+        return []
+
+    try:
+        results = await lookup_business(domain, country_norm)
+    except LookupError:
+        # Pre-signup we're forgiving about errors — better to let
+        # the user type manually than to block registration.
+        return []
+
+    # Trim to 3 + strip PII the signup form doesn't need
+    trimmed = []
+    for r in (results or [])[:3]:
+        trimmed.append({
+            "name": r.get("name", ""),
+            "org_number": r.get("org_number", ""),
+            "address": r.get("address", ""),
+            "city": r.get("city", ""),
+            "zipcode": r.get("zipcode", ""),
+            "country": r.get("country", country_norm),
+            "industry": r.get("industry", ""),
+            "industry_code": r.get("industry_code", ""),
+            "confidence": r.get("confidence", "guess"),
+            "branchekode_inference": r.get("branchekode_inference"),
+        })
+    return trimmed
+
+
 # ─── DAWA address verification ────────────────────────────────────────
 
 class AddressVerifyRequest(BaseModel):
