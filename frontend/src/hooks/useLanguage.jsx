@@ -1284,6 +1284,8 @@ const translations = {
     searchHintNavigate: "navigate",
     searchHintOpen: "open",
     searchHintClose: "close",
+    searchExpand: "Bigger view",
+    searchCollapse: "Smaller view",
     // Page label fallbacks used by the modal's static page list
     dailyReport: "Daily Report",
     cashBook: "Cash Book",
@@ -2529,6 +2531,8 @@ const translations = {
     searchHintNavigate: "naviger",
     searchHintOpen: "åbn",
     searchHintClose: "luk",
+    searchExpand: "Større visning",
+    searchCollapse: "Mindre visning",
     dailyReport: "Daglig rapport",
     cashBook: "Kassebog",
     cashFlow: "Pengestrøm",

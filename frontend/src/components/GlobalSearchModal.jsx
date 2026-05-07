@@ -44,6 +44,21 @@ export default function GlobalSearchModal({ open, onClose }) {
       return raw ? JSON.parse(raw) : [];
     } catch { return []; }
   });
+  // Compact by default; user can expand via the chevron button in the
+  // search bar. Persists across opens — once expanded, stays expanded
+  // until the user collapses it again.
+  const [expanded, setExpanded] = useState(() => {
+    try {
+      return localStorage.getItem("bonbox_search_expanded") === "1";
+    } catch { return false; }
+  });
+  const toggleExpanded = () => {
+    setExpanded((prev) => {
+      const next = !prev;
+      try { localStorage.setItem("bonbox_search_expanded", next ? "1" : "0"); } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   // ─── Static page list — filtered client-side ───────────────────
   // Source of truth: the routes registered in App.jsx. Each entry has
@@ -215,34 +230,74 @@ export default function GlobalSearchModal({ open, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-start justify-center bg-black/40 backdrop-blur-[2px] pt-16 sm:pt-24 px-4"
+      className={`fixed inset-0 z-[100] flex items-start justify-center bg-black/40 backdrop-blur-[2px] px-4 ${
+        expanded ? "pt-10 sm:pt-16" : "pt-20 sm:pt-32"
+      }`}
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label={t("globalSearchAria") || "Search BonBox"}
     >
+      {/* Modal card.
+          Compact by default (max-w-md / 448px wide, capped height
+          ~55vh) — feels lightweight when the user just wants to
+          jump to a page. Expanded mode (max-w-3xl / 768px, ~85vh)
+          is for browsing many results at once. State persists in
+          localStorage. The width + height transitions are smooth so
+          the toggle feels like a deliberate UI affordance, not a
+          jarring jump. */}
       <div
-        className="w-full max-w-xl bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col max-h-[80vh]"
+        className={`w-full bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-200 ease-out ${
+          expanded
+            ? "max-w-3xl max-h-[85vh]"
+            : "max-w-md max-h-[55vh]"
+        }`}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={onKeyDown}
       >
         {/* Search bar */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-700">
-          <span className="text-gray-400 text-lg shrink-0">🔍</span>
+        <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 border-b border-gray-100 dark:border-gray-700">
+          <span className="text-gray-400 text-base shrink-0">🔍</span>
           <input
             ref={inputRef}
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t("searchPlaceholder") || "Search sales, expenses, items, pages…"}
-            className="flex-1 bg-transparent outline-none text-base text-gray-800 dark:text-gray-100 placeholder-gray-400"
+            className="flex-1 bg-transparent outline-none text-sm sm:text-base text-gray-800 dark:text-gray-100 placeholder-gray-400"
             autoComplete="off"
             spellCheck="false"
           />
           {loading && (
             <span className="text-[10px] text-gray-400 animate-pulse shrink-0">⏳</span>
           )}
-          <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">
+          {/* Expand / collapse toggle — only visible on sm+ where
+              the bigger modal actually adds value. On phones the
+              modal already fills the available width. */}
+          <button
+            type="button"
+            onClick={toggleExpanded}
+            title={expanded
+              ? (t("searchCollapse") || "Smaller view")
+              : (t("searchExpand") || "Bigger view")}
+            aria-label={expanded
+              ? (t("searchCollapse") || "Smaller view")
+              : (t("searchExpand") || "Bigger view")}
+            className="hidden sm:inline-flex items-center justify-center w-6 h-6 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/60 transition shrink-0"
+          >
+            {expanded ? (
+              // Collapse (inward arrows)
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M15 15v4.5M15 15h4.5M15 15l5.25 5.25" />
+              </svg>
+            ) : (
+              // Expand (outward arrows)
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15m11.25 5.25v-4.5m0 4.5h-4.5m4.5 0L15 15m5.25-11.25v4.5m0-4.5h-4.5m4.5 0L15 9" />
+              </svg>
+            )}
+          </button>
+          <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600 shrink-0">
             ESC
           </kbd>
         </div>

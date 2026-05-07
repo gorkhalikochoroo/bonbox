@@ -110,13 +110,41 @@ export default function PropertyReportPage() {
         window.URL.revokeObjectURL(url);
       }, 1000);
     } catch (e) {
-      const detail = e?.response?.data?.detail
-        || (e?.response?.status === 429
-              ? "Too many exports — wait a minute and try again."
-              : null)
+      // axios with responseType: "blob" wraps the error body as a
+      // Blob too — even when it's actually JSON. Read it as text →
+      // try-parse → surface the real backend message instead of
+      // always falling through to the generic copy.
+      let backendMsg = "";
+      try {
+        const data = e?.response?.data;
+        if (data instanceof Blob) {
+          const text = await data.text();
+          try {
+            const parsed = JSON.parse(text);
+            backendMsg = typeof parsed?.detail === "string"
+              ? parsed.detail
+              : parsed?.detail?.message || "";
+          } catch {
+            // Non-JSON body — treat it as raw text if short enough
+            if (text && text.length < 240) backendMsg = text;
+          }
+        } else if (typeof data?.detail === "string") {
+          backendMsg = data.detail;
+        }
+      } catch { /* ignore — fall through to generic */ }
+
+      const status = e?.response?.status;
+      const detail = backendMsg
+        || (status === 429
+            ? "Too many exports — wait a minute and try again."
+            : status === 404
+            ? "PDF endpoint not found. The deploy may still be rolling out — try again in a minute."
+            : status === 401 || status === 403
+            ? "Sign in again — your session may have expired."
+            : null)
         || (t("pdfDownloadFailed") || "Could not download the report — please try again.");
       setError(detail);
-      setTimeout(() => setError(""), 5000);
+      setTimeout(() => setError(""), 6000);
     } finally {
       setDownloadingPdf(false);
     }
