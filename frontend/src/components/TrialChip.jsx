@@ -4,16 +4,24 @@ import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 
 /**
- * Trial countdown chip — small floating pill in the top-right
- * corner of every page on desktop. NOT in the sidebar (cluttered
- * the header) and NOT a full-width banner (too pushy).
+ * Trial countdown chip — small floating pill in the bottom-LEFT
+ * corner. NOT in the sidebar (cluttered the header), NOT in the
+ * top-right (overlapped page action buttons like Quick Sale /
+ * Download PDF), NOT a full-width banner (too pushy).
  *
  * Design:
  *   • Compact pill: just "🎁 14d" (icon + abbreviated days).
  *     Hover/aria reveals the full "14 days left in trial" text.
- *   • Fixed top-right, just inside the viewport (top-3, right-4).
- *     Doesn't take up layout space — floats above content.
- *   • Calm slate-on-white default with a subtle border.
+ *   • Fixed bottom-left, just inside the viewport. Doesn't take
+ *     up layout space — floats above content.
+ *   • Stacked at bottom-left ABOVE the existing QuickAdd ➕ widget
+ *     (which is at md:bottom-6 left-6). Chip sits at bottom-20
+ *     (~80px from bottom edge) so the two stack cleanly without
+ *     overlap. Bottom-right is occupied by the ✨ BonBoxAgent.
+ *     Top-right is occupied by per-page action buttons (Quick
+ *     Sale / Download PDF / etc.). Bottom-left has just QuickAdd
+ *     so we get a clean two-pill stack.
+ *   • Calm slate-on-white default with a subtle border + shadow.
  *     Shifts to amber when ≤ 3 days remain (gentle urgency,
  *     not red-alarm — nothing bad happens at trial end).
  *   • Inline × button to dismiss for 24h.
@@ -66,7 +74,7 @@ export default function TrialChip() {
 
   return (
     <div
-      className="hidden md:flex fixed top-3 right-4 z-30 items-center gap-1"
+      className="hidden md:flex fixed bottom-20 left-6 z-40 items-center gap-1"
       role="status"
       aria-label={tooltip}
     >
