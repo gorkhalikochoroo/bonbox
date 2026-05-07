@@ -5,7 +5,7 @@ import { useTheme, THEMES } from "../hooks/useTheme";
 import { useLanguage } from "../hooks/useLanguage";
 import { FadeIn } from "../components/AnimationKit";
 import usePushNotifications from "../hooks/usePushNotifications";
-import BusinessLookup from "../components/BusinessLookup";
+import BusinessLookup, { countryFromCurrency } from "../components/BusinessLookup";
 import { resetAllTips } from "../components/DismissibleTip";
 
 export default function ProfilePage() {
@@ -385,6 +385,10 @@ export default function ProfilePage() {
           }}
           initialProfile={businessProfile}
           currentBusinessType={user?.business_type}
+          // Prefer user.currency over navigator.language for country
+          // detection — DK businesses on en-GB Chrome were defaulting
+          // to United Kingdom.
+          defaultCountry={countryFromCurrency(user?.currency)}
         />
       </div>
 

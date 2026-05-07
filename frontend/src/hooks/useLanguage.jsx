@@ -1271,6 +1271,13 @@ const translations = {
     showSidebar: "Show sidebar",
 
     // ───────────────────────────────────────────────────────────
+    // Subscription page — tier export-days feature lines
+    // ───────────────────────────────────────────────────────────
+    featFreeExport7d: "7-day accountant export window (PDF + CSV)",
+    featStarterExport31d: "31-day accountant export window — month-end handoff",
+    featProExportYear: "Full-year accountant export — quarterly + yearly review",
+
+    // ───────────────────────────────────────────────────────────
     // Global search command palette (⌘K)
     // ───────────────────────────────────────────────────────────
     search: "Search",
@@ -2518,6 +2525,11 @@ const translations = {
     pdfDownloadFailed: "Kunne ikke hente rapporten — prøv igen.",
     hideSidebar: "Skjul sidebar",
     showSidebar: "Vis sidebar",
+
+    // Subscription page — tier export-days feature lines
+    featFreeExport7d: "7-dages periodeeksport til revisor (PDF + CSV)",
+    featStarterExport31d: "31-dages periodeeksport — månedsafslutning",
+    featProExportYear: "Helårs eksport til revisor — kvartal + årsregnskab",
 
     // Global search command palette (⌘K)
     search: "Søg",

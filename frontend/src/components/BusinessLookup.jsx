@@ -22,12 +22,22 @@ import { useLanguage } from "../hooks/useLanguage";
 const AUTO_LOOKUP_COUNTRIES = new Set(["DK", "NO", "GB"]);
 
 
-// ── Country auto-detect from browser locale + email TLD ──────────────
+// ── Country auto-detect — priority: profile > currency > locale ──────
 //
 // Returns the best-guess country code at component mount, used as the
 // initial value of the dropdown. The user can always change it.
-function detectCountry(initialCountry) {
+//
+// Priority order (was navigator.language only — caused DK businesses
+// using English Chrome to default to GB):
+//   1. initialProfile.country  — already set, source of truth
+//   2. defaultCountry prop     — derived from user.currency by parent
+//                                (DKK → DK, NOK → NO, GBP → GB, etc.)
+//   3. navigator.language      — fallback for new users with no
+//                                currency set (e.g. signup flow)
+//   4. "DK"                    — final fallback (BonBox is DK-first)
+function detectCountry(initialCountry, defaultCountry) {
   if (initialCountry) return initialCountry;
+  if (defaultCountry) return defaultCountry;
   try {
     const lang = navigator.language || "";  // "da-DK" / "en-GB" / "nb-NO" etc.
     if (lang.includes("-")) {
@@ -38,6 +48,20 @@ function detectCountry(initialCountry) {
     }
   } catch { /* default below */ }
   return "DK";
+}
+
+
+// Currency code → country code mapping. Only the codes auto-lookup
+// supports; other currencies (USD, EUR, NPR, INR, AUD, etc.) fall
+// through to the locale heuristic in detectCountry above.
+const _COUNTRY_BY_CURRENCY = {
+  DKK: "DK",
+  NOK: "NO",
+  GBP: "GB",
+};
+
+export function countryFromCurrency(currency) {
+  return _COUNTRY_BY_CURRENCY[String(currency || "").toUpperCase()] || null;
 }
 
 
@@ -212,9 +236,9 @@ function AddressVerifyPicker({ cvrAddress, dawa, onPick }) {
 
 // ─── Main component ──────────────────────────────────────────────────
 
-export default function BusinessLookup({ onSave, initialProfile, currentBusinessType }) {
+export default function BusinessLookup({ onSave, initialProfile, currentBusinessType, defaultCountry }) {
   const [countries, setCountries] = useState([]);
-  const [country, setCountry] = useState(detectCountry(initialProfile?.country));
+  const [country, setCountry] = useState(detectCountry(initialProfile?.country, defaultCountry));
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
