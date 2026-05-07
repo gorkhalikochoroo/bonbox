@@ -114,8 +114,10 @@ const navGroups = [
     items: [
       { to: "/branches", icon: "🏢", labelKey: "branches" },
       { to: "/terminals", icon: "💳", labelKey: "terminals" },
+      { to: "/modules", icon: "🧩", labelKey: "modules" },
       { to: "/share-recipients", icon: "📨", labelKey: "shareRecipients" },
       { to: "/outlets", icon: "🏪", labelKey: "crossOutlet" },
+      { to: "/consolidated-close", icon: "🏢", labelKey: "consolidatedClose" },
       { to: "/team", icon: "👤", labelKey: "team" },
       { to: "/khata", icon: "📖", labelKey: "khata" },
       { to: "/feedback", icon: "💬", labelKey: "feedback" },

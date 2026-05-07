@@ -24,6 +24,9 @@ export default function TeamPage() {
   const [members, setMembers] = useState([]);
   const [permissions, setPermissions] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Plan caps from /billing/me — drives the seat counter + the upgrade
+  // prompt when at cap. Owner counts as 1 seat.
+  const [billing, setBilling] = useState(null);
 
   // Invite form
   const [showInvite, setShowInvite] = useState(false);
@@ -34,16 +37,24 @@ export default function TeamPage() {
   const [inviteResult, setInviteResult] = useState(null);
   const [error, setError] = useState("");
 
-  // Fetch team
+  // Fetch team + billing in parallel
   useEffect(() => {
     Promise.all([
       api.get("/team/members"),
       api.get("/team/permissions"),
-    ]).then(([memRes, permRes]) => {
+      api.get("/billing/me").catch(() => ({ data: null })),
+    ]).then(([memRes, permRes, billingRes]) => {
       setMembers(memRes.data);
       setPermissions(permRes.data);
+      setBilling(billingRes.data);
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
+
+  // Seat math — owner counts as 1 seat (matches backend gate)
+  const teamCap = billing?.caps?.team_users ?? null;
+  const seatsUsed = members.length + 1; // +1 for the owner
+  const teamUnlimited = teamCap !== null && teamCap < 0;
+  const teamAtCap = teamCap !== null && !teamUnlimited && seatsUsed >= teamCap;
 
   const isOwner = permissions?.is_owner;
 
@@ -98,19 +109,48 @@ export default function TeamPage() {
           <div>
             <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("team") || "Team"}</h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              Manage who has access to your business on BonBox
+              {t("teamSubtitle") || "Manage who has access to your business on BonBox"}
             </p>
+            {/* Cap-aware seat counter — visible only when we have billing data */}
+            {teamCap !== null && (
+              <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5">
+                {teamUnlimited
+                  ? (t("teamSeatsUnlimited") || "Unlimited team seats on your plan")
+                  : (t("teamSeatsUsedOfCap") || "{used} of {cap} seats used (owner + staff)")
+                      .replace("{used}", seatsUsed)
+                      .replace("{cap}", teamCap)}
+              </p>
+            )}
           </div>
           {isOwner && (
             <button
               onClick={() => setShowInvite(!showInvite)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition"
+              disabled={teamAtCap}
+              title={teamAtCap ? (t("teamAtCapHint") || "Seat limit reached on your plan — upgrade for more") : ""}
+              className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
             >
               + Invite Staff
             </button>
           )}
         </div>
       </FadeIn>
+
+      {/* Cap-hit banner — appears when at seat cap, even if invite form is closed */}
+      {teamAtCap && isOwner && (
+        <FadeIn>
+          <div className="px-4 py-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 text-[13px] text-amber-800 dark:text-amber-200 flex items-center gap-3 flex-wrap">
+            <span className="font-semibold">
+              {(t("teamCapHitTitle") || "{cap} seats on your plan").replace("{cap}", teamCap)}
+            </span>
+            <span>
+              {t("teamCapHitBody") || "Upgrade to Pro for 5 seats, or to Business for unlimited."}
+            </span>
+            <a href="/subscription" className="font-semibold text-amber-900 dark:text-amber-100 underline whitespace-nowrap">
+              {t("seePlans") || "See plans →"}
+            </a>
+          </div>
+        </FadeIn>
+      )}
 
       {error && (
         <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">

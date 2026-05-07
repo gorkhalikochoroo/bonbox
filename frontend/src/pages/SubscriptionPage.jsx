@@ -183,12 +183,13 @@ export default function SubscriptionPage() {
       window.location.href = `mailto:hello@bonbox.dk?subject=${subject}&body=${body}`;
       return;
     }
-    // ── Pro tier upgrade ──
+    // ── Paid-tier upgrade (Starter or Pro) ──
     // App Store compliance: native iOS cannot use Stripe for digital goods (Apple's
     // 30% IAP rule). On native, we open the web subscription page in the system
     // browser so the user completes payment via web. Backend ALSO blocks (defense
     // in depth) — both layers must agree before a Stripe session is created.
-    if (isNative && tierId === "pro") {
+    // Starter is now a paid tier too — same iOS rule applies.
+    if (isNative && (tierId === "pro" || tierId === "starter")) {
       try {
         const url = "https://bonbox.dk/subscription";
         if (window.Capacitor?.Plugins?.Browser?.open) {
@@ -204,18 +205,23 @@ export default function SubscriptionPage() {
 
     // Web flow — try real Stripe Checkout. If Stripe isn't configured server-side
     // yet (early launch), fall back to the waitlist-join flow gracefully.
-    if (tierId === "pro" && billing?.stripe_configured) {
+    // Both starter AND pro buttons now route through Stripe — previously
+    // only "pro" hit the Stripe path and Starter clicks silently fell
+    // through to the waitlist (which charged nothing). The backend
+    // /stripe/checkout-session now accepts {plan} so the price ID
+    // routes correctly to STRIPE_PRICE_ID_STARTER vs _PRO.
+    if ((tierId === "pro" || tierId === "starter") && billing?.stripe_configured) {
       setPending(tierId);
       setMsg("");
       try {
-        const res = await api.post("/billing/stripe/checkout-session", {});
+        const res = await api.post("/billing/stripe/checkout-session", { plan: tierId });
         const safeStripeUrl = safeExternalUrl(res.data?.url);
         if (safeStripeUrl) {
           // Already paid → portal URL was returned; otherwise checkout URL
           if (res.data.already_subscribed) {
-            trackEvent("stripe_portal_opened", "subscription", "pro");
+            trackEvent("stripe_portal_opened", "subscription", tierId);
           } else {
-            trackEvent("stripe_checkout_started", "subscription", "pro");
+            trackEvent("stripe_checkout_started", "subscription", tierId);
           }
           window.location.href = safeStripeUrl;
           return;
@@ -438,8 +444,13 @@ export default function SubscriptionPage() {
       {/* Tiers — 3 cards now */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {TIERS.map((tier) => {
+          // Map currentPlan to tier card highlight. Starter is a real paid
+          // tier now (Stripe webhook in stripe_billing.py maps it correctly).
+          // Trial users see Pro as "Your trial" since the trial gives full
+          // Pro entitlements; that's the marketing-honest framing.
           const isCurrent =
             (tier.id === "pro" && (currentPlan === "pro" || currentPlan === "trial")) ||
+            (tier.id === "starter" && currentPlan === "starter") ||
             (tier.id === "free" && currentPlan === "free") ||
             (tier.id === "business" && currentPlan === "business");
           const price = annual ? tier.price_annual : tier.price_monthly;
@@ -523,8 +534,11 @@ export default function SubscriptionPage() {
                       : cta}
               </button>
 
-              {/* Manage / Cancel — only when user has a real Stripe sub on this tier */}
-              {isCurrent && hasStripeSub && tier.id === "pro" && (
+              {/* Manage / Cancel — only when user has a real Stripe sub
+                  on this paid tier. Includes Starter subscribers (was
+                  Pro-only and silently hid the manage link from Starter
+                  customers, which would've been a billing-support nightmare). */}
+              {isCurrent && hasStripeSub && (tier.id === "pro" || tier.id === "starter") && (
                 <button
                   onClick={handleManage}
                   disabled={pending === "manage"}

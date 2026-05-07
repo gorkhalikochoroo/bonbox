@@ -19,6 +19,13 @@ export default function BranchPage() {
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("overview");
+  // Plan caps from /billing/me — drives the "X/Y used" hint and the
+  // upgrade prompt when at cap. Failure to load falls back to the
+  // legacy unlimited behaviour (better than blocking the whole page).
+  const [billing, setBilling] = useState(null);
+  // Surface the backend cap-error message verbatim if create_branch
+  // returns 403 (handles the "Branch limit reached" case)
+  const [createError, setCreateError] = useState("");
 
   // Create form
   const [showCreate, setShowCreate] = useState(false);
@@ -31,12 +38,14 @@ export default function BranchPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [branchRes, summaryRes] = await Promise.all([
+      const [branchRes, summaryRes, billingRes] = await Promise.all([
         api.get("/branches/list"),
         api.get("/branches/summary"),
+        api.get("/billing/me").catch(() => ({ data: null })),
       ]);
       setBranches(branchRes.data.branches || []);
       setSummary(summaryRes.data);
+      setBilling(billingRes.data);
     } catch { /* silent */ }
     setLoading(false);
   };
@@ -44,12 +53,29 @@ export default function BranchPage() {
   const handleCreate = async (e) => {
     e.preventDefault();
     if (!newName.trim()) return;
+    setCreateError("");
     try {
       await api.post("/branches/create", { name: newName.trim(), address: newAddress.trim() || null, business_type: newType });
       setNewName(""); setNewAddress(""); setNewType("restaurant"); setShowCreate(false);
       fetchData();
-    } catch { /* silent */ }
+    } catch (err) {
+      // Cap-hit: backend returns 403 with explicit upgrade message.
+      // Show it inline so the owner sees WHY rather than a silent failure.
+      const detail = err?.response?.data?.detail;
+      const status = err?.response?.status;
+      if (status === 403 && detail) {
+        setCreateError(detail);
+      } else {
+        setCreateError(t("branchCreateFailed") || "Could not create branch");
+      }
+    }
   };
+
+  // Derive cap state for the UI. cap < 0 = unlimited.
+  const branchCap = billing?.caps?.branches ?? null;
+  const branchesUsed = branches.length;
+  const branchUnlimited = branchCap !== null && branchCap < 0;
+  const branchAtCap = branchCap !== null && !branchUnlimited && branchesUsed >= branchCap;
 
   const handleSetDefault = async (branchId) => {
     try {
@@ -80,18 +106,50 @@ export default function BranchPage() {
   return (
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
       <FadeIn>
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-            🏢 {t("branches") || "Branch Bookkeeping"}
-          </h1>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
+              🏢 {t("branches") || "Branch Bookkeeping"}
+            </h1>
+            {/* Cap-aware hint: shows "1/1 used" or "Unlimited" so the
+                owner sees their plan's reality without leaving the page */}
+            {branchCap !== null && (
+              <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-1">
+                {branchUnlimited
+                  ? (t("branchesUnlimited") || "Unlimited branches on your plan")
+                  : (t("branchesUsedOfCap") || "{used} of {cap} branches used")
+                      .replace("{used}", branchesUsed)
+                      .replace("{cap}", branchCap)}
+              </p>
+            )}
+          </div>
           <button
             onClick={() => setShowCreate(!showCreate)}
-            className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 transition"
+            disabled={branchAtCap}
+            title={branchAtCap ? (t("branchAtCapHint") || "Branch limit reached on your plan — upgrade for more") : ""}
+            className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
           >
             + New Branch
           </button>
         </div>
       </FadeIn>
+
+      {/* Cap-hit upgrade prompt — appears below header when at cap */}
+      {branchAtCap && (
+        <FadeIn delay={0.02}>
+          <div className="px-4 py-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 text-[13px] text-amber-800 dark:text-amber-200 flex items-center gap-3 flex-wrap">
+            <span className="font-semibold">
+              {(t("branchCapHitTitle") || "{cap} branch on your plan").replace("{cap}", branchCap)}
+            </span>
+            <span>
+              {t("branchCapHitBody") || "Upgrade to Pro for up to 3 branches with cross-outlet daily close consolidation."}
+            </span>
+            <a href="/subscription" className="font-semibold text-amber-900 dark:text-amber-100 underline whitespace-nowrap">
+              {t("seePlans") || "See plans →"}
+            </a>
+          </div>
+        </FadeIn>
+      )}
 
       {/* ─── CREATE BRANCH ─── */}
       {showCreate && (
@@ -111,6 +169,11 @@ export default function BranchPage() {
               <option value="general">🏢 General</option>
             </select>
           </div>
+          {createError && (
+            <div className="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">
+              {createError}
+            </div>
+          )}
           <div className="flex gap-2">
             <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium">Create</button>
             <button type="button" onClick={() => setShowCreate(false)} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg text-sm">Cancel</button>

@@ -19,6 +19,7 @@ import logging
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
@@ -92,10 +93,17 @@ def sync_subscription(
         return {"status": "error", "exception_type": type(e).__name__, "exception_msg": str(e)[:300]}
 
 
+class CheckoutSessionRequest(BaseModel):
+    """Body for /stripe/checkout-session. plan defaults to 'pro' for
+    back-compat with older frontend builds that didn't send a plan."""
+    plan: str = "pro"
+
+
 @router.post("/stripe/checkout-session")
 @limiter.limit("10/minute")
 def create_checkout(
     request: Request,
+    body: CheckoutSessionRequest | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     # Frontend sets this header when running inside Capacitor/iOS so we can
@@ -104,11 +112,19 @@ def create_checkout(
 ):
     """Create a Stripe Checkout session and return the URL to redirect to.
 
+    Body: {"plan": "starter" | "pro"} — defaults to "pro" for back-compat.
+    The plan field is what stripe_billing.create_checkout_session uses to
+    pick STRIPE_PRICE_ID_STARTER vs STRIPE_PRICE_ID_PRO. Without this field
+    the endpoint silently defaulted everyone to Pro pricing — a Starter
+    subscriber would have been charged 199/249 instead of 129/199.
+
     Multi-layer defense:
       • Auth required (anonymous can't bill anyone)
       • Rate-limited (10/min per IP) — checkout sessions cost API quota
       • iOS-native blocked (Apple IAP compliance — they require their own SDK)
       • Stripe must be configured server-side
+      • Plan validated against the {starter, pro} allowlist (unknown
+        plans default to "pro" silently — fail-safe for legacy callers)
     """
     if not stripe_billing.is_configured():
         return JSONResponse(
@@ -134,12 +150,18 @@ def create_checkout(
         )
 
     # Already paid? Redirect to portal instead of creating a new sub
-    if user.plan in ("pro", "business") and user.subscription_status == "active":
+    if user.plan in ("starter", "pro", "business") and user.subscription_status == "active":
         portal = stripe_billing.create_billing_portal_session(user, db)
         if portal:
             return {"url": portal["url"], "already_subscribed": True}
 
-    result = stripe_billing.create_checkout_session(user, db)
+    # Validate plan against allowlist; unknown values fall back to "pro"
+    requested_plan = (body.plan if body else "pro") or "pro"
+    requested_plan = requested_plan.strip().lower()
+    if requested_plan not in ("starter", "pro"):
+        requested_plan = "pro"
+
+    result = stripe_billing.create_checkout_session(user, db, plan=requested_plan)
     if not result:
         return JSONResponse(
             status_code=500,
