@@ -1,9 +1,57 @@
+/// <reference types="vitest" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  // Force the automatic JSX runtime everywhere — production already
+  // uses it via @vitejs/plugin-react, but vitest's transform pipeline
+  // sometimes falls back to the classic runtime which requires
+  // `import React from 'react'` in every .jsx file. Setting it here
+  // keeps test + production behaviour aligned without polluting source
+  // files with classic-runtime boilerplate.
+  esbuild: {
+    jsx: 'automatic',
+  },
+  // ── Vitest test config (May 2026) ────────────────────────────────
+  // We deliberately keep the test runner inside the existing Vite
+  // config (rather than a separate vitest.config.js) so the test
+  // environment uses the SAME plugin pipeline as production builds.
+  // That means a regression in plugin behaviour (e.g. JSX transform
+  // changes) shows up in tests + builds together — no drift.
+  //
+  // Why these specific settings:
+  //   • environment: 'jsdom'    — DOM APIs needed for React component
+  //                               rendering. happy-dom is faster but
+  //                               jsdom matches browser more closely
+  //                               (better for security-relevant tests
+  //                               of safeImageUrl + Locked overlay).
+  //   • setupFiles              — registers @testing-library/jest-dom
+  //                               matchers (toBeInTheDocument, etc.)
+  //                               + auto-cleanup between tests.
+  //   • globals: true           — `describe`/`it`/`expect` available
+  //                               without imports — matches Jest mental
+  //                               model the team is more familiar with.
+  //   • include                 — ONLY look in src/__tests__ + co-
+  //                               located *.test.{js,jsx}. No tests
+  //                               under node_modules or coverage.
+  //   • css: false              — skip CSS processing in test env;
+  //                               unit tests don't depend on Tailwind
+  //                               class output, just on rendered DOM.
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/test/setup.js'],
+    include: [
+      'src/**/*.{test,spec}.{js,jsx}',
+      'src/__tests__/**/*.{js,jsx}',
+    ],
+    css: false,
+    // Coverage left un-configured (no coverage tool installed by
+    // default). When we add v8 coverage later, we'll set thresholds
+    // here so a regression in hook coverage fails CI.
+  },
   build: {
     // Code splitting — separate vendor + i18n chunks for better caching.
     // Each chunk is a separate file in /assets so the browser can
