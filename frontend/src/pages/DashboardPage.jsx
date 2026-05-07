@@ -1350,16 +1350,30 @@ export default function DashboardPage() {
               Smart entry
             </button>
             <ReceiptCapture onSaleCreated={fetchAll} />
-            {/* Only render Repeat Yesterday when there's actually a yesterday-sale to repeat,
-                AND show the currency so "(15,000)" doesn't look like a count or a bug. */}
-            {lastSale && parseFloat(lastSale.amount) > 0 && (
-              <button onClick={repeatYesterday} className="px-4 py-2 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
-                {t("repeatYesterday")}
-                <span className="ml-1 text-green-600 dark:text-green-400">
-                  ({parseFloat(lastSale.amount).toLocaleString()} {currency})
-                </span>
-              </button>
-            )}
+            {/* Repeat Yesterday — only show when last sale is ACTUALLY from
+                yesterday's calendar date. The previous predicate (just
+                amount > 0) leaked stale demo / 3-week-old sales onto the
+                button, displaying "Repeat Yesterday's Sale (10,000 DKK)"
+                even when there were 0 sales yesterday — a credibility-
+                breaking inconsistency vs the dashboard summary cards.
+                Compute "yesterday" in the user's local timezone so it
+                matches Sale.date semantics. */}
+            {(() => {
+              if (!lastSale || !(parseFloat(lastSale.amount) > 0) || !lastSale.date) return null;
+              const y = new Date();
+              y.setDate(y.getDate() - 1);
+              const yesterdayISO = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, "0")}-${String(y.getDate()).padStart(2, "0")}`;
+              const saleDate = String(lastSale.date).slice(0, 10);  // ISO or already-trimmed
+              if (saleDate !== yesterdayISO) return null;
+              return (
+                <button onClick={repeatYesterday} className="px-4 py-2 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
+                  {t("repeatYesterday")}
+                  <span className="ml-1 text-green-600 dark:text-green-400">
+                    ({parseFloat(lastSale.amount).toLocaleString()} {currency})
+                  </span>
+                </button>
+              );
+            })()}
             <button onClick={downloadPdf} className="px-4 py-2 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
               📄 {t("downloadPdf")}
             </button>

@@ -10,8 +10,34 @@ from app.models.staffing import StaffingRule
 WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 
+def has_recent_activity(db: Session, user_id, within_days: int = 14) -> bool:
+    """True iff the user has at least one non-deleted sale within the
+    last `within_days` days.
+
+    Why: prevents the forecast / dashboard widgets from showing
+    "Next 7 Days: 34,134 DKK" projections when the user hasn't logged
+    a sale in 3 weeks. That's a credibility-breaking inconsistency:
+    the dashboard summary cards correctly show 0 (today/yesterday/week
+    have no sales) while the forecast fabricates numbers from stale
+    historical data. Forecast should be silent when the data isn't
+    fresh enough to justify it.
+    """
+    cutoff = date.today() - timedelta(days=within_days)
+    last = (
+        db.query(func.max(Sale.date))
+        .filter(Sale.user_id == user_id, Sale.is_deleted.isnot(True))
+        .scalar()
+    )
+    return last is not None and last >= cutoff
+
+
 def get_sales_patterns(db: Session, user_id, lookback_days: int = 90):
-    """Analyze historical sales to find day-of-week and monthly patterns."""
+    """Analyze historical sales to find day-of-week and monthly patterns.
+
+    Returns None when there's no usable data — either no sales at all,
+    or no sale within the last 14 days (stale data, forecast would be
+    fictional). Callers should treat None as "show empty state."
+    """
     cutoff = date.today() - timedelta(days=lookback_days)
 
     sales = (
@@ -25,6 +51,13 @@ def get_sales_patterns(db: Session, user_id, lookback_days: int = 90):
     )
 
     if not sales:
+        return None
+
+    # Recency gate — even with 1,000 historical sales, if none are recent,
+    # don't extrapolate. The dashboard summary cards will already show 0
+    # for today/yesterday/week — keeping the forecast silent prevents the
+    # widget-vs-summary mismatch.
+    if not has_recent_activity(db, user_id, within_days=14):
         return None
 
     # Day-of-week averages
