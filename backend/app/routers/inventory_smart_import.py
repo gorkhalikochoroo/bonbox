@@ -436,7 +436,9 @@ def get_draft(
 
 
 @router.get("/{import_id}/image")
+@_limiter.limit("60/minute")
 def get_import_image(
+    request: Request,
     import_id: uuid.UUID,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -604,7 +606,9 @@ def commit_draft(
 # ─── Listing endpoint (for the /imports admin tab) ─────────────────────
 
 @router.get("")
+@_limiter.limit("60/minute")
 def list_drafts(
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):

@@ -304,7 +304,9 @@ async def extract(
 
 
 @router.get("/{extraction_id}/image")
+@_limiter.limit("60/minute")
 def get_extraction_image(
+    request: Request,
     extraction_id: str,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),

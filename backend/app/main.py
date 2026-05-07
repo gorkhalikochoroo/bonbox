@@ -1159,9 +1159,16 @@ def _serve_receipt_unauth_404(detail: str = "File not found"):
 
 
 @app.get("/uploads/receipts/{filename}")
+@limiter.limit("120/minute")
 def serve_receipt(filename: str, request: Request):
     """Serve a receipt image. Auth-required + filename must be
-    prefixed with the requesting user's id (legacy convention)."""
+    prefixed with the requesting user's id (legacy convention).
+
+    Rate-limited at 120/minute per IP — high enough that a real owner
+    re-loading their dashboard with many receipts works, low enough
+    that an attacker enumerating filenames hits the brake quickly.
+    Uses the global app limiter (declared above) since this endpoint
+    sits outside the API router groups."""
     # Resolve auth manually — this endpoint sits outside the API
     # routers (mounted at root) so we can't use Depends(get_current_user)
     # cleanly without restructuring. Manual call replicates the same

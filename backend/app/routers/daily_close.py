@@ -17,8 +17,10 @@ from datetime import date, datetime, timedelta
 from collections import defaultdict
 from io import BytesIO
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -32,9 +34,46 @@ from app.models.cashbook import CashTransaction
 from app.models.business_profile import BusinessProfile
 from app.schemas.daily_close import DailyCloseCreate, DailyCloseResponse, DailyCloseUnlock
 from app.services.auth import get_current_user
+from app.services.billing import effective_plan
 from app.services.receipt_ocr import save_receipt_photo, parse_z_report
 
 router = APIRouter()
+
+# Per-IP rate limiter — protects state-changing daily-close endpoints.
+# Same shape as inventory/pour, modules, smart-import: a per-router
+# Limiter so each router controls its own thresholds. Mirrors the
+# 6-layer pattern (auth, bounds, rate limit, tenant scope, plan/quota,
+# audit) used everywhere else.
+_limiter = Limiter(key_func=get_remote_address)
+
+# Per-tier daily Z-report scan caps — prevents Free users (or a script
+# probing as Free) from draining Anthropic quota on the OCR pass.
+# Numbers conservative: most owners scan once at end-of-day, multi-
+# terminal venues might scan up to 4x. Pro generously covers all.
+_SCAN_CAP_BY_PLAN = {
+    "free":     5,
+    "starter":  15,
+    "trial":    50,
+    "pro":      50,
+    "business": 500,
+}
+
+
+def _today_scan_count(db: Session, user_id) -> int:
+    """How many Z-report scans this user already triggered today.
+    Counted via DailyClose rows with receipt_photo set on today's date —
+    the scan-report endpoint doesn't have its own audit table, but a
+    successful scan that produces a close lands here."""
+    today = date.today()
+    return (
+        db.query(func.count(DailyClose.id))
+        .filter(
+            DailyClose.user_id == user_id,
+            DailyClose.date == today,
+            DailyClose.receipt_photo.isnot(None),
+        )
+        .scalar()
+    ) or 0
 
 
 # ─── Helpers ───
@@ -74,7 +113,9 @@ def _to_response(dc: DailyClose) -> dict:
 # ─── POST — submit daily close ───
 
 @router.post("")
+@_limiter.limit("30/minute")
 def create_daily_close(
+    request: Request,
     data: DailyCloseCreate,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -226,7 +267,9 @@ def create_daily_close(
 # ─── POST — unlock a confirmed daily close ───
 
 @router.post("/{close_id}/unlock")
+@_limiter.limit("5/minute")
 def unlock_daily_close(
+    request: Request,
     close_id: str,
     data: DailyCloseUnlock,
     db: Session = Depends(get_db),
@@ -722,17 +765,49 @@ def prefill_daily_close(
 # ─── POST — scan Z-report image ───
 
 @router.post("/scan-report")
+@_limiter.limit("12/minute")
 async def scan_z_report(
+    request: Request,
     file: UploadFile = File(...),
+    db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Upload a Z-report / kasserapport photo and extract structured data via OCR."""
+    """Upload a Z-report / kasserapport photo and extract structured data via OCR.
+
+    Multi-layer defense:
+      L1 — auth (get_current_user dep).
+      L2 — input bounds: content-type prefix check + 12MB size cap.
+      L3 — rate limit (@_limiter.limit("12/minute") per IP). Tight
+           because each call may run a Sonnet vision pass = real $.
+      L4 — tenant scope: image bytes go to <user_id>/kasserapport/<sha>.jpg
+           via the storage abstraction.
+      L5 — daily quota: per-tier _SCAN_CAP_BY_PLAN — Free=5/day,
+           Pro=50/day. Refuses 429 when exceeded so a script can't
+           drain Anthropic spend even within a single rate-limit window.
+      L6 — audit trail: the resulting DailyClose row carries the
+           image_url + receipt_photo path for §10 retention.
+    """
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image")
 
     file_bytes = await file.read()
-    if len(file_bytes) > 10 * 1024 * 1024:  # 10 MB limit
-        raise HTTPException(status_code=400, detail="File too large (max 10 MB)")
+    # Size cap matches kasserapport extractor (12 MB) — same threshold
+    # everywhere the user might upload an image.
+    if len(file_bytes) > 12 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large (max 12 MB)")
+
+    # L5 — per-tier daily quota.
+    plan = effective_plan(user) or "free"
+    cap = _SCAN_CAP_BY_PLAN.get(plan, 5)
+    used = _today_scan_count(db, user.id)
+    if used >= cap:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Daily Z-report scan limit reached ({used}/{cap}). "
+                "Upgrade or try again tomorrow."
+            ),
+        )
 
     # Save the image (Supabase or local fallback). kind="kasserapport"
     # routes the storage path to <user_id>/kasserapport/<sha>.jpg so Z-
