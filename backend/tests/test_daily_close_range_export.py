@@ -335,3 +335,192 @@ def test_resolve_range_rejects_367_day_span():
     """Boundary — 367 days is one too many."""
     with pytest.raises(HTTPException):
         _resolve_range(date(2026, 1, 1), date(2026, 1, 1) + timedelta(days=366))
+
+
+# ─── Today-inclusion regression guard ──────────────────────────────────
+#
+# Reported issue: range exports excluded today's close even when the user
+# picked today as the `to` date. After auditing, the fetch query already
+# uses `DailyClose.date <= to_date` (inclusive) and `_resolve_range`
+# preserves a passed-in `to_date` exactly. The contract was correct but
+# UNTESTED — meaning a future refactor (e.g. someone "tightening" the
+# filter to `<` thinking ranges should be half-open like Python slices)
+# could silently break the accountant handoff for end-of-day exporters.
+#
+# These tests pin today inclusion explicitly so the regression can never
+# slip back in. They use the real `_fetch_range_closes` against an
+# in-memory SQLite DB so the SQL filter, not just the helper, is covered.
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.database import Base
+from app.routers.daily_close import _fetch_range_closes
+
+
+@pytest.fixture
+def db():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine)
+    s = SessionLocal()
+    try:
+        yield s
+    finally:
+        s.close()
+
+
+def _persist_close(db, *, user_id, on_date: date, **overrides) -> DailyClose:
+    """Persist a minimal DailyClose for a specific date so we can run
+    the actual SQL filter and assert inclusion / exclusion."""
+    close = _make_close(
+        id=uuid.uuid4(),
+        user_id=user_id,
+        date=on_date,
+        # closed_at must be on the same date or it'll look weird in
+        # ordering; not part of the filter but realism helps tests.
+        closed_at=datetime.combine(on_date, datetime.min.time()).replace(hour=23, minute=30),
+        **overrides,
+    )
+    db.add(close)
+    db.commit()
+    return close
+
+
+def test_fetch_range_includes_today_when_to_is_today(db):
+    """A close dated `date.today()` MUST be included when `to_date` is
+    today. This is the exact scenario the reported bug claimed broken."""
+    user_id = uuid.uuid4()
+    today = date.today()
+    _persist_close(db, user_id=user_id, on_date=today)
+
+    closes = _fetch_range_closes(
+        db, user_id=user_id,
+        from_date=today - timedelta(days=7),
+        to_date=today,
+        branch_id=None,
+    )
+    assert len(closes) == 1
+    assert closes[0].date == today
+
+
+def test_fetch_range_includes_close_dated_exactly_to_date(db):
+    """Boundary on the upper bound — a close dated == to_date MUST
+    be included. (Not just today; any explicit boundary.)"""
+    user_id = uuid.uuid4()
+    boundary = date(2026, 5, 7)
+    _persist_close(db, user_id=user_id, on_date=boundary)
+
+    closes = _fetch_range_closes(
+        db, user_id=user_id,
+        from_date=date(2026, 5, 1),
+        to_date=boundary,
+        branch_id=None,
+    )
+    assert len(closes) == 1
+
+
+def test_fetch_range_includes_close_dated_exactly_from_date(db):
+    """Boundary on the lower bound — a close dated == from_date MUST
+    be included. The range is closed-closed (both ends inclusive)."""
+    user_id = uuid.uuid4()
+    boundary = date(2026, 5, 1)
+    _persist_close(db, user_id=user_id, on_date=boundary)
+
+    closes = _fetch_range_closes(
+        db, user_id=user_id,
+        from_date=boundary,
+        to_date=date(2026, 5, 7),
+        branch_id=None,
+    )
+    assert len(closes) == 1
+
+
+def test_fetch_range_single_day_window_includes_that_day(db):
+    """from == to (a single-day export) MUST return a close dated on
+    that day. Edge case: most owners exporting "today only" pick this
+    shape via the custom date picker."""
+    user_id = uuid.uuid4()
+    target = date(2026, 5, 7)
+    _persist_close(db, user_id=user_id, on_date=target)
+
+    closes = _fetch_range_closes(
+        db, user_id=user_id,
+        from_date=target,
+        to_date=target,
+        branch_id=None,
+    )
+    assert len(closes) == 1
+
+
+def test_fetch_range_excludes_close_dated_after_to_date(db):
+    """Inverse pin — a close dated `to_date + 1` MUST be excluded.
+    Catches a future "bug fix" that flips < to <= and makes the range
+    exclusive."""
+    user_id = uuid.uuid4()
+    to_date = date(2026, 5, 7)
+    _persist_close(db, user_id=user_id, on_date=to_date + timedelta(days=1))
+
+    closes = _fetch_range_closes(
+        db, user_id=user_id,
+        from_date=date(2026, 5, 1),
+        to_date=to_date,
+        branch_id=None,
+    )
+    assert len(closes) == 0
+
+
+def test_fetch_range_includes_today_for_draft_status(db):
+    """Today's close is often still a `draft` (owner closes mid-shift,
+    confirms after). Drafts MUST be included in the export so the
+    accountant gets the full picture — exclusion would silently drop
+    same-day-edited rows."""
+    user_id = uuid.uuid4()
+    today = date.today()
+    _persist_close(db, user_id=user_id, on_date=today, status="draft")
+
+    closes = _fetch_range_closes(
+        db, user_id=user_id,
+        from_date=today - timedelta(days=7),
+        to_date=today,
+        branch_id=None,
+    )
+    assert len(closes) == 1
+    assert closes[0].status == "draft"
+
+
+def test_fetch_range_excludes_soft_deleted_close_on_today(db):
+    """Defensive: a soft-deleted close dated today MUST NOT appear in
+    the export. The is_deleted filter is the multi-layer guard against
+    accidentally exporting deleted rows; this pin keeps it intact."""
+    user_id = uuid.uuid4()
+    today = date.today()
+    _persist_close(db, user_id=user_id, on_date=today, is_deleted=True)
+
+    closes = _fetch_range_closes(
+        db, user_id=user_id,
+        from_date=today - timedelta(days=7),
+        to_date=today,
+        branch_id=None,
+    )
+    assert len(closes) == 0
+
+
+def test_resolve_range_to_today_preserves_today():
+    """Sanity — passing today as `to_date` to _resolve_range returns
+    today, not today-1. Pinned because a previous concern was that the
+    helper might silently shift `to` to "yesterday" to exclude the
+    in-progress day."""
+    today = date.today()
+    f, t = _resolve_range(None, today)
+    assert t == today
+    assert f == today - timedelta(days=30)
+
+
+def test_resolve_range_default_to_is_today_not_yesterday():
+    """When `to_date` is omitted, the default MUST be today. If this
+    ever drifts to `today - 1`, end-of-day exporters quietly lose
+    same-day data. Pinned to detect that drift."""
+    f, t = _resolve_range(None, None)
+    assert t == date.today()
+    assert t != date.today() - timedelta(days=1)
