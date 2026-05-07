@@ -508,27 +508,124 @@ _RULES: dict[str, dict[str, list[str]]] = {
             "håndklæde papir",
         ],
     },
+    # Cafe rules — order is precedence-sensitive. Cold Drinks first so
+    # 'iskaffe' beats Coffee's 'kaffe'. Coffee BEFORE Milk so 'Latte
+    # oat milk' (a coffee drink) lands in Coffee, not Milk. Pastry /
+    # Sandwich first because they're food and shouldn't accidentally
+    # match anything in beverage rules.
     "cafe": {
-        "Coffee": ["coffee", "espresso", "bean", "kaffe"],
-        "Tea": ["tea", "tisane", "matcha", "te "],
-        "Milk": [
-            "milk", "mælk", "oat milk", "soy milk", "almond milk",
-            "havremælk",
-        ],
-        "Syrups": ["syrup", "vanilla", "caramel", "hazelnut"],
         "Pastry": [
             "croissant", "muffin", "cake", "pastry", "kage",
-            "wienerbrød", "scone",
+            "wienerbrød", "kringle", "scone",
+            "cinnamon roll", "kanelsnegl", "kanelbolle",
+            "morgenbolle", "rundstykke", "tebirkes",
+            "spandauer", "frosnapper", "wienerbrød",
+            "danish", "donut", "doughnut",
         ],
-        "Sandwich": ["sandwich", "wrap", "bagel", "panini"],
+        "Sandwich": [
+            "sandwich", "wrap", "bagel", "panini", "ciabatta",
+            "smørrebrød", "open-faced",
+            "focaccia", "baguette",
+        ],
         "Cold Drinks": [
-            "iced coffee", "iced tea", "smoothie", "juice", "saft",
-            "soda", "cola",
+            # Brands
+            "rynkeby", "kelda", "valsølille",
+            "san pellegrino", "perrier", "evian",
+            # DK soft drinks
+            "faxe kondi", "sodavand", "danskvand",
+            # Cold coffee/tea specific (BEFORE Coffee/Tea so they win)
+            "iskaffe", "iced coffee", "iced tea", "kold te",
+            "cold brew", "nitro", "frappé", "frappuccino",
+            # Other
+            "smoothie", "juice", "saft", "appelsinjuice",
+            "soda", "cola", "coca-cola", "coke", "pepsi",
+            "kombucha",
+            # Energy
+            "red bull", "monster",
+        ],
+        "Coffee": [
+            # Major Copenhagen specialty roasters
+            "the coffee collective", "coffee collective",
+            "andersen & maillard", "andersen og maillard",
+            "april coffee", "april",
+            "la cabra", "prolog", "prolog coffee",
+            "kaffefair", "risteriet", "estate coffee",
+            "great coffee", "kontra coffee",
+            "stooping",
+            # International common in DK cafes
+            "lavazza", "illy", "nespresso", "starbucks",
+            "intelligentsia", "blue bottle",
+            # Roast / drink terms (DK + EN)
+            "espresso", "americano", "latte", "cappuccino",
+            "cortado", "macchiato", "flat white", "mocha",
+            "filter coffee", "drip coffee", "pour over",
+            "aeropress", "v60", "chemex",
+            "single origin", "blend",
+            "ethiopia", "colombia", "kenya", "guatemala", "brazil",
+            "decaf", "koffeinfri",
+            "coffee bean", "kaffebønne", "kaffebønner",
+            "ground coffee", "malet kaffe",
+            "espresso bean",
+            # Generic
+            "coffee", "kaffe",
+        ],
+        "Tea": [
+            # Brands
+            "pukka", "twinings", "lipton", "yogi", "tiger ",
+            "clipper", "teekanne", "ronnefeldt",
+            "perch og hannibal", "anytime tea",
+            # Types
+            "earl grey", "english breakfast",
+            "green tea", "grøn te", "matcha",
+            "white tea", "hvid te",
+            "oolong", "rooibos",
+            "chamomile", "kamille",
+            "peppermint", "pebermynte",
+            "chai", "tisane",
+            # Generic
+            " tea", "thee", "te ",  # spaced to avoid matching 'rødspætte'
+        ],
+        # Milk listed AFTER Coffee so 'Latte oat milk' (a coffee drink)
+        # lands in Coffee. Pure 'oat milk 1L' still hits Milk via
+        # 'oatly' / 'havremælk' / etc. brand keywords.
+        "Milk": [
+            # Brands (Arla dominant in DK)
+            "arla", "thise", "minimælk", "letmælk", "sødmælk",
+            "skummetmælk", "økologisk mælk",
+            # Plant-based (popular in CPH cafes)
+            "oat milk", "havremælk", "oatly", "naturli",
+            "soy milk", "soyamælk", "alpro",
+            "almond milk", "mandelmælk",
+            "coconut milk", "kokosmælk",
+            # Generic
+            "milk", "mælk",
+        ],
+        "Syrups": [
+            "syrup", "monin", "torani", "1883", "routin",
+            "vanilla", "vanilje", "caramel", "karamel",
+            "hazelnut", "hasselnød",
+            "sukkersirup", "simple syrup",
+        ],
+        "Snacks": [
+            "chips", "kartoffelchips", "popcorn",
+            "chocolate", "chokolade", "lakrids", "liquorice",
+            "nut", "nødder", "mandel", "almond",
+            "energy bar", "müslibar", "müsli bar",
         ],
         "Disposables": [
-            "cup", "lid", "straw", "napkin", "stirrer", "paper bag",
+            "cup", "kop", "krus", "lid", "låg",
+            "straw", "sugerør", "napkin", "serviet",
+            "stirrer", "rørepind", "paper bag", "papirpose",
+            "to-go", "takeaway",
+            "ecotainer", "compostable",
         ],
-        "Cleaning": ["soap", "detergent", "sanitizer"],
+        "Cleaning": [
+            "soap", "sæbe", "detergent", "opvaskemiddel",
+            "sanitizer", "desinfektion",
+            "espresso machine cleaner", "cafiza",
+            "milk cleaner", "rengøringsmiddel",
+            "descaler", "afkalker",
+        ],
     },
     "workshop": {
         "Filters": ["filter", "oil filter", "air filter", "fuel filter", "cabin filter"],

@@ -321,7 +321,11 @@ def test_persist_import_creates_full_audit_row(db, free_user):
     assert imp.input_tokens == 130
     assert imp.output_tokens == 60
     assert imp.timing_ms == {"extract": 500, "categorize": 200}
-    assert "inv_extract_v1" in imp.prompt_version
+    # Prompt version present and well-formed — exact value bumps when
+    # we rev the system prompt (e.g. v1 → v2_da when we added Danish
+    # supplier context). Just check the prefix so version bumps don't
+    # require test edits.
+    assert imp.prompt_version.startswith("inv_extract")
 
 
 def test_persist_import_records_failure(db, free_user):

@@ -386,3 +386,52 @@ def test_supplier_prefix_plus_brand_e2e(name, vertical, expected):
         f"Expected {expected!r} for {name!r}, got {out[0]['category']!r}"
     )
     assert out[0]["category_source"] == "rule"
+
+
+# ─── Cafe vertical: Copenhagen coffee culture ──────────────────────────
+# Major specialty roasters that CPH cafes stock + Danish dairy + tea
+# brands. Pin so the cafe vertical is finally first-class alongside
+# bar/restaurant.
+
+@pytest.mark.parametrize("name,expected", [
+    # Major Copenhagen specialty roasters
+    ("The Coffee Collective filter 250g",    "Coffee"),
+    ("Andersen & Maillard espresso bean",    "Coffee"),
+    ("April Coffee Ethiopia natural",        "Coffee"),
+    ("La Cabra Roasters single origin",      "Coffee"),
+    ("Prolog Coffee Bar blend",              "Coffee"),
+    ("Risteriet espresso 1kg",               "Coffee"),
+    # Coffee drinks / methods
+    ("Latte oat milk",                       "Coffee"),
+    ("Cortado",                              "Coffee"),
+    ("Cold brew concentrate",                "Cold Drinks"),
+    ("Iskaffe 250ml",                        "Cold Drinks"),
+    # International common in DK
+    ("Lavazza espresso classico",            "Coffee"),
+    ("Illy 250g grain",                      "Coffee"),
+    # Tea brands
+    ("Pukka chamomile tea",                  "Tea"),
+    ("Twinings English Breakfast",           "Tea"),
+    ("Yogi pebermynte tea",                  "Tea"),
+    ("Matcha ceremonial grade",              "Tea"),
+    ("Earl Grey loose leaf",                 "Tea"),
+    # Plant milks (very common in CPH cafes)
+    ("Oatly Barista oat milk 1L",            "Milk"),
+    ("Naturli havremælk 1L",                 "Milk"),
+    ("Alpro soya milk 1L",                   "Milk"),
+    # Pastries
+    ("Kanelsnegl 4 stk",                     "Pastry"),
+    ("Spandauer m/ remonce",                 "Pastry"),
+    ("Frosnapper",                           "Pastry"),
+    ("Croissant smør 60g",                   "Pastry"),
+    # Sandwiches
+    ("Smørrebrød med leverpostej",           "Sandwich"),
+    ("Focaccia tomat & mozzarella",          "Sandwich"),
+])
+def test_cafe_recognizes_copenhagen_brands(name, expected):
+    items = [{"name": name}]
+    out, unknown = categorize_deterministic(items, "cafe")
+    assert out[0]["category"] == expected, (
+        f"Expected {expected!r} for {name!r}, got {out[0]['category']!r}"
+    )
+    assert out[0]["category_source"] == "rule"
