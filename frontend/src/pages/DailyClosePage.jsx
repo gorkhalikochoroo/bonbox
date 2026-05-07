@@ -491,14 +491,18 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     const payment_breakdown = {};
     payMethods.forEach(m => { if (payAmounts[m.key]) payment_breakdown[m.key] = parseFloat(payAmounts[m.key]); });
 
-    // If the breakdown is empty but the OCR detected a total, send it
-    // as revenue_total_override so the close saves the real number
-    // instead of zero (was the "save shows 0" bug owners complained
-    // about). Also forwards the with/without-MOMS toggle so VAT calc
-    // matches the receipt format.
-    const hasBreakdownValues = Object.values(revenue_breakdown).some(v => v && v > 0);
+    // Always forward the OCR'd total as override when one was detected.
+    // Backend uses max(breakdown_sum, override) so:
+    //   • all 3 cats filled fully → sum == override → either path = same
+    //     number, no harm done
+    //   • partial breakdown (e.g. Drinks=1.82 wrong-parse,
+    //     Food/Takeaway empty) → override wins → close saves real total
+    //   • user manually exceeded the override → sum wins → user-driven
+    //     edits take precedence over the OCR original
+    // Sending it always (instead of only-when-empty) is what makes the
+    // "skip — total saves correctly either way" banner promise true.
     const ocrTotal = scanResult?.revenue_total;
-    const revenue_total_override = !hasBreakdownValues && ocrTotal && ocrTotal > 0
+    const revenue_total_override = ocrTotal && ocrTotal > 0
       ? Number(ocrTotal)
       : null;
     // Only override when the user actually scanned with the toggle —

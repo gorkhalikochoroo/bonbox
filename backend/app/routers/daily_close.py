@@ -132,15 +132,27 @@ def create_daily_close(
         .first()
     )
 
-    # Revenue total: prefer the breakdown sum when categories are filled,
-    # but fall back to revenue_total_override when the OCR only detected
-    # the bottom-line total without a category split. Without this, a
-    # close scanned from a "totals only" receipt previously saved as 0.
+    # Revenue total: when the OCR detected a bottom-line total
+    # (revenue_total_override) AND the user didn't fully reconcile the
+    # category breakdown, prefer the larger value. Three cases:
+    #   • All categories filled, sum = override        → save sum (= override)
+    #   • Categories partial (e.g. only Drinks=1.82),
+    #     override = 17030                             → save 17030 (override
+    #                                                    wins; breakdown is
+    #                                                    incomplete or wrong)
+    #   • Categories filled past override (user added
+    #     extra revenue manually)                      → save sum (user
+    #                                                    customizing)
+    # The previous logic preferred any non-zero breakdown sum, which
+    # broke the "skip — total saves correctly either way" promise of
+    # the partial-detection banner: a single wrong OCR parse like 1.82
+    # would silently overwrite the real 17,030 total.
     breakdown_sum = sum((data.revenue_breakdown or {}).values())
-    if breakdown_sum > 0:
+    override = data.revenue_total_override
+    if override is not None and override > 0:
+        revenue_total = float(max(breakdown_sum, override))
+    elif breakdown_sum > 0:
         revenue_total = breakdown_sum
-    elif data.revenue_total_override is not None and data.revenue_total_override > 0:
-        revenue_total = float(data.revenue_total_override)
     else:
         revenue_total = 0
     payment_total = sum((data.payment_breakdown or {}).values())
