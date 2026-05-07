@@ -233,3 +233,156 @@ def test_tool_schema_requires_index_and_category():
     item_schema = tool["input_schema"]["properties"]["items"]["items"]
     assert "index" in item_schema["required"]
     assert "category" in item_schema["required"]
+
+
+# ─── Danish supplier + brand awareness ────────────────────────────────
+# Manoj's vision: when a Copenhagen restaurant uploads a delivery slip
+# from Hørkram / BC Catering / AC Catering / Sailing / REMA / Netto /
+# Lidl / SuperBrugsen, the categorizer should recognize items
+# immediately — not wait for corrections. These tests pin the major
+# Danish brand keywords + supplier-prefix stripping behaviour.
+
+from app.services.inventory_categorizer import (
+    DANISH_SUPPLIERS,
+    _strip_supplier_prefix,
+)
+
+
+# Supplier-prefix stripping ────────────────────────────────────────────
+
+@pytest.mark.parametrize("name,expected", [
+    ("Hørkram - Atlantic Salmon 2.5kg",  "Atlantic Salmon 2.5kg"),
+    ("Hørkram Atlantic Salmon 2.5kg",    "Atlantic Salmon 2.5kg"),
+    ("BC Catering: Mælk sødmælk 6L",     "Mælk sødmælk 6L"),
+    ("AC Catering · Servietter",         "Servietter"),
+    ("Netto Tuborg 6-pack",              "Tuborg 6-pack"),
+    ("REMA 1000 Kylling brystfilet",     "Kylling brystfilet"),
+    ("Lidl - Olivenolie",                "Olivenolie"),
+    ("SuperBrugsen Rugbrød grovskåret",  "Rugbrød grovskåret"),
+    ("Sailing - Royal Greenland Laks",   "Royal Greenland Laks"),
+    # Plain item with no supplier — left alone:
+    ("Tuborg Pilsner 33cl",              "Tuborg Pilsner 33cl"),
+    ("Mælk sødmælk",                     "Mælk sødmælk"),
+])
+def test_strip_supplier_prefix(name, expected):
+    assert _strip_supplier_prefix(name) == expected
+
+
+def test_strip_supplier_does_not_remove_substring_inside_name():
+    """Conservative: only strips at START. 'Crema' shouldn't lose
+    its 'rema' part to a false REMA match."""
+    assert _strip_supplier_prefix("Crema fraiche 38%") == "Crema fraiche 38%"
+
+
+def test_supplier_list_covers_advertised_majors():
+    """Pin coverage so a future trim doesn't accidentally drop a
+    supplier Manoj called out by name."""
+    must_have = [
+        "hørkram", "bc catering", "ac catering", "sailing",
+        "rema 1000", "netto", "lidl", "superbrugsen",
+    ]
+    for s in must_have:
+        assert s in DANISH_SUPPLIERS, f"Missing supplier: {s}"
+
+
+# ─── Real-world bar items from Danish suppliers ───────────────────────
+
+@pytest.mark.parametrize("name,expected", [
+    # Major Danish beer brands
+    ("Royal Pilsner 33cl",           "Beer"),
+    ("Hancock Højskole 33cl",        "Beer"),
+    ("Mikkeller Hop Drop", "Beer"),
+    ("To Øl Black Ball",             "Beer"),
+    ("Skovlyst økologisk",           "Beer"),
+    ("Thy Øl Bryggeri",              "Beer"),
+    ("Fur Øl",                       "Beer"),
+    # International held in DK bars
+    ("Stella Artois 50cl",           "Beer"),
+    ("Becks 33cl",                   "Beer"),
+    ("Brooklyn IPA",                 "Beer"),
+    # Spirits — Nordic
+    ("Aalborg Akvavit",              "Spirits"),
+    ("Linie Aquavit",                "Spirits"),
+    ("Stauning rye whisky",          "Spirits"),
+    # DK-specific liqueurs
+    ("Gammel Dansk",                 "Liqueur"),
+    ("Hyldeblomst likør",            "Liqueur"),
+    ("Peter Heering",                "Liqueur"),
+    # DK soft drinks
+    ("Faxe Kondi 50cl",              "Soft Drinks"),
+])
+def test_bar_recognizes_danish_brands(name, expected):
+    items = [{"name": name}]
+    out, unknown = categorize_deterministic(items, "bar")
+    assert out[0]["category"] == expected, (
+        f"Expected {expected!r} for {name!r}, got {out[0]['category']!r}"
+    )
+    assert out[0]["category_source"] == "rule"
+
+
+# ─── Real-world restaurant items from Hørkram / BC Catering ────────────
+
+@pytest.mark.parametrize("name,expected", [
+    # Dairy brands (Arla is dominant in DK)
+    ("Arla letmælk 1L",                          "Dairy"),
+    ("Lurpak smør salt 250g",                    "Dairy"),
+    ("Kærgården 200g",                           "Dairy"),
+    ("Castello blue 150g",                       "Dairy"),
+    ("Cheasy yoghurt naturel 1kg",               "Dairy"),
+    ("Buko frischkäse",                          "Dairy"),
+    ("Skyr kvark naturel 1kg",                   "Dairy"),
+    # Meat brands (Danish Crown, Tulip)
+    ("Danish Crown hakkebøf 80/20 5kg",          "Meat"),
+    ("Tulip bacon røget 2kg",                    "Meat"),
+    ("Steff Houlberg pølser",                    "Meat"),
+    ("Andebryst rå 2kg",                         "Meat"),
+    # Seafood brands
+    ("Royal Greenland rejer 1kg",                "Seafood"),
+    ("Espersen torskeloin 5kg",                  "Seafood"),
+    ("Skagerak rødspætte filet",                 "Seafood"),
+    # Pantry / Dry goods brands
+    ("Knorr fond 1L",                            "Dry Goods"),
+    ("Maggi bouillon",                           "Dry Goods"),
+    ("Beauvais ketchup 1L",                      "Dry Goods"),
+    ("Carmencita paella krydderier",             "Dry Goods"),
+    # Frozen brands
+    ("Daloon vårruller 50 stk",                  "Frozen"),
+    ("Kims chips frosne",                        "Frozen"),
+    ("Findus pommes frites 5kg",                 "Frozen"),
+    # Bakery brands
+    ("Schulstad rugbrød grovskåret",             "Bakery"),
+    ("Kohberg morgenbolle",                      "Bakery"),
+])
+def test_restaurant_recognizes_danish_food_brands(name, expected):
+    items = [{"name": name}]
+    out, unknown = categorize_deterministic(items, "restaurant")
+    assert out[0]["category"] == expected, (
+        f"Expected {expected!r} for {name!r}, got {out[0]['category']!r}"
+    )
+
+
+# ─── End-to-end: supplier prefix + brand keyword ──────────────────────
+# The full real-world case — Manoj uploading a Hørkram or Netto
+# delivery slip. Supplier name on the front, Danish brand+item behind.
+
+@pytest.mark.parametrize("name,vertical,expected", [
+    ("Hørkram - Royal Greenland laks fersk",       "restaurant", "Seafood"),
+    ("BC Catering Danish Crown hakkebøf",          "restaurant", "Meat"),
+    ("AC Catering Lurpak smør 1kg",                "restaurant", "Dairy"),
+    ("Netto Tuborg Pilsner 6-pack",                "bar",        "Beer"),
+    ("REMA 1000 Faxe Kondi 1.5L",                  "bar",        "Soft Drinks"),
+    ("Lidl Arla mælk 1L",                          "restaurant", "Dairy"),
+    ("SuperBrugsen Schulstad rugbrød",             "restaurant", "Bakery"),
+    ("Føtex - Tulip bacon røget",                  "restaurant", "Meat"),
+    ("Sailing Royal Greenland rejer 1kg",          "restaurant", "Seafood"),
+])
+def test_supplier_prefix_plus_brand_e2e(name, vertical, expected):
+    """The full Manoj scenario — a delivery slip line with supplier
+    name in front and a Danish brand keyword behind. Both layers
+    (strip prefix → match keyword) must work together."""
+    items = [{"name": name}]
+    out, unknown = categorize_deterministic(items, vertical)
+    assert out[0]["category"] == expected, (
+        f"Expected {expected!r} for {name!r}, got {out[0]['category']!r}"
+    )
+    assert out[0]["category_source"] == "rule"
