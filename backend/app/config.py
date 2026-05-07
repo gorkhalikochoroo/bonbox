@@ -1,7 +1,7 @@
 import os
 import secrets
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def _default_secret() -> str:
@@ -13,6 +13,12 @@ _ENV_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file_
 
 
 class Settings(BaseSettings):
+    # Pydantic v2 / pydantic-settings v2: replaces the deprecated
+    # nested `class Config:` style. Same behaviour: load values from
+    # the project-root .env file when one exists. Other env-var
+    # discovery still happens via the OS environment.
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
+
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/smallbiz"
     SECRET_KEY: str = _default_secret()
     # Optional. When rotating SECRET_KEY, set the OLD key here for a grace
@@ -73,9 +79,6 @@ class Settings(BaseSettings):
     # URL Stripe sends user back to after checkout. We use the frontend URL.
     STRIPE_SUCCESS_URL: str = ""  # default = FRONTEND_URL + /subscription?success=1
     STRIPE_CANCEL_URL: str = ""   # default = FRONTEND_URL + /subscription?canceled=1
-
-    class Config:
-        env_file = _ENV_FILE
 
 
 settings = Settings()
