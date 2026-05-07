@@ -1,11 +1,201 @@
 import { useState, useEffect, useRef } from "react";
 import api from "../services/api";
 
+/**
+ * BusinessLookup — multilayer auto-detect form for the user's
+ * registered business. Handles:
+ *
+ *   L1 — smart input (CVR / domain / name) — backend parses
+ *   L2 — primary CVR source (cvrapi.dk) + automatic fallback
+ *   L4 — confidence badges per result (verified | likely | guess)
+ *   L5 — status warnings (konkurs / ophørt / protected / no MOMS)
+ *   L6 — branchekode-driven business_type suggestion banner
+ *   L7 — DAWA address cross-check after a result is selected
+ *
+ * Falls open at every layer:
+ *   • Lookup error → inline manual form
+ *   • No DAWA match → keep CVR address as-is
+ *   • Branchekode unmapped → no banner, owner picks business_type later
+ */
+
 const AUTO_LOOKUP_COUNTRIES = new Set(["DK", "NO", "GB"]);
 
-export default function BusinessLookup({ onSave, initialProfile }) {
+
+// ── Country auto-detect from browser locale + email TLD ──────────────
+//
+// Returns the best-guess country code at component mount, used as the
+// initial value of the dropdown. The user can always change it.
+function detectCountry(initialCountry) {
+  if (initialCountry) return initialCountry;
+  try {
+    const lang = navigator.language || "";  // "da-DK" / "en-GB" / "nb-NO" etc.
+    if (lang.includes("-")) {
+      const cc = lang.split("-")[1].toUpperCase();
+      if (["DK", "NO", "GB", "SE", "DE", "FR", "NL", "US", "AU", "IN", "NP"].includes(cc)) {
+        return cc;
+      }
+    }
+  } catch { /* default below */ }
+  return "DK";
+}
+
+
+// ── Confidence badge ─────────────────────────────────────────────────
+
+function ConfidenceBadge({ level }) {
+  const map = {
+    verified: { color: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300", label: "Verified" },
+    likely:   { color: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300", label: "Likely match" },
+    guess:    { color: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300", label: "Best guess" },
+  };
+  const cfg = map[level] || map.guess;
+  return (
+    <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${cfg.color}`}>
+      {cfg.label}
+    </span>
+  );
+}
+
+
+// ── Status flag warning banners ──────────────────────────────────────
+
+function StatusFlagsBanner({ flags }) {
+  if (!flags || flags.length === 0) return null;
+  const map = {
+    konkurs: {
+      icon: "🚨",
+      color: "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300",
+      title: "Under konkursbehandling",
+      detail: "This company is in liquidation. Saving anyway is fine if it's still operational, but check the legal status.",
+    },
+    ophoert: {
+      icon: "⚠️",
+      color: "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300",
+      title: "Ophørt / Opløst",
+      detail: "The CVR record shows this company has ceased.",
+    },
+    protected: {
+      icon: "🔒",
+      color: "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300",
+      title: "Beskyttet navn",
+      detail: "This is a protected-name registration. Some search results won't show it publicly.",
+    },
+    no_vat: {
+      icon: "💡",
+      color: "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300",
+      title: "Ikke MOMS-registreret",
+      detail: "The company has CVR but isn't VAT-registered. Kasserapport will skip MOMS calculations until you register.",
+    },
+  };
+  return (
+    <div className="space-y-2">
+      {flags.map((f) => {
+        const cfg = map[f];
+        if (!cfg) return null;
+        return (
+          <div key={f} className={`flex gap-2 items-start px-3 py-2 rounded-lg border text-xs ${cfg.color}`}>
+            <span className="text-base leading-none">{cfg.icon}</span>
+            <div className="flex-1">
+              <p className="font-semibold">{cfg.title}</p>
+              <p className="opacity-80">{cfg.detail}</p>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+
+// ── Branchekode "Detected: …" banner ─────────────────────────────────
+
+function BranchekodeBanner({ inference, currentBusinessType, onApply }) {
+  if (!inference) return null;
+  // Don't nag the owner if their business_type already matches the
+  // suggestion — the banner only appears when applying defaults
+  // would actually change something.
+  const same = currentBusinessType === inference.business_type;
+  if (same) return null;
+
+  const labels = {
+    restaurant: "Restaurant",
+    cafe: "Café",
+    bar: "Bar / Diskotek",
+    kiosk: "Kiosk / Købmand",
+    bakery: "Bakery",
+    workshop: "Workshop / Repair",
+    retail: "Retail",
+  };
+  const label = labels[inference.business_type] || inference.business_type;
+  const fuzzyHint = inference.fuzzy ? " (best-guess from branchekode prefix)" : "";
+
+  return (
+    <div className="px-3 py-2 rounded-lg bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 text-xs flex items-center gap-2 flex-wrap">
+      <span className="text-base">🎯</span>
+      <p className="text-purple-700 dark:text-purple-300 flex-1">
+        Detected: <strong>{label}</strong>
+        <span className="text-purple-500 dark:text-purple-400 ml-1">· {inference.description}{fuzzyHint}</span>
+      </p>
+      <button
+        onClick={onApply}
+        className="px-2 py-1 rounded bg-purple-600 hover:bg-purple-700 text-white font-semibold text-[11px]"
+      >
+        Apply defaults
+      </button>
+    </div>
+  );
+}
+
+
+// ── DAWA address-mismatch picker ─────────────────────────────────────
+//
+// Shown after a CVR result is selected, if DAWA returns a canonical
+// address that differs from CVR's. The owner picks which to keep.
+
+function AddressVerifyPicker({ cvrAddress, dawa, onPick }) {
+  if (!dawa) return null;
+  if (dawa.matches_input) {
+    return (
+      <div className="px-3 py-2 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 text-xs flex items-center gap-2">
+        <span>✓</span>
+        <span className="text-green-700 dark:text-green-300">
+          Address verified against DAWA postal register
+        </span>
+      </div>
+    );
+  }
+  // Mismatch — show both and let owner pick
+  return (
+    <div className="px-3 py-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs">
+      <p className="font-semibold text-amber-700 dark:text-amber-300 mb-2">
+        DAWA suggests a slightly different canonical address:
+      </p>
+      <div className="space-y-2">
+        <button
+          onClick={() => onPick(cvrAddress)}
+          className="block w-full text-left px-3 py-2 rounded bg-white dark:bg-gray-800 border border-amber-200 dark:border-amber-700 hover:border-amber-500 transition"
+        >
+          <p className="text-[10px] uppercase text-amber-500">From CVR</p>
+          <p className="text-gray-700 dark:text-gray-200">{cvrAddress}</p>
+        </button>
+        <button
+          onClick={() => onPick(dawa.betegnelse, dawa.id)}
+          className="block w-full text-left px-3 py-2 rounded bg-white dark:bg-gray-800 border border-green-300 dark:border-green-700 hover:border-green-500 transition"
+        >
+          <p className="text-[10px] uppercase text-green-600">From DAWA postal register (recommended)</p>
+          <p className="text-gray-700 dark:text-gray-200">{dawa.betegnelse}</p>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+// ─── Main component ──────────────────────────────────────────────────
+
+export default function BusinessLookup({ onSave, initialProfile, currentBusinessType }) {
   const [countries, setCountries] = useState([]);
-  const [country, setCountry] = useState(initialProfile?.country || "DK");
+  const [country, setCountry] = useState(detectCountry(initialProfile?.country));
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -14,9 +204,11 @@ export default function BusinessLookup({ onSave, initialProfile }) {
   const [saved, setSaved] = useState(false);
   const [manual, setManual] = useState(!AUTO_LOOKUP_COUNTRIES.has(initialProfile?.country || "DK"));
   const [lookupError, setLookupError] = useState("");
+  const [dawa, setDawa] = useState(null);                  // DAWA verify result
+  const [verifyingAddress, setVerifyingAddress] = useState(false);
+  const [appliedBusinessType, setAppliedBusinessType] = useState(null);
   const searchTimer = useRef(null);
 
-  // Manual form state
   const [form, setForm] = useState({
     company_name: initialProfile?.company_name || "",
     org_number: initialProfile?.org_number || "",
@@ -24,6 +216,7 @@ export default function BusinessLookup({ onSave, initialProfile }) {
     city: initialProfile?.city || "",
     zipcode: initialProfile?.zipcode || "",
     industry: initialProfile?.industry || "",
+    industry_code: initialProfile?.industry_code || "",
     phone: initialProfile?.phone || "",
     email: initialProfile?.email || "",
   });
@@ -36,9 +229,10 @@ export default function BusinessLookup({ onSave, initialProfile }) {
     setManual(!AUTO_LOOKUP_COUNTRIES.has(country));
     setResults([]);
     setSelected(null);
+    setDawa(null);
   }, [country]);
 
-  // Auto-search with debounce
+  // Smart-input live search with debounce
   useEffect(() => {
     if (!query || query.length < 2 || manual) return;
     clearTimeout(searchTimer.current);
@@ -53,7 +247,6 @@ export default function BusinessLookup({ onSave, initialProfile }) {
         const msg = err.response?.data?.detail || "";
         if (msg) {
           setLookupError(msg);
-          // Auto-switch to manual form if API is unavailable
           if (msg.includes("limit") || msg.includes("manually")) {
             setManual(true);
           }
@@ -64,6 +257,26 @@ export default function BusinessLookup({ onSave, initialProfile }) {
     return () => clearTimeout(searchTimer.current);
   }, [query, country, manual]);
 
+  /** Cross-check the chosen CVR address against DAWA. Best-effort —
+   * silent failure means we just don't show the verify badge. */
+  const verifyAddressDawa = async (addr, zipcode, city) => {
+    if (country !== "DK" || !addr) {
+      setDawa(null);
+      return;
+    }
+    setVerifyingAddress(true);
+    try {
+      const res = await api.post("/business/verify-address", {
+        address: addr, zipcode, city,
+      });
+      setDawa(res.data?.verified ? res.data : null);
+    } catch {
+      setDawa(null);
+    } finally {
+      setVerifyingAddress(false);
+    }
+  };
+
   const selectResult = (r) => {
     setSelected(r);
     setForm({
@@ -73,11 +286,32 @@ export default function BusinessLookup({ onSave, initialProfile }) {
       city: r.city,
       zipcode: r.zipcode,
       industry: r.industry,
+      industry_code: r.industry_code || "",
       phone: r.phone,
       email: r.email,
     });
     setResults([]);
     setQuery(r.name);
+    // Kick off DAWA verification in the background
+    verifyAddressDawa(r.address, r.zipcode, r.city);
+  };
+
+  /** Apply business_type defaults from the branchekode inference. */
+  const applyBusinessTypeDefaults = async () => {
+    const bt = selected?.branchekode_inference?.business_type;
+    if (!bt) return;
+    try {
+      await api.patch("/auth/profile", { business_type: bt });
+      setAppliedBusinessType(bt);
+    } catch { /* ignore — owner can change manually */ }
+  };
+
+  const useDawaCanonical = (newAddress, dawaId) => {
+    setForm(f => ({ ...f, address: newAddress.split(",")[0] }));
+    // Persist DAWA id so we can detect future changes precisely
+    setSelected(s => ({ ...(s || {}), dawa_address_id: dawaId }));
+    // Mark as verified now (matches_input becomes true with the new addr)
+    setDawa({ verified: true, matches_input: true, betegnelse: newAddress, id: dawaId });
   };
 
   const handleSave = async () => {
@@ -91,17 +325,22 @@ export default function BusinessLookup({ onSave, initialProfile }) {
         city: form.city,
         zipcode: form.zipcode,
         industry: form.industry,
+        industry_code: form.industry_code,
         phone: form.phone,
         email: form.email,
         source: selected?.source || "manual",
         company_type: selected?.company_type || "",
         founded: selected?.founded || "",
+        // Verification trail — passed through if present
+        dawa_address_id: selected?.dawa_address_id || dawa?.id || null,
+        vat_registered: selected?.vat_registered ?? null,
+        status_flags: (selected?.status_flags || []).join("|") || null,
       };
       const res = await api.put("/business", payload);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
       onSave?.(res.data);
-    } catch {}
+    } catch { /* ignore */ }
     setSaving(false);
   };
 
@@ -127,38 +366,61 @@ export default function BusinessLookup({ onSave, initialProfile }) {
         </select>
       </div>
 
-      {/* Search box (for auto-lookup countries) */}
+      {/* Smart-input search */}
       {hasAutoLookup && !manual && (
         <div className="relative">
           <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">
-            Search by company name or {regLabel}
+            Search by name, {regLabel}, or company email/domain
           </label>
           <input
             type="text"
             value={query}
-            onChange={(e) => { setQuery(e.target.value); setSelected(null); }}
-            placeholder={`e.g. "BonBox" or "12345678"`}
+            onChange={(e) => { setQuery(e.target.value); setSelected(null); setDawa(null); }}
+            placeholder={`e.g. "Mirabelle ApS", "39842851", or "anna@mirabelle.dk"`}
             className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200"
+            autoComplete="off"
           />
           {searching && (
-            <div className="absolute right-3 top-8 text-xs text-blue-500">Searching...</div>
+            <div className="absolute right-3 top-8 text-xs text-blue-500">Searching…</div>
+          )}
+
+          {/* Smart-input hint chip — visible when query looks like a CVR/email */}
+          {query && query.length >= 2 && (
+            <SmartInputHint query={query} />
           )}
 
           {/* Results dropdown */}
           {results.length > 0 && (
-            <div className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-xl z-20 max-h-60 overflow-y-auto">
+            <div className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-xl z-20 max-h-80 overflow-y-auto">
               {results.map((r, i) => (
                 <button
                   key={i}
                   onClick={() => selectResult(r)}
                   className="w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 border-b border-gray-50 dark:border-gray-700/50 transition"
                 >
-                  <p className="text-sm font-semibold text-gray-800 dark:text-white">{r.name}</p>
+                  <div className="flex items-start gap-2 mb-0.5">
+                    <p className="text-sm font-semibold text-gray-800 dark:text-white flex-1">{r.name}</p>
+                    {r.confidence && <ConfidenceBadge level={r.confidence} />}
+                  </div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     {regLabel}: {r.org_number} &middot; {r.address}
                   </p>
                   {r.industry && (
                     <p className="text-[10px] text-gray-400 mt-0.5">{r.industry}</p>
+                  )}
+                  {/* Inline status flag preview — even before selection */}
+                  {(r.status_flags || []).length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {r.status_flags.includes("konkurs") && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-semibold">⚠️ konkurs</span>
+                      )}
+                      {r.status_flags.includes("ophoert") && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-semibold">⚠️ ophørt</span>
+                      )}
+                      {r.status_flags.includes("no_vat") && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-semibold">no MOMS</span>
+                      )}
+                    </div>
                   )}
                 </button>
               ))}
@@ -180,14 +442,38 @@ export default function BusinessLookup({ onSave, initialProfile }) {
         </div>
       )}
 
-      {/* Selected company preview OR manual form */}
+      {/* Selected company preview / manual form */}
       {(selected || manual) && (
         <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 space-y-3">
           {selected && !manual && (
-            <div className="flex items-center gap-2 pb-2 border-b border-gray-200 dark:border-gray-600">
-              <span className="text-green-500 text-lg">&#10003;</span>
-              <span className="text-sm font-semibold text-gray-800 dark:text-white">{form.company_name}</span>
-              <span className="text-xs text-gray-400">via {selected.source}</span>
+            <div className="pb-2 border-b border-gray-200 dark:border-gray-600 space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-green-500 text-lg">&#10003;</span>
+                <span className="text-sm font-semibold text-gray-800 dark:text-white">{form.company_name}</span>
+                {selected.confidence && <ConfidenceBadge level={selected.confidence} />}
+                <span className="text-xs text-gray-400">via {selected.source}</span>
+              </div>
+              <StatusFlagsBanner flags={selected.status_flags} />
+              <BranchekodeBanner
+                inference={selected.branchekode_inference}
+                currentBusinessType={appliedBusinessType || currentBusinessType}
+                onApply={applyBusinessTypeDefaults}
+              />
+              {appliedBusinessType && (
+                <div className="px-3 py-1.5 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 text-xs text-green-700 dark:text-green-300">
+                  ✓ Business type set to <strong>{appliedBusinessType}</strong>
+                </div>
+              )}
+              {country === "DK" && (
+                <AddressVerifyPicker
+                  cvrAddress={form.address || selected.address}
+                  dawa={dawa}
+                  onPick={useDawaCanonical}
+                />
+              )}
+              {verifyingAddress && (
+                <p className="text-[11px] text-gray-400">Verifying address with DAWA…</p>
+              )}
             </div>
           )}
 
@@ -262,12 +548,12 @@ export default function BusinessLookup({ onSave, initialProfile }) {
             disabled={saving || !form.company_name}
             className="w-full py-2.5 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 disabled:opacity-40 transition mt-2"
           >
-            {saving ? "Saving..." : saved ? "Saved!" : "Save Business Profile"}
+            {saving ? "Saving…" : saved ? "Saved!" : "Save Business Profile"}
           </button>
 
           {manual && hasAutoLookup && (
             <button
-              onClick={() => { setManual(false); setSelected(null); }}
+              onClick={() => { setManual(false); setSelected(null); setDawa(null); }}
               className="text-xs text-blue-500 hover:underline"
             >
               Search register instead
@@ -276,5 +562,36 @@ export default function BusinessLookup({ onSave, initialProfile }) {
         </div>
       )}
     </div>
+  );
+}
+
+
+/**
+ * Tiny chip that confirms what kind of input the smart-parser saw.
+ * Local copy of the backend's parse_input() heuristics — purely UI
+ * confirmation; the backend is the source of truth on the actual
+ * lookup. Helps the user understand "ah, it's treating this as a CVR."
+ */
+function SmartInputHint({ query }) {
+  const detect = (q) => {
+    const trimmed = q.trim();
+    if (!trimmed) return null;
+    if (trimmed.includes("@")) return { kind: "domain", label: "Email → searching domain" };
+    const digits = trimmed.replace(/\D/g, "");
+    if (digits.length >= 8 && digits.length <= 10) {
+      // Strip common prefixes for the visible form
+      return { kind: "cvr", label: `CVR ${digits.slice(0,2)} ${digits.slice(2,4)} ${digits.slice(4,6)} ${digits.slice(6)}` };
+    }
+    if (trimmed.includes(".") && !trimmed.includes(" ") && trimmed.length > 4) {
+      return { kind: "domain", label: "Domain → searching" };
+    }
+    return null;
+  };
+  const hint = detect(query);
+  if (!hint) return null;
+  return (
+    <p className="mt-1 text-[10px] text-blue-500 dark:text-blue-400">
+      🎯 {hint.label}
+    </p>
   );
 }

@@ -1,4 +1,6 @@
 import uuid
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
@@ -20,6 +22,14 @@ class BusinessProfileCreate(BaseModel):
     source: str | None = None
     founded: str | None = None
     day_cutoff_hour: int | None = None  # 0-6; night shift cutoff
+    # CVR verification trail — usually set by the lookup pipeline,
+    # not the user. Allowed in payload so the verify endpoint can
+    # PATCH them via the same shape, but most clients omit them.
+    cvr_verified_at: datetime | None = None
+    cvr_verified_source: str | None = None
+    dawa_address_id: str | None = None
+    vat_registered: bool | None = None
+    status_flags: str | None = None
 
 
 class BusinessProfileResponse(BaseModel):
@@ -41,6 +51,13 @@ class BusinessProfileResponse(BaseModel):
     source: str | None = None
     founded: str | None = None
     day_cutoff_hour: int = 0
+    # Verification trail — exposed so the frontend can render the
+    # "✓ Verified · CVR · 2 days ago" stamp and the warning banners.
+    cvr_verified_at: datetime | None = None
+    cvr_verified_source: str | None = None
+    dawa_address_id: str | None = None
+    vat_registered: bool | None = None
+    status_flags: str | None = None
 
     model_config = {"from_attributes": True}
 

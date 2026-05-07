@@ -38,6 +38,9 @@ export default function ProfilePage() {
   const [accountantForm, setAccountantForm] = useState({ accountant_email: "", accountant_name: "" });
   const [accountantSaving, setAccountantSaving] = useState(false);
   const [accountantMsg, setAccountantMsg] = useState("");
+  // Re-verify state — pulls a fresh CVR record into the saved profile
+  const [reverifying, setReverifying] = useState(false);
+  const [reverifyMsg, setReverifyMsg] = useState("");
   const [sendingTest, setSendingTest] = useState(false);
   const [waStatus, setWaStatus] = useState(null);
   const [waPhone, setWaPhone] = useState("");
@@ -75,6 +78,40 @@ export default function ProfilePage() {
       }
     }).catch(() => {});
   }, []);
+
+  /** Re-verify the saved profile against CVR (or whichever register
+   * applies for the country). Updates name/address/industry/status
+   * flags + bumps cvr_verified_at = now. Surfaced via the "Re-verify"
+   * button on the verified banner.
+   */
+  const reverifyProfile = async () => {
+    setReverifying(true);
+    setReverifyMsg("");
+    try {
+      const res = await api.post("/business/reverify");
+      const data = res.data || {};
+      if (data.refreshed) {
+        // Pull the updated profile so the UI reflects whatever changed
+        const fresh = await api.get("/business");
+        setBusinessProfile(fresh.data);
+        const changed = data.fields_changed || [];
+        setReverifyMsg(
+          changed.length === 0
+            ? "✓ Profile is already up to date"
+            : `✓ Updated: ${changed.join(", ")}`,
+        );
+      } else {
+        setReverifyMsg(data.message || "Could not refresh — try again");
+      }
+      setTimeout(() => setReverifyMsg(""), 5000);
+    } catch (err) {
+      const detail = err?.response?.data?.detail || "Re-verify failed — try again";
+      setReverifyMsg(`⚠️ ${detail}`);
+      setTimeout(() => setReverifyMsg(""), 5000);
+    } finally {
+      setReverifying(false);
+    }
+  };
 
   /** Save accountant contact onto the BusinessProfile. PUT /api/business
    * upserts so we can reuse the same endpoint without changing other
@@ -310,13 +347,12 @@ export default function ProfilePage() {
         </div>
 
         {businessProfile && (
-          <div className="mb-4 px-4 py-3 bg-green-50 dark:bg-green-900/20 rounded-xl flex items-center gap-2">
-            <span className="text-green-500">&#10003;</span>
-            <span className="text-sm font-medium text-green-700 dark:text-green-400">
-              {businessProfile.company_name}
-              {businessProfile.org_number && <span className="text-green-600/70 dark:text-green-500/70 ml-2">({businessProfile.org_number})</span>}
-            </span>
-          </div>
+          <VerifiedBusinessBanner
+            profile={businessProfile}
+            reverifying={reverifying}
+            reverifyMsg={reverifyMsg}
+            onReverify={reverifyProfile}
+          />
         )}
 
         <BusinessLookup
@@ -335,6 +371,7 @@ export default function ProfilePage() {
             });
           }}
           initialProfile={businessProfile}
+          currentBusinessType={user?.business_type}
         />
       </div>
 
@@ -796,6 +833,130 @@ export default function ProfilePage() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+
+/**
+ * Verified-business banner — shows the freshness + provenance of the
+ * saved profile, plus warning flags + the Re-verify button.
+ *
+ * Three visual states:
+ *   1. cvr_verified_at set + recent  → green "Verified · 2 days ago"
+ *   2. cvr_verified_at set + stale   → amber "Last checked 4 months
+ *                                       ago — Re-verify?"
+ *   3. cvr_verified_at NULL          → grey "Manual entry · not
+ *                                       verified — Verify with CVR"
+ *
+ * Stale threshold: 90 days. Picks up name changes / address moves /
+ * MOMS-registration changes / konkurs status without the owner
+ * having to remember to refresh.
+ */
+function VerifiedBusinessBanner({ profile, reverifying, reverifyMsg, onReverify }) {
+  if (!profile) return null;
+
+  const verifiedAt = profile.cvr_verified_at ? new Date(profile.cvr_verified_at) : null;
+  const ageMs = verifiedAt ? (Date.now() - verifiedAt.getTime()) : null;
+  const ageDays = ageMs !== null ? Math.floor(ageMs / 86400000) : null;
+  const isStale = ageDays !== null && ageDays > 90;
+  const isVerified = !!verifiedAt && !isStale;
+
+  // Status flag chips — pipe-delimited string
+  const flags = (profile.status_flags || "").split("|").filter(Boolean);
+
+  // Pretty-print the age for the freshness label
+  const ageLabel = ageDays === null
+    ? "Not yet verified"
+    : ageDays === 0  ? "Just now"
+    : ageDays === 1  ? "Yesterday"
+    : ageDays < 7    ? `${ageDays} days ago`
+    : ageDays < 30   ? `${Math.floor(ageDays / 7)} weeks ago`
+    : ageDays < 365  ? `${Math.floor(ageDays / 30)} months ago`
+    :                  `${Math.floor(ageDays / 365)} years ago`;
+
+  // Color theme by state
+  const themeClass = isVerified
+    ? "bg-green-50 dark:bg-green-900/20 border-green-100 dark:border-green-800/50"
+    : isStale
+      ? "bg-amber-50 dark:bg-amber-900/20 border-amber-100 dark:border-amber-800/50"
+      : "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700";
+  const titleColor = isVerified
+    ? "text-green-700 dark:text-green-400"
+    : isStale
+      ? "text-amber-700 dark:text-amber-400"
+      : "text-gray-700 dark:text-gray-300";
+
+  return (
+    <div className={`mb-4 px-4 py-3 rounded-xl border ${themeClass}`}>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="flex items-start gap-2 flex-1 min-w-0">
+          <span className="text-lg leading-none">
+            {isVerified ? "✓" : isStale ? "🔄" : "ℹ️"}
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className={`text-sm font-semibold ${titleColor} truncate`}>
+              {profile.company_name}
+              {profile.org_number && (
+                <span className="font-normal opacity-70 ml-2">
+                  ({profile.org_number})
+                </span>
+              )}
+            </p>
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+              {isVerified
+                ? `Verified · ${profile.cvr_verified_source || "register"} · ${ageLabel}`
+                : isStale
+                  ? `Last checked ${ageLabel} — re-verify to pick up any changes`
+                  : "Manual entry — not verified against any register"}
+            </p>
+            {profile.dawa_address_id && (
+              <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
+                ✓ Address cross-checked with DAWA postal register
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Re-verify button — surfaces only when an org_number is set */}
+        {profile.org_number && (
+          <button
+            onClick={onReverify}
+            disabled={reverifying}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition disabled:opacity-50 ${
+              isStale
+                ? "bg-amber-600 hover:bg-amber-700 text-white"
+                : "bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:border-blue-400"
+            }`}
+          >
+            {reverifying ? "⏳ Checking…" : "🔄 Re-verify"}
+          </button>
+        )}
+      </div>
+
+      {/* Status flags — only shows if any are set */}
+      {flags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700/50">
+          {flags.includes("konkurs") && (
+            <span className="text-[10px] px-2 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 font-semibold">⚠️ Under konkurs</span>
+          )}
+          {flags.includes("ophoert") && (
+            <span className="text-[10px] px-2 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 font-semibold">⚠️ Ophørt</span>
+          )}
+          {flags.includes("protected") && (
+            <span className="text-[10px] px-2 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 font-semibold">🔒 Beskyttet navn</span>
+          )}
+          {flags.includes("no_vat") && (
+            <span className="text-[10px] px-2 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 font-semibold">Ikke MOMS-registreret</span>
+          )}
+        </div>
+      )}
+
+      {reverifyMsg && (
+        <p className="text-[11px] text-gray-600 dark:text-gray-300 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700/50">
+          {reverifyMsg}
+        </p>
+      )}
     </div>
   );
 }

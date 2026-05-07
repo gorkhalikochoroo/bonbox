@@ -420,6 +420,17 @@ _migrations = [
     # business may have its own accountant.
     "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS accountant_email VARCHAR(255)",
     "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS accountant_name VARCHAR(255)",
+    # ── Migration 018: multilayer CVR verification trail ──
+    # Tracks when + how the business profile was last verified against
+    # the official register, plus DAWA address verification + status
+    # flags + MOMS registration. Powers the Re-verify button, the
+    # "✓ Verified · CVR · 39842851 · 2 days ago" stamp, and the
+    # warning banners (konkurs / not-VAT-registered / protected).
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS cvr_verified_at TIMESTAMP",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS cvr_verified_source VARCHAR(50)",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS dawa_address_id VARCHAR(50)",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS vat_registered BOOLEAN",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS status_flags TEXT",
 ]
 
 def _run_migrations():
@@ -582,6 +593,12 @@ def _run_migrations():
             # Migration 017 mirror — accountant contact on business profile
             ok += _add("business_profiles", "accountant_email", "VARCHAR(255)")
             ok += _add("business_profiles", "accountant_name", "VARCHAR(255)")
+            # Migration 018 mirror — multilayer CVR verification trail
+            ok += _add("business_profiles", "cvr_verified_at", "TIMESTAMP")
+            ok += _add("business_profiles", "cvr_verified_source", "VARCHAR(50)")
+            ok += _add("business_profiles", "dawa_address_id", "VARCHAR(50)")
+            ok += _add("business_profiles", "vat_registered", "BOOLEAN")
+            ok += _add("business_profiles", "status_flags", "TEXT")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",
