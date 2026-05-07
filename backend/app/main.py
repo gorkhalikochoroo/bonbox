@@ -412,6 +412,14 @@ _migrations = [
     "ALTER TABLE inventory_import_examples ADD COLUMN IF NOT EXISTS is_global BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE inventory_import_examples ALTER COLUMN user_id DROP NOT NULL",
     "CREATE INDEX IF NOT EXISTS ix_inv_imp_examples_is_global ON inventory_import_examples (is_global)",
+    # ── Migration 017: accountant_email on business_profiles ──
+    # Lets the owner save their bookkeeper's email once so the
+    # "Send to accountant" button on Daily Close range export can
+    # pre-fill the To: field. Stored on BusinessProfile rather than
+    # User because in multi-branch / multi-business setups each
+    # business may have its own accountant.
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS accountant_email VARCHAR(255)",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS accountant_name VARCHAR(255)",
 ]
 
 def _run_migrations():
@@ -571,6 +579,9 @@ def _run_migrations():
             # — fresh installs use the model definition which already
             # has user_id nullable).
             ok += _add("inventory_import_examples", "is_global", "BOOLEAN NOT NULL DEFAULT 0")
+            # Migration 017 mirror — accountant contact on business profile
+            ok += _add("business_profiles", "accountant_email", "VARCHAR(255)")
+            ok += _add("business_profiles", "accountant_name", "VARCHAR(255)")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",

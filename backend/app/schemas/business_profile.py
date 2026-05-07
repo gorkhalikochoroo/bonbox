@@ -15,6 +15,8 @@ class BusinessProfileCreate(BaseModel):
     company_type: str | None = None
     phone: str | None = None
     email: str | None = None
+    accountant_email: str | None = None
+    accountant_name: str | None = None
     source: str | None = None
     founded: str | None = None
     day_cutoff_hour: int | None = None  # 0-6; night shift cutoff
@@ -34,6 +36,8 @@ class BusinessProfileResponse(BaseModel):
     company_type: str | None = None
     phone: str | None = None
     email: str | None = None
+    accountant_email: str | None = None
+    accountant_name: str | None = None
     source: str | None = None
     founded: str | None = None
     day_cutoff_hour: int = 0

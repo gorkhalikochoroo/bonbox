@@ -15,6 +15,7 @@ import {
   formatDanishDateLabel,
   shareCloseSummary,
 } from "../utils/shareClose";
+import { sendDailyCloseRangeToAccountant } from "../utils/shareDailyCloseRange";
 
 /* ═══════════════════════════════════════════════════════════
    OFFLINE QUEUE — store pending daily close submissions
@@ -1408,6 +1409,17 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
   const [customTo, setCustomTo] = useState(todayIso());
   const [exportingFmt, setExportingFmt] = useState(null); // 'pdf' | 'csv' | null
   const [exportError, setExportError] = useState("");
+  const [sendingToAccountant, setSendingToAccountant] = useState(false);
+  const [sendStatus, setSendStatus] = useState(""); // user-facing toast after a send
+
+  // BusinessProfile carries accountant_email + accountant_name.
+  // Loaded once so the Send button can pre-fill mailto's To: field
+  // and the Danish greeting line ("Hej Anna,"). Failure is silent —
+  // the Send button still works, just without a pre-filled recipient.
+  const [businessProfile, setBusinessProfile] = useState(null);
+  useEffect(() => {
+    api.get("/business").then(r => setBusinessProfile(r.data)).catch(() => {});
+  }, []);
 
   // Compute the active (from, to) for whichever preset is selected.
   const activeRange = useMemo(() => {
@@ -1453,6 +1465,73 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
       setTimeout(() => setExportError(""), 5000);
     } finally {
       setExportingFmt(null);
+    }
+  };
+
+  /**
+   * One-tap "Send to accountant" for the chosen date range.
+   *
+   * Fetches the multi-day PDF, then hands it to
+   * sendDailyCloseRangeToAccountant() which:
+   *   • on iPhone/Android: opens the native share sheet with the PDF
+   *     pre-attached → user picks Mail / WhatsApp / AirDrop → done
+   *   • on desktop: downloads the file + opens mailto: with To, Subject
+   *     and Danish-language Body pre-filled → user attaches the file
+   *
+   * Errors during fetch are surfaced through the same exportError
+   * state as the regular PDF/CSV downloads — same UI, same messaging.
+   */
+  const sendToAccountant = async () => {
+    setSendingToAccountant(true);
+    setExportError("");
+    setSendStatus("");
+    try {
+      const url = `/daily-close/export.pdf?from=${activeRange.from}&to=${activeRange.to}`;
+      const res = await api.get(url, { responseType: "blob" });
+      const blob = new Blob([res.data], { type: "application/pdf" });
+      const filename = `daily-close_${activeRange.from}_to_${activeRange.to}.pdf`;
+
+      // Inherit language from user.language (set in Profile) — defaults
+      // to Danish since the recipient is typically a DK accountant.
+      const lang = (user?.language === "en") ? "en" : "da";
+
+      const result = await sendDailyCloseRangeToAccountant({
+        blob, filename,
+        accountantEmail: businessProfile?.accountant_email || "",
+        accountantName: businessProfile?.accountant_name || "",
+        businessName: user?.business_name || "",
+        fromIso: activeRange.from,
+        toIso: activeRange.to,
+        closeCount: rangeCount,
+        language: lang,
+      });
+
+      if (result.ok) {
+        // Different toast per channel so the user knows what happened.
+        if (result.channel === "share") {
+          setSendStatus(t("sentViaShare") || "Share sheet opened — pick Mail / WhatsApp");
+        } else if (result.channel === "mailto") {
+          setSendStatus(
+            businessProfile?.accountant_email
+              ? (t("sentViaMailto") || "Email opened — attach the downloaded PDF and send")
+              : (t("sentViaMailtoNoTo") || "Email opened — add accountant address, attach PDF, send"),
+          );
+        } else {
+          setSendStatus(t("downloadedFallback") || "Downloaded — attach manually to email");
+        }
+        setTimeout(() => setSendStatus(""), 5000);
+      } else {
+        setExportError(result.reason || "Could not start the share. Please try the PDF download instead.");
+        setTimeout(() => setExportError(""), 5000);
+      }
+    } catch (e) {
+      const detail = e?.response?.data?.detail
+        || (e?.response?.status === 429 ? "Too many exports — wait a minute and try again." : null)
+        || "Could not generate the report. Please try again.";
+      setExportError(detail);
+      setTimeout(() => setExportError(""), 5000);
+    } finally {
+      setSendingToAccountant(false);
     }
   };
 
@@ -1668,23 +1747,51 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
             {"  ·  "}
             {rangeCount} close{rangeCount === 1 ? "" : "s"}
           </p>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               onClick={() => downloadRange("pdf")}
-              disabled={!!exportingFmt || rangeCount === 0}
+              disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
               className="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition"
             >
               {exportingFmt === "pdf" ? "⏳ Generating…" : "📄 PDF"}
             </button>
             <button
               onClick={() => downloadRange("csv")}
-              disabled={!!exportingFmt || rangeCount === 0}
+              disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
               className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition"
             >
               {exportingFmt === "csv" ? "⏳ Generating…" : "📊 CSV"}
             </button>
+            <button
+              onClick={sendToAccountant}
+              disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
+              className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition"
+              title={
+                businessProfile?.accountant_email
+                  ? `Send to ${businessProfile.accountant_email}`
+                  : "Send to accountant — set their email on Profile to skip typing it"
+              }
+            >
+              {sendingToAccountant ? "⏳ Sending…" : "📤 Send to accountant"}
+            </button>
           </div>
         </div>
+
+        {/* Hint when no accountant email is saved — points to Profile so
+            the next send is one-tap. Hidden once the email is set. */}
+        {!businessProfile?.accountant_email && rangeCount > 0 && (
+          <p className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
+            💡 {t("accountantHint") || "Tip: save your accountant's email on "}
+            <a href="/profile" className="text-amber-600 dark:text-amber-400 hover:underline">
+              {t("profileLinkLabel") || "Profile"}
+            </a>
+            {" "}{t("accountantHintTail") || "to skip typing it every time."}
+          </p>
+        )}
+
+        {sendStatus && (
+          <p className="mt-2 text-xs text-green-600 dark:text-green-400">✅ {sendStatus}</p>
+        )}
 
         {exportError && (
           <p className="mt-2 text-xs text-red-500 dark:text-red-400">⚠️ {exportError}</p>

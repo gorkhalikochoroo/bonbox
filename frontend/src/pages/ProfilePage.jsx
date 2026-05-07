@@ -31,6 +31,13 @@ export default function ProfilePage() {
   // so no local state for them here anymore — see TaxAutopilotPage.jsx.
   const { permission: pushPerm, supported: pushSupported, requestPermission: requestPush } = usePushNotifications();
   const [businessProfile, setBusinessProfile] = useState(null);
+  // Accountant contact — stored on BusinessProfile, used by the
+  // Daily Close range export "Send to accountant" button to pre-fill
+  // the To: + greeting. Optional; left blank means the user types
+  // recipient on each send.
+  const [accountantForm, setAccountantForm] = useState({ accountant_email: "", accountant_name: "" });
+  const [accountantSaving, setAccountantSaving] = useState(false);
+  const [accountantMsg, setAccountantMsg] = useState("");
   const [sendingTest, setSendingTest] = useState(false);
   const [waStatus, setWaStatus] = useState(null);
   const [waPhone, setWaPhone] = useState("");
@@ -58,8 +65,44 @@ export default function ProfilePage() {
     });
     api.get("/email/preferences").then((res) => setEmailPrefs(res.data)).catch(() => {});
     api.get("/whatsapp/status").then((res) => setWaStatus(res.data)).catch(() => {});
-    api.get("/business").then((res) => setBusinessProfile(res.data)).catch(() => {});
+    api.get("/business").then((res) => {
+      setBusinessProfile(res.data);
+      if (res.data) {
+        setAccountantForm({
+          accountant_email: res.data.accountant_email || "",
+          accountant_name: res.data.accountant_name || "",
+        });
+      }
+    }).catch(() => {});
   }, []);
+
+  /** Save accountant contact onto the BusinessProfile. PUT /api/business
+   * upserts so we can reuse the same endpoint without changing other
+   * fields — backend uses model_dump(exclude_unset=True). */
+  const saveAccountant = async (e) => {
+    e?.preventDefault?.();
+    setAccountantSaving(true);
+    setAccountantMsg("");
+    try {
+      const payload = {
+        // Send the existing company_name so the backend doesn't blank
+        // it (PUT acts as upsert and would replace empty fields if
+        // we didn't echo them — defensive).
+        company_name: businessProfile?.company_name || "",
+        accountant_email: accountantForm.accountant_email.trim() || null,
+        accountant_name: accountantForm.accountant_name.trim() || null,
+      };
+      const res = await api.put("/business", payload);
+      setBusinessProfile(res.data);
+      setAccountantMsg(t("accountantSaved") || "Accountant contact saved");
+      setTimeout(() => setAccountantMsg(""), 3000);
+    } catch {
+      setAccountantMsg(t("accountantSaveFailed") || "Could not save — try again");
+      setTimeout(() => setAccountantMsg(""), 4000);
+    } finally {
+      setAccountantSaving(false);
+    }
+  };
 
   const toggleEmailPref = async (key) => {
     const updated = { ...emailPrefs, [key]: !emailPrefs[key] };
@@ -279,6 +322,12 @@ export default function ProfilePage() {
         <BusinessLookup
           onSave={(profile) => {
             setBusinessProfile(profile);
+            if (profile) {
+              setAccountantForm({
+                accountant_email: profile.accountant_email || "",
+                accountant_name: profile.accountant_name || "",
+              });
+            }
             // Also refresh user data since business_name syncs
             api.get("/auth/me").then((res) => {
               setUser(res.data);
@@ -287,6 +336,73 @@ export default function ProfilePage() {
           }}
           initialProfile={businessProfile}
         />
+      </div>
+
+      {/* Accountant Contact — pre-fills the "Send to accountant"
+          button on the Daily Close range export. Optional. Saved
+          locally to the BusinessProfile, never shared with anyone. */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900/30 rounded-xl flex items-center justify-center">
+            <span className="text-xl">📧</span>
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+              {t("accountantContact") || "Accountant contact"}
+            </h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500">
+              {t("accountantContactDesc") ||
+                "Pre-fills the Send button on Daily Close range exports. Optional."}
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={saveAccountant} className="space-y-4">
+          <div>
+            <label className={labelClass}>
+              {t("accountantNameLabel") || "Accountant name (optional)"}
+            </label>
+            <input
+              type="text"
+              value={accountantForm.accountant_name}
+              onChange={(e) => setAccountantForm(f => ({ ...f, accountant_name: e.target.value }))}
+              placeholder="Anna Hansen"
+              maxLength={150}
+              className={inputClass}
+              autoComplete="off"
+            />
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+              {t("accountantNameHint") ||
+                "Used in the email greeting (\"Hej Anna,\")."}
+            </p>
+          </div>
+          <div>
+            <label className={labelClass}>
+              {t("accountantEmailLabel") || "Accountant email"}
+            </label>
+            <input
+              type="email"
+              value={accountantForm.accountant_email}
+              onChange={(e) => setAccountantForm(f => ({ ...f, accountant_email: e.target.value }))}
+              placeholder="anna@revisor.dk"
+              maxLength={254}
+              className={inputClass}
+              autoComplete="off"
+            />
+          </div>
+
+          {accountantMsg && (
+            <p className="text-sm text-green-600 dark:text-green-400">{accountantMsg}</p>
+          )}
+
+          <button
+            type="submit"
+            disabled={accountantSaving}
+            className="w-full sm:w-auto px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl transition disabled:opacity-50"
+          >
+            {accountantSaving ? (t("saving") || "Saving…") : (t("save") || "Save")}
+          </button>
+        </form>
       </div>
 
       {/* Change Password */}

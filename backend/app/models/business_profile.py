@@ -28,6 +28,10 @@ class BusinessProfile(Base):
     # Contact
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Accountant — pre-fill the To: field on "Send to accountant"
+    # exports (kasserapport range PDF). Saved once, used on every send.
+    accountant_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    accountant_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Operations
     day_cutoff_hour: Mapped[int] = mapped_column(Integer, default=0)  # 0-6; hour before which "today" = yesterday (night shift)
     # Meta
