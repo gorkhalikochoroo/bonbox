@@ -513,3 +513,278 @@ def portal_call_sick(
         reason=absence.reason,
         called_at=absence.called_at,
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Shift swap requests — staff peer-to-peer trading
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Multi-layer defense:
+#   L1 — Auth: magic-link token resolves staff identity. The proposer
+#        can only use their own staff_id (token-bound). When responding
+#        or withdrawing, the staff_id of the action is also fixed by
+#        the token — caller can't act as another staff.
+#   L2 — Rate limit: 6/min per IP. Propose + respond combined.
+#   L3 — Service-layer validation: tenant boundary, ownership, lifecycle
+#        guards (see services/shift_swap_service.py).
+#   L4 — Idempotency: duplicate propose returns existing pending row.
+
+class SwapProposeBody(BaseModel):
+    """Staff proposes a swap. staff_id NOT in body (token-bound)."""
+    from_shift_id: str
+    to_staff_id: str
+    to_shift_id: str
+    reason: str | None = None
+
+
+class SwapRespondBody(BaseModel):
+    accept: bool
+
+
+class SwapPortalResponse(BaseModel):
+    id: str
+    direction: str  # "outgoing" if I proposed, "incoming" if I'm the target
+    status: str
+    from_staff_id: str
+    from_staff_name: str | None
+    from_shift_id: str
+    from_shift_date: date | None
+    from_shift_time: str | None
+    to_staff_id: str | None
+    to_staff_name: str | None
+    to_shift_id: str | None
+    to_shift_date: date | None
+    to_shift_time: str | None
+    reason: str | None
+    owner_note: str | None
+    responded_at: datetime | None
+    decided_at: datetime | None
+    created_at: datetime
+
+
+def _hydrate_swap(swap, db, *, viewer_staff_id) -> SwapPortalResponse:
+    """Build the portal response from a ShiftSwapRequest, joining
+    staff names + shift dates so the inbox UI renders without N+1
+    follow-up calls. The `direction` field tells the UI whether THIS
+    viewer proposed (outgoing) or is the target (incoming)."""
+    from_staff = db.query(StaffMember).filter(
+        StaffMember.id == swap.from_staff_id,
+    ).first()
+    to_staff = (
+        db.query(StaffMember).filter(StaffMember.id == swap.to_staff_id).first()
+        if swap.to_staff_id else None
+    )
+    from_sched = db.query(Schedule).filter(Schedule.id == swap.from_shift_id).first()
+    to_sched = (
+        db.query(Schedule).filter(Schedule.id == swap.to_shift_id).first()
+        if swap.to_shift_id else None
+    )
+    direction = "outgoing" if swap.from_staff_id == viewer_staff_id else "incoming"
+    return SwapPortalResponse(
+        id=str(swap.id),
+        direction=direction,
+        status=swap.status,
+        from_staff_id=str(swap.from_staff_id),
+        from_staff_name=from_staff.name if from_staff else None,
+        from_shift_id=str(swap.from_shift_id),
+        from_shift_date=from_sched.date if from_sched else None,
+        from_shift_time=(
+            f"{from_sched.start_time}–{from_sched.end_time}"
+            if from_sched else None
+        ),
+        to_staff_id=str(swap.to_staff_id) if swap.to_staff_id else None,
+        to_staff_name=to_staff.name if to_staff else None,
+        to_shift_id=str(swap.to_shift_id) if swap.to_shift_id else None,
+        to_shift_date=to_sched.date if to_sched else None,
+        to_shift_time=(
+            f"{to_sched.start_time}–{to_sched.end_time}"
+            if to_sched else None
+        ),
+        reason=swap.reason,
+        owner_note=swap.owner_note,
+        responded_at=swap.responded_at,
+        decided_at=swap.decided_at,
+        created_at=swap.created_at,
+    )
+
+
+class TeamShift(BaseModel):
+    """Lightweight shift summary for the team-schedule transparency
+    view. Includes only what staff need to identify a swap target —
+    no rates, no notes, no payroll info. Staff sees who's working when."""
+    shift_id: str
+    staff_id: str
+    staff_name: str
+    date: date
+    start_time: str
+    end_time: str
+    role: str | None
+
+
+@router.get("/portal/{token}/team-schedule", response_model=list[TeamShift])
+def portal_team_schedule(
+    token: str,
+    days_ahead: int = 21,
+    db: Session = Depends(get_db),
+):
+    """Transparency view — upcoming shifts for ALL active staff at the
+    same owner. Used by the staff-side swap-propose modal so a staff
+    can pick a specific teammate + a specific shift of theirs to swap
+    for. Same pattern Planday + Deputy use; needed for a P2P swap to
+    be coherent.
+
+    Privacy:
+      • Returns ONLY shift date + time + role + staff name. NO rates,
+        NO notes, NO payroll info, NO PII beyond first name.
+      • Tenant-scoped to the owner of the magic-link's staff. Cross-
+        owner leakage is impossible — every query joins on user_id ==
+        member.user_id.
+      • Caps days_ahead at 21 server-side (frontend default = 21) so
+        a malicious client can't request unbounded data.
+    """
+    _link, member = _get_staff_from_token(token, db)
+
+    if days_ahead < 1 or days_ahead > 21:
+        days_ahead = 21
+    today = date.today()
+    end = today + timedelta(days=days_ahead)
+
+    shifts = (
+        db.query(Schedule, StaffMember)
+        .join(StaffMember, Schedule.staff_id == StaffMember.id)
+        .filter(
+            Schedule.user_id == member.user_id,
+            Schedule.date >= today,
+            Schedule.date <= end,
+            StaffMember.is_deleted.isnot(True),
+            StaffMember.active.is_(True),
+        )
+        .order_by(Schedule.date.asc(), Schedule.start_time.asc())
+        .all()
+    )
+
+    return [
+        TeamShift(
+            shift_id=str(s.id),
+            staff_id=str(staff.id),
+            staff_name=staff.name,
+            date=s.date,
+            start_time=s.start_time,
+            end_time=s.end_time,
+            role=s.role_on_shift,
+        )
+        for s, staff in shifts
+    ]
+
+
+@router.post("/portal/{token}/swap-requests", response_model=SwapPortalResponse)
+@limiter.limit("6/minute")
+def portal_propose_swap(
+    token: str,
+    body: SwapProposeBody,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Staff proposes a swap. The body never carries the staff_id —
+    it's bound by the magic-link token."""
+    import uuid as _uuid
+    from app.services.shift_swap_service import propose_swap, ShiftSwapError
+
+    _link, member = _get_staff_from_token(token, db)
+    try:
+        from_shift = _uuid.UUID(body.from_shift_id)
+        to_staff = _uuid.UUID(body.to_staff_id)
+        to_shift = _uuid.UUID(body.to_shift_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid id")
+
+    try:
+        swap = propose_swap(
+            db,
+            owner_id=member.user_id,
+            from_staff_id=member.id,
+            from_shift_id=from_shift,
+            to_staff_id=to_staff,
+            to_shift_id=to_shift,
+            reason=body.reason,
+        )
+    except ShiftSwapError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    return _hydrate_swap(swap, db, viewer_staff_id=member.id)
+
+
+@router.get("/portal/{token}/swap-requests", response_model=list[SwapPortalResponse])
+def portal_list_swaps(
+    token: str,
+    include_resolved: bool = False,
+    db: Session = Depends(get_db),
+):
+    """Staff inbox — incoming + outgoing swaps. Default hides resolved
+    (terminal) entries to keep the UI tidy."""
+    from app.services.shift_swap_service import list_for_staff
+
+    _link, member = _get_staff_from_token(token, db)
+    swaps = list_for_staff(
+        db, staff_id=member.id, include_resolved=include_resolved,
+    )
+    return [_hydrate_swap(s, db, viewer_staff_id=member.id) for s in swaps]
+
+
+@router.post(
+    "/portal/{token}/swap-requests/{swap_id}/respond",
+    response_model=SwapPortalResponse,
+)
+@limiter.limit("6/minute")
+def portal_respond_to_swap(
+    token: str,
+    swap_id: str,
+    body: SwapRespondBody,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """to_staff accepts or declines a swap. Service refuses if the
+    swap's to_staff_id != the token's staff (same shape as not-found —
+    no enumeration)."""
+    import uuid as _uuid
+    from app.services.shift_swap_service import respond_to_swap, ShiftSwapError
+
+    _link, member = _get_staff_from_token(token, db)
+    try:
+        swap_uuid = _uuid.UUID(swap_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid swap_id")
+    try:
+        swap = respond_to_swap(
+            db, swap_id=swap_uuid, responder_staff_id=member.id, accept=body.accept,
+        )
+    except ShiftSwapError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return _hydrate_swap(swap, db, viewer_staff_id=member.id)
+
+
+@router.post(
+    "/portal/{token}/swap-requests/{swap_id}/withdraw",
+    response_model=SwapPortalResponse,
+)
+@limiter.limit("6/minute")
+def portal_withdraw_swap(
+    token: str,
+    swap_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Proposer cancels their offer before to_staff has responded."""
+    import uuid as _uuid
+    from app.services.shift_swap_service import withdraw_swap, ShiftSwapError
+
+    _link, member = _get_staff_from_token(token, db)
+    try:
+        swap_uuid = _uuid.UUID(swap_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid swap_id")
+    try:
+        swap = withdraw_swap(db, swap_id=swap_uuid, proposer_staff_id=member.id)
+    except ShiftSwapError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return _hydrate_swap(swap, db, viewer_staff_id=member.id)

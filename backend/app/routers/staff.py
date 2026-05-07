@@ -2146,3 +2146,123 @@ def suggest_absence_replacements(
         }
         for c in candidates
     ]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Shift swap requests — owner approval surface
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Staff propose + respond from the magic-link portal (staff_portal.py).
+# Owner approves or denies here. Service layer enforces the atomic
+# Schedule.staff_id flip on approve.
+
+from app.models.shift_swap import ShiftSwapRequest as _ShiftSwapRequest
+from app.services.shift_swap_service import (
+    decide_swap as _decide_swap,
+    list_pending_for_owner as _list_pending_for_owner,
+    ShiftSwapError as _ShiftSwapError,
+)
+
+
+class _SwapDecideRequest(_BM):
+    approve: bool
+    note: str | None = None
+
+
+class _SwapOwnerResponse(_BM):
+    id: str
+    status: str
+    from_staff_id: str
+    from_staff_name: str | None
+    from_shift_id: str
+    from_shift_date: date | None
+    from_shift_time: str | None
+    to_staff_id: str | None
+    to_staff_name: str | None
+    to_shift_id: str | None
+    to_shift_date: date | None
+    to_shift_time: str | None
+    reason: str | None
+    owner_note: str | None
+    responded_at: datetime | None
+    decided_at: datetime | None
+    created_at: datetime
+
+
+def _hydrate_swap_owner(swap: _ShiftSwapRequest, db: Session) -> _SwapOwnerResponse:
+    """Same shape as the portal hydration, minus the viewer-direction
+    field (owner sees both directions equally)."""
+    from_staff = db.query(StaffMember).filter(
+        StaffMember.id == swap.from_staff_id,
+    ).first()
+    to_staff = (
+        db.query(StaffMember).filter(StaffMember.id == swap.to_staff_id).first()
+        if swap.to_staff_id else None
+    )
+    from_sched = db.query(Schedule).filter(Schedule.id == swap.from_shift_id).first()
+    to_sched = (
+        db.query(Schedule).filter(Schedule.id == swap.to_shift_id).first()
+        if swap.to_shift_id else None
+    )
+    return _SwapOwnerResponse(
+        id=str(swap.id),
+        status=swap.status,
+        from_staff_id=str(swap.from_staff_id),
+        from_staff_name=from_staff.name if from_staff else None,
+        from_shift_id=str(swap.from_shift_id),
+        from_shift_date=from_sched.date if from_sched else None,
+        from_shift_time=(
+            f"{from_sched.start_time}–{from_sched.end_time}"
+            if from_sched else None
+        ),
+        to_staff_id=str(swap.to_staff_id) if swap.to_staff_id else None,
+        to_staff_name=to_staff.name if to_staff else None,
+        to_shift_id=str(swap.to_shift_id) if swap.to_shift_id else None,
+        to_shift_date=to_sched.date if to_sched else None,
+        to_shift_time=(
+            f"{to_sched.start_time}–{to_sched.end_time}"
+            if to_sched else None
+        ),
+        reason=swap.reason,
+        owner_note=swap.owner_note,
+        responded_at=swap.responded_at,
+        decided_at=swap.decided_at,
+        created_at=swap.created_at,
+    )
+
+
+@router.get("/swap-requests", response_model=list[_SwapOwnerResponse])
+def list_swap_requests(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Owner card / page — pending-approval swaps."""
+    swaps = _list_pending_for_owner(db, owner_id=user.id)
+    return [_hydrate_swap_owner(s, db) for s in swaps]
+
+
+@router.post("/swap-requests/{swap_id}/decide", response_model=_SwapOwnerResponse)
+def decide_swap_request(
+    swap_id: str,
+    body: _SwapDecideRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Owner approves or denies. On approve, the service layer atomically
+    flips Schedule.staff_id on both shifts in the same transaction."""
+    import uuid as _uuid
+    try:
+        swap_uuid = _uuid.UUID(swap_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid swap_id")
+    try:
+        swap = _decide_swap(
+            db,
+            owner_id=user.id,
+            swap_id=swap_uuid,
+            approve=body.approve,
+            note=body.note,
+        )
+    except _ShiftSwapError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return _hydrate_swap_owner(swap, db)

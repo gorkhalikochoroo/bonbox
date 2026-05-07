@@ -569,6 +569,329 @@ function TipsTab({ data }) {
 }
 
 
+// ─── Swap Tab — peer-to-peer shift trading ─────────────────────────────────
+
+/**
+ * SwapTab — staff inbox for shift-swap requests + the propose modal.
+ *
+ * Two halves:
+ *   1. Inbox: pending incoming + outgoing swaps. Each row has accept /
+ *      decline (incoming) or withdraw (outgoing). Resolved statuses
+ *      hidden by default.
+ *   2. "Offer swap" CTA → modal:
+ *      a. Pick the shift YOU want to give up (from your own upcoming)
+ *      b. Pick the teammate's shift you want in exchange (from team
+ *         transparency endpoint)
+ *      c. Optional reason
+ *      d. Submit → POST /portal/{token}/swap-requests → toast → refresh
+ *
+ * Multi-layer security inherited from the backend:
+ *   • Magic-link token binds the proposer's staff_id (body never
+ *     carries it)
+ *   • Server validates ownership of from_shift, tenancy of to_staff
+ *     and to_shift, lifecycle states on respond
+ *   • Server scrubs reason text + caps to 500 chars
+ */
+function SwapTab({ token, ownShifts, onChanged }) {
+  const [inbox, setInbox] = useState(null);
+  const [showPropose, setShowPropose] = useState(false);
+
+  const fetchInbox = async () => {
+    try {
+      const res = await portalApi.get(`/portal/${token}/swap-requests`);
+      setInbox(res.data || []);
+    } catch {
+      setInbox([]);
+    }
+  };
+
+  useEffect(() => { fetchInbox(); }, [token]);
+
+  const reload = () => {
+    fetchInbox();
+    onChanged?.();
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Propose CTA */}
+      {!showPropose && (
+        <button
+          onClick={() => setShowPropose(true)}
+          className="w-full px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition flex items-center justify-center gap-2"
+        >
+          🔄 Offer to swap a shift
+        </button>
+      )}
+      {showPropose && (
+        <SwapProposeModal
+          token={token}
+          ownShifts={ownShifts}
+          onClose={() => setShowPropose(false)}
+          onProposed={() => { setShowPropose(false); reload(); }}
+        />
+      )}
+
+      {/* Inbox */}
+      {inbox === null && <div className="text-xs text-gray-500">Loading…</div>}
+      {inbox && inbox.length === 0 && !showPropose && (
+        <div className="text-center text-xs text-gray-500 py-6">
+          No pending swap requests.
+        </div>
+      )}
+      {inbox && inbox.length > 0 && (
+        <div className="space-y-2">
+          {inbox.map((s) => (
+            <SwapRow key={s.id} swap={s} token={token} onChanged={reload} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/** A row in the Swap inbox. Renders different actions based on
+ * direction (incoming = respond, outgoing = withdraw) and status. */
+function SwapRow({ swap, token, onChanged }) {
+  const [busy, setBusy] = useState(false);
+
+  const respond = async (accept) => {
+    setBusy(true);
+    try {
+      await portalApi.post(
+        `/portal/${token}/swap-requests/${swap.id}/respond`,
+        { accept },
+      );
+      onChanged();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const withdraw = async () => {
+    setBusy(true);
+    try {
+      await portalApi.post(`/portal/${token}/swap-requests/${swap.id}/withdraw`);
+      onChanged();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const statusPill = swap.status === "proposed"
+    ? "bg-amber-500/20 text-amber-300"
+    : swap.status === "accepted"
+      ? "bg-emerald-500/20 text-emerald-300"
+      : "bg-gray-500/20 text-gray-400";
+
+  return (
+    <div className="bg-white/[0.04] border border-white/[0.08] rounded-xl p-3 space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[10px] uppercase tracking-wide font-medium text-gray-500">
+          {swap.direction === "outgoing" ? "Outgoing" : "Incoming"}
+        </span>
+        <span className={`text-[10px] uppercase tracking-wide font-medium px-1.5 py-0.5 rounded ${statusPill}`}>
+          {swap.status}
+        </span>
+      </div>
+      <div className="text-sm text-white">
+        <span className="font-semibold">{swap.from_staff_name}</span>
+        <span className="text-gray-500"> → </span>
+        <span className="font-semibold">{swap.to_staff_name}</span>
+      </div>
+      <div className="grid grid-cols-2 gap-2 text-[11px]">
+        <div className="bg-white/[0.03] rounded p-1.5">
+          <div className="text-[10px] text-gray-500">Gives</div>
+          <div className="text-white">{swap.from_shift_date}</div>
+          <div className="text-gray-400">{swap.from_shift_time}</div>
+        </div>
+        <div className="bg-white/[0.03] rounded p-1.5">
+          <div className="text-[10px] text-gray-500">Gets</div>
+          <div className="text-white">{swap.to_shift_date}</div>
+          <div className="text-gray-400">{swap.to_shift_time}</div>
+        </div>
+      </div>
+      {swap.reason && (
+        <div className="text-[11px] text-gray-400 italic">"{swap.reason}"</div>
+      )}
+      {swap.owner_note && (
+        <div className="text-[11px] text-gray-400">
+          <span className="text-gray-500">Owner:</span> {swap.owner_note}
+        </div>
+      )}
+
+      {/* Actions */}
+      {swap.status === "proposed" && swap.direction === "incoming" && (
+        <div className="flex items-center gap-2 pt-1">
+          <button
+            onClick={() => respond(true)}
+            disabled={busy}
+            className="text-xs font-medium px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50"
+          >
+            Accept
+          </button>
+          <button
+            onClick={() => respond(false)}
+            disabled={busy}
+            className="text-xs font-medium px-2.5 py-1 rounded bg-white/[0.06] hover:bg-white/[0.1] text-gray-300 disabled:opacity-50"
+          >
+            Decline
+          </button>
+        </div>
+      )}
+      {swap.status === "proposed" && swap.direction === "outgoing" && (
+        <div className="pt-1">
+          <button
+            onClick={withdraw}
+            disabled={busy}
+            className="text-xs font-medium px-2.5 py-1 rounded bg-white/[0.06] hover:bg-white/[0.1] text-gray-300 disabled:opacity-50"
+          >
+            Withdraw
+          </button>
+        </div>
+      )}
+      {swap.status === "accepted" && (
+        <div className="text-[11px] text-emerald-300 pt-1">
+          ✓ Both staff agreed — awaiting owner approval
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/** Modal for proposing a new swap. Pulls the team's upcoming shifts
+ * via /portal/{token}/team-schedule and the staff's own from a prop. */
+function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
+  const [teamShifts, setTeamShifts] = useState([]);
+  const [fromShiftId, setFromShiftId] = useState("");
+  const [toShiftId, setToShiftId] = useState("");
+  const [reason, setReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    portalApi
+      .get(`/portal/${token}/team-schedule`)
+      .then((r) => setTeamShifts(r.data || []))
+      .catch(() => setTeamShifts([]));
+  }, [token]);
+
+  // The from_shift must be one of YOUR upcoming shifts.
+  const upcomingOwn = (ownShifts || []).filter(
+    (s) => s.date >= toLocalISO(new Date()),
+  );
+
+  // Don't let staff pick THEIR OWN shift as the to_shift — that'd be a
+  // self-swap. Server rejects but UI catches it earlier.
+  const ownStaffId = teamShifts.find((s) => s.shift_id === fromShiftId)?.staff_id;
+  const candidateTeamShifts = teamShifts.filter(
+    (s) => s.shift_id !== fromShiftId && s.staff_id !== ownStaffId,
+  );
+
+  const submit = async () => {
+    if (!fromShiftId || !toShiftId) return;
+    const target = teamShifts.find((s) => s.shift_id === toShiftId);
+    if (!target) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      await portalApi.post(`/portal/${token}/swap-requests`, {
+        from_shift_id: fromShiftId,
+        to_staff_id: target.staff_id,
+        to_shift_id: target.shift_id,
+        reason: reason.trim() || null,
+      });
+      onProposed?.();
+    } catch (err) {
+      setError(err.response?.data?.detail || "Couldn't propose. Try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl bg-white/[0.04] border border-white/[0.08] p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="font-semibold text-white text-sm">🔄 Offer to swap</div>
+        <button
+          onClick={onClose}
+          className="text-gray-500 hover:text-gray-300 text-lg w-6 h-6 flex items-center justify-center"
+          aria-label="Close"
+        >
+          ×
+        </button>
+      </div>
+
+      <div>
+        <label className="text-[11px] text-gray-500 mb-1 block">
+          Your shift to give up
+        </label>
+        <select
+          value={fromShiftId}
+          onChange={(e) => { setFromShiftId(e.target.value); setToShiftId(""); }}
+          className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white outline-none focus:border-blue-500/40"
+        >
+          <option value="">Pick one of your shifts…</option>
+          {upcomingOwn.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.date} · {s.start_time}–{s.end_time}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {fromShiftId && (
+        <div>
+          <label className="text-[11px] text-gray-500 mb-1 block">
+            Teammate's shift you'd take in exchange
+          </label>
+          <select
+            value={toShiftId}
+            onChange={(e) => setToShiftId(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white outline-none focus:border-blue-500/40"
+          >
+            <option value="">Pick a teammate's shift…</option>
+            {candidateTeamShifts.map((s) => (
+              <option key={s.shift_id} value={s.shift_id}>
+                {s.staff_name} — {s.date} · {s.start_time}–{s.end_time}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      <div>
+        <label className="text-[11px] text-gray-500 mb-1 block">
+          Reason <span className="text-gray-600">(optional)</span>
+        </label>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value.slice(0, 500))}
+          rows={2}
+          placeholder="e.g. family wedding, doctor appt"
+          className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white placeholder:text-gray-600 outline-none focus:border-blue-500/40 resize-none"
+        />
+      </div>
+
+      {error && <div className="text-xs text-red-400">{error}</div>}
+
+      <button
+        onClick={submit}
+        disabled={submitting || !fromShiftId || !toShiftId}
+        className="w-full px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition disabled:opacity-50"
+      >
+        {submitting ? "Sending..." : "Send swap request"}
+      </button>
+      <div className="text-[10px] text-gray-600 text-center leading-snug">
+        Your teammate will see this in their inbox. If they accept, your owner approves.
+      </div>
+    </div>
+  );
+}
+
+
 // ─── Alerts Tab ──────────────────────────────────────────────────────────
 
 function AlertsTab({ token, staffName }) {
@@ -695,6 +1018,7 @@ function PortalError({ message }) {
 
 const TABS = [
   { key: "schedule", icon: "📅", label: "Schedule" },
+  { key: "swaps", icon: "🔄", label: "Swaps" },
   { key: "hours", icon: "⏱", label: "Hours" },
   { key: "tips", icon: "💵", label: "Tips" },
   { key: "alerts", icon: "🔔", label: "Alerts" },
@@ -864,6 +1188,9 @@ export default function StaffPortalPage() {
             token={token}
             onShiftsChanged={loadData}
           />
+        )}
+        {tab === "swaps" && (
+          <SwapTab token={token} ownShifts={shifts} onChanged={loadData} />
         )}
         {tab === "hours" && <HoursTab data={hoursData} maxHours={info?.max_hours_month} />}
         {tab === "tips" && <TipsTab data={tipsData} />}

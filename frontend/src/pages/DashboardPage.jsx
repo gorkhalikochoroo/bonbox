@@ -14,6 +14,7 @@ import InsightsCard from "../components/InsightsCard";
 import Onboarding from "../components/Onboarding";
 import DailyBriefCard from "../components/DailyBriefCard";
 import SickCallNotificationCard from "../components/SickCallNotificationCard";
+import SwapRequestNotificationCard from "../components/SwapRequestNotificationCard";
 import SmartSaleInput from "../components/SmartSaleInput";
 import AnomalyAlertsCard from "../components/AnomalyAlertsCard";
 import DismissibleTip from "../components/DismissibleTip";
@@ -1420,6 +1421,10 @@ export default function DashboardPage() {
         {/* ── SICK-CALL NOTIFICATIONS — interrupt-only; renders only when
             staff have called in. Pulls from /staff/absences. ── */}
         <SickCallNotificationCard />
+
+        {/* ── SHIFT-SWAP REQUESTS — interrupt-only; renders only when
+            staff have peer-approved a swap and need owner sign-off. ── */}
+        <SwapRequestNotificationCard />
 
         {/* ── First-run tip on the Dashboard ── */}
         <DismissibleTip

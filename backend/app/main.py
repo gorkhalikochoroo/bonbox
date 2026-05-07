@@ -454,6 +454,30 @@ _migrations = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_staff_absence_user_date ON staff_absences (user_id, date)",
     "CREATE INDEX IF NOT EXISTS ix_staff_absence_staff_date_kind ON staff_absences (staff_id, date, kind)",
+    # ── Migration 020: shift_swap_requests (peer-to-peer swap state machine) ──
+    # Net-new table backing app/models/shift_swap.py:ShiftSwapRequest.
+    # Phase 2 of SmartShift — staff trade shifts via the magic-link
+    # portal, owner approves with one tap. to_staff_id + to_shift_id
+    # nullable so the same table can host the future "shift sale"
+    # / give-away mode (v2) without a migration.
+    """CREATE TABLE IF NOT EXISTS shift_swap_requests (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id),
+        from_staff_id UUID NOT NULL REFERENCES staff_members(id),
+        from_shift_id UUID NOT NULL REFERENCES schedules(id),
+        to_staff_id UUID REFERENCES staff_members(id),
+        to_shift_id UUID REFERENCES schedules(id),
+        status VARCHAR(20) NOT NULL DEFAULT 'proposed',
+        reason TEXT,
+        owner_note TEXT,
+        responded_at TIMESTAMP,
+        decided_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_shift_swap_user_status ON shift_swap_requests (user_id, status)",
+    "CREATE INDEX IF NOT EXISTS ix_shift_swap_from_staff ON shift_swap_requests (from_staff_id)",
+    "CREATE INDEX IF NOT EXISTS ix_shift_swap_to_staff ON shift_swap_requests (to_staff_id)",
 ]
 
 def _run_migrations():

@@ -1396,6 +1396,17 @@ const translations = {
     staff: "Staff",
 
     // ───────────────────────────────────────────────────────────
+    // Shift swap requests (staff portal + owner dashboard card)
+    // ───────────────────────────────────────────────────────────
+    swapCardTitle: "Shift swaps need your approval",
+    swapCardSubtitle: "{n} pending. Both staff agreed; you have final say.",
+    swapApprove: "Approve",
+    swapDeny: "Deny",
+    swapConfirmDeny: "Confirm deny",
+    swapDenyReasonPlaceholder: "Why? (optional, staff will see this)",
+    swapShiftGives: "gives",
+
+    // ───────────────────────────────────────────────────────────
     // Global search command palette (⌘K)
     // ───────────────────────────────────────────────────────────
     search: "Search",
@@ -2724,6 +2735,15 @@ const translations = {
     sickCallAssign: "Tildel",
     sickCallCovered: "Dækket af {name}",
     staff: "Personale",
+
+    // Shift swap requests (staff portal + owner dashboard card)
+    swapCardTitle: "Vagtskift kræver din godkendelse",
+    swapCardSubtitle: "{n} afventer. Begge er enige; du har det sidste ord.",
+    swapApprove: "Godkend",
+    swapDeny: "Afvis",
+    swapConfirmDeny: "Bekræft afvis",
+    swapDenyReasonPlaceholder: "Hvorfor? (valgfrit, personalet ser dette)",
+    swapShiftGives: "giver",
 
     // Global search command palette (⌘K)
     search: "Søg",
