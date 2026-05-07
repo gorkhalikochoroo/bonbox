@@ -66,18 +66,11 @@ const navGroups = [
       { to: "/waste", icon: "🗑️", labelKey: "wasteTracker", visibleFor: ["restaurant", "retail", "general"] },
     ],
   },
-  {
-    id: "staff",
-    labelKey: "navStaff",
-    icon: "👥",
-    visibleFor: null,
-    items: [
-      { to: "/staff/schedule", icon: "📅", labelKey: "staffSchedule" },
-      { to: "/staff/hours", icon: "⏱", labelKey: "staffHours" },
-      { to: "/staff/tips", icon: "💰", labelKey: "staffTips" },
-      { to: "/staff/payroll", icon: "📄", labelKey: "staffPayroll" },
-    ],
-  },
+  // Reports placed BEFORE Staff in the sidebar — matches the owner's
+  // operational rhythm: every night ends with a close + daily report,
+  // staff scheduling is a weekly cadence (less frequent). Putting
+  // Reports right after Stock keeps the close-the-day workflow as
+  // a continuous downward scan in the nav.
   {
     id: "reports",
     labelKey: "navReports",
@@ -90,6 +83,18 @@ const navGroups = [
       { to: "/daily-close/multi", icon: "🌙", labelKey: "multiClose" },
       { to: "/tax", icon: "💰", labelKey: "taxAutopilot" },
       { to: "/bookkeeping-export", icon: "📤", labelKey: "sendToAccountant" },
+    ],
+  },
+  {
+    id: "staff",
+    labelKey: "navStaff",
+    icon: "👥",
+    visibleFor: null,
+    items: [
+      { to: "/staff/schedule", icon: "📅", labelKey: "staffSchedule" },
+      { to: "/staff/hours", icon: "⏱", labelKey: "staffHours" },
+      { to: "/staff/tips", icon: "💰", labelKey: "staffTips" },
+      { to: "/staff/payroll", icon: "📄", labelKey: "staffPayroll" },
     ],
   },
   {

@@ -1,6 +1,8 @@
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy import func, case
 from sqlalchemy.orm import Session
 
@@ -16,6 +18,14 @@ from app.schemas.inventory import (
 from app.services.auth import get_current_user
 
 router = APIRouter()
+
+# Rate limiter — protects state-changing inventory endpoints from being
+# hammered (accidental UI loop, malicious script trying to exhaust our
+# DB or pollute audit logs). 60/min per IP is generous for normal use:
+# a busy bartender pouring at peak ~ 5/min; a stocktake script doing
+# 60 logs/min is plausible. 120 starts to look suspicious. Defense layer
+# 1 of 3: rate limit, input bounds (Pydantic Field ge/le), tenant scope.
+_limiter = Limiter(key_func=get_remote_address)
 
 
 @router.get("", response_model=list[InventoryItemResponse])
@@ -169,7 +179,9 @@ def get_alerts(
 
 
 @router.post("/logs", response_model=InventoryLogResponse, status_code=201)
+@_limiter.limit("60/minute")
 def create_log(
+    request: Request,
     data: InventoryLogCreate,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -181,6 +193,13 @@ def create_log(
     Allows the resulting quantity to go negative (legitimate for credit
     sales / unrecorded stock corrections) but logs a warning so the
     audit trail flags it for the owner.
+
+    Multi-layer defense:
+      L1 — Auth gate (Depends(get_current_user))
+      L2 — Pydantic input bounds (change_qty ±1M, reason 120 chars)
+      L3 — SlowAPI rate limit (60/min per IP)
+      L4 — Strict tenant scope (item.user_id == user.id)
+      L5 — Audit trail (every change is logged with reason for review)
     """
     if not data.change_qty or float(data.change_qty) == 0:
         raise HTTPException(status_code=400, detail="change_qty must be non-zero")
@@ -323,13 +342,26 @@ def get_profit_ranking(
 # ── Pour / Bar ─────────────────────────────────────────────
 
 @router.post("/pour", status_code=201)
+@_limiter.limit("60/minute")
 def record_pour(
+    request: Request,
     data: PourRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """
     Record a bar pour and decrement liquid stock.
+
+    Multi-layer defense:
+      L1 — Auth gate
+      L2 — Pydantic input bounds (pours 1-500 — defends against
+           accidental UI bugs and overflow attacks on pour_size × pours)
+      L3 — SlowAPI rate limit (60/min per IP)
+      L4 — Strict tenant scope (item.user_id == user.id)
+      L5 — pour_size required (item must have been configured for pours)
+      L6 — Insufficient-stock check (refuses negative-going pour with
+           informative message including current stock)
+
 
     Critical accuracy fix: items stocked in bottles (unit='bottle' or
     similar) were being treated as if quantity was already in ml. Pouring

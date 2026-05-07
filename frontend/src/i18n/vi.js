@@ -1116,4 +1116,7 @@ export const vi = {
   barEmptyBottle: "Hết hàng",
   stockedItems: "có hàng",
   perBottle: "mỗi chai",
+  barModuleDisabledTitle: "Mô-đun Bar Pour đã tắt.",
+  barModuleDisabledBody: "Bật để thêm Bar vào sidebar — các chai hiện có vẫn hoạt động.",
+  barModuleEnable: "Bật trong Mô-đun →",
 };

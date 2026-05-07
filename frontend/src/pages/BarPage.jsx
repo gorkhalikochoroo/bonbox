@@ -37,6 +37,13 @@ export default function BarPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  // Module-aware soft gate — surfaces a banner when the owner navigated
+  // here directly but hasn't enabled the bar_pour module. Existing bar
+  // items still load + work (their data is theirs); the banner just
+  // explains why /bar isn't in their sidebar and offers a one-click
+  // jump to /modules. Strict gating would block existing operations,
+  // which is bad UX for owners who pre-existed the module-gating ship.
+  const [moduleEnabled, setModuleEnabled] = useState(null); // null = loading
 
   // Pour + restock modals (same UX as the InventoryPage extracts)
   const [pourModal, setPourModal] = useState(null);
@@ -46,6 +53,14 @@ export default function BarPage() {
 
   useEffect(() => {
     fetchItems();
+    // Check whether the bar_pour module is enabled — controls the soft
+    // banner. Failure is silent → banner just doesn't render.
+    api.get("/modules")
+      .then((res) => {
+        const found = (res.data?.modules || []).find((m) => m.id === "bar_pour");
+        setModuleEnabled(!!(found && found.enabled));
+      })
+      .catch(() => setModuleEnabled(true)); // fail open — don't pester on API failure
   }, []);
 
   async function fetchItems() {
@@ -138,6 +153,24 @@ export default function BarPage() {
           </Link>
         </div>
       </FadeIn>
+
+      {/* Module-disabled soft banner — only shows when user hits /bar
+          directly without enabling the bar_pour module. Doesn't block
+          existing data; just explains the missing sidebar entry and
+          offers a one-tap path to enable. */}
+      {moduleEnabled === false && (
+        <div className="mt-4 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 text-[13px] text-amber-800 dark:text-amber-200 flex items-center gap-3 flex-wrap">
+          <span className="font-semibold">
+            {t("barModuleDisabledTitle") || "Bar Pour module is disabled."}
+          </span>
+          <span>
+            {t("barModuleDisabledBody") || "Enable it to add Bar to your sidebar — your existing bottles still work either way."}
+          </span>
+          <Link to="/modules" className="font-semibold text-amber-900 dark:text-amber-100 underline whitespace-nowrap">
+            {t("barModuleEnable") || "Enable in Modules →"}
+          </Link>
+        </div>
+      )}
 
       {success && (
         <div className="mt-4 px-4 py-2.5 rounded-xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-sm text-green-700 dark:text-green-300">

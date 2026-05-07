@@ -1112,4 +1112,7 @@ export const tr = {
   barEmptyBottle: "Stok yok",
   stockedItems: "stokta",
   perBottle: "şişe başına",
+  barModuleDisabledTitle: "Bar Pour modülü devre dışı.",
+  barModuleDisabledBody: "Sidebar'a Bar eklemek için etkinleştirin — mevcut şişeleriniz yine çalışır.",
+  barModuleEnable: "Modüller'de etkinleştir →",
 };

@@ -1111,6 +1111,9 @@ export const th = {
   barEmptyBottle: "ไม่มีสต็อก",
   stockedItems: "มีสต็อก",
   perBottle: "ต่อขวด",
+  barModuleDisabledTitle: "โมดูล Bar Pour ปิดอยู่",
+  barModuleDisabledBody: "เปิดเพื่อเพิ่ม Bar ในแถบข้าง — ขวดที่มีอยู่ยังใช้งานได้",
+  barModuleEnable: "เปิดในโมดูล →",
 };
 
 

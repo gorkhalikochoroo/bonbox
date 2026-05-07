@@ -1,6 +1,6 @@
 import uuid
 import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class InventoryItemCreate(BaseModel):
@@ -65,17 +65,30 @@ class InventoryItemResponse(BaseModel):
 
 
 class PourRequest(BaseModel):
+    """Body for /api/inventory/pour. Bounds defend against:
+      • Accidental UI bugs (e.g. user holds + → unbounded count)
+      • Malicious clients sending pours=999999 to corrupt stock or
+        overflow downstream calc (pour_size_ml × pours)
+    Real bar pours rarely exceed 30 in a single transaction; cap at
+    500 leaves generous headroom for batch corrections without letting
+    garbage data through.
+    """
     item_id: uuid.UUID
-    pours: int = 1  # how many glasses/shots
+    pours: int = Field(1, ge=1, le=500)
     date: datetime.date | None = None
 
 
 class InventoryLogCreate(BaseModel):
+    """Body for /api/inventory/logs. change_qty bounded ±1,000,000 —
+    larger values are almost certainly a UI / unit-conversion bug and
+    we'd rather error visibly than corrupt stock silently. reason is
+    length-capped so an attacker can't push large blobs into audit logs.
+    """
     item_id: uuid.UUID
-    change_qty: float
-    reason: str = "adjustment"
+    change_qty: float = Field(..., ge=-1_000_000.0, le=1_000_000.0)
+    reason: str = Field("adjustment", max_length=120)
     date: datetime.date
-    batch_id: str | None = None
+    batch_id: str | None = Field(None, max_length=64)
 
 
 class InventoryLogResponse(BaseModel):

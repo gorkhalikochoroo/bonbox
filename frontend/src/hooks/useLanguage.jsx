@@ -304,6 +304,9 @@ const translations = {
     barEmptyBottle: "No stock",
     stockedItems: "stocked",
     perBottle: "per bottle",
+    barModuleDisabledTitle: "Bar Pour module is disabled.",
+    barModuleDisabledBody: "Enable it to add Bar to your sidebar — your existing bottles still work either way.",
+    barModuleEnable: "Enable in Modules →",
     // Cookie consent banner
     cookieBannerAria: "Cookie consent",
     cookieBannerTitle: "We use cookies",
@@ -1443,6 +1446,9 @@ const translations = {
     barEmptyBottle: "Ingen beholdning",
     stockedItems: "fyldt",
     perBottle: "pr. flaske",
+    barModuleDisabledTitle: "Bar Pour-modulet er deaktiveret.",
+    barModuleDisabledBody: "Aktivér det for at tilføje Bar til din sidemenu — dine eksisterende flasker virker alligevel.",
+    barModuleEnable: "Aktivér i Moduler →",
     // Cookie consent banner
     cookieBannerAria: "Cookiesamtykke",
     cookieBannerTitle: "Vi bruger cookies",
@@ -2566,6 +2572,9 @@ const translations = {
     barEmptyBottle: "स्टक छैन",
     stockedItems: "स्टकमा",
     perBottle: "प्रति बोतल",
+    barModuleDisabledTitle: "Bar Pour मोड्युल अक्षम छ।",
+    barModuleDisabledBody: "Sidebar मा Bar थप्न सक्रिय गर्नुहोस् — तपाईंका विद्यमान बोतलहरूले जे भए पनि काम गर्छन्।",
+    barModuleEnable: "Modules मा सक्रिय गर्नुहोस् →",
     // Cookie consent banner
     cookieBannerAria: "कुकी सहमति",
     cookieBannerTitle: "हामी कुकी प्रयोग गर्छौं",
