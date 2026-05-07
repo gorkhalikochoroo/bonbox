@@ -15,13 +15,19 @@ export default defineConfig({
           if (id.includes('node_modules/react-dom') || id.includes('node_modules/react/') || id.includes('node_modules/react-router')) return 'vendor-react';
           if (id.includes('node_modules/recharts') || id.includes('node_modules/d3-')) return 'vendor-charts';
           if (id.includes('node_modules/framer-motion')) return 'vendor-motion';
-          // useLanguage.jsx is ~3500 lines of translation strings + the
-          // /i18n/ folder has 12 locale files. Bundling them into their
-          // own chunk (rather than inlined into index.js) means the
-          // strings load in parallel with the main bundle and stay
-          // cached across app-code redeploys (which are far more
-          // frequent than translation changes).
-          if (id.includes('/hooks/useLanguage') || id.includes('/i18n/')) return 'vendor-i18n';
+          // useLanguage.jsx contains the EN + DA dicts inline plus the
+          // LanguageProvider. The /i18n/*.js locale files are loaded
+          // dynamically via LAZY_LOADERS — vite turns each into its
+          // own chunk automatically when the dynamic import() runs,
+          // so we deliberately exclude them from the manualChunks
+          // rule. Bundling them here would re-merge them into
+          // vendor-i18n and erase the ~600 KB savings on initial
+          // paint (the lazy-loading change in this commit).
+          //
+          // Result:
+          //   vendor-i18n  — useLanguage.jsx + EN + DA (~150 KB)
+          //   de.js / fr.js / etc. — separate chunks loaded on demand
+          if (id.includes('/hooks/useLanguage')) return 'vendor-i18n';
         },
       },
     },
