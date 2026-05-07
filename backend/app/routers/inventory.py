@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import Response, StreamingResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy import func, case
@@ -16,6 +17,9 @@ from app.schemas.inventory import (
     TemplateResponse, TemplateLoadRequest, PourRequest,
 )
 from app.services.auth import get_current_user
+from app.services.inventory_export import (
+    build_stock_list_pdf, items_to_csv_bytes,
+)
 
 router = APIRouter()
 
@@ -38,6 +42,75 @@ def list_items(
     if category and category != "All":
         query = query.filter(InventoryItem.category == category)
     return query.all()
+
+
+# ─── Export endpoints ─────────────────────────────────────────────────
+# PDF and CSV export of the current stock list. Used for Bogføringsloven
+# §10 retention paper trail, accountant handoff, and routine stocktake
+# reviews. Multi-layer defense:
+#   L1 — auth (get_current_user)
+#   L2 — tenant scope (filter by user.id)
+#   L3 — rate limit (5/minute — generation is expensive on big lists)
+#   L4 — bounded category filter (uses existing constraint)
+
+
+@router.get("/export.pdf")
+@_limiter.limit("5/minute")
+def export_stock_list_pdf(
+    request: Request,
+    category: str | None = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Stock list as a PDF report. Includes expiry highlighting + per-
+    category subtotals + grand total. Useful for accountant handoff
+    and Bogføringsloven §10 source-document retention."""
+    query = db.query(InventoryItem).filter(InventoryItem.user_id == user.id)
+    if category and category != "All":
+        query = query.filter(InventoryItem.category == category)
+    items = query.order_by(InventoryItem.category, InventoryItem.name).all()
+
+    business_name = (getattr(user, "business_name", None) or "Stock List")
+    currency = (getattr(user, "currency", None) or "DKK")
+    pdf_bytes = build_stock_list_pdf(
+        items, business_name=business_name, currency=currency,
+    )
+    filename = f"stock-list-{date.today().isoformat()}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
+@router.get("/export.csv")
+@_limiter.limit("10/minute")
+def export_stock_list_csv(
+    request: Request,
+    category: str | None = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Stock list as a CSV. UTF-8 + BOM + semicolon delimiter so Danish
+    Excel opens it correctly with Æ/Ø/Å intact."""
+    query = db.query(InventoryItem).filter(InventoryItem.user_id == user.id)
+    if category and category != "All":
+        query = query.filter(InventoryItem.category == category)
+    items = query.order_by(InventoryItem.category, InventoryItem.name).all()
+
+    csv_bytes = items_to_csv_bytes(items)
+    filename = f"stock-list-{date.today().isoformat()}.csv"
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "private, no-store",
+        },
+    )
 
 
 @router.get("/categories", response_model=list[str])

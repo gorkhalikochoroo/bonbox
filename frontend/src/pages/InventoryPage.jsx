@@ -349,7 +349,7 @@ export default function InventoryPage() {
     <div className="p-4 sm:p-6 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("inventoryMonitor")}</h1></FadeIn>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => setShowSmartImport(true)}
             className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition font-medium flex items-center gap-1.5"
@@ -362,6 +362,54 @@ export default function InventoryPage() {
             className="px-4 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 transition font-medium"
           >
             {t("loadTemplate")}
+          </button>
+          {/* Export buttons — PDF for accountant handoff (Bogføringsloven
+              §10), CSV for spreadsheet review. Both call the api client
+              with responseType:'blob' so auth carries automatically and
+              the file downloads via a temporary blob URL. */}
+          <button
+            onClick={async () => {
+              try {
+                const res = await api.get("/inventory/export.pdf", { responseType: "blob" });
+                const url = URL.createObjectURL(res.data);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `stock-list-${new Date().toISOString().slice(0, 10)}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 60_000);
+              } catch (e) {
+                console.error("Export PDF failed", e);
+                setError(e?.response?.data?.detail || "Couldn't generate PDF — please retry.");
+              }
+            }}
+            className="px-3 py-2 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600 text-sm rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition font-medium"
+            title="Download a PDF stock-list report"
+          >
+            📄 Export PDF
+          </button>
+          <button
+            onClick={async () => {
+              try {
+                const res = await api.get("/inventory/export.csv", { responseType: "blob" });
+                const url = URL.createObjectURL(res.data);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `stock-list-${new Date().toISOString().slice(0, 10)}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 60_000);
+              } catch (e) {
+                console.error("Export CSV failed", e);
+                setError(e?.response?.data?.detail || "Couldn't generate CSV — please retry.");
+              }
+            }}
+            className="px-3 py-2 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600 text-sm rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition font-medium"
+            title="Download stock list as CSV (Excel-friendly, semicolon delimited)"
+          >
+            📊 Export CSV
           </button>
         </div>
       </div>
