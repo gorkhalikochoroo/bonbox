@@ -38,7 +38,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, modules as modules_router, ai as ai_router
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, inventory_smart_import, modules as modules_router, ai as ai_router
 from app.database import engine, Base
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -328,6 +328,42 @@ _migrations = [
     # Without this column, the User model SELECT crashes with
     # 'column users.enabled_modules does not exist' → all auth fails.
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS enabled_modules TEXT",
+    # ── Migration 011: inventory_imports — smart-import audit table ──
+    # Mirrors KasserapportExtraction shape. Logs every smart-inventory
+    # import attempt (text/CSV/Excel/image upload → AI extraction →
+    # categorization → user review → commit) for cost/learning/audit.
+    # Bogføringsloven §10: 5-year retention since these rows feed real
+    # InventoryItem stock used in COGS / margin reports.
+    """CREATE TABLE IF NOT EXISTS inventory_imports (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id),
+        source_kind VARCHAR(20) NOT NULL DEFAULT 'text',
+        source_filename VARCHAR(255),
+        source_size_bytes INTEGER,
+        source_sha256 VARCHAR(64),
+        extracted_json JSON,
+        categorized_json JSON,
+        final_json JSON,
+        item_count INTEGER NOT NULL DEFAULT 0,
+        committed_count INTEGER NOT NULL DEFAULT 0,
+        user_corrected BOOLEAN NOT NULL DEFAULT FALSE,
+        manual_review_needed BOOLEAN NOT NULL DEFAULT TRUE,
+        extraction_confidence FLOAT,
+        input_tokens INTEGER,
+        output_tokens INTEGER,
+        model_used VARCHAR(60),
+        timing_ms JSON,
+        error TEXT,
+        prompt_version VARCHAR(80),
+        status VARCHAR(20) NOT NULL DEFAULT 'created',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        committed_at TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_inventory_imports_user_id ON inventory_imports (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_inventory_imports_user_created ON inventory_imports (user_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_inventory_imports_user_status ON inventory_imports (user_id, status)",
+    "CREATE INDEX IF NOT EXISTS ix_inventory_imports_sha256 ON inventory_imports (source_sha256)",
+    "CREATE INDEX IF NOT EXISTS ix_inventory_imports_created_at ON inventory_imports (created_at)",
 ]
 
 def _run_migrations():
@@ -1034,6 +1070,14 @@ app.include_router(kasserapport.router, prefix="/api/kasserapport", tags=["Kasse
 app.include_router(terminal.router, prefix="/api/terminals", tags=["Terminals"])
 app.include_router(output_channel.router, prefix="/api/output-channels", tags=["OutputChannels"])
 app.include_router(modules_router.router, prefix="/api/modules", tags=["Modules"])
+# Smart inventory import — paste/CSV/Excel/photo → AI parse + categorize
+# → review draft → commit. Six-layer defense (auth, bounds, rate limit,
+# tenant scope, daily quota, idempotency, audit) — see router docstring.
+app.include_router(
+    inventory_smart_import.router,
+    prefix="/api/inventory/smart-import",
+    tags=["Smart Inventory Import"],
+)
 # Property Financial Report — Danish-restaurant daily close in the format
 # Aloha / Restwave / Pos+ users already recognize. Sales conversation hook.
 app.include_router(property_report.router, prefix="/api/property-report", tags=["PropertyReport"])
