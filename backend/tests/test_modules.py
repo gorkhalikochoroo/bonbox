@@ -3,17 +3,24 @@
 These tests pin the module allowlist + the relationship between module
 caps and PLAN_CAPS — so the marketing claim "Free: 1 module / Pro: ALL"
 becomes a structural property that any drift breaks loudly.
+
+Also pins the multi-layer defense on the PUT /api/modules/select endpoint
+(parity with the /api/inventory/pour + /logs hardening shipped in
+5ed501f). Layer 2 (Pydantic input bounds) is the most easily-tested
+boundary and is verified directly via the SelectModulesRequest schema.
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
 from app.models.user import User
+from app.routers.modules import SelectModulesRequest
 from app.services.billing import PLAN_CAPS, at_cap, get_cap
 from app.services.modules import (
     MODULES,
@@ -236,3 +243,73 @@ def test_at_cap_for_modules_trial_unlimited(db):
     user = _user(db, "free", in_trial=True)
     assert get_cap(user, "modules") == -1
     assert at_cap(user, "modules", 100) is False
+
+
+# ─── SelectModulesRequest input bounds (Layer 2 defense) ───────────────
+# Mirror the test pattern used for PourRequest / InventoryLogCreate in
+# test_inventory_security.py. Goal: pin the bounds so a future "let me
+# loosen this real quick" change has to update the test too.
+
+def test_select_modules_request_accepts_empty_list():
+    """[] = "disable all modules" — must remain a valid input."""
+    p = SelectModulesRequest(modules=[])
+    assert p.modules == []
+
+
+def test_select_modules_request_default_is_empty():
+    """Body with no `modules` field defaults to []."""
+    p = SelectModulesRequest()
+    assert p.modules == []
+
+
+def test_select_modules_request_accepts_normal_selection():
+    """Real-world picker selections: 1-4 modules. Must accept."""
+    p = SelectModulesRequest(modules=["bar_pour", "workshop"])
+    assert p.modules == ["bar_pour", "workshop"]
+
+
+def test_select_modules_request_at_list_upper_bound_passes():
+    """Cap is INCLUSIVE — exactly 20 entries is allowed (catalog could
+    grow to that size eventually; bound is for payload bombs, not
+    catalog-size enforcement which lives at the allowlist layer)."""
+    twenty = [f"m{i}" for i in range(20)]
+    p = SelectModulesRequest(modules=twenty)
+    assert len(p.modules) == 20
+
+
+def test_select_modules_request_rejects_oversized_list():
+    """Defense against payload bombs — modules=["x"]*1000000 must be
+    rejected at the schema layer before any DB / dedupe loop runs."""
+    twenty_one = [f"m{i}" for i in range(21)]
+    with pytest.raises(ValidationError):
+        SelectModulesRequest(modules=twenty_one)
+    # And a bigger payload bomb:
+    with pytest.raises(ValidationError):
+        SelectModulesRequest(modules=["x"] * 10_000)
+
+
+def test_select_modules_request_at_string_upper_bound_passes():
+    """Per-element cap is INCLUSIVE — exactly 40 chars is allowed."""
+    forty = "x" * 40
+    p = SelectModulesRequest(modules=[forty])
+    assert p.modules == [forty]
+
+
+def test_select_modules_request_rejects_oversized_per_element():
+    """A 10MB string crammed into a single list slot should bounce at
+    schema — strikes against memory exhaustion in str.strip / set ops
+    and against pushing huge blobs into audit logs / DB."""
+    huge = "x" * 100  # over 40-char cap
+    with pytest.raises(ValidationError):
+        SelectModulesRequest(modules=[huge])
+    # Even worse:
+    with pytest.raises(ValidationError):
+        SelectModulesRequest(modules=["x" * 1_000_000])
+
+
+def test_select_modules_request_partial_oversized_still_rejected():
+    """Mixed valid + oversized: schema must reject the WHOLE request,
+    not silently drop the bad entry. All-or-nothing keeps the error
+    visible to the caller."""
+    with pytest.raises(ValidationError):
+        SelectModulesRequest(modules=["bar_pour", "x" * 100, "workshop"])

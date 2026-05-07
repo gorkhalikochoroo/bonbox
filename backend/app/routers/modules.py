@@ -1,23 +1,41 @@
 """Vertical-module endpoints — list catalog + select which modules are
 enabled for the current user. Cap enforced via PLAN_CAPS["modules"].
 
-Multi-layer defense (matches /branch/create + /team/invite pattern):
-  Layer 1 (service): MODULES allowlist in app/services/modules.py — the
-    canonical set frontend + tests + this router all reference.
-  Layer 2 (this router): cap check on PUT — refuse with 403 if requested
-    selection exceeds plan's modules cap (-1 means unlimited).
-  Layer 3 (frontend, separate commit): hide non-enabled modules from
-    nav, show upgrade prompt on cap hit.
+Multi-layer defense (mirrors the /api/inventory/pour + /logs hardening
+pattern shipped in 5ed501f — identical 6-barrier shape so a future
+auditor can pattern-match instead of re-reading every endpoint):
+
+  Layer 1 (auth): get_current_user — anonymous traffic stops here.
+  Layer 2 (input bounds): Pydantic SelectModulesRequest caps list length
+    at 20 and per-element string at 40 chars — defends against payload
+    bombs (modules: ["x"]*1000000) and absurdly-long forged IDs that
+    would push large blobs through to logs / DB writes.
+  Layer 3 (rate limit): @_limiter.limit("60/minute") per IP — generous
+    for normal use (a user picks modules a handful of times in onboarding
+    + once or twice when upgrading), tight enough to slow a credential-
+    stuffer probing for plan-cap edge cases.
+  Layer 4 (allowlist): every requested ID must be in MODULES — typos
+    + forged IDs bounce with 400 instead of silently dropping.
+  Layer 5 (plan cap): refuse 403 if requested count > plan's modules cap
+    (-1 means unlimited; Free/Starter = 1).
+  Layer 6 (storage gate): set_enabled itself drops invalid IDs as a
+    final defense-in-depth — the router rejects loudly above, but if the
+    allowlist check is ever bypassed, storage stays clean.
 
 Endpoint contract:
   GET  /api/modules           → catalog with per-user enabled flag
   PUT  /api/modules/select    → body: {modules: ["bar_pour", "workshop"]}
-                                returns 403 if over cap, 400 on unknown ID
+                                returns 403 if over cap, 400 on unknown ID,
+                                429 if rate-limit exceeded, 422 on bounds.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field, StringConstraints
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -36,9 +54,31 @@ from app.services.modules import (
 
 router = APIRouter()
 
+# Rate limiter — protects PUT /select from being hammered. Module
+# selection is a low-frequency human action (onboarding + occasional
+# upgrade); 60/min/IP is well above any legitimate UI loop and well
+# below the rate at which a malicious script could probe cap edges.
+# Identical limiter setup to inventory.py for consistency.
+_limiter = Limiter(key_func=get_remote_address)
+
 
 class SelectModulesRequest(BaseModel):
-    modules: list[str]
+    """Body for PUT /api/modules/select.
+
+    Bounds defend against:
+      • Payload bombs: a request with modules=["x"]*1_000_000 should be
+        rejected at the schema layer before it ever touches the DB or
+        the dedupe loop. Cap at 20 (well above any realistic user — the
+        whole catalog has ~4 entries today, headroom for growth).
+      • Forged IDs with absurd length (e.g. 10MB string) trying to
+        exhaust memory in str.strip / set membership checks. Per-element
+        cap at 40 chars covers every plausible module ID
+        (longest today: "wine_sommelier" = 14).
+    """
+    modules: list[Annotated[str, StringConstraints(max_length=40)]] = Field(
+        default_factory=list,
+        max_length=20,
+    )
 
 
 @router.get("")
@@ -68,7 +108,9 @@ def list_modules_endpoint(
 
 
 @router.put("/select")
+@_limiter.limit("60/minute")
 def select_modules_endpoint(
+    request: Request,
     body: SelectModulesRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
