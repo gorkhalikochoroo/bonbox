@@ -87,6 +87,9 @@ def _safe_empty(start: datetime, end: datetime):
             "taxable_sales": 0,
             "tax_collected": 0,
             "all_sales_net": 0,
+            "gross_sales": 0,
+            "moms_mode": "none",
+            "moms_rate_pct": 25,
         },
         "exceptions": {
             "voids": 0,
@@ -236,14 +239,22 @@ def property_financial_report(
     if vat_rate <= 0 or taxable_sales <= 0:
         tax_collected = 0.0
         all_sales_net = round(taxable_sales, 2)
+        gross_sales = round(taxable_sales, 2)
+        moms_mode = "none"  # no VAT applied (rate=0 or no sales)
     elif prices_incl_moms:
         # B2C (default): VAT extracted from gross
+        # taxable_sales here is the gross amount the customer paid
         tax_collected = round(taxable_sales * vat_rate / (1 + vat_rate), 2)
         all_sales_net = round(taxable_sales - tax_collected, 2)
+        gross_sales = round(taxable_sales, 2)
+        moms_mode = "incl"   # prices entered include Moms
     else:
-        # B2B: prices are net, VAT is on top
+        # B2B: prices entered are net, VAT is added on top
+        # taxable_sales here is the net amount the seller keeps
         tax_collected = round(taxable_sales * vat_rate, 2)
         all_sales_net = round(taxable_sales, 2)
+        gross_sales = round(taxable_sales + tax_collected, 2)  # what customer paid
+        moms_mode = "excl"   # prices entered exclude Moms
 
     # ── Sort + compute averages ──
     channels_out = []
@@ -285,6 +296,9 @@ def property_financial_report(
             "taxable_sales": round(taxable_sales, 2),
             "tax_collected": tax_collected,
             "all_sales_net": all_sales_net,
+            "gross_sales": gross_sales,        # gross customer-paid total
+            "moms_mode": moms_mode,            # "incl" | "excl" | "none"
+            "moms_rate_pct": round(vat_rate * 100, 0),  # 25 / 21 / 13 etc.
         },
         "exceptions": {
             "voids": voids_count,

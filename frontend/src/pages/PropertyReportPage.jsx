@@ -85,18 +85,41 @@ export default function PropertyReportPage() {
   const handleEmailAccountant = () => {
     // Use mailto: with a pre-filled subject + body. Owner picks recipient
     // (their accountant) — we never store accountant email.
+    //
+    // Body layout matches the on-screen Tax breakdown so the accountant
+    // sees the same numbers in the email as the owner sees in the app:
+    //   • B2C ('incl'): Gross − Moms = Net
+    //   • B2B ('excl'): Net + Moms = Total customer paid
+    //   • 'none': flat total
     if (!report) return;
     const subject = `${user?.business_name || "BonBox"} — ${friendlyDate}`;
-    const body = [
+    const momsMode = totals.moms_mode || "incl";
+    const ratePct = totals.moms_rate_pct || 25;
+    const lines = [
       `${t("dailyClose") || "Daily Close"} — ${friendlyDate}`,
       "",
       `${t("totalRevenue") || "Total Revenue"}: ${fmt(totals.total_revenue)} ${currency}`,
-      `${t("taxableSales") || "Taxable Sales"}: ${fmt(totals.taxable_sales)} ${currency}`,
-      `${t("momsCollected") || "Moms Collected (25%)"}: ${fmt(totals.tax_collected)} ${currency}`,
-      `${t("netSales") || "Net Sales"}: ${fmt(totals.all_sales_net)} ${currency}`,
       "",
-      "— Sent from BonBox",
-    ].join("\n");
+    ];
+    if (momsMode === "incl") {
+      lines.push(
+        `${t("grossSalesInclMoms") || "Gross sales (incl. Moms)"}: ${fmt(totals.gross_sales || totals.taxable_sales)} ${currency}`,
+        `${t("momsExtracted") || `Moms extracted (${ratePct}%)`}: −${fmt(totals.tax_collected)} ${currency}`,
+        `${t("netSalesKept") || "Net sales (what you keep)"}: ${fmt(totals.all_sales_net)} ${currency}`,
+      );
+    } else if (momsMode === "excl") {
+      lines.push(
+        `${t("netSalesExclMoms") || "Net sales (excl. Moms)"}: ${fmt(totals.all_sales_net)} ${currency}`,
+        `${t("momsAddedOnTop") || `Moms added on top (${ratePct}%)`}: +${fmt(totals.tax_collected)} ${currency}`,
+        `${t("totalCustomerPaid") || "Total customer paid"}: ${fmt(totals.gross_sales)} ${currency}`,
+      );
+    } else {
+      lines.push(
+        `${t("totalSales") || "Total sales"}: ${fmt(totals.all_sales_net)} ${currency}`,
+      );
+    }
+    lines.push("", "— Sent from BonBox");
+    const body = lines.join("\n");
     window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
@@ -273,35 +296,114 @@ export default function PropertyReportPage() {
             </div>
           )}
 
-          {/* TAX — Moms breakdown, plain language */}
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm mb-4">
-            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100 mb-1">
-              {t("taxSummary") || "Tax breakdown (Moms 25%)"}
-            </h2>
-            <p className="text-xs text-gray-400 mb-4">
-              {t("forSkat") || "For Skat / your accountant"}
-            </p>
-            <div className="space-y-2.5">
-              <div className="flex justify-between items-baseline">
-                <span className="text-sm text-gray-600 dark:text-gray-300">{t("taxableSales") || "Taxable Sales"}</span>
-                <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                  {fmt(totals.taxable_sales)} {currency}
-                </span>
+          {/* TAX — Moms breakdown, mode-aware.
+              The Tax breakdown layout depends on whether the seller's
+              prices include Moms (B2C, default) or are net B2B prices:
+                • B2C ('incl'): Gross 22,854 − Moms 4,570.80 = Net 18,283.20
+                • B2B ('excl'): Net 22,854 + Moms 5,713.50 = Total 28,567.50
+              The numbers themselves come straight from the backend so
+              there's no duplicate math here — this just picks the
+              right labels + signs for the mode.
+
+              Old behavior (pre-fix): always rendered as if B2C, which
+              meant B2B users saw "Moms −5,713.50" (misleading minus
+              sign — Moms is added on top in B2B, not subtracted)
+              with "Net Sales 22,854" (same as Taxable Sales = looked
+              like a math error). */}
+          {(() => {
+            const momsMode = totals.moms_mode || "incl";
+            const ratePct = totals.moms_rate_pct || 25;
+            const moms = totals.tax_collected || 0;
+            const heading = momsMode === "none"
+              ? (t("taxSummaryNoVat") || "Tax breakdown")
+              : `${t("taxSummaryPrefix") || "Tax breakdown"} (${t("moms") || "Moms"} ${ratePct}%)`;
+            return (
+              <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm mb-4">
+                <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100 mb-1">
+                  {heading}
+                </h2>
+                <p className="text-xs text-gray-400 mb-4">
+                  {t("forSkat") || "For Skat / your accountant"}
+                </p>
+                {momsMode === "incl" && (
+                  <div className="space-y-2.5">
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-sm text-gray-600 dark:text-gray-300">
+                        {t("grossSalesInclMoms") || "Gross sales (incl. Moms)"}
+                      </span>
+                      <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                        {fmt(totals.gross_sales || totals.taxable_sales)} {currency}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-sm text-gray-600 dark:text-gray-300">
+                        {t("momsExtracted") || `Moms extracted (${ratePct}%)`}
+                      </span>
+                      <span className="text-sm font-semibold text-red-600 dark:text-red-400">
+                        −{fmt(moms)} {currency}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-baseline border-t border-gray-100 dark:border-gray-700 pt-2.5 mt-1">
+                      <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+                        {t("netSalesKept") || "Net sales (what you keep)"}
+                      </span>
+                      <span className="text-base font-bold text-emerald-600 dark:text-emerald-400">
+                        {fmt(totals.all_sales_net)} {currency}
+                      </span>
+                    </div>
+                  </div>
+                )}
+                {momsMode === "excl" && (
+                  <div className="space-y-2.5">
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-sm text-gray-600 dark:text-gray-300">
+                        {t("netSalesExclMoms") || "Net sales (excl. Moms)"}
+                      </span>
+                      <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                        {fmt(totals.all_sales_net)} {currency}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-sm text-gray-600 dark:text-gray-300">
+                        {t("momsAddedOnTop") || `Moms added on top (${ratePct}%)`}
+                      </span>
+                      <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">
+                        +{fmt(moms)} {currency}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-baseline border-t border-gray-100 dark:border-gray-700 pt-2.5 mt-1">
+                      <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+                        {t("totalCustomerPaid") || "Total customer paid"}
+                      </span>
+                      <span className="text-base font-bold text-emerald-600 dark:text-emerald-400">
+                        {fmt(totals.gross_sales)} {currency}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-1">
+                      {t("b2bPriceNote") ||
+                        "Your prices are entered as net (B2B). Customers pay the gross amount on the right; you owe Moms to Skat."}
+                    </p>
+                  </div>
+                )}
+                {momsMode === "none" && (
+                  <div className="space-y-2.5">
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-sm text-gray-600 dark:text-gray-300">
+                        {t("totalSales") || "Total sales"}
+                      </span>
+                      <span className="text-base font-bold text-gray-900 dark:text-white">
+                        {fmt(totals.all_sales_net)} {currency}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-400">
+                      {t("noVatHint") ||
+                        "No VAT applied — either rate is 0% in your jurisdiction or all sales were tax-exempt."}
+                    </p>
+                  </div>
+                )}
               </div>
-              <div className="flex justify-between items-baseline">
-                <span className="text-sm text-gray-600 dark:text-gray-300">{t("momsCollected") || "Moms Collected (25%)"}</span>
-                <span className="text-sm font-semibold text-red-600 dark:text-red-400">
-                  −{fmt(totals.tax_collected)} {currency}
-                </span>
-              </div>
-              <div className="flex justify-between items-baseline border-t border-gray-100 dark:border-gray-700 pt-2.5 mt-1">
-                <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("netSales") || "Net Sales (ex-Moms)"}</span>
-                <span className="text-base font-bold text-emerald-600 dark:text-emerald-400">
-                  {fmt(totals.all_sales_net)} {currency}
-                </span>
-              </div>
-            </div>
-          </div>
+            );
+          })()}
 
           {/* EXCEPTIONS — only show if non-zero so we don't clutter quiet days */}
           {(exceptions.voids > 0 || exceptions.manager_voids > 0 ||
