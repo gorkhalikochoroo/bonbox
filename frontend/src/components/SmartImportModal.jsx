@@ -374,7 +374,8 @@ function ExtractStep({
                 </button>
               </div>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">
-                JPG, PNG, HEIC up to 12 MB · Big iPhone photos auto-resize on upload
+                JPG, PNG, HEIC, WebP up to 12 MB · iPhone HEIC + big photos
+                auto-resize on upload
               </p>
             </>
           )}
