@@ -238,21 +238,63 @@ def _extract_amounts_from_text(text: str) -> dict:
 
 
 def _parse_danish_amount(text: str) -> float | None:
-    """Parse a Danish-format amount string like '1.234,50' or '1234,50' to float."""
-    # Match Danish amounts: optional thousands separator (dot), comma decimal
-    m = re.search(r"([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2})", text)
+    """Parse a Danish-format amount string like '1.234,50' or '1234,50' to float.
+
+    Danish convention:
+      • period (.) = thousands separator
+      • comma (,) = decimal separator (followed by 1-2 øre digits)
+
+    Critical disambiguation: '1.820' is NOT 1.82 — it's 1820 (one
+    thousand eight hundred twenty). The earlier parser treated '1.820'
+    as English decimal and returned 1.82, silently corrupting Z-report
+    extractions Manoj caught on a Mirabelle close. The fix: count
+    digits after the period. Exactly 3 = thousands separator, 1-2 =
+    English decimal (rare in DK receipts but supported as last-resort
+    fallback for mixed-locale inputs).
+
+    Order of patterns matters — most-specific first so '1.234,50'
+    doesn't get partially captured as '1.234' before the comma is
+    seen.
+    """
+    text = (text or "").strip()
+    if not text:
+        return None
+
+    # 1. Full Danish format with thousands grouping + decimal comma.
+    #    e.g. '1.234,50', '12.345,67', '8.477,20', '1.234.567,89'.
+    m = re.search(r"([0-9]{1,3}(?:\.[0-9]{3})+,[0-9]{1,2})", text)
     if m:
         raw = m.group(1)
         return float(raw.replace(".", "").replace(",", "."))
-    # Try plain integer or simple decimal
-    m = re.search(r"([0-9]+(?:,[0-9]{2})?)", text)
+
+    # 2. Danish thousands ONLY (no decimal comma). Period followed by
+    #    EXACTLY 3 digits, with negative lookahead to prevent matching
+    #    inside a longer number. e.g. '1.820', '17.030', '1.234.567'.
+    m = re.search(r"([0-9]{1,3}(?:\.[0-9]{3})+)(?![\.,]?\d)", text)
     if m:
         raw = m.group(1)
-        return float(raw.replace(",", "."))
-    # Try English-format as fallback
-    m = re.search(r"([0-9]+(?:\.[0-9]{2})?)", text)
+        return float(raw.replace(".", ""))
+
+    # 3. Plain integer with comma decimal (no thousands separator).
+    #    e.g. '1234,50', '500,00'.
+    m = re.search(r"([0-9]+,[0-9]{1,2})(?!\d)", text)
+    if m:
+        return float(m.group(1).replace(",", "."))
+
+    # 4. English-format fallback: period followed by 1-2 digits (decimal),
+    #    NOT followed by another digit. e.g. '1.50', '1.5' — these are
+    #    legitimate sub-kroner amounts when OCR pulled them from a
+    #    mixed-locale source. Bounded by lookahead so '1.820' (which
+    #    pattern 2 already caught above) cannot reach here.
+    m = re.search(r"([0-9]+\.[0-9]{1,2})(?!\d)", text)
     if m:
         return float(m.group(1))
+
+    # 5. Plain integer last.
+    m = re.search(r"([0-9]+)", text)
+    if m:
+        return float(m.group(1))
+
     return None
 
 

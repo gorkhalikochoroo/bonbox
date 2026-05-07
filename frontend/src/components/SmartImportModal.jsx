@@ -26,13 +26,14 @@ import api from "../services/api";
  *     come back as 422 from Pydantic — toasted clearly.
  */
 export default function SmartImportModal({ open, onClose, onCommitted }) {
-  const [mode, setMode] = useState("text"); // text | csv | excel | image
+  const [mode, setMode] = useState("text"); // text | csv | excel | image | history
   const [textInput, setTextInput] = useState("");
   const [fileInput, setFileInput] = useState(null);
   const [draft, setDraft] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [committing, setCommitting] = useState(false);
+  const [history, setHistory] = useState(null); // null = unloaded, [] = empty
   const fileRef = useRef(null);
 
   useEffect(() => {
@@ -43,8 +44,21 @@ export default function SmartImportModal({ open, onClose, onCommitted }) {
       setFileInput(null);
       setDraft(null);
       setError("");
+      setHistory(null);
     }
   }, [open]);
+
+  // Lazy-load history when the user picks the History tab. Re-fetches on
+  // re-entry so the list reflects any imports just committed during this
+  // modal session.
+  useEffect(() => {
+    if (mode !== "history" || !open) return;
+    let cancelled = false;
+    api.get("/inventory/smart-import")
+      .then(r => { if (!cancelled) setHistory(r.data || []); })
+      .catch(() => { if (!cancelled) setHistory([]); });
+    return () => { cancelled = true; };
+  }, [mode, open]);
 
   if (!open) return null;
 
@@ -183,6 +197,7 @@ export default function SmartImportModal({ open, onClose, onCommitted }) {
               error={error}
               loading={loading}
               onRun={runExtract}
+              history={history}
             />
           ) : (
             <ReviewStep
@@ -204,17 +219,19 @@ export default function SmartImportModal({ open, onClose, onCommitted }) {
 /* ─── Extract step UI ─────────────────────────────────────────────── */
 function ExtractStep({
   mode, setMode, textInput, setTextInput, fileInput, setFileInput,
-  fileRef, error, loading, onRun,
+  fileRef, error, loading, onRun, history,
 }) {
+  const isInputMode = mode !== "history";
   return (
     <div className="space-y-4">
       {/* Mode tabs */}
       <div className="flex gap-2 flex-wrap">
         {[
-          { id: "text",  label: "📝 Paste text" },
-          { id: "csv",   label: "📄 CSV" },
-          { id: "excel", label: "📊 Excel" },
-          { id: "image", label: "📷 Photo" },
+          { id: "text",    label: "📝 Paste text" },
+          { id: "csv",     label: "📄 CSV" },
+          { id: "excel",   label: "📊 Excel" },
+          { id: "image",   label: "📷 Photo" },
+          { id: "history", label: "📜 Recent" },
         ].map((m) => (
           <button
             key={m.id}
@@ -230,8 +247,13 @@ function ExtractStep({
         ))}
       </div>
 
-      {/* Body — one input per mode */}
-      {mode === "text" && (
+      {/* History list */}
+      {mode === "history" && (
+        <HistoryList history={history} />
+      )}
+
+      {/* Body — one input per mode (input modes only) */}
+      {isInputMode && mode === "text" && (
         <div>
           <textarea
             className="w-full h-48 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -247,7 +269,7 @@ function ExtractStep({
         </div>
       )}
 
-      {(mode === "csv" || mode === "excel" || mode === "image") && (
+      {isInputMode && (mode === "csv" || mode === "excel" || mode === "image") && (
         <div>
           <button
             onClick={() => fileRef.current?.click()}
@@ -283,21 +305,104 @@ function ExtractStep({
         </div>
       )}
 
-      {error && (
+      {isInputMode && error && (
         <div className="px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-300">
           {error}
         </div>
       )}
 
-      <div className="flex justify-end">
-        <button
-          onClick={onRun}
-          disabled={loading}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium rounded-lg transition"
-        >
-          {loading ? "Extracting…" : "Extract items →"}
-        </button>
+      {isInputMode && (
+        <div className="flex justify-end">
+          <button
+            onClick={onRun}
+            disabled={loading}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium rounded-lg transition"
+          >
+            {loading ? "Extracting…" : "Extract items →"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── History list UI ─────────────────────────────────────────────── */
+function HistoryList({ history }) {
+  if (history === null) {
+    return (
+      <div className="py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+        Loading…
       </div>
+    );
+  }
+  if (history.length === 0) {
+    return (
+      <div className="py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+        <p>No imports yet.</p>
+        <p className="text-xs mt-1 opacity-80">
+          Switch to <strong>Paste text</strong>, <strong>CSV</strong>,
+          <strong> Excel</strong> or <strong>Photo</strong> to start your
+          first one.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2 max-h-[480px] overflow-y-auto">
+      {history.map((h) => {
+        const fmt = (iso) =>
+          iso
+            ? new Date(iso).toLocaleString(undefined, {
+                weekday: "short", day: "numeric", month: "short",
+                hour: "2-digit", minute: "2-digit",
+              })
+            : "—";
+        const statusStyle = {
+          committed: "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300",
+          created:   "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300",
+          abandoned: "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400",
+          failed:    "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300",
+        }[h.status] || "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400";
+        const kindIcon = {
+          text:  "📝",
+          csv:   "📄",
+          excel: "📊",
+          image: "📷",
+        }[h.source_kind] || "📦";
+        return (
+          <div key={h.id}
+            className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <span className="text-lg shrink-0">{kindIcon}</span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                  {h.source_filename || `${h.source_kind} import`}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {fmt(h.created_at)}
+                  {" · "}
+                  {h.status === "committed"
+                    ? `${h.committed_count} of ${h.item_count} saved`
+                    : `${h.item_count} item${h.item_count === 1 ? "" : "s"} extracted`}
+                  {h.user_corrected && (
+                    <span className="ml-1 text-purple-600 dark:text-purple-400" title="AI learned from your corrections on this import">
+                      · ✨ trained AI
+                    </span>
+                  )}
+                  {h.error && (
+                    <span className="ml-1 text-red-500" title={h.error}>
+                      · error
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+            <span className={`shrink-0 text-[10px] uppercase font-bold px-2 py-1 rounded ${statusStyle}`}>
+              {h.status}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -314,11 +419,41 @@ function ReviewStep({
   return (
     <div className="space-y-4">
       {/* Stats banner */}
-      <div className="flex flex-wrap gap-3 text-sm">
+      <div className="flex flex-wrap gap-3 text-sm items-center">
         <Stat label="Items" value={items.length} color="blue" />
         <Stat label="Rule-matched" value={ruleCount} color="green" />
         {aiCount > 0 && <Stat label="AI-classified" value={aiCount} color="purple" />}
         {fallbackCount > 0 && <Stat label="Needs review" value={fallbackCount} color="amber" />}
+        {/* Original-photo link — only image-kind imports have a stored
+            blob. Backend's GET /smart-import/{id}/image is auth-required,
+            so a plain <a href> in a new tab won't carry the bearer
+            token. We fetch via the api client (which has the cookie /
+            bearer attached) and create a blob URL that the browser can
+            display inline. Same UX pattern as the kasserapport /
+            daily-close receipt button. */}
+        {draft.source_kind === "image" && (
+          <button
+            onClick={async () => {
+              try {
+                const res = await api.get(
+                  `/inventory/smart-import/${draft.id}/image`,
+                  { responseType: "blob" },
+                );
+                const url = URL.createObjectURL(res.data);
+                window.open(url, "_blank", "noopener,noreferrer");
+                // Revoke after a minute so memory doesn't leak; the new
+                // tab keeps its own reference until the user closes it.
+                setTimeout(() => URL.revokeObjectURL(url), 60_000);
+              } catch (e) {
+                console.error("Failed to load original photo", e);
+              }
+            }}
+            className="px-2 py-1 rounded bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 text-xs font-medium inline-flex items-center gap-1"
+            title="View the original uploaded photo"
+          >
+            📷 View original photo
+          </button>
+        )}
         {draft.duplicate_of && (
           <span className="px-2 py-1 rounded bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200 text-xs">
             Duplicate of an earlier upload — same draft returned
