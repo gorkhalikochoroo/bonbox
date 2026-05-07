@@ -319,6 +319,15 @@ _migrations = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_triage_fingerprint ON triage_notes (fingerprint)",
     "CREATE INDEX IF NOT EXISTS ix_triage_created ON triage_notes (created_at)",
+    # ── Migration 009 (alembic equivalent): role on output_channels ──
+    # Stakes the closer ≠ owner segment in the recipient model.
+    "ALTER TABLE output_channels ADD COLUMN IF NOT EXISTS role VARCHAR(20)",
+    # ── Migration 010 (alembic equivalent): enabled_modules on users ──
+    # Vertical-module gating storage (CSV of module IDs from
+    # services/modules.py:MODULES). NULL = no modules picked yet.
+    # Without this column, the User model SELECT crashes with
+    # 'column users.enabled_modules does not exist' → all auth fails.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS enabled_modules TEXT",
 ]
 
 def _run_migrations():
@@ -462,6 +471,10 @@ def _run_migrations():
             ok += _add("competitors", "longitude", "FLOAT")
             ok += _add("competitors", "photo_ref", "VARCHAR(500)")
             ok += _add("competitors", "total_ratings", "INTEGER")
+            # Migration 009 mirror — recipient role tag
+            ok += _add("output_channels", "role", "VARCHAR(20)")
+            # Migration 010 mirror — vertical-module gating
+            ok += _add("users", "enabled_modules", "TEXT")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",
