@@ -49,7 +49,7 @@ def _make_close(**kw) -> DailyClose:
         tips_per_person=212.50,
         status="confirmed",
         notes=None,
-        closed_by="Manoj",
+        closed_by="Lars",
         closed_at=datetime(2026, 5, 1, 23, 30),
         is_deleted=False,
         created_at=datetime(2026, 5, 1, 23, 31),
@@ -171,12 +171,12 @@ def test_csv_includes_unlock_audit_fields():
     unlocked_by + unlocked_at must appear in the CSV when set."""
     closes = [_make_close(
         unlock_reason="Edit cash count after reconcile",
-        unlocked_by="manoj@bonbox.dk",
+        unlocked_by="lars@mirabelle.dk",
         unlocked_at=datetime(2026, 5, 2, 9, 15),
     )]
     csv = closes_to_csv_bytes(closes).decode("utf-8-sig")
     assert "Edit cash count after reconcile" in csv
-    assert "manoj@bonbox.dk" in csv
+    assert "lars@mirabelle.dk" in csv
     assert "2026-05-02T09:15:00" in csv
 
 

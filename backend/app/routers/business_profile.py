@@ -97,7 +97,7 @@ async def search_business(
 # ─── Signup-time domain lookup (unauthenticated) ──────────────────────
 #
 # Used by the registration form to suggest "Are you Mirabelle ApS?"
-# when the user types an email like manoj@mirabelle.dk. Pre-signup
+# when the user types an email like lars@mirabelle.dk. Pre-signup
 # means no user object → can't share the authenticated /lookup gate.
 #
 # Stricter than the authenticated variant:

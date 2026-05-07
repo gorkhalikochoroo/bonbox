@@ -38,9 +38,9 @@ def db():
 
 
 @pytest.fixture
-def manoj(db):
+def lars(db):
     u = User(
-        email="manoj@bonbox.dk",
+        email="lars@mirabelle.dk",
         password_hash="x",
         business_name="Mirabelle",
         currency="DKK",
@@ -52,12 +52,12 @@ def manoj(db):
 
 # ─── Model layer ───────────────────────────────────────────────────────
 
-def test_accountant_fields_default_to_none(db, manoj):
+def test_accountant_fields_default_to_none(db, lars):
     """Existing rows (and new rows without explicit accountant
     contact) get NULL — no surprise default email."""
     profile = BusinessProfile(
         id=uuid.uuid4(),
-        user_id=manoj.id,
+        user_id=lars.id,
         company_name="Mirabelle ApS",
     )
     db.add(profile); db.commit(); db.refresh(profile)
@@ -65,28 +65,28 @@ def test_accountant_fields_default_to_none(db, manoj):
     assert profile.accountant_name is None
 
 
-def test_accountant_fields_persist_on_save(db, manoj):
+def test_accountant_fields_persist_on_save(db, lars):
     """Both fields round-trip through the DB cleanly."""
     profile = BusinessProfile(
         id=uuid.uuid4(),
-        user_id=manoj.id,
+        user_id=lars.id,
         company_name="Mirabelle ApS",
         accountant_email="anna@revisor.dk",
         accountant_name="Anna Hansen",
     )
     db.add(profile); db.commit()
-    fresh = db.query(BusinessProfile).filter_by(user_id=manoj.id).first()
+    fresh = db.query(BusinessProfile).filter_by(user_id=lars.id).first()
     assert fresh.accountant_email == "anna@revisor.dk"
     assert fresh.accountant_name == "Anna Hansen"
 
 
-def test_accountant_email_can_be_cleared_independently(db, manoj):
+def test_accountant_email_can_be_cleared_independently(db, lars):
     """Setting just the name without an email is a valid state —
     user wants the greeting personalized but hasn't dug up the email
     yet. Both columns are independently nullable."""
     profile = BusinessProfile(
         id=uuid.uuid4(),
-        user_id=manoj.id,
+        user_id=lars.id,
         company_name="Mirabelle ApS",
         accountant_name="Anna",
         accountant_email=None,
@@ -96,11 +96,11 @@ def test_accountant_email_can_be_cleared_independently(db, manoj):
     assert profile.accountant_email is None
 
 
-def test_accountant_handles_danish_characters(db, manoj):
+def test_accountant_handles_danish_characters(db, lars):
     """Æ/Ø/Å in name + email should round-trip cleanly."""
     profile = BusinessProfile(
         id=uuid.uuid4(),
-        user_id=manoj.id,
+        user_id=lars.id,
         company_name="Café Søren",
         accountant_name="Søren Østergaard",
         accountant_email="søren@åbenrevisor.dk",  # IDN — uncommon but valid
@@ -139,13 +139,13 @@ def test_response_schema_exposes_accountant_fields():
     assert "accountant_name" in fields
 
 
-def test_response_schema_passes_through_orm_object(db, manoj):
+def test_response_schema_passes_through_orm_object(db, lars):
     """from_attributes=True — the ORM row maps cleanly onto the
     response. Pin so a future renamed column doesn't silently drop
     the value at the API boundary."""
     profile = BusinessProfile(
         id=uuid.uuid4(),
-        user_id=manoj.id,
+        user_id=lars.id,
         company_name="Mirabelle ApS",
         accountant_email="anna@revisor.dk",
         accountant_name="Anna",
