@@ -54,8 +54,9 @@ def _user(plan: str | None = None, *, in_trial: bool = False) -> User:
 def test_plan_caps_has_every_known_plan():
     """Pin the exact set of plans we advertise. Adding/removing a plan must
     be a deliberate code change to this test so marketing + caps + gates
-    stay in lockstep."""
-    assert set(PLAN_CAPS.keys()) == {"free", "trial", "starter", "pro", "business"}
+    stay in lockstep. Three purchasable tiers (Free / Starter / Pro) plus
+    the internal "trial" state — Business was dropped May 2026."""
+    assert set(PLAN_CAPS.keys()) == {"free", "trial", "starter", "pro"}
 
 
 def test_plan_caps_has_every_resource_key():
@@ -84,9 +85,8 @@ def test_plan_caps_match_marketing_page():
     assert PLAN_CAPS["pro"]["branches"] == 3
     assert PLAN_CAPS["pro"]["team_users"] == 5
     assert PLAN_CAPS["pro"]["modules"] == -1  # unlimited
-    # Business: effectively unlimited
-    assert PLAN_CAPS["business"]["branches"] >= 999
-    assert PLAN_CAPS["business"]["team_users"] >= 999
+    # (Business tier dropped May 2026 — multi-branch chains > 3 are
+    # handled via custom sales conversation, not a self-service tier.)
 
 
 def test_trial_caps_match_pro_caps():
@@ -101,7 +101,6 @@ def test_trial_caps_match_pro_caps():
     ("free",     1),
     ("starter",  1),
     ("pro",      3),
-    ("business", 999),
 ])
 def test_get_cap_branches_per_plan(plan, expected):
     u = _user(plan)
@@ -112,11 +111,20 @@ def test_get_cap_branches_per_plan(plan, expected):
     ("free",     1),
     ("starter",  3),
     ("pro",      5),
-    ("business", 999),
 ])
 def test_get_cap_team_users_per_plan(plan, expected):
     u = _user(plan)
     assert get_cap(u, "team_users") == expected
+
+
+def test_legacy_business_plan_resolves_to_pro_caps():
+    """Defensive: a User row with plan="business" (no production users
+    have this; could come from a stale dev DB) gets Pro entitlements,
+    not silently demoted to Free or 0. effective_plan() handles the
+    legacy mapping."""
+    u = _user("business")
+    assert get_cap(u, "branches") == 3   # Pro's value
+    assert get_cap(u, "team_users") == 5
 
 
 def test_get_cap_trial_user_gets_pro_caps():
@@ -180,7 +188,9 @@ def test_effective_plan_recognizes_starter():
 
 
 def test_effective_plan_recognizes_all_paid_plans():
-    for plan in ("starter", "pro", "business"):
+    """The two paid plans resolve to themselves. Business legacy maps to
+    Pro defensively (tested separately above)."""
+    for plan in ("starter", "pro"):
         assert effective_plan(_user(plan)) == plan
 
 

@@ -63,10 +63,19 @@ export default function ConsolidatedClosePage() {
     } catch (err) {
       const detail = err?.response?.data?.detail;
       const status = err?.response?.status;
-      if (status === 403) {
-        setError(detail || t("consolidatedNotPro") || "Cross-outlet consolidation requires Pro.");
+      // Backend now uses 402 (Payment Required) for tier-locked features
+      // — see services/billing.py enforce_feature(). Older 403s still
+      // possible during the rollout window so handle both.
+      if (status === 402 || status === 403) {
+        // detail can be a structured object {error, feature, upgrade_to}
+        // from the new layer, or a plain string from older code paths.
+        const msg = typeof detail === "string"
+          ? detail
+          : (t("consolidatedNotPro") || "Cross-outlet consolidation requires Pro.");
+        setError(msg);
       } else {
-        setError(detail || t("consolidatedLoadFailed") || "Could not load consolidated close.");
+        const msg = typeof detail === "string" ? detail : null;
+        setError(msg || t("consolidatedLoadFailed") || "Could not load consolidated close.");
       }
     } finally {
       setLoading(false);

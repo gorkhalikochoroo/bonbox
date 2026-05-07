@@ -38,14 +38,15 @@ import { useLanguage } from "../hooks/useLanguage";
 
 /** Display label for a plan key. Tiny enough to inline; centralised so
  * "starter" never becomes "Starter Plan" in one place and "starter" in
- * another. */
+ * another. Three purchasable tiers + the trial state — Business was
+ * dropped May 2026 (kept as a defensive label below in case a legacy
+ * user payload somehow surfaces it). */
 function planLabel(plan, t) {
   const map = {
     free:     t("planFree")     || "Free",
     starter:  t("planStarter")  || "Starter",
     trial:    t("planTrial")    || "Trial",
     pro:      t("planPro")      || "Pro",
-    business: t("planBusiness") || "Business",
   };
   return map[plan] || plan;
 }
@@ -64,11 +65,6 @@ function planClasses(plan) {
       return {
         badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
         button: "bg-emerald-600 hover:bg-emerald-700",
-      };
-    case "business":
-      return {
-        badge: "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
-        button: "bg-violet-600 hover:bg-violet-700",
       };
     case "trial":
       return {

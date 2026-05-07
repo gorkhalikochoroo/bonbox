@@ -131,7 +131,7 @@ def test_scan_caps_pinned_per_tier():
     assert PLAN_CAPS["starter"]["z_report_scans_per_day"] == 15
     assert PLAN_CAPS["pro"]["z_report_scans_per_day"] == 50
     assert PLAN_CAPS["trial"]["z_report_scans_per_day"] == 50  # = full Pro
-    assert PLAN_CAPS["business"]["z_report_scans_per_day"] == 500
+    # (Business tier dropped May 2026.)
 
 
 def test_today_scan_count_zero_for_new_user(db, lars):

@@ -167,7 +167,7 @@ export function EntitlementsProvider({ children }) {
  *     hasFeature(key) -> bool
  *     isAtCap(key, current) -> bool
  *     cap(key) -> number | -1 (unlimited) | undefined (unknown)
- *     minPlanForFeature(key) -> "starter" | "pro" | "business" | null
+ *     minPlanForFeature(key) -> "starter" | "pro" | null
  *     planSnapshot(plan) -> { caps, features } | null
  *     refresh() -> Promise<payload>
  *   }

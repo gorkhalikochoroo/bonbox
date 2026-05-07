@@ -61,8 +61,9 @@ class User(Base):
     enabled_modules: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Stripe subscription state — source-of-truth for paid plan is the webhook.
     # Code never trusts a client-side claim about plan; plan only flips to
-    # "pro"/"business" when Stripe sends customer.subscription.updated and we
-    # verify the webhook signature.
+    # "starter"/"pro" when Stripe sends customer.subscription.updated and we
+    # verify the webhook signature. (Business tier was dropped May 2026 —
+    # any legacy plan="business" rows resolve to "pro" via effective_plan.)
     stripe_customer_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     stripe_subscription_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     # Stripe subscription status (mirrors Stripe's enum):

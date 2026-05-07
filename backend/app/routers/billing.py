@@ -69,7 +69,9 @@ def my_billing(
 
 
 @router.get("/entitlements")
+@limiter.limit("60/minute")
 def my_entitlements(
+    request: Request,
     user: User = Depends(get_current_user),
 ):
     """Unified entitlements payload for the frontend's useEntitlements hook.
@@ -86,6 +88,17 @@ def my_entitlements(
     This is read-only and computed entirely from PLAN_CAPS / PLAN_FEATURES
     + the user's effective plan. No Stripe sync side-effect (use /billing/me
     for that path).
+
+    Security:
+      • Auth required (Depends(get_current_user)).
+      • Rate-limited 60/min per IP — defense-in-depth so a buggy or
+        adversarial client can't spam this endpoint. Plenty of headroom
+        for the legitimate frontend (one fetch on mount + on plan change).
+      • Payload is purely about the calling user's own entitlements +
+        public plan-comparison data. No PII, no cross-user data, no
+        secrets. Safe to log if needed.
+      • Cannot mutate state — no path here flips user.plan; that lives
+        only in the Stripe webhook handler.
     """
     return entitlements_payload(user)
 
@@ -171,7 +184,10 @@ def create_checkout(
             },
         )
 
-    # Already paid? Redirect to portal instead of creating a new sub
+    # Already paid? Redirect to portal instead of creating a new sub.
+    # Includes legacy "business" defensively — if any pre-3-tier user
+    # somehow has plan="business" we still send them to the portal
+    # rather than letting them buy a duplicate sub.
     if user.plan in ("starter", "pro", "business") and user.subscription_status == "active":
         portal = stripe_billing.create_billing_portal_session(user, db)
         if portal:

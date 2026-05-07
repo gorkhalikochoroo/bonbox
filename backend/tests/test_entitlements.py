@@ -1,12 +1,17 @@
 """Tests for the unified entitlements layer (services/billing.py + the
 /api/billing/entitlements endpoint).
 
+Three purchasable tiers (Free / Starter / Pro) + the internal "trial"
+state. "Business" was dropped May 2026; tests pin that decision so a
+re-introduction is a deliberate change, not a silent drift.
+
 Coverage:
   • PLAN_CAPS / PLAN_FEATURES shape invariants — every plan has every key
   • Starter-tier leak guard — every numeric cap MUST exist for "starter"
     (the old leaks where Starter fell through to Free's cap are
     permanently sealed)
   • effective_plan() resolution: free vs trial vs paid vs expired-trial
+  • Legacy plan="business" → "pro" defensive mapping
   • get_cap() / has_feature() round-trip for every (plan, key)
   • min_plan_for_feature() / min_plan_for_cap() upsell hints
   • cap_exceeded_detail / feature_locked_detail payload shape
@@ -60,15 +65,23 @@ def _u(plan: str | None = None, trial_days: int | None = None) -> User:
 # ─── Shape invariants — these would have caught the original leak ─────
 
 
-def test_plan_caps_includes_every_purchasable_plan():
-    """Every purchasable plan + 'trial' must exist in PLAN_CAPS."""
-    expected = {"free", "starter", "trial", "pro", "business"}
+def test_plan_caps_three_tier_plus_trial():
+    """Three purchasable plans (Free/Starter/Pro) + the internal trial
+    state. Business was dropped May 2026; this test pins that decision."""
+    expected = {"free", "starter", "trial", "pro"}
     assert set(PLAN_CAPS.keys()) == expected
 
 
-def test_plan_features_includes_every_purchasable_plan():
-    expected = {"free", "starter", "trial", "pro", "business"}
+def test_plan_features_three_tier_plus_trial():
+    expected = {"free", "starter", "trial", "pro"}
     assert set(PLAN_FEATURES.keys()) == expected
+
+
+def test_plan_order_is_purchasable_only_no_trial_no_business():
+    """PLAN_ORDER drives min_plan_for_feature/cap upsell hints. It MUST
+    contain only purchasable plans in ascending order — trial is not
+    purchasable, business is gone."""
+    assert PLAN_ORDER == ["free", "starter", "pro"]
 
 
 def test_every_plan_has_every_cap_key():
@@ -134,14 +147,7 @@ def test_trial_matches_pro_for_every_feature():
     assert PLAN_FEATURES["trial"] == PLAN_FEATURES["pro"]
 
 
-def test_business_at_or_above_pro_for_every_key():
-    for key, pro_val in PLAN_CAPS["pro"].items():
-        biz_val = PLAN_CAPS["business"][key]
-        if biz_val == -1:
-            continue
-        if pro_val == -1:
-            pytest.fail(f"Pro has unlimited {key} but Business has finite cap — bug")
-        assert biz_val >= pro_val, f"Business's {key}={biz_val} < Pro's {pro_val}"
+# (Business tier removed May 2026 — no Business >= Pro test needed.)
 
 
 # ─── effective_plan ───────────────────────────────────────────────────
@@ -172,14 +178,14 @@ def test_effective_plan_no_plan_no_trial_returns_free():
 # ─── get_cap / has_feature round-trips ────────────────────────────────
 
 
-@pytest.mark.parametrize("plan", ["free", "starter", "pro", "business"])
+@pytest.mark.parametrize("plan", ["free", "starter", "pro"])
 def test_get_cap_returns_plan_caps_value_for_every_key(plan):
     u = _u(plan)
     for key, expected in PLAN_CAPS[plan].items():
         assert get_cap(u, key) == expected, f"{plan}.{key} mismatch"
 
 
-@pytest.mark.parametrize("plan", ["free", "starter", "pro", "business"])
+@pytest.mark.parametrize("plan", ["free", "starter", "pro"])
 def test_has_feature_returns_plan_features_value_for_every_key(plan):
     u = _u(plan)
     for key, expected in PLAN_FEATURES[plan].items():
@@ -196,7 +202,7 @@ def test_get_cap_unknown_key_falls_back_to_free():
 def test_has_feature_unknown_feature_returns_false():
     """Unknown features fail closed (False) — protects against typos
     silently granting access."""
-    u = _u("business")  # most permissive plan
+    u = _u("pro")  # top tier
     assert has_feature(u, "made_up_feature") is False
 
 
@@ -207,6 +213,47 @@ def test_at_cap_unlimited_never_at_cap():
     u = _u("pro")
     # modules is -1 (unlimited) on Pro
     assert at_cap(u, "modules", 99999) is False
+
+
+# ─── Legacy "business" plan defensive mapping ─────────────────────────
+
+
+def test_legacy_business_plan_resolves_to_pro():
+    """No production users have plan="business" today, but a stale dev
+    DB or test fixture might. effective_plan() must NOT return "business"
+    (which is no longer in PLAN_CAPS) and must NOT downgrade the user
+    to Free. It maps to "pro" — the top current tier — so the user keeps
+    paid entitlements until Stripe sync corrects the column."""
+    u = _u("business")
+    assert effective_plan(u) == "pro"
+    # And they get full Pro entitlements, not Free's
+    assert get_cap(u, "branches") == 3
+    assert has_feature(u, "ai_anomaly_detection") is True
+    assert has_feature(u, "multi_branch_dashboard") is True
+
+
+def test_legacy_business_plan_billing_summary_is_paid():
+    """billing_summary().is_paid must be True for legacy business — so
+    the user doesn't see "you're on Free" UI while their Stripe sub is
+    still active."""
+    u = _u("business")
+    summary = billing_summary(u)
+    # plan field shows the resolved tier (Pro), not the raw "business"
+    assert summary["plan"] == "pro"
+    assert summary["is_paid"] is True
+
+
+# ─── api_access feature is gone ───────────────────────────────────────
+
+
+def test_api_access_feature_removed():
+    """api_access was Business-only. With Business gone and no public
+    API shipped, the feature flag is removed entirely. has_feature()
+    must fail closed (False) for any plan rather than 'silently True'
+    on Pro."""
+    for plan in ["free", "starter", "pro"]:
+        u = _u(plan)
+        assert has_feature(u, "api_access") is False
 
 
 def test_at_cap_below_cap_returns_false():
@@ -233,9 +280,9 @@ def test_min_plan_for_feature_finds_lowest_unlocking_plan():
     assert min_plan_for_feature("ai_anomaly_detection") == "starter"
 
 
-def test_min_plan_for_feature_business_only_returns_business():
-    # api_access is Business-only
-    assert min_plan_for_feature("api_access") == "business"
+def test_min_plan_for_feature_pro_only_returns_pro():
+    # multi_branch_dashboard is Pro-only (Starter has 1 branch only)
+    assert min_plan_for_feature("multi_branch_dashboard") == "pro"
 
 
 def test_min_plan_for_feature_unknown_returns_none():
@@ -353,14 +400,15 @@ def test_entitlements_payload_includes_min_plan_by_feature():
     payload = entitlements_payload(u)
     assert "min_plan_by_feature" in payload
     assert payload["min_plan_by_feature"]["ai_anomaly_detection"] == "starter"
-    assert payload["min_plan_by_feature"]["api_access"] == "business"
+    assert payload["min_plan_by_feature"]["multi_branch_dashboard"] == "pro"
 
 
 def test_entitlements_payload_includes_purchasable_plans_only():
     u = _u("free")
     payload = entitlements_payload(u)
-    # Trial is NOT in the plans list (not purchasable)
-    assert set(payload["plans"].keys()) == {"free", "starter", "pro", "business"}
+    # Three purchasable plans only (Free / Starter / Pro). Trial is
+    # excluded (internal state, not purchasable). Business is gone.
+    assert set(payload["plans"].keys()) == {"free", "starter", "pro"}
     for plan in payload["plans"].keys():
         assert "caps" in payload["plans"][plan]
         assert "features" in payload["plans"][plan]

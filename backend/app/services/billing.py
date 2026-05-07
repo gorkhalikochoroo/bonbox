@@ -5,13 +5,26 @@ mapping from plan to numeric entitlements (branches, team users, modules,
 daily caps) AND boolean feature flags (anomaly detection, white-label PDF,
 priority support, etc.).
 
+Three purchasable tiers (May 2026 — early launch reality):
+  • Free       — no card, ever. Caps tight enough to convert serious users.
+  • Starter    — 199/mo (founding 129). 1 location, 3 users, monthly handoff.
+  • Pro        — 349/mo (founding 249). 3 locations, 5 users, full year, all AI.
+
+"Business" was provisioned in earlier scaffolding but never sold and is
+gone now. Multi-branch chains > 3 locations are handled via a custom
+sales conversation (mailto: link from /subscription). When we have real
+demand for a 4th tier we can add it back — until then dead code is risk
+(scattered "business" checks → tier-leak surface area).
+
 Source-of-truth rules:
-  1. plan column trumps everything when set to "starter", "pro", or
-     "business" (paid).
-  2. Otherwise, if trial_ends_at is in the future → user is on "trial"
+  1. plan column trumps everything when set to "starter" or "pro" (paid).
+  2. Legacy: if plan column says "business" (no production users have
+     this, but defense-in-depth), treat as "pro" — never silently
+     downgrade a user who paid us money.
+  3. Otherwise, if trial_ends_at is in the future → user is on "trial"
      (functionally same as Pro for entitlements, but auto-downgrades to
      Free on expiry).
-  3. Otherwise → "free".
+  4. Otherwise → "free".
 
 The trial NEVER auto-charges. Payment is a separate explicit user action.
 This keeps us out of the "dark pattern" zone — no surprise bills.
@@ -38,6 +51,23 @@ missing from the dict). Consolidating into PLAN_CAPS means:
 Boolean feature flags (FEATURES) sit alongside numeric caps so the
 /billing/me payload + /entitlements endpoint can answer "does this user
 have access to X?" without scattering string checks across the code.
+
+────────────────────────────────────────────────────────────────────────
+SECURITY MODEL:
+────────────────────────────────────────────────────────────────────────
+The plan column on User is the only thing that grants paid entitlements.
+That column can ONLY be flipped by:
+  • Stripe webhook handler (after signature verification). Webhook is
+    the single trusted source for promoting Free → Starter / Pro.
+  • Admin tooling (audited via admin role check + admin endpoint).
+  • Trial start (sets trial_ends_at only — plan stays "free" so
+    effective_plan() resolves to "trial").
+
+Everything in this module is read-only. Calling get_cap() or
+has_feature() never mutates state. The frontend cache (useEntitlements
+hook) is advisory — every gate re-checks server-side via this module.
+A user editing their browser cache to "is_paid": true does not gain a
+single byte of paid functionality.
 """
 
 from datetime import datetime, timedelta
@@ -61,15 +91,17 @@ TRIAL_DAYS = 14
 # every gate that reads via get_cap(). Adding a new plan requires adding
 # every existing key to keep the contract complete (test enforces).
 #
-# Tier philosophy (Manoj, May 2026):
+# Tier philosophy (Manoj, May 2026 — early launch reality):
 #   Free      — meaningful taste of every AI feature. No card needed,
 #               supports a single owner-operator running 1 branch.
 #   Starter   — first paid tier. Owner-operator + 2 staff, monthly-close
 #               accountant handoff (31-day export window).
-#   Trial     — full Pro for 14 days, no card.
-#   Pro       — multi-branch operator (3 sites), full year export, all
-#               vertical modules, AI anomaly detection, priority support.
-#   Business  — custom-quoted; effectively unlimited (999/999).
+#   Trial     — full Pro for 14 days, no card. INTERNAL state, not
+#               purchasable; resolves from plan="free" + active
+#               trial_ends_at.
+#   Pro       — top tier. Multi-branch operator (up to 3 sites), full
+#               year export, all vertical modules, AI anomaly detection,
+#               priority support.
 #
 # Numeric caps (-1 = unlimited):
 #   branches                     # active branches user can create
@@ -131,18 +163,6 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "ai_brief_refreshes_per_day": 5,
         "ai_chat_messages_per_day": 200,
     },
-    "business": {
-        "branches": 999,
-        "team_users": 999,
-        "modules": -1,
-        "smart_imports_per_day": 500,
-        "daily_close_export_days": 366,
-        "sale_parse_per_day": 250,
-        "z_report_scans_per_day": 500,
-        "kasse_extracts_per_day": 500,
-        "ai_brief_refreshes_per_day": 10,
-        "ai_chat_messages_per_day": 1000,
-    },
 }
 
 
@@ -162,15 +182,20 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
 # We never put a feature behind a hard boolean wall on Free if Free can
 # meaningfully use it at any scale — that's a quota's job.
 #
-# Hard-walled (boolean) features:
-#   ai_anomaly_detection      — full anomaly scan with cross-day patterns
-#   ai_predictive_staffing    — staffing recommendations from history
-#   white_label_pdf           — remove BonBox branding from accountant PDFs
-#   priority_support          — front-of-queue email/chat support
-#   custom_export_templates   — user-defined CSV column maps
-#   advanced_benchmarks       — peer benchmarks beyond same-vertical avg
-#   multi_branch_dashboard    — cross-branch consolidated view
-#   api_access                — programmatic access (future)
+# Feature → tier mapping aligned with the SubscriptionPage marketing copy
+# (frontend/src/pages/SubscriptionPage.jsx) so the upsell prompt and the
+# pricing page can never say different things:
+#   ai_anomaly_detection      — Starter+ ("AI anomaly detection on sales")
+#   custom_export_templates   — Starter+ (Dinero / Billy / e-conomic CSV)
+#   advanced_benchmarks       — Starter+ (peer benchmarks)
+#   ai_predictive_staffing    — Pro+    ("Predictive AI: revenue forecast…")
+#   multi_branch_dashboard    — Pro+    ("Cross-outlet consolidation")
+#   white_label_pdf           — Pro+    (no BonBox branding on PDFs)
+#   priority_support          — Pro+    ("Priority email support")
+#
+# api_access was Business-only; with Business gone and no public API
+# shipped yet, this flag is dropped entirely. When we ship an API we
+# can decide which tier it belongs to and add the flag back.
 PLAN_FEATURES: dict[str, dict[str, bool]] = {
     "free": {
         "ai_anomaly_detection": False,
@@ -180,7 +205,6 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "custom_export_templates": False,
         "advanced_benchmarks": False,
         "multi_branch_dashboard": False,
-        "api_access": False,
     },
     "starter": {
         "ai_anomaly_detection": True,
@@ -190,7 +214,6 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "custom_export_templates": True,
         "advanced_benchmarks": True,
         "multi_branch_dashboard": False,  # 1 branch only on Starter
-        "api_access": False,
     },
     "trial": {  # = full Pro
         "ai_anomaly_detection": True,
@@ -200,7 +223,6 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "custom_export_templates": True,
         "advanced_benchmarks": True,
         "multi_branch_dashboard": True,
-        "api_access": False,  # API access remains Business-only
     },
     "pro": {
         "ai_anomaly_detection": True,
@@ -210,17 +232,6 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "custom_export_templates": True,
         "advanced_benchmarks": True,
         "multi_branch_dashboard": True,
-        "api_access": False,
-    },
-    "business": {
-        "ai_anomaly_detection": True,
-        "ai_predictive_staffing": True,
-        "white_label_pdf": True,
-        "priority_support": True,
-        "custom_export_templates": True,
-        "advanced_benchmarks": True,
-        "multi_branch_dashboard": True,
-        "api_access": True,  # only Business gets the API
     },
 }
 
@@ -230,17 +241,30 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
 # When a feature is locked, the upgrade prompt needs to know the LOWEST
 # plan that unlocks it. min_plan_for_feature() walks this order and
 # returns the first plan whose entitlements include the feature.
-PLAN_ORDER: list[str] = ["free", "starter", "pro", "business"]
+#
+# Three purchasable plans only. "trial" is intentionally excluded —
+# users can't "upgrade to trial".
+PLAN_ORDER: list[str] = ["free", "starter", "pro"]
 
 
 def effective_plan(user: User) -> str:
     """
     Returns the plan the UI should treat the user as having.
-    'free' | 'trial' | 'starter' | 'pro' | 'business'
+    'free' | 'trial' | 'starter' | 'pro'
+
+    Defensive legacy mapping: a User with plan="business" (from earlier
+    scaffolding when Business was a tier) resolves to "pro" — we never
+    silently downgrade a paying user. There are no production users with
+    plan="business" today; this guard exists so a stale dev DB or
+    re-seeded test fixture can't lock someone out of paid features.
     """
     plan = (getattr(user, "plan", None) or "free").lower()
-    if plan in ("starter", "pro", "business"):
+    if plan in ("starter", "pro"):
         return plan
+    if plan == "business":
+        # Legacy — pre-3-tier Stripe webhook may have stamped this.
+        # Treat as Pro so the user keeps top-tier entitlements.
+        return "pro"
     # Plan is "free" or unset — but a live trial overrides
     if getattr(user, "trial_ends_at", None) and user.trial_ends_at > datetime.utcnow():
         return "trial"
@@ -357,7 +381,7 @@ def billing_summary(user: User) -> dict:
         "trial_ends_at": user.trial_ends_at.isoformat() if getattr(user, "trial_ends_at", None) else None,
         "trial_days_remaining": days_left,
         "trial_active": plan == "trial",
-        "is_paid": plan in ("starter", "pro", "business"),
+        "is_paid": plan in ("starter", "pro"),
         "raw_plan": (getattr(user, "plan", None) or "free").lower(),
         "caps": dict(plan_caps),  # copy so caller can't mutate the source-of-truth
         "features": dict(plan_features),
@@ -386,7 +410,6 @@ def entitlements_payload(user: User) -> dict[str, Any]:
           "free":     {"caps": {...}, "features": {...}},
           "starter":  {...},
           "pro":      {...},
-          "business": {...},
         },
       }
     """

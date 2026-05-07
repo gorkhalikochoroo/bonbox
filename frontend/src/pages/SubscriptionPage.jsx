@@ -171,21 +171,11 @@ export default function SubscriptionPage() {
       window.location.href = "/register";
       return;
     }
-    if (tierId === "business") {
-      // Always route Business to sales conversation (custom plan, multi-branch chains)
-      const subject = encodeURIComponent("BonBox Business — multi-branch enquiry");
-      const body = encodeURIComponent(
-        `Hi BonBox team,\n\nI run a multi-branch business and would like to learn more about BonBox Business.\n\n` +
-        `A few details that will help us scope a custom plan:\n` +
-        `• Number of branches / locations:\n` +
-        `• Type of business (restaurant chain, retail group, café group, etc.):\n` +
-        `• Approximate users / managers across locations:\n` +
-        `• Existing tools we integrate with (POS, accounting):\n\n` +
-        `My account email: ${user.email}\n\nThanks!`
-      );
-      window.location.href = `mailto:hello@bonbox.dk?subject=${subject}&body=${body}`;
-      return;
-    }
+    // (Business tier was dropped May 2026. Multi-branch chains > 3
+    // locations are handled via a custom sales conversation —
+    // FAQ A4 surfaces the hello@bonbox.dk path for that. The TIERS
+    // array no longer contains a Business card so this handler can't
+    // fire from the UI; left out entirely to remove dead code.)
     // ── Paid-tier upgrade (Starter or Pro) ──
     // App Store compliance: native iOS cannot use Stripe for digital goods (Apple's
     // 30% IAP rule). On native, we open the web subscription page in the system
@@ -477,11 +467,14 @@ export default function SubscriptionPage() {
           // The previous logic treated trial as "isCurrent Pro" which
           // disabled the Pro lock-in button + the trial user couldn't
           // choose either tier.
+          // Three purchasable tiers — Business was dropped May 2026.
+          // Legacy users with raw_plan="business" see Pro highlighted as
+          // their current plan because effective_plan() resolves them
+          // to "pro" (handled by the backend).
           const isCurrent =
             (tier.id === "pro" && currentPlan === "pro") ||
             (tier.id === "starter" && currentPlan === "starter") ||
-            (tier.id === "free" && currentPlan === "free") ||
-            (tier.id === "business" && currentPlan === "business");
+            (tier.id === "free" && currentPlan === "free");
           // Visual-only marker for the Pro card during trial — communicates
           // "you have these features right now" without disabling the
           // Lock-in CTA. The trial user still needs to click to lock in.
@@ -561,12 +554,12 @@ export default function SubscriptionPage() {
                   // configured yet (early-launch fallback). Once Stripe is
                   // live, every click routes to checkout — waitlist state
                   // shouldn't block a real upgrade.
-                  || (!stripeReady && tier.id !== "business" && joined.has(tier.id))
+                  || (!stripeReady && joined.has(tier.id))
                 }
                 className={`w-full py-2 rounded-lg text-sm font-medium transition mt-3 mb-4
                   ${isCurrent
                     ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800 cursor-default"
-                    : (!stripeReady && joined.has(tier.id) && tier.id !== "business")
+                    : (!stripeReady && joined.has(tier.id))
                       ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800"
                       : tier.highlight
                         ? "bg-green-600 hover:bg-green-700 text-white shadow-sm disabled:opacity-60"
@@ -576,7 +569,7 @@ export default function SubscriptionPage() {
                   ? `✓ ${t("currentPlan") || "Current plan"}`
                   : pending === tier.id
                     ? (t("pricingJoining") || "Joining…")
-                    : (!stripeReady && joined.has(tier.id) && tier.id !== "business")
+                    : (!stripeReady && joined.has(tier.id))
                       ? (t("pricingOnTheList") || "✓ On the list")
                       : showTrialLockCTA
                         // During trial both Starter + Pro buttons offer

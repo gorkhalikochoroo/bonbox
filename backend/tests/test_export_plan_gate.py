@@ -41,8 +41,10 @@ def _user(plan="free", trial_active=False):
 
 def test_plan_caps_includes_daily_close_export_days_for_every_tier():
     """A future tier added without this key would silently fall back
-    to the free cap. Pin every tier so it has to be set explicitly."""
-    for tier in ("free", "starter", "trial", "pro", "business"):
+    to the free cap. Pin every tier so it has to be set explicitly.
+    Three purchasable plans + the trial state — Business was dropped
+    May 2026."""
+    for tier in ("free", "starter", "trial", "pro"):
         assert "daily_close_export_days" in PLAN_CAPS[tier], (
             f"Tier {tier!r} missing daily_close_export_days in PLAN_CAPS"
         )
@@ -60,11 +62,10 @@ def test_plan_caps_starter_is_31_days():
 
 
 def test_plan_caps_pro_matches_hard_ceiling():
-    """Pro / Trial / Business get the full year (matches the
-    _MAX_RANGE_DAYS ceiling so paid tiers see no soft cap)."""
+    """Pro / Trial get the full year (matches the _MAX_RANGE_DAYS
+    ceiling so paid tiers see no soft cap)."""
     assert PLAN_CAPS["pro"]["daily_close_export_days"] == 366
     assert PLAN_CAPS["trial"]["daily_close_export_days"] == 366
-    assert PLAN_CAPS["business"]["daily_close_export_days"] == 366
 
 
 # ─── get_cap() lookup ────────────────────────────────────────────────
@@ -73,6 +74,7 @@ def test_get_cap_returns_per_tier_value():
     assert get_cap(_user("free"), "daily_close_export_days") == 7
     assert get_cap(_user("starter"), "daily_close_export_days") == 31
     assert get_cap(_user("pro"), "daily_close_export_days") == 366
+    # Legacy "business" plan resolves to Pro defensively.
     assert get_cap(_user("business"), "daily_close_export_days") == 366
 
 

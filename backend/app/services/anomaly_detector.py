@@ -501,10 +501,13 @@ def run_daily_scan(user: User, db: Session) -> list[AnomalyAlert]:
     if not already_scanned:
         candidates = detect_candidates(user, db, today)
 
-        # Optional polish (paid tiers only — free stays deterministic)
-        plan = effective_plan(user)
+        # Optional polish — paid tiers only, gated via the unified
+        # ai_anomaly_detection feature flag (May 2026 consolidation).
+        # Starter has the flag too; Free stays deterministic with no
+        # LLM polish to keep token spend predictable.
+        from app.services.billing import has_feature
         polished_map: dict[int, _Candidate] = {}
-        if plan in ("trial", "pro", "business") and candidates:
+        if has_feature(user, "ai_anomaly_detection") and candidates:
             polished_map = _try_polish(candidates) or {}
 
         for i, cand in enumerate(candidates):

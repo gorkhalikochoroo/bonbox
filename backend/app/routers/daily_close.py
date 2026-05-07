@@ -897,12 +897,13 @@ _MAX_RANGE_DAYS = 366
 # Plan labels used in the upgrade prompts surfaced to the user when
 # they hit the per-tier cap. Kept here rather than in billing.py
 # because the wording is feature-specific (kasserapport context).
+# Three purchasable tiers + the trial state — Business was dropped
+# May 2026.
 _PLAN_LABELS = {
     "free": "Free",
     "starter": "Starter",
     "trial": "Trial (Pro)",
     "pro": "Pro",
-    "business": "Business",
 }
 
 

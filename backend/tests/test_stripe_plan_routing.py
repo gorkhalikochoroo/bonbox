@@ -255,7 +255,12 @@ def test_webhook_sync_pro_price_maps_to_pro_plan():
         assert user.plan == "pro"
 
 
-def test_webhook_sync_business_price_maps_to_business_plan():
+def test_webhook_sync_business_price_legacy_maps_to_pro():
+    """Business tier was dropped May 2026. STRIPE_PRICE_ID_BUSINESS is
+    still in settings for backward-compat with old webhook fixtures, but
+    if Stripe ever sent us that price (it won't — there's no purchase
+    path), we resolve to Pro (top current tier) rather than introducing
+    a stale "business" string into the plan column."""
     from app.services.stripe_billing import _apply_subscription_state
     from types import SimpleNamespace
 
@@ -274,7 +279,8 @@ def test_webhook_sync_business_price_maps_to_business_plan():
         }
         mock_db = SimpleNamespace(commit=lambda: None, rollback=lambda: None)
         _apply_subscription_state(user, sub_obj, mock_db)
-        assert user.plan == "business"
+        # Legacy business price → Pro, never "business" anymore
+        assert user.plan == "pro"
 
 
 def test_webhook_sync_canceled_drops_to_free():

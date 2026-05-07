@@ -20,6 +20,10 @@ from app.services.auth import get_current_user
 router = APIRouter()
 
 
+# Three purchasable tiers in production — "business" left as an
+# accepted historical value so any pre-3-tier waitlist row already in
+# the DB still validates on read paths. New writes can't use it because
+# the SubscriptionPage never offers it.
 _VALID_TIERS = {"starter", "pro", "business"}
 
 

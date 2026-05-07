@@ -666,8 +666,15 @@ def _apply_subscription_state(user: User, sub_obj, db: Session) -> None:
             }
             starter_prices.discard(None)
 
-            if price_id == settings.STRIPE_PRICE_ID_BUSINESS:
-                user.plan = "business"
+            # Business tier was dropped May 2026 — the env var
+            # STRIPE_PRICE_ID_BUSINESS is kept for backward-compatibility
+            # with old test webhook fixtures, but if Stripe ever sent us
+            # that price (it won't — there's no purchase path), we resolve
+            # to Pro (top current tier) rather than introducing a stale
+            # "business" string into the plan column.
+            business_price_id = getattr(settings, "STRIPE_PRICE_ID_BUSINESS", None)
+            if business_price_id and price_id == business_price_id:
+                user.plan = "pro"
             elif price_id in starter_prices:
                 user.plan = "starter"
             else:

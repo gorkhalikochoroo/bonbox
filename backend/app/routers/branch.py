@@ -338,23 +338,19 @@ def consolidated_close(
     consolidated payload (per-branch rows + totals).
 
     Multi-layer gating:
-      Layer A — Plan: Pro / trial / Business only. Free + Starter return
-        403 with upgrade message — multi-location consolidation is the
-        Pro tier's headline feature.
+      Layer A — Feature: multi_branch_dashboard flag (Pro / trial only).
+        Free + Starter return 402 with structured upgrade payload —
+        multi-location consolidation is the Pro tier's headline feature.
       Layer B — Tenant: only branches owned by current_user are included
         (branch_ids list is silently filtered against ownership).
       Layer C — Defensive aggregation: malformed rows are skipped with
         warnings, not raised — never 5xx on bad data.
     """
-    plan = effective_plan(current_user)
-    if plan not in ("pro", "trial", "business"):
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                f"Cross-outlet consolidated daily close requires Pro. "
-                f"You're on {plan}. Upgrade for multi-location aggregation."
-            ),
-        )
+    # Layer A — feature flag gate (uses unified entitlements). This
+    # raises 402 with {"error":"feature_locked", "upgrade_to":"pro"}
+    # so the frontend can render <UpgradePrompt> directly.
+    from app.services.billing import enforce_feature
+    enforce_feature(current_user, "multi_branch_dashboard")
 
     # Parse date defensively
     try:
