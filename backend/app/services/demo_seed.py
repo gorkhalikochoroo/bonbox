@@ -375,23 +375,37 @@ def seed_demo_account(db: Session) -> dict:
         return {"skipped": True, "reason": "demo user does not exist yet"}
 
     # ── Plan / trial tidy-up — runs every startup, idempotent ──
-    # We want a clean Pro experience for demos and walkthroughs:
-    #   • Plan must be "pro" so date-range exports aren't capped at
-    #     7 days, modules are unlimited, etc.
-    #   • trial_ends_at must be NULL so the "14 days left in your free
-    #     Pro trial" banner doesn't appear on the dashboard. (Without
-    #     this clear, the demo always looks like it's mid-trial — the
-    #     opposite of what we want when showing off.)
-    # These updates run on EVERY app restart, separate from the
-    # data-seeding gate below. That way a one-off plan flip in the
-    # admin panel can't accidentally leave the demo showing the
-    # trial-stuck banner.
+    # Demo lives in active-trial state so walkthroughs naturally
+    # showcase the trial countdown chip in the sidebar AND the full
+    # Pro feature set (effective_plan returns "trial" → full Pro
+    # entitlements via PLAN_CAPS["trial"]).
+    #
+    # Refresh policy: bump trial_ends_at to now + 14 days IF it would
+    # expire within the next 7 days. That way:
+    #   • New demo signups see 14 days remaining at start.
+    #   • Mid-trial restarts don't reset the countdown — chip
+    #     decreases naturally day by day.
+    #   • Once trial nears expiry (≤7 days), next app restart pushes
+    #     it back to 14 — keeps demo perpetually "in trial" for
+    #     sales walkthroughs without manual intervention.
     plan_dirty = False
-    if (user.plan or "free") in ("free", None, ""):
-        user.plan = "pro"
+    # Demo plan stays as "free" so effective_plan() resolves to
+    # "trial" while trial_ends_at is in the future (full Pro feats).
+    # Bump back from any accidentally-set paid plan so the demo
+    # consistently shows the trial chip.
+    if (user.plan or "free") not in ("free", None, ""):
+        # User was bumped to paid in a prior version — reset to free
+        # so the trial chip shows. Pro entitlements still apply via
+        # the active-trial path.
+        user.plan = "free"
         plan_dirty = True
-    if user.trial_ends_at is not None:
-        user.trial_ends_at = None
+    # Refresh trial only when it's missing or about to expire.
+    needs_trial_refresh = (
+        user.trial_ends_at is None
+        or user.trial_ends_at < datetime.utcnow() + timedelta(days=7)
+    )
+    if needs_trial_refresh:
+        user.trial_ends_at = datetime.utcnow() + timedelta(days=14)
         plan_dirty = True
     if plan_dirty:
         db.commit()

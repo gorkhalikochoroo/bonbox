@@ -1307,6 +1307,14 @@ const translations = {
     featProExportYear: "Full-year accountant export — quarterly + yearly review",
 
     // ───────────────────────────────────────────────────────────
+    // Trial countdown chip (sidebar — replaces old TrialBanner stripe)
+    // ───────────────────────────────────────────────────────────
+    trialChipOneDay: "1 day left in trial",
+    trialChipManyDays: "{n} days left in trial",
+    trialChipTooltip: "View Pro plans",
+    trialChipUrgentTooltip: "Trial ends soon — see plans",
+
+    // ───────────────────────────────────────────────────────────
     // Global search command palette (⌘K)
     // ───────────────────────────────────────────────────────────
     search: "Search",
@@ -2559,6 +2567,12 @@ const translations = {
     featFreeExport7d: "7-dages periodeeksport til revisor (PDF + CSV)",
     featStarterExport31d: "31-dages periodeeksport — månedsafslutning",
     featProExportYear: "Helårs eksport til revisor — kvartal + årsregnskab",
+
+    // Trial countdown chip (sidebar)
+    trialChipOneDay: "1 dag tilbage i prøveperiode",
+    trialChipManyDays: "{n} dage tilbage i prøveperiode",
+    trialChipTooltip: "Se Pro-priser",
+    trialChipUrgentTooltip: "Prøveperiode slutter snart — se priser",
 
     // Global search command palette (⌘K)
     search: "Søg",

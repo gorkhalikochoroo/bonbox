@@ -152,21 +152,49 @@ def test_seeded_profile_has_branchekode_for_restaurants(db, demo_user):
     assert profile.industry_code == "56.10.10"
 
 
-# ─── Plan upgrade + trial clear for demo ─────────────────────────────
+# ─── Plan / trial setup for demo ──────────────────────────────────────
 
-def test_seed_upgrades_demo_user_to_pro(db, demo_user):
-    """Free plan caps the date-range export at 7d. Demo user is bumped
-    to Pro so the full year is showcaseable."""
+def test_seed_keeps_demo_user_on_free_plan(db, demo_user):
+    """Demo plan stays as 'free' so effective_plan() resolves to
+    'trial' (full Pro entitlements via PLAN_CAPS['trial']) AND the
+    trial countdown chip in the sidebar has something to show.
+    Earlier we bumped to 'pro' which suppressed the chip — now the
+    countdown is the headline UX of the demo experience."""
+    from datetime import datetime, timedelta
     assert demo_user.plan == "free"
     seed_demo_account(db)
     db.refresh(demo_user)
-    assert demo_user.plan == "pro"
+    assert demo_user.plan == "free"
+    assert demo_user.trial_ends_at is not None
+    # Trial should be ~14 days out
+    delta = demo_user.trial_ends_at - datetime.utcnow()
+    assert 13 <= delta.total_seconds() / 86400 <= 14.5
 
 
-def test_seed_clears_trial_ends_at_on_demo_account(db):
-    """The "14 days left in your free Pro trial" banner shouldn't
-    show on the demo. trial_ends_at gets cleared so the dashboard
-    looks like a Pro user, not a mid-trial user."""
+def test_seed_does_not_refresh_trial_when_more_than_7_days_remain(db):
+    """Mid-trial restart: leave trial_ends_at alone so the user's
+    chip naturally counts down day-by-day. Refresh only kicks in
+    when trial would expire within 7 days."""
+    from datetime import datetime, timedelta
+    pinned = datetime.utcnow() + timedelta(days=10)  # 10 days out
+    u = User(
+        email=_DEMO_EMAIL,
+        password_hash="x",
+        business_name="X",
+        currency="DKK",
+        plan="free",
+        trial_ends_at=pinned,
+    )
+    db.add(u); db.commit(); db.refresh(u)
+    seed_demo_account(db)
+    db.refresh(u)
+    # Trial unchanged — still 10 days out (give or take a second)
+    assert abs((u.trial_ends_at - pinned).total_seconds()) < 2
+
+
+def test_seed_refreshes_trial_when_expiring_soon(db):
+    """When trial would expire in ≤ 7 days, bump it back to 14 so
+    the demo never falls to Free state in active walkthroughs."""
     from datetime import datetime, timedelta
     u = User(
         email=_DEMO_EMAIL,
@@ -174,64 +202,35 @@ def test_seed_clears_trial_ends_at_on_demo_account(db):
         business_name="X",
         currency="DKK",
         plan="free",
-        trial_ends_at=datetime.utcnow() + timedelta(days=14),
+        trial_ends_at=datetime.utcnow() + timedelta(days=3),  # near expiry
     )
     db.add(u); db.commit(); db.refresh(u)
-    assert u.trial_ends_at is not None  # baseline
     seed_demo_account(db)
     db.refresh(u)
-    assert u.trial_ends_at is None
-    assert u.plan == "pro"
+    # Trial is now ~14 days out
+    delta = u.trial_ends_at - datetime.utcnow()
+    assert 13 <= delta.total_seconds() / 86400 <= 14.5
 
 
-def test_seed_idempotent_plan_bump_when_data_already_exists(db):
-    """The data-seeding gate (skip if closes exist) shouldn't block
-    the plan/trial tidy-up — that runs every startup so a one-off
-    plan flip in admin doesn't leave the demo stuck on trial banner."""
-    from datetime import date as _date
-    from decimal import Decimal
-    import uuid as _uuid
-    from app.models.daily_close import DailyClose
-
+def test_seed_resets_paid_plan_back_to_free(db):
+    """If a previous version bumped demo to 'pro', reset to 'free'
+    so the trial chip shows. Pro entitlements still apply via the
+    active-trial path (effective_plan == 'trial' for free + active
+    trial)."""
+    from datetime import datetime, timedelta
     u = User(
         email=_DEMO_EMAIL,
         password_hash="x",
         business_name="X",
         currency="DKK",
-        plan="free",  # accidentally got reset to free
-    )
-    db.add(u); db.commit(); db.refresh(u)
-    # Pre-seed a close so the data-seeding gate trips
-    db.add(DailyClose(
-        id=_uuid.uuid4(), user_id=u.id, date=_date.today(),
-        revenue_total=Decimal("100"), payment_total=Decimal("100"),
-        status="confirmed",
-    ))
-    db.commit()
-
-    result = seed_demo_account(db)
-    # Data seed should skip
-    assert result["skipped"] is True
-    # But plan should still have been bumped
-    db.refresh(u)
-    assert u.plan == "pro"
-
-
-def test_seed_does_not_downgrade_already_paid_user(db):
-    """If the demo user is already on pro/business, don't touch the
-    plan field. (Hypothetical — but pin so a careless edit doesn't
-    introduce regressions.)"""
-    u = User(
-        email=_DEMO_EMAIL,
-        password_hash="x",
-        business_name="X",
-        currency="DKK",
-        plan="business",
+        plan="pro",  # legacy state from earlier seed version
+        trial_ends_at=None,
     )
     db.add(u); db.commit(); db.refresh(u)
     seed_demo_account(db)
     db.refresh(u)
-    assert u.plan == "business"
+    assert u.plan == "free"
+    assert u.trial_ends_at is not None  # fresh trial set
 
 
 # ─── Demo-friendly data details ──────────────────────────────────────

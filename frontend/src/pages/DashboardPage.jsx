@@ -7,7 +7,10 @@ import { trackEvent } from "../hooks/useEventLog";
 import { safeImageUrl } from "../utils/safeUrl";
 import ReceiptCapture from "../components/ReceiptCapture";
 import InsightsCard from "../components/InsightsCard";
-import TrialBanner from "../components/TrialBanner";
+// TrialBanner was the old full-width stripe — replaced by the
+// compact <TrialChip> living in the Layout sidebar. The component
+// file still exists for backward-compat but is no longer mounted
+// anywhere by default.
 import Onboarding from "../components/Onboarding";
 import DailyBriefCard from "../components/DailyBriefCard";
 import SmartSaleInput from "../components/SmartSaleInput";
@@ -1389,13 +1392,22 @@ export default function DashboardPage() {
             split as a structural product step, not just marketing copy. */}
         <CloserPromptCard user={user} />
 
-        {/* ── TRIAL COUNTDOWN — only renders during/just-after trial ── */}
-        <TrialBanner />
+        {/* Trial countdown moved to the sidebar (components/TrialChip)
+            so it's persistent across all pages without consuming the
+            top of the dashboard with a stripe. The small chip
+            shows '🎁 14 days left in trial' next to navigation —
+            nice, not annoying.
 
-        {/* ── FINAL 48-HOUR CONVERSION NUDGE — appears alongside TrialBanner
-             only when trial_days_remaining ∈ {1, 2}. The calm TrialBanner
-             keeps users informed; this small tip gives a specific, honest
-             reason to lock founding pricing before regular kicks in. ── */}
+            The TrialFinalStretchTip below still renders here when
+            trial_days_remaining ∈ {1, 2} — it's a separate,
+            time-sensitive conversion nudge with founding-price
+            framing. Lives on the dashboard rather than the sidebar
+            because the message is too long for a chip. */}
+
+        {/* ── FINAL 48-HOUR CONVERSION NUDGE — only renders when
+             trial_days_remaining ∈ {1, 2}. Distinct from the calm
+             sidebar TrialChip — gives a specific, honest reason to
+             lock founding pricing before regular kicks in. ── */}
         <TrialFinalStretchTip />
 
         {/* ── AI DAILY BRIEF — actionable morning brief, top of fold ── */}

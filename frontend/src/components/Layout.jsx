@@ -6,6 +6,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { getVatTerms } from "../utils/currency";
 import { usePageTracking } from "../hooks/useEventLog";
 import NotificationCenter from "./NotificationCenter";
+import TrialChip from "./TrialChip";
 // Lazy-load the search modal — only fetched when the user actually
 // opens it (⌘K or button), keeping main bundle lean.
 const GlobalSearchModal = lazy(() => import("./GlobalSearchModal"));
@@ -483,6 +484,12 @@ export default function Layout() {
             </svg>
           </button>
         </div>
+
+        {/* Trial countdown — small pill, only renders for trial
+            users. Self-loads /billing/me. Replaces the older full-
+            width TrialBanner that occupied a stripe across the
+            dashboard. Click → /subscription. Dismissible per day. */}
+        <TrialChip />
 
         {/* Global search trigger — kept compact + visually quieter
             than the business-mode toggle right above so the two
