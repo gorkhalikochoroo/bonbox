@@ -401,22 +401,45 @@ export default function SubscriptionPage() {
         </div>
       )}
 
-      {/* Hero */}
-      <div className="text-center mb-10">
-        <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-white">
-          {t("pricingHeroTitle1") || "Daily close in 90 seconds."}
-          <br className="sm:hidden" />
-          <span className="text-green-600 dark:text-green-400"> {t("pricingHeroTitle2") || "Staff go home on time."}</span>
-        </h1>
-        <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-3 max-w-2xl mx-auto">
-          {t("pricingHeroSubtitle") || "Snap a kasserapport. AI reads it in 6 seconds. Send a clean PDF to the owner or accountant in one tap. 14 days of Pro free. No card. No surprises."}
-        </p>
-        <div className="mt-4 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
-          🔥 {(t("pricingFoundingBanner") || "{remaining}/{limit} spots left — lock founding price (Starter 129 kr / Pro 249 kr) for life")
-            .replace("{remaining}", Math.max(FOUNDING_LIMIT - FOUNDING_USED, 0))
-            .replace("{limit}", FOUNDING_LIMIT)}
+      {/* Hero — acquisition copy only. Hide once the user has
+          engaged with a plan (trial active or paid) since they're
+          already inside the app and don't need the elevator pitch.
+          Logged-out visitors and free-no-trial users still see the
+          full hero (marketing for them is the point of this page). */}
+      {!billing?.trial_active && !billing?.is_paid && (
+        <div className="text-center mb-8">
+          <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-white">
+            {t("pricingHeroTitle1") || "Daily close in 90 seconds."}
+            <br className="sm:hidden" />
+            <span className="text-green-600 dark:text-green-400"> {t("pricingHeroTitle2") || "Staff go home on time."}</span>
+          </h1>
+          <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-3 max-w-2xl mx-auto">
+            {t("pricingHeroSubtitle") || "Snap a kasserapport. AI reads it in 6 seconds. Send a clean PDF to the owner or accountant in one tap. 14 days of Pro free. No card. No surprises."}
+          </p>
+          <div className="mt-4 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+            🔥 {(t("pricingFoundingBanner") || "{remaining}/{limit} spots left — lock founding price (Starter 129 kr / Pro 249 kr) for life")
+              .replace("{remaining}", Math.max(FOUNDING_LIMIT - FOUNDING_USED, 0))
+              .replace("{limit}", FOUNDING_LIMIT)}
+          </div>
         </div>
+      )}
 
+      {/* Quieter heading for users who've already engaged with a
+          plan — they came here to compare, manage, or upgrade.
+          No marketing pitch needed. */}
+      {(billing?.trial_active || billing?.is_paid) && (
+        <div className="text-center mb-6">
+          <h1 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white">
+            {t("pricingComparePlansTitle") || "Compare plans"}
+          </h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1.5">
+            {t("pricingComparePlansSubtitle") ||
+              "What you get on each tier. Annual saves 20%."}
+          </p>
+        </div>
+      )}
+
+      <div className="text-center mb-10">
         {/* Annual / monthly toggle */}
         <div className="inline-flex items-center bg-gray-100 dark:bg-gray-800 rounded-full p-1 mt-6">
           <button
