@@ -144,6 +144,11 @@ export default function DailyClosePage() {
   const currency = displayCurrency(user?.currency);
 
   const [tab, setTab] = useState("close"); // close | history | insights
+  // editDraft holds a DailyClose row when the user clicked "Edit" on a
+  // draft in History. CloseForm reads it on mount and pre-fills all
+  // fields so the owner doesn't have to re-type yesterday's numbers.
+  // Cleared via onEditConsumed when the form has loaded the values.
+  const [editDraft, setEditDraft] = useState(null);
   const [history, setHistory] = useState([]);
   const [insights, setInsights] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -237,9 +242,12 @@ export default function DailyClosePage() {
       </div>
 
       {tab === "close" && <CloseForm currency={currency} t={t} branchType={branchType} branchId={branchId} isOnline={isOnline}
+        editDraft={editDraft}
+        onEditConsumed={() => setEditDraft(null)}
         onDone={() => { fetchHistory(); fetchInsights(); setTab("history"); }}
         onQueued={() => { setPendingCount(getOfflineQueue().length); setTab("history"); }} />}
-      {tab === "history" && <HistoryView data={history} currency={currency} t={t} onRefresh={fetchHistory} insights={insights} />}
+      {tab === "history" && <HistoryView data={history} currency={currency} t={t} onRefresh={fetchHistory} insights={insights}
+        onEdit={(dc) => { setEditDraft(dc); setTab("close"); }} />}
       {tab === "insights" && <InsightsView data={insights} currency={currency} t={t} />}
       {tab === "branches" && <BranchSummaryView currency={currency} />}
     </div>
@@ -260,7 +268,7 @@ function getBusinessDate(cutoffHour = 0) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnline }) {
+function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnline, editDraft, onEditConsumed }) {
   const defaultRevCats = useMemo(() => getRevenueCats(branchType), [branchType]);
   const defaultPayMethods = useMemo(() => getPaymentMethods(branchType), [branchType]);
   const config = CLOSE_CONFIG[branchType] || CLOSE_CONFIG.general;
@@ -311,6 +319,37 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // Persisted on the close row as receipt_photo so the owner can re-view
   // the source document later (Bogføringsloven §10 retention).
   const [receiptPhotoUrl, setReceiptPhotoUrl] = useState(null);
+
+  // Prefill from an existing draft when the user clicked "Edit" in
+  // History. Runs once when editDraft becomes non-null, then clears
+  // via onEditConsumed so re-renders don't re-fill (which would clobber
+  // the user's in-progress edits).
+  useEffect(() => {
+    if (!editDraft) return;
+    const dc = editDraft;
+    if (dc.date) setBusinessDate(typeof dc.date === "string" ? dc.date.slice(0, 10) : dc.date);
+    if (dc.revenue_breakdown) {
+      const rev = {};
+      Object.entries(dc.revenue_breakdown).forEach(([k, v]) => { rev[k] = String(v); });
+      setRevAmounts(rev);
+    }
+    if (dc.payment_breakdown) {
+      const pay = {};
+      Object.entries(dc.payment_breakdown).forEach(([k, v]) => { pay[k] = String(v); });
+      setPayAmounts(pay);
+    }
+    if (dc.cash_counted != null) setCashCounted(String(dc.cash_counted));
+    if (dc.tips_total != null) setTipsTotal(String(dc.tips_total));
+    if (dc.tips_staff_count != null) setStaffCount(String(dc.tips_staff_count));
+    if (dc.closed_by) setClosedBy(dc.closed_by);
+    if (dc.notes) setNotes(dc.notes);
+    if (dc.receipt_photo) setReceiptPhotoUrl(dc.receipt_photo);
+    // Skip scan UI (the user already has values) and jump to step 1.
+    setScanMode("skipped");
+    setStep(1);
+    onEditConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editDraft]);
   const [scanError, setScanError] = useState("");
   // "with-moms" | "without-moms" — owner picks before scan so the OCR
   // numbers are interpreted correctly. Most DK Z-reports show gross
@@ -875,15 +914,30 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             </div>
             )}
 
-            {/* Photo thumbnails */}
+            {/* Photo thumbnails — bigger + clickable to view full-size,
+                so the owner can keep the receipt visible while
+                reviewing the OCR'd numbers. Each thumb opens the full
+                image in a new tab (works for both blob URLs and
+                Supabase signed URLs). */}
             {scanPhotos.length > 0 && (
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-gray-400 shrink-0">📷 {scanPhotos.length} photo{scanPhotos.length > 1 ? "s" : ""} scanned</span>
-                <div className="flex gap-2 overflow-x-auto">
+              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+                    📷 Receipt photo{scanPhotos.length > 1 ? "s" : ""}
+                  </span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    Tap to view full size
+                  </span>
+                </div>
+                <div className="flex gap-3 overflow-x-auto pb-1">
                   {scanPhotos.map((p, i) => {
                     const safe = safeImageUrl(p.url);
                     return safe ? (
-                      <img key={i} src={safe} alt={p.name} className="w-12 h-12 rounded-lg object-cover border-2 border-green-500/50" />
+                      <a key={i} href={safe} target="_blank" rel="noreferrer"
+                        className="shrink-0 group">
+                        <img src={safe} alt={p.name}
+                          className="w-24 h-24 rounded-lg object-cover border-2 border-green-500/50 group-hover:border-green-500 transition" />
+                      </a>
                     ) : null;
                   })}
                 </div>
@@ -1323,7 +1377,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
 /* ═══════════════════════════════════════════════════════════
    HISTORY VIEW
    ═══════════════════════════════════════════════════════════ */
-function HistoryView({ data, currency, t, onRefresh, insights }) {
+function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
   const { user } = useAuth();
   const [downloading, setDownloading] = useState(null);
   const [sharing, setSharing] = useState(null);
@@ -1546,11 +1600,34 @@ function HistoryView({ data, currency, t, onRefresh, insights }) {
                   </span>
                 )}
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap items-center">
+                {/* Receipt photo thumbnail — when the close was created
+                    via the Z-report scan flow, show the original image
+                    so the owner can verify what they uploaded. Click
+                    opens it full-size in a new tab (signed URL or
+                    local path). Bogføringsloven §10 source-document
+                    retention made visible. */}
+                {dc.receipt_photo && (
+                  <a href={dc.receipt_photo} target="_blank" rel="noreferrer"
+                    title="View original Z-report photo"
+                    className="inline-flex items-center gap-1.5 text-xs px-2 py-1 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/40 font-medium">
+                    📷 Receipt
+                  </a>
+                )}
+                {/* Locked closes: show Unlock; drafts: show Edit. Both
+                    routes reach the same edit experience — Unlock first
+                    flips status to draft, then the user picks Edit on
+                    the now-draft row. */}
                 {(dc.status || "confirmed") === "confirmed" && (
                   <button onClick={() => { setUnlockId(dc.id); setUnlockReason(""); }}
                     className="text-xs px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 font-medium">
                     🔓 Unlock
+                  </button>
+                )}
+                {(dc.status || "confirmed") === "draft" && onEdit && (
+                  <button onClick={() => onEdit(dc)}
+                    className="text-xs px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/40 font-medium">
+                    ✏️ Edit
                   </button>
                 )}
                 <button onClick={() => shareDc(dc)} disabled={sharing === dc.id}
