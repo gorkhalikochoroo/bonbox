@@ -1285,12 +1285,33 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               className="px-6 py-2.5 bg-green-600 text-white rounded-xl hover:bg-green-700 font-semibold transition">
               Next →
             </button>
-          ) : (
-            <button onClick={handleSubmit} disabled={saving || revenueTotal === 0}
-              className="px-6 py-2.5 bg-green-600 text-white rounded-xl hover:bg-green-700 font-semibold transition disabled:opacity-50">
-              {saving ? "Saving..." : !isOnline ? "📤 Queue & Lock (offline)" : "🔒 Confirm & Lock"}
-            </button>
-          )}
+          ) : (() => {
+              // Save-preview — show the user the actual amount that will
+              // be persisted, especially when the backend's max() will
+              // pick the OCR override over their breakdown sum (e.g.
+              // partial detection saved 1.82; override pushes it to
+              // 17,030). Without this, the user types skip-fill values
+              // and has to trust the banner — preview makes it explicit.
+              const ocrTotal = Number(scanResult?.revenue_total || 0);
+              const willSave = ocrTotal > revenueTotal ? ocrTotal : revenueTotal;
+              const usingOverride = ocrTotal > 0 && ocrTotal > revenueTotal;
+              return (
+                <div className="flex flex-col items-end gap-1">
+                  <button onClick={handleSubmit} disabled={saving || willSave === 0}
+                    className="px-6 py-2.5 bg-green-600 text-white rounded-xl hover:bg-green-700 font-semibold transition disabled:opacity-50">
+                    {saving ? "Saving..." : !isOnline ? "📤 Queue & Lock (offline)" : "🔒 Confirm & Lock"}
+                  </button>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Will save total: <strong className="text-gray-700 dark:text-gray-200">{willSave.toLocaleString()} {currency}</strong>
+                    {usingOverride && (
+                      <span className="ml-1 text-amber-600 dark:text-amber-400">
+                        (from receipt — your breakdown sums to {revenueTotal.toLocaleString()})
+                      </span>
+                    )}
+                  </p>
+                </div>
+              );
+            })()}
         </div>
         </>)}
       </div>

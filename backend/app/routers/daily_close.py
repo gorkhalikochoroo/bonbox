@@ -12,10 +12,13 @@ Endpoints:
   DELETE /api/daily-close/{id}          — soft delete
 """
 
+import logging
 import uuid
 from datetime import date, datetime, timedelta
 from collections import defaultdict
 from io import BytesIO
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
@@ -155,6 +158,26 @@ def create_daily_close(
         revenue_total = breakdown_sum
     else:
         revenue_total = 0
+
+    # Detective control — when the breakdown sum diverges wildly from
+    # the OCR'd override (>5x apart), emit a structured warning so an
+    # admin can spot OCR quality issues + edge-case bugs in production
+    # logs WITHOUT blocking the save (the save itself uses max() which
+    # is the safe value for the user). Pairs with the schema + service
+    # layers as a per-row monitor.
+    if (
+        breakdown_sum > 0
+        and override is not None
+        and override > 0
+        and abs(breakdown_sum - override) / max(breakdown_sum, override) > 0.8
+    ):
+        logger.warning(
+            "daily_close: revenue mismatch (using max=%s) "
+            "user=%s breakdown_sum=%s override=%s breakdown=%s",
+            revenue_total, user.id, breakdown_sum, override,
+            data.revenue_breakdown,
+        )
+
     payment_total = sum((data.payment_breakdown or {}).values())
 
     # Cash expected — explicit None check so 0 (legitimate "no cash today")

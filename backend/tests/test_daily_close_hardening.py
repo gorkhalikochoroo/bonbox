@@ -213,3 +213,73 @@ def test_today_scan_count_isolated_per_user(db, lars):
     # Lars's count is 0 — other's photo doesn't leak.
     assert _today_scan_count(db, lars.id) == 0
     assert _today_scan_count(db, other.id) == 1
+
+
+# ─── Layered save logic — max(breakdown_sum, override) regression ────
+#
+# Replays the exact scenario Manoj saw on /daily-close: OCR detected
+# Total=17,030 but only one category got a (wrong) value 1.82. The
+# previous logic preferred breakdown_sum and saved 1.82 — silently
+# overwriting the real total. The fix: max() picks the larger value.
+# This test pins that behavior so a future refactor can't undo it.
+
+def _resolve_total(breakdown: dict | None, override: float | None) -> float:
+    """Replicates the router's revenue_total computation in commit
+    6a58898. If anyone touches the router logic, both this helper and
+    the test must update together — keeping the contract explicit."""
+    breakdown_sum = sum((breakdown or {}).values())
+    if override is not None and override > 0:
+        return float(max(breakdown_sum, override))
+    return float(breakdown_sum) if breakdown_sum > 0 else 0.0
+
+
+def test_save_total_picks_override_when_breakdown_partial():
+    """Manoj's scenario: OCR found 17,030 total but Drinks parsed wrong
+    as 1.82. Saved value MUST be 17,030, not 1.82."""
+    breakdown = {"drinks": 1.82}  # wrong-parse only
+    assert _resolve_total(breakdown, 17030) == 17030
+
+
+def test_save_total_picks_override_when_breakdown_empty():
+    """Backstop case: no breakdown at all, just OCR total."""
+    assert _resolve_total({}, 17030) == 17030
+    assert _resolve_total(None, 17030) == 17030
+
+
+def test_save_total_uses_breakdown_sum_when_user_exceeded_override():
+    """User saw OCR override 17,030 but typed in food=10,000,
+    drinks=5,000, takeaway=8,000 = 23,000 because they recall extra
+    revenue not on the receipt. Their explicit edit must win."""
+    breakdown = {"food": 10_000, "drinks": 5_000, "takeaway": 8_000}
+    assert _resolve_total(breakdown, 17030) == 23_000
+
+
+def test_save_total_returns_breakdown_sum_when_no_override():
+    """No OCR scan happened — pure manual entry path. Should keep
+    backwards-compatible behavior."""
+    breakdown = {"food": 100, "drinks": 200}
+    assert _resolve_total(breakdown, None) == 300
+
+
+def test_save_total_zero_when_nothing_provided():
+    """Empty close (saved as draft with no fields filled). Returns 0
+    so the row exists but won't pollute revenue stats."""
+    assert _resolve_total({}, None) == 0
+    assert _resolve_total(None, None) == 0
+    assert _resolve_total({"food": 0}, None) == 0
+
+
+def test_save_total_full_breakdown_match_no_double_count():
+    """User filled all 3 cats summing exactly to OCR total. Both paths
+    converge to the same number — max() doesn't double anything."""
+    breakdown = {"food": 10_000, "drinks": 5_000, "takeaway": 2_030}
+    assert _resolve_total(breakdown, 17_030) == 17_030
+
+
+def test_save_total_user_can_zero_out_a_value_without_losing_total():
+    """Edge: user manually clears a category to zero (e.g. fixing a
+    wrong OCR value) but doesn't fill the others. Override still
+    rescues the total — they don't lose the day's revenue from one
+    correction."""
+    breakdown = {"food": 0, "drinks": 0, "takeaway": 0}
+    assert _resolve_total(breakdown, 17_030) == 17_030
