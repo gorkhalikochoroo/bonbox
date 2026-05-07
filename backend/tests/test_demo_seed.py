@@ -152,7 +152,7 @@ def test_seeded_profile_has_branchekode_for_restaurants(db, demo_user):
     assert profile.industry_code == "56.10.10"
 
 
-# ─── Plan upgrade for demo ───────────────────────────────────────────
+# ─── Plan upgrade + trial clear for demo ─────────────────────────────
 
 def test_seed_upgrades_demo_user_to_pro(db, demo_user):
     """Free plan caps the date-range export at 7d. Demo user is bumped
@@ -161,6 +161,60 @@ def test_seed_upgrades_demo_user_to_pro(db, demo_user):
     seed_demo_account(db)
     db.refresh(demo_user)
     assert demo_user.plan == "pro"
+
+
+def test_seed_clears_trial_ends_at_on_demo_account(db):
+    """The "14 days left in your free Pro trial" banner shouldn't
+    show on the demo. trial_ends_at gets cleared so the dashboard
+    looks like a Pro user, not a mid-trial user."""
+    from datetime import datetime, timedelta
+    u = User(
+        email=_DEMO_EMAIL,
+        password_hash="x",
+        business_name="X",
+        currency="DKK",
+        plan="free",
+        trial_ends_at=datetime.utcnow() + timedelta(days=14),
+    )
+    db.add(u); db.commit(); db.refresh(u)
+    assert u.trial_ends_at is not None  # baseline
+    seed_demo_account(db)
+    db.refresh(u)
+    assert u.trial_ends_at is None
+    assert u.plan == "pro"
+
+
+def test_seed_idempotent_plan_bump_when_data_already_exists(db):
+    """The data-seeding gate (skip if closes exist) shouldn't block
+    the plan/trial tidy-up — that runs every startup so a one-off
+    plan flip in admin doesn't leave the demo stuck on trial banner."""
+    from datetime import date as _date
+    from decimal import Decimal
+    import uuid as _uuid
+    from app.models.daily_close import DailyClose
+
+    u = User(
+        email=_DEMO_EMAIL,
+        password_hash="x",
+        business_name="X",
+        currency="DKK",
+        plan="free",  # accidentally got reset to free
+    )
+    db.add(u); db.commit(); db.refresh(u)
+    # Pre-seed a close so the data-seeding gate trips
+    db.add(DailyClose(
+        id=_uuid.uuid4(), user_id=u.id, date=_date.today(),
+        revenue_total=Decimal("100"), payment_total=Decimal("100"),
+        status="confirmed",
+    ))
+    db.commit()
+
+    result = seed_demo_account(db)
+    # Data seed should skip
+    assert result["skipped"] is True
+    # But plan should still have been bumped
+    db.refresh(u)
+    assert u.plan == "pro"
 
 
 def test_seed_does_not_downgrade_already_paid_user(db):

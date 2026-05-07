@@ -374,6 +374,28 @@ def seed_demo_account(db: Session) -> dict:
     if not user:
         return {"skipped": True, "reason": "demo user does not exist yet"}
 
+    # ── Plan / trial tidy-up — runs every startup, idempotent ──
+    # We want a clean Pro experience for demos and walkthroughs:
+    #   • Plan must be "pro" so date-range exports aren't capped at
+    #     7 days, modules are unlimited, etc.
+    #   • trial_ends_at must be NULL so the "14 days left in your free
+    #     Pro trial" banner doesn't appear on the dashboard. (Without
+    #     this clear, the demo always looks like it's mid-trial — the
+    #     opposite of what we want when showing off.)
+    # These updates run on EVERY app restart, separate from the
+    # data-seeding gate below. That way a one-off plan flip in the
+    # admin panel can't accidentally leave the demo showing the
+    # trial-stuck banner.
+    plan_dirty = False
+    if (user.plan or "free") in ("free", None, ""):
+        user.plan = "pro"
+        plan_dirty = True
+    if user.trial_ends_at is not None:
+        user.trial_ends_at = None
+        plan_dirty = True
+    if plan_dirty:
+        db.commit()
+
     # Skip if there are already DailyClose rows — don't touch live demo
     # data the team might be using or have customized.
     existing_count = db.query(DailyClose).filter_by(
@@ -381,10 +403,6 @@ def seed_demo_account(db: Session) -> dict:
     ).count()
     if existing_count > 0:
         return {"skipped": True, "reason": f"already has {existing_count} closes"}
-
-    # Bump the user to Pro so the demo isn't capped at 7-day exports
-    if (user.plan or "free") == "free":
-        user.plan = "pro"
 
     _seed_business_profile(db, user)
     branch = _seed_branch(db, user)

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -466,7 +467,14 @@ export default function InventoryPage() {
                       </li>
                     ))}
                     {expired.length > 3 && (
-                      <li className="opacity-70">+ {expired.length - 3} more…</li>
+                      <li>
+                        <Link
+                          to="/expiry"
+                          className="text-rose-800 dark:text-rose-200 underline hover:no-underline font-medium"
+                        >
+                          + {expired.length - 3} more — view all →
+                        </Link>
+                      </li>
                     )}
                   </ul>
                 </div>
@@ -491,7 +499,14 @@ export default function InventoryPage() {
                       </li>
                     ))}
                     {expiring.length > 3 && (
-                      <li className="opacity-70">+ {expiring.length - 3} more…</li>
+                      <li>
+                        <Link
+                          to="/expiry"
+                          className="text-amber-800 dark:text-amber-200 underline hover:no-underline font-medium"
+                        >
+                          + {expiring.length - 3} more — view all →
+                        </Link>
+                      </li>
                     )}
                   </ul>
                 </div>
