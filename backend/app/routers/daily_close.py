@@ -67,6 +67,7 @@ def _to_response(dc: DailyClose) -> dict:
         "unlocked_at": getattr(dc, "unlocked_at", None),
         "is_deleted": dc.is_deleted,
         "created_at": dc.created_at,
+        "receipt_photo": getattr(dc, "receipt_photo", None),
     }
 
 
@@ -162,6 +163,11 @@ def create_daily_close(
         existing.status = status
         existing.notes = data.notes
         existing.closed_by = data.closed_by
+        # Only overwrite the photo if the caller provided one — owners
+        # editing a draft without re-uploading the photo shouldn't lose
+        # the existing reference.
+        if data.receipt_photo:
+            existing.receipt_photo = data.receipt_photo
         if status == "confirmed":
             existing.closed_at = datetime.utcnow()
             # Clear unlock audit when re-confirming
@@ -194,6 +200,7 @@ def create_daily_close(
         notes=data.notes,
         closed_by=data.closed_by,
         closed_at=datetime.utcnow() if status == "confirmed" else None,
+        receipt_photo=data.receipt_photo,
     )
     db.add(dc)
     db.commit()
@@ -712,8 +719,16 @@ async def scan_z_report(
     if len(file_bytes) > 10 * 1024 * 1024:  # 10 MB limit
         raise HTTPException(status_code=400, detail="File too large (max 10 MB)")
 
-    # Save the image (Supabase or local fallback)
-    image_url = save_receipt_photo(file_bytes, file.filename or "z_report.jpg", str(user.id))
+    # Save the image (Supabase or local fallback). kind="kasserapport"
+    # routes the storage path to <user_id>/kasserapport/<sha>.jpg so Z-
+    # report photos sit in their own namespace separate from per-receipt
+    # photos on individual sales / expenses.
+    image_url = save_receipt_photo(
+        file_bytes,
+        file.filename or "z_report.jpg",
+        str(user.id),
+        kind="kasserapport",
+    )
 
     # Resolve the local path for OCR processing
     # save_receipt_photo returns either a Supabase URL or a local path

@@ -399,6 +399,11 @@ _migrations = [
     # POST /api/sales/from-receipt. TEXT has no length cap.
     "ALTER TABLE sales ALTER COLUMN receipt_photo TYPE TEXT",
     "ALTER TABLE expenses ALTER COLUMN receipt_photo TYPE TEXT",
+    # ── Migration 015: receipt_photo on daily_closes ──
+    # The Z-report / kasserapport photo was uploaded to storage but
+    # never persisted on the close row, so owners couldn't re-view
+    # the source document later. Bogføringsloven §10 retention.
+    "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS receipt_photo TEXT",
 ]
 
 def _run_migrations():
@@ -548,6 +553,8 @@ def _run_migrations():
             ok += _add("users", "enabled_modules", "TEXT")
             # Migration 013 mirror — storage_key for inventory_imports
             ok += _add("inventory_imports", "storage_key", "VARCHAR(300)")
+            # Migration 015 mirror — receipt_photo on daily_closes
+            ok += _add("daily_closes", "receipt_photo", "TEXT")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",

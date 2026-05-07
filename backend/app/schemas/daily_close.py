@@ -2,7 +2,7 @@
 
 import uuid
 import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class DailyCloseCreate(BaseModel):
@@ -18,6 +18,11 @@ class DailyCloseCreate(BaseModel):
     cash_counted: float | None = None
     notes: str | None = None
     closed_by: str | None = None
+    # Z-report photo URL — set when the owner used "Snap report" in the
+    # close flow. Backend persists it on DailyClose.receipt_photo so
+    # the photo can be re-viewed later. 2000-char cap is well above
+    # signed-URL length (~700) but keeps payload bombs out.
+    receipt_photo: str | None = Field(None, max_length=2000)
 
 
 class DailyCloseUnlock(BaseModel):
@@ -50,5 +55,6 @@ class DailyCloseResponse(BaseModel):
     unlocked_at: datetime.datetime | None = None
     is_deleted: bool = False
     created_at: datetime.datetime | None = None
+    receipt_photo: str | None = None
 
     model_config = {"from_attributes": True}

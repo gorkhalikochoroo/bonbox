@@ -406,7 +406,7 @@ async def upload_expense_receipt(
 
     from app.services.receipt_ocr import save_receipt_photo, extract_amount_from_image
     try:
-        stored_path = save_receipt_photo(raw, file.filename, str(user.id))
+        stored_path = save_receipt_photo(raw, file.filename, str(user.id), kind="expense")
     except ValueError as e:
         raise HTTPException(400, str(e))
 

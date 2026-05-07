@@ -56,6 +56,14 @@ class DailyClose(Base):
     closed_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+    # Z-report / kasserapport photo — set when the owner uses the
+    # "Snap report" UI to OCR the close. Stores either a Supabase
+    # signed URL (prod, ~700 chars) or a local filepath (dev). TEXT,
+    # not VARCHAR — same lesson as Sale.receipt_photo (commit 2816393).
+    # Bogføringsloven §10 source-document retention — the photo IS
+    # the source document for the close.
+    receipt_photo: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # Soft delete
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

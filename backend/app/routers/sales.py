@@ -607,7 +607,7 @@ async def upload_receipt(
     # save_receipt_photo validates the content with PIL.verify(); on a
     # spoofed-header non-image upload it raises ValueError → 400 here.
     try:
-        stored_path = save_receipt_photo(content, file.filename, str(user.id))
+        stored_path = save_receipt_photo(content, file.filename, str(user.id), kind="sale")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

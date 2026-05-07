@@ -461,10 +461,23 @@ def _upload_to_supabase(
     return key
 
 
-def save_receipt_photo(file_bytes: bytes, filename: str, user_id: str) -> str:
+def save_receipt_photo(
+    file_bytes: bytes,
+    filename: str,
+    user_id: str,
+    kind: str = "expense",
+) -> str:
     """
     Save uploaded receipt photo. Uploads to Supabase Storage for persistence,
     falls back to local disk for OCR processing.
+
+    `kind` controls the storage path namespace (one of ALLOWED_KINDS in
+    services/storage.py). Use:
+      • "expense"      — receipts attached to /api/expenses
+      • "sale"         — receipts attached to /api/sales (POS receipts)
+      • "kasserapport" — Z-report / daily-close photos
+    The path becomes `<user_id>/<kind>/<sha>.jpg` so admin browsing of
+    the bucket stays organized + retention-policy queries are easy.
 
     Security: previously the PIL-failure fallback silently persisted RAW
     bytes — meaning a corrupt-image payload (e.g. a renamed script) would
@@ -501,7 +514,7 @@ def save_receipt_photo(file_bytes: bytes, filename: str, user_id: str) -> str:
 
     # Upload to durable storage (Supabase) for persistent display.
     # Per-user scoping enforced via compose_key inside _upload_to_supabase.
-    public_url = _upload_to_supabase(jpeg_bytes, safe_name, user_id=user_id)
+    public_url = _upload_to_supabase(jpeg_bytes, safe_name, user_id=user_id, kind=kind)
     if public_url:
         return public_url
 

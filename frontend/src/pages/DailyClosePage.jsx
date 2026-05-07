@@ -307,6 +307,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   const [scanMode, setScanMode] = useState("idle"); // idle | scanning | result | skipped
   const [scanResult, setScanResult] = useState(null);
   const [scanPhotos, setScanPhotos] = useState([]); // [{url, name}]
+  // First scanned Z-report photo URL (Supabase signed URL or local path).
+  // Persisted on the close row as receipt_photo so the owner can re-view
+  // the source document later (Bogføringsloven §10 retention).
+  const [receiptPhotoUrl, setReceiptPhotoUrl] = useState(null);
   const [scanError, setScanError] = useState("");
   const fileInputRef = useRef(null);
 
@@ -346,6 +350,11 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       setScanPhotos(prev => [...prev, { url: thumbUrl, name: file.name }]);
       // Merge with existing results
       setScanResult(prev => mergeScans(prev, res.data));
+      // Capture the durable storage URL — first scan wins so editing
+      // a draft and re-scanning doesn't churn the persisted reference.
+      if (res.data?.image_url && !receiptPhotoUrl) {
+        setReceiptPhotoUrl(res.data.image_url);
+      }
       setScanMode("result");
     } catch (err) {
       setScanError(err.response?.data?.detail || "OCR scanning failed. Please enter values manually.");
@@ -489,6 +498,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       cash_counted: cashCounted ? parseFloat(cashCounted) : null,
       closed_by: closedBy || null,
       notes: notes || null,
+      // Z-report photo URL — backend stores on DailyClose.receipt_photo.
+      // Only sent if the owner actually scanned a photo this session;
+      // null preserves the existing value on update (server-side guard).
+      receipt_photo: receiptPhotoUrl || null,
     };
   };
 
