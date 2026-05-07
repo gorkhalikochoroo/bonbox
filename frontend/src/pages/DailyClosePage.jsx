@@ -1767,11 +1767,13 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
       <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
         <div className="flex items-center gap-2 mb-3">
           <span className="text-lg">📦</span>
-          <h3 className="font-bold dark:text-white text-sm">Export to accountant</h3>
+          <h3 className="font-bold dark:text-white text-sm">
+            {t("exportToAccountantTitle") || "Export to accountant"}
+          </h3>
         </div>
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-          Pick a date range and download all closes as PDF or CSV. CSV is
-          semicolon-delimited + UTF-8 BOM so Danish Excel opens it cleanly.
+          {t("exportToAccountantDesc") ||
+            "Pick a date range and download all closes as PDF or CSV. CSV is semicolon-delimited + UTF-8 BOM so Danish Excel opens it cleanly."}
         </p>
 
         {/* Preset buttons — cap-aware. Each preset declares its own
@@ -1780,11 +1782,11 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
             (defense in depth) and returns 402 if anyone bypasses. */}
         <div className="flex flex-wrap gap-2 mb-3">
           {[
-            { id: "7d",     label: "Last 7 days",   days: 7 },
-            { id: "14d",    label: "Last 14 days",  days: 14 },
-            { id: "1m",     label: "Last 1 month",  days: 31 },
-            { id: "3m",     label: "Last 3 months", days: 90 },
-            { id: "custom", label: "Custom",        days: 0 },  // 0 = handled in custom UI
+            { id: "7d",     label: t("rangePreset7d")  || "Last 7 days",   days: 7 },
+            { id: "14d",    label: t("rangePreset14d") || "Last 14 days",  days: 14 },
+            { id: "1m",     label: t("rangePreset1m")  || "Last 1 month",  days: 31 },
+            { id: "3m",     label: t("rangePreset3m")  || "Last 3 months", days: 90 },
+            { id: "custom", label: t("rangePresetCustom") || "Custom",     days: 0 },
           ].map(p => {
             // Custom is always allowed at the button level — the
             // date pickers themselves enforce the cap (max attribute
@@ -1797,7 +1799,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
                 onClick={() => !locked && setRangePreset(p.id)}
                 disabled={locked}
                 title={locked
-                  ? `${planTier === "free" ? "Free" : planTier} plan exports up to ${exportCapDays} days. Upgrade to Pro for full year.`
+                  ? (t("planCapTooltip") || "{tier} plan exports up to {days} days. Upgrade to Pro for full year.")
+                      .replace("{tier}", planTier === "free" ? "Free" : planTier)
+                      .replace("{days}", String(exportCapDays))
                   : ""}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
                   locked
@@ -1821,10 +1825,10 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
           <div className="mb-3 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-[11px] text-amber-700 dark:text-amber-300 flex items-center gap-2">
             <span>💡</span>
             <span className="flex-1">
-              <strong>{planTier === "free" ? "Free" : planTier} plan</strong>
-              {" exports up to "}<strong>{exportCapDays} days</strong>.
+              <strong>{planTier === "free" ? "Free" : planTier} {t("planLabelSuffix") || "plan"}</strong>
+              {" "}{t("planCapHintMid") || "exports up to"}{" "}<strong>{exportCapDays} {t("planCapHintDays") || "days"}</strong>.
               <a href="/subscription" className="ml-2 underline font-semibold hover:no-underline">
-                Upgrade for full year →
+                {t("planCapHintCta") || "Upgrade for full year →"}
               </a>
             </span>
           </div>
@@ -1886,7 +1890,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
             {" → "}
             <strong className="text-gray-700 dark:text-gray-300">{activeRange.to}</strong>
             {"  ·  "}
-            {rangeCount} close{rangeCount === 1 ? "" : "s"}
+            {rangeCount} {rangeCount === 1
+              ? (t("closeSingular") || "close")
+              : (t("closePlural") || "closes")}
           </p>
           <div className="flex flex-wrap gap-2">
             <button
@@ -1894,14 +1900,18 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
               disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
               className="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition"
             >
-              {exportingFmt === "pdf" ? "⏳ Generating…" : "📄 PDF"}
+              {exportingFmt === "pdf"
+                ? (t("generatingPdfBtn") || "⏳ Generating…")
+                : "📄 PDF"}
             </button>
             <button
               onClick={() => downloadRange("csv")}
               disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
               className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition"
             >
-              {exportingFmt === "csv" ? "⏳ Generating…" : "📊 CSV"}
+              {exportingFmt === "csv"
+                ? (t("generatingPdfBtn") || "⏳ Generating…")
+                : "📊 CSV"}
             </button>
             <button
               onClick={sendToAccountant}
@@ -1909,11 +1919,13 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
               className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition"
               title={
                 businessProfile?.accountant_email
-                  ? `Send to ${businessProfile.accountant_email}`
-                  : "Send to accountant — set their email on Profile to skip typing it"
+                  ? `${t("sendToTooltip") || "Send to"} ${businessProfile.accountant_email}`
+                  : (t("sendToAccountantTooltipNoEmail") || "Send to accountant — set their email on Profile to skip typing it")
               }
             >
-              {sendingToAccountant ? "⏳ Sending…" : "📤 Send to accountant"}
+              {sendingToAccountant
+                ? (t("sendingBtn") || "⏳ Sending…")
+                : (t("sendToAccountantBtn") || "📤 Send to accountant")}
             </button>
           </div>
         </div>

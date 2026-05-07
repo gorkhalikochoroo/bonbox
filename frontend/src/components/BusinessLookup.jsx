@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import api from "../services/api";
+import { useLanguage } from "../hooks/useLanguage";
 
 /**
  * BusinessLookup — multilayer auto-detect form for the user's
@@ -43,10 +44,11 @@ function detectCountry(initialCountry) {
 // ── Confidence badge ─────────────────────────────────────────────────
 
 function ConfidenceBadge({ level }) {
+  const { t } = useLanguage();
   const map = {
-    verified: { color: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300", label: "Verified" },
-    likely:   { color: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300", label: "Likely match" },
-    guess:    { color: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300", label: "Best guess" },
+    verified: { color: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300", label: t("confidenceVerified") || "Verified" },
+    likely:   { color: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300", label: t("confidenceLikely") || "Likely match" },
+    guess:    { color: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300", label: t("confidenceGuess") || "Best guess" },
   };
   const cfg = map[level] || map.guess;
   return (
@@ -60,31 +62,41 @@ function ConfidenceBadge({ level }) {
 // ── Status flag warning banners ──────────────────────────────────────
 
 function StatusFlagsBanner({ flags }) {
+  const { t } = useLanguage();
   if (!flags || flags.length === 0) return null;
+  // Status flag titles are intentionally kept in Danish — these are
+  // the canonical CVR register terms (konkurs/ophørt/beskyttet navn/
+  // ikke MOMS-registreret) and Danish business owners recognize them
+  // immediately. The DETAIL line is in English by default but is
+  // wrapped in t() for future locale overrides.
   const map = {
     konkurs: {
       icon: "🚨",
       color: "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300",
       title: "Under konkursbehandling",
-      detail: "This company is in liquidation. Saving anyway is fine if it's still operational, but check the legal status.",
+      detail: t("flagKonkursDetail") ||
+        "This company is in liquidation. Saving anyway is fine if it's still operational, but check the legal status.",
     },
     ophoert: {
       icon: "⚠️",
       color: "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300",
       title: "Ophørt / Opløst",
-      detail: "The CVR record shows this company has ceased.",
+      detail: t("flagOphoertDetail") ||
+        "The CVR record shows this company has ceased.",
     },
     protected: {
       icon: "🔒",
       color: "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300",
       title: "Beskyttet navn",
-      detail: "This is a protected-name registration. Some search results won't show it publicly.",
+      detail: t("flagProtectedDetail") ||
+        "This is a protected-name registration. Some search results won't show it publicly.",
     },
     no_vat: {
       icon: "💡",
       color: "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300",
       title: "Ikke MOMS-registreret",
-      detail: "The company has CVR but isn't VAT-registered. Kasserapport will skip MOMS calculations until you register.",
+      detail: t("flagNoVatDetail") ||
+        "The company has CVR but isn't VAT-registered. Kasserapport will skip MOMS calculations until you register.",
     },
   };
   return (
@@ -110,6 +122,7 @@ function StatusFlagsBanner({ flags }) {
 // ── Branchekode "Detected: …" banner ─────────────────────────────────
 
 function BranchekodeBanner({ inference, currentBusinessType, onApply }) {
+  const { t } = useLanguage();
   if (!inference) return null;
   // Don't nag the owner if their business_type already matches the
   // suggestion — the banner only appears when applying defaults
@@ -117,30 +130,35 @@ function BranchekodeBanner({ inference, currentBusinessType, onApply }) {
   const same = currentBusinessType === inference.business_type;
   if (same) return null;
 
+  // Vertical labels — Café/Bar/Kiosk/Købmand are kept in Danish form
+  // since they're industry standard terms in DK; Workshop / Bakery /
+  // Retail are translatable.
   const labels = {
-    restaurant: "Restaurant",
-    cafe: "Café",
-    bar: "Bar / Diskotek",
-    kiosk: "Kiosk / Købmand",
-    bakery: "Bakery",
-    workshop: "Workshop / Repair",
-    retail: "Retail",
+    restaurant: t("vertRestaurant") || "Restaurant",
+    cafe:       "Café",
+    bar:        "Bar / Diskotek",
+    kiosk:      "Kiosk / Købmand",
+    bakery:     t("vertBakery") || "Bakery",
+    workshop:   t("vertWorkshop") || "Workshop / Repair",
+    retail:     t("vertRetail") || "Retail",
   };
   const label = labels[inference.business_type] || inference.business_type;
-  const fuzzyHint = inference.fuzzy ? " (best-guess from branchekode prefix)" : "";
+  const fuzzyHint = inference.fuzzy
+    ? ` (${t("branchekodeFuzzyHint") || "best-guess from branchekode prefix"})`
+    : "";
 
   return (
     <div className="px-3 py-2 rounded-lg bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 text-xs flex items-center gap-2 flex-wrap">
       <span className="text-base">🎯</span>
       <p className="text-purple-700 dark:text-purple-300 flex-1">
-        Detected: <strong>{label}</strong>
+        {t("branchekodeDetected") || "Detected"}: <strong>{label}</strong>
         <span className="text-purple-500 dark:text-purple-400 ml-1">· {inference.description}{fuzzyHint}</span>
       </p>
       <button
         onClick={onApply}
         className="px-2 py-1 rounded bg-purple-600 hover:bg-purple-700 text-white font-semibold text-[11px]"
       >
-        Apply defaults
+        {t("branchekodeApplyBtn") || "Apply defaults"}
       </button>
     </div>
   );
@@ -153,13 +171,14 @@ function BranchekodeBanner({ inference, currentBusinessType, onApply }) {
 // address that differs from CVR's. The owner picks which to keep.
 
 function AddressVerifyPicker({ cvrAddress, dawa, onPick }) {
+  const { t } = useLanguage();
   if (!dawa) return null;
   if (dawa.matches_input) {
     return (
       <div className="px-3 py-2 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 text-xs flex items-center gap-2">
         <span>✓</span>
         <span className="text-green-700 dark:text-green-300">
-          Address verified against DAWA postal register
+          {t("dawaAddressVerified") || "Address verified against DAWA postal register"}
         </span>
       </div>
     );
@@ -168,21 +187,21 @@ function AddressVerifyPicker({ cvrAddress, dawa, onPick }) {
   return (
     <div className="px-3 py-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs">
       <p className="font-semibold text-amber-700 dark:text-amber-300 mb-2">
-        DAWA suggests a slightly different canonical address:
+        {t("dawaMismatchTitle") || "DAWA suggests a slightly different canonical address:"}
       </p>
       <div className="space-y-2">
         <button
           onClick={() => onPick(cvrAddress)}
           className="block w-full text-left px-3 py-2 rounded bg-white dark:bg-gray-800 border border-amber-200 dark:border-amber-700 hover:border-amber-500 transition"
         >
-          <p className="text-[10px] uppercase text-amber-500">From CVR</p>
+          <p className="text-[10px] uppercase text-amber-500">{t("dawaFromCvrLabel") || "From CVR"}</p>
           <p className="text-gray-700 dark:text-gray-200">{cvrAddress}</p>
         </button>
         <button
           onClick={() => onPick(dawa.betegnelse, dawa.id)}
           className="block w-full text-left px-3 py-2 rounded bg-white dark:bg-gray-800 border border-green-300 dark:border-green-700 hover:border-green-500 transition"
         >
-          <p className="text-[10px] uppercase text-green-600">From DAWA postal register (recommended)</p>
+          <p className="text-[10px] uppercase text-green-600">{t("dawaFromDawaLabel") || "From DAWA postal register (recommended)"}</p>
           <p className="text-gray-700 dark:text-gray-200">{dawa.betegnelse}</p>
         </button>
       </div>
