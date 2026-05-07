@@ -323,17 +323,12 @@ def property_financial_report(
 # this is a single-day report (not a date range), so it's free for
 # every tier. Rate-limited to protect against abuse.
 
-from fastapi import Request, Response   # noqa: E402  (deliberate late import)
-from slowapi import Limiter              # noqa: E402
-from slowapi.util import get_remote_address  # noqa: E402
+from fastapi import HTTPException, Request, Response
 
-from app.models.business_profile import BusinessProfile  # noqa: E402
-
-_pdf_limiter = Limiter(key_func=get_remote_address)
+from app.models.business_profile import BusinessProfile
 
 
 @router.get("/pdf")  # final URL: /api/property-report/pdf
-@_pdf_limiter.limit("10/minute")
 def property_report_pdf(
     request: Request,
     report_date: Optional[_date] = Query(None, alias="date"),
@@ -343,40 +338,61 @@ def property_report_pdf(
 ):
     """Render the daily property report as a Copenhagen-clean A4 PDF.
 
-    Reuses property_financial_report() to build the data, then hands
-    off to services.property_report_pdf.build_property_report_pdf().
-    Layered defense: auth (get_current_user), rate limit (10/min/IP),
-    tenant-scoped data fetch (already done in property_financial_report).
+    Layered defense: auth (get_current_user), tenant-scoped data fetch.
+    Each step is wrapped in try/except so a failure surfaces with a
+    meaningful error message instead of a vague 500/503 — the previous
+    version was returning Render-level 503 when reportlab/data fetch
+    threw and the global handler couldn't catch it cleanly.
     """
-    from app.services.property_report_pdf import build_property_report_pdf
+    # Step 1: build the report data (reuse the JSON endpoint's logic).
+    try:
+        report = property_financial_report(
+            report_date=report_date,
+            day_cutoff_hour=day_cutoff_hour,
+            db=db, user=user,
+        )
+    except Exception as e:  # noqa: BLE001
+        log.exception("PDF: report data build failed for user=%s: %s", user.id, e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not build report data: {type(e).__name__}",
+        )
 
-    # Reuse the data-building function — keeps math + filtering DRY
-    report = property_financial_report(
-        report_date=report_date,
-        day_cutoff_hour=day_cutoff_hour,
-        db=db, user=user,
-    )
-
-    # Resolve business profile for the header (best-effort)
-    profile = db.query(BusinessProfile).filter(
-        BusinessProfile.user_id == user.id,
-    ).first()
+    # Step 2: best-effort BusinessProfile fetch for the header. NEVER
+    # fail the PDF on this — the renderer can produce a clean PDF
+    # without a profile (uses the user.business_name fallback).
     profile_dict = None
-    if profile:
-        profile_dict = {
-            "company_name": profile.company_name,
-            "address": profile.address,
-            "city": profile.city,
-            "zipcode": profile.zipcode,
-            "org_number": profile.org_number,
-        }
+    try:
+        profile = db.query(BusinessProfile).filter(
+            BusinessProfile.user_id == user.id,
+        ).first()
+        if profile:
+            profile_dict = {
+                "company_name": profile.company_name,
+                "address": profile.address,
+                "city": profile.city,
+                "zipcode": profile.zipcode,
+                "org_number": profile.org_number,
+            }
+    except Exception as e:  # noqa: BLE001
+        log.warning("PDF: business profile fetch failed (non-fatal): %s", e)
 
-    pdf_bytes = build_property_report_pdf(
-        report,
-        profile=profile_dict,
-        business_name=getattr(user, "business_name", "") or "",
-        closer_name=None,
-    )
+    # Step 3: render the PDF. This is where reportlab runs.
+    try:
+        from app.services.property_report_pdf import build_property_report_pdf
+        pdf_bytes = build_property_report_pdf(
+            report,
+            profile=profile_dict,
+            business_name=getattr(user, "business_name", "") or "",
+            closer_name=None,
+        )
+    except Exception as e:  # noqa: BLE001
+        log.exception("PDF: reportlab render failed for user=%s: %s", user.id, e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"PDF render failed: {type(e).__name__}",
+        )
+
     fname = f"daily-report_{report.get('report_date') or _date.today().isoformat()}.pdf"
     return Response(
         content=pdf_bytes,
