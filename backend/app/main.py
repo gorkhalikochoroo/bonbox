@@ -1320,6 +1320,7 @@ try:
         daily_drift_sweep,
         weekly_pattern_sweep,
     )
+    from app.jobs.demo_refresh_job import refresh_demo_account
 
     _scheduler = BackgroundScheduler()
     _scheduler.add_job(
@@ -1355,9 +1356,22 @@ try:
         name="Kasserapport correction-pattern sweep (weekly)",
         replace_existing=True,
     )
+    # Demo account refresh — idempotent daily nudge so demo@bonbox.dk
+    # never falls out of trial state. The job itself no-ops if the
+    # trial is far from expiring, so cost is one DB read per day. Runs
+    # at 03:15 UTC — between the kasserapport sweeps to spread DB load.
+    # In-process only; never wired to an HTTP endpoint (security: zero
+    # attack surface for demo-data manipulation).
+    _scheduler.add_job(
+        refresh_demo_account,
+        trigger=CronTrigger(hour=3, minute=15),
+        id="demo_account_refresh",
+        name="Demo account trial refresh",
+        replace_existing=True,
+    )
     _scheduler.start()
     print("Schedulers started: payment auto-sync (6h), nightly maintenance (02:30), "
-          "kasserapport drift (03:00), kasserapport patterns (Sun 03:30)")
+          "kasserapport drift (03:00), demo refresh (03:15), kasserapport patterns (Sun 03:30)")
 
     @app.on_event("shutdown")
     def _shutdown_scheduler():
