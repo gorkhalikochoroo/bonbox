@@ -226,11 +226,23 @@ export default function Layout() {
   // Desktop-only: persist whether the user has collapsed the sidebar
   // for more horizontal real estate (Claude-style hide). Mobile uses
   // the existing sidebarOpen overlay model — this flag is ignored
-  // there. Default = visible. Reads from localStorage on mount so
-  // the preference survives reloads.
+  // there.
+  //
+  // Smart default for tablets / smaller laptops: if the user hasn't
+  // explicitly set a preference, auto-collapse on viewports below
+  // 1024px (iPad portrait, small Windows tablets, 11" MacBook side-
+  // by-side, etc.) so reports + dashboard tables get the full width
+  // by default. Above 1024px the sidebar stays open by default.
   const [desktopSidebarHidden, setDesktopSidebarHidden] = useState(() => {
     try {
-      return localStorage.getItem("bonbox_sidebar_hidden") === "1";
+      const saved = localStorage.getItem("bonbox_sidebar_hidden");
+      if (saved === "1") return true;
+      if (saved === "0") return false;
+      // No explicit preference — auto-decide based on viewport width.
+      if (typeof window !== "undefined") {
+        return window.innerWidth < 1024;
+      }
+      return false;
     } catch {
       return false;
     }
@@ -242,6 +254,27 @@ export default function Layout() {
       return next;
     });
   };
+
+  // Listen for orientation changes (iPad rotating from portrait to
+  // landscape, phone rotating, etc). Respects an explicit user
+  // preference if present in localStorage; otherwise re-applies the
+  // viewport-based default so the sidebar feels native after a
+  // rotation. Cleans up on unmount.
+  useEffect(() => {
+    const onResize = () => {
+      try {
+        const saved = localStorage.getItem("bonbox_sidebar_hidden");
+        if (saved === "1" || saved === "0") return;  // user has chosen — leave alone
+      } catch { /* ignore */ }
+      setDesktopSidebarHidden(window.innerWidth < 1024);
+    };
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
+    };
+  }, []);
   const [mode, setMode] = useState(localStorage.getItem("bonbox_mode") || "business");
 
   // Owner's enabled vertical modules — drives sidebar gating for Bar,
@@ -379,14 +412,17 @@ export default function Layout() {
             <BranchSelector compact />
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            {/* Desktop collapse — chevron-left, hidden on mobile */}
+            {/* Desktop collapse — bold chevron-left, hidden on mobile.
+                Border + slightly heavier hover state so it reads as an
+                affordance rather than blending into the sidebar header
+                background. */}
             <button
               onClick={toggleDesktopSidebar}
               title={t("hideSidebar") || "Hide sidebar"}
-              className="hidden md:inline-flex items-center justify-center w-7 h-7 rounded-md text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/60 transition"
+              className="hidden md:inline-flex items-center justify-center w-8 h-8 rounded-md border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-gray-300 dark:hover:border-gray-500 transition shadow-sm"
               aria-label={t("hideSidebar") || "Hide sidebar"}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
               </svg>
             </button>
@@ -571,9 +607,9 @@ export default function Layout() {
           onClick={toggleDesktopSidebar}
           title={t("showSidebar") || "Show sidebar"}
           aria-label={t("showSidebar") || "Show sidebar"}
-          className="hidden md:flex fixed top-4 left-3 z-40 items-center justify-center w-9 h-9 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 shadow-sm hover:shadow hover:border-green-400 dark:hover:border-green-500 transition"
+          className="hidden md:flex fixed top-4 left-3 z-40 items-center justify-center w-10 h-10 rounded-lg bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 shadow-md hover:shadow-lg hover:border-green-500 dark:hover:border-green-400 hover:text-green-600 dark:hover:text-green-300 transition"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
           </svg>
         </button>
