@@ -722,25 +722,40 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               </span>
             </div>
 
-            {/* Total-only banner — OCR caught the bottom-line total but
-                couldn't split into food/drinks/takeaway. We save the
-                total anyway (revenue_total_override) so the close isn't
-                lost; owner can fill the breakdown manually if needed. */}
+            {/* Detection-gap banner — fires when the total is detected
+                but ANY revenue category is missing or zero. Two flavors:
+                  • "all empty"   → save total via revenue_total_override
+                  • "partial"     → tell owner which categories to fill
+                Both keep the close save-able instead of silently writing
+                the wrong number (was the original bug). */}
             {(() => {
-              const breakdownVals = Object.values(scanResult.revenue || {}).filter(v => v != null && v !== 0);
               const hasTotal = (scanResult.revenue_total || 0) > 0;
-              const breakdownEmpty = breakdownVals.length === 0;
-              if (hasTotal && breakdownEmpty) {
-                return (
-                  <div className="rounded-xl p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-200">
-                    ℹ️ <strong>We couldn't detect the food/drinks/takeaway breakdown</strong> from
-                    this receipt — only the total ({scanResult.revenue_total.toLocaleString()} {currency}).
-                    Saving the total revenue anyway. Add the per-category
-                    split manually if you need it.
+              if (!hasTotal) return null;
+              const detected = defaultRevCats
+                .map(c => ({ key: c.key, label: c.label, val: scanResult.revenue?.[c.key] }))
+                .filter(r => r.val != null && r.val !== 0 && r.val !== "");
+              const missing = defaultRevCats
+                .map(c => ({ key: c.key, label: c.label, val: scanResult.revenue?.[c.key] }))
+                .filter(r => !(r.val != null && r.val !== 0 && r.val !== ""));
+              if (missing.length === 0) return null;
+              const allEmpty = detected.length === 0;
+              return (
+                <div className="rounded-xl p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-200 space-y-1">
+                  <div>
+                    ℹ️ <strong>
+                      {allEmpty
+                        ? "We couldn't detect the per-category breakdown"
+                        : `We detected ${detected.length} of ${defaultRevCats.length} revenue categories`}
+                    </strong>
+                    {" "}from this receipt — total is {scanResult.revenue_total.toLocaleString()} {currency}.
                   </div>
-                );
-              }
-              return null;
+                  <div className="text-xs opacity-90">
+                    {allEmpty
+                      ? "Saving the total revenue anyway. Enter the per-category split below if you need it for reports."
+                      : <>Please enter the actual amount for: <strong>{missing.map(m => m.label.split(" / ")[0]).join(", ")}</strong>. Or skip — the total above will save correctly either way.</>}
+                  </div>
+                </div>
+              );
             })()}
 
             {/* Revenue (med moms) */}
@@ -750,15 +765,19 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               </h3>
               {defaultRevCats.map(c => {
                 const val = scanResult.revenue?.[c.key];
+                const isEmpty = !val;
                 return (
                   <div key={c.key} className="flex items-center gap-3">
                     <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
                       {val ? <span className="text-green-500">✓</span> : <span className="text-gray-300 dark:text-gray-600">—</span>}
                       {c.icon} {c.label}
                       {val && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 rounded">OCR</span>}
+                      {isEmpty && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded">missing</span>}
                     </span>
-                    <input type="number" inputMode="decimal" className={inputClass}
+                    <input type="number" inputMode="decimal"
+                      className={`${inputClass} ${isEmpty ? "border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-900/10" : ""}`}
                       defaultValue={val || ""}
+                      placeholder={isEmpty ? "enter actual amount" : ""}
                       onChange={e => {
                         setScanResult(prev => ({
                           ...prev,
@@ -807,15 +826,19 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400">Payments</h3>
               {defaultPayMethods.map(m => {
                 const val = scanResult.payments?.[m.key];
+                const isEmpty = !val;
                 return (
                   <div key={m.key} className="flex items-center gap-3">
                     <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
                       {val ? <span className="text-green-500">✓</span> : <span className="text-gray-300 dark:text-gray-600">—</span>}
                       {m.icon} {m.label}
                       {val && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 rounded">OCR</span>}
+                      {isEmpty && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded">missing</span>}
                     </span>
-                    <input type="number" inputMode="decimal" className={inputClass}
+                    <input type="number" inputMode="decimal"
+                      className={`${inputClass} ${isEmpty ? "border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-900/10" : ""}`}
                       defaultValue={val || ""}
+                      placeholder={isEmpty ? "enter actual amount" : ""}
                       onChange={e => {
                         setScanResult(prev => ({
                           ...prev,
@@ -835,9 +858,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   {scanResult.tips ? <span className="text-green-500">✓</span> : <span className="text-gray-300 dark:text-gray-600">—</span>}
                   💰 Tips
                   {scanResult.tips && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 rounded">OCR</span>}
+                  {!scanResult.tips && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded">missing</span>}
                 </span>
-                <input type="number" inputMode="decimal" className={inputClass}
+                <input type="number" inputMode="decimal"
+                  className={`${inputClass} ${!scanResult.tips ? "border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-900/10" : ""}`}
                   defaultValue={scanResult.tips || ""}
+                  placeholder={!scanResult.tips ? "enter actual amount" : ""}
                   onChange={e => {
                     setScanResult(prev => ({ ...prev, tips: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 }));
                   }} />
