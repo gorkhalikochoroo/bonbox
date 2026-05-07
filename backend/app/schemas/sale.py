@@ -104,6 +104,10 @@ class SaleResponse(BaseModel):
     payment_method: str
     notes: str | None
     is_tax_exempt: bool = False
+    # Receipt photo URL — surfaced on the row so the Sales-list UI can
+    # render a thumbnail + open the receipt-review modal. Sale model has
+    # carried this column for a while; the schema just hadn't exposed it.
+    receipt_photo: str | None = None
     is_deleted: bool = False
     deleted_at: datetime.datetime | None = None
     created_at: datetime.datetime | None = None

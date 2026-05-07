@@ -1370,6 +1370,19 @@ const translations = {
     close: "Close",
 
     // ───────────────────────────────────────────────────────────
+    // Receipt review modal (sales + expenses + Snap Receipt preview)
+    // ───────────────────────────────────────────────────────────
+    receiptViewerSaleTitle: "Sale receipt",
+    receiptViewerExpenseTitle: "Expense receipt",
+    receiptViewerOpen: "View receipt",
+    receiptViewerImageAlt: "Receipt photo",
+    receiptViewerRecordedAmount: "Recorded amount",
+    receiptViewerOcrText: "Receipt text recognized",
+    receiptViewerOcrLegend: "{n} amount{s} found",
+    receiptViewerOpenOriginal: "Open full size in new tab",
+    receiptViewerReviewLink: "Review receipt full-size",
+
+    // ───────────────────────────────────────────────────────────
     // Global search command palette (⌘K)
     // ───────────────────────────────────────────────────────────
     search: "Search",
@@ -2676,6 +2689,17 @@ const translations = {
     upgradeMaybeLater: "Måske senere",
     upgradeCTA: "Se planer →",
     close: "Luk",
+
+    // Receipt review modal (sales + expenses + Snap Receipt preview)
+    receiptViewerSaleTitle: "Salgskvittering",
+    receiptViewerExpenseTitle: "Udgiftskvittering",
+    receiptViewerOpen: "Vis kvittering",
+    receiptViewerImageAlt: "Kvitteringsfoto",
+    receiptViewerRecordedAmount: "Registreret beløb",
+    receiptViewerOcrText: "Genkendt tekst",
+    receiptViewerOcrLegend: "{n} beløb fundet",
+    receiptViewerOpenOriginal: "Åbn i fuld størrelse i ny fane",
+    receiptViewerReviewLink: "Gennemse kvittering i fuld størrelse",
 
     // Global search command palette (⌘K)
     search: "Søg",

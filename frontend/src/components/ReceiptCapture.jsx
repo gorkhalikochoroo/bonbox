@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import Modal from "./Modal";
+import ReceiptViewer from "./ReceiptViewer";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
@@ -30,6 +31,11 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
   // total. The flag is passed through to the OCR endpoint so server-
   // side amount detection picks the right line ('Total' vs 'Net').
   const [momsMode, setMomsMode] = useState("with-moms");
+  // Pre-save full-size review modal — opens when user taps the
+  // "Review receipt" link below the cropped preview thumbnail.
+  // Lets the owner see a tall receipt without cropping + the OCR text
+  // with detected amounts highlighted before they confirm.
+  const [reviewOpen, setReviewOpen] = useState(false);
   const fileRef = useRef();
 
   const uploadEndpoint = isExpense ? "/expenses/upload-receipt" : "/sales/upload-receipt";
@@ -92,6 +98,11 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
       description: desc || "Receipt scan",
       date: today,
       payment_method: method,
+      // Pass the OCR-saved photo path so the saved Expense row carries
+      // it. Schema-level cap (500 chars) is enforced server-side. This
+      // is what enables the post-save "View receipt" affordance from
+      // the Expenses list.
+      receipt_photo: result?.filepath || null,
     });
     setSuccess("Expense added from receipt");
     onSaved?.();
@@ -215,14 +226,41 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
             )}
 
             {preview && (
-              <div className="relative">
-                <img src={preview} alt="Receipt" className="w-full h-48 object-cover rounded-xl" />
-                <button
-                  onClick={() => { setPreview(null); setResult(null); setAmount(""); }}
-                  className="absolute top-2 right-2 bg-black/50 text-white w-7 h-7 rounded-full text-sm"
-                >
-                  &times;
-                </button>
+              <div>
+                <div className="relative">
+                  {/* Cropped thumbnail — keeps the modal compact while
+                      OCR runs. object-contain on a fixed-height row
+                      means tall receipts show top + scale-to-fit, not
+                      a cover-crop that hides the totals row at the
+                      bottom (which was the original bug). */}
+                  <div className="bg-gray-50 dark:bg-gray-700/40 rounded-xl h-48 flex items-center justify-center overflow-hidden">
+                    <img
+                      src={preview}
+                      alt="Receipt"
+                      className="max-h-48 w-auto object-contain"
+                    />
+                  </div>
+                  <button
+                    onClick={() => { setPreview(null); setResult(null); setAmount(""); }}
+                    className="absolute top-2 right-2 bg-black/60 hover:bg-black/80 text-white w-7 h-7 rounded-full text-sm transition"
+                    aria-label={t("clear") || "Clear"}
+                  >
+                    &times;
+                  </button>
+                </div>
+                {/* Review-receipt link — opens the full-size viewer with
+                    OCR text + detected-amount highlights. Surfaces only
+                    after OCR finishes (so we can pass detectedAmounts /
+                    suggested into the viewer). */}
+                {result && !uploading && (
+                  <button
+                    type="button"
+                    onClick={() => setReviewOpen(true)}
+                    className="mt-2 text-xs text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
+                  >
+                    🔍 {t("receiptViewerReviewLink") || "Review receipt full-size"}
+                  </button>
+                )}
               </div>
             )}
 
@@ -326,6 +364,25 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
           </div>
         )}
       </Modal>
+
+      {/* Pre-save review modal — full image + OCR text with amounts
+          highlighted. The same component is reused on Sales / Expenses
+          list rows for post-save review (then with no OCR text since
+          we don't persist it). */}
+      <ReceiptViewer
+        open={reviewOpen}
+        onClose={() => setReviewOpen(false)}
+        imageUrl={preview}
+        amount={amount ? parseFloat(amount) : result?.suggested_amount}
+        currency="DKK"
+        date={new Date().toISOString().split("T")[0]}
+        paymentMethod={method}
+        description={desc}
+        ocrText={result?.raw_text}
+        detectedAmounts={result?.all_amounts_found}
+        suggestedAmount={result?.suggested_amount}
+        kind={isExpense ? "expense" : "sale"}
+      />
     </>
   );
 }

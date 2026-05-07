@@ -26,12 +26,28 @@ class ExpenseCreate(BaseModel):
     notes: str | None = None
     is_personal: bool = False
     is_tax_exempt: bool = False
+    # Optional receipt photo path returned by /expenses/upload-receipt.
+    # When set, the expense row carries the URL so the user can re-view
+    # the receipt after save (matches Sale.receipt_photo behaviour).
+    # Bounded to 500 chars to match the DB column width.
+    receipt_photo: str | None = None
 
     @field_validator("payment_method", mode="before")
     @classmethod
     def normalize_payment_method(cls, v):
         if isinstance(v, str) and v.lower() == "kontant":
             return "cash"
+        return v
+
+    @field_validator("receipt_photo", mode="before")
+    @classmethod
+    def cap_receipt_photo_length(cls, v):
+        if v is None or v == "":
+            return None
+        if isinstance(v, str) and len(v) > 500:
+            # Defense — DB column is VARCHAR(500). Reject obviously
+            # malformed input rather than truncating silently.
+            raise ValueError("receipt_photo path too long (max 500 chars)")
         return v
 
 
@@ -65,6 +81,7 @@ class ExpenseResponse(BaseModel):
     notes: str | None
     is_personal: bool = False
     is_tax_exempt: bool = False
+    receipt_photo: str | None = None
     is_deleted: bool = False
     deleted_at: datetime.datetime | None = None
     created_at: datetime.datetime | None = None

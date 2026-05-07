@@ -3,6 +3,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import ReceiptCapture from "../components/ReceiptCapture";
+import ReceiptViewer from "../components/ReceiptViewer";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { displayCurrency, getTaxConfig } from "../utils/currency";
@@ -33,6 +34,10 @@ export default function SalesPage() {
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
   const [editId, setEditId] = useState(null);
+  // Receipt review modal — opens when user clicks the 🧾 chip on a
+  // sale row that has receipt_photo set. Stores the sale being viewed
+  // so we can pass amount/date/payment_method into the viewer.
+  const [receiptViewing, setReceiptViewing] = useState(null);
   const [editData, setEditData] = useState({});
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [search, setSearch] = useState("");
@@ -795,6 +800,22 @@ export default function SalesPage() {
                         {st !== "completed" && (
                           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${sc.cls}`}>{sc.label}</span>
                         )}
+                        {/* Receipt-photo chip — visible only when this
+                            sale was logged via Snap Receipt (so the row
+                            has a photo URL on receipt_photo). Click
+                            opens the ReceiptViewer for spot-checking
+                            against the photo. */}
+                        {sale.receipt_photo && (
+                          <button
+                            type="button"
+                            onClick={() => setReceiptViewing(sale)}
+                            title={t("receiptViewerOpen") || "View receipt"}
+                            aria-label={t("receiptViewerOpen") || "View receipt"}
+                            className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-800/30 text-amber-600 dark:text-amber-300 text-sm transition"
+                          >
+                            🧾
+                          </button>
+                        )}
                       </div>
                       {sale.item_name && (
                         <div className="text-xs font-normal text-gray-400 mt-0.5">
@@ -967,6 +988,24 @@ export default function SalesPage() {
           </div>
         );
       })()}
+
+      {/* Post-save receipt review — opens when a sale row's 🧾 chip
+          is clicked. Single instance shared across rows; the
+          receiptViewing state holds the active sale. We don't have
+          OCR text on saved sales (it isn't persisted), so the viewer
+          renders without the highlighted-text panel — just the photo
+          + recorded fields, which is enough to verify amount + date. */}
+      <ReceiptViewer
+        open={!!receiptViewing}
+        onClose={() => setReceiptViewing(null)}
+        imageUrl={receiptViewing?.receipt_photo}
+        amount={receiptViewing ? parseFloat(receiptViewing.amount) : null}
+        currency={currency}
+        date={receiptViewing?.date}
+        paymentMethod={receiptViewing?.payment_method}
+        description={receiptViewing?.notes}
+        kind="sale"
+      />
     </div>
   );
 }

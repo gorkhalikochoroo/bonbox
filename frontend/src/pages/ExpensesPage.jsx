@@ -9,6 +9,7 @@ import { formatDate, formatDateShort } from "../utils/dateFormat";
 import TaxBreakdown from "../components/TaxBreakdown";
 import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
 import ReceiptCapture from "../components/ReceiptCapture";
+import ReceiptViewer from "../components/ReceiptViewer";
 import DismissibleTip from "../components/DismissibleTip";
 
 const QUICK_AMOUNTS = [100, 250, 500, 1000, 2500, 5000];
@@ -40,6 +41,11 @@ export default function ExpensesPage() {
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
   const [editId, setEditId] = useState(null);
+  // Receipt review modal — opens when user clicks the 🧾 chip on an
+  // expense row that has receipt_photo set. (Only Snap-Receipt-created
+  // expenses carry a photo today; manually-typed expenses won't show
+  // the chip and don't need it.)
+  const [receiptViewing, setReceiptViewing] = useState(null);
   const [editData, setEditData] = useState({});
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [selected, setSelected] = useState(new Set());
@@ -960,8 +966,27 @@ export default function ExpensesPage() {
                 ) : (
                   <>
                     <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
-                      {exp.description}
-                      {exp.is_personal && <span className="ml-2 px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 text-xs rounded font-medium">{t("personalMode")}</span>}
+                      <span className="inline-flex items-center gap-1.5">
+                        {exp.description}
+                        {exp.is_personal && <span className="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 text-xs rounded font-medium">{t("personalMode")}</span>}
+                        {/* Receipt-photo chip — visible only on rows
+                            created via Snap Receipt OCR (which now
+                            persists receipt_photo since the schema
+                            change). Click → ReceiptViewer modal so
+                            owner can verify the saved amount against
+                            the photo. */}
+                        {exp.receipt_photo && (
+                          <button
+                            type="button"
+                            onClick={() => setReceiptViewing(exp)}
+                            title={t("receiptViewerOpen") || "View receipt"}
+                            aria-label={t("receiptViewerOpen") || "View receipt"}
+                            className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-800/30 text-amber-600 dark:text-amber-300 text-sm transition"
+                          >
+                            🧾
+                          </button>
+                        )}
+                      </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{getCatName(exp.category_id)}</td>
                     <td className="px-6 py-4 text-sm font-semibold text-gray-800 dark:text-white">{parseFloat(exp.amount).toLocaleString()} {currency}</td>
@@ -1046,6 +1071,22 @@ export default function ExpensesPage() {
           onSaved={() => { setReceiptOpen(false); fetchData(filterFrom, filterTo); setSuccess("Expense added from receipt"); setTimeout(() => setSuccess(""), 2000); }}
         />
       )}
+
+      {/* Post-save receipt review — shared instance across rows. Opens
+          when an expense row's 🧾 chip is clicked. No OCR text shown
+          (we don't persist it on save) — just the photo + recorded
+          metadata, which is enough for the spot-check use case. */}
+      <ReceiptViewer
+        open={!!receiptViewing}
+        onClose={() => setReceiptViewing(null)}
+        imageUrl={receiptViewing?.receipt_photo}
+        amount={receiptViewing ? parseFloat(receiptViewing.amount) : null}
+        currency={currency}
+        date={receiptViewing?.date}
+        paymentMethod={receiptViewing?.payment_method}
+        description={receiptViewing?.description}
+        kind="expense"
+      />
     </div>
   );
 }

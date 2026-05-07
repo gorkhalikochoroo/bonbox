@@ -47,6 +47,12 @@ class Expense(Base):
     # Bogføringsloven 2024 compliance). Auto-allocated on creation.
     voucher_number: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     is_tax_exempt: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Path / URL to the receipt photo (when this expense came from a Snap
+    # Receipt OCR upload, or was manually attached later). The DB column
+    # already exists via the IF NOT EXISTS migration — we just expose it
+    # in the model so the create + read paths can populate / surface it.
+    # VARCHAR(500) at the SQL level matches the migration in main.py.
+    receipt_photo: Mapped[str | None] = mapped_column(String(500), nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
