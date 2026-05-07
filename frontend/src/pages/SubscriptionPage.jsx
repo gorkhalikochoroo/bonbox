@@ -18,14 +18,16 @@ const isNative =
 /**
  * BonBox subscription tiers — public pricing page.
  *
- * Strategy: every new signup gets 14 days of Pro free, no card. After the
- * trial they choose Free or Pro. This kills the "I haven't validated this
- * yet, why would I pay" hesitation that kills new-product conversion.
+ * Strategy: every new signup gets 14 days of full Pro free, no card. After
+ * the trial they choose Free / Starter / Pro. This kills the "I haven't
+ * validated this yet, why would I pay" hesitation that kills new-product
+ * conversion.
  *
  * Three tiers only — no "Coming soon" placeholders. Cleaner choice.
- *   Free: forever, real but limited
- *   Starter: 14-day trial → 129 kr/mo founding (first 100, regular 199)
- *   Pro:     14-day trial → 249 kr/mo founding (first 100, regular 349)
+ *   Free:    forever, real but limited
+ *   Starter: 129 kr/mo founding (first 100, regular 199) — no separate trial
+ *            because every signup already gets Pro for 14 days
+ *   Pro:     249 kr/mo founding (first 100, regular 349) — the trial IS Pro
  */
 
 // Founding-member counter. Hard-coded for now — wire to a backend
@@ -82,9 +84,14 @@ const buildTiers = (t) => [
     founding_price: 129,
     founding_limit: FOUNDING_LIMIT,
     cta: t("pricingUpgradeStarter") || "Upgrade to Starter",
-    cta_unauth: t("pricingStartTrial") || "Start 14-day free trial",
+    // Anonymous CTA: just "Sign up free". The 14-day trial we offer is
+    // FULL PRO, not Starter — every signup gets Pro entitlements for 14
+    // days, then on day 14 chooses Free / Starter / Pro. Claiming a
+    // 14-day trial on the Starter card was misleading; user can land on
+    // Starter via the regular Free → Starter upgrade after the trial.
+    cta_unauth: t("pricingSignUpFree") || "Sign up free",
     highlight: false,
-    badge: t("pricingBadgeFreeTrial") || "🎁 14 days free · No card required",
+    // No "14 days free" badge here — this isn't a trial tier.
     features: [
       { text: t("featStarterHeader") || "Everything in Free — without the caps:", included: true, header: true },
       { text: t("featStarterUnlimitedClose") || "Unlimited daily closes + receipt OCR", included: true },
