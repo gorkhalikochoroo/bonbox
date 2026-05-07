@@ -8,6 +8,7 @@ import { trackEvent } from "../hooks/useEventLog";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
 import { safeImageUrl } from "../utils/safeUrl";
+import { resizeImageIfLarge } from "../utils/resizeImage";
 import {
   buildShareMessage,
   buildShareTitle,
@@ -379,17 +380,22 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     return merged;
   };
 
-  const handleFileSelect = async (file) => {
-    if (!file) return;
+  const handleFileSelect = async (rawFile) => {
+    if (!rawFile) return;
     setScanMode("scanning");
     setScanError("");
     try {
+      // Auto-resize iPhone-sized photos (48 MP camera shots routinely
+      // exceed our 12 MB backend cap). 2000 px long edge keeps OCR
+      // text crisp + uploads stay fast on 4G in restaurant kitchens.
+      const file = await resizeImageIfLarge(rawFile);
       const formData = new FormData();
       formData.append("file", file);
       const res = await api.post("/daily-close/scan-report", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      // Add thumbnail
+      // Add thumbnail (use the resized file so the preview matches what
+      // the backend actually saw)
       const thumbUrl = URL.createObjectURL(file);
       setScanPhotos(prev => [...prev, { url: thumbUrl, name: file.name }]);
       // Merge with existing results

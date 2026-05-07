@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import api from "../services/api";
+import { resizeImageIfLarge } from "../utils/resizeImage";
 
 /**
  * Smart Inventory Import — frontend for the backend pipeline shipped
@@ -83,8 +84,14 @@ export default function SmartImportModal({ open, onClose, onCommitted }) {
           setLoading(false);
           return;
         }
+        // Auto-resize iPhone-sized photos so they fit under our 12 MB
+        // backend cap and upload faster on 4G in restaurant kitchens.
+        // CSV / Excel files pass through unchanged.
+        const toUpload = mode === "image"
+          ? await resizeImageIfLarge(fileInput)
+          : fileInput;
         const fd = new FormData();
-        fd.append("file", fileInput);
+        fd.append("file", toUpload);
         fd.append("source_kind", mode);
         resp = await api.post("/inventory/smart-import/file", fd, {
           headers: { "Content-Type": "multipart/form-data" },
@@ -269,24 +276,21 @@ function ExtractStep({
         </div>
       )}
 
-      {isInputMode && (mode === "csv" || mode === "excel" || mode === "image") && (
+      {isInputMode && (mode === "csv" || mode === "excel") && (
         <div>
           <button
             onClick={() => fileRef.current?.click()}
             className="w-full border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-8 text-center hover:border-blue-400 transition"
           >
             <div className="text-4xl mb-2">
-              {mode === "csv" ? "📄" : mode === "excel" ? "📊" : "📷"}
+              {mode === "csv" ? "📄" : "📊"}
             </div>
             <p className="text-gray-700 dark:text-gray-300 font-medium">
-              {fileInput
-                ? fileInput.name
-                : `Click to choose a ${mode === "image" ? "photo" : mode.toUpperCase()}`}
+              {fileInput ? fileInput.name : `Click to choose a ${mode.toUpperCase()}`}
             </p>
             <p className="text-xs text-gray-500 mt-1">
               {mode === "csv" && "Up to 1 MB"}
               {mode === "excel" && "Up to 5 MB"}
-              {mode === "image" && "JPG, PNG, HEIC up to 12 MB"}
             </p>
           </button>
           <input
@@ -296,10 +300,89 @@ function ExtractStep({
             accept={
               mode === "csv"
                 ? ".csv,text/csv"
-                : mode === "excel"
-                ? ".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                : "image/*"
+                : ".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             }
+            onChange={(e) => setFileInput(e.target.files?.[0] || null)}
+          />
+        </div>
+      )}
+
+      {isInputMode && mode === "image" && (
+        <div>
+          {fileInput ? (
+            <div className="border-2 border-blue-300 dark:border-blue-600 rounded-lg p-4 bg-blue-50 dark:bg-blue-900/20 flex items-center gap-3">
+              <span className="text-2xl">📷</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                  {fileInput.name}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {(fileInput.size / 1024).toFixed(0)} KB
+                  {fileInput.size > 1.5 * 1024 * 1024 && (
+                    <span className="ml-1 text-blue-600 dark:text-blue-400">
+                      · will be auto-resized
+                    </span>
+                  )}
+                </p>
+              </div>
+              <button
+                onClick={() => setFileInput(null)}
+                className="text-xs px-2 py-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-600">
+                Change
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* Two buttons on iOS: 'Take Photo' opens the rear camera
+                  directly (capture="environment"); 'Choose Photo' opens
+                  the photo library / files picker. Same split as the
+                  daily-close scan UI for consistency. */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  onClick={() => {
+                    if (fileRef.current) {
+                      fileRef.current.setAttribute("capture", "environment");
+                      fileRef.current.click();
+                    }
+                  }}
+                  className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 text-center hover:border-blue-400 hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition group"
+                >
+                  <div className="text-4xl mb-2 group-hover:scale-110 transition">📸</div>
+                  <p className="text-gray-700 dark:text-gray-300 font-semibold">
+                    Take Photo
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Opens camera on iPhone / iPad
+                  </p>
+                </button>
+                <button
+                  onClick={() => {
+                    if (fileRef.current) {
+                      fileRef.current.removeAttribute("capture");
+                      fileRef.current.click();
+                    }
+                  }}
+                  className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 text-center hover:border-blue-400 hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition group"
+                >
+                  <div className="text-4xl mb-2 group-hover:scale-110 transition">🖼️</div>
+                  <p className="text-gray-700 dark:text-gray-300 font-semibold">
+                    Choose Photo
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    From photo library or files
+                  </p>
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">
+                JPG, PNG, HEIC up to 12 MB · Big iPhone photos auto-resize on upload
+              </p>
+            </>
+          )}
+          <input
+            ref={fileRef}
+            type="file"
+            className="hidden"
+            accept="image/*"
             onChange={(e) => setFileInput(e.target.files?.[0] || null)}
           />
         </div>

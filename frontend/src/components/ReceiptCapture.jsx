@@ -3,6 +3,7 @@ import Modal from "./Modal";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
+import { resizeImageIfLarge } from "../utils/resizeImage";
 
 /**
  * ReceiptCapture — supports both sale and expense mode.
@@ -34,11 +35,16 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
   const uploadEndpoint = isExpense ? "/expenses/upload-receipt" : "/sales/upload-receipt";
 
   const handleFile = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setPreview(URL.createObjectURL(file));
+    const rawFile = e.target.files[0];
+    if (!rawFile) return;
+    // Auto-resize iPhone-sized photos before upload. iPhone 15 Pro
+    // captures at 48 MP — JPEG conversion can produce 15-25 MB which
+    // exceeds our 12 MB backend cap. Resizing client-side to 2000px
+    // long edge keeps OCR text crisp + uploads stay under cap.
+    setPreview(URL.createObjectURL(rawFile));
     setUploading(true);
     setResult(null);
+    const file = await resizeImageIfLarge(rawFile);
 
     const formData = new FormData();
     formData.append("file", file);
@@ -155,13 +161,49 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
             )}
 
             {!preview && (
-              <label className="block border-2 border-dashed border-gray-200 dark:border-gray-600 rounded-xl p-8 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition group">
-                <svg className="w-10 h-10 mx-auto mb-3 text-gray-300 dark:text-gray-500 group-hover:text-blue-400 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                  <circle cx="12" cy="13" r="3" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} />
-                </svg>
-                <p className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">{t("takePhoto")}</p>
-                <p className="text-xs text-gray-400 dark:text-gray-500">{t("photoOrGallery")}</p>
+              <>
+                {/* Two buttons on iOS: 'Take Photo' opens the rear
+                    camera directly (capture="environment"); 'Choose
+                    Photo' opens the photo library / files picker.
+                    Same split as daily close + smart import for
+                    consistency. Big iPhone photos auto-resize via
+                    handleFile → resizeImageIfLarge before upload. */}
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => {
+                      if (fileRef.current) {
+                        fileRef.current.setAttribute("capture", "environment");
+                        fileRef.current.click();
+                      }
+                    }}
+                    className="border-2 border-dashed border-gray-200 dark:border-gray-600 rounded-xl p-6 text-center hover:border-blue-400 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition group"
+                  >
+                    <div className="text-3xl mb-1 group-hover:scale-110 transition">📸</div>
+                    <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+                      {t("takePhoto") || "Take Photo"}
+                    </p>
+                    <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+                      Opens camera
+                    </p>
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (fileRef.current) {
+                        fileRef.current.removeAttribute("capture");
+                        fileRef.current.click();
+                      }
+                    }}
+                    className="border-2 border-dashed border-gray-200 dark:border-gray-600 rounded-xl p-6 text-center hover:border-blue-400 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition group"
+                  >
+                    <div className="text-3xl mb-1 group-hover:scale-110 transition">🖼️</div>
+                    <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+                      Choose Photo
+                    </p>
+                    <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+                      From library or files
+                    </p>
+                  </button>
+                </div>
                 <input
                   ref={fileRef}
                   type="file"
@@ -169,7 +211,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                   onChange={handleFile}
                   className="hidden"
                 />
-              </label>
+              </>
             )}
 
             {preview && (
