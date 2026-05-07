@@ -1319,6 +1319,30 @@ const translations = {
     pricingComparePlansSubtitle: "What you get on each tier. Annual saves 20%.",
 
     // ───────────────────────────────────────────────────────────
+    // First-run welcome modal + onboarding checklist
+    // (Vertical-specific bullets stay in source language — they're
+    // long-form copy, not UI chrome.)
+    // ───────────────────────────────────────────────────────────
+    welcomeIntroLine: "Welcome to BonBox{name}. Three things will give you the most value first:",
+    welcomeTipsHeading: "Also worth knowing",
+    welcomeTipCmdK: "Press ⌘K anywhere to jump to any page",
+    welcomeTipSnap: "Snap a receipt — OCR fills the form for you",
+    welcomeTipAccountant: "One-tap PDF export to your accountant",
+    welcomeSkip: "Skip",
+    welcomeStart: "Let's go →",
+    onbHeading: "Welcome to BonBox — let's get you started",
+    onbAllSet: "🎉 You're all set!",
+    onbAllSetSub: "You've completed setup. We'll hide this once you log a few more sales.",
+    onbProgress: "{done} of {total} done",
+    onbDismiss: "Dismiss",
+    onbStepFirstSale: "Log your first sale",
+    onbStepExpenseCat: "Set up expense categories",
+    onbStepInventory: "Add an inventory item",
+    onbStepBusinessProfile: "Verify your business (CVR/org)",
+    onbStepAccountant: "Add your accountant's email",
+    onbStepDailyGoal: "Set your daily revenue goal",
+
+    // ───────────────────────────────────────────────────────────
     // Global search command palette (⌘K)
     // ───────────────────────────────────────────────────────────
     search: "Search",
@@ -2580,6 +2604,26 @@ const translations = {
     trialChipUpgradeLink: "se planer",
     pricingComparePlansTitle: "Sammenlign planer",
     pricingComparePlansSubtitle: "Hvad du får på hver plan. Årlig sparer 20%.",
+
+    // First-run welcome modal + onboarding checklist
+    welcomeIntroLine: "Velkommen til BonBox{name}. Tre ting giver dig mest værdi til at starte med:",
+    welcomeTipsHeading: "Værd at vide",
+    welcomeTipCmdK: "Tryk ⌘K hvor som helst for at hoppe til en side",
+    welcomeTipSnap: "Snap en kvittering — OCR udfylder formularen for dig",
+    welcomeTipAccountant: "Ét tryk: PDF til din revisor",
+    welcomeSkip: "Spring over",
+    welcomeStart: "Lad os starte →",
+    onbHeading: "Velkommen til BonBox — lad os komme i gang",
+    onbAllSet: "🎉 Alt er klart!",
+    onbAllSetSub: "Du har gennemført opsætningen. Vi skjuler dette, når du har logget et par flere salg.",
+    onbProgress: "{done} af {total} udført",
+    onbDismiss: "Skjul",
+    onbStepFirstSale: "Log dit første salg",
+    onbStepExpenseCat: "Opret udgiftskategorier",
+    onbStepInventory: "Tilføj en lagervare",
+    onbStepBusinessProfile: "Verificer din virksomhed (CVR)",
+    onbStepAccountant: "Tilføj din revisors e-mail",
+    onbStepDailyGoal: "Sæt dit daglige omsætningsmål",
 
     // Global search command palette (⌘K)
     search: "Søg",

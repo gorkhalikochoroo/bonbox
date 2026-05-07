@@ -14,6 +14,10 @@ class DashboardSummary(BaseModel):
     total_sales: int  # total number of sales ever recorded
     has_expense_categories: bool  # whether user has any expense categories
     has_inventory_items: bool  # whether user has any inventory items
+    # Onboarding completion flags surfaced to the new-user checklist.
+    # Defaults so older clients/tests that don't set them still validate.
+    has_business_profile_verified: bool = False  # user verified CVR / org info
+    has_accountant_email: bool = False  # user has set accountant_email on profile
     khata_receivable: float = 0  # total outstanding khata credit
 
 

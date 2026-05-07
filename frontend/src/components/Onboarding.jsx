@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 
 const STORAGE_KEY = "bonbox_onboarding_dismissed";
@@ -93,11 +94,17 @@ const GENERIC_INTRO = {
  * visit, then never again. Driven by localStorage so dismissal sticks across
  * sessions on the same device. (Server-side state would be better long-term
  * but localStorage is fine for v1.)
+ *
+ * v2 update: added a "what else BonBox can do" footer that surfaces the
+ * recently shipped features (⌘K command palette, Snap Receipt OCR,
+ * Send-to-accountant PDF). Keeps it lightweight — not a multi-step tour,
+ * just a quiet "by the way" so new users discover what's there without
+ * having to hunt for it. (Per user feedback: "small nice not annoying".)
  */
-function WelcomeModal({ user, onClose }) {
+function WelcomeModal({ user, onClose, t }) {
   const intro = useMemo(() => {
-    const t = (user?.business_type || "").toLowerCase();
-    return VERTICAL_INTRO[t] || GENERIC_INTRO;
+    const vt = (user?.business_type || "").toLowerCase();
+    return VERTICAL_INTRO[vt] || GENERIC_INTRO;
   }, [user]);
 
   const handleStart = () => {
@@ -110,6 +117,23 @@ function WelcomeModal({ user, onClose }) {
     onClose();
   };
 
+  // Quick feature pointers shown after the bullets. Recently shipped pieces
+  // that new users wouldn't otherwise discover until they stumbled on them.
+  const featurePointers = [
+    {
+      icon: "⌘",
+      label: t("welcomeTipCmdK") || "Press ⌘K anywhere to jump to any page",
+    },
+    {
+      icon: "📸",
+      label: t("welcomeTipSnap") || "Snap a receipt — OCR fills the form for you",
+    },
+    {
+      icon: "✉️",
+      label: t("welcomeTipAccountant") || "One-tap PDF export to your accountant",
+    },
+  ];
+
   return (
     <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
       <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full shadow-xl overflow-hidden">
@@ -117,8 +141,8 @@ function WelcomeModal({ user, onClose }) {
           <div className="text-5xl mb-2">{intro.icon}</div>
           <h2 className="text-xl font-bold">{intro.headline}</h2>
           <p className="text-sm text-green-50 mt-1 opacity-90">
-            Welcome to BonBox{user?.business_name ? `, ${user.business_name}` : ""}.
-            Three things will give you the most value first:
+            {(t("welcomeIntroLine") || "Welcome to BonBox{name}. Three things will give you the most value first:")
+              .replace("{name}", user?.business_name ? `, ${user.business_name}` : "")}
           </p>
         </div>
         <div className="p-6 space-y-3">
@@ -130,18 +154,32 @@ function WelcomeModal({ user, onClose }) {
               <p className="text-sm text-gray-700 dark:text-gray-200 leading-relaxed">{b}</p>
             </div>
           ))}
-          <div className="flex gap-2 pt-2">
+
+          {/* Recently-shipped feature pointers — quiet, not numbered. */}
+          <div className="pt-3 mt-2 border-t border-gray-100 dark:border-gray-700/50 space-y-1.5">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">
+              {t("welcomeTipsHeading") || "Also worth knowing"}
+            </p>
+            {featurePointers.map((tip, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+                <span className="text-base shrink-0" aria-hidden="true">{tip.icon}</span>
+                <span>{tip.label}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex gap-2 pt-3">
             <button
               onClick={handleSkip}
               className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
             >
-              Skip
+              {t("welcomeSkip") || "Skip"}
             </button>
             <button
               onClick={handleStart}
               className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition shadow-sm"
             >
-              Let's go →
+              {t("welcomeStart") || "Let's go →"}
             </button>
           </div>
         </div>
@@ -158,9 +196,16 @@ function WelcomeModal({ user, onClose }) {
  *   never reappears. Vertical-aware bullets.
  * - Checklist: shown until either total_sales >= 5 OR user dismisses. Tracks
  *   each step via trackEvent so we can measure completion in the admin panel.
+ *
+ * v2 update: added two more checklist steps surfacing the recently shipped
+ * multilayer CVR auto-detect and Send-to-accountant export. Goes from 4
+ * steps to 6 — but the new ones are high-value (verified business → trust;
+ * accountant email → unblocks the kasserapport-tap flow which is BonBox's
+ * north-star feature).
  */
 export default function Onboarding({ summary }) {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const [dismissed, setDismissed] = useState(
     () => localStorage.getItem(STORAGE_KEY) === "true"
   );
@@ -187,10 +232,42 @@ export default function Onboarding({ summary }) {
 
   const dailyGoal = user?.daily_goal || 0;
   const steps = [
-    { id: "first_sale", label: "Log your first sale", to: "/sales", done: summary?.total_sales > 0 },
-    { id: "expense_cat", label: "Set up expense categories", to: "/expenses", done: summary?.has_expense_categories },
-    { id: "inventory", label: "Add an inventory item", to: "/inventory", done: summary?.has_inventory_items },
-    { id: "daily_goal", label: "Set your daily revenue goal", to: "/profile", done: dailyGoal > 0 },
+    {
+      id: "first_sale",
+      label: t("onbStepFirstSale") || "Log your first sale",
+      to: "/sales",
+      done: summary?.total_sales > 0,
+    },
+    {
+      id: "expense_cat",
+      label: t("onbStepExpenseCat") || "Set up expense categories",
+      to: "/expenses",
+      done: summary?.has_expense_categories,
+    },
+    {
+      id: "inventory",
+      label: t("onbStepInventory") || "Add an inventory item",
+      to: "/inventory",
+      done: summary?.has_inventory_items,
+    },
+    {
+      id: "business_profile",
+      label: t("onbStepBusinessProfile") || "Verify your business (CVR/org)",
+      to: "/profile",
+      done: !!summary?.has_business_profile_verified,
+    },
+    {
+      id: "accountant",
+      label: t("onbStepAccountant") || "Add your accountant's email",
+      to: "/profile",
+      done: !!summary?.has_accountant_email,
+    },
+    {
+      id: "daily_goal",
+      label: t("onbStepDailyGoal") || "Set your daily revenue goal",
+      to: "/profile",
+      done: dailyGoal > 0,
+    },
   ];
 
   const completedCount = steps.filter((s) => s.done).length;
@@ -208,7 +285,14 @@ export default function Onboarding({ summary }) {
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [summary?.total_sales, summary?.has_expense_categories, summary?.has_inventory_items, dailyGoal]);
+  }, [
+    summary?.total_sales,
+    summary?.has_expense_categories,
+    summary?.has_inventory_items,
+    summary?.has_business_profile_verified,
+    summary?.has_accountant_email,
+    dailyGoal,
+  ]);
 
   const handleDismiss = () => {
     localStorage.setItem(STORAGE_KEY, "true");
@@ -221,25 +305,29 @@ export default function Onboarding({ summary }) {
 
   return (
     <>
-      {welcomeOpen && <WelcomeModal user={user} onClose={closeWelcome} />}
+      {welcomeOpen && <WelcomeModal user={user} onClose={closeWelcome} t={t} />}
       {showChecklist && (
         <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-800/50 rounded-2xl p-5 sm:p-6">
           <div className="flex items-start justify-between gap-3 mb-4">
             <div>
               <h2 className="text-lg font-semibold text-blue-900 dark:text-blue-100">
-                {allDone ? "🎉 You're all set!" : "Welcome to BonBox — let's get you started"}
+                {allDone
+                  ? (t("onbAllSet") || "🎉 You're all set!")
+                  : (t("onbHeading") || "Welcome to BonBox — let's get you started")}
               </h2>
               <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
                 {allDone
-                  ? "You've completed setup. We'll hide this once you log a few more sales."
-                  : `${completedCount} of ${steps.length} done`}
+                  ? (t("onbAllSetSub") || "You've completed setup. We'll hide this once you log a few more sales.")
+                  : (t("onbProgress") || "{done} of {total} done")
+                      .replace("{done}", completedCount)
+                      .replace("{total}", steps.length)}
               </p>
             </div>
             <button
               onClick={handleDismiss}
               className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium shrink-0"
             >
-              Dismiss
+              {t("onbDismiss") || "Dismiss"}
             </button>
           </div>
 

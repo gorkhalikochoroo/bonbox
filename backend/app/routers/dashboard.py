@@ -15,6 +15,7 @@ from app.models.expense import Expense, ExpenseCategory
 from app.models.inventory import InventoryItem
 from app.models.khata import KhataCustomer, KhataTransaction
 from app.models.budget import Budget
+from app.models.business_profile import BusinessProfile
 from app.schemas.dashboard import DashboardSummary, BenchmarkResponse, BenchmarkMetric
 from app.services.auth import get_current_user
 from app.services.prediction import get_staffing_recommendations
@@ -137,6 +138,21 @@ def get_dashboard_batch(
         .first()
     ) is not None
 
+    # Onboarding flags — surface CVR-verification and accountant-email setup
+    # in the welcome checklist so new users discover the recently shipped
+    # multilayer CVR auto-detect + Send-to-accountant export flows.
+    profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == user.id)
+        .first()
+    )
+    has_business_profile_verified = bool(
+        profile and profile.cvr_verified_at is not None
+    )
+    has_accountant_email = bool(
+        profile and profile.accountant_email and profile.accountant_email.strip()
+    )
+
     khata_recv_raw = (
         db.query(
             func.sum(KhataTransaction.purchase_amount) - func.sum(KhataTransaction.paid_amount)
@@ -159,6 +175,8 @@ def get_dashboard_batch(
         "total_sales": total_sales,
         "has_expense_categories": has_expense_categories,
         "has_inventory_items": has_inventory_items,
+        "has_business_profile_verified": has_business_profile_verified,
+        "has_accountant_email": has_accountant_email,
         "khata_receivable": khata_receivable,
     }
 
@@ -1080,6 +1098,21 @@ def get_summary(
         .first()
     ) is not None
 
+    # Onboarding flags — see /dashboard/all for context. Same logic, kept
+    # in sync so the welcome checklist works whether the frontend hits
+    # /dashboard/all or /dashboard/summary.
+    profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == user.id)
+        .first()
+    )
+    has_business_profile_verified = bool(
+        profile and profile.cvr_verified_at is not None
+    )
+    has_accountant_email = bool(
+        profile and profile.accountant_email and profile.accountant_email.strip()
+    )
+
     # Khata receivable (total outstanding credit, excluding deleted customers)
     khata_recv_raw = (
         db.query(
@@ -1105,6 +1138,8 @@ def get_summary(
         total_sales=total_sales,
         has_expense_categories=has_expense_categories,
         has_inventory_items=has_inventory_items,
+        has_business_profile_verified=has_business_profile_verified,
+        has_accountant_email=has_accountant_email,
         khata_receivable=max(khata_receivable, 0),
     )
 
