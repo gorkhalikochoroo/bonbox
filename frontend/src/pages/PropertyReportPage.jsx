@@ -78,8 +78,48 @@ export default function PropertyReportPage() {
     } catch { return reportDate; }
   }, [reportDate]);
 
-  const handlePrint = () => {
-    window.print();
+  /**
+   * Download the Copenhagen-clean A4 PDF rendered server-side by
+   * services/property_report_pdf.py. Replaces the old window.print()
+   * which produced a screenshot of the web page rather than a proper
+   * accountant-handoff document.
+   *
+   * The user selects the date in the form; we pass it through to the
+   * backend so the same filter / cutoff logic applies as on screen.
+   * Failure surfaces a toast — never silently no-ops.
+   */
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const handlePrint = async () => {
+    if (downloadingPdf) return;
+    setDownloadingPdf(true);
+    setError("");
+    try {
+      const res = await api.get("/property-report.pdf", {
+        params: { date: reportDate, day_cutoff_hour: cutoffHour },
+        responseType: "blob",
+      });
+      const blob = new Blob([res.data], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `daily-report_${reportDate}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        a.remove();
+        window.URL.revokeObjectURL(url);
+      }, 1000);
+    } catch (e) {
+      const detail = e?.response?.data?.detail
+        || (e?.response?.status === 429
+              ? "Too many exports — wait a minute and try again."
+              : null)
+        || (t("pdfDownloadFailed") || "Could not download the report — please try again.");
+      setError(detail);
+      setTimeout(() => setError(""), 5000);
+    } finally {
+      setDownloadingPdf(false);
+    }
   };
 
   const handleEmailAccountant = () => {
@@ -436,9 +476,12 @@ export default function PropertyReportPage() {
           <div className="flex flex-wrap gap-2 mt-6 print:hidden">
             <button
               onClick={handlePrint}
-              className="flex-1 sm:flex-none px-5 py-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-xl text-sm font-semibold transition"
+              disabled={downloadingPdf}
+              className="flex-1 sm:flex-none px-5 py-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-xl text-sm font-semibold transition disabled:opacity-50"
             >
-              🖨 {t("printOrSavePdf") || "Print / Save as PDF"}
+              {downloadingPdf
+                ? `⏳ ${t("generatingPdf") || "Generating PDF…"}`
+                : `📄 ${t("downloadPdf") || "Download PDF"}`}
             </button>
             <button
               onClick={handleEmailAccountant}

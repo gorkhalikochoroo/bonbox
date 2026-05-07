@@ -223,6 +223,25 @@ export default function Layout() {
   const location = useLocation();
   const { branchType, businessTypes } = useBranch();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Desktop-only: persist whether the user has collapsed the sidebar
+  // for more horizontal real estate (Claude-style hide). Mobile uses
+  // the existing sidebarOpen overlay model — this flag is ignored
+  // there. Default = visible. Reads from localStorage on mount so
+  // the preference survives reloads.
+  const [desktopSidebarHidden, setDesktopSidebarHidden] = useState(() => {
+    try {
+      return localStorage.getItem("bonbox_sidebar_hidden") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleDesktopSidebar = () => {
+    setDesktopSidebarHidden((prev) => {
+      const next = !prev;
+      try { localStorage.setItem("bonbox_sidebar_hidden", next ? "1" : "0"); } catch { /* private mode */ }
+      return next;
+    });
+  };
   const [mode, setMode] = useState(localStorage.getItem("bonbox_mode") || "business");
 
   // Owner's enabled vertical modules — drives sidebar gating for Bar,
@@ -342,18 +361,38 @@ export default function Layout() {
         <div className="md:hidden fixed inset-0 z-40 bg-black/40" onClick={closeSidebar} />
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar.
+          Mobile: slide-in/out via sidebarOpen (existing behavior).
+          Desktop: visible by default; user can collapse via the chevron
+          button in the header. When collapsed, the floating "show
+          sidebar" button below renders at the left edge for one-tap
+          re-open. State persists in localStorage. */}
       <aside className={`fixed top-0 left-0 h-full w-56 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col z-50 transition-transform duration-200 ${
         sidebarOpen ? "translate-x-0" : "-translate-x-full"
-      } md:translate-x-0`} style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+      } ${desktopSidebarHidden ? "md:-translate-x-full" : "md:translate-x-0"}`}
+        style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         {/* Header */}
-        <div className="px-4 pt-4 pb-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+        <div className="px-4 pt-4 pb-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between gap-2">
           <div className="min-w-0">
             <h1 className="text-lg font-bold text-green-600 dark:text-green-400">BonBox</h1>
             <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">{user?.business_name}</p>
             <BranchSelector compact />
           </div>
-          <button onClick={closeSidebar} className="md:hidden text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Desktop collapse — chevron-left, hidden on mobile */}
+            <button
+              onClick={toggleDesktopSidebar}
+              title={t("hideSidebar") || "Hide sidebar"}
+              className="hidden md:inline-flex items-center justify-center w-7 h-7 rounded-md text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/60 transition"
+              aria-label={t("hideSidebar") || "Hide sidebar"}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+              </svg>
+            </button>
+            {/* Mobile close */}
+            <button onClick={closeSidebar} className="md:hidden text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+          </div>
         </div>
 
         {/* Mode switcher — neutral pill with a tiny colored dot for the mode signal */}
@@ -523,8 +562,30 @@ export default function Layout() {
         <SoftErrorBanner />
       </Suspense>
 
-      {/* Main content — extra bottom padding on mobile for bottom nav */}
-      <main className="md:ml-56 pt-14 md:pt-0 pb-24 md:pb-4">
+      {/* Floating "show sidebar" — only visible on desktop when the
+          user has collapsed the sidebar. Sits flush against the left
+          edge so it doesn't compete with main content. One tap opens
+          the sidebar back up; preference is persisted. */}
+      {desktopSidebarHidden && (
+        <button
+          onClick={toggleDesktopSidebar}
+          title={t("showSidebar") || "Show sidebar"}
+          aria-label={t("showSidebar") || "Show sidebar"}
+          className="hidden md:flex fixed top-4 left-3 z-40 items-center justify-center w-9 h-9 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 shadow-sm hover:shadow hover:border-green-400 dark:hover:border-green-500 transition"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+          </svg>
+        </button>
+      )}
+
+      {/* Main content — margin shrinks when desktop sidebar is hidden,
+          giving the user the full viewport width for the report /
+          dashboard / tables they're looking at. Mobile bottom-nav
+          padding unchanged. */}
+      <main className={`pt-14 md:pt-0 pb-24 md:pb-4 transition-[margin] duration-200 ${
+        desktopSidebarHidden ? "md:ml-0" : "md:ml-56"
+      }`}>
         <Outlet />
       </main>
 

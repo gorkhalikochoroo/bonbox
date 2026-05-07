@@ -310,3 +310,79 @@ def property_financial_report(
         "order_channels": channels_out,
         "tender_media": tenders_out,
     }
+
+
+# ─── Copenhagen-clean PDF export ──────────────────────────────────────
+#
+# Replaces the old "window.print() screenshot" approach. The frontend
+# Save-as-PDF button now downloads this rendered PDF directly so the
+# accountant gets a properly formatted A4 document instead of a
+# print-from-browser of the web page.
+#
+# Same plan-cap logic as daily-close exports doesn't apply here —
+# this is a single-day report (not a date range), so it's free for
+# every tier. Rate-limited to protect against abuse.
+
+from fastapi import Request, Response   # noqa: E402  (deliberate late import)
+from slowapi import Limiter              # noqa: E402
+from slowapi.util import get_remote_address  # noqa: E402
+
+from app.models.business_profile import BusinessProfile  # noqa: E402
+
+_pdf_limiter = Limiter(key_func=get_remote_address)
+
+
+@router.get(".pdf")  # final URL: /api/property-report.pdf
+@_pdf_limiter.limit("10/minute")
+def property_report_pdf(
+    request: Request,
+    report_date: Optional[_date] = Query(None, alias="date"),
+    day_cutoff_hour: int = Query(6, ge=0, le=23),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Render the daily property report as a Copenhagen-clean A4 PDF.
+
+    Reuses property_financial_report() to build the data, then hands
+    off to services.property_report_pdf.build_property_report_pdf().
+    Layered defense: auth (get_current_user), rate limit (10/min/IP),
+    tenant-scoped data fetch (already done in property_financial_report).
+    """
+    from app.services.property_report_pdf import build_property_report_pdf
+
+    # Reuse the data-building function — keeps math + filtering DRY
+    report = property_financial_report(
+        report_date=report_date,
+        day_cutoff_hour=day_cutoff_hour,
+        db=db, user=user,
+    )
+
+    # Resolve business profile for the header (best-effort)
+    profile = db.query(BusinessProfile).filter(
+        BusinessProfile.user_id == user.id,
+    ).first()
+    profile_dict = None
+    if profile:
+        profile_dict = {
+            "company_name": profile.company_name,
+            "address": profile.address,
+            "city": profile.city,
+            "zipcode": profile.zipcode,
+            "org_number": profile.org_number,
+        }
+
+    pdf_bytes = build_property_report_pdf(
+        report,
+        profile=profile_dict,
+        business_name=getattr(user, "business_name", "") or "",
+        closer_name=None,
+    )
+    fname = f"daily-report_{report.get('report_date') or _date.today().isoformat()}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{fname}"',
+            "Cache-Control": "private, no-store",
+        },
+    )
