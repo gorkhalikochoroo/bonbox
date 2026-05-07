@@ -72,6 +72,11 @@ from app.services.inventory_extractor import (
     extract_csv, extract_excel, extract_image, extract_text, source_sha256,
     validate_size,
 )
+from app.services.inventory_learning import (
+    build_examples_prompt_block, get_examples_for_user,
+    promote_corrections, prune_stale_examples,
+)
+from app.services.inventory_perishable import mark_perishable_if_needed
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -341,7 +346,16 @@ async def import_file(
                     status_code=400,
                     detail=f"source_kind=image requires image/* content_type, got {media_type!r}",
                 )
-            items, extractor_meta = extract_image(raw, media_type=media_type)
+            # Few-shot enrichment: pull this owner's prior corrections
+            # so the AI extracts in their preferred naming/style. NEVER
+            # cross-owner — examples are strictly user-scoped.
+            owner_examples = get_examples_for_user(
+                db, user.id, kind="name_correction", limit=8,
+            )
+            few_shot = build_examples_prompt_block(owner_examples) or None
+            items, extractor_meta = extract_image(
+                raw, media_type=media_type, few_shot_block=few_shot,
+            )
             if extractor_meta.get("error"):
                 error_msg = f"extractor:{extractor_meta['error']}"
     except HTTPException:
@@ -445,7 +459,20 @@ def commit_draft(
 
     try:
         created: list[InventoryItem] = []
+        today = datetime.utcnow().date()
+        perishable_count = 0
         for entry in body.items:
+            # Auto-fill is_perishable + expiry_date for known-perishable
+            # categories. Single source of truth = inventory_perishable.
+            # Owner can edit either field afterward to override defaults.
+            is_per, expiry = mark_perishable_if_needed(
+                category=entry.category,
+                is_perishable=None,
+                expiry_date=None,
+                received_at=today,
+            )
+            if is_per:
+                perishable_count += 1
             item = InventoryItem(
                 id=uuid.uuid4(),
                 user_id=user.id,
@@ -454,6 +481,8 @@ def commit_draft(
                 unit=entry.unit or "pieces",
                 cost_per_unit=float(entry.cost_per_unit or 0),
                 category=entry.category or "General",
+                is_perishable=is_per,
+                expiry_date=expiry,
             )
             db.add(item)
             created.append(item)
@@ -473,10 +502,30 @@ def commit_draft(
             detail=f"Commit failed: {type(e).__name__}",
         )
 
+    # Learning loop — promote owner corrections to per-owner few-shot
+    # examples so the NEXT extraction for this owner is more accurate.
+    # Best-effort: a learning failure must not break the user-visible
+    # commit (their items already exist).
+    examples_promoted = 0
+    if imp.user_corrected:
+        try:
+            examples_promoted = promote_corrections(
+                db,
+                user_id=user.id,
+                import_id=imp.id,
+                extracted=imp.extracted_json or [],
+                final=final,
+            )
+            prune_stale_examples(db, user.id)
+        except Exception:  # noqa: BLE001
+            logger.exception("promote_corrections failed (non-fatal)")
+
     return {
         "import_id": str(imp.id),
         "items_created": len(created),
+        "perishable_auto_flagged": perishable_count,
         "user_corrected": imp.user_corrected,
+        "examples_learned": examples_promoted,
         "status": imp.status,
     }
 

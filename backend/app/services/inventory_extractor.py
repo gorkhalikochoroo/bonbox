@@ -401,6 +401,7 @@ def extract_image(
     max_tokens: int = 4000,
     timeout: float = 60.0,
     media_type: str = "image/jpeg",
+    few_shot_block: str | None = None,
 ) -> tuple[list[dict], dict]:
     """Extract items from an image of an inventory list / stocktake / paper.
 
@@ -411,6 +412,11 @@ def extract_image(
     Defense layer 2 (input bounds): caller MUST have already validated
     the bytes via validate_size("image", data). We re-check here as
     defense-in-depth.
+
+    `few_shot_block` (optional): per-owner correction history rendered
+    by inventory_learning.build_examples_prompt_block. When present,
+    appended to the system prompt so the AI learns this specific
+    owner's naming + categorization preferences over time.
 
     Returns (items, meta) where meta has:
       input_tokens, output_tokens, model_used, timing_ms, error,
@@ -456,13 +462,20 @@ def extract_image(
         },
     ]
 
+    # System prompt: base safety/instruction layer + optional per-owner
+    # few-shot block. Examples come from owner's prior corrections —
+    # NEVER cross-user (privacy + accuracy invariant).
+    system_prompt = _IMAGE_SYSTEM
+    if few_shot_block:
+        system_prompt = f"{_IMAGE_SYSTEM}\n\n{few_shot_block}"
+
     t0 = time.monotonic()
     try:
         client = anthropic.Anthropic(api_key=api_key, timeout=timeout)
         resp = client.messages.create(
             model=model,
             max_tokens=max_tokens,
-            system=_IMAGE_SYSTEM,
+            system=system_prompt,
             tools=[tool],
             tool_choice={"type": "tool", "name": tool["name"]},
             messages=[{"role": "user", "content": user_blocks}],

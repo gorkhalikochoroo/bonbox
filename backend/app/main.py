@@ -364,6 +364,27 @@ _migrations = [
     "CREATE INDEX IF NOT EXISTS ix_inventory_imports_user_status ON inventory_imports (user_id, status)",
     "CREATE INDEX IF NOT EXISTS ix_inventory_imports_sha256 ON inventory_imports (source_sha256)",
     "CREATE INDEX IF NOT EXISTS ix_inventory_imports_created_at ON inventory_imports (created_at)",
+    # ── Migration 012: inventory_import_examples — per-owner few-shot ──
+    # Captures owner corrections from smart-import /commit so the next
+    # extraction prompt for the same owner gets few-shot examples.
+    # Per-user only (no global sharing — vocabularies are owner-private).
+    """CREATE TABLE IF NOT EXISTS inventory_import_examples (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id),
+        kind VARCHAR(30) NOT NULL DEFAULT 'name_correction',
+        extracted_name VARCHAR(200) NOT NULL,
+        extracted_category VARCHAR(60),
+        final_name VARCHAR(200) NOT NULL,
+        final_category VARCHAR(60),
+        promoted_from_import_id UUID REFERENCES inventory_imports(id) ON DELETE SET NULL,
+        hit_count INTEGER NOT NULL DEFAULT 1,
+        notes TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_inv_imp_examples_user_id ON inventory_import_examples (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_inv_imp_examples_user_kind ON inventory_import_examples (user_id, kind)",
+    "CREATE INDEX IF NOT EXISTS ix_inv_imp_examples_user_extracted ON inventory_import_examples (user_id, extracted_name)",
 ]
 
 def _run_migrations():

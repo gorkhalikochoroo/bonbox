@@ -116,7 +116,19 @@ def create_item(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    item = InventoryItem(user_id=user.id, **data.model_dump())
+    payload = data.model_dump()
+    # Auto-fill is_perishable + expiry_date for known-perishable categories
+    # when the caller didn't specify. Same logic the smart-import /commit
+    # uses — owner-supplied values always win.
+    from app.services.inventory_perishable import mark_perishable_if_needed
+    is_per, expiry = mark_perishable_if_needed(
+        category=payload.get("category"),
+        is_perishable=payload.get("is_perishable"),
+        expiry_date=payload.get("expiry_date"),
+    )
+    payload["is_perishable"] = is_per
+    payload["expiry_date"] = expiry
+    item = InventoryItem(user_id=user.id, **payload)
     db.add(item)
     db.commit()
     db.refresh(item)
