@@ -484,23 +484,25 @@ export default function Layout() {
           </button>
         </div>
 
-        {/* Global search trigger — Claude-style pill with the ⌘K
-            shortcut hint on desktop. Tapping opens the modal; ⌘K
-            also works from anywhere. */}
-        <div className="px-3 pb-2">
+        {/* Global search trigger — kept compact + visually quieter
+            than the business-mode toggle right above so the two
+            don't compete. Borderless, smaller padding + smaller
+            text, with just an icon + faded label. ⌘K hint on the
+            right hugs the edge so it reads as "shortcut for this
+            ambient action" rather than "primary CTA". */}
+        <div className="px-3 pb-1">
           <button
             onClick={() => setSearchOpen(true)}
             aria-label={t("search") || "Search"}
-            className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition
-              bg-gray-50 dark:bg-gray-700/40 text-gray-500 dark:text-gray-400
-              border border-gray-200 dark:border-gray-600
-              hover:bg-white dark:hover:bg-gray-700 hover:border-green-400 dark:hover:border-green-500 hover:text-gray-700 dark:hover:text-gray-200"
+            className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition
+              text-gray-400 dark:text-gray-500
+              hover:bg-gray-50 dark:hover:bg-gray-700/40 hover:text-gray-600 dark:hover:text-gray-300"
           >
-            <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <svg className="w-3 h-3 shrink-0 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
             </svg>
             <span className="flex-1 text-left truncate">{t("search") || "Search"}</span>
-            <kbd className="hidden md:inline-flex items-center px-1 py-0.5 text-[9px] font-mono bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-600 text-gray-400 dark:text-gray-500 shrink-0">
+            <kbd className="hidden md:inline-flex items-center px-1 py-0 text-[8px] font-mono text-gray-400 dark:text-gray-500 shrink-0">
               ⌘K
             </kbd>
           </button>

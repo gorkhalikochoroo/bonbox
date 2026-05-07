@@ -332,7 +332,7 @@ from app.models.business_profile import BusinessProfile  # noqa: E402
 _pdf_limiter = Limiter(key_func=get_remote_address)
 
 
-@router.get(".pdf")  # final URL: /api/property-report.pdf
+@router.get("/pdf")  # final URL: /api/property-report/pdf
 @_pdf_limiter.limit("10/minute")
 def property_report_pdf(
     request: Request,

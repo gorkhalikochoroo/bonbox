@@ -94,7 +94,7 @@ export default function PropertyReportPage() {
     setDownloadingPdf(true);
     setError("");
     try {
-      const res = await api.get("/property-report.pdf", {
+      const res = await api.get("/property-report/pdf", {
         params: { date: reportDate, day_cutoff_hour: cutoffHour },
         responseType: "blob",
       });
