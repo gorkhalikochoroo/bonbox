@@ -13,6 +13,7 @@ import InsightsCard from "../components/InsightsCard";
 // anywhere by default.
 import Onboarding from "../components/Onboarding";
 import DailyBriefCard from "../components/DailyBriefCard";
+import SickCallNotificationCard from "../components/SickCallNotificationCard";
 import SmartSaleInput from "../components/SmartSaleInput";
 import AnomalyAlertsCard from "../components/AnomalyAlertsCard";
 import DismissibleTip from "../components/DismissibleTip";
@@ -1415,6 +1416,10 @@ export default function DashboardPage() {
 
         {/* ── AI ANOMALY ALERTS — only renders when there are open alerts ── */}
         <AnomalyAlertsCard />
+
+        {/* ── SICK-CALL NOTIFICATIONS — interrupt-only; renders only when
+            staff have called in. Pulls from /staff/absences. ── */}
+        <SickCallNotificationCard />
 
         {/* ── First-run tip on the Dashboard ── */}
         <DismissibleTip

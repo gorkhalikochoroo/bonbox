@@ -145,7 +145,143 @@ function PinGate({ onVerified, token, staffName }) {
 
 // ─── Schedule Tab ─────────────────────────────────────────────────────────
 
-function ScheduleTab({ shifts, staffName }) {
+/**
+ * SickCallButton — staff self-service "I'm sick today" trigger.
+ *
+ * UX shape (simple, mobile-first):
+ *   • Primary button "🤒 Call in sick"
+ *   • Tap → modal with:
+ *       - Date picker (defaults to today; scrolls to upcoming shift
+ *         dates so staff can pick a specific shift to call out for)
+ *       - Optional reason textarea
+ *       - Submit button (disabled until date is set)
+ *   • On submit → POST /portal/{token}/sick-call → toast → modal closes
+ *   • Idempotency is server-side; double-tap doesn't double-call
+ *
+ * Multi-layer security pulled in from the backend:
+ *   • Server enforces the [-30, +60]-day date window — UI tightens
+ *     it further by only allowing today + the next 14 days from the
+ *     date input min/max.
+ *   • staff_id is fixed by the magic-link token — the body only
+ *     contains date + reason. UI doesn't even ask for staff_id.
+ */
+function SickCallButton({ token, upcomingShifts, onCalledIn }) {
+  const [open, setOpen] = useState(false);
+  const todayIso = useState(() => toLocalISO(new Date()))[0];
+  const [date, setDate] = useState(todayIso);
+  const [reason, setReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  // The schedule_id IS optional — the backend auto-finds the shift
+  // by date if we don't pass one — but if the staff picks a date
+  // that has a known shift, we forward the schedule_id so the server
+  // can validate ownership at parse time (defense in depth).
+  const matchingShift = upcomingShifts.find((s) => s.date === date);
+
+  const submit = async () => {
+    setSubmitting(true);
+    setError("");
+    try {
+      await portalApi.post(`/portal/${token}/sick-call`, {
+        date,
+        reason: reason.trim() || null,
+        schedule_id: matchingShift?.id || null,
+      });
+      // Reset + close + tell parent so it can refetch.
+      setReason("");
+      setOpen(false);
+      onCalledIn?.();
+    } catch (err) {
+      setError(err.response?.data?.detail || "Couldn't send. Try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="w-full px-4 py-3 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-sm font-medium text-gray-200 transition flex items-center justify-center gap-2"
+      >
+        🤒 Call in sick
+      </button>
+    );
+  }
+
+  // 14-day forward window matches the backend MAX_FUTURE_DAYS soft cap;
+  // backend allows up to 60 but most call-ins are same-day or near.
+  const maxIso = toLocalISO(addDaysToDate(new Date(), 14));
+
+  return (
+    <div className="rounded-xl bg-white/[0.04] border border-white/[0.08] p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="font-semibold text-white text-sm">🤒 Call in sick</div>
+        <button
+          onClick={() => { setOpen(false); setError(""); setReason(""); }}
+          className="text-gray-500 hover:text-gray-300 text-lg leading-none w-6 h-6 flex items-center justify-center"
+          aria-label="Close"
+        >
+          ×
+        </button>
+      </div>
+      <div>
+        <label className="text-[11px] text-gray-500 mb-1 block">Which day?</label>
+        <input
+          type="date"
+          value={date}
+          min={todayIso}
+          max={maxIso}
+          onChange={(e) => setDate(e.target.value)}
+          className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white outline-none focus:border-amber-500/40"
+        />
+        {matchingShift && (
+          <div className="mt-1 text-[11px] text-gray-500">
+            Shift: {matchingShift.start_time} – {matchingShift.end_time}
+          </div>
+        )}
+      </div>
+      <div>
+        <label className="text-[11px] text-gray-500 mb-1 block">
+          Reason <span className="text-gray-600">(optional, only your owner sees this)</span>
+        </label>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value.slice(0, 500))}
+          rows={2}
+          placeholder="e.g. fever 39C, doctor advised rest"
+          className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white placeholder:text-gray-600 outline-none focus:border-amber-500/40 resize-none"
+        />
+      </div>
+      {error && (
+        <div className="text-xs text-red-400">{error}</div>
+      )}
+      <button
+        onClick={submit}
+        disabled={submitting || !date}
+        className="w-full px-4 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold transition disabled:opacity-50"
+      >
+        {submitting ? "Sending..." : "Send sick call"}
+      </button>
+      <div className="text-[10px] text-gray-600 text-center leading-snug">
+        Your owner will be notified. They can assign someone to cover.
+      </div>
+    </div>
+  );
+}
+
+
+// Lightweight helper used by SickCallButton's max-date computation —
+// kept local so we don't grow the import surface for one-off math.
+function addDaysToDate(d, days) {
+  const r = new Date(d);
+  r.setDate(r.getDate() + days);
+  return r;
+}
+
+
+function ScheduleTab({ shifts, staffName, token, onShiftsChanged }) {
   const today = toLocalISO(new Date());
   const weekStart = getWeekStart(today);
 
@@ -207,6 +343,18 @@ function ScheduleTab({ shifts, staffName }) {
           )}
         </div>
       </div>
+
+      {/* Sick-call self-service. Sits between KPIs and the schedule
+          so it's visible at-a-glance but doesn't fight for attention
+          with the actual shift list. token + onShiftsChanged are
+          passed in from the parent page. */}
+      {token && (
+        <SickCallButton
+          token={token}
+          upcomingShifts={upcoming}
+          onCalledIn={onShiftsChanged}
+        />
+      )}
 
       {/* This week */}
       <div>
@@ -709,7 +857,14 @@ export default function StaffPortalPage() {
 
       {/* Content */}
       <div className="max-w-lg mx-auto px-4 py-4">
-        {tab === "schedule" && <ScheduleTab shifts={shifts} staffName={info?.staff_name} />}
+        {tab === "schedule" && (
+          <ScheduleTab
+            shifts={shifts}
+            staffName={info?.staff_name}
+            token={token}
+            onShiftsChanged={loadData}
+          />
+        )}
         {tab === "hours" && <HoursTab data={hoursData} maxHours={info?.max_hours_month} />}
         {tab === "tips" && <TipsTab data={tipsData} />}
         {tab === "alerts" && <AlertsTab token={token} staffName={info?.staff_name} />}

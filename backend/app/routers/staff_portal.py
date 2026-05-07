@@ -412,3 +412,104 @@ def get_portal_notifications(token: str, request: Request, db: Session = Depends
             for n in notifications
         ]
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Sick call — staff self-service
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Multi-layer defense:
+#   L1 — Auth: magic-link token resolves to a SPECIFIC staff via
+#        _get_staff_from_token(). The body's date + reason are user
+#        input but the staff_id is fixed by the token (caller can't
+#        spoof it).
+#   L2 — Rate limit: 4/min per IP. A real human won't spam this; a
+#        script trying to flood the owner's notifications hits 429.
+#   L3 — Validation: SickCallCreatePortal schema bounds the date and
+#        reason; the service enforces the [-30, +60] day window and
+#        scrubs control characters.
+#   L4 — Idempotency: service returns the existing absence row for
+#        same (staff, date) instead of creating a duplicate. Stops
+#        the "tap → poor signal → tap again" double-trigger.
+#   L5 — Tenant: service queries StaffAbsence/StaffMember/Schedule
+#        by user_id (== owner_id resolved from the staff). Cross-
+#        tenant leakage is impossible.
+
+class SickCallCreatePortal(BaseModel):
+    """Body for POST /portal/{token}/sick-call.
+
+    `staff_id` is intentionally NOT in the body — the magic-link
+    token already binds the call to a specific staff. Letting the
+    body override it would be a privilege-escalation vector ("call
+    sick on Anna's behalf using my own portal token").
+    """
+    date: date  # the date of the absence
+    reason: str | None = None
+    schedule_id: str | None = None  # optional — falls back to "find a shift on this date"
+
+
+class SickCallPortalResponse(BaseModel):
+    id: str
+    date: date
+    status: str
+    kind: str
+    schedule_id: str | None
+    reason: str | None
+    called_at: datetime
+
+
+@router.post("/portal/{token}/sick-call", response_model=SickCallPortalResponse)
+@limiter.limit("4/minute")
+def portal_call_sick(
+    token: str,
+    body: SickCallCreatePortal,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Staff calls in sick from their portal.
+
+    The token resolves to (staff, owner) — neither is in the body.
+    The service layer enforces date bounds + idempotency + tenant
+    scoping. Returns the absence row (existing if idempotent retry,
+    new otherwise).
+    """
+    import uuid as _uuid
+    from app.services.sick_call_service import (
+        create_sick_call, SickCallError,
+    )
+
+    # L1: token → staff + owner.
+    _link, member = _get_staff_from_token(token, db)
+
+    # Optional schedule_id — accept str then validate as UUID. Service
+    # layer rejects mismatches; we just guard against malformed input
+    # here.
+    schedule_uuid: _uuid.UUID | None = None
+    if body.schedule_id:
+        try:
+            schedule_uuid = _uuid.UUID(body.schedule_id)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid schedule_id")
+
+    try:
+        absence = create_sick_call(
+            db,
+            owner_id=member.user_id,  # owner of THIS staff
+            staff_id=member.id,
+            absence_date=body.date,
+            reason=body.reason,
+            schedule_id=schedule_uuid,
+        )
+    except SickCallError as e:
+        # L3: service-layer validation failure → 422 with the message.
+        raise HTTPException(status_code=422, detail=str(e))
+
+    return SickCallPortalResponse(
+        id=str(absence.id),
+        date=absence.date,
+        status=absence.status,
+        kind=absence.kind,
+        schedule_id=str(absence.schedule_id) if absence.schedule_id else None,
+        reason=absence.reason,
+        called_at=absence.called_at,
+    )

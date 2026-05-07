@@ -432,6 +432,28 @@ _migrations = [
     "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS dawa_address_id VARCHAR(50)",
     "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS vat_registered BOOLEAN",
     "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS status_flags TEXT",
+    # ── Migration 019: staff_absences (sick calls + PTO + future) ──
+    # Net-new table backing app/models/absence.py:StaffAbsence. Backs
+    # the Planday-class scheduling story (sick-call flow this commit;
+    # PTO/no-show/late will reuse the same table via the `kind` field).
+    # Kept idempotent — re-running on a populated DB is a no-op.
+    """CREATE TABLE IF NOT EXISTS staff_absences (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id),
+        staff_id UUID NOT NULL REFERENCES staff_members(id),
+        kind VARCHAR(20) NOT NULL DEFAULT 'sick',
+        schedule_id UUID REFERENCES schedules(id),
+        date DATE NOT NULL,
+        reason TEXT,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        replacement_staff_id UUID REFERENCES staff_members(id),
+        acknowledged_at TIMESTAMP,
+        called_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_staff_absence_user_date ON staff_absences (user_id, date)",
+    "CREATE INDEX IF NOT EXISTS ix_staff_absence_staff_date_kind ON staff_absences (staff_id, date, kind)",
 ]
 
 def _run_migrations():

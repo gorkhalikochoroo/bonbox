@@ -1383,6 +1383,19 @@ const translations = {
     receiptViewerReviewLink: "Review receipt full-size",
 
     // ───────────────────────────────────────────────────────────
+    // Sick-call flow (staff portal + owner dashboard card)
+    // ───────────────────────────────────────────────────────────
+    sickCallCardTitle: "Sick calls need your attention",
+    sickCallCardSubtitle: "{n} pending. Tap to acknowledge or find cover.",
+    sickCallAcknowledge: "Acknowledge",
+    sickCallFindCover: "Find cover",
+    sickCallSuggested: "Suggested cover",
+    sickCallNoCandidates: "No available staff today.",
+    sickCallAssign: "Assign",
+    sickCallCovered: "Covered by {name}",
+    staff: "Staff",
+
+    // ───────────────────────────────────────────────────────────
     // Global search command palette (⌘K)
     // ───────────────────────────────────────────────────────────
     search: "Search",
@@ -2700,6 +2713,17 @@ const translations = {
     receiptViewerOcrLegend: "{n} beløb fundet",
     receiptViewerOpenOriginal: "Åbn i fuld størrelse i ny fane",
     receiptViewerReviewLink: "Gennemse kvittering i fuld størrelse",
+
+    // Sick-call flow (staff portal + owner dashboard card)
+    sickCallCardTitle: "Sygemeldinger kræver din opmærksomhed",
+    sickCallCardSubtitle: "{n} afventer. Tryk for at bekræfte eller finde afløser.",
+    sickCallAcknowledge: "Bekræft",
+    sickCallFindCover: "Find afløser",
+    sickCallSuggested: "Foreslået afløser",
+    sickCallNoCandidates: "Ingen ledig personale i dag.",
+    sickCallAssign: "Tildel",
+    sickCallCovered: "Dækket af {name}",
+    staff: "Personale",
 
     // Global search command palette (⌘K)
     search: "Søg",

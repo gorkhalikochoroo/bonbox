@@ -1957,3 +1957,192 @@ def generate_payroll_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Staff absences (sick calls today, PTO + future)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Owner-facing endpoints. Staff-facing endpoint lives in staff_portal.py
+# (POST /portal/{token}/sick-call) so unauth'd staff can call sick from
+# their phone without an account.
+#
+# Multi-layer:
+#   L1 — get_current_user resolves the OWNER (no staff hits these)
+#   L2 — service layer enforces tenant scoping (StaffAbsence.user_id ==
+#        owner.id) on every read + mutation
+#   L3 — pydantic schemas bound the input
+#   L4 — distinct status codes for distinct failures (404 not-found,
+#        422 validation, 403 cross-tenant — though service collapses
+#        cross-tenant to 404 to avoid enumeration)
+
+from pydantic import BaseModel as _BM, Field as _F  # local alias to keep imports tidy
+from app.models.absence import StaffAbsence as _StaffAbsence
+from app.services.sick_call_service import (
+    acknowledge_sick_call as _ack_sick_call,
+    assign_cover as _assign_cover,
+    suggest_replacements as _suggest_replacements,
+    SickCallError as _SickCallError,
+)
+
+
+class _AbsenceResponse(_BM):
+    id: str
+    staff_id: str
+    staff_name: str | None = None
+    kind: str
+    schedule_id: str | None = None
+    date: date
+    reason: str | None = None
+    status: str
+    replacement_staff_id: str | None = None
+    replacement_staff_name: str | None = None
+    acknowledged_at: datetime | None = None
+    called_at: datetime
+
+
+class _AssignCoverRequest(_BM):
+    replacement_staff_id: str = _F(..., description="Staff member who'll cover the shift")
+
+
+def _serialize_absence(absence: _StaffAbsence, db: Session) -> _AbsenceResponse:
+    """Hydrate display names — staff_name and replacement_staff_name —
+    so the dashboard card can render without a second round-trip per
+    row. One small N+1 here; if it ever shows in profiling we'll batch.
+    """
+    staff = db.query(StaffMember).filter(StaffMember.id == absence.staff_id).first()
+    repl = None
+    if absence.replacement_staff_id:
+        repl = db.query(StaffMember).filter(
+            StaffMember.id == absence.replacement_staff_id,
+        ).first()
+    return _AbsenceResponse(
+        id=str(absence.id),
+        staff_id=str(absence.staff_id),
+        staff_name=staff.name if staff else None,
+        kind=absence.kind,
+        schedule_id=str(absence.schedule_id) if absence.schedule_id else None,
+        date=absence.date,
+        reason=absence.reason,
+        status=absence.status,
+        replacement_staff_id=str(absence.replacement_staff_id) if absence.replacement_staff_id else None,
+        replacement_staff_name=repl.name if repl else None,
+        acknowledged_at=absence.acknowledged_at,
+        called_at=absence.called_at,
+    )
+
+
+@router.get("/absences", response_model=list[_AbsenceResponse])
+def list_absences(
+    days_back: int = Query(14, ge=1, le=90, description="How many days of history"),
+    include_resolved: bool = Query(True, description="Include covered + cancelled"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Owner's recent absences. Default last 14 days. Tenant-scoped via
+    user_id == user.id."""
+    since = date.today() - timedelta(days=days_back)
+    q = db.query(_StaffAbsence).filter(
+        _StaffAbsence.user_id == user.id,
+        _StaffAbsence.date >= since,
+    )
+    if not include_resolved:
+        q = q.filter(_StaffAbsence.status.in_(("pending", "acknowledged")))
+    rows = q.order_by(_StaffAbsence.date.desc(), _StaffAbsence.called_at.desc()).all()
+    return [_serialize_absence(a, db) for a in rows]
+
+
+@router.post("/absences/{absence_id}/acknowledge", response_model=_AbsenceResponse)
+def acknowledge_absence(
+    absence_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Owner clicked the notification / opened the dashboard surface.
+    Bumps status pending → acknowledged + records timestamp. Idempotent
+    (no-op if already acknowledged or covered)."""
+    import uuid as _uuid
+    try:
+        absence_uuid = _uuid.UUID(absence_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid absence_id")
+    try:
+        absence = _ack_sick_call(db, owner_id=user.id, absence_id=absence_uuid)
+    except _SickCallError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return _serialize_absence(absence, db)
+
+
+@router.post("/absences/{absence_id}/cover", response_model=_AbsenceResponse)
+def assign_absence_cover(
+    absence_id: str,
+    body: _AssignCoverRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Owner picks a replacement staff. Service layer validates the
+    replacement is real, active, and not the same person as the
+    absentee."""
+    import uuid as _uuid
+    try:
+        absence_uuid = _uuid.UUID(absence_id)
+        replacement_uuid = _uuid.UUID(body.replacement_staff_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid id")
+    try:
+        absence = _assign_cover(
+            db,
+            owner_id=user.id,
+            absence_id=absence_uuid,
+            replacement_staff_id=replacement_uuid,
+        )
+    except _SickCallError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return _serialize_absence(absence, db)
+
+
+@router.get("/absences/{absence_id}/replacement-suggestions")
+def suggest_absence_replacements(
+    absence_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Returns up to 5 active staff who could cover this shift.
+    Phase-1 heuristic: not already scheduled today + not the absent
+    staff. Future iterations will rank by availability + recent hours."""
+    import uuid as _uuid
+    try:
+        absence_uuid = _uuid.UUID(absence_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid absence_id")
+
+    absence = db.query(_StaffAbsence).filter(
+        _StaffAbsence.id == absence_uuid,
+        _StaffAbsence.user_id == user.id,
+    ).first()
+    if not absence:
+        raise HTTPException(status_code=404, detail="Absence not found")
+
+    # If we know the role on the missed shift, prefer same role.
+    role_filter: str | None = None
+    if absence.schedule_id:
+        sched = db.query(Schedule).filter(Schedule.id == absence.schedule_id).first()
+        if sched:
+            role_filter = sched.role_on_shift
+
+    candidates = _suggest_replacements(
+        db,
+        owner_id=user.id,
+        absent_staff_id=absence.staff_id,
+        absence_date=absence.date,
+        role_filter=role_filter,
+    )
+    return [
+        {
+            "id": str(c.id),
+            "name": c.name,
+            "role": c.role,
+            "phone": c.phone,
+        }
+        for c in candidates
+    ]
