@@ -5,11 +5,13 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
 from app.services.auth import get_current_user, hash_password
+from app.services.billing import at_cap, get_cap, effective_plan
 
 router = APIRouter()
 
@@ -93,7 +95,17 @@ def invite_member(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Invite a staff member by email. Creates an account with a temp password."""
+    """Invite a staff member by email. Creates an account with a temp password.
+
+    Multi-layer cap enforcement (matches /branch/create pattern):
+      • Layer 1 — service: PLAN_CAPS["team_users"] is the source of truth
+        (1 for free, 3 for starter, 5 for trial/pro, 999 for business).
+      • Layer 2 — this gate: count active team members + the owner = total
+        seats used, refuse to invite if at cap.
+
+    The owner counts as 1 seat. Free=1 means owner-only (no team).
+    Starter=3 means owner + 2 staff. Pro=5 means owner + 4 staff.
+    """
     require_owner(user)
 
     # Check if email already exists
@@ -102,6 +114,27 @@ def invite_member(
         if existing.owner_id == user.id:
             raise HTTPException(400, "This person is already on your team")
         raise HTTPException(400, "This email is already registered with another business")
+
+    # Cap gate — count owner + active team members against the plan cap.
+    # Soft-delete pattern not yet on User model, but excluded users would
+    # be filtered here once added.
+    team_count = (
+        db.query(func.count(User.id))
+        .filter(User.owner_id == user.id)
+        .scalar()
+        or 0
+    )
+    seats_used = team_count + 1  # +1 for the owner themselves
+    if at_cap(user, "team_users", seats_used):
+        cap = get_cap(user, "team_users")
+        plan = effective_plan(user)
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Team-user limit reached ({seats_used}/{cap}) on the {plan} plan. "
+                f"Upgrade for more seats."
+            ),
+        )
 
     # Generate temporary password
     temp_password = secrets.token_urlsafe(10)

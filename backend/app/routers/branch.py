@@ -16,13 +16,14 @@ import logging
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, and_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.routers.auth import get_current_user
+from app.services.billing import at_cap, get_cap, effective_plan
 from app.models.user import User
 from app.models.branch import Branch
 from app.models.sale import Sale
@@ -118,11 +119,36 @@ def create_branch(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Create a new branch."""
-    # Check if this is the first branch — make it default
-    existing = db.query(func.count(Branch.id)).filter(
-        Branch.user_id == current_user.id
-    ).scalar()
+    """Create a new branch.
+
+    Multi-layer cap enforcement:
+      • Layer 1 — service layer: PLAN_CAPS["branches"] is the single
+        source of truth (1 for free/starter, 3 for trial/pro, 999 for
+        business). Frontend queries via /billing/me to render UI.
+      • Layer 2 — this gate: at_cap() refuses to create when the user
+        has already hit their plan's branch limit. Returns 402-style
+        upgrade message so frontend can route to /subscription.
+    """
+    # Defensive count: only count active, non-soft-deleted branches against
+    # the cap. (Branch model doesn't currently soft-delete but is_active is
+    # respected — keeps the count truthful if owner inactivates a branch.)
+    existing = (
+        db.query(func.count(Branch.id))
+        .filter(Branch.user_id == current_user.id, Branch.is_active.is_(True))
+        .scalar()
+        or 0
+    )
+
+    if at_cap(current_user, "branches", existing):
+        cap = get_cap(current_user, "branches")
+        plan = effective_plan(current_user)
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Branch limit reached ({existing}/{cap}) on the {plan} plan. "
+                "Upgrade to Pro for up to 3 businesses."
+            ),
+        )
 
     branch = Branch(
         user_id=current_user.id,

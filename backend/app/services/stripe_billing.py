@@ -649,13 +649,27 @@ def _apply_subscription_state(user: User, sub_obj, db: Session) -> None:
     # we don't recognize (Stripe occasionally adds new statuses).
     try:
         if status in ("active", "trialing"):
-            # Determine which plan from the price ID on the first item
+            # Determine which plan from the price ID on the first item.
+            # CRITICAL: a Starter subscriber must map to user.plan="starter",
+            # NOT "pro" — otherwise tier caps (branches/team/modules) would
+            # be wrong and the marketing claims for Starter vs Pro would be
+            # silently broken. We check Starter (and its founding variant)
+            # explicitly; everything else falls to Pro / Business.
             items_data = _g(_g(sub_obj, "items") or {}, "data") or []
             price_id = None
             if items_data:
                 price_id = _g(_g(items_data[0], "price") or {}, "id")
+
+            starter_prices = {
+                getattr(settings, "STRIPE_PRICE_ID_STARTER", None),
+                getattr(settings, "STRIPE_PRICE_ID_STARTER_FOUNDING", None),
+            }
+            starter_prices.discard(None)
+
             if price_id == settings.STRIPE_PRICE_ID_BUSINESS:
                 user.plan = "business"
+            elif price_id in starter_prices:
+                user.plan = "starter"
             else:
                 user.plan = "pro"
         elif status in ("canceled", "unpaid", "incomplete_expired"):
