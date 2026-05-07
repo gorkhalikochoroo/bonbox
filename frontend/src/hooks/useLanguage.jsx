@@ -1313,6 +1313,7 @@ const translations = {
     trialChipManyDays: "{n} days left in trial",
     trialChipTooltip: "View Pro plans",
     trialChipUrgentTooltip: "Trial ends soon — see plans",
+    trialChipUpgradeLink: "see plans",
     // Quieter pricing-page heading for users already on a plan
     pricingComparePlansTitle: "Compare plans",
     pricingComparePlansSubtitle: "What you get on each tier. Annual saves 20%.",
@@ -2576,6 +2577,7 @@ const translations = {
     trialChipManyDays: "{n} dage tilbage i prøveperiode",
     trialChipTooltip: "Se Pro-priser",
     trialChipUrgentTooltip: "Prøveperiode slutter snart — se priser",
+    trialChipUpgradeLink: "se planer",
     pricingComparePlansTitle: "Sammenlign planer",
     pricingComparePlansSubtitle: "Hvad du får på hver plan. Årlig sparer 20%.",
 

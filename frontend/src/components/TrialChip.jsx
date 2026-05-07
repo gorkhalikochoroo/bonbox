@@ -4,38 +4,26 @@ import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 
 /**
- * Trial countdown chip — small floating pill in the bottom-LEFT
- * corner. NOT in the sidebar (cluttered the header), NOT in the
- * top-right (overlapped page action buttons like Quick Sale /
- * Download PDF), NOT a full-width banner (too pushy).
+ * Trial countdown — thin status strip at the very top of <main>,
+ * right-aligned, ~28px tall.
  *
- * Design:
- *   • Compact pill: just "🎁 14d" (icon + abbreviated days).
- *     Hover/aria reveals the full "14 days left in trial" text.
- *   • Fixed bottom-left, just inside the viewport. Doesn't take
- *     up layout space — floats above content.
- *   • Position: fixed bottom-CENTER (left-1/2 with -translate-x-1/2).
- *     Picked deliberately to sit out of the way of the four
- *     occupied corners:
- *       - top-left   : sidebar
- *       - top-right  : per-page action buttons (Download PDF /
- *                      Quick Sale / Snap Receipt)
- *       - bottom-left: QuickAdd ➕ widget (at left-6)
- *       - bottom-right: ✨ BonBoxAgent (at right-6)
- *     The bottom-center stripe is empty everywhere — no fights
- *     with sidebar z-index either (the chip sits in the main
- *     content area horizontally).
- *   • Calm slate-on-white default with a subtle border + shadow.
- *     Shifts to amber when ≤ 3 days remain (gentle urgency,
- *     not red-alarm — nothing bad happens at trial end).
- *   • Inline × button to dismiss for 24h.
- *   • Click anywhere else on the pill → /subscription.
- *   • Hidden on mobile (md-) — mobile users have the dashboard
- *     final-stretch tip kick in at ≤ 2 days, which is enough
- *     signal without crowding their tighter top bar.
+ * Why a strip and not a floating pill (after several iterations):
+ *   • Sidebar placement → "looks disgusting" (Manoj)
+ *   • Top-right floating → overlapped page action buttons
+ *     (Quick Sale / Download PDF / etc.)
+ *   • Bottom-left → invisible behind the sidebar (z-50 covers z-40)
+ *   • Bottom-right → already taken by ✨ BonBoxAgent
+ *   • Bottom-center → overlaid AI insight cards / content
+ *
+ * The thin top strip sits ABOVE all page content, takes its own
+ * tiny row, and never overlaps anything. Right-aligned so it
+ * doesn't compete with page titles which are left-aligned. Dismiss
+ * × hides it for 24h; after dismiss the strip disappears entirely
+ * (no empty space) so users who don't want it never see it.
  *
  * Renders nothing for paid users, expired trials, or legacy users
- * without trial state.
+ * without trial state. Hidden on mobile (md-) — the dashboard
+ * final-stretch tip kicks in at ≤ 2 days for mobile users.
  */
 
 const DISMISS_KEY = "bonbox_trial_chip_dismissed_until";
@@ -65,7 +53,7 @@ export default function TrialChip() {
   if (days == null || !billing.trial_active || days <= 0) return null;
 
   const urgent = days <= 3;
-  const tooltip = days === 1
+  const label = days === 1
     ? (t("trialChipOneDay") || "1 day left in trial")
     : (t("trialChipManyDays") || "{n} days left in trial").replace("{n}", days);
 
@@ -77,29 +65,39 @@ export default function TrialChip() {
   };
 
   return (
-    <div
-      className="hidden md:flex fixed bottom-4 left-1/2 -translate-x-1/2 z-40 items-center gap-1"
-      role="status"
-      aria-label={tooltip}
-    >
+    <div className={`hidden md:flex items-center justify-end gap-2 px-4 sm:px-6 py-1.5 border-b text-[11px] ${
+      urgent
+        ? "border-amber-200 dark:border-amber-800/50 bg-amber-50/60 dark:bg-amber-900/10"
+        : "border-gray-100 dark:border-gray-700/50 bg-gray-50/40 dark:bg-gray-800/20"
+    }`}>
       <Link
         to="/subscription"
-        title={tooltip}
-        className={`group inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium border shadow-sm transition ${
+        className={`group inline-flex items-center gap-1.5 hover:underline ${
           urgent
-            ? "bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50"
-            : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600 hover:text-gray-900 dark:hover:text-white"
+            ? "text-amber-800 dark:text-amber-300 font-medium"
+            : "text-gray-600 dark:text-gray-400"
         }`}
       >
         <span aria-hidden="true">{urgent ? "🌤️" : "🎁"}</span>
-        <span>{days}d</span>
+        <span>{label}</span>
+      </Link>
+      <span className="text-gray-300 dark:text-gray-600" aria-hidden="true">·</span>
+      <Link
+        to="/subscription"
+        className={`hover:underline ${
+          urgent
+            ? "text-amber-800 dark:text-amber-300 font-medium"
+            : "text-gray-500 dark:text-gray-400"
+        }`}
+      >
+        {t("trialChipUpgradeLink") || "see plans"}
       </Link>
       <button
         type="button"
         onClick={dismiss}
         title={t("hideForToday") || "Hide for today"}
         aria-label={t("hideForToday") || "Hide for today"}
-        className="w-5 h-5 inline-flex items-center justify-center rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/60 transition"
+        className="ml-1 w-5 h-5 inline-flex items-center justify-center rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/50 dark:hover:bg-gray-700/40 transition"
       >
         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5} aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />

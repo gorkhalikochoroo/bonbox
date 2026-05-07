@@ -678,21 +678,18 @@ export default function Layout() {
       <main className={`pt-14 md:pt-0 pb-24 md:pb-4 transition-[margin] duration-200 ${
         desktopSidebarHidden ? "md:ml-0" : "md:ml-56"
       }`}>
+        {/* Trial countdown — thin inline strip at the top of the
+            page content. Persistent across all routes (lives in
+            Layout). Renders nothing for paid users / no trial /
+            dismissed; otherwise a single ~28px-tall row with the
+            day count + see-plans link + dismiss × on the right.
+            Hidden on mobile (md-). */}
+        <TrialChip />
         <Outlet />
       </main>
 
       {/* Mobile bottom nav — iOS tab bar pattern */}
       <MobileBottomNav />
-
-      {/* Trial countdown — small floating pill in the top-right
-          corner of the viewport (desktop only; mobile relies on the
-          dashboard final-stretch tip at ≤ 2 days). Position is
-          fixed inside TrialChip itself, so it lives at the layout
-          root rather than inside the sidebar (felt cluttered) or
-          a per-page header (would disappear on inner pages). Self-
-          loads /billing/me; renders nothing for paid users / no
-          trial / expired. */}
-      <TrialChip />
 
       {/* Floating widgets — hidden on pricing/subscription pages so they
           don't visually compete with the CTA cards. The "+" QuickAdd
