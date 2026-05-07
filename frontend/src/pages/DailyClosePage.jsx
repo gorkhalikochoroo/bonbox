@@ -17,6 +17,71 @@ import {
 } from "../utils/shareClose";
 import { sendDailyCloseRangeToAccountant } from "../utils/shareDailyCloseRange";
 
+/**
+ * Decode an axios error from a blob-typed request.
+ *
+ * When a request expects responseType: "blob" but the server returns
+ * an error JSON body, axios still wraps the body as a Blob in
+ * err.response.data. We read the blob → parse → return the structured
+ * detail. Returns:
+ *   { message: string, isPlanCap: boolean, capDays?: number,
+ *     planTier?: string }
+ *
+ * Falls back to a generic "Could not export." message if anything
+ * about the parse fails — never throws.
+ */
+async function parseExportError(err) {
+  // Plan cap → 402 with structured JSON body
+  // Cooldown / rate limit → 429
+  // Other → generic
+  const status = err?.response?.status;
+  let detail = err?.response?.data;
+
+  // If the response was a blob (export endpoints), read it as text
+  if (detail instanceof Blob) {
+    try {
+      const text = await detail.text();
+      try {
+        detail = JSON.parse(text);
+      } catch {
+        detail = text;
+      }
+    } catch {
+      detail = null;
+    }
+  }
+
+  // Backend shape: detail.detail = {code, message, cap_days, plan}
+  // Pydantic + FastAPI sometimes nests structured errors under .detail,
+  // sometimes flat. Try both.
+  const inner = detail?.detail ?? detail;
+
+  if (status === 402 && inner && typeof inner === "object" && inner.code === "plan_cap_exceeded") {
+    return {
+      message: inner.message || `Your plan exports up to ${inner.cap_days || "?"} days.`,
+      isPlanCap: true,
+      capDays: inner.cap_days,
+      planTier: inner.plan,
+    };
+  }
+
+  if (status === 429) {
+    return {
+      message: typeof inner === "string"
+        ? inner
+        : (inner?.message || "Too many requests — wait a minute and try again."),
+      isPlanCap: false,
+    };
+  }
+
+  // Generic — try a string message, then fall back
+  const msg = typeof inner === "string"
+    ? inner
+    : inner?.message || "Could not export. Please try again.";
+  return { message: msg, isPlanCap: false };
+}
+
+
 /* ═══════════════════════════════════════════════════════════
    OFFLINE QUEUE — store pending daily close submissions
    ═══════════════════════════════════════════════════════════ */
@@ -1409,6 +1474,10 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
   const [customTo, setCustomTo] = useState(todayIso());
   const [exportingFmt, setExportingFmt] = useState(null); // 'pdf' | 'csv' | null
   const [exportError, setExportError] = useState("");
+  // True iff the last export failure was a plan-cap (402). Drives an
+  // inline "Upgrade →" link in the error banner so the user can
+  // resolve the issue with one tap rather than reading + navigating.
+  const [exportErrorIsCap, setExportErrorIsCap] = useState(false);
   const [sendingToAccountant, setSendingToAccountant] = useState(false);
   const [sendStatus, setSendStatus] = useState(""); // user-facing toast after a send
 
@@ -1417,8 +1486,20 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
   // and the Danish greeting line ("Hej Anna,"). Failure is silent —
   // the Send button still works, just without a pre-filled recipient.
   const [businessProfile, setBusinessProfile] = useState(null);
+  // Plan caps from /billing/me — drives the cap-aware preset
+  // buttons (Free=7d / Starter=31d / Pro=full year). Defaults to
+  // 366 (the hard ceiling) so before /billing/me responds the UI
+  // is permissive rather than restrictive — backend is the
+  // authoritative gate either way.
+  const [exportCapDays, setExportCapDays] = useState(366);
+  const [planTier, setPlanTier] = useState("free");
   useEffect(() => {
     api.get("/business").then(r => setBusinessProfile(r.data)).catch(() => {});
+    api.get("/billing/me").then(r => {
+      const cap = r.data?.caps?.daily_close_export_days;
+      if (typeof cap === "number" && cap > 0) setExportCapDays(cap);
+      if (r.data?.plan) setPlanTier(r.data.plan);
+    }).catch(() => {});
   }, []);
 
   // Compute the active (from, to) for whichever preset is selected.
@@ -1458,11 +1539,15 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
       a.click();
       window.URL.revokeObjectURL(objectUrl);
     } catch (e) {
-      const detail = e?.response?.data?.detail
-        || (e?.response?.status === 429 ? "Too many exports — wait a minute and try again." : null)
-        || "Could not export. Please try again.";
-      setExportError(detail);
-      setTimeout(() => setExportError(""), 5000);
+      // Surface plan-cap (402) with the upgrade CTA distinctly from
+      // other failures. The backend returns a structured detail with
+      // {code: "plan_cap_exceeded", message, cap_days, plan} that we
+      // parse via parseExportError() so the error banner contains
+      // the upgrade link inline.
+      const parsed = await parseExportError(e);
+      setExportError(parsed.message);
+      setExportErrorIsCap(parsed.isPlanCap);
+      setTimeout(() => { setExportError(""); setExportErrorIsCap(false); }, 8000);
     } finally {
       setExportingFmt(null);
     }
@@ -1525,11 +1610,12 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
         setTimeout(() => setExportError(""), 5000);
       }
     } catch (e) {
-      const detail = e?.response?.data?.detail
-        || (e?.response?.status === 429 ? "Too many exports — wait a minute and try again." : null)
-        || "Could not generate the report. Please try again.";
-      setExportError(detail);
-      setTimeout(() => setExportError(""), 5000);
+      // Same parser as downloadRange — preserves the plan-cap CTA
+      // when the user hits the cap via the Send-to-accountant flow.
+      const parsed = await parseExportError(e);
+      setExportError(parsed.message);
+      setExportErrorIsCap(parsed.isPlanCap);
+      setTimeout(() => { setExportError(""); setExportErrorIsCap(false); }, 8000);
     } finally {
       setSendingToAccountant(false);
     }
@@ -1688,53 +1774,108 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
           semicolon-delimited + UTF-8 BOM so Danish Excel opens it cleanly.
         </p>
 
-        {/* Preset buttons */}
+        {/* Preset buttons — cap-aware. Each preset declares its own
+            day count; if it exceeds the user's tier cap, it renders
+            disabled with a 🔒 + upgrade tooltip. Backend re-checks
+            (defense in depth) and returns 402 if anyone bypasses. */}
         <div className="flex flex-wrap gap-2 mb-3">
           {[
-            { id: "7d", label: "Last 7 days" },
-            { id: "14d", label: "Last 14 days" },
-            { id: "1m", label: "Last 1 month" },
-            { id: "3m", label: "Last 3 months" },
-            { id: "custom", label: "Custom" },
-          ].map(p => (
-            <button
-              key={p.id}
-              onClick={() => setRangePreset(p.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
-                rangePreset === p.id
-                  ? "bg-green-600 text-white border-green-600"
-                  : "bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:border-green-400"
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
+            { id: "7d",     label: "Last 7 days",   days: 7 },
+            { id: "14d",    label: "Last 14 days",  days: 14 },
+            { id: "1m",     label: "Last 1 month",  days: 31 },
+            { id: "3m",     label: "Last 3 months", days: 90 },
+            { id: "custom", label: "Custom",        days: 0 },  // 0 = handled in custom UI
+          ].map(p => {
+            // Custom is always allowed at the button level — the
+            // date pickers themselves enforce the cap (max attribute
+            // + range validation on submit).
+            const locked = p.days > 0 && p.days > exportCapDays;
+            const isActive = rangePreset === p.id;
+            return (
+              <button
+                key={p.id}
+                onClick={() => !locked && setRangePreset(p.id)}
+                disabled={locked}
+                title={locked
+                  ? `${planTier === "free" ? "Free" : planTier} plan exports up to ${exportCapDays} days. Upgrade to Pro for full year.`
+                  : ""}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                  locked
+                    ? "bg-gray-50 dark:bg-gray-800 text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-700 cursor-not-allowed"
+                    : isActive
+                      ? "bg-green-600 text-white border-green-600"
+                      : "bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:border-green-400"
+                }`}
+              >
+                {locked && <span className="mr-1">🔒</span>}
+                {p.label}
+              </button>
+            );
+          })}
         </div>
 
-        {/* Custom range pickers — shown only when preset === 'custom' */}
+        {/* Plan-cap hint — visible when the user's cap is below the
+            year ceiling (i.e. Free or Starter). Links to /subscription
+            for the upgrade flow. Hidden for Pro/Business/Trial. */}
+        {exportCapDays < 366 && (
+          <div className="mb-3 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-[11px] text-amber-700 dark:text-amber-300 flex items-center gap-2">
+            <span>💡</span>
+            <span className="flex-1">
+              <strong>{planTier === "free" ? "Free" : planTier} plan</strong>
+              {" exports up to "}<strong>{exportCapDays} days</strong>.
+              <a href="/subscription" className="ml-2 underline font-semibold hover:no-underline">
+                Upgrade for full year →
+              </a>
+            </span>
+          </div>
+        )}
+
+        {/* Custom range pickers — shown only when preset === 'custom'.
+            The "From" min is computed from the user's tier cap so they
+            literally can't pick a date earlier than allowed. "To" is
+            today. Backend re-validates (defense in depth). */}
         {rangePreset === "custom" && (
-          <div className="flex flex-wrap items-end gap-3 mb-3">
-            <label className="text-xs text-gray-500 dark:text-gray-400">
-              From
-              <input
-                type="date"
-                value={customFrom}
-                max={customTo}
-                onChange={(e) => setCustomFrom(e.target.value)}
-                className="block mt-1 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 dark:text-white text-sm"
-              />
-            </label>
-            <label className="text-xs text-gray-500 dark:text-gray-400">
-              To
-              <input
-                type="date"
-                value={customTo}
-                min={customFrom}
-                max={todayIso()}
-                onChange={(e) => setCustomTo(e.target.value)}
-                className="block mt-1 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 dark:text-white text-sm"
-              />
-            </label>
+          <div>
+            <div className="flex flex-wrap items-end gap-3 mb-3">
+              <label className="text-xs text-gray-500 dark:text-gray-400">
+                From
+                <input
+                  type="date"
+                  value={customFrom}
+                  min={isoDaysAgo(exportCapDays - 1)}
+                  max={customTo}
+                  onChange={(e) => setCustomFrom(e.target.value)}
+                  className="block mt-1 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 dark:text-white text-sm"
+                />
+              </label>
+              <label className="text-xs text-gray-500 dark:text-gray-400">
+                To
+                <input
+                  type="date"
+                  value={customTo}
+                  min={customFrom}
+                  max={todayIso()}
+                  onChange={(e) => setCustomTo(e.target.value)}
+                  className="block mt-1 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 dark:text-white text-sm"
+                />
+              </label>
+            </div>
+            {/* Custom-range cap hint — shown only if the user's
+                custom span exceeds their cap. Useful when they
+                manually picked dates further apart than allowed. */}
+            {(() => {
+              const span = Math.floor(
+                (new Date(customTo).getTime() - new Date(customFrom).getTime()) / 86400000
+              ) + 1;
+              if (span > exportCapDays) {
+                return (
+                  <p className="mb-2 text-[11px] text-amber-700 dark:text-amber-400">
+                    ⚠️ This range is {span} days — your plan caps at {exportCapDays}. The export will be rejected by the server. <a href="/subscription" className="underline font-semibold">Upgrade?</a>
+                  </p>
+                );
+              }
+              return null;
+            })()}
           </div>
         )}
 
@@ -1794,7 +1935,21 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
         )}
 
         {exportError && (
-          <p className="mt-2 text-xs text-red-500 dark:text-red-400">⚠️ {exportError}</p>
+          <div className={`mt-2 px-3 py-2 rounded-lg text-xs flex items-start gap-2 ${
+            exportErrorIsCap
+              ? "bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300"
+              : "text-red-500 dark:text-red-400"
+          }`}>
+            <span>{exportErrorIsCap ? "🔒" : "⚠️"}</span>
+            <span className="flex-1">
+              {exportError}
+              {exportErrorIsCap && (
+                <a href="/subscription" className="ml-2 underline font-semibold hover:no-underline">
+                  Upgrade →
+                </a>
+              )}
+            </span>
+          </div>
         )}
       </div>
 

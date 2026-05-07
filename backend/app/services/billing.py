@@ -56,11 +56,20 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
     #                  items per day.
     #   Pro 50       — covers multi-terminal venues + heavy stocktake
     #                  weeks (Mirabelle-scale).
-    "free":     {"branches": 1, "team_users": 1, "modules": 1, "smart_imports_per_day": 3},
-    "trial":    {"branches": 3, "team_users": 5, "modules": -1, "smart_imports_per_day": 50},  # = full Pro
-    "starter":  {"branches": 1, "team_users": 3, "modules": 1, "smart_imports_per_day": 15},
-    "pro":      {"branches": 3, "team_users": 5, "modules": -1, "smart_imports_per_day": 50},
-    "business": {"branches": 999, "team_users": 999, "modules": -1, "smart_imports_per_day": 500},
+    #
+    # daily_close_export_days caps the SPAN of the Daily Close range
+    # PDF/CSV export — the accountant handoff feature. Free gets a
+    # weekly review window; Starter handles month-end; Pro+ get the
+    # full year for compliance archives. The hard ceiling on the
+    # service itself is 366d (router _MAX_RANGE_DAYS), so this gate
+    # only constrains free + starter tiers — pro+ inherit the full
+    # ceiling. Send-to-accountant inherits naturally (it generates
+    # the same PDF, so caps follow).
+    "free":     {"branches": 1, "team_users": 1, "modules": 1,  "smart_imports_per_day": 3,   "daily_close_export_days": 7},
+    "trial":    {"branches": 3, "team_users": 5, "modules": -1, "smart_imports_per_day": 50,  "daily_close_export_days": 366},  # = full Pro
+    "starter":  {"branches": 1, "team_users": 3, "modules": 1,  "smart_imports_per_day": 15,  "daily_close_export_days": 31},
+    "pro":      {"branches": 3, "team_users": 5, "modules": -1, "smart_imports_per_day": 50,  "daily_close_export_days": 366},
+    "business": {"branches": 999, "team_users": 999, "modules": -1, "smart_imports_per_day": 500, "daily_close_export_days": 366},
 }
 
 

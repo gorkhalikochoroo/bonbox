@@ -17,10 +17,12 @@ Endpoints:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -42,6 +44,19 @@ from app.services.dawa_verify import addresses_match
 
 router = APIRouter()
 
+# Per-IP rate limiter for the lookup-and-verify endpoints. cvrapi.dk
+# free tier has plenty of headroom but we don't want a single client
+# (or a script masquerading as one) to chew through it for the whole
+# tenant. Same limiter pattern as the rest of the app.
+_limiter = Limiter(key_func=get_remote_address)
+
+# Per-user cooldown on the Re-verify button — measured against the
+# saved profile's cvr_verified_at column rather than a separate
+# table. 1 hour matches the typical "I edited something, refresh"
+# cadence; if the owner hits it twice in a minute, they don't get
+# any new info because cvrapi caches at 6h anyway.
+_REVERIFY_COOLDOWN_SECONDS = 3600  # 1 hour
+
 
 # ─── Country list ─────────────────────────────────────────────────────
 
@@ -54,7 +69,9 @@ def list_countries():
 # ─── Smart lookup ─────────────────────────────────────────────────────
 
 @router.get("/lookup")
+@_limiter.limit("30/minute")
 async def search_business(
+    request: Request,
     q: str = Query(..., min_length=2, description="CVR / domain / name"),
     country: str = Query("DK", description="Country code (DK, NO, GB, etc.)"),
     user: User = Depends(get_current_user),
@@ -86,7 +103,9 @@ class AddressVerifyRequest(BaseModel):
 
 
 @router.post("/verify-address")
+@_limiter.limit("60/minute")
 async def verify_address_endpoint(
+    request: Request,
     payload: AddressVerifyRequest,
     user: User = Depends(get_current_user),
 ):
@@ -132,7 +151,9 @@ class ReverifyResponse(BaseModel):
 
 
 @router.post("/reverify", response_model=ReverifyResponse)
+@_limiter.limit("10/minute")
 async def reverify_profile(
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -144,6 +165,14 @@ async def reverify_profile(
       • status_flags (konkurs / no_vat etc.)
       • cvr_verified_at = now
       • cvr_verified_source = whichever source served the response
+
+    Two layers of throttling:
+      • Per-IP rate limit (10/min) — abuse defense.
+      • Per-user cooldown (1h) — measured against cvr_verified_at on
+        the saved profile. cvrapi caches at 6h anyway, so multiple
+        re-verifies inside that window get the same data — better to
+        tell the owner "wait 47 min" than to silently re-fetch the
+        same bytes.
 
     Returns the list of fields that actually changed so the UI can
     show "Updated address + industry" instead of a generic toast.
@@ -162,6 +191,28 @@ async def reverify_profile(
             status_code=422,
             detail="Profile has no registration number to verify against.",
         )
+
+    # Per-user cooldown — measured against cvr_verified_at. Skipped
+    # for never-verified profiles (cvr_verified_at is NULL → first
+    # verification proceeds immediately).
+    if profile.cvr_verified_at:
+        elapsed = (datetime.utcnow() - profile.cvr_verified_at).total_seconds()
+        if elapsed < _REVERIFY_COOLDOWN_SECONDS:
+            wait_seconds = int(_REVERIFY_COOLDOWN_SECONDS - elapsed)
+            wait_minutes = max(1, wait_seconds // 60)
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "code": "reverify_cooldown",
+                    "message": (
+                        f"Just verified — try again in {wait_minutes} minute"
+                        f"{'s' if wait_minutes != 1 else ''}. "
+                        "(CVR data is cached for an hour to keep things fast.)"
+                    ),
+                    "retry_after_seconds": wait_seconds,
+                },
+                headers={"Retry-After": str(wait_seconds)},
+            )
 
     try:
         results = await lookup_business(profile.org_number, profile.country or "DK")

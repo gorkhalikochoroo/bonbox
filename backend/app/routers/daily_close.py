@@ -37,7 +37,7 @@ from app.models.cashbook import CashTransaction
 from app.models.business_profile import BusinessProfile
 from app.schemas.daily_close import DailyCloseCreate, DailyCloseResponse, DailyCloseUnlock
 from app.services.auth import get_current_user
-from app.services.billing import effective_plan
+from app.services.billing import effective_plan, get_cap
 from app.services.receipt_ocr import save_receipt_photo, parse_z_report
 from app.services.daily_close_range_export import (
     build_daily_close_range_pdf,
@@ -894,17 +894,38 @@ async def scan_z_report(
 # literal "export.pdf" / "export.csv" path before falling through to
 # the parametric close_id.
 
-# Hard-cap the date range to prevent both abuse and accidental
-# unbounded queries. 366 covers leap years + a comfortable yearly
-# review; anything longer should be done in chunks.
+# Hard ceiling — defense-in-depth above any per-tier cap.
+# 366 covers leap years + a comfortable yearly review; anything
+# longer should be done in chunks. Per-tier caps below this further
+# narrow the window for free / starter tiers.
 _MAX_RANGE_DAYS = 366
 
+# Plan labels used in the upgrade prompts surfaced to the user when
+# they hit the per-tier cap. Kept here rather than in billing.py
+# because the wording is feature-specific (kasserapport context).
+_PLAN_LABELS = {
+    "free": "Free",
+    "starter": "Starter",
+    "trial": "Trial (Pro)",
+    "pro": "Pro",
+    "business": "Business",
+}
 
-def _resolve_range(from_date: date | None, to_date: date | None) -> tuple[date, date]:
-    """Validate + default the (from, to) inputs.
+
+def _resolve_range(
+    from_date: date | None,
+    to_date: date | None,
+    *,
+    user: User | None = None,
+) -> tuple[date, date]:
+    """Validate + default the (from, to) inputs and enforce plan cap.
 
     Defaults: today minus 30 days → today.
-    Raises 422 if from > to or the span exceeds _MAX_RANGE_DAYS.
+    Raises 422 if from > to.
+    Raises 422 if span exceeds the hard ceiling (_MAX_RANGE_DAYS).
+    Raises 402 if span exceeds the user's per-tier cap (Free=7d,
+    Starter=31d, Pro=366d) — frontend uses 402 as the trigger to
+    show the upgrade CTA distinctly from generic validation errors.
     """
     if not to_date:
         to_date = date.today()
@@ -921,6 +942,27 @@ def _resolve_range(from_date: date | None, to_date: date | None) -> tuple[date, 
             status_code=422,
             detail=f"Date range too large ({span} days). Max is {_MAX_RANGE_DAYS} days.",
         )
+
+    # Per-tier cap. -1 = unlimited (we still respect _MAX_RANGE_DAYS).
+    if user is not None:
+        plan = effective_plan(user)
+        cap = get_cap(user, "daily_close_export_days")
+        if cap > 0 and span > cap:
+            tier_label = _PLAN_LABELS.get(plan, plan.title())
+            raise HTTPException(
+                status_code=402,  # Payment Required — distinct from 422
+                detail={
+                    "code": "plan_cap_exceeded",
+                    "message": (
+                        f"{tier_label} plan exports up to {cap} days. "
+                        f"Upgrade to Pro to export the full year."
+                    ),
+                    "cap_days": cap,
+                    "requested_days": span,
+                    "plan": plan,
+                },
+            )
+
     return from_date, to_date
 
 
@@ -954,11 +996,12 @@ def export_range_pdf(
 
     Layered defense (same shape as scan-report):
       L1 auth → L2 input bounds (max 366d) → L3 rate limit (5/min)
-      L4 tenant scope (user_id filter) → L5 plan: free; this is read-only
-      and trivially cheap, no Anthropic calls, so no quota beyond the
-      rate limit. L6 the file is streamed not stored — no audit row.
+      L4 tenant scope (user_id filter) → L5 plan cap (Free=7d /
+      Starter=31d / Pro=366d) — returns 402 with upgrade context
+      when exceeded. L6 the file is streamed not stored — no audit
+      row.
     """
-    f, t = _resolve_range(from_date, to_date)
+    f, t = _resolve_range(from_date, to_date, user=user)
     closes = _fetch_range_closes(
         db, user_id=user.id, from_date=f, to_date=t, branch_id=branch_id,
     )
@@ -1003,8 +1046,11 @@ def export_range_csv(
     """Multi-day daily-close CSV. UTF-8 + BOM + semicolon delimiter so
     Danish Excel opens it cleanly with Æ/Ø/Å intact. Encoded breakdown
     columns ("food:12400|drinks:5800") so the accountant can re-import
-    or pivot in Excel."""
-    f, t = _resolve_range(from_date, to_date)
+    or pivot in Excel.
+
+    Same plan-cap logic as the PDF endpoint — 402 with upgrade
+    context when over-tier."""
+    f, t = _resolve_range(from_date, to_date, user=user)
     closes = _fetch_range_closes(
         db, user_id=user.id, from_date=f, to_date=t, branch_id=branch_id,
     )

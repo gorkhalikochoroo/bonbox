@@ -105,9 +105,22 @@ export default function ProfilePage() {
       }
       setTimeout(() => setReverifyMsg(""), 5000);
     } catch (err) {
-      const detail = err?.response?.data?.detail || "Re-verify failed — try again";
-      setReverifyMsg(`⚠️ ${detail}`);
-      setTimeout(() => setReverifyMsg(""), 5000);
+      // The cooldown 429 returns a structured detail with a friendly
+      // wait-time message. Fall back to a generic string for other
+      // failure modes.
+      const inner = err?.response?.data?.detail;
+      let msg;
+      if (inner && typeof inner === "object" && inner.code === "reverify_cooldown") {
+        msg = inner.message;  // already includes the wait time
+      } else if (typeof inner === "string") {
+        msg = inner;
+      } else if (inner?.message) {
+        msg = inner.message;
+      } else {
+        msg = "Re-verify failed — try again";
+      }
+      setReverifyMsg(`⚠️ ${msg}`);
+      setTimeout(() => setReverifyMsg(""), 6000);
     } finally {
       setReverifying(false);
     }
