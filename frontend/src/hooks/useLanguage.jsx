@@ -1474,6 +1474,10 @@ const translations = {
     smartStaffingEditHint: "Fine-tune individual values from the Operating profile section below — the proposal above is what 'Looks right ✓' would save.",
     smartStaffingFineTune: "Fine-tune individual values below — these save independently from the card above.",
     smartStaffingHideAdvanced: "Hide advanced editor ↑",
+    // Native-iOS-only hint: Google login is hidden on iOS due to Apple
+    // guideline 4.8. This nudge tells web-Google-signup users how to
+    // bridge into the app via the existing "Forgot password" flow.
+    loginGoogleHintNative: "Signed up with Google on the web? Tap “Forgot password” above to set an app password — takes 30 seconds.",
     smartStaffingShowAdvanced: "Show advanced operating-profile editor",
     smartStaffingSaved: "Saved",
     smartStaffingSaveError: "Couldn't save.",
@@ -2994,6 +2998,8 @@ const translations = {
     smartStaffingEditHint: "Finjuster enkelte værdier i Driftsprofil-sektionen nedenfor — forslaget ovenfor er det, 'Gem disse timer' ville gemme.",
     smartStaffingFineTune: "Finjuster enkelte værdier nedenfor — disse gemmes uafhængigt af kortet ovenfor.",
     smartStaffingHideAdvanced: "Skjul avanceret editor ↑",
+    // Native-iOS-hint: Google login skjult pga. Apple guideline 4.8
+    loginGoogleHintNative: "Tilmeldt med Google på web? Tryk på “Glemt adgangskode” ovenfor for at sætte en app-adgangskode — tager 30 sekunder.",
     smartStaffingShowAdvanced: "Vis avanceret driftsprofil-editor",
     smartStaffingSaved: "Gemt",
     smartStaffingSaveError: "Kunne ikke gemme.",

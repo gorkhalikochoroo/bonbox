@@ -261,6 +261,22 @@ export default function LoginPage() {
               </button>
             </form>
 
+            {/* iOS-only hint for users who signed up via Google on web.
+                Apple's guideline 4.8 forces us to hide Google login on
+                native (would need Sign in with Apple alongside it),
+                which leaves Google-account users stranded — they have
+                an account but no password to type here. The "Forgot
+                password" flow ABOVE works for them (the backend stores
+                a random password on Google signup that they can reset
+                via email link) but they won't think to use it without
+                a hint. */}
+            {isNative && (
+              <p className="mt-4 text-center text-[12px] text-gray-500">
+                {t("loginGoogleHintNative") ||
+                  "Signed up with Google on the web? Tap “Forgot password” above to set an app password — takes 30 seconds."}
+              </p>
+            )}
+
             {hasGoogle && (
               <>
                 <div className="flex items-center gap-3 my-5">
