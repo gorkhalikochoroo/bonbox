@@ -606,8 +606,11 @@ def get_staffing_suggestion(
     service ALSO filters; cross-tenant branch_id silently 404s.
     """
     import uuid as _uuid
+    import logging as _logging
     from app.models.branch import Branch
     from app.services.staffing_inference import infer_staffing_profile
+
+    _log = _logging.getLogger("bonbox.business_profile.staffing_suggestion")
 
     bid = None
     if branch_id:
@@ -623,4 +626,30 @@ def get_staffing_suggestion(
         if not own:
             raise HTTPException(status_code=404, detail="Branch not found")
 
-    return infer_staffing_profile(db, user=user, branch_id=bid)
+    # Multi-layer fail-closed: the inference service is supposed to
+    # always return a complete shape, but in production a Postgres
+    # query stall, a malformed Sale.created_at, or any new edge case
+    # could throw. Catching unhandled exceptions here so the SmartCard
+    # never ends up showing the user a red "Couldn't load" box. Worst
+    # case they see the conservative low-confidence default. The real
+    # exception lands in stderr where the operator can spot it.
+    _SAFE_DEFAULT = {
+        "open_days_mask": "12345",
+        "operating_hours": {
+            "mon": "10:00-18:00", "tue": "10:00-18:00", "wed": "10:00-18:00",
+            "thu": "10:00-18:00", "fri": "10:00-18:00",
+            "sat": "closed", "sun": "closed",
+        },
+        "peak_windows": [],
+        "role_targets": [],
+        "confidence": "low",
+        "data_quality": {"days_observed": 0, "sales_observed": 0, "lookback_days": 60},
+        "reasoning": "Inference temporarily unavailable — using conservative defaults.",
+    }
+    try:
+        return infer_staffing_profile(db, user=user, branch_id=bid)
+    except Exception as exc:  # noqa: BLE001
+        _log.exception("staffing inference failed for user %s: %s", user.id, exc)
+        # Never propagate to a 5xx — the SmartCard's job is to be calm
+        # and dismissible, not to crash the whole profile page.
+        return _SAFE_DEFAULT
