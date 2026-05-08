@@ -52,9 +52,39 @@ from urllib.request import Request, urlopen
 # ─── Config ───────────────────────────────────────────────────────────
 API_URL = os.environ.get("BONBOX_API_URL", "https://bonbox-api.onrender.com/api")
 
-# Use env vars when running on a CI / scripted setup, prompt otherwise
-EMAIL = os.environ.get("BONBOX_EMAIL") or input("Demo email (e.g. demo@bonbox.dk): ").strip()
-PASSWORD = os.environ.get("BONBOX_PASSWORD") or getpass.getpass("Password: ")
+# Use env vars when running on a CI / scripted setup, prompt otherwise.
+# Both prompts loop until a non-empty value is given so accidentally
+# pressing Enter doesn't blow up at /auth/login with a 422.
+import re as _re
+
+def _prompt_email() -> str:
+    env = (os.environ.get("BONBOX_EMAIL") or "").strip()
+    if env:
+        return env
+    while True:
+        val = input("Demo email (e.g. demo@bonbox.dk): ").strip()
+        if not val:
+            print("  ⚠ Email can't be empty. Try again.")
+            continue
+        if not _re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", val):
+            print(f"  ⚠ '{val}' doesn't look like an email. Try again.")
+            continue
+        return val
+
+
+def _prompt_password() -> str:
+    env = os.environ.get("BONBOX_PASSWORD") or ""
+    if env:
+        return env
+    while True:
+        val = getpass.getpass("Password: ")
+        if val:
+            return val
+        print("  ⚠ Password can't be empty. Try again.")
+
+
+EMAIL = _prompt_email()
+PASSWORD = _prompt_password()
 
 # ─── Tunables ─────────────────────────────────────────────────────────
 HISTORY_DAYS = 90                  # 3 months of sales for trend visibility
