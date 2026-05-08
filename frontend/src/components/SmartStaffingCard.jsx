@@ -52,7 +52,7 @@ const DAY_LABELS = {
 };
 
 
-export default function SmartStaffingCard() {
+export default function SmartStaffingCard({ onEditClick }) {
   const { t, lang } = useLanguage();
   const { track } = useSmartTelemetry();
   const { show: showUndo, ToastUI } = useUndoToast();
@@ -62,7 +62,6 @@ export default function SmartStaffingCard() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [editing, setEditing] = useState(false);
 
   // Branch-aware: when the BranchSelector has an active branch, the
   // proposal queries only that branch's data. Refetches on branch
@@ -326,10 +325,10 @@ export default function SmartStaffingCard() {
         {/* Actions */}
         <div className="flex items-center justify-end gap-2 pt-1">
           <button
-            onClick={() => setEditing(!editing)}
+            onClick={() => onEditClick && onEditClick()}
             className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
           >
-            {editing ? (t("smartStaffingHideEdit") || "Hide edit") : (t("smartStaffingEdit") || "Edit details")}
+            {t("smartStaffingEdit") || "Edit details"}
           </button>
           <button
             onClick={acceptProposal}
@@ -339,15 +338,6 @@ export default function SmartStaffingCard() {
             {saving ? (t("saving") || "Saving…") : (t("smartStaffingSaveAction") || "Save these hours")}
           </button>
         </div>
-
-        {editing && (
-          <div className="border-t border-gray-100 dark:border-gray-700/60 pt-3">
-            <p className="text-[11px] text-gray-500 dark:text-gray-400">
-              {t("smartStaffingEditHint") ||
-                "Fine-tune individual values from the Operating profile section below — the proposal above is what 'Save these hours' would save."}
-            </p>
-          </div>
-        )}
       </div>
       {ToastUI}
     </>

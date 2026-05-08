@@ -28,6 +28,11 @@ export default function ProfilePage() {
   // GDPR: per-user analytics opt-out. Synced from /auth/me. When ON,
   // backend silently drops every event_log write for this user.
   const [analyticsOptOut, setAnalyticsOptOut] = useState(false);
+  // SmartStaffingCard's "Edit details" button toggles this — opens the
+  // OperatingProfileSection editor inline + scrolls into view. The
+  // separate <details> wrapper used to hide this affordance behind a
+  // collapsed summary that owners didn't find.
+  const [editorExpanded, setEditorExpanded] = useState(false);
   const [privacyMsg, setPrivacyMsg] = useState("");
   // Tax preferences live in /tax now (next to where they take effect),
   // so no local state for them here anymore — see TaxAutopilotPage.jsx.
@@ -397,16 +402,48 @@ export default function ProfilePage() {
       {/* Smart Staffing — inference-first: we watched their sales,
           here's what we see. One-tap confirm. The OperatingProfileSection
           below is the "edit details" power-user path; the simple card
-          handles the 80% case. */}
-      <SmartStaffingCard />
-      <details className="group">
-        <summary className="cursor-pointer text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 select-none px-1">
-          {t("smartStaffingShowAdvanced") || "Show advanced operating-profile editor"}
-        </summary>
-        <div className="mt-3">
+          handles the 80% case.
+
+          Wired up so the SmartStaffingCard's "Edit details" button
+          flips the expanded state directly — no more separate
+          <details> summary that owners couldn't find. They click
+          "Edit details" on the card → the form below smoothly
+          appears + scrolls into view. The toggle is React-controlled
+          so we can also auto-collapse after a save in future. */}
+      <SmartStaffingCard onEditClick={() => {
+        setEditorExpanded(true);
+        // Smooth scroll to the editor on the next tick after expand
+        setTimeout(() => {
+          document.getElementById("operating-profile-editor")?.scrollIntoView({
+            behavior: "smooth", block: "start",
+          });
+        }, 50);
+      }} />
+      {editorExpanded ? (
+        <div id="operating-profile-editor" className="mt-3">
+          <div className="flex items-center justify-between mb-2 px-1">
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {t("smartStaffingFineTune") || "Fine-tune individual values below — these save independently from the card above."}
+            </span>
+            <button
+              type="button"
+              onClick={() => setEditorExpanded(false)}
+              className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+            >
+              {t("smartStaffingHideAdvanced") || "Hide advanced editor ↑"}
+            </button>
+          </div>
           <OperatingProfileSection />
         </div>
-      </details>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setEditorExpanded(true)}
+          className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-1"
+        >
+          {t("smartStaffingShowAdvanced") || "Show advanced operating-profile editor"}
+        </button>
+      )}
 
       {/* Accountant Contact — pre-fills the "Send to accountant"
           button on the Daily Close range export. Optional. Saved
