@@ -6,6 +6,8 @@ import { useLanguage } from "../hooks/useLanguage";
 import { FadeIn } from "../components/AnimationKit";
 import usePushNotifications from "../hooks/usePushNotifications";
 import BusinessLookup, { countryFromCurrency } from "../components/BusinessLookup";
+import OperatingProfileSection from "../components/OperatingProfileSection";
+import SmartStaffingCard from "../components/SmartStaffingCard";
 import { resetAllTips } from "../components/DismissibleTip";
 
 export default function ProfilePage() {
@@ -391,6 +393,20 @@ export default function ProfilePage() {
           defaultCountry={countryFromCurrency(user?.currency)}
         />
       </div>
+
+      {/* Smart Staffing — inference-first: we watched their sales,
+          here's what we see. One-tap confirm. The OperatingProfileSection
+          below is the "edit details" power-user path; the simple card
+          handles the 80% case. */}
+      <SmartStaffingCard />
+      <details className="group">
+        <summary className="cursor-pointer text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 select-none px-1">
+          {t("smartStaffingShowAdvanced") || "Show advanced operating-profile editor"}
+        </summary>
+        <div className="mt-3">
+          <OperatingProfileSection />
+        </div>
+      </details>
 
       {/* Accountant Contact — pre-fills the "Send to accountant"
           button on the Daily Close range export. Optional. Saved

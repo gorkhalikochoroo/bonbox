@@ -579,6 +579,7 @@ export default function LandingPage() {
               { icon: "👨‍💼", titleKey: "landingFeature11Title", descKey: "landingFeature11Desc", accent: "from-teal-500/20 to-cyan-500/10", border: "border-teal-500/20 hover:border-teal-500/40" },
               { icon: "🧮", titleKey: "landingFeature12Title", descKey: "landingFeature12Desc", accent: "from-lime-500/20 to-green-500/10", border: "border-lime-500/20 hover:border-lime-500/40" },
               { icon: "🔄", titleKey: "landingFeature13Title", descKey: "landingFeature13Desc", accent: "from-sky-500/20 to-blue-500/10", border: "border-sky-500/20 hover:border-sky-500/40" },
+              { icon: "✨", titleKey: "landingFeature14Title", descKey: "landingFeature14Desc", accent: "from-emerald-500/20 to-teal-500/10", border: "border-emerald-500/20 hover:border-emerald-500/40" },
             ].map((f, i) => (
               <FadeIn key={f.titleKey} delay={i * 80}>
                 <div className="bg-white rounded-2xl p-6 border border-gray-200 hover:border-gray-300 transition-all duration-300 h-full group">
@@ -602,6 +603,7 @@ export default function LandingPage() {
                 t("landingTagWorkshop"), t("landingTagDailyClose"), t("landingTagMultiBiz"),
                 t("landingTagWineList"), t("landingTagScanBottle"), t("landingTagSommelier"),
                 t("landingTagStaffSchedule"), t("landingTagTipSplit"), t("landingTagPayrollPdf"), t("landingTagUnitConvert"),
+                t("landingTagSmartSetup"), t("landingTagAutoDetectTerminals"), t("landingTagDriftSuggestions"),
               ].map((f) => (
                 <span key={f} className="px-4 py-2 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-full hover:border-green-300 hover:text-green-700 transition">
                   {f}
@@ -725,6 +727,53 @@ export default function LandingPage() {
                 ))}
               </div>
               <p className="text-center text-teal-600 font-semibold text-sm mt-8">{t("landingStaffBottom")}</p>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+
+      {/* ── Smart Setup Spotlight ──
+          Communicates the inference-first promise: BonBox sets itself
+          up by watching your data instead of asking you to fill in
+          forms. Slots between Staff (manual ops) and How-it-works
+          (the close flow) so the visual rhythm goes:
+            "you do staff" → "we set up your business" → "you close" */}
+      <section className="py-20 sm:py-28 bg-gradient-to-b from-white via-emerald-50/40 to-white border-y border-gray-200/60">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
+          <FadeIn>
+            <div className="text-center mb-12">
+              <p className="text-emerald-600 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingSmartSetupTag")}</p>
+              <h2 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">
+                {t("landingSmartSetupTitle1")}
+                <br />
+                <span className="text-emerald-600">{t("landingSmartSetupTitle2")}</span>
+              </h2>
+              <p className="mt-5 text-gray-600 text-lg max-w-xl mx-auto">
+                {t("landingSmartSetupSub")}
+              </p>
+            </div>
+          </FadeIn>
+
+          <FadeIn delay={100}>
+            <div className="bg-white border border-gray-200 rounded-2xl p-6 sm:p-10 shadow-sm">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6 text-center">
+                {[
+                  { icon: "🌙", titleKey: "landingSmartSetupStep1", subKey: "landingSmartSetupStep1Sub", color: "text-gray-900" },
+                  { icon: "👀", titleKey: "landingSmartSetupStep2", subKey: "landingSmartSetupStep2Sub", color: "text-gray-900" },
+                  { icon: "💡", titleKey: "landingSmartSetupStep3", subKey: "landingSmartSetupStep3Sub", color: "text-emerald-600" },
+                  { icon: "✓",  titleKey: "landingSmartSetupStep4", subKey: "landingSmartSetupStep4Sub", color: "text-emerald-600" },
+                ].map((step, i) => (
+                  <div key={step.titleKey} className="relative">
+                    <div className="text-4xl mb-3">{step.icon}</div>
+                    <p className={`font-bold text-sm ${step.color}`}>{t(step.titleKey)}</p>
+                    <p className="text-gray-600 text-xs mt-1">{t(step.subKey)}</p>
+                    {i < 3 && (
+                      <span className="hidden sm:block absolute top-8 -right-3 sm:-right-4 text-emerald-500 text-lg font-bold">&#8594;</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className="text-center text-emerald-600 font-semibold text-sm mt-8">{t("landingSmartSetupBottom")}</p>
             </div>
           </FadeIn>
         </div>

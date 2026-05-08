@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
+import SmartTerminalsCard from "../components/SmartTerminalsCard";
 import {
   buildShareMessage,
   buildShareTitle,
@@ -50,6 +51,9 @@ export default function MultiTerminalClosePage() {
   const [scanError, setScanError] = useState("");
   const [sending, setSending] = useState(false);
   const [doneSummary, setDoneSummary] = useState(null);
+  // Sanity-check confirm gate: if /aggregate flagged today's total as
+  // a major deviation, we hold the send() until the owner confirms.
+  const [pendingSanity, setPendingSanity] = useState(null);  // null | sanity payload
   const fileInputRefs = useRef({});
 
   useEffect(() => { fetchTerminals(); }, []);
@@ -143,7 +147,19 @@ export default function MultiTerminalClosePage() {
 
   /* ─── Step 4: commit each extraction + finalize ───────────────── */
 
-  async function send() {
+  async function send(skipSanityCheck = false) {
+    // Live anomaly guard: if /aggregate flagged today's total as a
+    // sharp deviation from the same-weekday baseline, hold the send
+    // until the owner confirms via the dialog. Skipped when the dialog
+    // calls send(true) after their explicit "Yes, send" tap. Free
+    // users get `gated: true` from the server — dialog never fires
+    // for them (this is an ai_anomaly_detection feature, Starter+).
+    const sanity = aggregated?.sanity_check;
+    if (!skipSanityCheck && sanity?.flagged && !sanity?.gated) {
+      setPendingSanity(sanity);
+      return;
+    }
+    setPendingSanity(null);
     setSending(true);
     setScanError("");
     try {
@@ -198,22 +214,59 @@ export default function MultiTerminalClosePage() {
   }
 
   if (terminals.length === 0) {
+    /* ─── Smart Terminals — inference-first setup, May 2026 ──────────
+     *
+     * Replaces the "go to settings" dead-end with: scan first, we
+     * propose your terminals from the OCR'd labels, one tap to confirm.
+     * After save, we route the already-scanned slips into the freshly-
+     * created terminals (by receipt_label match) so the closer can jump
+     * straight to manual entry without re-uploading.
+     *
+     * Power-user fallback: a small link to /terminals stays visible for
+     * folks who want the explicit form (multi-branch setups, etc.).
+     */
+    const handleSmartSetupDone = ({ terminals: created, scans: smartScans }) => {
+      setTerminals(created);
+      // Route each pre-scanned slip into its newly-created terminal by
+      // matching the slip's session.terminal label against each terminal's
+      // receipt_label (case-insensitive). Server already auto-routed and
+      // returned `auto_routed_terminal_id` if the lookup succeeded — but
+      // those scans pre-date the bulk-create, so the server returned null.
+      // We re-route client-side so the closer never re-uploads.
+      const norm = (s) => (s || "").toString().trim().toLowerCase().replace(/[\s\-_.,;:#]+/g, "");
+      const byLabel = new Map();
+      for (const term of created) {
+        const k = norm(term.receipt_label || term.name);
+        if (k) byLabel.set(k, term.id);
+      }
+      const routed = {};
+      for (const sc of (smartScans || [])) {
+        const lbl = sc?.data?.session?.terminal;
+        const tid = byLabel.get(norm(lbl));
+        if (tid) routed[tid] = sc;
+      }
+      setScans(routed);
+    };
     return (
-      <div className="px-4 sm:px-6 py-12 max-w-2xl mx-auto text-center">
-        <div className="text-5xl mb-4">💳</div>
-        <h1 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
-          {t("multiCloseNoTerminalsTitle") || "Set up your terminals first"}
-        </h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 max-w-md mx-auto">
-          {t("multiCloseNoTerminalsBody") ||
-            "The multi-terminal close needs at least one POS station configured. Pop over to Terminals and add yours."}
+      <div className="px-4 sm:px-6 py-6 max-w-3xl mx-auto">
+        <FadeIn>
+          <div className="mb-5">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              🌙 {t("multiClose") || "Multi-terminal close"}
+            </h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              {t("smartTerminalsFirstTimeIntro") ||
+                "Looks like this is your first multi-terminal close. Let's set it up the easy way."}
+            </p>
+          </div>
+        </FadeIn>
+        <SmartTerminalsCard onComplete={handleSmartSetupDone} />
+        <p className="text-center text-[11px] text-gray-400 mt-5">
+          {t("smartTerminalsAdvancedHint") || "Prefer to set up by hand?"}{" "}
+          <a href="/terminals" className="text-emerald-600 hover:underline">
+            {t("smartTerminalsAdvancedLink") || "Open Terminals settings"}
+          </a>
         </p>
-        <a
-          href="/terminals"
-          className="inline-block px-5 py-2.5 bg-[#22c55e] hover:bg-[#16a34a] text-white text-sm font-semibold rounded-lg transition"
-        >
-          {t("goToTerminals") || "Open Terminals settings"}
-        </a>
       </div>
     );
   }
@@ -431,6 +484,49 @@ export default function MultiTerminalClosePage() {
             sending={sending}
           />
         </FadeIn>
+      )}
+
+      {/* ─── Sanity-check confirm dialog ─────────────────────────
+          Shown when /aggregate flagged today's total as far from the
+          owner's same-weekday baseline. Soft, dismissable — they can
+          send anyway after reading the message. */}
+      {pendingSanity && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setPendingSanity(null)}
+        >
+          <div
+            className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full p-5 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div>
+              <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+                {t("sanityCheckTitle") || "Quick double-check"}
+              </h2>
+              <p className="text-sm text-gray-600 dark:text-gray-300 mt-2">
+                {pendingSanity.message}
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setPendingSanity(null)}
+                className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+              >
+                {t("sanityCheckLetMeCheck") || "Let me check"}
+              </button>
+              <button
+                type="button"
+                onClick={() => send(true)}
+                className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition"
+              >
+                {t("sanityCheckSendAnyway") || "Yes, send"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ─── STEP 4: done + share ───────────────────────────── */}

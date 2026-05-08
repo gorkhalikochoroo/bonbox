@@ -39,7 +39,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, inventory_smart_import, search as search_router, modules as modules_router, ai as ai_router
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, inventory_smart_import, smart_drift, support, search as search_router, modules as modules_router, ai as ai_router
 from app.database import engine, Base, get_db
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -478,6 +478,75 @@ _migrations = [
     "CREATE INDEX IF NOT EXISTS ix_shift_swap_user_status ON shift_swap_requests (user_id, status)",
     "CREATE INDEX IF NOT EXISTS ix_shift_swap_from_staff ON shift_swap_requests (from_staff_id)",
     "CREATE INDEX IF NOT EXISTS ix_shift_swap_to_staff ON shift_swap_requests (to_staff_id)",
+    # ── Migration 021: Smart Staffing operating profile + role targets ──
+    # Three additive columns on business_profiles, plus a new
+    # staff_role_targets table. All idempotent.
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS open_days_mask VARCHAR(7)",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS operating_hours_json TEXT",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS peak_windows_json TEXT",
+    """CREATE TABLE IF NOT EXISTS staff_role_targets (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id),
+        role VARCHAR(50) NOT NULL,
+        default_count NUMERIC(4,1) NOT NULL DEFAULT 1.0,
+        notes VARCHAR(200),
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_staff_role_target_user_role UNIQUE (user_id, role)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_staff_role_target_user ON staff_role_targets (user_id)",
+    # ── Migration 022: Smart Inventory consumption metadata ──
+    # Four additive columns on inventory_items. Items without these
+    # set stay on the legacy quantity-tracking path; auto-decrement
+    # only activates when consumption_pattern is set.
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS consumption_pattern VARCHAR(20)",
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS consumption_unit VARCHAR(20)",
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS serving_size NUMERIC(12,4)",
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS usage_keywords TEXT",
+    # ── Migration 023: Smart Terminals — per-sale terminal scoping ──
+    # Optional terminal_id on the sales table. Auto-routed by
+    # terminal_inference.find_terminal_for_label() when the sale source
+    # carries a "Term 2"-style label (POS export rows, kasserapport
+    # ingest). NULL is fine for single-terminal venues. Index on the
+    # column so per-terminal revenue reports stay fast at scale.
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS terminal_id VARCHAR(36)",
+    "CREATE INDEX IF NOT EXISTS ix_sales_user_terminal ON sales (user_id, terminal_id)",
+    # ── Migration 024: Smart drift findings ──
+    # Surfaces "things have changed" suggestions detected by the weekly
+    # re-inference job. Idempotent — running the scan twice doesn't
+    # duplicate the banner row. Indexed on (user_id, kind, dismissed_at)
+    # so the dashboard "open findings" query stays cheap.
+    """CREATE TABLE IF NOT EXISTS smart_drift_findings (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        kind VARCHAR(20) NOT NULL,
+        title VARCHAR(140) NOT NULL,
+        payload_json TEXT,
+        summary TEXT,
+        detected_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        dismissed_at TIMESTAMP,
+        applied_at TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_smart_drift_user_kind_open ON smart_drift_findings (user_id, kind, dismissed_at)",
+    # ── Migration 025: Support triage inbox ──
+    # In-app support requests routed to the founder. Lifecycle:
+    # open → responded → closed. Indexed for the admin's "open queue"
+    # query and the owner's "my tickets" page.
+    """CREATE TABLE IF NOT EXISTS support_tickets (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        kind VARCHAR(40) NOT NULL DEFAULT 'other',
+        subject VARCHAR(140) NOT NULL,
+        body TEXT NOT NULL,
+        context TEXT,
+        status VARCHAR(20) NOT NULL DEFAULT 'open',
+        response_text TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        responded_at TIMESTAMP,
+        closed_at TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_support_user_created ON support_tickets (user_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_support_open_status ON support_tickets (status, created_at)",
 ]
 
 def _run_migrations():
@@ -1286,6 +1355,8 @@ app.include_router(billing.router, prefix="/api/billing", tags=["Billing"])
 app.include_router(ai_router.router, prefix="/api/ai", tags=["AI"])
 app.include_router(kasserapport.router, prefix="/api/kasserapport", tags=["Kasserapport"])
 app.include_router(terminal.router, prefix="/api/terminals", tags=["Terminals"])
+app.include_router(smart_drift.router, prefix="/api/smart-drift", tags=["SmartDrift"])
+app.include_router(support.router, prefix="/api/support", tags=["Support"])
 app.include_router(output_channel.router, prefix="/api/output-channels", tags=["OutputChannels"])
 app.include_router(modules_router.router, prefix="/api/modules", tags=["Modules"])
 # Smart inventory import — paste/CSV/Excel/photo → AI parse + categorize

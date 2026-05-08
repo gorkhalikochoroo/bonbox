@@ -18,6 +18,17 @@ class Sale(Base):
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
     branch_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("branches.id", ondelete="SET NULL"), nullable=True)
+    # Optional terminal scoping. When the venue has multiple POS stations
+    # (Mirabelle has 4) each sale can be tagged with which terminal rang
+    # it up — enables per-terminal revenue / staff productivity reports.
+    # Auto-routed by terminal_inference.find_terminal_for_label() when
+    # the sale source carries a terminal label (POS exports, kasserapport
+    # ingest). NULL is fine — most owners are single-terminal and never
+    # set this. ondelete=SET NULL so deleting a terminal preserves the
+    # historical sale.
+    terminal_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("terminals.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
     date: Mapped[date] = mapped_column(Date)
     amount: Mapped[float] = mapped_column(Numeric(12, 2))
     payment_method: Mapped[str] = mapped_column(String(20), default="mixed")

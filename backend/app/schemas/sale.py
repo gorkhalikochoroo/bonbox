@@ -47,6 +47,13 @@ class SaleCreate(BaseModel):
     is_void: bool = False
     is_manager_void: bool = False
     is_error_correct: bool = False
+    # Multi-terminal scoping. Two ways in:
+    #   1. terminal_id — explicit (router validates ownership)
+    #   2. terminal_label — string from a POS export ("Term 2"); the
+    #      router runs find_terminal_for_label() and auto-tags the sale
+    # If both supplied, terminal_id wins. Both NULL = single-terminal venue.
+    terminal_id: uuid.UUID | None = None
+    terminal_label: str | None = None
 
     @field_validator("payment_method", mode="before")
     @classmethod

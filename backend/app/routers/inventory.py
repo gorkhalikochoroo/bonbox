@@ -2,6 +2,7 @@ from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy import func, case
@@ -984,3 +985,156 @@ def load_template(
     for item in created:
         db.refresh(item)
     return created
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Smart Inventory consumption metadata
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Multi-layer:
+#   L1 — get_current_user gates every endpoint
+#   L2 — service layer enforces tenant scoping on every read + write
+#   L3 — service validates pattern / unit / serving / keywords; one
+#        invalid field rejects the whole call (no partial state)
+
+from app.services.inventory_consumption_service import (
+    InventoryConsumptionError as _ICError,
+    find_matching_items_for_sale as _find_matching_items,
+    predict_days_until_depletion as _predict_depletion,
+    update_consumption_metadata as _update_consumption,
+)
+
+
+class _ConsumptionUpdateBody(BaseModel):
+    consumption_pattern: str | None = None
+    consumption_unit: str | None = None
+    serving_size: float | None = None
+    usage_keywords: str | None = None
+
+
+class _ConsumptionResponse(BaseModel):
+    id: str
+    consumption_pattern: str | None
+    consumption_unit: str | None
+    serving_size: float | None
+    usage_keywords: str | None
+    days_until_depletion: float | None
+
+
+def _consumption_response(item: InventoryItem, db: Session) -> _ConsumptionResponse:
+    return _ConsumptionResponse(
+        id=str(item.id),
+        consumption_pattern=item.consumption_pattern,
+        consumption_unit=item.consumption_unit,
+        serving_size=float(item.serving_size) if item.serving_size is not None else None,
+        usage_keywords=item.usage_keywords,
+        days_until_depletion=_predict_depletion(db, item=item),
+    )
+
+
+@router.patch("/{item_id}/consumption", response_model=_ConsumptionResponse)
+def update_inventory_consumption(
+    item_id: str,
+    body: _ConsumptionUpdateBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Owner sets/updates consumption metadata on an inventory item.
+
+    Pass `null` for any field to leave it unchanged. Pass `""` (empty
+    string) to clear it. Service enforces tenant scope + validation.
+    """
+    import uuid as _uuid
+    try:
+        item_uuid = _uuid.UUID(item_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid item_id")
+    try:
+        item = _update_consumption(
+            db,
+            owner_id=user.id,
+            item_id=item_uuid,
+            consumption_pattern=body.consumption_pattern,
+            consumption_unit=body.consumption_unit,
+            serving_size=body.serving_size,
+            usage_keywords=body.usage_keywords,
+        )
+    except _ICError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return _consumption_response(item, db)
+
+
+@router.get("/{item_id}/consumption", response_model=_ConsumptionResponse)
+def get_inventory_consumption(
+    item_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Read consumption metadata + current depletion estimate for one
+    item. Used by the inventory edit modal to render the existing
+    config + the prediction freshly each open."""
+    import uuid as _uuid
+    try:
+        item_uuid = _uuid.UUID(item_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid item_id")
+    item = db.query(InventoryItem).filter(
+        InventoryItem.id == item_uuid,
+        InventoryItem.user_id == user.id,  # tenant gate
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+    return _consumption_response(item, db)
+
+
+@router.get("/match-sale")
+def match_sale_to_items(
+    sale_item_name: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Preview helper: 'these are the items your current keywords
+    would auto-decrement for this sale name'. Useful while the owner
+    is editing keywords so they can see the impact before saving."""
+    if not sale_item_name or len(sale_item_name) > 200:
+        raise HTTPException(status_code=422, detail="sale_item_name out of bounds")
+    matches = _find_matching_items(
+        db, owner_id=user.id, sale_item_name=sale_item_name,
+    )
+    return [
+        {
+            "id": str(m.id),
+            "name": m.name,
+            "consumption_pattern": m.consumption_pattern,
+            "serving_size": float(m.serving_size) if m.serving_size is not None else None,
+            "consumption_unit": m.consumption_unit,
+        }
+        for m in matches
+    ]
+
+
+@router.get("/{item_id}/usage-suggestion")
+def get_inventory_usage_suggestion(
+    item_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """The "we recognise this item" proposal. Looks up the item's
+    name in a curated per-vertical recipe dictionary, cross-checks
+    keywords against recent sales, returns a complete consumption
+    proposal. Owner reviews → taps "looks right" → frontend PATCHes
+    the existing /{id}/consumption endpoint with the proposed shape.
+    """
+    import uuid as _uuid
+    try:
+        item_uuid = _uuid.UUID(item_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid item_id")
+    item = db.query(InventoryItem).filter(
+        InventoryItem.id == item_uuid,
+        InventoryItem.user_id == user.id,  # tenant gate
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+    from app.services.inventory_inference import infer_inventory_consumption
+    return infer_inventory_consumption(db, user=user, item=item)

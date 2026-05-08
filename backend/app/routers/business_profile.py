@@ -412,3 +412,215 @@ def save_profile(
     db.commit()
     db.refresh(profile)
     return profile
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Smart Staffing — operating profile + role targets
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Multi-layer:
+#   L1 — get_current_user gates every endpoint (no public reads of role
+#        catalog because it depends on the user's business_type)
+#   L2 — service layer enforces tenant scoping (user_id == owner.id)
+#        on every read/mutation
+#   L3 — pydantic schemas bound the input shape; service has stricter
+#        domain validation (regex, enum-like role check, etc.)
+
+from typing import Any as _Any
+from app.services.business_operating_service import (
+    OperatingProfileError as _OPError,
+    bulk_upsert_role_targets as _bulk_upsert_role_targets,
+    delete_role_target as _delete_role_target,
+    get_or_create_profile as _get_or_create_profile,
+    list_role_targets as _list_role_targets,
+    parse_operating_hours as _parse_operating_hours,
+    parse_peak_windows as _parse_peak_windows,
+    role_catalog_for as _role_catalog_for,
+    upsert_operating_profile as _upsert_operating_profile,
+    upsert_role_target as _upsert_role_target,
+)
+
+
+class _OperatingProfileBody(BaseModel):
+    open_days_mask: str | None = None
+    operating_hours: dict[str, str] | None = None  # {"mon": "10:00-22:00", ...}
+    peak_windows: list[dict[str, _Any]] | None = None  # [{day,start,end,label}, ...]
+
+
+class _OperatingProfileResponse(BaseModel):
+    open_days_mask: str | None
+    operating_hours: dict[str, str]
+    peak_windows: list[dict[str, _Any]]
+
+
+class _RoleTargetBody(BaseModel):
+    role: str
+    default_count: float = 1.0
+    notes: str | None = None
+
+
+class _RoleTargetBulkBody(BaseModel):
+    targets: list[_RoleTargetBody]
+
+
+class _RoleTargetResponse(BaseModel):
+    id: str
+    role: str
+    default_count: float
+    notes: str | None
+
+
+@router.get("/operating-profile", response_model=_OperatingProfileResponse)
+def get_operating_profile(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Owner reads their operating profile (open days + hours + peak
+    windows). Returns an empty shell when never set — frontend renders
+    the onboarding form against a known shape."""
+    profile = _get_or_create_profile(db, owner=user)
+    return _OperatingProfileResponse(
+        open_days_mask=profile.open_days_mask,
+        operating_hours=_parse_operating_hours(profile),
+        peak_windows=_parse_peak_windows(profile),
+    )
+
+
+@router.put("/operating-profile", response_model=_OperatingProfileResponse)
+def update_operating_profile(
+    body: _OperatingProfileBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Owner saves the operating profile during onboarding (or edits
+    later from Profile page). All three fields validated independently;
+    one bad value rejects the whole call (no half-applied state)."""
+    try:
+        profile = _upsert_operating_profile(
+            db,
+            owner_id=user.id,
+            open_days_mask=body.open_days_mask,
+            operating_hours=body.operating_hours,
+            peak_windows=body.peak_windows,
+        )
+    except _OPError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return _OperatingProfileResponse(
+        open_days_mask=profile.open_days_mask,
+        operating_hours=_parse_operating_hours(profile),
+        peak_windows=_parse_peak_windows(profile),
+    )
+
+
+@router.get("/role-catalog")
+def get_role_catalog(
+    user: User = Depends(get_current_user),
+):
+    """Returns the suggested role list for THIS owner's vertical.
+    Auth-required so we can read user.business_type — also keeps the
+    catalog out of unauthenticated scrape paths."""
+    catalog = _role_catalog_for(user.business_type)
+    return {
+        "vertical": (user.business_type or "restaurant").lower(),
+        "roles": catalog,
+    }
+
+
+@router.get("/staff-role-targets", response_model=list[_RoleTargetResponse])
+def get_role_targets(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Owner's configured role targets — what they answered during
+    onboarding (or edited later). Tenant-scoped via owner_id at the
+    service layer."""
+    rows = _list_role_targets(db, owner_id=user.id)
+    return [
+        _RoleTargetResponse(
+            id=str(r.id),
+            role=r.role,
+            default_count=float(r.default_count),
+            notes=r.notes,
+        )
+        for r in rows
+    ]
+
+
+@router.put("/staff-role-targets", response_model=list[_RoleTargetResponse])
+def upsert_role_targets_bulk(
+    body: _RoleTargetBulkBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Bulk upsert — onboarding submits the whole role list at once.
+    Service layer pre-validates everything BEFORE writing so a bad
+    entry rejects the whole batch atomically."""
+    try:
+        rows = _bulk_upsert_role_targets(
+            db,
+            owner_id=user.id,
+            targets=[t.model_dump() for t in body.targets],
+        )
+    except _OPError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return [
+        _RoleTargetResponse(
+            id=str(r.id),
+            role=r.role,
+            default_count=float(r.default_count),
+            notes=r.notes,
+        )
+        for r in rows
+    ]
+
+
+@router.delete("/staff-role-targets/{role}", status_code=204)
+def delete_role_target_by_role(
+    role: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Owner removes a role target. Service layer validates `role`
+    against the catalog so a 422 fires for unknown identifiers
+    instead of a silent 204."""
+    try:
+        _delete_role_target(db, owner_id=user.id, role=role)
+    except _OPError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.get("/staffing-suggestion")
+def get_staffing_suggestion(
+    branch_id: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """The "we watched your data, here's what we see" proposal.
+    Pure inference from existing sales + staff data; never writes.
+
+    Branch-aware (May 2026): if `branch_id` is supplied (e.g. via the
+    BranchSelector on a multi-location Pro account), the inference
+    only sees that branch's data — so a per-location proposal is
+    accurate, not blended across all 3 locations. Defense:
+    branch ownership is re-checked here even though the inference
+    service ALSO filters; cross-tenant branch_id silently 404s.
+    """
+    import uuid as _uuid
+    from app.models.branch import Branch
+    from app.services.staffing_inference import infer_staffing_profile
+
+    bid = None
+    if branch_id:
+        try:
+            bid = _uuid.UUID(branch_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid branch_id")
+        own = (
+            db.query(Branch.id)
+            .filter(Branch.id == bid, Branch.user_id == user.id)
+            .first()
+        )
+        if not own:
+            raise HTTPException(status_code=404, detail="Branch not found")
+
+    return infer_staffing_profile(db, user=user, branch_id=bid)

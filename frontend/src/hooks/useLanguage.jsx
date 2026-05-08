@@ -184,6 +184,8 @@ const translations = {
     featFreeKasse: "Snap kasserapport — AI reads it in 6 seconds",
     featFreeSend: "Send to owner / accountant (PDF + Danish SMS)",
     featFreeCopilot: "30 AI Copilot questions / day + voice input",
+    featFreeSmartSetup: "Smart Setup — auto-detect terminals, hours, roles from your data",
+    featFreeDriftSuggestions: "Drift suggestions when your business pattern changes",
     featFree200Sales: "200 sales logged / month",
     featFree100Expenses: "100 expenses logged / month",
     featFree30OCR: "30 receipt OCR scans / month",
@@ -197,16 +199,17 @@ const translations = {
     featStarter1Biz3Users: "Up to 1 business, 3 users with role permissions",
     featStarterSendRevisor: "Send-to-accountant automation (monthly digest)",
     featStarterAnomaly: "AI anomaly detection on sales & wages",
+    featStarterCloseGuard: "Live anomaly guard at close — flags a misread amount before it's saved",
     featStarterEmailSupport: "Email support",
     // Pro tier
     featProHeader: "Everything in Starter, plus:",
-    featPro3Biz5Users: "Up to 3 businesses, 5 users",
+    featPro3Biz5Users: "Up to 3 locations, 5 users — owner + 4 staff with roles",
     featProCrossOutlet: "Cross-outlet daily close consolidation",
     featProPredictive: "Predictive AI: revenue forecast, churn risk, stockout alerts",
     featProPlaybooks: "Per-owner pattern detection with personalized recommendations",
     featProAllVerticals: "ALL vertical modules at once (Bar Pour + Workshop + etc.)",
     featBankImport: "Bank import (multi-bank, multi-currency)",
-    featProPrioritySupport: "Priority email support",
+    featProPrioritySupport: "Priority email support — first-response queue ([PRIORITY] tag on tickets)",
     // Reassure row
     pricingReassureNoCard: "No card for trial",
     pricingReassureNoCardSub: "14 days of Pro, no payment info needed.",
@@ -1059,10 +1062,26 @@ const translations = {
     landingTagWorkshop: "Workshop / Garage", landingTagDailyClose: "Daily Close / Kasserapport", landingTagMultiBiz: "Multi-Business",
     landingTagWineList: "Wine List", landingTagScanBottle: "Scan Bottle", landingTagSommelier: "AI Sommelier",
     landingTagStaffSchedule: "Staff Scheduling", landingTagTipSplit: "Tip Splitting", landingTagPayrollPdf: "Payroll PDF", landingTagUnitConvert: "Unit Conversion",
+    landingTagSmartSetup: "Smart Setup", landingTagAutoDetectTerminals: "Auto-detect Terminals", landingTagDriftSuggestions: "Drift Suggestions",
     // New feature cards
     landingFeature11Title: "Staff Management", landingFeature11Desc: "Schedule shifts, track hours, split tips fairly, and export payroll PDFs. Everything your team needs in one place.",
     landingFeature12Title: "Daily Close Sync", landingFeature12Desc: "End-of-day cash reconciliation auto-fills from your actual sales, expenses, and cash transactions. No manual math.",
     landingFeature13Title: "Smart Unit Conversion", landingFeature13Desc: "Stock in dozens, sell in pieces. Buy boxes, sell singles. BonBox auto-converts units so your inventory stays accurate.",
+    landingFeature14Title: "Smart Setup", landingFeature14Desc: "Open days, peak hours, role targets, terminals — we read them off your sales and slips. One tap to confirm, no forms to fill.",
+    // Smart Setup spotlight section
+    landingSmartSetupTag: "Zero-config setup",
+    landingSmartSetupTitle1: "Set up by being yourself.",
+    landingSmartSetupTitle2: "We watch. You confirm.",
+    landingSmartSetupSub: "Most owners are configured in under a minute. The dashboard already knows your business when you land on it.",
+    landingSmartSetupStep1: "Close your day",
+    landingSmartSetupStep1Sub: "Snap kasserapports as usual",
+    landingSmartSetupStep2: "We watch",
+    landingSmartSetupStep2Sub: "Read terminal labels, find peaks, count covers",
+    landingSmartSetupStep3: "We propose",
+    landingSmartSetupStep3Sub: "Hours, roles, terminals — pre-filled from your data",
+    landingSmartSetupStep4: "You confirm",
+    landingSmartSetupStep4Sub: "One tap. Drift suggestions appear as patterns shift.",
+    landingSmartSetupBottom: "Most owners are set up in under 60 seconds.",
     // Staff spotlight section
     landingStaffTag: "Team management", landingStaffTitle1: "Schedule. Track. Pay.", landingStaffTitle2: "All in one place.",
     landingStaffStep1: "Schedule Shifts", landingStaffStep1Sub: "Drag & drop weekly grid",
@@ -1407,6 +1426,157 @@ const translations = {
     swapShiftGives: "gives",
 
     // ───────────────────────────────────────────────────────────
+    // Smart Staffing operating profile (Profile page section)
+    // ───────────────────────────────────────────────────────────
+    operatingProfileTitle: "Operating profile",
+    operatingProfileSubtitle: "Tells the AI how your business runs so it can suggest schedules + spot anomalies.",
+    operatingProfileOpenDays: "Days open",
+    operatingProfileHours: "Hours per day",
+    operatingProfileClosed: "Closed",
+    operatingProfileSetHours: "set hours",
+    operatingProfilePickDaysFirst: "Pick days above to set hours.",
+    operatingProfileStaffPerShift: "Typical staff per shift",
+    operatingProfileSaved: "Saved",
+    operatingProfileSaveError: "Couldn't save. Try again.",
+    saving: "Saving…",
+    decrease: "Decrease",
+    increase: "Increase",
+
+    // ───────────────────────────────────────────────────────────
+    // Smart Inventory consumption modal
+    // ───────────────────────────────────────────────────────────
+    inventoryConsumptionTitle: "Smart usage",
+    inventoryConsumptionPattern: "How is this used?",
+    inventoryConsumptionPick: "pick one",
+    inventoryConsumptionServingSize: "Serving size",
+    inventoryConsumptionUnit: "Unit",
+    inventoryConsumptionExample: "Example: 20 g of coffee beans per espresso → serving size 20, unit g",
+    inventoryConsumptionKeywords: "Sale keywords (comma-separated)",
+    inventoryConsumptionKeywordsHelp: "When a sale's name contains any of these, this item's stock auto-decrements. Min 2 chars per keyword.",
+    inventoryConsumptionPreviewLabel: "Test against a sale name",
+    inventoryConsumptionTest: "Test",
+    inventoryConsumptionMatchHint: "Would match: {names}",
+    inventoryConsumptionDaysLeft: "~{n} days of stock at current pace",
+
+    // ───────────────────────────────────────────────────────────
+    // Smart Staffing — inference-first proposal card (May 2026 rebuild)
+    // ───────────────────────────────────────────────────────────
+    smartStaffingTitle: "How your business runs",
+    smartStaffingSubtitle: "We watched your last {n} days of sales. Looks right?",
+    smartStaffingOpenDays: "Open days",
+    smartStaffingHours: "Hours per day",
+    smartStaffingPeak: "Peak windows",
+    smartStaffingRoleTargets: "Typical staff per shift",
+    smartStaffingBasedOn: "Based on {sales} sales across {days} days.",
+    smartStaffingLooksRight: "Looks right ✓",
+    smartStaffingEdit: "Edit details",
+    smartStaffingHideEdit: "Hide edit",
+    smartStaffingEditHint: "Fine-tune individual values from the Operating profile section below — the proposal above is what 'Looks right ✓' would save.",
+    smartStaffingShowAdvanced: "Show advanced operating-profile editor",
+    smartStaffingSaved: "Saved",
+    smartStaffingSaveError: "Couldn't save.",
+    smartStaffingLoadError: "Couldn't load suggestion.",
+    confidenceHigh: "High confidence",
+    confidenceMedium: "Medium confidence",
+    confidenceLow: "Low confidence",
+
+    // Smart Inventory — suggestion-first modal copy
+    inventoryConsumptionRecognised: "We recognise this item",
+    inventoryConsumptionShape: "Shape",
+    inventoryConsumptionMatches: "Matches",
+    inventoryConsumptionWouldCatch: "Would catch",
+    inventoryConsumptionPerEach: "per {kind}",
+    inventoryConsumptionLooksRight: "Looks right ✓",
+    inventoryConsumptionUnknownItem: "We don't recognise this — edit details",
+
+    // ───────────────────────────────────────────────────────────
+    // Smart Terminals — inference-first POS terminal setup (May 2026)
+    // ───────────────────────────────────────────────────────────
+    smartTerminalsTitle: "Set up your terminals — the easy way",
+    smartTerminalsScanIntro: "Snap one kasserapport from each terminal you have. We'll read the labels off the slips and propose your setup.",
+    smartTerminalsReassure: "Don't have all of them tonight? Scan what you have — you can add more later.",
+    smartTerminalsPickPhotos: "Pick kasserapport photos",
+    smartTerminalsPickHint: "JPEG, PNG, HEIC. Up to 12 MB each.",
+    smartTerminalsScanned: "Scanned",
+    smartTerminalsLabelMissing: "(no label found)",
+    smartTerminalsContinue: "Continue",
+    smartTerminalsConfirmTitle: "Here's what we found",
+    smartTerminalsEmptyTitle: "We couldn't read terminal labels",
+    smartTerminalsEmptyBody: "The slips didn't have a clear terminal name. Want one default terminal to start with — you can rename it later.",
+    smartTerminalsFoundN: "Found {labels} label{labelPlural} across {slips} slip{slipPlural}",
+    smartTerminalsSlipSeen: "slip seen",
+    smartTerminalsSlipsSeen: "slips seen",
+    smartTerminalsAlreadySetUp: "already set up",
+    smartTerminalsEditRow: "Edit",
+    smartTerminalsBranch: "Branch",
+    smartTerminalsBranchPick: "Pick a branch…",
+    smartTerminalsSaveN: "Save {n} terminal{plural}",
+    smartTerminalsSavedToast: "Terminals saved",
+    smartTerminalsSaved: "Saved.",
+    smartTerminalsSaveFailed: "Couldn't save terminals.",
+    smartTerminalsInferFailed: "Couldn't propose terminals.",
+    smartTerminalsNoScans: "Add at least one kasserapport photo first.",
+    smartTerminalsFirstTimeIntro: "Looks like this is your first multi-terminal close. Let's set it up the easy way.",
+    smartTerminalsAdvancedHint: "Prefer to set up by hand?",
+    smartTerminalsAdvancedLink: "Open Terminals settings",
+    // Contextual save buttons (replaces generic "Looks right ✓")
+    smartStaffingSaveAction: "Save these hours",
+    smartStaffingSavedToast: "Saved your hours and roles",
+    inventoryConsumptionSaveAction: "Save · {kind}",
+    inventoryConsumptionSavedToast: "Updated this item's usage",
+    // Smart Drift banner
+    smartDriftNotNow: "Not now",
+    smartDriftUpdate: "Update",
+    smartDriftDismissFailed: "Couldn't dismiss.",
+    smartDriftApplyFailed: "Couldn't open.",
+    // Sanity-check confirm dialog (multi-terminal close)
+    sanityCheckTitle: "Quick double-check",
+    sanityCheckLetMeCheck: "Let me check",
+    sanityCheckSendAnyway: "Yes, send",
+    // First-run wizard
+    firstRunWelcome: "Welcome to BonBox",
+    firstRunTitle: "Quick setup",
+    firstRunSubtitle: "60-second setup so the dashboard already knows your business when you land on it.",
+    firstRunStep1Body: "Looks like you signed up as a {type}. We've pre-loaded sensible defaults for that. You can change anything later.",
+    firstRunStep2Body: "Pick the pattern closest to your typical week. We'll fine-tune as your sales come in.",
+    firstRunStep3Body: "Two ways to start. Pick whichever fits tonight.",
+    firstRunOptionScan: "Scan one kasserapport now",
+    firstRunOptionScanHint: "We'll read your terminal labels off the slip and finish setup automatically.",
+    firstRunOptionLater: "I'll set up later",
+    firstRunOptionLaterHint: "Skip for now — we'll show smart suggestions as your sales come in.",
+    firstRunSkip: "Skip",
+    firstRunNext: "Next",
+    firstRunSaveFailed: "Couldn't save.",
+    // Support chip & inbox
+    supportChipAria: "Get help / send feedback",
+    supportTitle: "How can we help?",
+    supportSubtitle: "Goes straight to the founder. We'll reply by email.",
+    supportKind: "What kind?",
+    supportSubject: "Subject",
+    supportSubjectPlaceholder: "One-line summary",
+    supportMessage: "Tell us more",
+    supportMessagePlaceholder: "What were you doing? What did you expect? Screenshots welcome via email.",
+    supportSend: "Send",
+    sending: "Sending…",
+    supportSentToast: "Sent — we'll reply by email",
+    supportSendFailed: "Couldn't send. Try again.",
+    supportNeedSubjectBody: "Subject and message are both required.",
+    // Branch summary card (multi-location at-a-glance)
+    branchSummaryTitle: "Your locations this month",
+    branchSummaryTotal: "Total {amount}",
+    branchSummaryProfit: "profit",
+    branchSummaryActive: "scoped to this branch",
+    branchSummaryHint: "Tap a location to scope the Smart cards below to it.",
+    branchDefaultBadge: "default",
+    // Smart Language welcome toast
+    smartLangPicked: "We picked {lang} {source}.",
+    smartLangSourceBrowser: "from your browser",
+    smartLangSourceCurrency: "from your currency",
+    smartLangSwitchEn: "Switch to English",
+    remove: "Remove",
+    done: "Done",
+
+    // ───────────────────────────────────────────────────────────
     // Global search command palette (⌘K)
     // ───────────────────────────────────────────────────────────
     search: "Search",
@@ -1580,6 +1750,8 @@ const translations = {
     featFreeKasse: "Snap kasserapport — AI læser den på 6 sekunder",
     featFreeSend: "Send til ejer / revisor (PDF + dansk SMS)",
     featFreeCopilot: "30 AI Copilot-spørgsmål / dag + stemmeinput",
+    featFreeSmartSetup: "Smart Opsætning — auto-opdager terminaler, timer og roller fra dine data",
+    featFreeDriftSuggestions: "Drift-forslag når dit forretningsmønster ændrer sig",
     featFree200Sales: "200 salg logget / måned",
     featFree100Expenses: "100 udgifter logget / måned",
     featFree30OCR: "30 kvitterings-OCR-scanninger / måned",
@@ -1592,15 +1764,16 @@ const translations = {
     featStarter1Biz3Users: "Op til 1 virksomhed, 3 brugere med rolletilladelser",
     featStarterSendRevisor: "Send-til-revisor automatisering (månedlig oversigt)",
     featStarterAnomaly: "AI-anomalidetektion på salg og løn",
+    featStarterCloseGuard: "Live anomali-tjek ved afslutning — markerer fejlaflæste beløb før det gemmes",
     featStarterEmailSupport: "E-mailsupport",
     featProHeader: "Alt i Starter, plus:",
-    featPro3Biz5Users: "Op til 3 virksomheder, 5 brugere",
+    featPro3Biz5Users: "Op til 3 lokationer, 5 brugere — ejer + 4 medarbejdere med roller",
     featProCrossOutlet: "Konsolideret daglig lukning på tværs af lokationer",
     featProPredictive: "Forudsigende AI: omsætningsforecast, churn-risiko, varelagervarsler",
     featProPlaybooks: "Per-ejer mønsterdetektion med personlige anbefalinger",
     featProAllVerticals: "ALLE vertikalmoduler på én gang (Bar Pour + Workshop + osv.)",
     featBankImport: "Bankimport (multi-bank, multi-valuta)",
-    featProPrioritySupport: "Prioriteret e-mailsupport",
+    featProPrioritySupport: "Prioriteret e-mailsupport — først-i-køen ([PRIORITY]-tag på tickets)",
     pricingReassureNoCard: "Intet kort til prøveperiode",
     pricingReassureNoCardSub: "14 dages Pro, ingen betalingsoplysninger nødvendige.",
     pricingReassureDenmark: "Bygget i Danmark",
@@ -2432,9 +2605,25 @@ const translations = {
     landingTagWorkshop: "Værksted / Garage", landingTagDailyClose: "Daglig Lukning / Kasserapport", landingTagMultiBiz: "Multi-Forretning",
     landingTagWineList: "Vinkort", landingTagScanBottle: "Scan Flaske", landingTagSommelier: "AI Sommelier",
     landingTagStaffSchedule: "Vagtplan", landingTagTipSplit: "Drikkepenge-deling", landingTagPayrollPdf: "Løn PDF", landingTagUnitConvert: "Enhedskonvertering",
+    landingTagSmartSetup: "Smart Opsætning", landingTagAutoDetectTerminals: "Auto-opdagede terminaler", landingTagDriftSuggestions: "Drift-forslag",
     landingFeature11Title: "Personalestyring", landingFeature11Desc: "Planlæg vagter, registrer timer, fordel drikkepenge retfærdigt og eksportér lønsedler som PDF. Alt dit team har brug for.",
     landingFeature12Title: "Daglig Lukning Sync", landingFeature12Desc: "Kasseopgørelse udfyldes automatisk fra salg, udgifter og kontanttransaktioner. Ingen manuel regning.",
     landingFeature13Title: "Smart Enhedskonvertering", landingFeature13Desc: "Lager i dusiner, sælg i styk. Køb kasser, sælg enkeltvis. BonBox konverterer automatisk.",
+    landingFeature14Title: "Smart Opsætning", landingFeature14Desc: "Åbningsdage, spidsbelastning, personalebehov, terminaler — vi læser dem fra dine salg og slips. Ét tryk for at bekræfte, ingen formularer.",
+    // Smart Opsætning spotlight
+    landingSmartSetupTag: "Zero-config opsætning",
+    landingSmartSetupTitle1: "Sæt op ved at være dig selv.",
+    landingSmartSetupTitle2: "Vi observerer. Du bekræfter.",
+    landingSmartSetupSub: "De fleste ejere er sat op på under et minut. Dashboardet kender allerede din forretning når du lander på det.",
+    landingSmartSetupStep1: "Luk dagen",
+    landingSmartSetupStep1Sub: "Tag kasserapport-billeder som normalt",
+    landingSmartSetupStep2: "Vi observerer",
+    landingSmartSetupStep2Sub: "Læser terminalnavne, finder spidsbelastning, tæller gæster",
+    landingSmartSetupStep3: "Vi foreslår",
+    landingSmartSetupStep3Sub: "Timer, roller, terminaler — forudfyldt fra dine data",
+    landingSmartSetupStep4: "Du bekræfter",
+    landingSmartSetupStep4Sub: "Ét tryk. Drift-forslag dukker op når mønstre skifter.",
+    landingSmartSetupBottom: "De fleste ejere er sat op på under 60 sekunder.",
     landingStaffTag: "Teamstyring", landingStaffTitle1: "Planlæg. Registrer. Betal.", landingStaffTitle2: "Alt samlet ét sted.",
     landingStaffStep1: "Planlæg vagter", landingStaffStep1Sub: "Træk & slip ugeoversigt",
     landingStaffStep2: "Registrer timer", landingStaffStep2Sub: "Stem ind/ud eller auto-bekræft",
@@ -2744,6 +2933,153 @@ const translations = {
     swapConfirmDeny: "Bekræft afvis",
     swapDenyReasonPlaceholder: "Hvorfor? (valgfrit, personalet ser dette)",
     swapShiftGives: "giver",
+
+    // Smart Staffing operating profile
+    operatingProfileTitle: "Driftsprofil",
+    operatingProfileSubtitle: "Fortæller AI'en hvordan din virksomhed kører, så den kan foreslå vagter og opdage afvigelser.",
+    operatingProfileOpenDays: "Åbne dage",
+    operatingProfileHours: "Åbningstider per dag",
+    operatingProfileClosed: "Lukket",
+    operatingProfileSetHours: "indtast tider",
+    operatingProfilePickDaysFirst: "Vælg dage ovenfor for at sætte tider.",
+    operatingProfileStaffPerShift: "Typisk personale per vagt",
+    operatingProfileSaved: "Gemt",
+    operatingProfileSaveError: "Kunne ikke gemme. Prøv igen.",
+    saving: "Gemmer…",
+    decrease: "Reducer",
+    increase: "Øg",
+
+    // Smart Inventory consumption modal
+    inventoryConsumptionTitle: "Smart forbrug",
+    inventoryConsumptionPattern: "Hvordan bruges denne?",
+    inventoryConsumptionPick: "vælg en",
+    inventoryConsumptionServingSize: "Portionsstørrelse",
+    inventoryConsumptionUnit: "Enhed",
+    inventoryConsumptionExample: "Eksempel: 20 g kaffe per espresso → portionsstørrelse 20, enhed g",
+    inventoryConsumptionKeywords: "Salgsord (kommasepareret)",
+    inventoryConsumptionKeywordsHelp: "Når et salgs navn indeholder et af disse, trækkes denne vares lager automatisk. Min 2 tegn per ord.",
+    inventoryConsumptionPreviewLabel: "Test mod et salgsnavn",
+    inventoryConsumptionTest: "Test",
+    inventoryConsumptionMatchHint: "Matcher: {names}",
+    inventoryConsumptionDaysLeft: "~{n} dages lager ved nuværende tempo",
+
+    // ───────────────────────────────────────────────────────────
+    // Smart Staffing — forslagsbaseret kort (maj 2026)
+    // ───────────────────────────────────────────────────────────
+    smartStaffingTitle: "Sådan kører din forretning",
+    smartStaffingSubtitle: "Vi har set på dine seneste {n} dages salg. Ser det rigtigt ud?",
+    smartStaffingOpenDays: "Åbningsdage",
+    smartStaffingHours: "Timer per dag",
+    smartStaffingPeak: "Spidsbelastning",
+    smartStaffingRoleTargets: "Typisk personale per vagt",
+    smartStaffingBasedOn: "Baseret på {sales} salg over {days} dage.",
+    smartStaffingLooksRight: "Det passer ✓",
+    smartStaffingEdit: "Rediger detaljer",
+    smartStaffingHideEdit: "Skjul redigering",
+    smartStaffingEditHint: "Finjuster enkelte værdier i Driftsprofil-sektionen nedenfor — forslaget ovenfor er det, 'Gem disse timer' ville gemme.",
+    smartStaffingShowAdvanced: "Vis avanceret driftsprofil-editor",
+    smartStaffingSaved: "Gemt",
+    smartStaffingSaveError: "Kunne ikke gemme.",
+    smartStaffingLoadError: "Kunne ikke hente forslag.",
+    confidenceHigh: "Høj sikkerhed",
+    confidenceMedium: "Mellem sikkerhed",
+    confidenceLow: "Lav sikkerhed",
+
+    // Smart Inventory — forslagsbaseret modal-tekst
+    inventoryConsumptionRecognised: "Vi genkender denne vare",
+    inventoryConsumptionShape: "Type",
+    inventoryConsumptionMatches: "Matcher",
+    inventoryConsumptionWouldCatch: "Ville fange",
+    inventoryConsumptionPerEach: "per {kind}",
+    inventoryConsumptionLooksRight: "Det passer ✓",
+    inventoryConsumptionUnknownItem: "Vi genkender ikke denne — rediger detaljer",
+
+    // ───────────────────────────────────────────────────────────
+    // Smart Terminals — forslagsbaseret POS-opsætning (maj 2026)
+    // ───────────────────────────────────────────────────────────
+    smartTerminalsTitle: "Sæt dine terminaler op — den nemme måde",
+    smartTerminalsScanIntro: "Tag ét kasserapport-billede fra hver terminal. Vi læser navnene på slipsene og foreslår din opsætning.",
+    smartTerminalsReassure: "Har du ikke dem alle i aften? Scan dem du har — du kan tilføje flere senere.",
+    smartTerminalsPickPhotos: "Vælg kasserapport-billeder",
+    smartTerminalsPickHint: "JPEG, PNG, HEIC. Op til 12 MB hver.",
+    smartTerminalsScanned: "Scannet",
+    smartTerminalsLabelMissing: "(intet navn fundet)",
+    smartTerminalsContinue: "Fortsæt",
+    smartTerminalsConfirmTitle: "Her er hvad vi fandt",
+    smartTerminalsEmptyTitle: "Vi kunne ikke læse terminalnavnene",
+    smartTerminalsEmptyBody: "Slipsene havde ikke et tydeligt terminalnavn. Vil du have én standardterminal at starte med — du kan altid omdøbe senere.",
+    smartTerminalsFoundN: "Fandt {labels} navn{labelPlural} på tværs af {slips} slip{slipPlural}",
+    smartTerminalsSlipSeen: "slip set",
+    smartTerminalsSlipsSeen: "slip set",
+    smartTerminalsAlreadySetUp: "allerede oprettet",
+    smartTerminalsEditRow: "Rediger",
+    smartTerminalsBranch: "Afdeling",
+    smartTerminalsBranchPick: "Vælg en afdeling…",
+    smartTerminalsSaveN: "Gem {n} terminal{plural}",
+    smartTerminalsSavedToast: "Terminaler gemt",
+    smartTerminalsSaved: "Gemt.",
+    smartTerminalsSaveFailed: "Kunne ikke gemme terminaler.",
+    smartTerminalsInferFailed: "Kunne ikke foreslå terminaler.",
+    smartTerminalsNoScans: "Tilføj mindst ét kasserapport-billede først.",
+    smartTerminalsFirstTimeIntro: "Det ser ud til at være din første multi-terminal afslutning. Lad os sætte den op nemt.",
+    smartTerminalsAdvancedHint: "Vil du hellere oprette manuelt?",
+    smartTerminalsAdvancedLink: "Åbn Terminal-indstillinger",
+    // Kontekst-knapper (erstatter generisk "Ser rigtigt ud ✓")
+    smartStaffingSaveAction: "Gem disse timer",
+    smartStaffingSavedToast: "Timer og roller gemt",
+    inventoryConsumptionSaveAction: "Gem · {kind}",
+    inventoryConsumptionSavedToast: "Opdateret",
+    // Smart Drift-banner
+    smartDriftNotNow: "Ikke nu",
+    smartDriftUpdate: "Opdater",
+    smartDriftDismissFailed: "Kunne ikke afvise.",
+    smartDriftApplyFailed: "Kunne ikke åbne.",
+    // Bekræftelses-dialog (multi-terminal afslutning)
+    sanityCheckTitle: "Hurtigt tjek",
+    sanityCheckLetMeCheck: "Lad mig tjekke",
+    sanityCheckSendAnyway: "Ja, send",
+    // Første-gangs wizard
+    firstRunWelcome: "Velkommen til BonBox",
+    firstRunTitle: "Hurtig opsætning",
+    firstRunSubtitle: "60 sekunders opsætning så dashboardet allerede kender din forretning når du lander på det.",
+    firstRunStep1Body: "Du tilmeldte dig som {type}. Vi har forudfyldt fornuftige standarder. Du kan altid ændre senere.",
+    firstRunStep2Body: "Vælg det mønster der ligner din typiske uge mest. Vi finjusterer efterhånden som dine salg kommer ind.",
+    firstRunStep3Body: "To måder at starte på. Vælg det der passer i aften.",
+    firstRunOptionScan: "Scan en kasserapport nu",
+    firstRunOptionScanHint: "Vi læser dine terminalnavne fra slipsen og afslutter opsætningen automatisk.",
+    firstRunOptionLater: "Jeg sætter op senere",
+    firstRunOptionLaterHint: "Spring over for nu — vi viser smarte forslag når dine salg kommer ind.",
+    firstRunSkip: "Spring over",
+    firstRunNext: "Næste",
+    firstRunSaveFailed: "Kunne ikke gemme.",
+    // Support-chip & indbakke
+    supportChipAria: "Få hjælp / send feedback",
+    supportTitle: "Hvordan kan vi hjælpe?",
+    supportSubtitle: "Går direkte til grundlæggeren. Vi svarer per email.",
+    supportKind: "Hvad drejer det sig om?",
+    supportSubject: "Emne",
+    supportSubjectPlaceholder: "Kort overskrift",
+    supportMessage: "Fortæl os mere",
+    supportMessagePlaceholder: "Hvad lavede du? Hvad forventede du? Screenshots er velkomne per email.",
+    supportSend: "Send",
+    sending: "Sender…",
+    supportSentToast: "Sendt — vi svarer per email",
+    supportSendFailed: "Kunne ikke sende. Prøv igen.",
+    supportNeedSubjectBody: "Emne og besked er begge påkrævet.",
+    // Filial-oversigt (multi-lokation)
+    branchSummaryTitle: "Dine lokationer i denne måned",
+    branchSummaryTotal: "Total {amount}",
+    branchSummaryProfit: "profit",
+    branchSummaryActive: "scopet til denne filial",
+    branchSummaryHint: "Tryk på en lokation for at scope Smart-kortene nedenfor til den.",
+    branchDefaultBadge: "standard",
+    // Smart Language velkomst-toast
+    smartLangPicked: "Vi valgte {lang} {source}.",
+    smartLangSourceBrowser: "fra din browser",
+    smartLangSourceCurrency: "fra din valuta",
+    smartLangSwitchEn: "Skift til engelsk",
+    remove: "Fjern",
+    done: "Færdig",
 
     // Global search command palette (⌘K)
     search: "Søg",
@@ -3941,8 +4277,99 @@ export function getLangForCurrency(currencyCode) {
   return CURRENCY_LANG_MAP[currencyCode] || "en";
 }
 
+
+// ─── Smart Language auto-detect (May 2026) ────────────────────────────
+//
+// Rule order on first visit (cleanest "we figure it out" UX):
+//
+//   1. localStorage("lang")           → user picked once before; respect
+//   2. navigator.language → mapped     → browser locale matches a supported
+//                                         language (en, da, np, vi, th, tr)
+//   3. localStorage("bonbox_currency") → currency hint from earlier signup
+//                                         flow (DKK→da, NPR→np, etc.)
+//   4. "en"                           → safe fallback
+//
+// We ONLY auto-pick on first visit — once "lang" is in localStorage, we
+// trust the user's explicit choice. Auto-picks are flagged via
+// `bonbox_lang_auto_picked` so the welcome toast can offer "switch back".
+//
+// Map browser locale to the 6 supported languages. Falls through to null
+// when the locale isn't supported (caller falls to currency hint).
+const SUPPORTED = new Set(["en", "da", "np", "vi", "th", "tr"]);
+const BROWSER_LANG_MAP = {
+  // Danish & Faroese (Faroese owners often run DK ops)
+  "da": "da", "da-dk": "da", "fo": "da",
+  // English defaults
+  "en": "en", "en-us": "en", "en-gb": "en", "en-ie": "en", "en-au": "en", "en-nz": "en",
+  // Nepali
+  "ne": "np", "ne-np": "np", "np": "np",
+  // Vietnamese
+  "vi": "vi", "vi-vn": "vi",
+  // Thai
+  "th": "th", "th-th": "th",
+  // Turkish
+  "tr": "tr", "tr-tr": "tr",
+};
+
+function detectLanguageFromBrowser() {
+  if (typeof navigator === "undefined") return null;
+  // navigator.languages is the prioritised list; navigator.language is
+  // the primary. Try every entry until one maps to a supported lang.
+  const candidates = []
+    .concat(Array.isArray(navigator.languages) ? navigator.languages : [])
+    .concat(navigator.language ? [navigator.language] : []);
+  for (const raw of candidates) {
+    if (!raw) continue;
+    const lower = String(raw).toLowerCase();
+    if (BROWSER_LANG_MAP[lower]) return BROWSER_LANG_MAP[lower];
+    // Fall back to the primary subtag — "da-FO" → "da"
+    const primary = lower.split("-")[0];
+    if (BROWSER_LANG_MAP[primary]) return BROWSER_LANG_MAP[primary];
+  }
+  return null;
+}
+
+function detectLanguageFromCurrencyHint() {
+  if (typeof localStorage === "undefined") return null;
+  const ccy = localStorage.getItem("bonbox_currency");
+  if (!ccy) return null;
+  const mapped = CURRENCY_LANG_MAP[ccy];
+  return mapped && SUPPORTED.has(mapped) ? mapped : null;
+}
+
+/** Public: resolves the best initial language. Used by LanguageProvider
+ *  on first mount AND exported so onboarding/signup flows can pre-warm
+ *  the chunk for the detected language before the user lands. */
+export function detectInitialLanguage() {
+  if (typeof localStorage !== "undefined") {
+    const stored = localStorage.getItem("lang");
+    if (stored && SUPPORTED.has(stored)) return { lang: stored, source: "stored" };
+  }
+  const fromBrowser = detectLanguageFromBrowser();
+  if (fromBrowser) return { lang: fromBrowser, source: "browser" };
+  const fromCurrency = detectLanguageFromCurrencyHint();
+  if (fromCurrency) return { lang: fromCurrency, source: "currency" };
+  return { lang: "en", source: "fallback" };
+}
+
+
 export function LanguageProvider({ children }) {
-  const [lang, setLangState] = useState(() => localStorage.getItem("lang") || "en");
+  const [lang, setLangState] = useState(() => {
+    const detected = detectInitialLanguage();
+    // First-visit auto-pick: persist the result so future loads skip
+    // detection AND mark it as auto-picked so the welcome toast can
+    // offer "switch back to English". User-explicit picks (via the
+    // language selector) clear the auto-pick flag.
+    if (detected.source !== "stored" && typeof localStorage !== "undefined") {
+      try {
+        localStorage.setItem("lang", detected.lang);
+        if (detected.source === "browser" || detected.source === "currency") {
+          localStorage.setItem("bonbox_lang_auto_picked", detected.source);
+        }
+      } catch { /* private mode etc — silent */ }
+    }
+    return detected.lang;
+  });
   // `loaded` mirrors the `translations` dict but as state — lets
   // React re-render when a lazy locale finishes downloading.
   // Starts with the static EN + DA entries; lazy locales (de/fr/es/
@@ -3980,7 +4407,12 @@ export function LanguageProvider({ children }) {
 
   const setLang = useCallback((code) => {
     setLangState(code);
-    localStorage.setItem("lang", code);
+    try {
+      localStorage.setItem("lang", code);
+      // User explicitly picked → not auto-anymore. Clear the flag so
+      // the welcome-toast suppression logic doesn't keep nagging.
+      localStorage.removeItem("bonbox_lang_auto_picked");
+    } catch { /* private mode — silent */ }
     if (LAZY_LOADERS[code] && !loaded[code]) {
       // Fire-and-forget — user sees EN until chunk lands, then UI
       // re-renders into the chosen locale.

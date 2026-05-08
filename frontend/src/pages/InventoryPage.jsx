@@ -7,6 +7,7 @@ import { displayCurrency } from "../utils/currency";
 import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
 import SmartImportModal from "../components/SmartImportModal";
+import InventoryConsumptionModal from "../components/InventoryConsumptionModal";
 
 const TEMPLATES = [
   // Food & Drink
@@ -69,6 +70,10 @@ export default function InventoryPage() {
   const [success, setSuccess] = useState("");
   const [editId, setEditId] = useState(null);
   const [editData, setEditData] = useState({});
+  // Smart-usage modal state — null = closed, otherwise the item being
+  // configured. One shared modal across all rows; opening it for a
+  // different item rebuilds its internal state via the `itemId` key.
+  const [consumptionModalItem, setConsumptionModalItem] = useState(null);
   const [adjustId, setAdjustId] = useState(null);
   const [adjustQty, setAdjustQty] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -1083,6 +1088,16 @@ export default function InventoryPage() {
                             {item.pour_size > 0 && (
                               <button onClick={() => { setPourModal(item); setPourCount(1); }} className="bg-amber-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-amber-600 min-w-[48px] min-h-[32px]">{t("pour")}</button>
                             )}
+                            {/* Smart usage — opens the consumption-config modal so
+                                owner can configure auto-decrement per sale */}
+                            <button
+                              onClick={() => setConsumptionModalItem(item)}
+                              title={t("inventoryConsumptionTitle") || "Smart usage"}
+                              aria-label={t("inventoryConsumptionTitle") || "Smart usage"}
+                              className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-emerald-50 dark:bg-emerald-900/30 hover:bg-emerald-100 dark:hover:bg-emerald-800/40 text-emerald-700 dark:text-emerald-300 text-base transition"
+                            >
+                              🧪
+                            </button>
                             <button onClick={() => startEdit(item)} className="bg-blue-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-blue-600 min-w-[48px] min-h-[32px]">{t("edit")}</button>
                             {deleteConfirm === item.id ? (
                               <span className="inline-flex items-center gap-1.5 bg-red-50 dark:bg-red-900/20 px-2 py-1.5 rounded-lg">
@@ -1259,6 +1274,17 @@ export default function InventoryPage() {
         </div>
       )}
       <style>{`@keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }`}</style>
+
+      {/* Smart-usage consumption modal — single instance shared across
+          rows. Re-mounts on item change via the `key` prop so its
+          internal state always reflects the right item. */}
+      <InventoryConsumptionModal
+        key={consumptionModalItem?.id || "none"}
+        open={!!consumptionModalItem}
+        onClose={() => setConsumptionModalItem(null)}
+        itemId={consumptionModalItem?.id}
+        itemName={consumptionModalItem?.name}
+      />
     </div>
   );
 }

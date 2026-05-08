@@ -17,6 +17,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -27,6 +28,11 @@ from app.models.terminal import Terminal
 from app.models.user import User
 from app.schemas.terminal import TerminalCreate, TerminalResponse, TerminalUpdate
 from app.services.auth import get_current_user
+from app.services.terminal_inference import (
+    TerminalInferenceError,
+    bulk_create_terminals,
+    infer_terminals_from_extractions,
+)
 from app.utils.time import utc_now
 
 logger = logging.getLogger("bonbox.terminal_router")
@@ -190,3 +196,101 @@ def delete_terminal(
     term.updated_at = utc_now()
     db.commit()
     return  # 204 No Content
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Smart Terminals — inference-first setup (May 2026)
+#
+# Replaces the configuration-heavy "first set up your terminals, THEN
+# close" flow with: scan a few kasserapports and we propose the terminals
+# from the OCR'd labels. Confirm with one tap. Mirror of the
+# SmartStaffingCard pattern.
+#
+# Both endpoints are auth-gated and tenant-scoped. The /infer endpoint
+# is read-only — it returns a proposal but writes nothing. The
+# /bulk-create endpoint is the only writer, atomic, capped, and re-
+# validates all proposals before any insert.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class InferTerminalsBody(BaseModel):
+    """Optional whitelist of recent extraction IDs. If omitted, the
+    service walks the most recent extractions itself."""
+    extraction_ids: list[uuid.UUID] | None = None
+
+
+@router.post("/infer")
+def infer_terminals(
+    body: InferTerminalsBody | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Read-only — propose terminals from recent kasserapport scans.
+
+    The service does its own tenant filtering on extraction_ids so a
+    forged ID from another owner's account silently disappears (it
+    won't match `user_id == user.id` in the query).
+
+    Returns the same shape as /api/business/staffing-suggestion and
+    /api/inventory/{id}/usage-suggestion: { proposals, confidence,
+    data_quality, reasoning, existing_terminals }.
+    """
+    extraction_ids = (body.extraction_ids if body else None) or None
+    proposal = infer_terminals_from_extractions(
+        db, user=user, extraction_ids=extraction_ids
+    )
+    return proposal
+
+
+class BulkTerminalProposal(BaseModel):
+    """One row of the bulk-create body. Mirrors TerminalCreate but
+    every field has a default so the SmartTerminalsCard can send the
+    proposal verbatim from /infer without re-shaping."""
+    name: str = Field(..., min_length=1, max_length=80)
+    receipt_label: str | None = Field(None, max_length=40)
+    display_order: int = Field(0, ge=0, le=999)
+    accepts_dankort: bool = True
+    accepts_mobilepay: bool = True
+    accepts_amex: bool = False
+
+
+class BulkCreateBody(BaseModel):
+    """Body of POST /api/terminals/bulk-create."""
+    branch_id: uuid.UUID | None = None
+    terminals: list[BulkTerminalProposal]
+
+
+@router.post("/bulk-create", response_model=list[TerminalResponse], status_code=201)
+def bulk_create(
+    body: BulkCreateBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Atomically create N terminals from a confirmed proposal.
+
+    Defense layers:
+      • Pydantic enforces per-item shape (name length, flag types).
+      • Service layer pre-validates all entries (cap check, branch
+        ownership, redundant field bounds) BEFORE writing any row.
+      • If anything fails, the whole batch rolls back — no half-applied
+        state.
+
+    Translation:
+      Service raises TerminalInferenceError → 422 with the reason.
+      Anything else → 500 (logged).
+    """
+    try:
+        created = bulk_create_terminals(
+            db,
+            user=user,
+            proposals=[p.model_dump() for p in body.terminals],
+            branch_id=body.branch_id,
+        )
+    except TerminalInferenceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("bulk_create failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Could not create terminals") from exc
+    return created

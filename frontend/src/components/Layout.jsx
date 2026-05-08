@@ -18,6 +18,8 @@ import { useKeyboardAvoidance } from "../hooks/useKeyboardAvoidance";
 // Lazy-load heavy floating widgets — only parsed when opened
 const QuickAdd = lazy(() => import("./QuickAdd"));
 const BonBoxAgent = lazy(() => import("./BonBoxAgent"));
+const SupportChip = lazy(() => import("./SupportChip"));
+const SmartLanguageToast = lazy(() => import("./SmartLanguageToast"));
 // Soft-error banner is part of the multi-layer defense — listens for graceful
 // backend errors so a single failing endpoint never blanks the whole page.
 const SoftErrorBanner = lazy(() => import("./SoftErrorBanner"));
@@ -700,8 +702,18 @@ export default function Layout() {
         <Suspense fallback={null}>
           <QuickAdd />
           <BonBoxAgent />
+          {/* SupportChip — bottom-left "?" so the founder hears
+              from owners before they churn. */}
+          <SupportChip />
         </Suspense>
       )}
+
+      {/* Smart Language toast — fires once if we auto-picked the
+          language from browser/currency on first visit. Self-suppresses
+          via localStorage after first dismiss. */}
+      <Suspense fallback={null}>
+        <SmartLanguageToast />
+      </Suspense>
 
       {/* Global search palette — mounted always but only fetches its
           chunk when actually opened (lazy import). Available via

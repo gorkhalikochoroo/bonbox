@@ -70,5 +70,34 @@ class BusinessProfile(Base):
     # split.
     status_flags: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # ── Smart Staffing operating profile (May 2026) ──
+    # Powers the AI demand forecast + Smart Staffing onboarding.
+    # All three fields are owner-set during onboarding (or skipped — they
+    # default to None and the AI forecast falls back to historical-only
+    # heuristics). They're informational hints, never security-critical:
+    # an attacker setting `open_days_mask = "1234567"` only changes the
+    # owner's OWN forecast hints. No cross-tenant impact.
+    #
+    # open_days_mask — string of "1234567" digits indicating which days
+    #   of the week the business is open. "1" = Mon ... "7" = Sun. So
+    #   "12345" = Mon-Fri only; "1234567" = always open. Stored as a
+    #   string for portability (PG bit type isn't worth the migration
+    #   complexity). Validated server-side: only digits 1-7, no dupes,
+    #   length 0-7.
+    open_days_mask: Mapped[str | None] = mapped_column(String(7), nullable=True)
+    # operating_hours_json — per-day open/close times. JSON-as-text so
+    # SQLite and Postgres both work. Schema (validated at the service
+    # layer):
+    #   {"mon":"10:00-22:00", "tue":"10:00-22:00", ..., "sun":"closed"}
+    # Days marked "closed" still appear with that literal value rather
+    # than being omitted, so the UI can distinguish "closed today" from
+    # "haven't configured yet". Capped at 500 chars at the schema layer.
+    operating_hours_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # peak_windows_json — array of {day, start, end, label} hints for
+    # the AI demand forecast ("Friday 18:00-22:00 = peak"). Optional —
+    # forecast falls back to inferring peak from sales history when
+    # unset. Capped at 1000 chars.
+    peak_windows_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)

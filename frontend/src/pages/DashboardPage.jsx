@@ -15,6 +15,9 @@ import Onboarding from "../components/Onboarding";
 import DailyBriefCard from "../components/DailyBriefCard";
 import SickCallNotificationCard from "../components/SickCallNotificationCard";
 import SwapRequestNotificationCard from "../components/SwapRequestNotificationCard";
+import SmartDriftBanner from "../components/SmartDriftBanner";
+import FirstRunWizard from "../components/FirstRunWizard";
+import BranchSummaryCard from "../components/BranchSummaryCard";
 import SmartSaleInput from "../components/SmartSaleInput";
 import AnomalyAlertsCard from "../components/AnomalyAlertsCard";
 import DismissibleTip from "../components/DismissibleTip";
@@ -1411,6 +1414,23 @@ export default function DashboardPage() {
              sidebar TrialChip — gives a specific, honest reason to
              lock founding pricing before regular kicks in. ── */}
         <TrialFinalStretchTip />
+
+        {/* ── FIRST-RUN WIZARD — guided 60-second setup for brand-new
+            accounts. Self-detects (only fires when no profile + <10 sales)
+            and writes a localStorage flag so it doesn't re-show. ── */}
+        <FirstRunWizard />
+
+        {/* ── BRANCH SUMMARY — multi-location at-a-glance. Self-hides
+            for single-branch accounts; renders a horizontal stack of
+            this month's revenue per location for ≥2-branch owners.
+            Tap a row → scopes the Smart cards below. ── */}
+        <BranchSummaryCard />
+
+        {/* ── SMART DRIFT — "your hours look different lately" — only
+            renders when the weekly re-inference job found material drift.
+            Sits above the daily brief because acting on it keeps every
+            other inference (and resulting recommendations) accurate. ── */}
+        <SmartDriftBanner />
 
         {/* ── AI DAILY BRIEF — actionable morning brief, top of fold ── */}
         <DailyBriefCard />

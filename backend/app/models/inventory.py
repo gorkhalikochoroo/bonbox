@@ -35,6 +35,45 @@ class InventoryItem(Base):
     pour_size: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)     # e.g. 30 ml per shot
     pour_unit: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)           # e.g. "ml", "cl"
     sell_price_per_pour: Mapped[Optional[float]] = mapped_column(Numeric(12, 2), nullable=True)  # price per glass/shot
+    # ── Smart Inventory consumption metadata (May 2026) ──
+    # Powers the "auto-decrement stock when sales happen" + "predict
+    # depletion timing" features. Same item-shape works across verticals:
+    #
+    #   Cafe coffee bag:
+    #     unit="kg", quantity=5, consumption_pattern="per_serving",
+    #     consumption_unit="g", serving_size=20,
+    #     usage_keywords="espresso,cappuccino,latte,americano"
+    #     → 5kg = 5000g = 250 espressos worth.
+    #
+    #   Bar gin bottle (already covered by bottle_size+pour_size, but
+    #   the new fields express the same model uniformly):
+    #     consumption_pattern="per_pour", serving_size=30 (overrides
+    #     pour_size if both set; new fields win).
+    #
+    #   Restaurant flour:
+    #     consumption_pattern="per_dish", consumption_unit="g",
+    #     serving_size=120 (per pizza), usage_keywords="pizza,bread"
+    #
+    #   Hair salon shampoo:
+    #     consumption_pattern="per_service", consumption_unit="ml",
+    #     serving_size=15, usage_keywords="cut,wash"
+    #
+    #   Cleaning cloth pack:
+    #     consumption_pattern="per_use", consumption_unit="pieces",
+    #     serving_size=1
+    #
+    # All four fields are optional — items without them stay on the
+    # legacy quantity-tracking path. The smart auto-decrement service
+    # only activates when consumption_pattern is set + usage_keywords
+    # match the Sale.item_name.
+    consumption_pattern: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    consumption_unit: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    serving_size: Mapped[Optional[float]] = mapped_column(Numeric(12, 4), nullable=True)
+    # Comma-separated keywords. Matched (case-insensitive substring) against
+    # Sale.item_name to auto-decrement stock. Bounded to 500 chars at the
+    # schema layer. Stored as text rather than a join table because the
+    # vocabulary is owner-private + small (≤20 keywords typical).
+    usage_keywords: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, onupdate=utc_now

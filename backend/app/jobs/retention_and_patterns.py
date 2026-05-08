@@ -23,6 +23,7 @@ from app.models.event_log import EventLog
 from app.models.owner_pattern import OwnerPattern
 from app.models.user import User
 from app.services.owner_patterns import run_for_user
+from app.services.smart_drift import run_drift_scan_for_user
 from app.utils.time import utc_now
 
 # Retain raw event_log rows for 180 days. After that, individual events are
@@ -96,11 +97,34 @@ def detect_patterns_for_all() -> dict:
         db.close()
 
 
+def smart_drift_scan_for_all() -> dict:
+    """Re-run Smart inferences for every user; persist any material drift
+    findings. Bounded by user count, capped per-user via dismissal
+    cooldown so we don't spam banners. Per-user failures don't stop
+    the batch."""
+    db: Session = SessionLocal()
+    try:
+        users = db.query(User).limit(2000).all()
+        out = {"drift_processed": 0, "drift_findings_written": 0}
+        for u in users:
+            try:
+                rows = run_drift_scan_for_user(db, user=u)
+                out["drift_processed"] += 1
+                out["drift_findings_written"] += len(rows)
+            except Exception as e:  # noqa: BLE001
+                db.rollback()
+                print(f"[smart_drift] user {u.id} failed: {e}")
+        return out
+    finally:
+        db.close()
+
+
 def daily_maintenance() -> dict:
-    """Composite job — run all three steps and return a summary."""
+    """Composite job — run all four steps and return a summary."""
     return {
         "events_purged": purge_old_events(),
         "patterns_expired": expire_stale_patterns(),
         **detect_patterns_for_all(),
+        **smart_drift_scan_for_all(),
         "ran_at": utc_now().isoformat(),
     }

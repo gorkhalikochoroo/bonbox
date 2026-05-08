@@ -245,6 +245,22 @@ async def extract(
         logger.warning("kasserapport: storage upload failed: %s", e)
         storage_key = None  # don't write a path we couldn't actually upload
 
+    # Auto-route by receipt label (Smart Terminals — May 2026).
+    # If the closer didn't pre-bind a terminal_id AND the OCR pulled a
+    # terminal label off the slip ("Term 2" etc.), match it against
+    # the owner's existing terminals and use that. Defense: explicit
+    # terminal_id from the form ALWAYS wins; this only fills NULL.
+    auto_routed_terminal_id = None
+    if validated_terminal_id is None and result.data:
+        try:
+            from app.services.terminal_inference import find_terminal_for_label
+            session = (result.data or {}).get("session") or {}
+            label = session.get("terminal") if isinstance(session, dict) else None
+            auto_routed_terminal_id = find_terminal_for_label(db, user=user, label=label)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("kasserapport: auto-route lookup failed (non-fatal): %s", e)
+            auto_routed_terminal_id = None
+
     # Always log the attempt — even failures, so the admin review can spot
     # patterns in what's going wrong. Log row carries the audit trail
     # (image_sha256, prompt_version) so post-hoc analysis can correlate
@@ -253,7 +269,7 @@ async def extract(
         log_row = KasserapportExtraction(
             id=uuid.uuid4(),
             user_id=user.id,
-            terminal_id=validated_terminal_id,
+            terminal_id=validated_terminal_id or auto_routed_terminal_id,
             image_url=storage_key,                       # storage path (not public URL)
             document_type=result.document_type,
             pos_system=result.pos_system,
@@ -297,6 +313,14 @@ async def extract(
         "cached": False,
         "image_sha256": result.image_sha256,
         "prompt_version": result.prompt_version,
+        # Smart Terminals: signal whether we auto-routed this scan to a
+        # terminal via OCR'd label. Lets the UI show a "↳ Auto-detected:
+        # Term 2" pill so the closer can spot a mis-routing immediately.
+        "auto_routed_terminal_id": (
+            str(auto_routed_terminal_id)
+            if (validated_terminal_id is None and auto_routed_terminal_id is not None)
+            else None
+        ),
     }
 
 
@@ -519,6 +543,32 @@ def aggregate(
         threshold=threshold_f,
     )
 
+    # Live anomaly check — Starter+ only (gated by ai_anomaly_detection
+    # entitlement, same flag that gates dashboard anomaly alerts). Free
+    # users commit closes without the soft "double-check" dialog; the
+    # cash-difference flag is still active for everyone (that's
+    # arithmetic, not anomaly detection).
+    sanity = {"ok": True, "flagged": False, "reason": None, "message": "", "gated": False}
+    try:
+        from app.services.billing import has_feature
+        if not has_feature(user, "ai_anomaly_detection"):
+            sanity["gated"] = True  # signals frontend NOT to render dialog
+        else:
+            from app.services.close_sanity import check_close_anomaly
+            from datetime import date as _date_cls
+            ext_dates = [
+                r.created_at.date() if r.created_at else _date_cls.today()
+                for r in rows
+            ]
+            today = max(ext_dates) if ext_dates else _date_cls.today()
+            sanity = check_close_anomaly(
+                db, user=user, today=today,
+                today_total=float(close.payments_total or 0),
+            )
+            sanity["gated"] = False
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("close_sanity check failed: %s", exc)
+
     return {
         "aggregated": {
             "cash_closing": close.cash_closing,
@@ -552,6 +602,7 @@ def aggregate(
         },
         "excel_rows": to_excel_rows(close),
         "threshold_used": threshold_f,
+        "sanity_check": sanity,
     }
 
 

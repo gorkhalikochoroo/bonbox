@@ -92,6 +92,40 @@ def create_sale(
 ):
     sale_data = data.model_dump()
 
+    # ── Smart Terminals: validate / auto-route terminal_id ─────────────
+    # Two paths:
+    #   • Explicit terminal_id  → re-check ownership (defense vs IDOR).
+    #   • terminal_label only   → look up by receipt_label / name.
+    # If both supplied, explicit wins. Either-or-neither all valid.
+    label = sale_data.pop("terminal_label", None)
+    explicit_tid = sale_data.get("terminal_id")
+    if explicit_tid is not None:
+        from app.models.terminal import Terminal
+        own = (
+            db.query(Terminal.id)
+            .filter(
+                Terminal.id == explicit_tid,
+                Terminal.user_id == user.id,
+                Terminal.is_deleted.isnot(True),
+            )
+            .first()
+        )
+        if not own:
+            raise HTTPException(status_code=404, detail="Terminal not found")
+    elif label:
+        try:
+            from app.services.terminal_inference import find_terminal_for_label
+            tid = find_terminal_for_label(db, user=user, label=label)
+            if tid:
+                sale_data["terminal_id"] = tid
+            else:
+                sale_data["terminal_id"] = None
+        except Exception:  # noqa: BLE001
+            # Fail-closed: don't block the sale on a lookup hiccup.
+            sale_data["terminal_id"] = None
+    else:
+        sale_data["terminal_id"] = None
+
     # Item sale: link to inventory, auto-calculate amount, deduct stock
     if data.inventory_item_id and data.quantity_sold and data.unit_price:
         item = db.query(InventoryItem).filter(

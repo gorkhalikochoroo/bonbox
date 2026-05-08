@@ -66,6 +66,12 @@ const buildTiers = (t) => [
       { text: t("featFreeKasse") || "Snap kasserapport — AI reads it in 6 seconds", included: true },
       { text: t("featFreeSend") || "Send to owner / accountant (PDF + Danish SMS)", included: true },
       { text: t("featFreeCopilot") || "30 AI Copilot questions / day + voice input", included: true },
+      // Smart Setup is intentionally available on Free — it's a
+      // first-impression feature; gating it would defeat the point.
+      // Drift suggestions also free; the close-time anomaly guard
+      // (Starter+) is a separate, premium layer.
+      { text: t("featFreeSmartSetup") || "Smart Setup — auto-detect terminals, hours, roles from your data", included: true },
+      { text: t("featFreeDriftSuggestions") || "Drift suggestions when your business pattern changes", included: true },
       { divider: true },
       { text: t("featFree200Sales") || "200 sales logged / month", included: true },
       { text: t("featFree100Expenses") || "100 expenses logged / month", included: true },
@@ -103,6 +109,12 @@ const buildTiers = (t) => [
       { text: t("featStarterSendRevisor") || "Send-to-accountant automation (monthly digest)", included: true },
       { text: t("featStarterExport31d") || "31-day accountant export window — month-end handoff", included: true },
       { text: t("featStarterAnomaly") || "AI anomaly detection on sales & wages", included: true },
+      // Live anomaly check on close commit — gated by ai_anomaly_detection.
+      // Conceptually a flank of the existing "AI anomaly detection on
+      // sales & wages" line, but split out so the Starter buyer can see
+      // it's a real, distinct feature (the close-time double-check
+      // dialog catches misread amounts before the close commits).
+      { text: t("featStarterCloseGuard") || "Live anomaly guard at close — flags a misread amount before it's saved", included: true },
       { text: t("featStarterEmailSupport") || "Email support", included: true },
     ],
   },
@@ -127,7 +139,9 @@ const buildTiers = (t) => [
       { divider: true },
       { text: t("featProAllVerticals") || "ALL vertical modules at once (Bar Pour + Workshop + etc.)", included: true },
       { text: t("featProExportYear") || "Full-year accountant export — quarterly + yearly review", included: true },
-      { text: t("featProPrioritySupport") || "Priority email support", included: true },
+      // Pro support tickets get a [PRIORITY] subject prefix on the
+      // founder's triage queue — same surface, faster first-response.
+      { text: t("featProPrioritySupport") || "Priority email support — first-response queue ([PRIORITY] tag on tickets)", included: true },
     ],
   },
 ];
