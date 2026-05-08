@@ -18,6 +18,7 @@ import SwapRequestNotificationCard from "../components/SwapRequestNotificationCa
 import SmartDriftBanner from "../components/SmartDriftBanner";
 import FirstRunWizard from "../components/FirstRunWizard";
 import BranchSummaryCard from "../components/BranchSummaryCard";
+import ScheduleConfirmationCard from "../components/ScheduleConfirmationCard";
 import SmartSaleInput from "../components/SmartSaleInput";
 import AnomalyAlertsCard from "../components/AnomalyAlertsCard";
 import DismissibleTip from "../components/DismissibleTip";
@@ -1425,6 +1426,12 @@ export default function DashboardPage() {
             this month's revenue per location for ≥2-branch owners.
             Tap a row → scopes the Smart cards below. ── */}
         <BranchSummaryCard />
+
+        {/* ── SCHEDULE CONFIRMATION — calm awareness chip showing how
+            many staff have confirmed this week's published schedule.
+            Self-hides if no published shifts. No nagging, no chase
+            buttons — the magic-link IS the reminder. ── */}
+        <ScheduleConfirmationCard />
 
         {/* ── SMART DRIFT — "your hours look different lately" — only
             renders when the weekly re-inference job found material drift.

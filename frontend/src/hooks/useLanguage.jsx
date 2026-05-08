@@ -1575,6 +1575,12 @@ const translations = {
     // WhatsApp coming-soon placeholder (admin-only setup card hidden from customers)
     whatsappComingSoonTitle: "WhatsApp shift updates — coming soon",
     whatsappComingSoonBody: "Add staff phone numbers below now. We'll send their first message the day this goes live — your numbers stay private until then.",
+    // Schedule confirmation card (owner dashboard)
+    scheduleConfirmAll: "All {n} staff confirmed this week's schedule.",
+    scheduleConfirmNone: "Schedule sent to {total} staff — none have confirmed yet. They'll see it when they open their link.",
+    scheduleConfirmPartial: "{confirmed} of {total} staff confirmed this week.",
+    schedulePdfTitle: "Export schedule as PDF (for the staff board)",
+    schedulePdfFailed: "Couldn't export PDF.",
     // Smart Language welcome toast
     smartLangPicked: "We picked {lang} {source}.",
     smartLangSourceBrowser: "from your browser",
@@ -3086,6 +3092,12 @@ const translations = {
     // WhatsApp kommer snart-placeholder
     whatsappComingSoonTitle: "WhatsApp vagtbeskeder — kommer snart",
     whatsappComingSoonBody: "Tilføj medarbejdernes telefonnumre nedenfor nu. Vi sender deres første besked den dag det går live — dine numre forbliver private indtil da.",
+    // Vagtplan-bekræftelse-kort (ejerens dashboard)
+    scheduleConfirmAll: "Alle {n} medarbejdere har bekræftet ugens vagtplan.",
+    scheduleConfirmNone: "Vagtplan sendt til {total} medarbejdere — ingen har bekræftet endnu. De ser den, når de åbner deres link.",
+    scheduleConfirmPartial: "{confirmed} af {total} medarbejdere har bekræftet denne uge.",
+    schedulePdfTitle: "Eksporter vagtplan som PDF (til personale-tavlen)",
+    schedulePdfFailed: "Kunne ikke eksportere PDF.",
     // Smart Language velkomst-toast
     smartLangPicked: "Vi valgte {lang} {source}.",
     smartLangSourceBrowser: "fra din browser",

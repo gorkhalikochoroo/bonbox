@@ -130,7 +130,7 @@ function calcHours(startTime, endTime, breakMinutes = 0) {
    ═══════════════════════════════════════════════════════════ */
 export default function StaffSchedulePage() {
   const { user } = useAuth();
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const { branchId } = useBranch();
   const currency = displayCurrency(user?.currency);
 
@@ -239,6 +239,31 @@ export default function StaffSchedulePage() {
     setPublishing(false);
   };
 
+  const [exporting, setExporting] = useState(false);
+  const handleExportPdf = async () => {
+    setExporting(true);
+    setError("");
+    try {
+      const res = await api.get("/staff/schedules/pdf", {
+        params: { week_start: toISO(weekStart), lang: lang || "en" },
+        responseType: "blob",
+      });
+      const blob = new Blob([res.data], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `bonbox-schedule-${toISO(weekStart)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err?.response?.data?.detail || (t("schedulePdfFailed") || "Couldn't export PDF."));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   /* ─── Shift helpers ─── */
   const getShiftForCell = (staffId, date) => {
     const dateStr = toISO(date);
@@ -324,16 +349,21 @@ export default function StaffSchedulePage() {
               <button
                 onClick={handlePublish}
                 disabled={publishing}
-                className="px-3 py-2 rounded-lg text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition disabled:opacity-50"
+                className="px-3 py-2 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition disabled:opacity-50"
               >
                 {publishing ? "Publishing..." : "Publish Week"}
               </button>
+              {/* PDF export — owners print this and pin it on the
+                  back-of-house staff board. Single-page A4 landscape;
+                  confirmed shifts marked ✓ so the wall version stays
+                  in sync with what staff have acknowledged. */}
               <button
-                disabled
-                title="PDF export coming soon"
-                className="px-3 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed"
+                onClick={handleExportPdf}
+                disabled={exporting}
+                title={t("schedulePdfTitle") || "Export schedule as PDF (for the staff board)"}
+                className="px-3 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition disabled:opacity-50"
               >
-                PDF
+                {exporting ? "…" : "📄 PDF"}
               </button>
             </div>
           </div>

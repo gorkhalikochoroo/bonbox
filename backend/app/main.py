@@ -547,6 +547,12 @@ _migrations = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_support_user_created ON support_tickets (user_id, created_at)",
     "CREATE INDEX IF NOT EXISTS ix_support_open_status ON support_tickets (status, created_at)",
+    # ── Migration 026: Schedule.confirmed_at — bidirectional schedule
+    # confirmation flow (May 2026). When staff taps "I've got it" on
+    # their portal, we stamp this timestamp; the owner's dashboard
+    # shows a calm "N of M confirmed for this week" signal. NULL = not
+    # yet confirmed (or shift predates the feature).
+    "ALTER TABLE schedules ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMP",
 ]
 
 def _run_migrations():

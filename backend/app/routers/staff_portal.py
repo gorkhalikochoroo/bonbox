@@ -228,17 +228,80 @@ def get_portal_schedule(token: str, request: Request, db: Session = Depends(get_
         "staff_name": member.name,
         "week_start": week_start.isoformat(),
         "shifts": [
-            PortalShift(
-                date=s.date,
-                start_time=s.start_time,
-                end_time=s.end_time,
-                break_minutes=s.break_minutes,
-                role_on_shift=s.role_on_shift,
-                status=s.status,
-                net_hours=_calc_hours(s.start_time, s.end_time, s.break_minutes),
-            )
+            {
+                "id": str(s.id),
+                "date": s.date.isoformat(),
+                "start_time": s.start_time,
+                "end_time": s.end_time,
+                "break_minutes": s.break_minutes,
+                "role_on_shift": s.role_on_shift,
+                "status": s.status,
+                "net_hours": _calc_hours(s.start_time, s.end_time, s.break_minutes),
+                # Bidirectional confirmation signal — UI lights the
+                # "I've got it" button green if already confirmed.
+                "confirmed_at": s.confirmed_at.isoformat() if s.confirmed_at else None,
+            }
             for s in shifts
         ],
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────
+#  Bidirectional schedule-confirm flow (May 2026)
+#
+#  Staff taps "I've got it" in the portal → we stamp every published
+#  shift in the visible window with confirmed_at. The owner's dashboard
+#  reads aggregate "N of M confirmed this week" via a separate
+#  /staff/schedule-confirmation-summary endpoint (not portal-scoped).
+#
+#  Multi-layer:
+#    • Portal token gate (the only auth on this surface) —
+#      _get_staff_from_token already checks active link + tenant scope
+#    • Per-link rate limit (existing 30/min) prevents confirm-spam
+#    • Idempotent: re-confirming an already-confirmed shift is a no-op
+#    • Read-only access to status='draft' shifts skipped — only
+#      published shifts are confirmable (drafts shouldn't fire owner
+#      banners)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+@router.post("/{token}/confirm-schedule")
+@limiter.limit("10/minute")
+def confirm_schedule(token: str, request: Request, db: Session = Depends(get_db)):
+    """Mark every published shift in the visible 3-week window as
+    confirmed by this staff member. Idempotent — re-tapping changes
+    nothing.
+
+    Returns the number of shifts actually flipped from null →
+    confirmed_at, so the UI can show "✓ 4 shifts confirmed" feedback.
+    """
+    from app.utils.time import utc_now
+    link, member = _get_staff_from_token(token, db)
+
+    today = date.today()
+    week_start = _get_week_start(today)
+    range_end = week_start + timedelta(days=20)
+
+    # Only confirm published shifts that aren't already confirmed —
+    # both filters avoid spurious updated_at noise on no-ops.
+    pending = db.query(Schedule).filter(
+        Schedule.staff_id == member.id,
+        Schedule.user_id == link.user_id,
+        Schedule.date >= week_start,
+        Schedule.date <= range_end,
+        Schedule.status == "published",
+        Schedule.confirmed_at.is_(None),
+    ).all()
+
+    now = utc_now()
+    for s in pending:
+        s.confirmed_at = now
+    db.commit()
+
+    return {
+        "confirmed_count": len(pending),
+        "confirmed_at": now.isoformat() if pending else None,
+        "staff_name": member.name,
     }
 
 

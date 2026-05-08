@@ -7,6 +7,7 @@ Handles:
   - Sending emails via email_service and logging to notification_log
 """
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -16,6 +17,8 @@ from sqlalchemy.orm import Session
 from app.models.staff import StaffMember, StaffLink, NotificationLog
 from app.models.business_profile import BusinessProfile
 from app.services.email_service import send_email
+
+logger = logging.getLogger("bonbox.notification_service")
 
 
 # ── Change detection ──────────────────────────────────────────────────────
@@ -208,67 +211,113 @@ def send_shift_notifications(
     """
     For each staff with changes, look up their email and send a notification.
     Logs all attempts to notification_log.
+
+    Multi-layer hardening (May 2026):
+      L1 — TENANT SCOPE
+           StaffMember + StaffLink queries filter by user_id.
+      L2 — PER-STAFF FAILURE ISOLATION
+           Each iteration is wrapped in its own try/except so a single
+           bad email (network error, malformed address, log insert
+           failure) can't kill the rest of the batch. Email to staff #2
+           still goes out even if staff #1's send raised.
+      L3 — PER-STAFF DB COMMIT
+           NotificationLog rows commit per-staff. Without this, a single
+           constraint violation at the end of the loop would roll back
+           every log row in the batch (silent failure of the whole audit
+           trail). Per-staff commit costs a tiny extra round-trip but
+           preserves observability.
+      L4 — DEFENSIVE DEFAULTS
+           Missing email → skip (already had this). Missing portal link
+           → email still sends without CTA button (build_shift_email_html
+           handles `portal_url=None`).
+      L5 — NO PUBLISH BLOCKING
+           Caller (publish_week) runs us in a BackgroundTask, so even a
+           catastrophic failure here cannot fail the publish response.
     """
     if not changes_by_staff:
         return
 
     # Get restaurant name
-    profile = db.query(BusinessProfile).filter(
-        BusinessProfile.user_id == user_id
-    ).first()
-    restaurant_name = profile.business_name if profile else "BonBox"
+    try:
+        profile = db.query(BusinessProfile).filter(
+            BusinessProfile.user_id == user_id
+        ).first()
+        restaurant_name = profile.business_name if profile else "BonBox"
+    except Exception:  # noqa: BLE001
+        # Even profile lookup shouldn't kill the batch — fall back to
+        # a generic sender name and continue.
+        logger.exception("notification: profile lookup failed (using default)")
+        restaurant_name = "BonBox"
 
     for staff_id_str, changes in changes_by_staff.items():
+        # Per-staff isolation — one failure doesn't poison the rest.
         try:
-            staff_uuid = uuid.UUID(staff_id_str)
-        except ValueError:
+            try:
+                staff_uuid = uuid.UUID(staff_id_str)
+            except ValueError:
+                continue
+
+            # Multi-tenant: enforce that the staff member belongs to
+            # user_id. Without this, a malicious caller passing another
+            # tenant's staff_id could trigger a schedule-update email
+            # to that user's staff (DoS / phishing vector).
+            member = db.query(StaffMember).filter(
+                StaffMember.id == staff_uuid,
+                StaffMember.user_id == user_id,
+                StaffMember.is_deleted.isnot(True),
+            ).first()
+            if not member or not member.email:
+                continue
+
+            # Look up portal link for CTA button
+            link = db.query(StaffLink).filter(
+                StaffLink.staff_id == staff_uuid,
+                StaffLink.user_id == user_id,
+                StaffLink.active.is_(True),
+            ).first()
+            portal_url = f"https://bonbox.dk/s/{link.token}" if link else None
+
+            subject = f"Schedule updated - {week_label}"
+            html = build_shift_email_html(
+                staff_name=member.name,
+                changes=changes,
+                portal_url=portal_url,
+                restaurant_name=restaurant_name,
+                week_label=week_label,
+            )
+
+            # send_email is internally try/except'd — returns False on
+            # any failure. The per-staff outer try/except is belt-and-
+            # braces against changes to that contract.
+            success = send_email(to=member.email, subject=subject, html=html)
+
+            log = NotificationLog(
+                id=uuid.uuid4(),
+                user_id=user_id,
+                staff_id=staff_uuid,
+                channel="email",
+                event_type="schedule_published",
+                subject=subject,
+                body=html,
+                status="sent" if success else "failed",
+                error_message=None if success else "Email delivery failed",
+            )
+            db.add(log)
+            # Per-staff commit — preserves audit trail even if a later
+            # iteration explodes.
+            db.commit()
+        except Exception as exc:  # noqa: BLE001
+            # Roll back this iteration's pending log if any, log to
+            # server stderr so we can spot patterns, and move on.
+            try:
+                db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            logger.exception(
+                "notification: per-staff send failed for staff_id=%s: %s",
+                staff_id_str, exc,
+            )
             continue
-
-        # Multi-tenant: enforce that the staff member belongs to user_id.
-        # Without the user_id filter, a malicious caller passing another
-        # tenant's staff_id could trigger a schedule-update email to that
-        # user's staff (DoS / phishing vector). Always scope by user.
-        member = db.query(StaffMember).filter(
-            StaffMember.id == staff_uuid,
-            StaffMember.user_id == user_id,
-            StaffMember.is_deleted.isnot(True),
-        ).first()
-        if not member or not member.email:
-            continue
-
-        # Look up portal link for CTA button
-        link = db.query(StaffLink).filter(
-            StaffLink.staff_id == staff_uuid,
-            StaffLink.user_id == user_id,
-            StaffLink.active.is_(True),
-        ).first()
-        portal_url = f"https://bonbox.dk/s/{link.token}" if link else None
-
-        subject = f"Schedule updated - {week_label}"
-        html = build_shift_email_html(
-            staff_name=member.name,
-            changes=changes,
-            portal_url=portal_url,
-            restaurant_name=restaurant_name,
-            week_label=week_label,
-        )
-
-        success = send_email(to=member.email, subject=subject, html=html)
-
-        log = NotificationLog(
-            id=uuid.uuid4(),
-            user_id=user_id,
-            staff_id=staff_uuid,
-            channel="email",
-            event_type="schedule_published",
-            subject=subject,
-            body=html,
-            status="sent" if success else "failed",
-            error_message=None if success else "Email delivery failed",
-        )
-        db.add(log)
-
-    db.commit()
 
 
 def send_single_shift_notification(

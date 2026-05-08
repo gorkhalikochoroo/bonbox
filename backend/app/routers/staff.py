@@ -796,6 +796,103 @@ def publish_week(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+#  Schedule-confirmation summary — calm awareness signal for the owner
+#
+#  "Have my staff seen this week's schedule?" without nagging anyone.
+#  Reads aggregate counts of published vs. confirmed shifts in a window;
+#  the dashboard renders a small chip "✓ 3 of 4 staff confirmed for next
+#  week". Tenant-scoped, read-only.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@router.get("/schedules/pdf")
+def export_schedule_pdf(
+    week_start: date = Query(..., description="Monday of the week to render"),
+    lang: str = Query("en", pattern="^(en|da)$"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Render the week's published schedule as a printable A4 landscape
+    PDF. Owners print this and pin it on the back-of-house staff board.
+
+    Multi-layer:
+      • Auth-gated (Depends(get_current_user)).
+      • Tenant-scoped: render service queries Staff + Schedule by
+        user_id only.
+      • Read-only.
+      • Lang restricted to {"en","da"} via Pydantic regex pattern;
+        any other value 422s before reaching the service.
+    """
+    from io import BytesIO
+    from app.services.staff_schedule_pdf import render_schedule_pdf
+
+    try:
+        pdf_bytes = render_schedule_pdf(
+            db, user_id=user.id, week_start=week_start, lang=lang,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Service already logs; surface a calm error instead of leaking
+        # internals.
+        raise HTTPException(
+            status_code=500,
+            detail="Could not render schedule PDF. Try again in a moment.",
+        ) from exc
+
+    filename = f"bonbox-schedule-{week_start.isoformat()}.pdf"
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.get("/schedule-confirmation-summary")
+def schedule_confirmation_summary(
+    week_start: Optional[date] = Query(None, description="Defaults to current week's Monday"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Return how many distinct staff have confirmed the published
+    schedule for the given week. Multi-tenant: all queries filter by
+    user_id. Idempotent / read-only.
+    """
+    if week_start is None:
+        today = date.today()
+        # Current week's Monday (matches _get_week_start in staff_portal.py)
+        week_start = today - timedelta(days=today.weekday())
+    week_end = week_start + timedelta(days=6)
+
+    # Count distinct staff who have at least one published shift this week
+    total_q = db.query(Schedule.staff_id).filter(
+        Schedule.user_id == user.id,
+        Schedule.date >= week_start,
+        Schedule.date <= week_end,
+        Schedule.status == "published",
+    ).distinct()
+    total_staff = total_q.count()
+
+    confirmed_q = db.query(Schedule.staff_id).filter(
+        Schedule.user_id == user.id,
+        Schedule.date >= week_start,
+        Schedule.date <= week_end,
+        Schedule.status == "published",
+        Schedule.confirmed_at.isnot(None),
+    ).distinct()
+    confirmed_staff = confirmed_q.count()
+
+    return {
+        "week_start": week_start.isoformat(),
+        "total_staff": total_staff,
+        "confirmed_staff": confirmed_staff,
+        "all_confirmed": total_staff > 0 and confirmed_staff == total_staff,
+        "none_confirmed": confirmed_staff == 0,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 #  HOURS
 # ═══════════════════════════════════════════════════════════════════════════
 

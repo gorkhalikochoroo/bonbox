@@ -281,6 +281,98 @@ function addDaysToDate(d, days) {
 }
 
 
+/**
+ * ConfirmScheduleButton — staff side of the bidirectional notification
+ * loop.
+ *
+ * When the owner publishes/edits a schedule, every affected staff
+ * member gets an email with their unique portal link (already wired in
+ * notification_service.send_shift_notifications). Staff opens the
+ * link, glances at their shifts, and taps "I've got it" — that POSTs
+ * to /portal/{token}/confirm-schedule which stamps confirmed_at on
+ * every published shift in the visible 3-week window.
+ *
+ * Then on the owner side, the dashboard polls
+ * /staff/schedule-confirmation-summary and shows a calm chip:
+ *   "✓ 3 of 4 staff confirmed this week"
+ * No nagging emails, no chasing. Just at-a-glance awareness.
+ *
+ * UX:
+ *   • Hidden when there are no published shifts in the window (nothing
+ *     to confirm — wait for the owner to publish first).
+ *   • Already-confirmed state shows a green pill instead of a button so
+ *     re-tapping isn't tempting (still works as no-op idempotent).
+ *   • One tap → server returns confirmed_count → small "✓ N shifts
+ *     confirmed" inline confirmation that fades after 4s.
+ */
+function ConfirmScheduleButton({ token, shifts, onConfirmed }) {
+  const [submitting, setSubmitting] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [error, setError] = useState("");
+
+  // Only show button if there's at least one PUBLISHED shift in the
+  // visible window; otherwise nothing to confirm.
+  const publishedShifts = shifts.filter((s) => s.status === "published");
+  const allConfirmed =
+    publishedShifts.length > 0 &&
+    publishedShifts.every((s) => !!s.confirmed_at);
+
+  if (publishedShifts.length === 0) return null;
+
+  const submit = async () => {
+    setSubmitting(true);
+    setError("");
+    try {
+      const res = await portalApi.post(`/portal/${token}/confirm-schedule`, {});
+      const n = res?.data?.confirmed_count ?? 0;
+      setFeedback(n > 0 ? `✓ ${n} shift${n === 1 ? "" : "s"} confirmed` : "✓ Already confirmed");
+      onConfirmed?.();
+      setTimeout(() => setFeedback(""), 4000);
+    } catch (e) {
+      setError(e?.response?.data?.detail || "Couldn't confirm. Try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (allConfirmed) {
+    return (
+      <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300 flex items-center gap-2">
+        <span aria-hidden>✓</span>
+        <span className="font-medium">You've confirmed this schedule. Thanks!</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 flex items-center justify-between gap-3">
+      <div className="text-sm text-gray-300">
+        <div className="font-medium text-white">Got the schedule?</div>
+        <div className="text-[12px] text-gray-500">Tap to let your owner know you've seen it.</div>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        {feedback && (
+          <span className="text-[12px] text-emerald-400 whitespace-nowrap" role="status">
+            {feedback}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={submit}
+          disabled={submitting}
+          className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold disabled:opacity-50 transition"
+        >
+          {submitting ? "…" : "I've got it"}
+        </button>
+      </div>
+      {error && (
+        <span className="text-[12px] text-red-400 ml-2">{error}</span>
+      )}
+    </div>
+  );
+}
+
+
 function ScheduleTab({ shifts, staffName, token, onShiftsChanged }) {
   const today = toLocalISO(new Date());
   const weekStart = getWeekStart(today);
@@ -353,6 +445,18 @@ function ScheduleTab({ shifts, staffName, token, onShiftsChanged }) {
           token={token}
           upcomingShifts={upcoming}
           onCalledIn={onShiftsChanged}
+        />
+      )}
+
+      {/* Bidirectional confirmation — staff taps "I've got it" to ack
+          the published schedule. Owner's dashboard reads aggregate
+          counts via /staff/schedule-confirmation-summary. Idempotent;
+          re-tap is a calm no-op. */}
+      {token && (
+        <ConfirmScheduleButton
+          token={token}
+          shifts={shifts}
+          onConfirmed={onShiftsChanged}
         />
       )}
 

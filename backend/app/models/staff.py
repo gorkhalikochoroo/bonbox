@@ -78,6 +78,13 @@ class Schedule(Base):
     role_on_shift: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="draft")
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Bidirectional notification loop (May 2026): when staff opens the
+    # schedule via their portal link and taps "I've got it", we stamp
+    # confirmed_at. The owner's dashboard shows "N of M confirmed for
+    # this week" as a calm awareness signal — no chase emails, no
+    # nagging, just a glance. NULL means not-yet-confirmed (or this
+    # shift was published before the feature existed).
+    confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     staff_member: Mapped["StaffMember"] = relationship(back_populates="schedules")
