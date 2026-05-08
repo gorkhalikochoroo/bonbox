@@ -45,6 +45,7 @@ import json
 import os
 import random
 import sys
+import time
 from datetime import date, datetime, timedelta
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -94,29 +95,50 @@ random.seed(42)  # deterministic demo so visits look identical
 
 
 # ─── HTTP plumbing ────────────────────────────────────────────────────
+#
+# Render free/starter tier cold-starts can throw 503 "Server is starting"
+# for the first ~30 seconds, plus occasional 500/502/504 under load.
+# We retry transient 5xx with exponential backoff up to 4 tries so a
+# rough patch in the middle of seeding doesn't lose ~half the sales.
+# 4xx still surfaces immediately — those are real validation problems.
+_RETRYABLE = {500, 502, 503, 504}
+_MAX_RETRIES = 4
+
+
 def api(method, path, data=None, token=None, *, silent_404=False):
     url = f"{API_URL}{path}"
     headers = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     body = json.dumps(data).encode() if data is not None else None
-    req = Request(url, data=body, headers=headers, method=method)
-    try:
-        with urlopen(req, timeout=30) as resp:
-            text = resp.read().decode()
-            return json.loads(text) if text else {}
-    except HTTPError as e:
-        if silent_404 and e.code == 404:
-            return None
+    last_err_body = ""
+    for attempt in range(_MAX_RETRIES):
+        req = Request(url, data=body, headers=headers, method=method)
         try:
-            err_body = e.read().decode()[:300]
-        except Exception:  # noqa: BLE001
-            err_body = ""
-        print(f"  ⚠ {method} {path} → {e.code}: {err_body}")
-        return None
-    except URLError as e:
-        print(f"  ⚠ {method} {path} → network: {e}")
-        return None
+            with urlopen(req, timeout=45) as resp:
+                text = resp.read().decode()
+                return json.loads(text) if text else {}
+        except HTTPError as e:
+            if silent_404 and e.code == 404:
+                return None
+            try:
+                last_err_body = e.read().decode()[:200]
+            except Exception:  # noqa: BLE001
+                last_err_body = ""
+            if e.code in _RETRYABLE and attempt < _MAX_RETRIES - 1:
+                # Exponential-ish backoff: 2s, 5s, 10s
+                delay = (2, 5, 10)[attempt]
+                time.sleep(delay)
+                continue
+            print(f"  ⚠ {method} {path} → {e.code}: {last_err_body}")
+            return None
+        except URLError as e:
+            if attempt < _MAX_RETRIES - 1:
+                time.sleep((2, 5, 10)[attempt])
+                continue
+            print(f"  ⚠ {method} {path} → network: {e}")
+            return None
+    return None
 
 
 def login():
