@@ -71,6 +71,7 @@ export default function SmartStaffingCard() {
   useEffect(() => {
     let alive = true;
     setLoading(true);
+    setError("");
     const params = branchId ? { branch_id: branchId } : {};
     api.get("/business/staffing-suggestion", { params })
       .then((res) => {
@@ -80,8 +81,14 @@ export default function SmartStaffingCard() {
           confidence: res.data?.confidence,
         });
       })
-      .catch(() => {
-        if (alive) setError(t("smartStaffingLoadError") || "Couldn't load suggestion.");
+      .catch((err) => {
+        if (!alive) return;
+        // 401 is handled by the global axios interceptor (redirects to
+        // /login). Suppress the error UI so users don't see a flash of
+        // "Couldn't load" before the redirect lands. Other errors get
+        // the calm error card so they know something is up.
+        if (err?.response?.status === 401) return;
+        setError(t("smartStaffingLoadError") || "Couldn't load suggestion.");
       })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };

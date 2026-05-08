@@ -255,7 +255,47 @@ INVENTORY_PROPOSAL_DICT: dict[str, "OrderedDict[str, dict[str, Any]]"] = {
     # Cross-vertical items — always checked AFTER the vertical-specific
     # dict so the vertical can override (e.g. 'oil' means cooking oil
     # at a restaurant but engine oil at a workshop).
+    #
+    # Common hospitality ingredients live here so a RESTAURANT user
+    # with "Coffee Beans" or "Milk" still gets a match (those used to
+    # only live in the cafe dict, leaving restaurants with low-
+    # confidence "we don't recognise this" — a real Danish-customer
+    # complaint that cost trust).
     "*": OrderedDict([
+        # Coffee / espresso — universal café/restaurant beverage
+        ("coffee bean", {
+            "consumption_pattern": "per_serving", "consumption_unit": "g",
+            "serving_size": 20,
+            "usage_keywords": "espresso,cappuccino,latte,americano,cortado,macchiato,flat white,coffee",
+            "reasoning": "~20 g coffee per espresso shot",
+        }),
+        ("coffee", {
+            "consumption_pattern": "per_serving", "consumption_unit": "g",
+            "serving_size": 20,
+            "usage_keywords": "espresso,cappuccino,latte,americano,cortado,macchiato,flat white,coffee",
+            "reasoning": "~20 g coffee per espresso shot",
+        }),
+        # Milk — falls back here for non-café verticals
+        ("milk", {
+            "consumption_pattern": "per_serving", "consumption_unit": "ml",
+            "serving_size": 100,
+            "usage_keywords": "cappuccino,latte,flat white,macchiato,coffee,milk",
+            "reasoning": "~100 ml of milk per cappuccino / latte",
+        }),
+        # Sugar — used widely
+        ("sugar", {
+            "consumption_pattern": "per_serving", "consumption_unit": "g",
+            "serving_size": 5,
+            "usage_keywords": "coffee,tea,dessert,sugar",
+            "reasoning": "~5 g sugar per drink / portion",
+        }),
+        # Tea — universal beverage
+        ("tea", {
+            "consumption_pattern": "per_serving", "consumption_unit": "g",
+            "serving_size": 3, "usage_keywords": "tea,chai,matcha",
+            "reasoning": "~3 g tea per cup",
+        }),
+        # Operational consumables
         ("cleaning cloth", {
             "consumption_pattern": "per_use", "consumption_unit": "pieces",
             "serving_size": 1, "usage_keywords": "wash,clean,wipe",
@@ -270,6 +310,91 @@ INVENTORY_PROPOSAL_DICT: dict[str, "OrderedDict[str, dict[str, Any]]"] = {
 }
 
 
+# ─── Cross-language aliases ──────────────────────────────────────────
+#
+# The dictionary above is keyed by English substrings ("oil", "milk",
+# "coffee bean"). But Danish hospitality (BonBox's primary market)
+# tags items in Danish: "Olivenolie", "Mælk", "Kaffe". Without
+# translation, almost no Danish item matches → low-confidence "we
+# don't recognise this" → owners give up on Smart Inventory.
+#
+# Strategy: pre-process the item name through a small Danish→English
+# alias map BEFORE substring matching. This keeps the dictionary
+# itself language-agnostic and lets us add other languages cheaply
+# (NP, VI, TH, TR can all add their own alias maps later).
+#
+# Match order matters — multi-word terms must replace before single-
+# word terms ("oat milk" → "oat milk" before "milk" → "milk", though
+# both happen to be correct here). Listed longest-first as a habit.
+
+_DANISH_TO_ENGLISH_ALIASES: list[tuple[str, str]] = [
+    # Multi-word / compound (longest first so they replace before parts)
+    ("olivenolie", "olive oil"),    # specific oil canonicalised before generic "olie"
+    ("frityreolie", "frying oil"),
+    ("rapsolie", "oil"),
+    ("solsikkeolie", "oil"),
+    ("havremælk", "oat milk"),
+    ("sojamælk", "soy milk"),
+    ("mandelmælk", "almond milk"),
+    ("rødvin", "red wine"),
+    ("hvidvin", "white wine"),
+    ("rugbrød", "bread"),
+    ("oksekød", "beef"),
+    ("svinekød", "pork"),
+    ("kalvekød", "veal"),
+    ("ostepølse", "cheese sausage"),
+    ("flødeskum", "cream"),
+    ("piskefløde", "cream"),
+    ("kødfars", "ground beef"),
+    ("kaffebønner", "coffee bean"),
+    ("espressobønner", "coffee bean"),
+    # Single-word staples — bar / kitchen / café
+    ("olie", "oil"),
+    ("mælk", "milk"),
+    ("kaffe", "coffee bean"),       # canonicalise to dictionary key
+    ("kaffebønner", "coffee bean"),
+    ("espresso", "coffee bean"),
+    ("fløde", "cream"),
+    ("smør", "butter"),
+    ("mel", "flour"),
+    ("sukker", "sugar"),
+    ("vin", "wine"),
+    ("øl", "beer"),
+    ("brød", "bread"),
+    ("ost", "cheese"),
+    ("tomat", "tomato"),
+    ("agurk", "cucumber"),
+    ("kartoffel", "potato"),
+    ("kartofler", "potato"),
+    ("kylling", "chicken"),
+    ("fisk", "fish"),
+    ("laks", "salmon"),
+    ("citron", "lemon"),
+    ("lime", "lime"),
+    ("appelsin", "orange"),
+    ("rom", "rum"),
+    # Note: "is" (Danish for ice) is too short and risks false positives
+    # ("Risengrød" contains "is"), so we don't alias "is" → "ice".
+    # "isterninger" (ice cubes) is the safer match:
+    ("isterninger", "ice cubes"),
+    ("vodka", "vodka"),  # same word both langs; harmless idempotent
+    ("whisky", "whisky"),
+    ("gin", "gin"),
+    ("tequila", "tequila"),
+]
+
+
+def _normalize_item_name(raw: str) -> str:
+    """Lowercase + apply cross-language aliases. Idempotent: if the
+    name is already in English, no aliases match and the original
+    survives."""
+    name = (raw or "").lower()
+    for source, target in _DANISH_TO_ENGLISH_ALIASES:
+        if source in name:
+            name = name.replace(source, target)
+    return name
+
+
 def infer_inventory_consumption(
     db: Session,
     *,
@@ -282,6 +407,10 @@ def infer_inventory_consumption(
     a low-confidence 'per_unit' default with empty keywords + an
     explanatory reasoning so the UI can show "we don't recognise this
     one — configure manually if you want auto-tracking".
+
+    Cross-language: item names are normalised through
+    _DANISH_TO_ENGLISH_ALIASES before matching, so "Olivenolie" → "oil"
+    matches the cooking-oil entry just like "Cooking oil" would.
     """
     # Tenant gate (defensive — caller should already validate but
     # belt-and-braces).
@@ -289,7 +418,7 @@ def infer_inventory_consumption(
         return _no_match("Item not in this user's inventory")
 
     vertical = (user.business_type or "").strip().lower()
-    name_lower = (item.name or "").lower()
+    name_lower = _normalize_item_name(item.name or "")
 
     # 1. Vertical-specific dictionary
     proposal = _lookup(name_lower, INVENTORY_PROPOSAL_DICT.get(vertical))

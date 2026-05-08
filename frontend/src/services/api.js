@@ -118,12 +118,32 @@ api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
-      // Don't redirect if already on login/register/forgot-password page
       const path = window.location.pathname;
       const isAuthPage = path === "/login" || path === "/register" || path.startsWith("/forgot") || path.startsWith("/reset") || path.startsWith("/s/");
-      if (!isAuthPage) {
+      // Don't redirect on auth-probe endpoints — those are silent
+      // "are we logged in?" checks (called by AuthProvider on every
+      // public page load too). Without this, an expired-token visitor
+      // landing on `/` would get bounced to `/login` instead of seeing
+      // the marketing landing page. Probes belong to the calling code,
+      // not the global redirect.
+      const reqUrl = err.config?.url || "";
+      const isAuthProbe =
+        reqUrl.includes("/auth/me") ||
+        reqUrl.includes("/billing/me") ||
+        reqUrl.endsWith("/auth/refresh");
+      // Don't redirect on landing/marketing routes either — those
+      // routes work fine without auth, and bouncing visitors to /login
+      // is bad UX.
+      const isPublicRoute = path === "/" || path === "/landing" || path === "/pricing" || path === "/contact" || path === "/privacy" || path === "/terms";
+      if (!isAuthPage && !isAuthProbe && !isPublicRoute) {
         localStorage.removeItem("token");
         window.location.href = "/login";
+      } else {
+        // Still wipe the stale token so subsequent calls don't keep
+        // sending it. Calling code's .catch handler decides what to do.
+        if (!isAuthPage) {
+          try { localStorage.removeItem("token"); } catch {}
+        }
       }
     }
     return Promise.reject(err);

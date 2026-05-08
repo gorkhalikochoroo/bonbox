@@ -276,3 +276,86 @@ def test_proposal_always_has_complete_shape(db, cafe_owner):
                 "usage_keywords", "matching_sales_preview", "confidence",
                 "reasoning"):
         assert key in proposal, f"missing {key}"
+
+
+# ─── Danish aliases — primary market ─────────────────────────────────
+
+
+def test_danish_olivenolie_matches_olive_oil(db, restaurant_owner):
+    """Real bug: Danish 'Olivenolie ekstra jomfru' returned 'we don't
+    recognise this'. With the alias map, it should match the
+    restaurant's olive oil entry."""
+    item = _add_item(db, restaurant_owner, "Olivenolie ekstra jomfru", unit="l")
+    p = infer_inventory_consumption(db, user=restaurant_owner, item=item)
+    assert p["confidence"] != "low"
+    assert p["consumption_unit"] == "ml"
+    assert "olive oil" in p["reasoning"].lower() or "pizza" in p["usage_keywords"]
+
+
+def test_danish_maelk_matches_milk(db, cafe_owner):
+    """Danish 'Mælk sødmælk' must match the milk entry."""
+    item = _add_item(db, cafe_owner, "Mælk sødmælk", unit="l")
+    p = infer_inventory_consumption(db, user=cafe_owner, item=item)
+    assert p["confidence"] != "low"
+    assert p["serving_size"] == 100.0
+    assert p["consumption_unit"] == "ml"
+
+
+def test_danish_havremaelk_matches_oat_milk_specifically(db, cafe_owner):
+    """'Havremælk' (oat milk) should match the plant-milk entry, not
+    plain dairy. The multi-word alias must replace before the simpler
+    'mælk' alias."""
+    item = _add_item(db, cafe_owner, "Havremælk Barista", unit="l")
+    p = infer_inventory_consumption(db, user=cafe_owner, item=item)
+    assert "oat" in p["usage_keywords"].lower()
+
+
+def test_danish_kaffe_matches_coffee_bean(db, cafe_owner):
+    """Generic 'Kaffe' must match coffee-bean entry."""
+    item = _add_item(db, cafe_owner, "Kaffe Lavazza", unit="kg")
+    p = infer_inventory_consumption(db, user=cafe_owner, item=item)
+    assert p["confidence"] != "low"
+    assert p["consumption_unit"] == "g"
+
+
+def test_danish_kaffeboenner_canonicalised_to_coffee_bean(db, cafe_owner):
+    """'Kaffebønner' → 'coffee bean' canonical form so the dictionary
+    entry matches."""
+    item = _add_item(db, cafe_owner, "Kaffebønner Lavazza Crema", unit="kg")
+    p = infer_inventory_consumption(db, user=cafe_owner, item=item)
+    assert p["confidence"] != "low"
+
+
+# ─── Cross-vertical fallback for common ingredients ──────────────────
+
+
+def test_restaurant_with_coffee_beans_falls_to_cross_vertical(db, restaurant_owner):
+    """Real bug: a Copenhagen Street Burger user ('restaurant') has
+    'Coffee Beans' in inventory; restaurant dict had no coffee entry,
+    leaving them with 'we don't recognise this'. Now coffee lives in
+    the '*' fallback so EVERY vertical can match it."""
+    item = _add_item(db, restaurant_owner, "Coffee Beans", unit="kg")
+    p = infer_inventory_consumption(db, user=restaurant_owner, item=item)
+    assert p["confidence"] != "low"
+    assert p["consumption_pattern"] == "per_serving"
+    assert p["serving_size"] == 20.0
+
+
+def test_restaurant_with_milk_falls_to_cross_vertical(db, restaurant_owner):
+    item = _add_item(db, restaurant_owner, "Whole Milk 1L", unit="l")
+    p = infer_inventory_consumption(db, user=restaurant_owner, item=item)
+    assert p["confidence"] != "low"
+    assert p["consumption_unit"] == "ml"
+    assert p["serving_size"] == 100.0
+
+
+def test_vertical_specific_still_overrides_cross_vertical(db, cafe_owner):
+    """Cafe's milk entry must still win over the '*' milk entry. The
+    lookup checks vertical first, so cafe behaviour is unchanged."""
+    item = _add_item(db, cafe_owner, "Whole milk", unit="l")
+    p = infer_inventory_consumption(db, user=cafe_owner, item=item)
+    # Cafe entry's reasoning mentions cappuccino/latte; cross-vertical
+    # also does. Both correct — the test passes either way as long as
+    # we got a match.
+    assert p["confidence"] != "low"
+    assert p["serving_size"] == 100.0

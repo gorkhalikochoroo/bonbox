@@ -214,7 +214,9 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
                         : "bg-gray-50 dark:bg-gray-700/30 border border-gray-200 dark:border-gray-600"
                   }`}>
                     <div className="font-semibold text-gray-900 dark:text-gray-100 text-sm">
-                      {t("inventoryConsumptionRecognised") || "We recognise this item"}
+                      {suggestion.confidence === "low"
+                        ? (t("inventoryConsumptionUnrecognisedTitle") || "Not in our recipe library yet")
+                        : (t("inventoryConsumptionRecognised") || "We recognise this item")}
                     </div>
                     <div className="text-xs text-gray-600 dark:text-gray-300 mt-1 leading-snug">
                       {suggestion.reasoning}

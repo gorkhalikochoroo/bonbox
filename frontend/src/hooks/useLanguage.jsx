@@ -196,7 +196,7 @@ const translations = {
     featStarterUnlimitedClose: "Unlimited daily closes + receipt OCR",
     featStarterUnlimitedSales: "Unlimited sales + expenses + AI Copilot",
     featStarterCsvExport: "Direct Dinero / Billy / e-conomic CSV export",
-    featStarter1Biz3Users: "Up to 1 business, 3 users with role permissions",
+    featStarter1Biz3Users: "Up to 1 location, 3 users with role permissions",
     featStarterSendRevisor: "Send-to-accountant automation (monthly digest)",
     featStarterAnomaly: "AI anomaly detection on sales & wages",
     featStarterCloseGuard: "Live anomaly guard at close — flags a misread amount before it's saved",
@@ -1488,6 +1488,7 @@ const translations = {
     inventoryConsumptionPerEach: "per {kind}",
     inventoryConsumptionLooksRight: "Looks right ✓",
     inventoryConsumptionUnknownItem: "We don't recognise this — edit details",
+    inventoryConsumptionUnrecognisedTitle: "Not in our recipe library yet",
 
     // ───────────────────────────────────────────────────────────
     // Smart Terminals — inference-first POS terminal setup (May 2026)
@@ -1568,6 +1569,9 @@ const translations = {
     branchSummaryActive: "scoped to this branch",
     branchSummaryHint: "Tap a location to scope the Smart cards below to it.",
     branchDefaultBadge: "default",
+    // Sidebar disambiguation: /staffing = AI predictive forecast,
+    // /profile (SmartStaffingCard) = config/preferences. Distinct vocabulary.
+    staffingForecast: "Staffing Forecast",
     // Smart Language welcome toast
     smartLangPicked: "We picked {lang} {source}.",
     smartLangSourceBrowser: "from your browser",
@@ -1761,7 +1765,7 @@ const translations = {
     featStarterUnlimitedClose: "Ubegrænsede daglige lukninger + kvitterings-OCR",
     featStarterUnlimitedSales: "Ubegrænset salg + udgifter + AI Copilot",
     featStarterCsvExport: "Direkte Dinero / Billy / e-conomic CSV-eksport",
-    featStarter1Biz3Users: "Op til 1 virksomhed, 3 brugere med rolletilladelser",
+    featStarter1Biz3Users: "Op til 1 lokation, 3 brugere med rolletilladelser",
     featStarterSendRevisor: "Send-til-revisor automatisering (månedlig oversigt)",
     featStarterAnomaly: "AI-anomalidetektion på salg og løn",
     featStarterCloseGuard: "Live anomali-tjek ved afslutning — markerer fejlaflæste beløb før det gemmes",
@@ -2993,6 +2997,7 @@ const translations = {
     inventoryConsumptionPerEach: "per {kind}",
     inventoryConsumptionLooksRight: "Det passer ✓",
     inventoryConsumptionUnknownItem: "Vi genkender ikke denne — rediger detaljer",
+    inventoryConsumptionUnrecognisedTitle: "Ikke i vores opskriftsbibliotek endnu",
 
     // ───────────────────────────────────────────────────────────
     // Smart Terminals — forslagsbaseret POS-opsætning (maj 2026)
@@ -3073,6 +3078,8 @@ const translations = {
     branchSummaryActive: "scopet til denne filial",
     branchSummaryHint: "Tryk på en lokation for at scope Smart-kortene nedenfor til den.",
     branchDefaultBadge: "standard",
+    // Sidebar-disambiguering
+    staffingForecast: "Bemandings-prognose",
     // Smart Language velkomst-toast
     smartLangPicked: "Vi valgte {lang} {source}.",
     smartLangSourceBrowser: "fra din browser",

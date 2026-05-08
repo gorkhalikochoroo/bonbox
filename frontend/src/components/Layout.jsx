@@ -50,6 +50,9 @@ const navGroups = [
       { to: "/budgets", icon: "🎯", labelKey: "budgetOverview" },
       { to: "/bank-import", icon: "🏦", labelKey: "bankImport" },
       { to: "/payment-imports", icon: "💳", labelKey: "paymentImports" },
+      // Khata = customer credit ledger. Lives in Money (it IS money
+      // owed to/by the business), not Manage. Moved here May 2026.
+      { to: "/khata", icon: "📖", labelKey: "khata" },
     ],
   },
   {
@@ -110,7 +113,7 @@ const navGroups = [
     visibleFor: ["restaurant", "retail", "service", "general"],
     items: [
       { to: "/weather", icon: "🌦️", labelKey: "weatherSmart" },
-      { to: "/staffing", icon: "👥", labelKey: "smartStaffing" },
+      { to: "/staffing", icon: "👥", labelKey: "staffingForecast" },
       { to: "/pricing", icon: "💲", labelKey: "priceOptimization" },
       { to: "/retention", icon: "🤝", labelKey: "customerRetention" },
       { to: "/competitors", icon: "🔍", labelKey: "competitorScan" },
@@ -143,8 +146,10 @@ const navGroups = [
       { to: "/outlets", icon: "🏪", labelKey: "crossOutlet" },
       { to: "/consolidated-close", icon: "🏢", labelKey: "consolidatedClose" },
       { to: "/team", icon: "👤", labelKey: "team" },
-      { to: "/khata", icon: "📖", labelKey: "khata" },
-      { to: "/feedback", icon: "💬", labelKey: "feedback" },
+      // Khata moved to Money group below — it's customer credit, not a Manage concern.
+      // Feedback page retired — replaced by the in-app SupportChip (bottom-left "?")
+      // which routes to /api/support/tickets and is consistently visible across pages.
+      // /feedback route still exists as a backstop URL but isn't surfaced in primary nav.
       { to: "/recently-deleted", icon: "🗂️", labelKey: "recentlyDeleted" },
       { to: "/contact", icon: "✉️", labelKey: "contact" },
     ],

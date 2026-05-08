@@ -135,6 +135,8 @@ export default function SmartTerminalsCard({ onComplete }) {
       }
       setPhase("confirm");
     } catch (err) {
+      // 401 redirects via global interceptor — suppress the error flash
+      if (err?.response?.status === 401) return;
       setError(err?.response?.data?.detail || (t("smartTerminalsInferFailed") || "Couldn't propose terminals."));
     }
   }
