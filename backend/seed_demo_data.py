@@ -175,13 +175,18 @@ api(
 )
 
 # Role targets
+# Restaurant catalog accepts: server, host, runner, bartender, head_chef,
+# line_cook, prep_cook, dishwasher. Match canonical names (no 'cook'
+# free-text — the catalog is curated so the AI demand forecast can
+# reason per-role).
 api(
     "PUT", "/business/staff-role-targets",
     {
         "targets": [
             {"role": "server", "default_count": 2},
             {"role": "bartender", "default_count": 1},
-            {"role": "cook", "default_count": 1},
+            {"role": "line_cook", "default_count": 1},
+            {"role": "head_chef", "default_count": 1},
             {"role": "dishwasher", "default_count": 1},
         ],
     },
@@ -235,6 +240,12 @@ danish_notes = [
 payment_methods = ["cash", "card", "mobilepay", "mixed", "dankort"]
 order_channels = ["dine_in", "takeaway", "wolt", "just_eat", "phone"]
 
+# Calibrated for demo SPEED: 6-10 fewer/larger sales per day instead of
+# 30-70 small ones. The dashboard charts only need realistic *daily
+# totals* — not a full transaction log — to look alive. 90 days × 8 ≈
+# 720 sales seeds in ~2 min instead of 30+. Each sale is a "block"
+# (lunch rush, dinner shift, etc.) at a realistic amount. Owner-side
+# trend/peak charts read identically.
 sales_created = 0
 for day_offset in range(HISTORY_DAYS + 1):
     d = start + timedelta(days=day_offset)
@@ -242,22 +253,21 @@ for day_offset in range(HISTORY_DAYS + 1):
     # Closed-day chance — 1 in 30 Mondays
     if weekday == 0 and random.random() < 0.05:
         continue
-    # Volume profile by weekday
-    if weekday in (4, 5):       # Fri / Sat
-        n_sales = random.randint(40, 70)
-    elif weekday == 6:          # Sun
-        n_sales = random.randint(15, 35)
-    else:                       # Mon-Thu
-        n_sales = random.randint(25, 50)
-    # Spread sales across the day with peak-hour bias
-    for _ in range(n_sales):
-        amount = random.choices(
-            [random.randint(45, 120),    # coffee + pastry
-             random.randint(120, 280),   # lunch
-             random.randint(280, 600),   # dinner
-             random.randint(45, 90)],    # quick coffee
-            weights=[2, 3, 2, 3], k=1,
-        )[0]
+    # Daily target (DKK), then split across 6-10 "shift block" sales
+    if weekday in (4, 5):       # Fri / Sat = busy
+        daily_target = random.randint(7000, 12000)
+        n_blocks = random.randint(8, 10)
+    elif weekday == 6:          # Sun = quieter
+        daily_target = random.randint(2500, 5000)
+        n_blocks = random.randint(5, 7)
+    else:                       # Mon-Thu = standard
+        daily_target = random.randint(4500, 8000)
+        n_blocks = random.randint(6, 9)
+    # Split daily total into n_blocks reasonable sales
+    avg = daily_target / n_blocks
+    for i in range(n_blocks):
+        # Wiggle each block ±30% so amounts feel real
+        amount = max(50, int(avg * random.uniform(0.7, 1.3)))
         sale = {
             "date": str(d),
             "amount": amount,
@@ -269,7 +279,7 @@ for day_offset in range(HISTORY_DAYS + 1):
             sale["guest_count"] = random.randint(1, 6)
         if api("POST", "/sales", sale, token=TOKEN):
             sales_created += 1
-print(f"   ✅ {sales_created} sales\n")
+print(f"   ✅ {sales_created} sales (~{HISTORY_DAYS} day history)\n")
 
 
 # ─── Expenses (recurring monthly + ad-hoc) ────────────────────────────
@@ -366,7 +376,7 @@ staff_members = [
     {"name": "Jonas Møller", "email": "jonas@demo.bonbox.dk", "phone": "+4520304050", "role": "bartender", "hourly_wage": 165},
     {"name": "Maria Sørensen", "email": "maria@demo.bonbox.dk", "phone": "+4520304051", "role": "server", "hourly_wage": 155},
     {"name": "Caro Petersen", "email": "caro@demo.bonbox.dk", "phone": "+4520304052", "role": "server", "hourly_wage": 155},
-    {"name": "Anders Nielsen", "email": "anders@demo.bonbox.dk", "phone": "+4520304053", "role": "cook", "hourly_wage": 175},
+    {"name": "Anders Nielsen", "email": "anders@demo.bonbox.dk", "phone": "+4520304053", "role": "line_cook", "hourly_wage": 175},
     {"name": "Sofia Larsen", "email": "sofia@demo.bonbox.dk", "phone": "+4520304054", "role": "dishwasher", "hourly_wage": 140},
 ]
 staff_ids = []
