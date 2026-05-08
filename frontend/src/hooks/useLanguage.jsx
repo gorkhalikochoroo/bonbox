@@ -1572,6 +1572,9 @@ const translations = {
     // Sidebar disambiguation: /staffing = AI predictive forecast,
     // /profile (SmartStaffingCard) = config/preferences. Distinct vocabulary.
     staffingForecast: "Staffing Forecast",
+    // WhatsApp coming-soon placeholder (admin-only setup card hidden from customers)
+    whatsappComingSoonTitle: "WhatsApp shift updates — coming soon",
+    whatsappComingSoonBody: "Add staff phone numbers below now. We'll send their first message the day this goes live — your numbers stay private until then.",
     // Smart Language welcome toast
     smartLangPicked: "We picked {lang} {source}.",
     smartLangSourceBrowser: "from your browser",
@@ -3080,6 +3083,9 @@ const translations = {
     branchDefaultBadge: "standard",
     // Sidebar-disambiguering
     staffingForecast: "Bemandings-prognose",
+    // WhatsApp kommer snart-placeholder
+    whatsappComingSoonTitle: "WhatsApp vagtbeskeder — kommer snart",
+    whatsappComingSoonBody: "Tilføj medarbejdernes telefonnumre nedenfor nu. Vi sender deres første besked den dag det går live — dine numre forbliver private indtil da.",
     // Smart Language velkomst-toast
     smartLangPicked: "Vi valgte {lang} {source}.",
     smartLangSourceBrowser: "fra din browser",

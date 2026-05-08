@@ -870,10 +870,45 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
         </div>
       )}
 
-      {/* WhatsApp Setup Guide */}
+      {/* WhatsApp Setup Guide
+          ──────────────────────────────────────────────────────────
+          Hidden from regular customers — this card asks the owner to
+          create their own Twilio account, find SID/Auth tokens, and
+          paste env vars into BonBox's Render dashboard. That's a
+          DevOps setup nobody-but-the-founder can complete (customers
+          can't log into Render in the first place), and the Twilio
+          sandbox path delivers a 24-hour-only experience that stops
+          working silently for staff.
+
+          Customers see a calm "Coming soon" tile instead.
+
+          Production plan (Manoj's job, once):
+            • Apply for Twilio WhatsApp Business approval (~3 weeks)
+            • Pre-approve message templates with Meta
+            • Use existing TWILIO_* env vars on Render (single shared
+              sender for all customers)
+            • Customer-facing toggle just sets whatsapp_enabled flag
+          */}
+      {!user?.is_admin && (
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-4 text-sm">
+          <div className="flex items-start gap-3">
+            <span className="text-2xl shrink-0">📱</span>
+            <div className="flex-1">
+              <p className="font-semibold text-gray-900 dark:text-gray-100">
+                {t("whatsappComingSoonTitle") || "WhatsApp shift updates — coming soon"}
+              </p>
+              <p className="text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+                {t("whatsappComingSoonBody") ||
+                  "Add staff phone numbers below now. We'll send their first message the day this goes live — your numbers stay private until then."}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+      {user?.is_admin && (
       <details className="group">
         <summary className="flex items-center justify-between cursor-pointer py-3 px-4 bg-green-50 dark:bg-green-900/10 rounded-xl border border-green-200 dark:border-green-800/30 text-sm font-medium text-green-800 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/20 transition">
-          <span>📱 WhatsApp Notifications — Quick Setup</span>
+          <span>📱 WhatsApp Notifications — Quick Setup (admin only)</span>
           <svg className="w-4 h-4 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
         </summary>
         <div className="mt-3 p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 space-y-5 text-sm text-gray-600 dark:text-gray-400">
@@ -965,6 +1000,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
           </div>
         </div>
       </details>
+      )}
 
       {/* Portal Link Modal */}
       {linkModal && (
