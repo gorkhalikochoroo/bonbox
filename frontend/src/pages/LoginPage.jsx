@@ -64,7 +64,7 @@ function HeroIllustration() {
 }
 
 export default function LoginPage() {
-  const { login, googleLogin, needsEmailVerification } = useAuth();
+  const { login, googleLogin, appleLogin, needsEmailVerification } = useAuth();
   const { lang, setLang, LANGUAGES, t } = useLanguage();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -72,9 +72,16 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPass, setShowPass] = useState(false);
-  // Hide Google sign-in on native iOS (Apple requires Sign in with Apple for third-party login)
+  // Sign-in surface differs per platform:
+  //   • Web: Google (via @react-oauth/google JS SDK)
+  //   • iOS: Apple via Capacitor SIWA plugin (covers Apple 4.8 since
+  //     it's offered) — Google on iOS would need a SEPARATE native
+  //     Capacitor plugin since the web @react-oauth/google flow
+  //     doesn't work reliably inside the Capacitor WebView. v1.x
+  //     follow-up.
   const isNative = typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
   const hasGoogle = !!import.meta.env.VITE_GOOGLE_CLIENT_ID && !isNative;
+  const hasAppleNative = isNative;
 
   // Google button width is fixed-pixel — measure container so it fits any phone
   const googleWrap = useRef(null);
@@ -261,15 +268,70 @@ export default function LoginPage() {
               </button>
             </form>
 
+            {/* Sign in with Apple — iOS-only for now. Hits the
+                Capacitor plugin → gets identity_token + name → posts
+                to /api/auth/apple which verifies the JWT against
+                Apple's public keys and find-or-creates the user. */}
+            {hasAppleNative && (
+              <>
+                <div className="flex items-center gap-3 my-5">
+                  <div className="flex-1 h-px bg-gray-200"/>
+                  <span className="text-[11px] uppercase tracking-wider text-gray-400">{t("or")}</span>
+                  <div className="flex-1 h-px bg-gray-200"/>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setError("");
+                    setLoading(true);
+                    try {
+                      // Lazy-import the Capacitor plugin so it doesn't
+                      // ship to the web bundle.
+                      const { SignInWithApple } = await import("@capacitor-community/apple-sign-in");
+                      const result = await SignInWithApple.authorize({
+                        clientId: "dk.bonbox.app",
+                        redirectURI: "https://www.bonbox.dk/login",
+                        scopes: "email name",
+                      });
+                      const tok = result?.response?.identityToken;
+                      const fullName = [
+                        result?.response?.givenName,
+                        result?.response?.familyName,
+                      ].filter(Boolean).join(" ").trim();
+                      if (!tok) throw new Error("Apple did not return an identity token");
+                      const data = await appleLogin(tok, fullName || null);
+                      if (data.user && !data.user.email_verified && data.user.created_at && new Date(data.user.created_at) >= new Date("2026-04-13T00:00:00")) {
+                        navigate("/verify-email");
+                      } else {
+                        navigate("/dashboard");
+                      }
+                    } catch (e) {
+                      // User-cancel is silent; everything else surfaces
+                      const msg = e?.message || "";
+                      if (!msg.toLowerCase().includes("cancel")) {
+                        setError(msg || (t("appleSignInFailed") || "Apple sign-in failed."));
+                      }
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  className="w-full bg-black text-white py-2.5 rounded-lg
+                    text-[14px] font-medium hover:bg-gray-900 transition
+                    flex items-center justify-center gap-2"
+                >
+                  <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor" aria-hidden="true">
+                    <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+                  </svg>
+                  {t("signInWithApple") || "Sign in with Apple"}
+                </button>
+              </>
+            )}
+
             {/* iOS-only hint for users who signed up via Google on web.
-                Apple's guideline 4.8 forces us to hide Google login on
-                native (would need Sign in with Apple alongside it),
-                which leaves Google-account users stranded — they have
-                an account but no password to type here. The "Forgot
-                password" flow ABOVE works for them (the backend stores
-                a random password on Google signup that they can reset
-                via email link) but they won't think to use it without
-                a hint. */}
+                Even with Apple SIWA available, we still hide Google on
+                iOS (no native Google Capacitor plugin yet). So
+                Google-account users still need the "Forgot password"
+                bridge until we add native Google. */}
             {isNative && (
               <p className="mt-4 text-center text-[12px] text-gray-500">
                 {t("loginGoogleHintNative") ||

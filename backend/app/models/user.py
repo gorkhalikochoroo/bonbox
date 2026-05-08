@@ -78,6 +78,11 @@ class User(Base):
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     verification_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
     verification_code_expires: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Sign in with Apple — stable identifier from Apple's `sub` claim.
+    # Indexed because login flow looks up by this when Apple's email
+    # comes back as a private relay address (`<random>@privaterelay.
+    # appleid.com`) which we deliberately don't try to match by email.
+    apple_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, onupdate=utc_now

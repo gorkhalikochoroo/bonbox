@@ -553,6 +553,12 @@ _migrations = [
     # shows a calm "N of M confirmed for this week" signal. NULL = not
     # yet confirmed (or shift predates the feature).
     "ALTER TABLE schedules ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMP",
+    # ── Migration 027: Sign in with Apple — stable user identifier ──
+    # `apple_user_id` is Apple's `sub` claim from the verified identity
+    # token; we use it for find-or-create when Apple returns a private
+    # relay email (which can change later). Idempotent column add.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS apple_user_id VARCHAR(64)",
+    "CREATE INDEX IF NOT EXISTS ix_users_apple_user_id ON users (apple_user_id)",
 ]
 
 def _run_migrations():

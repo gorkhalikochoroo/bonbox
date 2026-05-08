@@ -1,7 +1,9 @@
 import io
 import csv
+import json
 import secrets
 from datetime import datetime, timedelta
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
@@ -401,6 +403,229 @@ def google_auth(request: Request, response: Response, data: GoogleAuthRequest, d
                     settings.ADMIN_EMAIL,
                     f"New BonBox signup (Google): {name or email}",
                     _admin_signup_email_html(email, name, "google-oauth"),
+                )
+            except Exception:
+                pass
+
+    token = create_access_token(str(user.id))
+    _set_auth_cookie(response, token, request)
+    return Token(access_token=token, user=UserResponse.model_validate(user))
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Sign in with Apple (May 2026)
+#
+# Mirror of /auth/google — verifies Apple's identity token (a JWT signed
+# by Apple) against Apple's published JWKs, then find-or-create on the
+# users table and return a BonBox JWT.
+#
+# iOS app gets the identity token from the Capacitor Apple Sign-In
+# plugin (or from Sign in with Apple JS on web in future). The token
+# carries:
+#   sub:    stable Apple user ID (we save this in users.apple_user_id)
+#   email:  user's email — either real or `<random>@privaterelay.
+#           appleid.com` (private relay; Apple forwards mail)
+#   email_verified: always "true" or true on Apple
+#   iss:    "https://appleid.apple.com"
+#   aud:    bundle ID (dk.bonbox.app) or Service ID (web)
+#
+# Apple ONLY returns the user's `name` field on the FIRST sign-in.
+# After that the iOS app stores it locally. We accept a name from the
+# request body too so the iOS app can pass it through on first signup.
+#
+# Multi-layer:
+#   • JWT signature verified against Apple's JWKs (cached 24h)
+#   • iss + aud + exp claims validated
+#   • Find by apple_user_id first (stable), fall back to email
+#   • Private-relay emails NEVER bridge into existing email-based
+#     accounts — too easy to mistakenly merge identities
+#   • Rate-limited 15/minute (matches Google)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+# Module-level cache for Apple's JWK Set. Apple recommends fetching
+# once per day max. Cache invalidates on signature mismatch (new key
+# rotated in).
+_APPLE_JWKS_CACHE: dict[str, Any] = {"keys": None, "fetched_at": 0.0}
+_APPLE_JWKS_TTL = 86400.0  # 24h
+_APPLE_KEYS_URL = "https://appleid.apple.com/auth/keys"
+_APPLE_ISSUER = "https://appleid.apple.com"
+
+
+def _fetch_apple_jwks(force: bool = False) -> list[dict]:
+    """Get Apple's current public keys. Cached 24h. Force refresh on
+    signature failure (key rotated)."""
+    import time as _time
+    import urllib.request as _urlreq
+    now = _time.time()
+    if (
+        not force
+        and _APPLE_JWKS_CACHE["keys"]
+        and (now - _APPLE_JWKS_CACHE["fetched_at"]) < _APPLE_JWKS_TTL
+    ):
+        return _APPLE_JWKS_CACHE["keys"]
+    try:
+        with _urlreq.urlopen(_APPLE_KEYS_URL, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+        _APPLE_JWKS_CACHE["keys"] = data.get("keys", [])
+        _APPLE_JWKS_CACHE["fetched_at"] = now
+        return _APPLE_JWKS_CACHE["keys"]
+    except Exception:
+        # If we have stale keys, return them rather than failing every
+        # login — they're likely still valid.
+        return _APPLE_JWKS_CACHE["keys"] or []
+
+
+def _verify_apple_identity_token(token: str) -> dict:
+    """Verify Apple's identity token JWT and return its claims.
+
+    Raises ValueError on any verification failure — caller maps to 401.
+    Defense-in-depth: every check Apple recommends + our extra
+    audience whitelist.
+    """
+    from jose import jwk, jwt
+    from jose.utils import base64url_decode
+
+    # Step 1: parse header to find which key signed this token
+    try:
+        header = jwt.get_unverified_header(token)
+    except Exception as exc:
+        raise ValueError(f"Token header malformed: {exc}") from exc
+    kid = header.get("kid")
+    alg = header.get("alg")
+    if not kid or alg != "RS256":
+        raise ValueError("Token uses unexpected signing algorithm")
+
+    # Step 2: look up the matching public key from Apple's JWK set
+    keys = _fetch_apple_jwks()
+    matching = next((k for k in keys if k.get("kid") == kid), None)
+    if not matching:
+        # Force refresh — Apple may have rotated keys since our last fetch
+        keys = _fetch_apple_jwks(force=True)
+        matching = next((k for k in keys if k.get("kid") == kid), None)
+    if not matching:
+        raise ValueError("No matching public key for token's kid")
+
+    # Step 3: verify signature + standard claims
+    try:
+        public_key = jwk.construct(matching)
+    except Exception as exc:
+        raise ValueError(f"Couldn't construct Apple public key: {exc}") from exc
+
+    msg, encoded_sig = token.rsplit(".", 1)
+    decoded_sig = base64url_decode(encoded_sig.encode())
+    if not public_key.verify(msg.encode(), decoded_sig):
+        raise ValueError("Token signature invalid")
+
+    # Step 4: validate claims (iss, aud, exp)
+    allowed_auds = {
+        a.strip() for a in (settings.APPLE_ALLOWED_AUDIENCES or "").split(",") if a.strip()
+    }
+    try:
+        claims = jwt.decode(
+            token,
+            key=matching,
+            algorithms=["RS256"],
+            audience=list(allowed_auds) if allowed_auds else None,
+            issuer=_APPLE_ISSUER,
+            options={"verify_aud": bool(allowed_auds)},
+        )
+    except Exception as exc:
+        raise ValueError(f"Token claims invalid: {exc}") from exc
+    return claims
+
+
+class AppleAuthRequest(BaseModel):
+    identity_token: str  # Apple's signed JWT
+    full_name: Optional[str] = None  # Only present on first sign-in
+
+
+@router.post("/apple", response_model=Token)
+@limiter.limit("15/minute")
+def apple_auth(
+    request: Request,
+    response: Response,
+    data: AppleAuthRequest,
+    db: Session = Depends(get_db),
+):
+    """Sign in or register with Apple. Mirrors /auth/google: verify
+    the identity token, find-or-create the user, return BonBox JWT.
+
+    Privacy-relay handling: when Apple returns
+    `<random>@privaterelay.appleid.com` we store it as the user's email
+    (Apple forwards mail through it) but we NEVER use the relay address
+    to find an existing email-based account. Stable identity tying
+    happens via `apple_user_id`.
+    """
+    if not (settings.APPLE_ALLOWED_AUDIENCES or "").strip():
+        raise HTTPException(status_code=503, detail="Sign in with Apple not configured")
+
+    try:
+        claims = _verify_apple_identity_token(data.identity_token)
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=f"Invalid Apple token: {exc}") from exc
+
+    apple_sub = claims.get("sub")
+    email = claims.get("email")
+    if not apple_sub:
+        raise HTTPException(status_code=401, detail="Apple token missing sub")
+
+    is_relay_email = bool(email) and email.lower().endswith("@privaterelay.appleid.com")
+
+    # Find user by apple_user_id first (stable across email changes),
+    # then by real email if not relay. NEVER look up by relay email
+    # — that risks hijacking an existing account if someone re-uses
+    # the same relay alias.
+    user = db.query(User).filter(User.apple_user_id == apple_sub).first()
+    if not user and email and not is_relay_email:
+        user = db.query(User).filter(User.email == email).first()
+        if user:
+            # Existing email-based user signing in with Apple for the
+            # first time — link the apple_user_id so future sign-ins
+            # find them by sub.
+            user.apple_user_id = apple_sub
+            db.commit()
+            db.refresh(user)
+
+    is_new = False
+    if not user:
+        # Auto-register — Apple already verified the email
+        is_new = True
+        if not email:
+            # Apple must return either an email or a relay email — if
+            # neither, refuse. Multi-layer: catches malformed tokens
+            # and avoids creating ghost users with NULL email.
+            raise HTTPException(status_code=401, detail="Apple did not return an email")
+        full_name = (data.full_name or "").strip()
+        user = User(
+            email=email,
+            password_hash=hash_password(secrets.token_urlsafe(32)),  # random — won't be used
+            business_name=full_name,
+            business_type="",
+            currency="DKK",
+            email_verified=True,
+            apple_user_id=apple_sub,
+        )
+        from app.services.billing import start_trial
+        start_trial(user)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+        # Welcome email — only if it's a real (non-relay) address that
+        # Apple won't forward unpredictably.
+        if not is_relay_email:
+            try:
+                send_email(user.email, "Welcome to BonBox! 🎉", _welcome_email_html(full_name or "there"))
+            except Exception:
+                pass
+
+        if settings.ADMIN_EMAIL and "@bonbox-probe.com" not in (email or "").lower():
+            try:
+                send_email(
+                    settings.ADMIN_EMAIL,
+                    f"New BonBox signup (Apple): {full_name or email}",
+                    _admin_signup_email_html(email, full_name, "apple-oauth"),
                 )
             except Exception:
                 pass

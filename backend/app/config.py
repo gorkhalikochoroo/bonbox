@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     COMPANIES_HOUSE_API_KEY: str = ""
     GOOGLE_CLIENT_ID: str = ""  # Google OAuth client ID
+    # Sign in with Apple — list of accepted audience values. iOS app
+    # uses the bundle ID (`dk.bonbox.app`); web SIWA uses the Service
+    # ID. Comma-separated to support both. The token's `aud` claim must
+    # match one of these or verification fails.
+    APPLE_ALLOWED_AUDIENCES: str = "dk.bonbox.app"
     GOOGLE_PLACES_API_KEY: str = ""  # Google Places API (nearby competitor discovery)
     ADMIN_EMAIL: str = ""  # Get notified on new signups
     # SUPER_ADMIN_EMAILS — comma-separated allowlist of emails that may access /admin/*.

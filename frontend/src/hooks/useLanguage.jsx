@@ -1478,6 +1478,10 @@ const translations = {
     // guideline 4.8. This nudge tells web-Google-signup users how to
     // bridge into the app via the existing "Forgot password" flow.
     loginGoogleHintNative: "Signed up with Google on the web? Tap “Forgot password” above to set an app password — takes 30 seconds.",
+    // Sign in with Apple — iOS only
+    signInWithApple: "Sign in with Apple",
+    signUpWithApple: "Sign up with Apple",
+    appleSignInFailed: "Apple sign-in failed.",
     smartStaffingShowAdvanced: "Show advanced operating-profile editor",
     smartStaffingSaved: "Saved",
     smartStaffingSaveError: "Couldn't save.",
@@ -3000,6 +3004,10 @@ const translations = {
     smartStaffingHideAdvanced: "Skjul avanceret editor ↑",
     // Native-iOS-hint: Google login skjult pga. Apple guideline 4.8
     loginGoogleHintNative: "Tilmeldt med Google på web? Tryk på “Glemt adgangskode” ovenfor for at sætte en app-adgangskode — tager 30 sekunder.",
+    // Apple-login (kun iOS)
+    signInWithApple: "Log ind med Apple",
+    signUpWithApple: "Tilmeld med Apple",
+    appleSignInFailed: "Apple-login mislykkedes.",
     smartStaffingShowAdvanced: "Vis avanceret driftsprofil-editor",
     smartStaffingSaved: "Gemt",
     smartStaffingSaveError: "Kunne ikke gemme.",

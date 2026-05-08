@@ -105,6 +105,26 @@ export function AuthProvider({ children }) {
     return res.data;
   };
 
+  /**
+   * Sign in with Apple. Mirrors googleLogin: takes the identity token
+   * Capacitor's Apple Sign-In plugin returns + an optional full name
+   * (Apple only sends name on the FIRST sign-in; the iOS button wrapper
+   * is responsible for stashing it locally for subsequent calls).
+   * Backend verifies the JWT against Apple's public keys and either
+   * find-or-creates the user.
+   */
+  const appleLogin = async (identityToken, fullName) => {
+    const res = await api.post("/auth/apple", {
+      identity_token: identityToken,
+      full_name: fullName || null,
+    });
+    persistTokenIfNeeded(res.data.access_token);
+    setUser(res.data.user);
+    syncTimezoneIfChanged(res.data.user?.timezone);
+    try { trackEvent("login_success", "login", "apple"); } catch {}
+    return res.data;
+  };
+
   const logout = async () => {
     // Track BEFORE clearing token (otherwise the API call has no auth header)
     try { trackEvent("logout", "logout", null); } catch {}
@@ -142,7 +162,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, googleLogin, logout, setEmailVerified, needsEmailVerification }}>
+    <AuthContext.Provider value={{ user, loading, login, register, googleLogin, appleLogin, logout, setEmailVerified, needsEmailVerification }}>
       {children}
     </AuthContext.Provider>
   );
