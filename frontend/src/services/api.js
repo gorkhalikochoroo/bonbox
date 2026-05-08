@@ -25,16 +25,27 @@ const api = axios.create({
   withCredentials: true,
 });
 
-// Auto-retry on timeout or network error (max 2 retries)
+// Auto-retry on timeout, network error, or transient 5xx.
+//
+// Hardened May 2026 after seeing real 503 storms during Render cold-
+// starts and queue backpressure. Old config: 2 retries × 1.5s flat =
+// 3s window. Render recovery often takes 15-30s, so half the calls
+// were still failing visibly to users.
+//
+// New: 4 retries with exponential backoff (2s, 4s, 8s, 12s; ~26s
+// total), which covers the typical Render warmup. 4xx still propagate
+// immediately — those are real validation errors, not transient.
 api.interceptors.response.use(null, async (err) => {
   const config = err.config;
-  if (!config || config._retryCount >= 2) return Promise.reject(err);
+  if (!config || config._retryCount >= 4) return Promise.reject(err);
   const isRetryable = !err.response || err.code === "ECONNABORTED" || err.response?.status >= 500;
   if (!isRetryable) return Promise.reject(err);
   // Only retry login/register POSTs on network errors (not on 4xx)
   if (config.method === "post" && err.response) return Promise.reject(err);
-  config._retryCount = (config._retryCount || 0) + 1;
-  await new Promise((r) => setTimeout(r, 1500));
+  const attempt = config._retryCount || 0;
+  const backoffMs = [2000, 4000, 8000, 12000][attempt] || 12000;
+  config._retryCount = attempt + 1;
+  await new Promise((r) => setTimeout(r, backoffMs));
   return api(config);
 });
 
