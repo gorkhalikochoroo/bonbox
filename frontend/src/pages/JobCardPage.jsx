@@ -86,7 +86,7 @@ export function NewJobPage() {
     }
   };
 
-  const inputClass = "w-full px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500";
+  const inputClass = "w-full px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500";
 
   return (
     <div className="p-4 sm:p-6 max-w-2xl mx-auto space-y-6">
@@ -279,7 +279,7 @@ export default function JobCardPage() {
   if (!job) return <div className="p-8 text-center text-gray-400">Job not found</div>;
 
   const currentIdx = STATUS_FLOW.indexOf(job.status);
-  const inputClass = "w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
+  const inputClass = "w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500";
 
   return (
     <div className="p-4 sm:p-6 max-w-3xl mx-auto space-y-5">

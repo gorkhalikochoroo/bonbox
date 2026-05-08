@@ -267,7 +267,7 @@ export default function ProfilePage() {
 
   if (!user) return <div className="p-6 text-center text-gray-500">{t("loading")}</div>;
 
-  const inputClass = "w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
+  const inputClass = "w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500";
   const labelClass = "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1";
 
   return (

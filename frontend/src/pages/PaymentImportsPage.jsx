@@ -285,7 +285,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder={t("connectionNameExample") || `e.g. "My café" or "Main store"`}
-            className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-blue-300 dark:focus:ring-blue-700 outline-none transition"
+            className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-emerald-300 dark:focus:ring-emerald-700 outline-none transition"
           />
         </div>
 
@@ -311,7 +311,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
               onChange={(e) => handleSmartPaste(e.target.value)}
               rows={3}
               placeholder={t("smartPastePlaceholder") || "Paste your 4 keys (or the whole block from the portal) — BonBox sorts them into the right fields"}
-              className="w-full px-3 py-2 rounded-lg border border-blue-200 dark:border-blue-800/40 bg-white dark:bg-gray-800 text-xs text-gray-800 dark:text-gray-200 font-mono focus:ring-2 focus:ring-blue-300 dark:focus:ring-blue-700 outline-none transition resize-none"
+              className="w-full px-3 py-2 rounded-lg border border-blue-200 dark:border-blue-800/40 bg-white dark:bg-gray-800 text-xs text-gray-800 dark:text-gray-200 font-mono focus:ring-2 focus:ring-emerald-300 dark:focus:ring-emerald-700 outline-none transition resize-none"
             />
             {pasteAck && (
               <p className={`text-[11px] mt-1.5 font-medium flex items-center gap-1 ${pasteAck.found === pasteAck.total ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400"}`}>
@@ -356,7 +356,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
                 value={value}
                 onChange={(e) => setCreds({ ...creds, [field.key]: e.target.value })}
                 placeholder={field.placeholder}
-                className={`w-full px-3 py-2.5 rounded-xl border text-sm text-gray-800 dark:text-gray-200 font-mono focus:ring-2 focus:ring-blue-300 dark:focus:ring-blue-700 outline-none transition ${borderClass}`}
+                className={`w-full px-3 py-2.5 rounded-xl border text-sm text-gray-800 dark:text-gray-200 font-mono focus:ring-2 focus:ring-emerald-300 dark:focus:ring-emerald-700 outline-none transition ${borderClass}`}
               />
               {formatHint && (
                 <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 ml-0.5">

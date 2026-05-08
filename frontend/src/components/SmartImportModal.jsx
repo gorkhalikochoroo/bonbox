@@ -263,7 +263,7 @@ function ExtractStep({
       {isInputMode && mode === "text" && (
         <div>
           <textarea
-            className="w-full h-48 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full h-48 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
             placeholder={
               "Tuborg 24 bottles\nVodka 5 liter\nLemons 30\nTomater 5 kg"
             }
@@ -586,27 +586,27 @@ function ReviewStep({
               <input
                 value={it.name || ""}
                 onChange={(e) => updateRow(idx, "name", e.target.value)}
-                className="col-span-5 px-2 py-1 bg-transparent border border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-blue-400 focus:outline-none rounded text-sm"
+                className="col-span-5 px-2 py-1 bg-transparent border border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-emerald-400 focus:outline-none rounded text-sm"
                 maxLength={200}
               />
               <input
                 value={it.qty ?? ""}
                 onChange={(e) => updateRow(idx, "qty", e.target.value)}
-                className="col-span-2 px-2 py-1 bg-transparent border border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-blue-400 focus:outline-none rounded text-sm"
+                className="col-span-2 px-2 py-1 bg-transparent border border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-emerald-400 focus:outline-none rounded text-sm"
                 placeholder="—"
                 inputMode="decimal"
               />
               <input
                 value={it.unit || ""}
                 onChange={(e) => updateRow(idx, "unit", e.target.value)}
-                className="col-span-2 px-2 py-1 bg-transparent border border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-blue-400 focus:outline-none rounded text-sm"
+                className="col-span-2 px-2 py-1 bg-transparent border border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-emerald-400 focus:outline-none rounded text-sm"
                 placeholder="—"
                 maxLength={20}
               />
               <input
                 value={it.category || ""}
                 onChange={(e) => updateRow(idx, "category", e.target.value)}
-                className="col-span-2 px-2 py-1 bg-transparent border border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-blue-400 focus:outline-none rounded text-sm"
+                className="col-span-2 px-2 py-1 bg-transparent border border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-emerald-400 focus:outline-none rounded text-sm"
                 placeholder="—"
                 maxLength={60}
               />

@@ -119,7 +119,7 @@ export default function VatReportPage() {
           <select
             value={month}
             onChange={(e) => setMonth(Number(e.target.value))}
-            className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
           >
             {months.map((name, i) => (
               <option key={i + 1} value={i + 1}>{name}</option>
@@ -129,7 +129,7 @@ export default function VatReportPage() {
           <select
             value={quarter}
             onChange={(e) => setQuarter(Number(e.target.value))}
-            className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
           >
             {quarters.map((q) => (
               <option key={q.value} value={q.value}>{q.label}</option>
@@ -140,7 +140,7 @@ export default function VatReportPage() {
         <select
           value={year}
           onChange={(e) => setYear(Number(e.target.value))}
-          className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
         >
           {yearOptions.map((y) => (
             <option key={y} value={y}>{y}</option>

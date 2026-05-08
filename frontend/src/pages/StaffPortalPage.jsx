@@ -831,7 +831,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
         <select
           value={fromShiftId}
           onChange={(e) => { setFromShiftId(e.target.value); setToShiftId(""); }}
-          className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white outline-none focus:border-blue-500/40"
+          className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white outline-none focus:border-emerald-500/40"
         >
           <option value="">Pick one of your shifts…</option>
           {upcomingOwn.map((s) => (
@@ -850,7 +850,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
           <select
             value={toShiftId}
             onChange={(e) => setToShiftId(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white outline-none focus:border-blue-500/40"
+            className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white outline-none focus:border-emerald-500/40"
           >
             <option value="">Pick a teammate's shift…</option>
             {candidateTeamShifts.map((s) => (
@@ -871,7 +871,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
           onChange={(e) => setReason(e.target.value.slice(0, 500))}
           rows={2}
           placeholder="e.g. family wedding, doctor appt"
-          className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white placeholder:text-gray-600 outline-none focus:border-blue-500/40 resize-none"
+          className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white placeholder:text-gray-600 outline-none focus:border-emerald-500/40 resize-none"
         />
       </div>
 

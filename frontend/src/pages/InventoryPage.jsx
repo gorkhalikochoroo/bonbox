@@ -939,7 +939,7 @@ export default function InventoryPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t("searchItems")}
-            className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
         </div>
         {selected.size > 0 && (
@@ -965,7 +965,7 @@ export default function InventoryPage() {
               <tr>
                 <th className="px-3 py-3 w-10">
                   <input type="checkbox" checked={filtered.length > 0 && selected.size === filtered.length} onChange={toggleSelectAll}
-                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-emerald-500" />
                 </th>
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("item")}</th>
                 <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("category")}</th>
@@ -990,7 +990,7 @@ export default function InventoryPage() {
                   <tr key={item.id} className={alertIds.has(item.id) ? "bg-red-50 dark:bg-red-900/20" : ""}>
                     <td className="px-3 py-3">
                       <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelect(item.id)}
-                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-emerald-500" />
                     </td>
                     {editId === item.id ? (
                       <>

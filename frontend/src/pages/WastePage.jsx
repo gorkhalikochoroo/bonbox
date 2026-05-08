@@ -173,10 +173,10 @@ export default function WastePage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <input type="text" value={item} onChange={(e) => setItem(e.target.value)}
             placeholder={t("whatWasWasted")}
-            className="px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            className="px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500" />
           <div className="flex gap-2">
             <input type="number" value={qty} onChange={(e) => setQty(e.target.value)}
-              placeholder={t("qty")} className="flex-1 px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              placeholder={t("qty")} className="flex-1 px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500" />
             <select value={unit} onChange={(e) => setUnit(e.target.value)}
               className="px-3 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl">
               <option value="kg">{t("kg")}</option>
@@ -213,7 +213,7 @@ export default function WastePage() {
 
         <div className="flex gap-3">
           <input type="number" value={cost} onChange={(e) => setCost(e.target.value)}
-            placeholder={t("customCost")} className="flex-1 max-w-sm px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder={t("customCost")} className="flex-1 max-w-sm px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
             onKeyDown={(e) => e.key === "Enter" && submit()} />
           <button onClick={() => submit()} disabled={!item || !qty}
             className="px-6 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 transition font-semibold disabled:opacity-40">
@@ -229,7 +229,7 @@ export default function WastePage() {
             value={wasteDate}
             max={new Date().toISOString().split("T")[0]}
             onChange={(e) => setWasteDate(e.target.value)}
-            className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
           {wasteDate !== new Date().toISOString().split("T")[0] && (
             <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">{t("backdatedEntry")}</span>
@@ -259,7 +259,7 @@ export default function WastePage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t("search")}
-              className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
             {(filterFrom || filterTo) && (
               <button

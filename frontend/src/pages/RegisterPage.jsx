@@ -546,7 +546,7 @@ export default function RegisterPage() {
                 aria-label="Language"
                 className="text-[12px] bg-transparent border border-gray-200 dark:border-gray-700 rounded-md px-2.5 py-1
                   text-gray-600 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500
-                  focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer"
+                  focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer"
               >
                 {LANGUAGES.map((l) => (
                   <option key={l.code} value={l.code} className="bg-white dark:bg-gray-900">

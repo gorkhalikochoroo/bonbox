@@ -153,7 +153,7 @@ export default function LoginPage() {
             aria-label="Language"
             className="text-[13px] bg-transparent border border-gray-200 rounded-md px-2.5 py-1.5
               text-gray-700 hover:border-gray-400
-              focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer"
+              focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer"
           >
             {LANGUAGES.map((l) => (
               <option key={l.code} value={l.code} className="bg-white">
@@ -198,7 +198,7 @@ export default function LoginPage() {
                   autoComplete="email"
                   className="w-full px-3.5 py-2.5 bg-white border border-gray-300
                     rounded-lg text-[15px] text-gray-900 placeholder:text-gray-400
-                    focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                    focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition"
                   required
                 />
               </div>
@@ -223,7 +223,7 @@ export default function LoginPage() {
                     autoComplete="current-password"
                     className="w-full px-3.5 pr-11 py-2.5 bg-white border border-gray-300
                       rounded-lg text-[15px] text-gray-900 placeholder:text-gray-400
-                      focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                      focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition"
                     required
                   />
                   <button

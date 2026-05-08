@@ -98,7 +98,7 @@ export default function FeedbackPage() {
           <select
             value={category}
             onChange={(e) => setCategory(e.target.value)}
-            className="w-full md:w-auto px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full md:w-auto px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
           >
             {CATEGORIES.map((cat) => (
               <option key={cat} value={cat}>{categoryLabel(cat)}</option>
@@ -113,7 +113,7 @@ export default function FeedbackPage() {
             onChange={(e) => setMessage(e.target.value)}
             placeholder={t("feedbackMessage")}
             rows={4}
-            className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+            className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"
           />
         </div>
 
