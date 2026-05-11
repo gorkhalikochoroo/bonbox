@@ -492,6 +492,12 @@ export default function StaffSchedulePage() {
    ═══════════════════════════════════════════════════════════ */
 function StaffPanel({ staff, currency, onRefresh, branchId }) {
   const { t } = useLanguage();
+  // `user` is referenced below for the admin-only WhatsApp setup block
+  // (`user?.is_admin`). The parent had it via useAuth() but sub-components
+  // each need their own destructure — this exact pattern crashed the
+  // panel with `ReferenceError: user is not defined` and bounced the
+  // whole /staff/schedule page through the global error boundary.
+  const { user } = useAuth();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
