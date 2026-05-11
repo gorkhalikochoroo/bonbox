@@ -89,7 +89,7 @@ export default function TaxAutopilotPage() {
       <div className="p-4 md:p-8 max-w-lg mx-auto text-center">
         <div className="text-4xl mb-4">🧾</div>
         <p className="text-red-500">{error}</p>
-        <button onClick={fetchData} className="mt-4 text-sm text-green-600 hover:underline">Try again</button>
+        <button onClick={fetchData} className="mt-4 text-sm text-green-600 hover:underline">{t("tryAgain")}</button>
       </div>
     );
   }
@@ -155,7 +155,7 @@ export default function TaxAutopilotPage() {
               </p>
             </div>
             <div className="text-right">
-              <p className="text-sm opacity-80">Estimated Amount</p>
+              <p className="text-sm opacity-80">{t("estimatedAmount")}</p>
               <p className="text-3xl font-bold mt-1">
                 {fmt(nextDeadline.estimated_amount)} <span className="text-lg opacity-80">{currency}</span>
               </p>
@@ -253,13 +253,13 @@ export default function TaxAutopilotPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs text-gray-500 border-b dark:border-gray-700">
-                  <th className="text-left py-2 px-2">Period</th>
-                  <th className="text-left py-2 px-2">Deadline</th>
-                  <th className="text-right py-2 px-2">Sales</th>
+                  <th className="text-left py-2 px-2">{t("period")}</th>
+                  <th className="text-left py-2 px-2">{t("deadline")}</th>
+                  <th className="text-right py-2 px-2">{t("sales")}</th>
                   <th className="text-right py-2 px-2">Output {tax_name}</th>
                   <th className="text-right py-2 px-2">Input {tax_name}</th>
-                  <th className="text-right py-2 px-2">Payable</th>
-                  <th className="text-center py-2 px-2">Status</th>
+                  <th className="text-right py-2 px-2">{t("payable")}</th>
+                  <th className="text-center py-2 px-2">{t("status")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -307,7 +307,7 @@ export default function TaxAutopilotPage() {
             <h3 className="text-sm font-medium text-gray-500 mb-3">Sales ({tax_name} collected)</h3>
             <div className="space-y-2">
               <div className="flex justify-between">
-                <span className="text-sm text-gray-600 dark:text-gray-400">Total Sales</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">{t("totalSales")}</span>
                 <span className="text-sm font-medium text-gray-800 dark:text-white">{fmt(ytd.sales_total)} {currency}</span>
               </div>
               <div className="flex justify-between">
@@ -320,7 +320,7 @@ export default function TaxAutopilotPage() {
             <h3 className="text-sm font-medium text-gray-500 mb-3">Expenses ({tax_name} deductible)</h3>
             <div className="space-y-2">
               <div className="flex justify-between">
-                <span className="text-sm text-gray-600 dark:text-gray-400">Total Expenses</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">{t("totalExpenses")}</span>
                 <span className="text-sm font-medium text-gray-800 dark:text-white">{fmt(ytd.expenses_total)} {currency}</span>
               </div>
               <div className="flex justify-between">
@@ -367,7 +367,7 @@ function TaxPrefsCard({ tax, setTax, saving, msg, onSave }) {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
       <div className="mb-4">
-        <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Tax preferences</p>
+        <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">{t("taxPreferences")}</p>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
           Controls deadlines and Moms calculations across every report.
         </p>
@@ -383,7 +383,7 @@ function TaxPrefsCard({ tax, setTax, saving, msg, onSave }) {
             onChange={(e) => setTax({ ...tax, filing_frequency: e.target.value })}
             className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
           >
-            <option value="">Use default for my country</option>
+            <option value="">{t("useDefaultForCountry")}</option>
             <option value="half_yearly">Half-yearly (DK SMBs &lt; 5M kr — most cafés / retail)</option>
             <option value="quarterly">Quarterly (DK businesses 5–50M kr)</option>
             <option value="monthly">Monthly (DK businesses &gt; 50M kr / NPR / INR)</option>
@@ -399,7 +399,7 @@ function TaxPrefsCard({ tax, setTax, saving, msg, onSave }) {
             className="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-gray-600 accent-green-600"
           />
           <div className="text-sm">
-            <div className="font-medium text-gray-800 dark:text-gray-100">My prices include Moms</div>
+            <div className="font-medium text-gray-800 dark:text-gray-100">{t("myPricesIncludeMoms")}</div>
             <div className="text-xs text-gray-500 dark:text-gray-400">
               Default for B2C (cafés, retail) — you enter what the customer pays. Uncheck if you invoice B2B with net prices.
             </div>
@@ -473,7 +473,7 @@ function ReconCard({ recon, taxName, currency }) {
           {/* Current month comparison */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <p className="text-[11px] text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">From Daily Closes</p>
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">{t("fromDailyCloses")}</p>
               <p className="text-xl font-bold text-gray-800 dark:text-white">{fmt(cm.moms_from_closes)} <span className="text-sm font-normal text-gray-400">{currency}</span></p>
               <p className="text-xs text-gray-400 mt-0.5">
                 {cm.closes_count} close{cm.closes_count !== 1 ? "s" : ""}
@@ -481,16 +481,16 @@ function ReconCard({ recon, taxName, currency }) {
               </p>
             </div>
             <div>
-              <p className="text-[11px] text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">From Sales Records</p>
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">{t("fromSalesRecords")}</p>
               <p className="text-xl font-bold text-gray-800 dark:text-white">{fmt(cm.moms_from_sales)} <span className="text-sm font-normal text-gray-400">{currency}</span></p>
-              <p className="text-xs text-gray-400 mt-0.5">Calculated from transactions</p>
+              <p className="text-xs text-gray-400 mt-0.5">{t("calculatedFromTxns")}</p>
             </div>
           </div>
 
           {/* Discrepancy bar */}
           {cm.discrepancy !== null && cm.discrepancy !== 0 && (
             <div className="mt-3 pt-3 border-t border-gray-200/60 dark:border-gray-700/60 flex items-center justify-between">
-              <span className="text-sm text-gray-600 dark:text-gray-300">Difference</span>
+              <span className="text-sm text-gray-600 dark:text-gray-300">{t("difference")}</span>
               <span className={`text-sm font-bold ${
                 Math.abs(cm.discrepancy) <= cm.moms_from_sales * 0.02
                   ? "text-green-600" : Math.abs(cm.discrepancy) <= cm.moms_from_sales * 0.1

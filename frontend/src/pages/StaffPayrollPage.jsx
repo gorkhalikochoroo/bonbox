@@ -354,7 +354,7 @@ export default function StaffPayrollPage() {
               ← Previous
             </button>
             <div className="text-center">
-              <p className="text-sm text-gray-500 dark:text-gray-400">Pay Period</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{t("payPeriod")}</p>
               <p className="text-lg font-bold text-gray-800 dark:text-white">
                 {period ? periodLabel(period.period_start, period.period_end) : "—"}
               </p>
@@ -373,7 +373,7 @@ export default function StaffPayrollPage() {
       <FadeIn delay={0.1}>
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-bold text-gray-800 dark:text-white">Staff Selection</h2>
+            <h2 className="font-bold text-gray-800 dark:text-white">{t("staffSelection")}</h2>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -381,7 +381,7 @@ export default function StaffPayrollPage() {
                 onChange={toggleAll}
                 className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
               />
-              <span className="text-sm text-gray-600 dark:text-gray-400">Select All</span>
+              <span className="text-sm text-gray-600 dark:text-gray-400">{t("selectAll")}</span>
             </label>
           </div>
 
@@ -454,7 +454,7 @@ export default function StaffPayrollPage() {
       {/* ─── PAYROLL PREVIEW TABLE ─── */}
       <FadeIn delay={0.15}>
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-4">Payroll Preview</h2>
+          <h2 className="font-bold text-gray-800 dark:text-white mb-4">{t("payrollPreview")}</h2>
 
           {payrollRows.length === 0 ? (
             <div className="text-center py-8">
@@ -468,12 +468,12 @@ export default function StaffPayrollPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-200 dark:border-gray-700">
-                    <th className="text-left py-3 px-2 text-gray-500 dark:text-gray-400 font-medium">Staff</th>
-                    <th className="text-right py-3 px-2 text-gray-500 dark:text-gray-400 font-medium">Hours</th>
-                    <th className="text-right py-3 px-2 text-gray-500 dark:text-gray-400 font-medium">Base Earned</th>
-                    <th className="text-right py-3 px-2 text-amber-600 dark:text-amber-400 font-medium">Overtime</th>
+                    <th className="text-left py-3 px-2 text-gray-500 dark:text-gray-400 font-medium">{t("navStaff")}</th>
+                    <th className="text-right py-3 px-2 text-gray-500 dark:text-gray-400 font-medium">{t("hoursLabel")}</th>
+                    <th className="text-right py-3 px-2 text-gray-500 dark:text-gray-400 font-medium">{t("baseEarned")}</th>
+                    <th className="text-right py-3 px-2 text-amber-600 dark:text-amber-400 font-medium">{t("overtime")}</th>
                     <th className="text-right py-3 px-2 text-green-600 dark:text-green-400 font-medium">Tips</th>
-                    <th className="text-right py-3 px-2 text-gray-500 dark:text-gray-400 font-medium">Total</th>
+                    <th className="text-right py-3 px-2 text-gray-500 dark:text-gray-400 font-medium">{t("total")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -547,7 +547,7 @@ export default function StaffPayrollPage() {
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
             <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
               <div>
-                <h2 className="font-bold text-gray-800 dark:text-white">Danish payroll breakdown</h2>
+                <h2 className="font-bold text-gray-800 dark:text-white">{t("danishPayrollBreakdown")}</h2>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                   Estimate for SKAT remittance and FerieKonto. Submit via your lønsystem.
                 </p>
@@ -583,7 +583,7 @@ export default function StaffPayrollPage() {
                 </div>
 
                 <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 px-3 py-2.5 text-xs text-blue-800 dark:text-blue-200">
-                  <div className="font-semibold mb-0.5">SKAT remittance for this period</div>
+                  <div className="font-semibold mb-0.5">{t("skatRemittance")}</div>
                   <div>{fmtMoney(dkEstimate.skat_remit.total, currency)} = AM-bidrag {fmtMoney(dkEstimate.skat_remit.am_bidrag, currency)} + A-skat {fmtMoney(dkEstimate.skat_remit.a_skat, currency)}</div>
                 </div>
 
@@ -646,8 +646,8 @@ export default function StaffPayrollPage() {
                         <thead className="text-[10px] uppercase text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
                           <tr>
                             <th className="text-left py-1.5 px-2">Name</th>
-                            <th className="text-right py-1.5 px-2">Hours</th>
-                            <th className="text-right py-1.5 px-2">Gross</th>
+                            <th className="text-right py-1.5 px-2">{t("hoursLabel")}</th>
+                            <th className="text-right py-1.5 px-2">{t("gross")}</th>
                             <th className="text-right py-1.5 px-2">AM</th>
                             <th className="text-right py-1.5 px-2">A-skat</th>
                             <th className="text-right py-1.5 px-2">Net</th>
@@ -678,7 +678,7 @@ export default function StaffPayrollPage() {
       {/* ─── EXPORT SECTION ─── */}
       <FadeIn delay={0.2}>
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-3">Export</h2>
+          <h2 className="font-bold text-gray-800 dark:text-white mb-3">{t("exportLabel")}</h2>
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
             <button
               onClick={generatePdf}

@@ -276,7 +276,7 @@ function HoursSummaryTable({ summary, loading, currency }) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-8 text-center">
         <div className="text-3xl mb-2">&#128337;</div>
-        <p className="text-gray-500 dark:text-gray-400 font-medium">No hours logged this period</p>
+        <p className="text-gray-500 dark:text-gray-400 font-medium">{t("noHoursLogged")}</p>
         <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">Use the logging section below to start tracking hours.</p>
       </div>
     );
@@ -285,21 +285,21 @@ function HoursSummaryTable({ summary, loading, currency }) {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700">
-        <h2 className="text-base font-semibold text-gray-800 dark:text-white">Period Summary</h2>
+        <h2 className="text-base font-semibold text-gray-800 dark:text-white">{t("periodSummary")}</h2>
       </div>
 
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 dark:bg-gray-750 text-gray-500 dark:text-gray-400 text-left text-xs uppercase tracking-wider">
-              <th className="px-5 py-3 font-medium">Staff</th>
-              <th className="px-3 py-3 font-medium text-right">Scheduled</th>
-              <th className="px-3 py-3 font-medium text-right">Actual</th>
-              <th className="px-3 py-3 font-medium text-right">Diff</th>
-              <th className="px-3 py-3 font-medium text-right">Rate</th>
-              <th className="px-3 py-3 font-medium text-right">Earned</th>
-              <th className="px-3 py-3 font-medium text-right">Tips</th>
-              <th className="px-3 py-3 font-medium text-right">Total</th>
+              <th className="px-5 py-3 font-medium">{t("navStaff")}</th>
+              <th className="px-3 py-3 font-medium text-right">{t("scheduled")}</th>
+              <th className="px-3 py-3 font-medium text-right">{t("actual")}</th>
+              <th className="px-3 py-3 font-medium text-right">{t("diff")}</th>
+              <th className="px-3 py-3 font-medium text-right">{t("rate")}</th>
+              <th className="px-3 py-3 font-medium text-right">{t("earned")}</th>
+              <th className="px-3 py-3 font-medium text-right">{t("tips")}</th>
+              <th className="px-3 py-3 font-medium text-right">{t("total")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -407,7 +407,7 @@ function LoggingSection({ staffList, currency, periodFrom, onLogged }) {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700">
-        <h2 className="text-base font-semibold text-gray-800 dark:text-white">Log Hours</h2>
+        <h2 className="text-base font-semibold text-gray-800 dark:text-white">{t("logHours")}</h2>
       </div>
 
       {/* Tab bar */}
@@ -488,7 +488,7 @@ function QuickLogForm({ staffList, currency, onLogged }) {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {/* Staff select */}
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Staff Member</label>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("staffMember")}</label>
           <select
             value={staffId}
             onChange={e => setStaffId(e.target.value)}
@@ -516,7 +516,7 @@ function QuickLogForm({ staffList, currency, onLogged }) {
 
         {/* Hours */}
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Total Hours</label>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("totalHours")}</label>
           <input
             type="number"
             step="0.25"
@@ -605,7 +605,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {/* Staff select */}
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Staff Member</label>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("staffMember")}</label>
           <select
             value={staffId}
             onChange={e => setStaffId(e.target.value)}
@@ -633,7 +633,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
 
         {/* Start time */}
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Start Time</label>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("startTime")}</label>
           <input
             type="time"
             value={startTime}
@@ -645,7 +645,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
 
         {/* End time */}
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">End Time</label>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("endTime")}</label>
           <input
             type="time"
             value={endTime}
@@ -672,7 +672,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
         {/* Calculated preview */}
         <div className="flex items-end">
           <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg px-4 py-2.5 w-full">
-            <span className="text-xs text-gray-500 dark:text-gray-400 block">Calculated</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400 block">{t("calculated")}</span>
             <span className="text-lg font-bold text-gray-800 dark:text-white">
               {calcHours > 0 ? `${calcHours}h` : "\u2014"}
             </span>
@@ -843,7 +843,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-8 text-center">
         <div className="text-3xl mb-2">&#128203;</div>
-        <p className="text-gray-500 dark:text-gray-400 font-medium">No hour entries this period</p>
+        <p className="text-gray-500 dark:text-gray-400 font-medium">{t("noHourEntries")}</p>
         <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">Logged entries will appear here with edit and delete options.</p>
       </div>
     );
@@ -855,7 +855,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-        <h2 className="text-base font-semibold text-gray-800 dark:text-white">Recent Hours Log</h2>
+        <h2 className="text-base font-semibold text-gray-800 dark:text-white">{t("recentHoursLog")}</h2>
         <span className="text-xs text-gray-400 dark:text-gray-500">{sorted.length} entries</span>
       </div>
 

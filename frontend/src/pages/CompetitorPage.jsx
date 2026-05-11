@@ -145,7 +145,7 @@ export default function CompetitorPage() {
       <div className="p-4 md:p-8 max-w-lg mx-auto text-center">
         <div className="text-4xl mb-4">🔍</div>
         <p className="text-red-500">{error}</p>
-        <button onClick={fetchData} className="mt-4 text-sm text-green-600 hover:underline">Try again</button>
+        <button onClick={fetchData} className="mt-4 text-sm text-green-600 hover:underline">{t("tryAgain")}</button>
       </div>
     );
   }
@@ -186,7 +186,7 @@ export default function CompetitorPage() {
       {/* ─── MANUAL ADD (collapsible) ─── */}
       {showManual && (
         <form onSubmit={handleAddManual} className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm space-y-3 border border-gray-100 dark:border-gray-700">
-          <h3 className="font-bold text-gray-700 dark:text-gray-200 text-sm">Add Competitor Manually</h3>
+          <h3 className="font-bold text-gray-700 dark:text-gray-200 text-sm">{t("addCompetitorManually")}</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder={t("businessNameRequired")}
               className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" required />
@@ -197,7 +197,7 @@ export default function CompetitorPage() {
           </div>
           <div className="flex gap-2">
             <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium">Save</button>
-            <button type="button" onClick={() => setShowManual(false)} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm">Cancel</button>
+            <button type="button" onClick={() => setShowManual(false)} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm">{t("cancel")}</button>
           </div>
         </form>
       )}
@@ -266,7 +266,7 @@ export default function CompetitorPage() {
                   className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl text-sm" />
               </div>
               <div className="w-32">
-                <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Radius</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">{t("radius")}</label>
                 <select value={radius} onChange={e => setRadius(Number(e.target.value))}
                   className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl text-sm">
                   <option value={500}>500m</option>
@@ -326,7 +326,7 @@ export default function CompetitorPage() {
           {places.length === 0 && !discoverLoading && !discoverError && (
             <div className="text-center py-12 text-gray-400">
               <p className="text-5xl mb-3">📍</p>
-              <p className="text-lg font-medium">Discover your competitors</p>
+              <p className="text-lg font-medium">{t("discoverYourCompetitors")}</p>
               <p className="text-sm mt-1">Click "Discover" to scan for businesses near your location.</p>
             </div>
           )}
@@ -384,7 +384,7 @@ export default function CompetitorPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <select value={priceCompId} onChange={(e) => setPriceCompId(e.target.value)}
                   className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" required>
-                  <option value="">Select competitor</option>
+                  <option value="">{t("selectCompetitor")}</option>
                   {competitors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
                 <input value={priceItem} onChange={(e) => setPriceItem(e.target.value)} placeholder={t("itemNamePlaceholder")}
@@ -394,14 +394,14 @@ export default function CompetitorPage() {
                 <input type="number" step="0.01" value={ourPrice} onChange={(e) => setOurPrice(e.target.value)}
                   placeholder={`Our price (${currency}, optional)`} className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" />
               </div>
-              <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">Log Price Check</button>
+              <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">{t("logPriceCheck")}</button>
             </form>
           )}
 
           {total_competitors === 0 && (
             <div className="text-center py-12 text-gray-400">
               <p className="text-4xl mb-3">📊</p>
-              <p className="text-lg font-medium">No data yet</p>
+              <p className="text-lg font-medium">{t("noDataYet")}</p>
               <p className="text-sm mt-1">
                 Go to <button onClick={() => setTab("discover")} className="text-green-600 underline font-medium">Discover</button> to find and track competitors first.
               </p>
@@ -434,7 +434,7 @@ export default function CompetitorPage() {
                   </div>
                   {comp.address && <p className="text-xs text-gray-500 mt-1">📍 {comp.address}</p>}
                 </div>
-                <button onClick={() => handleDelete(comp.id)} className="text-xs text-red-500 hover:underline flex-shrink-0 ml-2">Remove</button>
+                <button onClick={() => handleDelete(comp.id)} className="text-xs text-red-500 hover:underline flex-shrink-0 ml-2">{t("remove")}</button>
               </div>
               {comp.recent_prices?.length > 0 ? (
                 <div className="space-y-1">
@@ -463,7 +463,7 @@ export default function CompetitorPage() {
           )) : (
             <div className="text-center py-12 text-gray-400">
               <p className="text-5xl mb-3">🎯</p>
-              <p className="text-lg font-medium">No competitors tracked</p>
+              <p className="text-lg font-medium">{t("noCompetitorsTracked")}</p>
               <p className="text-sm mt-1">
                 Go to <button onClick={() => setTab("discover")} className="text-green-600 underline font-medium">Discover</button> to find businesses near you.
               </p>

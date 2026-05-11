@@ -4,6 +4,7 @@ import { useLanguage } from "../hooks/useLanguage";
 
 /* Hero phone mockup showing BonBox dashboard */
 function HeroPhone() {
+  const { t } = useLanguage();
   return (
     <div className="relative w-full max-w-sm mx-auto" style={{ animation: "heroFloat 4s ease-in-out infinite" }}>
       {/* Glow behind phone */}
@@ -24,8 +25,8 @@ function HeroPhone() {
           {/* App header */}
           <div className="flex items-center justify-between mb-3">
             <div>
-              <p className="text-white text-xs font-bold">Dashboard</p>
-              <p className="text-gray-500 text-[9px]">Today</p>
+              <p className="text-white text-xs font-bold">{t("dashboard")}</p>
+              <p className="text-gray-500 text-[9px]">{t("today")}</p>
             </div>
             <div className="w-6 h-6 bg-green-500/20 rounded-full flex items-center justify-center">
               <span className="text-[8px]">+</span>
@@ -34,19 +35,19 @@ function HeroPhone() {
           {/* KPI cards */}
           <div className="grid grid-cols-2 gap-1.5 mb-2">
             <div className="bg-gray-800/80 rounded-lg p-2 border border-green-500/20">
-              <p className="text-gray-500 text-[7px]">Revenue</p>
+              <p className="text-gray-500 text-[7px]">{t("revenue")}</p>
               <p className="text-white text-sm font-bold">24,500 kr</p>
               <p className="text-green-400 text-[7px]">+12%</p>
             </div>
             <div className="bg-gray-800/80 rounded-lg p-2 border border-green-500/20">
-              <p className="text-gray-500 text-[7px]">Profit</p>
+              <p className="text-gray-500 text-[7px]">{t("profit")}</p>
               <p className="text-white text-sm font-bold">70,097 kr</p>
               <p className="text-green-400 text-[7px]">57.8%</p>
             </div>
           </div>
           {/* Mini chart */}
           <div className="bg-gray-800/80 rounded-lg p-2 border border-gray-700/50 mb-2">
-            <p className="text-gray-500 text-[7px] mb-1">Weekly Sales</p>
+            <p className="text-gray-500 text-[7px] mb-1">{t("weeklySales")}</p>
             <svg viewBox="0 0 200 40" className="w-full h-8">
               <defs>
                 <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
@@ -60,7 +61,7 @@ function HeroPhone() {
           </div>
           {/* Recent sales */}
           <div className="bg-gray-800/80 rounded-lg p-2 border border-gray-700/50">
-            <p className="text-gray-500 text-[7px] mb-1">Recent Sales</p>
+            <p className="text-gray-500 text-[7px] mb-1">{t("recentSales")}</p>
             {["Coca-Cola x10", "Rice 5kg", "Vodka 2x"].map((s, i) => (
               <div key={i} className="flex items-center justify-between py-0.5 border-b border-gray-700/30 last:border-0">
                 <span className="text-gray-300 text-[8px]">{s}</span>
@@ -935,7 +936,7 @@ export default function LandingPage() {
           <div className="flex items-center gap-4">
             <Link to="/contact" className="text-gray-600 text-sm hover:text-gray-900 transition">{t("landingFooterContact")}</Link>
             <Link to="/privacy" className="text-gray-600 text-sm hover:text-gray-900 transition">{t("landingFooterPrivacy")}</Link>
-            <Link to="/terms" className="text-gray-600 text-sm hover:text-gray-900 transition">Terms</Link>
+            <Link to="/terms" className="text-gray-600 text-sm hover:text-gray-900 transition">{t("terms")}</Link>
           </div>
         </div>
         {/* Trademark notice */}

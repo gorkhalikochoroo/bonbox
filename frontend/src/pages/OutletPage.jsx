@@ -47,7 +47,7 @@ export default function OutletPage() {
       <div className="p-4 md:p-8 max-w-lg mx-auto text-center">
         <div className="text-4xl mb-4">🏪</div>
         <p className="text-red-500">{error}</p>
-        <button onClick={fetchData} className="mt-4 text-sm text-green-600 hover:underline">Try again</button>
+        <button onClick={fetchData} className="mt-4 text-sm text-green-600 hover:underline">{t("tryAgain")}</button>
       </div>
     );
   }
@@ -126,11 +126,11 @@ export default function OutletPage() {
             <p className="text-xl font-bold mt-1">{best_performer.name}</p>
             <div className="grid grid-cols-2 gap-3 mt-3">
               <div>
-                <p className="text-xs opacity-70">Revenue</p>
+                <p className="text-xs opacity-70">{t("revenue")}</p>
                 <p className="text-lg font-bold">{fmt(best_performer.revenue)} {currency}</p>
               </div>
               <div>
-                <p className="text-xs opacity-70">Margin</p>
+                <p className="text-xs opacity-70">{t("margin")}</p>
                 <p className="text-lg font-bold">{best_performer.margin}%</p>
               </div>
             </div>
@@ -140,11 +140,11 @@ export default function OutletPage() {
             <p className="text-xl font-bold mt-1">{weakest_performer.name}</p>
             <div className="grid grid-cols-2 gap-3 mt-3">
               <div>
-                <p className="text-xs opacity-70">Revenue</p>
+                <p className="text-xs opacity-70">{t("revenue")}</p>
                 <p className="text-lg font-bold">{fmt(weakest_performer.revenue)} {currency}</p>
               </div>
               <div>
-                <p className="text-xs opacity-70">Margin</p>
+                <p className="text-xs opacity-70">{t("margin")}</p>
                 <p className="text-lg font-bold">{weakest_performer.margin}%</p>
               </div>
             </div>
@@ -214,11 +214,11 @@ export default function OutletPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-center text-xs">
                   <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2">
-                    <p className="text-gray-500">Revenue</p>
+                    <p className="text-gray-500">{t("revenue")}</p>
                     <p className="font-bold text-green-600">{fmt(o.revenue)}</p>
                   </div>
                   <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2">
-                    <p className="text-gray-500">Expenses</p>
+                    <p className="text-gray-500">{t("expenses")}</p>
                     <p className="font-bold text-red-500">{fmt(o.expenses)}</p>
                   </div>
                   <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2">
@@ -226,7 +226,7 @@ export default function OutletPage() {
                     <p className="font-bold text-gray-700 dark:text-gray-300">{o.transactions} / {fmt(o.avg_ticket)}</p>
                   </div>
                   <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2">
-                    <p className="text-gray-500">Inventory</p>
+                    <p className="text-gray-500">{t("inventory")}</p>
                     <p className="font-bold text-blue-600">{o.inventory_items} items</p>
                     {o.low_stock_count > 0 && <p className="text-red-500 text-[10px]">{o.low_stock_count} low</p>}
                   </div>
@@ -241,13 +241,13 @@ export default function OutletPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-xs text-gray-500 border-b dark:border-gray-700">
-                    <th className="text-left py-2 px-2">Outlet</th>
-                    <th className="text-right py-2 px-2">Revenue</th>
-                    <th className="text-right py-2 px-2">Txns</th>
-                    <th className="text-right py-2 px-2">Avg Ticket</th>
-                    <th className="text-right py-2 px-2">Expenses</th>
-                    <th className="text-right py-2 px-2">Margin</th>
-                    <th className="text-right py-2 px-2">Inventory</th>
+                    <th className="text-left py-2 px-2">{t("outlet")}</th>
+                    <th className="text-right py-2 px-2">{t("revenue")}</th>
+                    <th className="text-right py-2 px-2">{t("txns")}</th>
+                    <th className="text-right py-2 px-2">{t("avgTicket")}</th>
+                    <th className="text-right py-2 px-2">{t("expenses")}</th>
+                    <th className="text-right py-2 px-2">{t("margin")}</th>
+                    <th className="text-right py-2 px-2">{t("inventory")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -304,12 +304,12 @@ export default function OutletPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-white dark:bg-gray-800 rounded-lg p-3">
-                      <p className="text-xs text-gray-500">Surplus</p>
+                      <p className="text-xs text-gray-500">{t("surplus")}</p>
                       <p className="text-sm font-medium text-green-600">{item.surplus_outlet}</p>
                       <p className="text-lg font-bold text-green-700">{item.surplus_qty}</p>
                     </div>
                     <div className="bg-white dark:bg-gray-800 rounded-lg p-3">
-                      <p className="text-xs text-gray-500">Deficit</p>
+                      <p className="text-xs text-gray-500">{t("deficit")}</p>
                       <p className="text-sm font-medium text-red-600">{item.deficit_outlet}</p>
                       <p className="text-lg font-bold text-red-700">{item.deficit_qty}</p>
                     </div>
@@ -363,12 +363,12 @@ export default function OutletPage() {
       {outlet_count === 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-sm text-center">
           <div className="text-5xl mb-3">🏪</div>
-          <h2 className="text-lg font-bold text-gray-800 dark:text-white mb-2">No outlets to compare</h2>
+          <h2 className="text-lg font-bold text-gray-800 dark:text-white mb-2">{t("noOutletsToCompare")}</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">
-            Cross-outlet intelligence needs at least 2 team members. Add staff in the Team page to enable comparisons.
+            {t("noOutletsHint") || "Cross-outlet intelligence needs at least 2 team members. Add staff in the Team page to enable comparisons."}
           </p>
           <a href="/team" className="inline-block mt-4 px-6 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition">
-            Go to Team
+            {t("goToTeam")}
           </a>
         </div>
       )}
