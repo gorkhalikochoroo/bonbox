@@ -5,15 +5,17 @@ import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
 
+// Use labelKey here so we can translate at render time — module scope
+// has no access to the useLanguage hook.
 const WINE_TYPES = [
-  { key: "all", label: "All", icon: "🍷" },
-  { key: "red", label: "Red", icon: "🔴" },
-  { key: "white", label: "White", icon: "⚪" },
-  { key: "rosé", label: "Rosé", icon: "🩷" },
-  { key: "sparkling", label: "Sparkling", icon: "✨" },
-  { key: "natural", label: "Natural", icon: "🌿" },
-  { key: "dessert", label: "Dessert", icon: "🍯" },
-  { key: "orange", label: "Orange", icon: "🟠" },
+  { key: "all", labelKey: "wineAll", icon: "🍷" },
+  { key: "red", labelKey: "wineRed", icon: "🔴" },
+  { key: "white", labelKey: "wineWhite", icon: "⚪" },
+  { key: "rosé", labelKey: "wineRose", icon: "🩷" },
+  { key: "sparkling", labelKey: "wineSparkling", icon: "✨" },
+  { key: "natural", labelKey: "wineNatural", icon: "🌿" },
+  { key: "dessert", labelKey: "wineDessert", icon: "🍯" },
+  { key: "orange", labelKey: "wineOrange", icon: "🟠" },
 ];
 
 /* ═══════════════════════════════════════════════════════════
@@ -153,7 +155,7 @@ export default function WineListPage() {
             </button>
             <button onClick={() => setShowQR(true)} disabled={!menuToken}
               className="px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-xl text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition disabled:opacity-40"
-              title="QR wine menu for customers">
+              title={t("wineQrMenuTooltip")}>
               📱 QR Menu
             </button>
             <button onClick={handlePdfExport} disabled={wines.length === 0}
@@ -168,11 +170,11 @@ export default function WineListPage() {
       {summary && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: "Wines", val: summary.total_wines, icon: "🍷" },
-            { label: "Bottles", val: summary.total_bottles, icon: "🍾" },
-            { label: "Avg Margin", val: `${summary.avg_margin}%`, icon: "📊",
+            { label: t("wineWines"), val: summary.total_wines, icon: "🍷" },
+            { label: t("wineBottles"), val: summary.total_bottles, icon: "🍾" },
+            { label: t("wineAvgMargin"), val: `${summary.avg_margin}%`, icon: "📊",
               color: summary.avg_margin >= 40 ? "text-green-600" : summary.avg_margin >= 25 ? "text-yellow-600" : "text-red-600" },
-            { label: "Low Stock", val: summary.low_stock_count, icon: "⚠️",
+            { label: t("wineLowStock"), val: summary.low_stock_count, icon: "⚠️",
               color: summary.low_stock_count > 0 ? "text-red-600" : "text-green-600" },
           ].map(k => (
             <div key={k.label} className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm border border-gray-100 dark:border-gray-700">
@@ -186,10 +188,10 @@ export default function WineListPage() {
       {/* ── Tab Bar ── */}
       <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
         {[
-          { id: "catalog", label: "Catalog", icon: "🍷" },
-          { id: "menu", label: "Menu Editor", icon: "📜" },
-          { id: "staff", label: "Staff Cheat Sheet", icon: "📋" },
-          { id: "sommelier", label: "AI Sommelier", icon: "🤖" },
+          { id: "catalog", label: t("wineTabCatalog"), icon: "🍷" },
+          { id: "menu", label: t("wineTabMenuEditor"), icon: "📜" },
+          { id: "staff", label: t("wineTabStaffSheet"), icon: "📋" },
+          { id: "sommelier", label: t("wineTabSommelier"), icon: "🤖" },
         ].map(tb => (
           <button key={tb.id} onClick={() => setTab(tb.id)}
             className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition ${
@@ -213,11 +215,11 @@ export default function WineListPage() {
                     filter === wt.key ? "bg-white dark:bg-gray-700 shadow text-gray-900 dark:text-white"
                       : "text-gray-500 dark:text-gray-400 hover:text-gray-700"
                   }`}>
-                  {wt.icon} {wt.label}
+                  {wt.icon} {t(wt.labelKey)}
                 </button>
               ))}
             </div>
-            <input type="text" placeholder="Search wines..." value={search} onChange={e => setSearch(e.target.value)}
+            <input type="text" placeholder={t("wineSearchPlaceholder")} value={search} onChange={e => setSearch(e.target.value)}
               className="px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl text-sm flex-1 min-w-[140px]" />
           </div>
 
@@ -242,7 +244,7 @@ export default function WineListPage() {
               {wines.length === 0 ? (
                 <>
                   <p className="text-4xl mb-3">🍷</p>
-                  <p className="text-lg font-medium">No wines yet</p>
+                  <p className="text-lg font-medium">{t("wineNoWinesYet")}</p>
                   <p className="text-sm mt-1">Scan a bottle or add manually to start your catalog.</p>
                 </>
               ) : (
@@ -340,6 +342,7 @@ function ScanButton({ onResult }) {
    WINE CARD (catalog tab)
    ═══════════════════════════════════════════════════════════ */
 function WineCard({ wine: w, currency, isSelected, onToggle, onSell, onDelete }) {
+  const { t } = useLanguage();
   const marginColor = w.margin_pct >= 40 ? "text-green-600 dark:text-green-400"
     : w.margin_pct >= 25 ? "text-yellow-600 dark:text-yellow-400"
     : "text-red-600 dark:text-red-400";
@@ -391,11 +394,11 @@ function WineCard({ wine: w, currency, isSelected, onToggle, onSell, onDelete })
             <p className="text-[10px] text-gray-400">bottles</p>
           </div>
           <div className="flex gap-1">
-            <button onClick={onSell} title="Sell 1 bottle" disabled={w.stock_qty <= 0}
+            <button onClick={onSell} title={t("wineSell1Bottle")} disabled={w.stock_qty <= 0}
               className="p-2 rounded-lg bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/50 transition disabled:opacity-30 text-xs font-bold">
               -1
             </button>
-            <button onClick={onDelete} title="Delete"
+            <button onClick={onDelete} title={t("delete")}
               className="p-2 rounded-lg text-gray-400 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-500 transition">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
             </button>
@@ -411,6 +414,7 @@ function WineCard({ wine: w, currency, isSelected, onToggle, onSell, onDelete })
    MENU EDITOR TAB — edit display names, glass prices, export PDF
    ═══════════════════════════════════════════════════════════ */
 function MenuEditorTab({ wines, currency, onUpdate }) {
+  const { t } = useLanguage();
   const [edits, setEdits] = useState({});      // { wineId: { menu_name, glass_price, sell_price } }
   const [saving, setSaving] = useState(null);   // wineId currently saving
   const [pdfLoading, setPdfLoading] = useState(false);
@@ -521,7 +525,7 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
       <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 flex items-start gap-3">
         <span className="text-2xl">📜</span>
         <div>
-          <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Wine Menu Editor</p>
+          <p className="text-sm font-medium text-amber-800 dark:text-amber-300">{t("wineMenuEditor")}</p>
           <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
             Set display names for your printed menu, add glass pricing, then export a beautiful restaurant-style wine card PDF.
           </p>
@@ -531,7 +535,7 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
       {/* PDF Export Controls */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
         <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
-          <h3 className="text-sm font-bold dark:text-white">Print Settings</h3>
+          <h3 className="text-sm font-bold dark:text-white">{t("winePrintSettings")}</h3>
           <div className="flex gap-2">
             {dirtyCount > 0 && (
               <button onClick={handleSaveAll}
@@ -554,7 +558,7 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
 
         <div className="flex flex-wrap gap-4 items-end">
           <div className="flex-1 min-w-[200px]">
-            <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">Menu Title</label>
+            <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">{t("wineMenuTitle")}</label>
             <input type="text" value={menuTitle} onChange={e => setMenuTitle(e.target.value)}
               placeholder="Your restaurant name (default)"
               className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl text-sm" />
@@ -582,7 +586,7 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
       {wines.length === 0 ? (
         <div className="text-center py-16 text-gray-400">
           <p className="text-4xl mb-3">📜</p>
-          <p className="text-lg font-medium">No wines in catalog</p>
+          <p className="text-lg font-medium">{t("wineNoWinesInCatalog")}</p>
           <p className="text-sm mt-1">Add wines in the Catalog tab first.</p>
         </div>
       ) : (
@@ -619,7 +623,7 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <div>
                             <label className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold block mb-0.5">
-                              Menu Name
+                              {t("wineMenuName")}
                             </label>
                             <input type="text"
                               value={e.menu_name}
@@ -693,6 +697,7 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
    STAFF CHEAT SHEET TAB — phone-optimized
    ═══════════════════════════════════════════════════════════ */
 function StaffSheet({ wines, currency }) {
+  const { t } = useLanguage();
   const [typeFilter, setTypeFilter] = useState("all");
   const filtered = typeFilter === "all" ? wines : wines.filter(w => w.wine_type === typeFilter);
 
@@ -709,7 +714,7 @@ function StaffSheet({ wines, currency }) {
               typeFilter === wt.key ? "bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300"
                 : "bg-gray-100 dark:bg-gray-800 text-gray-500"
             }`}>
-            {wt.icon} {wt.label}
+            {wt.icon} {t(wt.labelKey)}
           </button>
         ))}
       </div>
@@ -773,6 +778,7 @@ function StaffSheet({ wines, currency }) {
    AI SOMMELIER TAB
    ═══════════════════════════════════════════════════════════ */
 function SommelierTab({ currency }) {
+  const { t } = useLanguage();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -803,7 +809,7 @@ function SommelierTab({ currency }) {
       <div className="flex gap-2">
         <input type="text" value={query} onChange={e => setQuery(e.target.value)}
           onKeyDown={e => e.key === "Enter" && handleSearch()}
-          placeholder="Something bold and red for a steak dinner..."
+          placeholder={t("wineSommelierAskPlaceholder")}
           className="flex-1 px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
         <button onClick={handleSearch} disabled={loading || !query.trim()}
           className="px-6 py-3 bg-purple-600 text-white rounded-xl text-sm font-bold hover:bg-purple-700 transition disabled:opacity-50">
@@ -880,6 +886,7 @@ function SommelierTab({ currency }) {
    QR CODE MODAL
    ═══════════════════════════════════════════════════════════ */
 function QRModal({ token, onClose }) {
+  const { t } = useLanguage();
   const menuUrl = `${window.location.origin}${token.url}`;
 
   // Simple QR code SVG generation (using Google Charts API for simplicity)
@@ -890,7 +897,7 @@ function QRModal({ token, onClose }) {
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
         <h2 className="text-lg font-bold dark:text-white mb-1">📱 Customer Wine Menu</h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Print this QR code and place it on tables</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{t("winePrintQrTables")}</p>
 
         <div className="bg-white rounded-xl p-4 inline-block mb-4">
           <img src={qrImageUrl} alt="QR Code" className="w-48 h-48 mx-auto" />
@@ -909,7 +916,7 @@ function QRModal({ token, onClose }) {
           </button>
         </div>
 
-        <button onClick={onClose} className="mt-3 text-sm text-gray-400 hover:text-gray-600">Close</button>
+        <button onClick={onClose} className="mt-3 text-sm text-gray-400 hover:text-gray-600">{t("wineClose")}</button>
       </div>
     </div>
   );
@@ -920,6 +927,7 @@ function QRModal({ token, onClose }) {
    ADD WINE MODAL (with scan prefill support)
    ═══════════════════════════════════════════════════════════ */
 function AddWineModal({ currency, prefill, onClose, onDone }) {
+  const { t } = useLanguage();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -992,29 +1000,29 @@ function AddWineModal({ currency, prefill, onClose, onDone }) {
 
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           <div className="grid grid-cols-2 gap-3">
-            <div><label className={labelClass}>Wine Name *</label>
+            <div><label className={labelClass}>{t("wineWineName") || "Wine name"} *</label>
               <input className={inputClass} value={form.name} onChange={e => set("name", e.target.value)} placeholder="Sancerre" required /></div>
-            <div><label className={labelClass}>Winery</label>
+            <div><label className={labelClass}>{t("wineWinery")}</label>
               <input className={inputClass} value={form.winery} onChange={e => set("winery", e.target.value)} placeholder="Domaine Vacheron" /></div>
           </div>
 
           <div className="grid grid-cols-3 gap-3">
-            <div><label className={labelClass}>Type</label>
+            <div><label className={labelClass}>{t("wineType")}</label>
               <select className={inputClass} value={form.wine_type} onChange={e => set("wine_type", e.target.value)}>
-                {WINE_TYPES.filter(t => t.key !== "all").map(t => (
-                  <option key={t.key} value={t.key}>{t.icon} {t.label}</option>
+                {WINE_TYPES.filter(wt => wt.key !== "all").map(wt => (
+                  <option key={wt.key} value={wt.key}>{wt.icon} {t(wt.labelKey)}</option>
                 ))}
               </select></div>
-            <div><label className={labelClass}>Vintage</label>
+            <div><label className={labelClass}>{t("wineVintage")}</label>
               <input className={inputClass} type="number" value={form.vintage} onChange={e => set("vintage", e.target.value)} placeholder="2023" /></div>
-            <div><label className={labelClass}>Grape</label>
+            <div><label className={labelClass}>{t("wineGrape")}</label>
               <input className={inputClass} value={form.grape_variety} onChange={e => set("grape_variety", e.target.value)} placeholder="Sauvignon Blanc" /></div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div><label className={labelClass}>Region</label>
+            <div><label className={labelClass}>{t("wineRegion")}</label>
               <input className={inputClass} value={form.region} onChange={e => set("region", e.target.value)} placeholder="Loire Valley" /></div>
-            <div><label className={labelClass}>Country</label>
+            <div><label className={labelClass}>{t("wineCountry")}</label>
               <input className={inputClass} value={form.country} onChange={e => set("country", e.target.value)} placeholder="France" /></div>
           </div>
 
@@ -1025,9 +1033,9 @@ function AddWineModal({ currency, prefill, onClose, onDone }) {
                 <input className={inputClass + " text-right"} type="number" step="0.01" value={form.cost_price} onChange={e => set("cost_price", e.target.value)} placeholder="120" /></div>
               <div><label className={labelClass}>Sell ({currency})</label>
                 <input className={inputClass + " text-right"} type="number" step="0.01" value={form.sell_price} onChange={e => set("sell_price", e.target.value)} placeholder="350" /></div>
-              <div><label className={labelClass}>Stock</label>
+              <div><label className={labelClass}>{t("wineStockLabel")}</label>
                 <input className={inputClass + " text-right"} type="number" value={form.stock_qty} onChange={e => set("stock_qty", e.target.value)} placeholder="12" /></div>
-              <div><label className={labelClass}>Reorder at</label>
+              <div><label className={labelClass}>{t("wineReorderAt")}</label>
                 <input className={inputClass + " text-right"} type="number" value={form.reorder_level} onChange={e => set("reorder_level", e.target.value)} /></div>
             </div>
             {margin > 0 && (
@@ -1038,19 +1046,19 @@ function AddWineModal({ currency, prefill, onClose, onDone }) {
             )}
           </div>
 
-          <div><label className={labelClass}>Tasting Notes</label>
-            <textarea className={inputClass} rows={2} value={form.tasting_notes} onChange={e => set("tasting_notes", e.target.value)} placeholder="Crisp citrus, mineral finish..." /></div>
-          <div><label className={labelClass}>Food Pairing</label>
-            <input className={inputClass} value={form.food_pairing} onChange={e => set("food_pairing", e.target.value)} placeholder="Oysters, goat cheese, grilled fish" /></div>
-          <div><label className={labelClass}>Staff Description (what to tell customers)</label>
-            <textarea className={inputClass} rows={2} value={form.staff_description} onChange={e => set("staff_description", e.target.value)} placeholder="Light and refreshing, perfect for summer." /></div>
-          <div><label className={labelClass}>Supplier</label>
+          <div><label className={labelClass}>{t("wineTastingNotes")}</label>
+            <textarea className={inputClass} rows={2} value={form.tasting_notes} onChange={e => set("tasting_notes", e.target.value)} placeholder={t("wineTastingPlaceholder")} /></div>
+          <div><label className={labelClass}>{t("wineFoodPairing")}</label>
+            <input className={inputClass} value={form.food_pairing} onChange={e => set("food_pairing", e.target.value)} placeholder={t("winePairingPlaceholder")} /></div>
+          <div><label className={labelClass}>{t("wineStaffDescription") || "Staff description"}</label>
+            <textarea className={inputClass} rows={2} value={form.staff_description} onChange={e => set("staff_description", e.target.value)} placeholder={t("wineStaffDescPlaceholder")} /></div>
+          <div><label className={labelClass}>{t("wineSupplier")}</label>
             <input className={inputClass} value={form.supplier} onChange={e => set("supplier", e.target.value)} placeholder="Vinimport A/S" /></div>
 
           {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-2 rounded-xl text-sm">{error}</div>}
 
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-300">Cancel</button>
+            <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-300">{t("cancel")}</button>
             <button type="submit" disabled={saving || !form.name.trim()}
               className="flex-1 py-2.5 bg-purple-600 text-white rounded-xl text-sm font-bold hover:bg-purple-700 transition disabled:opacity-50">
               {saving ? "Adding..." : "🍷 Add Wine"}
