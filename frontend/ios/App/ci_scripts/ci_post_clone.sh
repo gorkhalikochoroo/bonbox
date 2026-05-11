@@ -124,37 +124,22 @@ npx cap sync ios 2>&1 || {
     echo "✅ Manually copied dist/ to ios/App/App/public/"
 }
 
-# --- Refresh SwiftPM Package.resolved ---
-# Xcode Cloud runs with automatic dependency resolution DISABLED. That
-# means it won't quietly update Package.resolved if `cap sync` (above)
-# added/changed a Capacitor plugin between commits. Without a refresh,
-# the build fails with:
-#   "an out-of-date resolved file was detected at .../Package.resolved,
-#    which is not allowed when automatic dependency resolution is disabled"
+# Note on SwiftPM dependency resolution:
+# Xcode Cloud runs with automatic dependency resolution DISABLED, which
+# means it CANNOT regenerate Package.resolved from CI. If a Capacitor
+# plugin is added/removed (i.e. `cap sync` above rewrites Package.swift),
+# the developer must regenerate Package.resolved LOCALLY and commit it
+# before pushing:
 #
-# Fix: delete Package.resolved first (so we don't trip the "out-of-date"
-# check), then run -resolvePackageDependencies to regenerate it against
-# the current Package.swift. This is idempotent and safe — same result
-# every run.
-echo ""
-echo "=== Refreshing SwiftPM Package.resolved ==="
-IOS_PROJ="$FRONTEND_DIR/ios/App"
-PKG_RESOLVED="$IOS_PROJ/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
-if [ -f "$PKG_RESOLVED" ]; then
-    rm -f "$PKG_RESOLVED"
-    echo "   removed stale Package.resolved"
-fi
-cd "$IOS_PROJ"
-xcodebuild -resolvePackageDependencies \
-    -project App.xcodeproj \
-    -scheme App 2>&1 | tail -20 || {
-    echo "⚠️  -resolvePackageDependencies failed, build may still fail"
-}
-if [ -f "$PKG_RESOLVED" ]; then
-    echo "✅ Package.resolved regenerated"
-else
-    echo "⚠️  Package.resolved not generated — Xcode may resolve at build time"
-fi
+#   cd frontend && npx cap sync ios
+#   cd ios/App && xcodebuild -resolvePackageDependencies \\
+#       -project App.xcodeproj -scheme App
+#   git add ios/App/App.xcodeproj/.../Package.resolved && git commit
+#
+# (An earlier version of this script tried to regenerate Package.resolved
+# here on CI. It failed silently — automatic resolution is disabled at
+# both the workflow and the xcodebuild level, so the file ended up
+# missing instead of stale. Worse outcome. Reverted.)
 
 echo ""
 echo "=========================================="
