@@ -364,6 +364,7 @@ function MetricCard({ label, value, sub, color, currency }) {
    that drive this page's calculations live next to their effect.
    ────────────────────────────────────────────────────────────── */
 function TaxPrefsCard({ tax, setTax, saving, msg, onSave }) {
+  const { t } = useLanguage();
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
       <div className="mb-4">
@@ -438,6 +439,7 @@ function TaxPrefsCard({ tax, setTax, saving, msg, onSave }) {
 
 
 function ReconCard({ recon, taxName, currency }) {
+  const { t } = useLanguage();
   const cm = recon.current_month;
   const yt = recon.ytd;
 

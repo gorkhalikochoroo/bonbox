@@ -259,6 +259,7 @@ function PeriodSelector({ from, to, loading, onPrev, onNext }) {
    HOURS SUMMARY TABLE
    ═══════════════════════════════════════════════════════════ */
 function HoursSummaryTable({ summary, loading, currency }) {
+  const { t } = useLanguage();
   if (loading) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
@@ -396,6 +397,7 @@ function HoursSummaryTable({ summary, loading, currency }) {
    LOGGING SECTION — 3 TABS
    ═══════════════════════════════════════════════════════════ */
 function LoggingSection({ staffList, currency, periodFrom, onLogged }) {
+  const { t } = useLanguage();
   const [logTab, setLogTab] = useState("quick");
 
   const tabs = [
@@ -448,6 +450,7 @@ function LoggingSection({ staffList, currency, periodFrom, onLogged }) {
    Tab 1: Quick Log
    ───────────────────────────────────────────────────────── */
 function QuickLogForm({ staffList, currency, onLogged }) {
+  const { t } = useLanguage();
   const [staffId, setStaffId] = useState("");
   const [date, setDate] = useState(today());
   const [hours, setHours] = useState("");
@@ -549,6 +552,7 @@ function QuickLogForm({ staffList, currency, onLogged }) {
    Tab 2: Clock In/Out
    ───────────────────────────────────────────────────────── */
 function ClockInOutForm({ staffList, currency, onLogged }) {
+  const { t } = useLanguage();
   const [staffId, setStaffId] = useState("");
   const [date, setDate] = useState(today());
   const [startTime, setStartTime] = useState("");
@@ -788,6 +792,7 @@ function FromScheduleForm({ periodFrom, onLogged }) {
    RECENT HOURS LOG
    ═══════════════════════════════════════════════════════════ */
 function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
+  const { t } = useLanguage();
   const [editingId, setEditingId] = useState(null);
   const [editHours, setEditHours] = useState("");
   const [editSaving, setEditSaving] = useState(false);

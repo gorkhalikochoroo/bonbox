@@ -1211,6 +1211,7 @@ function ScheduleGrid({ staff, weekDates, shifts, getShiftForCell, onCellClick }
    SHIFT MODAL
    ═══════════════════════════════════════════════════════════ */
 function ShiftModal({ modal, staff, weekDates, onClose, onSaved, branchId }) {
+  const { t } = useLanguage();
   const existingShift = modal.shift;
   const isEdit = !!existingShift;
 
