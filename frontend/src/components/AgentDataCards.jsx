@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { displayCurrency } from "../utils/currency";
+import { useLanguage } from "../hooks/useLanguage";
 
 /* ------------------------------------------------------------------ */
 /*  Shared: Animated number that counts up on mount / value change     */
@@ -142,6 +143,7 @@ function PaymentPills({ methods = {} }) {
 /*  REVENUE CARD                                                       */
 /* ================================================================== */
 export function RevenueCard({ data, currency }) {
+  const { t } = useLanguage();
   if (!data) return null;
   const cur = displayCurrency(currency);
   const {
@@ -159,7 +161,7 @@ export function RevenueCard({ data, currency }) {
     <CardShell gradient="from-emerald-950/80 to-gray-900/70">
       <div className="flex items-start justify-between mb-2">
         <div>
-          <p className="text-[11px] uppercase tracking-wider text-emerald-400/70 font-semibold mb-1">Revenue</p>
+          <p className="text-[11px] uppercase tracking-wider text-emerald-400/70 font-semibold mb-1">{t("revenue")}</p>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-bold text-white">
               {cur} <CountUp value={total_revenue} decimals={0} />
@@ -168,7 +170,7 @@ export function RevenueCard({ data, currency }) {
           </div>
           {sale_count != null && (
             <p className="text-[11px] text-gray-400 mt-0.5">
-              {sale_count} transactions{avg_per_day ? ` / avg ${cur} ${avg_per_day.toLocaleString()}/day` : ""}
+              {sale_count} {t("transactions")}{avg_per_day ? ` / ${t("avgPerDayShort", { amount: `${cur} ${avg_per_day.toLocaleString()}` })}` : ""}
             </p>
           )}
         </div>
@@ -196,6 +198,7 @@ export function RevenueCard({ data, currency }) {
 /*  EXPENSE CARD                                                       */
 /* ================================================================== */
 export function ExpenseCard({ data, currency }) {
+  const { t } = useLanguage();
   if (!data) return null;
   const cur = displayCurrency(currency);
   const { total_expenses = 0, expense_count = 0, change_pct, by_category = [] } = data;
@@ -210,7 +213,7 @@ export function ExpenseCard({ data, currency }) {
     <CardShell gradient="from-rose-950/60 to-gray-900/70">
       <div className="flex items-start justify-between mb-3">
         <div>
-          <p className="text-[11px] uppercase tracking-wider text-rose-400/70 font-semibold mb-1">Expenses</p>
+          <p className="text-[11px] uppercase tracking-wider text-rose-400/70 font-semibold mb-1">{t("expenses")}</p>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-bold text-white">
               {cur} <CountUp value={total_expenses} decimals={0} />
@@ -261,6 +264,7 @@ export function ExpenseCard({ data, currency }) {
 /*  INVENTORY CARD                                                     */
 /* ================================================================== */
 export function InventoryCard({ data }) {
+  const { t } = useLanguage();
   if (!data) return null;
   const { total_items = 0, total_stock_value, items = [], low_stock_count = 0 } = data;
 
@@ -278,19 +282,19 @@ export function InventoryCard({ data }) {
     <CardShell gradient="from-sky-950/60 to-gray-900/70">
       <div className="flex items-start justify-between mb-3">
         <div>
-          <p className="text-[11px] uppercase tracking-wider text-sky-400/70 font-semibold mb-1">Inventory</p>
+          <p className="text-[11px] uppercase tracking-wider text-sky-400/70 font-semibold mb-1">{t("inventory")}</p>
           <div className="flex items-baseline gap-3">
             <span className="text-2xl font-bold text-white">
-              <CountUp value={total_items} /> items
+              <CountUp value={total_items} /> {t("items")}
             </span>
             {total_stock_value != null && (
               <span className="text-xs text-gray-400">
-                value: <CountUp value={total_stock_value} decimals={0} />
+                {t("valueColon")} <CountUp value={total_stock_value} decimals={0} />
               </span>
             )}
           </div>
           {low_stock_count > 0 && (
-            <p className="text-[11px] text-amber-400 mt-0.5">{low_stock_count} low stock</p>
+            <p className="text-[11px] text-amber-400 mt-0.5">{low_stock_count} {t("lowStockShort")}</p>
           )}
         </div>
         <div className="w-8 h-8 rounded-lg bg-sky-500/15 flex items-center justify-center shrink-0">
@@ -317,7 +321,7 @@ export function InventoryCard({ data }) {
             </div>
           ))}
           {displayItems.length > 5 && (
-            <p className="text-[10px] text-gray-500 pl-3">+{displayItems.length - 5} more</p>
+            <p className="text-[10px] text-gray-500 pl-3">+{displayItems.length - 5} {t("moreLabel")}</p>
           )}
         </div>
       )}
@@ -329,6 +333,7 @@ export function InventoryCard({ data }) {
 /*  WASTE CARD                                                         */
 /* ================================================================== */
 export function WasteCard({ data, currency }) {
+  const { t } = useLanguage();
   if (!data) return null;
   const cur = displayCurrency(currency);
   const { total_cost = 0, waste_count = 0, change_pct, by_reason = [] } = data;
@@ -338,14 +343,14 @@ export function WasteCard({ data, currency }) {
     <CardShell gradient="from-amber-950/60 to-gray-900/70">
       <div className="flex items-start justify-between mb-3">
         <div>
-          <p className="text-[11px] uppercase tracking-wider text-amber-400/70 font-semibold mb-1">Waste</p>
+          <p className="text-[11px] uppercase tracking-wider text-amber-400/70 font-semibold mb-1">{t("waste")}</p>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-bold text-white">
               {cur} <CountUp value={total_cost} decimals={0} />
             </span>
             {change_pct != null && <ChangeBadge pct={change_pct} />}
           </div>
-          <p className="text-[11px] text-gray-400 mt-0.5">{waste_count} entries</p>
+          <p className="text-[11px] text-gray-400 mt-0.5">{waste_count} {t("entries")}</p>
         </div>
         <div className="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center shrink-0">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-400">
@@ -384,6 +389,7 @@ export function WasteCard({ data, currency }) {
 /*  KHATA CARD  (credit / receivables)                                 */
 /* ================================================================== */
 export function KhataCard({ data, currency }) {
+  const { t } = useLanguage();
   if (!data) return null;
   const cur = displayCurrency(currency);
   const { total_outstanding = 0, overdue_count = 0, customers = [] } = data;
@@ -397,20 +403,20 @@ export function KhataCard({ data, currency }) {
   }
 
   function statusLabel(c) {
-    if (c.is_overdue) return "Overdue";
-    return "Current";
+    if (c.is_overdue) return t("overdueStatus");
+    return t("currentStatus");
   }
 
   return (
     <CardShell gradient="from-violet-950/60 to-gray-900/70">
       <div className="flex items-start justify-between mb-3">
         <div>
-          <p className="text-[11px] uppercase tracking-wider text-violet-400/70 font-semibold mb-1">Khata / Credit</p>
+          <p className="text-[11px] uppercase tracking-wider text-violet-400/70 font-semibold mb-1">{t("khataCredit")}</p>
           <span className="text-2xl font-bold text-white">
             {cur} <CountUp value={total_outstanding} decimals={0} />
           </span>
           <p className="text-[11px] text-gray-400 mt-0.5">
-            outstanding{overdue_count > 0 ? ` (${overdue_count} overdue)` : ""}
+            {t("outstanding")}{overdue_count > 0 ? ` ${t("nOverdue", { n: overdue_count })}` : ""}
           </p>
         </div>
         <div className="w-8 h-8 rounded-lg bg-violet-500/15 flex items-center justify-center shrink-0">
@@ -439,7 +445,7 @@ export function KhataCard({ data, currency }) {
             </div>
           ))}
           {withBalance.length > 5 && (
-            <p className="text-[10px] text-gray-500 pl-3">+{withBalance.length - 5} more</p>
+            <p className="text-[10px] text-gray-500 pl-3">+{withBalance.length - 5} {t("moreLabel")}</p>
           )}
         </div>
       )}
@@ -451,6 +457,7 @@ export function KhataCard({ data, currency }) {
 /*  STAFF CARD                                                         */
 /* ================================================================== */
 export function StaffCard({ data }) {
+  const { t } = useLanguage();
   if (!data) return null;
   const { total_staff = 0, staff = [] } = data;
 
@@ -471,9 +478,9 @@ export function StaffCard({ data }) {
     <CardShell gradient="from-indigo-950/60 to-gray-900/70">
       <div className="flex items-start justify-between mb-3">
         <div>
-          <p className="text-[11px] uppercase tracking-wider text-indigo-400/70 font-semibold mb-1">Staff</p>
+          <p className="text-[11px] uppercase tracking-wider text-indigo-400/70 font-semibold mb-1">{t("navStaff")}</p>
           <span className="text-2xl font-bold text-white">
-            <CountUp value={total_staff} /> members
+            <CountUp value={total_staff} /> {t("members")}
           </span>
         </div>
         <div className="w-8 h-8 rounded-lg bg-indigo-500/15 flex items-center justify-center shrink-0">
@@ -500,12 +507,12 @@ export function StaffCard({ data }) {
               <span
                 className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${getRoleStyle(s.role)}`}
               >
-                {s.role || "Staff"}
+                {s.role || t("navStaff")}
               </span>
             </div>
           ))}
           {staff.length > 6 && (
-            <p className="text-[10px] text-gray-500 pl-3">+{staff.length - 6} more</p>
+            <p className="text-[10px] text-gray-500 pl-3">+{staff.length - 6} {t("moreLabel")}</p>
           )}
         </div>
       )}
@@ -517,6 +524,7 @@ export function StaffCard({ data }) {
 /*  SUGGESTIONS / ADVICE CARD                                          */
 /* ================================================================== */
 export function SuggestionsCard({ data }) {
+  const { t } = useLanguage();
   if (!data) return null;
   const suggestions = data.suggestions || [];
   if (suggestions.length === 0) return null;
@@ -533,7 +541,7 @@ export function SuggestionsCard({ data }) {
     <div className="rounded-xl border border-amber-500/20 bg-gradient-to-br from-amber-900/20 to-orange-900/10 p-3.5 space-y-2.5">
       <div className="flex items-center gap-2">
         <span className="text-amber-400 font-bold text-[10px] uppercase tracking-widest">
-          Suggestions
+          {t("suggestionsLabel")}
         </span>
         <span className="text-[10px] text-gray-500">({suggestions.length})</span>
       </div>
@@ -557,6 +565,7 @@ export function SuggestionsCard({ data }) {
 /*  HEALTH / OVERVIEW CARD                                             */
 /* ================================================================== */
 export function HealthCard({ data, currency }) {
+  const { t } = useLanguage();
   if (!data) return null;
   const cur = displayCurrency(currency);
   const {
@@ -570,7 +579,7 @@ export function HealthCard({ data, currency }) {
 
   const metrics = [
     {
-      label: "Today",
+      label: t("today"),
       value: today_revenue,
       prefix: cur,
       color: "text-emerald-400",
@@ -583,7 +592,7 @@ export function HealthCard({ data, currency }) {
       ),
     },
     {
-      label: "Month Rev",
+      label: t("monthRev"),
       value: month_revenue,
       prefix: cur,
       color: "text-sky-400",
@@ -595,7 +604,7 @@ export function HealthCard({ data, currency }) {
       ),
     },
     {
-      label: "Expenses",
+      label: t("expenses"),
       value: month_expenses,
       prefix: cur,
       color: "text-rose-400",
@@ -607,7 +616,7 @@ export function HealthCard({ data, currency }) {
       ),
     },
     {
-      label: "Margin",
+      label: t("margin"),
       value: profit_margin ?? 0,
       suffix: "%",
       color: profit_margin >= 20 ? "text-emerald-400" : profit_margin >= 0 ? "text-amber-400" : "text-red-400",
@@ -620,7 +629,7 @@ export function HealthCard({ data, currency }) {
       ),
     },
     {
-      label: "Stock Alerts",
+      label: t("stockAlerts"),
       value: inventory_alerts,
       color: inventory_alerts > 0 ? "text-amber-400" : "text-gray-400",
       iconBg: inventory_alerts > 0 ? "bg-amber-500/15" : "bg-gray-500/15",
@@ -633,7 +642,7 @@ export function HealthCard({ data, currency }) {
       ),
     },
     {
-      label: "Receivable",
+      label: t("receivable"),
       value: khata_receivable,
       prefix: cur,
       color: "text-violet-400",
@@ -649,7 +658,7 @@ export function HealthCard({ data, currency }) {
 
   return (
     <CardShell gradient="from-gray-900/90 to-gray-800/70" className="max-h-[220px]">
-      <p className="text-[11px] uppercase tracking-wider text-white/50 font-semibold mb-3">Business Health</p>
+      <p className="text-[11px] uppercase tracking-wider text-white/50 font-semibold mb-3">{t("businessHealth")}</p>
       <div className="grid grid-cols-3 gap-x-3 gap-y-2.5">
         {metrics.map((m) => (
           <div key={m.label} className="min-w-0">

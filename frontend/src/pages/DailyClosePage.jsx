@@ -281,13 +281,9 @@ export default function DailyClosePage() {
       <DismissibleTip
         id="daily-close-intro-v1"
         icon="📋"
-        title="What is Daily Close?"
+        title={t("whatIsDailyClose")}
       >
-        <p>
-          End-of-shift wrap-up: count your cash drawer + card terminal totals once a day, and BonBox
-          locks in your numbers as the source of truth for Moms reports. Tap{" "}
-          <strong>New Close</strong>, fill in what you actually have, and confirm. Past closes show under <strong>History</strong>.
-        </p>
+        <p>{t("dailyCloseTipBody")}</p>
       </DismissibleTip>
 
       {/* Tab bar */}
@@ -296,7 +292,7 @@ export default function DailyClosePage() {
           { id: "close", label: t("newClose") || "New Close", icon: "✏️" },
           { id: "history", label: t("historyTab") || "History", icon: "📅" },
           { id: "insights", label: t("insightsTab") || "Insights", icon: "💡" },
-          ...(hasMultiBranch ? [{ id: "branches", label: "Branches", icon: "🏢" }] : []),
+          ...(hasMultiBranch ? [{ id: "branches", label: t("branches") || "Branches", icon: "🏢" }] : []),
         ].map(tb => (
           <button key={tb.id} onClick={() => setTab(tb.id)}
             className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition ${
@@ -904,7 +900,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               })}
               {scanResult.revenue_total && (
                 <div className="flex justify-between pt-2 border-t dark:border-gray-600 text-sm font-bold dark:text-white">
-                  <span>Total Revenue</span>
+                  <span>{t("totalRevenue")}</span>
                   <span>{scanResult.revenue_total.toLocaleString()} {currency}</span>
                 </div>
               )}
@@ -918,7 +914,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 {scanResult.moms_total && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 rounded">OCR</span>}
               </h3>
               <div className="flex justify-between text-sm dark:text-gray-300">
-                <span>Total MOMS</span>
+                <span>{t("totalMoms")}</span>
                 <span className="font-semibold" style={{ color: "#6366f1" }}>
                   {(scanResult.moms_total || Math.round(((scanResult.revenue_total || 0) * 0.25 / 1.25) * 100) / 100).toLocaleString()} {currency}
                 </span>
@@ -938,7 +934,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
 
             {/* Payments */}
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 space-y-3">
-              <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400">Payments</h3>
+              <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400">{t("paymentsLabel")}</h3>
               {defaultPayMethods.map(m => {
                 const val = scanResult.payments?.[m.key];
                 const isEmpty = !val;
@@ -1232,7 +1228,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             </div>
             {tipsPP !== null && (
               <div className="bg-green-50 dark:bg-green-900/30 rounded-xl p-4 text-center">
-                <p className="text-sm text-green-600 dark:text-green-400">Per person</p>
+                <p className="text-sm text-green-600 dark:text-green-400">{t("perPerson")}</p>
                 <p className="text-2xl font-bold text-green-700 dark:text-green-300">{tipsPP.toLocaleString()} {currency}</p>
               </div>
             )}
@@ -1252,13 +1248,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 {new Date(businessDate + "T12:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
               </span>
               {businessDate !== getBusinessDate(cutoffHour) && (
-                <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded font-semibold">Past date</span>
+                <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded font-semibold">{t("pastDate")}</span>
               )}
             </div>
 
             {/* Revenue summary */}
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
-              <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 mb-2">Revenue</h3>
+              <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 mb-2">{t("revenue")}</h3>
               {revCats.filter(c => revAmounts[c.key]).map(c => (
                 <div key={c.key} className="flex justify-between text-sm py-0.5 dark:text-gray-300">
                   <span>{c.icon} {c.label}</span>
@@ -1266,7 +1262,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 </div>
               ))}
               <div className="flex justify-between font-bold pt-2 border-t dark:border-gray-600 mt-2 dark:text-white">
-                <span>Total</span><span>{revenueTotal.toLocaleString()} {currency}</span>
+                <span>{t("total")}</span><span>{revenueTotal.toLocaleString()} {currency}</span>
               </div>
             </div>
 
@@ -1280,18 +1276,18 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   <div className="flex bg-gray-200 dark:bg-gray-700 rounded-lg p-0.5 text-xs">
                     <button onClick={() => setMomsMode("auto")}
                       className={`px-3 py-1 rounded-md font-medium transition ${momsMode === "auto" ? "bg-indigo-500 text-white shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700"}`}>
-                      Auto
+                      {t("autoLabel")}
                     </button>
                     <button onClick={() => setMomsMode("manual")}
                       className={`px-3 py-1 rounded-md font-medium transition ${momsMode === "manual" ? "bg-indigo-500 text-white shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700"}`}>
-                      From receipt
+                      {t("fromReceipt")}
                     </button>
                   </div>
                 </div>
                 {momsMode === "manual" && (
                   <div>
                     <label className="text-xs text-indigo-400 mb-1 block">Enter MOMS from your Z-report / receipt</label>
-                    <input type="number" inputMode="decimal" placeholder="MOMS amount..."
+                    <input type="number" inputMode="decimal" placeholder={t("momsAmountPlaceholder")}
                       className="w-full px-4 py-2.5 border border-indigo-300 dark:border-indigo-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-right text-lg"
                       value={momsManual} onChange={e => setMomsManual(e.target.value)} />
                   </div>
@@ -1321,7 +1317,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
 
             {/* Payment summary */}
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
-              <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 mb-2">Payments</h3>
+              <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 mb-2">{t("paymentsLabel")}</h3>
               {payMethods.filter(m => payAmounts[m.key]).map(m => (
                 <div key={m.key} className="flex justify-between text-sm py-0.5 dark:text-gray-300">
                   <span>{m.icon} {m.label}</span>
@@ -1329,18 +1325,18 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 </div>
               ))}
               <div className="flex justify-between font-bold pt-2 border-t dark:border-gray-600 mt-2 dark:text-white">
-                <span>Total</span><span>{paymentTotal.toLocaleString()} {currency}</span>
+                <span>{t("total")}</span><span>{paymentTotal.toLocaleString()} {currency}</span>
               </div>
             </div>
 
             {/* Cash drawer */}
             {cashCounted && (
               <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
-                <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 mb-2">Cash Drawer</h3>
-                <div className="flex justify-between text-sm dark:text-gray-300"><span>Expected</span><span>{cashExpected.toLocaleString()} {currency}</span></div>
-                <div className="flex justify-between text-sm dark:text-gray-300"><span>Counted</span><span>{cashCountedVal.toLocaleString()} {currency}</span></div>
+                <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 mb-2">{t("cashDrawer")}</h3>
+                <div className="flex justify-between text-sm dark:text-gray-300"><span>{t("expected")}</span><span>{cashExpected.toLocaleString()} {currency}</span></div>
+                <div className="flex justify-between text-sm dark:text-gray-300"><span>{t("counted")}</span><span>{cashCountedVal.toLocaleString()} {currency}</span></div>
                 <div className={`flex justify-between font-bold pt-2 border-t dark:border-gray-600 mt-2 ${cashDiff < -100 ? "text-red-600" : "dark:text-white"}`}>
-                  <span>Difference</span><span>{cashDiff > 0 ? "+" : ""}{cashDiff?.toLocaleString()} {currency}</span>
+                  <span>{t("difference")}</span><span>{cashDiff > 0 ? "+" : ""}{cashDiff?.toLocaleString()} {currency}</span>
                 </div>
               </div>
             )}
@@ -1356,10 +1352,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   </div>
                 ))}
                 <div className="flex justify-between font-bold pt-2 border-t border-red-200 dark:border-red-800 mt-2 text-red-700 dark:text-red-300">
-                  <span>Total Expenses</span><span>-{prefill.expenses.total.toLocaleString()} {currency}</span>
+                  <span>{t("totalExpenses")}</span><span>-{prefill.expenses.total.toLocaleString()} {currency}</span>
                 </div>
                 <div className="flex justify-between font-bold pt-2 mt-1 text-green-700 dark:text-green-300">
-                  <span>Net Profit</span><span>{(revenueTotal - prefill.expenses.total).toLocaleString()} {currency}</span>
+                  <span>{t("netProfit")}</span><span>{(revenueTotal - prefill.expenses.total).toLocaleString()} {currency}</span>
                 </div>
               </div>
             )}
@@ -1368,22 +1364,22 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             {tipsTotal && (
               <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
                 <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 mb-2">Tips</h3>
-                <div className="flex justify-between text-sm dark:text-gray-300"><span>Total</span><span>{parseFloat(tipsTotal).toLocaleString()} {currency}</span></div>
-                <div className="flex justify-between text-sm dark:text-gray-300"><span>Staff</span><span>{staffCount}</span></div>
-                {tipsPP && <div className="flex justify-between font-bold pt-2 border-t dark:border-gray-600 mt-2 dark:text-white"><span>Per Person</span><span>{tipsPP.toLocaleString()} {currency}</span></div>}
+                <div className="flex justify-between text-sm dark:text-gray-300"><span>{t("total")}</span><span>{parseFloat(tipsTotal).toLocaleString()} {currency}</span></div>
+                <div className="flex justify-between text-sm dark:text-gray-300"><span>{t("navStaff")}</span><span>{staffCount}</span></div>
+                {tipsPP && <div className="flex justify-between font-bold pt-2 border-t dark:border-gray-600 mt-2 dark:text-white"><span>{t("perPerson")}</span><span>{tipsPP.toLocaleString()} {currency}</span></div>}
               </div>
             )}
 
             {/* Closed by + notes */}
             <div className="space-y-3">
               <div>
-                <label className="text-sm font-medium text-gray-600 dark:text-gray-300">Closed by</label>
-                <input type="text" placeholder="Manager name..." className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl"
+                <label className="text-sm font-medium text-gray-600 dark:text-gray-300">{t("closedBy")}</label>
+                <input type="text" placeholder={t("managerNamePlaceholder") || "Manager name..."} className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl"
                   value={closedBy} onChange={e => setClosedBy(e.target.value)} />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-600 dark:text-gray-300">Notes</label>
-                <textarea placeholder="Any notes for tonight..." rows={2} className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl resize-none"
+                <label className="text-sm font-medium text-gray-600 dark:text-gray-300">{t("notes")}</label>
+                <textarea placeholder={t("notesPlaceholderTonight") || "Any notes for tonight..."} rows={2} className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl resize-none"
                   value={notes} onChange={e => setNotes(e.target.value)} />
               </div>
             </div>
@@ -1723,8 +1719,8 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 text-center border border-gray-100 dark:border-gray-700">
         <p className="text-4xl mb-3">📋</p>
-        <p className="font-semibold dark:text-white">No daily closes yet</p>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Submit your first end-of-day close to see history here.</p>
+        <p className="font-semibold dark:text-white">{t("noDailyClosesYet")}</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("noDailyClosesYetHint") || "Submit your first end-of-day close to see history here."}</p>
       </div>
     );
   }
@@ -2119,6 +2115,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
    BRANCH SUMMARY VIEW — multi-branch comparison
    ═══════════════════════════════════════════════════════════ */
 function BranchSummaryView({ currency }) {
+  const { t } = useLanguage();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState("7"); // "1" = today, "7" = week, "30" = month
@@ -2151,8 +2148,8 @@ function BranchSummaryView({ currency }) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 text-center border border-gray-100 dark:border-gray-700">
         <p className="text-4xl mb-3">🏢</p>
-        <p className="font-semibold dark:text-white">No branch data</p>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Submit daily closes for multiple branches to see comparisons.</p>
+        <p className="font-semibold dark:text-white">{t("noBranchData")}</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("noBranchDataHint") || "Submit daily closes for multiple branches to see comparisons."}</p>
       </div>
     );
   }
@@ -2182,19 +2179,19 @@ function BranchSummaryView({ currency }) {
       {/* Grand totals */}
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase">Total Revenue</p>
+          <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase">{t("totalRevenue")}</p>
           <p className="text-lg font-bold text-green-600 dark:text-green-400 mt-0.5">{grand_total.revenue_total?.toLocaleString()}</p>
           <p className="text-[10px] text-gray-400">{currency}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase">Cash Variance</p>
+          <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase">{t("cashVariance")}</p>
           <p className={`text-lg font-bold mt-0.5 ${grand_total.cash_diff_total < -200 ? "text-red-500" : "text-gray-700 dark:text-white"}`}>
             {grand_total.cash_diff_total > 0 ? "+" : ""}{grand_total.cash_diff_total?.toLocaleString()}
           </p>
           <p className="text-[10px] text-gray-400">{currency}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase">Total Tips</p>
+          <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase">{t("totalTips")}</p>
           <p className="text-lg font-bold text-blue-600 dark:text-blue-400 mt-0.5">{grand_total.tips_total?.toLocaleString()}</p>
           <p className="text-[10px] text-gray-400">{currency}</p>
         </div>
@@ -2243,6 +2240,7 @@ function BranchSummaryView({ currency }) {
    CALENDAR HEAT MAP — 90-day visual overview
    ═══════════════════════════════════════════════════════════ */
 function CalendarHeatMap({ data, currency }) {
+  const { t } = useLanguage();
   const [mode, setMode] = useState("revenue"); // "revenue" | "cash"
   const [hovered, setHovered] = useState(null);
 
@@ -2380,7 +2378,7 @@ function CalendarHeatMap({ data, currency }) {
             ) : <> &mdash; No close</>}
           </p>
         ) : (
-          <p className="text-[10px] text-gray-400 dark:text-gray-500">Hover a day to see details</p>
+          <p className="text-[10px] text-gray-400 dark:text-gray-500">{t("hoverDayForDetails")}</p>
         )}
       </div>
 
@@ -2405,8 +2403,8 @@ function InsightsView({ data, currency, t }) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 text-center border border-gray-100 dark:border-gray-700">
         <p className="text-4xl mb-3">💡</p>
-        <p className="font-semibold dark:text-white">Not enough data yet</p>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Submit a few daily closes to unlock insights about your revenue, tips, and cash handling.</p>
+        <p className="font-semibold dark:text-white">{t("notEnoughDataYet")}</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("notEnoughDataHint") || "Submit a few daily closes to unlock insights about your revenue, tips, and cash handling."}</p>
       </div>
     );
   }

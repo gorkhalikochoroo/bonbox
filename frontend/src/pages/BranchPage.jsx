@@ -154,7 +154,7 @@ export default function BranchPage() {
       {/* ─── CREATE BRANCH ─── */}
       {showCreate && (
         <form onSubmit={handleCreate} className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm space-y-3">
-          <h3 className="font-bold text-gray-700 dark:text-gray-200">Create Branch</h3>
+          <h3 className="font-bold text-gray-700 dark:text-gray-200">{t("createBranch")}</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder={t("branchNamePlaceholder")}
               className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 text-sm" required />
@@ -175,8 +175,8 @@ export default function BranchPage() {
             </div>
           )}
           <div className="flex gap-2">
-            <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium">Create</button>
-            <button type="button" onClick={() => setShowCreate(false)} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg text-sm">Cancel</button>
+            <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium">{t("create")}</button>
+            <button type="button" onClick={() => setShowCreate(false)} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg text-sm">{t("cancel")}</button>
           </div>
         </form>
       )}
@@ -185,20 +185,20 @@ export default function BranchPage() {
       {summary?.has_branches && (
         <div className="bg-gradient-to-br from-green-600 to-emerald-700 rounded-2xl p-6 text-white shadow-lg">
           <h2 className="font-bold text-lg mb-1">📊 Consolidated View — This Month</h2>
-          <p className="text-sm opacity-80 mb-4">All branches combined</p>
+          <p className="text-sm opacity-80 mb-4">{t("allBranchesCombined")}</p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
             <div className="bg-white/10 rounded-xl p-3 sm:p-4 text-center">
-              <p className="text-xs opacity-70">Total Revenue</p>
+              <p className="text-xs opacity-70">{t("totalRevenue")}</p>
               <p className="text-xl sm:text-2xl font-bold mt-1">{fmt(summary.consolidated.month_revenue)}</p>
               <p className="text-xs opacity-60">{currency}</p>
             </div>
             <div className="bg-white/10 rounded-xl p-3 sm:p-4 text-center">
-              <p className="text-xs opacity-70">Total Expenses</p>
+              <p className="text-xs opacity-70">{t("totalExpenses")}</p>
               <p className="text-xl sm:text-2xl font-bold mt-1">{fmt(summary.consolidated.month_expenses)}</p>
               <p className="text-xs opacity-60">{currency}</p>
             </div>
             <div className="bg-white/10 rounded-xl p-3 sm:p-4 text-center">
-              <p className="text-xs opacity-70">Total Profit</p>
+              <p className="text-xs opacity-70">{t("totalProfit")}</p>
               <p className="text-xl sm:text-2xl font-bold mt-1">{fmt(summary.consolidated.month_profit)}</p>
               <p className="text-xs opacity-60">{currency}</p>
             </div>
@@ -215,14 +215,14 @@ export default function BranchPage() {
       {hasBranches && (
         <div className="flex gap-2 overflow-x-auto pb-1">
           {[
-            { key: "overview", label: "Overview" },
-            { key: "branches", label: `Branches (${branches.length})` },
-          ].map((t) => (
-            <button key={t.key} onClick={() => setTab(t.key)}
+            { key: "overview", label: t("overview") },
+            { key: "branches", label: `${t("branches")} (${branches.length})` },
+          ].map((tab2) => (
+            <button key={tab2.key} onClick={() => setTab(tab2.key)}
               className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition ${
-                tab === t.key ? "bg-green-600 text-white" : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300"
+                tab === tab2.key ? "bg-green-600 text-white" : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300"
               }`}>
-              {t.label}
+              {tab2.label}
             </button>
           ))}
         </div>
@@ -266,7 +266,7 @@ export default function BranchPage() {
                       <p className="font-bold text-gray-800 dark:text-white">{b.name}</p>
                       {b.is_default && (
                         <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full">
-                          Default
+                          {t("defaultLabel")}
                         </span>
                       )}
                       {b.business_type && b.business_type !== "general" && (
@@ -281,15 +281,15 @@ export default function BranchPage() {
                   </div>
                   <div className="grid grid-cols-3 gap-2 text-center">
                     <div>
-                      <p className="text-xs text-gray-500">Revenue</p>
+                      <p className="text-xs text-gray-500">{t("revenue")}</p>
                       <p className="text-base sm:text-lg font-bold text-green-600">{fmt(b.month_revenue)}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-500">Expenses</p>
+                      <p className="text-xs text-gray-500">{t("expenses")}</p>
                       <p className="text-base sm:text-lg font-bold text-red-500">{fmt(b.month_expenses)}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-500">Profit</p>
+                      <p className="text-xs text-gray-500">{t("profit")}</p>
                       <p className={`text-base sm:text-lg font-bold ${b.month_profit >= 0 ? "text-blue-600" : "text-red-600"}`}>{fmt(b.month_profit)}</p>
                     </div>
                   </div>
@@ -310,7 +310,7 @@ export default function BranchPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-lg font-bold text-gray-800 dark:text-white">{b.name}</p>
                     {b.is_default && (
-                      <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full">Default</span>
+                      <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full">{t("defaultLabel")}</span>
                     )}
                     {b.business_type && b.business_type !== "general" && (
                       <span className="text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 px-2 py-0.5 rounded-full">
@@ -323,24 +323,24 @@ export default function BranchPage() {
                 </div>
                 {!b.is_default && (
                   <button onClick={() => handleSetDefault(b.id)}
-                    className="text-xs text-green-600 hover:underline">Set as default</button>
+                    className="text-xs text-green-600 hover:underline">{t("setAsDefault")}</button>
                 )}
               </div>
               <div className="grid grid-cols-3 gap-2 sm:gap-3 mt-4">
                 <div className="bg-gray-50 dark:bg-gray-700/30 rounded-xl p-2 sm:p-3 text-center">
-                  <p className="text-[10px] sm:text-xs text-gray-500">Revenue</p>
+                  <p className="text-[10px] sm:text-xs text-gray-500">{t("revenue")}</p>
                   <p className="text-sm sm:text-lg font-bold text-green-600">{fmt(b.total_revenue)}</p>
                   <p className="text-[10px] text-gray-400 sm:hidden">{currency}</p>
                 </div>
                 <div className="bg-gray-50 dark:bg-gray-700/30 rounded-xl p-2 sm:p-3 text-center">
-                  <p className="text-[10px] sm:text-xs text-gray-500">Expenses</p>
+                  <p className="text-[10px] sm:text-xs text-gray-500">{t("expenses")}</p>
                   <p className="text-sm sm:text-lg font-bold text-red-500">{fmt(b.total_expenses)}</p>
                   <p className="text-[10px] text-gray-400 sm:hidden">{currency}</p>
                 </div>
                 <div className="bg-gray-50 dark:bg-gray-700/30 rounded-xl p-2 sm:p-3 text-center">
-                  <p className="text-[10px] sm:text-xs text-gray-500">Inventory</p>
+                  <p className="text-[10px] sm:text-xs text-gray-500">{t("inventory")}</p>
                   <p className="text-sm sm:text-lg font-bold text-blue-600">{b.inventory_items}</p>
-                  <p className="text-[10px] text-gray-400 sm:hidden">items</p>
+                  <p className="text-[10px] text-gray-400 sm:hidden">{t("items")}</p>
                 </div>
               </div>
             </div>
@@ -352,14 +352,14 @@ export default function BranchPage() {
       {!hasBranches && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-sm text-center">
           <div className="text-5xl mb-3">🏢</div>
-          <h2 className="text-lg font-bold text-gray-800 dark:text-white mb-2">No branches yet</h2>
+          <h2 className="text-lg font-bold text-gray-800 dark:text-white mb-2">{t("noBranchesYet")}</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto mb-4">
             Create branches to manage multiple locations with separate bookkeeping — all from one account.
             Each branch gets its own sales, expenses, inventory, and cashbook.
           </p>
           <button onClick={() => setShowCreate(true)}
             className="px-6 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition">
-            Create First Branch
+            {t("createFirstBranch")}
           </button>
         </div>
       )}
@@ -367,13 +367,13 @@ export default function BranchPage() {
       {/* ─── HOW IT WORKS ─── */}
       {!hasBranches && (
         <div className="bg-blue-50 dark:bg-blue-900/20 rounded-2xl p-5">
-          <h3 className="font-bold text-blue-800 dark:text-blue-200 mb-3">How Branch Bookkeeping Works</h3>
+          <h3 className="font-bold text-blue-800 dark:text-blue-200 mb-3">{t("howBranchBookkeeping")}</h3>
           <div className="space-y-2 text-sm text-blue-700 dark:text-blue-300">
-            <p>1. <strong>Name your locations</strong> — like "Downtown" or "Mall Branch"</p>
-            <p>2. <strong>Pick the active branch</strong> before logging sales, expenses, or stock</p>
-            <p>3. Each branch <strong>keeps its own books</strong> automatically</p>
-            <p>4. Get the <strong>big picture</strong> with a combined view across all branches</p>
-            <p>5. <strong>Compare side by side</strong> to see which branch is performing best</p>
+            <p>1. <strong>{t("nameYourLocations")}</strong></p>
+            <p>2. <strong>{t("pickActiveBranch")}</strong></p>
+            <p>3. {t("howBranchStep3") || "Each branch keeps its own books automatically"}</p>
+            <p>4. {t("howBranchStep4") || "Get the big picture with a combined view across all branches"}</p>
+            <p>5. <strong>{t("compareSideBySide")}</strong></p>
           </div>
         </div>
       )}

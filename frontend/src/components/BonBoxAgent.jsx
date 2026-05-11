@@ -511,7 +511,7 @@ export default function BonBoxAgent() {
       {!isOpen && (
         <button
           onClick={handleOpen}
-          aria-label="Open BonBox AI Assistant"
+          aria-label={t("openBonBoxAi")}
           className="
             fixed md:bottom-6 right-6 z-[9999]
             w-14 h-14 rounded-full
@@ -615,11 +615,11 @@ export default function BonBoxAgent() {
               </div>
               <div>
                 <h3 className="text-sm font-semibold text-white leading-none">
-                  BonBox AI
+                  {t("bonboxAi")}
                 </h3>
                 <div className="flex items-center gap-1.5 mt-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50" />
-                  <span className="text-[10px] text-gray-400">Online</span>
+                  <span className="text-[10px] text-gray-400">{t("online")}</span>
                 </div>
               </div>
             </div>
@@ -627,7 +627,7 @@ export default function BonBoxAgent() {
             {/* close button — larger tap target + back arrow on mobile */}
             <button
               onClick={handleClose}
-              aria-label="Close chat"
+              aria-label={t("closeChat")}
               className="
                 w-9 h-9 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center
                 text-gray-300 sm:text-gray-400 hover:text-white
@@ -785,7 +785,7 @@ export default function BonBoxAgent() {
               <button
                 onClick={() => sendMessage()}
                 disabled={!input.trim() || isStreaming}
-                aria-label="Send message"
+                aria-label={t("sendMessage")}
                 className="
                   shrink-0 w-9 h-9 mr-1.5 mb-1.5
                   rounded-lg flex items-center justify-center
