@@ -148,6 +148,7 @@ function KpiCard({ title, numericValue, value, currency: cur, change, changeLabe
    ═══════════════════════════════════════════════════════════ */
 
 function RevenueTrendChart({ data, currency, onNavigate }) {
+  const { t } = useLanguage();
   if (!data || data.length === 0) return null;
   const avg = Math.round(data.reduce((s, d) => s + d.amount, 0) / data.length);
 
@@ -158,8 +159,8 @@ function RevenueTrendChart({ data, currency, onNavigate }) {
     >
       <div className="flex items-start justify-between mb-4">
         <div>
-          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Revenue Trend</h3>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Daily revenue with average reference</p>
+          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("revenueTrend")}</h3>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{t("dailyRevenueAvgDesc")}</p>
         </div>
         <div className="flex items-center gap-4 text-xs text-gray-400">
           <span className="flex items-center gap-1.5">
@@ -375,6 +376,7 @@ function ForecastWeatherStaffing({ forecast, weather, staffing, currency, onNavi
    ═══════════════════════════════════════════════════════════ */
 
 function InventoryPanel({ items, currency, onNavigate }) {
+  const { t } = useLanguage();
   const [filter, setFilter] = useState("all");
   if (!items || items.length === 0) return null;
 
@@ -417,7 +419,7 @@ function InventoryPanel({ items, currency, onNavigate }) {
     <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm">
       <div className="flex items-start justify-between mb-3">
         <div>
-          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Inventory</h3>
+          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("inventory")}</h3>
           <p className="text-xs text-gray-400 mt-0.5">{items.length} items</p>
         </div>
         <div className="text-right">
@@ -489,7 +491,7 @@ function InventoryPanel({ items, currency, onNavigate }) {
           </p>
           <button onClick={(e) => { e.stopPropagation(); onNavigate(); }}
             className="text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-red-500 text-white hover:bg-red-600 transition">
-            View Inventory
+            {t("viewInventory")}
           </button>
         </div>
       )}
@@ -502,6 +504,7 @@ function InventoryPanel({ items, currency, onNavigate }) {
    ═══════════════════════════════════════════════════════════ */
 
 function AlertsPanel({ actionItems, summary, weekComparison, onNavigate }) {
+  const { t } = useLanguage();
   const [dismissed, setDismissed] = useState(new Set());
   const [filter, setFilter] = useState("all");
 
@@ -584,7 +587,7 @@ function AlertsPanel({ actionItems, summary, weekComparison, onNavigate }) {
     <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Alerts</h3>
+          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("alerts")}</h3>
           {critCount > 0 && (
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-500 text-white animate-pulse">{critCount}</span>
           )}
@@ -644,6 +647,7 @@ function AlertsPanel({ actionItems, summary, weekComparison, onNavigate }) {
    ═══════════════════════════════════════════════════════════ */
 
 function PLCard({ revenue, expenses, profit, margin, currency, onNavigate, loading }) {
+  const { t } = useLanguage();
   const isProfit = profit >= 0;
   // Show "…" placeholder while data loads so we don't briefly render -0 DKK
   // (which the QA flagged — looked broken even though it was just a render race).
@@ -653,27 +657,27 @@ function PLCard({ revenue, expenses, profit, margin, currency, onNavigate, loadi
       onClick={onNavigate}
       className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow flex-1"
     >
-      <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Profit & Loss</h3>
-      <p className="text-xs text-gray-400 mt-0.5 mb-4">This month</p>
+      <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("profitAndLoss")}</h3>
+      <p className="text-xs text-gray-400 mt-0.5 mb-4">{t("thisMonth")}</p>
 
       <div className="border-b border-gray-100 dark:border-gray-700 pb-3 mb-3 space-y-2">
         <div className="flex justify-between">
-          <span className="text-sm text-gray-500 dark:text-gray-400">Revenue</span>
+          <span className="text-sm text-gray-500 dark:text-gray-400">{t("revenue")}</span>
           <span className="text-sm font-semibold text-green-600 dark:text-green-400">{loading ? placeholder : `+${revenue.toLocaleString()} ${currency}`}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-sm text-gray-500 dark:text-gray-400">Expenses</span>
+          <span className="text-sm text-gray-500 dark:text-gray-400">{t("expenses")}</span>
           <span className="text-sm font-semibold text-red-500 dark:text-red-400">{loading ? placeholder : `-${expenses.toLocaleString()} ${currency}`}</span>
         </div>
       </div>
 
       <div className="flex justify-between items-baseline">
-        <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Net Profit</span>
+        <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("netProfit")}</span>
         <div className="text-right">
           <p className={`text-xl font-bold ${loading ? "text-gray-400" : (isProfit ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400")}`}>
             {loading ? placeholder : `${isProfit ? "+" : ""}${profit.toLocaleString()} ${currency}`}
           </p>
-          <p className="text-xs text-gray-400">{loading ? " " : `Margin: ${margin}%`}</p>
+          <p className="text-xs text-gray-400">{loading ? " " : t("marginColonPct", { pct: margin })}</p>
         </div>
       </div>
 
@@ -686,10 +690,10 @@ function PLCard({ revenue, expenses, profit, margin, currency, onNavigate, loadi
             : "bg-red-50 dark:bg-red-900/15 text-red-600 dark:text-red-400 border border-red-200/50 dark:border-red-800/30"
         }`}>
         {revenue === 0 && expenses === 0
-          ? "No data yet this month — log your first sale to see your numbers come alive 👇"
+          ? t("dashNoDataYet")
           : isProfit
-            ? "On track for profitability this month. Keep up the momentum!"
-            : "Expenses are exceeding revenue. Consider reviewing your top cost categories."}
+            ? t("dashOnTrackProfit")
+            : t("dashExpensesExceeding")}
       </div>
     </div>
   );
@@ -702,6 +706,7 @@ function PLCard({ revenue, expenses, profit, margin, currency, onNavigate, loadi
 const EXPENSE_COLORS = ["#EF4444", "#F59E0B", "#22C55E", "#3B82F6", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316"];
 
 function ExpenseBreakdown({ breakdown, currency, onNavigate }) {
+  const { t } = useLanguage();
   if (!breakdown || breakdown.length === 0) return null;
 
   const total = breakdown.reduce((s, e) => s + e.amount, 0);
@@ -713,8 +718,8 @@ function ExpenseBreakdown({ breakdown, currency, onNavigate }) {
       onClick={onNavigate}
       className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow flex-1"
     >
-      <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Expense Breakdown</h3>
-      <p className="text-xs text-gray-400 mt-0.5 mb-4">This month by category</p>
+      <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("expenseBreakdown")}</h3>
+      <p className="text-xs text-gray-400 mt-0.5 mb-4">{t("thisMonthByCategory")}</p>
 
       <div className="space-y-3">
         {sorted.slice(0, 6).map((e, i) => {
@@ -742,7 +747,7 @@ function ExpenseBreakdown({ breakdown, currency, onNavigate }) {
 
       {total > 0 && (
         <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700 flex justify-between">
-          <span className="text-sm text-gray-500 dark:text-gray-400">Total</span>
+          <span className="text-sm text-gray-500 dark:text-gray-400">{t("total")}</span>
           <span className="text-sm font-bold text-gray-700 dark:text-gray-200">{Math.round(total).toLocaleString()} {currency}</span>
         </div>
       )}
@@ -757,6 +762,7 @@ function ExpenseBreakdown({ breakdown, currency, onNavigate }) {
 const TOP_BAR_COLORS = ["#22C55E", "#3B82F6", "#8B5CF6", "#F59E0B", "#EF4444", "#EC4899", "#14B8A6", "#F97316"];
 
 function TopSellersCard({ topSellers, currency, onNavigate }) {
+  const { t } = useLanguage();
   const [mode, setMode] = useState("revenue"); // "revenue" | "qty"
   if (!topSellers || topSellers.length === 0) return null;
 
@@ -779,15 +785,15 @@ function TopSellersCard({ topSellers, currency, onNavigate }) {
       {/* Header with toggle */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         <div>
-          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Top Sellers</h3>
+          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("topSellers")}</h3>
           <p className="text-xs text-gray-400 mt-0.5">
-            {topSellers.length} products &bull; {mode === "revenue" ? `${totalRev.toLocaleString()} ${currency}` : `${totalQty.toLocaleString()} sold`}
+            {topSellers.length} {t("products")} &bull; {mode === "revenue" ? `${totalRev.toLocaleString()} ${currency}` : `${totalQty.toLocaleString()} ${t("sold")}`}
           </p>
         </div>
         <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700/50 rounded-lg p-0.5">
           {[
-            { k: "revenue", label: `Revenue (${currency})` },
-            { k: "qty", label: "Qty Sold" },
+            { k: "revenue", label: t("revenueParen", { currency }) },
+            { k: "qty", label: t("qtySold") },
           ].map((opt) => (
             <button
               key={opt.k}
@@ -824,7 +830,7 @@ function TopSellersCard({ topSellers, currency, onNavigate }) {
                   <div className="h-full rounded-full transition-all duration-500" style={{ width: `${barW}%`, background: color }} />
                 </div>
                 {mode === "revenue" ? (
-                  <span className="text-[10px] text-gray-400 mt-0.5 block">{item.sales} sold</span>
+                  <span className="text-[10px] text-gray-400 mt-0.5 block">{item.sales} {t("sold")}</span>
                 ) : (
                   <span className="text-[10px] text-gray-400 mt-0.5 block">{item.revenue.toLocaleString()} {currency}</span>
                 )}
@@ -842,6 +848,7 @@ function TopSellersCard({ topSellers, currency, onNavigate }) {
    ═══════════════════════════════════════════════════════════ */
 
 function PaymentBreakdownCard({ paymentBreakdown, currency, onNavigate }) {
+  const { t } = useLanguage();
   if (!paymentBreakdown || paymentBreakdown.length === 0) return null;
   const total = paymentBreakdown.reduce((s, p) => s + p.amount, 0);
   const methodColors = { cash: "#22C55E", card: "#3B82F6", mobilepay: "#8B5CF6" };
@@ -851,8 +858,8 @@ function PaymentBreakdownCard({ paymentBreakdown, currency, onNavigate }) {
       onClick={onNavigate}
       className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow flex-1"
     >
-      <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Payment Methods</h3>
-      <p className="text-xs text-gray-400 mt-0.5 mb-4">This month</p>
+      <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("paymentMethods")}</h3>
+      <p className="text-xs text-gray-400 mt-0.5 mb-4">{t("thisMonth")}</p>
 
       {/* Stacked bar */}
       {total > 0 && (
@@ -896,12 +903,13 @@ function PaymentBreakdownCard({ paymentBreakdown, currency, onNavigate }) {
    ═══════════════════════════════════════════════════════════ */
 
 function WeekComparisonCard({ weekComparison, currency, onNavigate }) {
+  const { t } = useLanguage();
   if (!weekComparison) return null;
 
   const rows = [
-    { label: "Revenue", thisWeek: weekComparison.this_week_revenue, lastWeek: weekComparison.last_week_revenue, goodUp: true },
-    { label: "Expenses", thisWeek: weekComparison.this_week_expenses, lastWeek: weekComparison.last_week_expenses, goodUp: false },
-    { label: "Profit", thisWeek: weekComparison.this_week_profit, lastWeek: weekComparison.last_week_profit, goodUp: true },
+    { label: t("revenue"), thisWeek: weekComparison.this_week_revenue, lastWeek: weekComparison.last_week_revenue, goodUp: true },
+    { label: t("expenses"), thisWeek: weekComparison.this_week_expenses, lastWeek: weekComparison.last_week_expenses, goodUp: false },
+    { label: t("profit") || "Profit", thisWeek: weekComparison.this_week_profit, lastWeek: weekComparison.last_week_profit, goodUp: true },
   ];
 
   return (
@@ -911,8 +919,8 @@ function WeekComparisonCard({ weekComparison, currency, onNavigate }) {
     >
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Week vs Last Week</h3>
-          <p className="text-xs text-gray-400 mt-0.5">Performance comparison</p>
+          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("weekVsLastWeek")}</h3>
+          <p className="text-xs text-gray-400 mt-0.5">{t("performanceComparison")}</p>
         </div>
         {weekComparison.change_pct !== 0 && (
           <span className={`text-sm font-bold px-2.5 py-1 rounded-lg
@@ -936,11 +944,11 @@ function WeekComparisonCard({ weekComparison, currency, onNavigate }) {
               <span className="text-sm font-medium text-gray-600 dark:text-gray-300 w-20">{row.label}</span>
               <div className="flex items-center gap-3">
                 <div className="text-right">
-                  <p className="text-xs text-gray-400">This week</p>
+                  <p className="text-xs text-gray-400">{t("thisWeek")}</p>
                   <p className="text-sm font-bold text-gray-800 dark:text-white">{Math.round(row.thisWeek).toLocaleString()}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-gray-400">Last week</p>
+                  <p className="text-xs text-gray-400">{t("lastWeek")}</p>
                   <p className="text-sm text-gray-500">{Math.round(row.lastWeek).toLocaleString()}</p>
                 </div>
                 {clampedDiff !== 0 && (
@@ -966,29 +974,30 @@ function WeekComparisonCard({ weekComparison, currency, onNavigate }) {
    ═══════════════════════════════════════════════════════════ */
 
 function HealthScore({ summary, monthlyData, onNavigate }) {
+  const { t } = useLanguage();
   const factors = [];
 
   const margin = summary?.profit_margin || 0;
-  factors.push({ label: "Profitability", score: Math.min(Math.round(margin * 1.5), 30), max: 30 });
+  factors.push({ label: t("healthProfitability"), score: Math.min(Math.round(margin * 1.5), 30), max: 30 });
 
   const dailyRevenue = monthlyData?.daily_revenue || [];
   const daysWithSales = dailyRevenue.filter((d) => d.amount > 0).length;
   const totalDays = Math.max(dailyRevenue.length, 1);
-  factors.push({ label: "Consistency", score: Math.min(Math.round((daysWithSales / totalDays) * 25), 25), max: 25 });
+  factors.push({ label: t("healthConsistency"), score: Math.min(Math.round((daysWithSales / totalDays) * 25), 25), max: 25 });
 
   const growthChange = Math.max(-500, Math.min(500, summary?.today_revenue_change || 0));
   const growthScore = growthChange > 0 ? Math.min(Math.round(growthChange), 20) : growthChange === 0 ? 10 : Math.max(10 + Math.round(growthChange / 2), 0);
-  factors.push({ label: "Growth", score: growthScore, max: 20 });
+  factors.push({ label: t("healthGrowth"), score: growthScore, max: 20 });
 
   const expenseRatio = (summary?.month_revenue || 0) > 0 ? (summary?.month_expenses || 0) / summary.month_revenue : 1;
-  factors.push({ label: "Cost Control", score: Math.round(Math.max(0, (1 - expenseRatio)) * 15), max: 15 });
+  factors.push({ label: t("healthCostControl"), score: Math.round(Math.max(0, (1 - expenseRatio)) * 15), max: 15 });
 
-  factors.push({ label: "Activity", score: (summary?.today_revenue || 0) > 0 ? 10 : 0, max: 10 });
+  factors.push({ label: t("healthActivity"), score: (summary?.today_revenue || 0) > 0 ? 10 : 0, max: 10 });
 
   const total = factors.reduce((s, f) => s + f.score, 0);
   const hasData = (summary?.month_revenue || 0) > 0 || daysWithSales > 0;
   const color = !hasData ? "#6B7280" : total >= 75 ? "#22C55E" : total >= 50 ? "#F59E0B" : total >= 25 ? "#F97316" : "#EF4444";
-  const label = !hasData ? "Getting Started" : total >= 75 ? "Excellent" : total >= 50 ? "Good" : total >= 25 ? "Needs Work" : "Critical";
+  const label = !hasData ? t("healthGettingStarted") : total >= 75 ? t("healthExcellent") : total >= 50 ? t("healthGood") : total >= 25 ? t("healthNeedsWork") : t("healthCritical");
 
   const circumference = 2 * Math.PI * 34;
   const filled = (total / 100) * circumference;
@@ -1014,7 +1023,7 @@ function HealthScore({ summary, monthlyData, onNavigate }) {
             </div>
           </div>
           <div className="sm:text-center">
-            <p className="text-sm font-semibold text-gray-800 dark:text-white">Business Health</p>
+            <p className="text-sm font-semibold text-gray-800 dark:text-white">{t("businessHealth")}</p>
             <p className="text-xs font-medium" style={{ color }}>{label}</p>
           </div>
         </div>
@@ -1499,26 +1508,26 @@ export default function DashboardPage() {
           </StaggerGridItem>
           <StaggerGridItem>
             <KpiCard
-              title="Yesterday"
+              title={t("yesterday")}
               numericValue={yesterdayRev}
               currency={currency}
-              subtitle={yesterdayRev > 0 ? formatDateShort(yesterdayKey) : "No sales"}
+              subtitle={yesterdayRev > 0 ? formatDateShort(yesterdayKey) : t("noSales") || "No sales"}
               onClick={() => navigate("/sales")}
             />
           </StaggerGridItem>
           <StaggerGridItem>
             <KpiCard
-              title="Week Avg"
+              title={t("weekAvg")}
               numericValue={weekAvg}
               currency={currency}
-              subtitle={`${currency}/day`}
+              subtitle={`${currency}/${t("dayShort") || "day"}`}
               sparkData={weekSparkData}
               onClick={() => navigate("/reports")}
             />
           </StaggerGridItem>
           <StaggerGridItem>
             <KpiCard
-              title="Best Day"
+              title={t("bestDay")}
               numericValue={bestDay ? bestDay.amount : 0}
               currency={currency}
               subtitle={bestDay ? formatDateShort(bestDay.date) : "—"}
@@ -1583,7 +1592,7 @@ export default function DashboardPage() {
             <span className="text-2xl">💬</span>
             <div className="text-left flex-1 min-w-0">
               <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Ask anything about your business...</p>
-              <p className="text-xs text-gray-400 mt-0.5">Powered by BonBox Agent</p>
+              <p className="text-xs text-gray-400 mt-0.5">{t("poweredByBonBoxAgent")}</p>
             </div>
             <span className="text-[10px] font-bold text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-0.5 rounded-full uppercase tracking-wider flex-shrink-0">Live</span>
           </button>
@@ -1615,7 +1624,7 @@ export default function DashboardPage() {
           <FadeIn>
             <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition" onClick={() => navigate("/budgets")}>
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Budget Snapshot</h3>
+                <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("budgetSnapshot")}</h3>
                 {budgetSummary.total_budget > 0 && (
                   <span className={`text-sm font-bold ${budgetSummary.total_pct > 100 ? "text-red-500" : budgetSummary.total_pct >= 80 ? "text-amber-500" : "text-green-500"}`}>
                     {budgetSummary.total_pct}% used
