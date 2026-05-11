@@ -569,6 +569,16 @@ _migrations = [
     # Idempotent — safe to re-run.
     "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS tax_card_type VARCHAR(20)",
     "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS tax_card_rate NUMERIC(5,4)",
+    # ── Migration 029: kasserapport_extractions audit-trail columns ──
+    # Added to the model in commit 92677296 ("harden pipeline") to make
+    # extractions idempotent on re-upload (image_sha256) and to track
+    # which prompt version produced each result (prompt_version). The
+    # table itself dates back to d230a039 — model-vs-migration drift.
+    # SELECT * from this table will UndefinedColumn → 503 if either
+    # ever gets used on a pre-existing prod DB. Idempotent ADD COLUMN.
+    "ALTER TABLE kasserapport_extractions ADD COLUMN IF NOT EXISTS image_sha256 VARCHAR(64)",
+    "ALTER TABLE kasserapport_extractions ADD COLUMN IF NOT EXISTS prompt_version VARCHAR(80)",
+    "CREATE INDEX IF NOT EXISTS ix_kr_extractions_image_sha256 ON kasserapport_extractions (image_sha256)",
 ]
 
 def _run_migrations():
