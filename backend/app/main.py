@@ -559,6 +559,16 @@ _migrations = [
     # relay email (which can change later). Idempotent column add.
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS apple_user_id VARCHAR(64)",
     "CREATE INDEX IF NOT EXISTS ix_users_apple_user_id ON users (apple_user_id)",
+    # ── Migration 028: Danish payroll tax-card columns ──
+    # StaffMember.tax_card_type ("hovedkort" / "bikort" / "frikort") and
+    # tax_card_rate (optional 0..0.6 override) have been on the model for
+    # a while, but the ALTER never made it into the migrations list. On
+    # any prod DB that pre-dates them, GET /api/staff/members blows up
+    # with `UndefinedColumn: tax_card_type` → FastAPI 500 → Render 503.
+    # That broke /staff/schedule and /staff/tips for existing tenants.
+    # Idempotent — safe to re-run.
+    "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS tax_card_type VARCHAR(20)",
+    "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS tax_card_rate NUMERIC(5,4)",
 ]
 
 def _run_migrations():
