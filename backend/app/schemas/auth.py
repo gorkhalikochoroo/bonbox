@@ -1,6 +1,6 @@
 import uuid
-from datetime import datetime
-from pydantic import BaseModel, EmailStr, field_validator, Field
+from datetime import datetime, timezone
+from pydantic import BaseModel, EmailStr, field_validator, Field, model_validator
 
 
 class UserRegister(BaseModel):
@@ -48,6 +48,38 @@ class UserResponse(BaseModel):
     has_employees: bool = False
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="after")
+    def _resolve_effective_plan(self):
+        """
+        Resolve `plan` to the *effective* value the frontend should gate on.
+
+        DB stores raw subscription state:
+          • paying users: plan="starter" / "pro" — keep as-is
+          • trial users:  plan="free" + trial_ends_at in future — surface as "trial"
+          • legacy:       plan="business" (pre-3-tier) — surface as "pro"
+
+        Without this, /auth/me hands the frontend plan="free" for someone
+        on a live Pro trial, and every UI plan-gate (Faktura, Customers,
+        Mileage, etc.) thinks the user isn't entitled — even though
+        trial_ends_at is days away.
+
+        Mirrors `app.services.billing.effective_plan`; duplicated here
+        (rather than imported) so the schema stays import-cycle-free.
+        """
+        if self.plan == "business":
+            self.plan = "pro"
+            return self
+        if self.plan == "free" and self.trial_ends_at:
+            # Normalize naive datetimes to UTC for comparison — DB columns
+            # are stored as UTC but may come back without tzinfo depending
+            # on the driver.
+            ends = self.trial_ends_at
+            if ends.tzinfo is None:
+                ends = ends.replace(tzinfo=timezone.utc)
+            if ends > datetime.now(timezone.utc):
+                self.plan = "trial"
+        return self
 
 
 class VerifyEmailRequest(BaseModel):
