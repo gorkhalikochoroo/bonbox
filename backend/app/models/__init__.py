@@ -37,5 +37,11 @@ from app.models.shift_swap import ShiftSwapRequest
 from app.models.staff_role_target import StaffRoleTarget
 from app.models.smart_drift_finding import SmartDriftFinding
 from app.models.support_ticket import SupportTicket
+# Invoicing / debitor / mileage — Starter-tier features for occasional
+# businesses (events, photographers, side-gigs) that want to replace the
+# monthly revisor bill with their own data capture.
+from app.models.customer import Customer
+from app.models.invoice import Invoice, InvoiceLine
+from app.models.mileage import MileageEntry
 
-__all__ = ["User", "Sale", "ExpenseCategory", "Expense", "InventoryItem", "InventoryLog", "StaffingRule", "DailyStaffing", "WasteLog", "Feedback", "CashTransaction", "EventLog", "KhataCustomer", "KhataTransaction", "Budget", "LoanPerson", "LoanTransaction", "CategoryMapping", "WhatsAppUser", "WhatsAppMessage", "SickCall", "DailyWeather", "BusinessProfile", "PaymentConnection", "Branch", "Competitor", "CompetitorPrice", "DailyClose", "Vehicle", "JobCard", "JobCardPart", "JobCardLabor", "Wine", "WineSale", "StaffMember", "PayPeriodConfig", "Schedule", "HoursLogged", "Tip", "TipDistribution", "StaffLink", "NotificationLog", "SecurityEvent", "OwnerPattern", "WaitlistEntry", "DailyBrief", "AnomalyAlert", "TriageNote", "KasserapportExtraction", "KasserapportExample", "InventoryImport", "InventoryImportExample", "Terminal", "OutputChannel", "StaffAbsence", "ShiftSwapRequest", "StaffRoleTarget", "SmartDriftFinding", "SupportTicket"]
+__all__ = ["User", "Sale", "ExpenseCategory", "Expense", "InventoryItem", "InventoryLog", "StaffingRule", "DailyStaffing", "WasteLog", "Feedback", "CashTransaction", "EventLog", "KhataCustomer", "KhataTransaction", "Budget", "LoanPerson", "LoanTransaction", "CategoryMapping", "WhatsAppUser", "WhatsAppMessage", "SickCall", "DailyWeather", "BusinessProfile", "PaymentConnection", "Branch", "Competitor", "CompetitorPrice", "DailyClose", "Vehicle", "JobCard", "JobCardPart", "JobCardLabor", "Wine", "WineSale", "StaffMember", "PayPeriodConfig", "Schedule", "HoursLogged", "Tip", "TipDistribution", "StaffLink", "NotificationLog", "SecurityEvent", "OwnerPattern", "WaitlistEntry", "DailyBrief", "AnomalyAlert", "TriageNote", "KasserapportExtraction", "KasserapportExample", "InventoryImport", "InventoryImportExample", "Terminal", "OutputChannel", "StaffAbsence", "ShiftSwapRequest", "StaffRoleTarget", "SmartDriftFinding", "SupportTicket", "Customer", "Invoice", "InvoiceLine", "MileageEntry"]

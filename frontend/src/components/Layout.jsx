@@ -53,6 +53,12 @@ const navGroups = [
       // Khata = customer credit ledger. Lives in Money (it IS money
       // owed to/by the business), not Manage. Moved here May 2026.
       { to: "/khata", icon: "📖", labelKey: "khata" },
+      // Invoicing — Starter-tier feature. Pages render their own upgrade
+      // prompt for Free-tier users, so we keep these in nav for visibility
+      // (the conversion signal we want).
+      { to: "/faktura", icon: "🧾", labelKey: "faktura" },
+      { to: "/customers", icon: "👥", labelKey: "customers" },
+      { to: "/mileage", icon: "🚗", labelKey: "mileage" },
     ],
   },
   {

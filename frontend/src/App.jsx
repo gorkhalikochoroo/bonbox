@@ -149,6 +149,10 @@ const RecentlyDeletedPage = lazyRetry(() => import("./pages/RecentlyDeletedPage"
 const ProfilePage = lazyRetry(() => import("./pages/ProfilePage"));
 const PersonalPage = lazyRetry(() => import("./pages/PersonalPage"));
 const KhataPage = lazyRetry(() => import("./pages/KhataPage"));
+// Invoicing module — Starter-tier feature for occasional businesses.
+const FakturaPage = lazyRetry(() => import("./pages/FakturaPage"));
+const CustomersPage = lazyRetry(() => import("./pages/CustomersPage"));
+const MileagePage = lazyRetry(() => import("./pages/MileagePage"));
 const LoanTrackerPage = lazyRetry(() => import("./pages/LoanTrackerPage"));
 const WeatherPage = lazyRetry(() => import("./pages/WeatherPage"));
 const BankImportPage = lazyRetry(() => import("./pages/BankImportPage"));
@@ -291,6 +295,9 @@ function AppRoutes() {
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/personal" element={<PersonalPage />} />
           <Route path="/khata" element={<KhataPage />} />
+          <Route path="/faktura" element={<FakturaPage />} />
+          <Route path="/customers" element={<CustomersPage />} />
+          <Route path="/mileage" element={<MileagePage />} />
           <Route path="/loans" element={<LoanTrackerPage />} />
           <Route path="/bank-import" element={<BankImportPage />} />
           <Route path="/payment-imports" element={<PaymentImportsPage />} />

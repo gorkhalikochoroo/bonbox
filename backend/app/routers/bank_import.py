@@ -135,6 +135,16 @@ def confirm_import(
             # Auto-sync to cashbook
             if txn.payment_method in ("cash", "mixed"):
                 sync_cash_in_for_sale(db, sale)
+            # Auto-match incoming amount to an open faktura (Starter+ feature).
+            # Tries to find one unambiguous open invoice with the same
+            # total_gross within ±2 kr; flips it to paid if found. Never
+            # raises — bank import is the source of truth.
+            try:
+                from app.services.payment_match_service import try_match_sale_to_invoice
+                try_match_sale_to_invoice(db, sale)
+            except Exception:
+                # Defense-in-depth: even if the import fails, the sale is in.
+                pass
             imported += 1
 
         elif txn.type == "expense":

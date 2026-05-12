@@ -40,6 +40,8 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, inventory_smart_import, smart_drift, support, search as search_router, modules as modules_router, ai as ai_router
+# Invoicing — Customer/Invoice/Mileage. Gated to Starter+ at the route level.
+from app.routers import customers as customers_router, invoices as invoices_router, mileage as mileage_router
 from app.database import engine, Base, get_db
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -579,6 +581,111 @@ _migrations = [
     "ALTER TABLE kasserapport_extractions ADD COLUMN IF NOT EXISTS image_sha256 VARCHAR(64)",
     "ALTER TABLE kasserapport_extractions ADD COLUMN IF NOT EXISTS prompt_version VARCHAR(80)",
     "CREATE INDEX IF NOT EXISTS ix_kr_extractions_image_sha256 ON kasserapport_extractions (image_sha256)",
+    # ── Migration 030: Customer (debitor) records ──
+    # Used by the Faktura flow on Starter tier and up. Distinct from
+    # khata_customers (informal credit) — these are formal billing entities
+    # with CVR + statutory address per Bogføringsloven.
+    """CREATE TABLE IF NOT EXISTS customers (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id),
+        branch_id UUID REFERENCES branches(id),
+        name VARCHAR(255) NOT NULL,
+        cvr VARCHAR(8),
+        is_company BOOLEAN NOT NULL DEFAULT FALSE,
+        email VARCHAR(255),
+        phone VARCHAR(50),
+        address TEXT,
+        zipcode VARCHAR(10),
+        city VARCHAR(100),
+        country VARCHAR(2) NOT NULL DEFAULT 'DK',
+        dawa_address_id VARCHAR(36),
+        payment_terms_days INTEGER NOT NULL DEFAULT 14,
+        default_lang VARCHAR(2) NOT NULL DEFAULT 'da',
+        is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_customers_user_id ON customers (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_customers_branch_id ON customers (branch_id)",
+    "CREATE INDEX IF NOT EXISTS ix_customers_user_name ON customers (user_id, name)",
+    "CREATE INDEX IF NOT EXISTS ix_customers_user_cvr ON customers (user_id, cvr)",
+
+    # ── Migration 031: Invoices (faktura) + lines ──
+    # Faktura with gap-less sequential `fakturanummer` per (user, branch, year).
+    # voiding generates a kreditnota (credit-note Invoice) — never delete.
+    """CREATE TABLE IF NOT EXISTS invoices (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id),
+        branch_id UUID REFERENCES branches(id),
+        customer_id UUID NOT NULL REFERENCES customers(id),
+        fakturanummer INTEGER NOT NULL,
+        issue_date DATE NOT NULL,
+        due_date DATE NOT NULL,
+        sent_at TIMESTAMP,
+        paid_at TIMESTAMP,
+        status VARCHAR(20) NOT NULL DEFAULT 'draft',
+        subtotal_net NUMERIC(12,2) NOT NULL DEFAULT 0,
+        moms_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+        total_gross NUMERIC(12,2) NOT NULL DEFAULT 0,
+        paid_amount NUMERIC(12,2),
+        currency VARCHAR(3) NOT NULL DEFAULT 'DKK',
+        notes TEXT,
+        customer_lang VARCHAR(2) NOT NULL DEFAULT 'da',
+        credited_by_id UUID REFERENCES invoices(id),
+        is_credit_note BOOLEAN NOT NULL DEFAULT FALSE,
+        locked BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_invoices_seq_per_branch UNIQUE (user_id, branch_id, fakturanummer)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_invoices_user_id ON invoices (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_invoices_branch_id ON invoices (branch_id)",
+    "CREATE INDEX IF NOT EXISTS ix_invoices_customer_id ON invoices (customer_id)",
+    "CREATE INDEX IF NOT EXISTS ix_invoices_fakturanummer ON invoices (fakturanummer)",
+    "CREATE INDEX IF NOT EXISTS ix_invoices_status ON invoices (user_id, status)",
+    "CREATE INDEX IF NOT EXISTS ix_invoices_due ON invoices (user_id, due_date)",
+
+    """CREATE TABLE IF NOT EXISTS invoice_lines (
+        id UUID PRIMARY KEY,
+        invoice_id UUID NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+        line_order INTEGER NOT NULL DEFAULT 0,
+        description TEXT NOT NULL,
+        quantity NUMERIC(10,2) NOT NULL DEFAULT 1,
+        unit VARCHAR(20),
+        unit_price_net NUMERIC(10,2) NOT NULL,
+        moms_rate NUMERIC(4,3) NOT NULL DEFAULT 0.250,
+        line_net NUMERIC(12,2) NOT NULL,
+        line_moms NUMERIC(12,2) NOT NULL,
+        line_gross NUMERIC(12,2) NOT NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_invoice_lines_invoice_id ON invoice_lines (invoice_id)",
+
+    # ── Migration 032: Mileage entries (kørselsgodtgørelse) ──
+    # Per-trip log with Skattestyrelsen-mandated fields. Rate frozen at
+    # write-time so historical entries stay correct when 2027 rates land.
+    """CREATE TABLE IF NOT EXISTS mileage_entries (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id),
+        branch_id UUID REFERENCES branches(id),
+        trip_date DATE NOT NULL,
+        from_address TEXT NOT NULL,
+        to_address TEXT NOT NULL,
+        km NUMERIC(8,2) NOT NULL,
+        purpose TEXT NOT NULL,
+        vehicle_reg VARCHAR(20),
+        rate_per_km NUMERIC(5,4) NOT NULL,
+        deduction_amount NUMERIC(10,2) NOT NULL,
+        invoice_id UUID REFERENCES invoices(id),
+        locked BOOLEAN NOT NULL DEFAULT FALSE,
+        notes TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_mileage_user_id ON mileage_entries (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_mileage_branch_id ON mileage_entries (branch_id)",
+    "CREATE INDEX IF NOT EXISTS ix_mileage_trip_date ON mileage_entries (trip_date)",
+    "CREATE INDEX IF NOT EXISTS ix_mileage_invoice_id ON mileage_entries (invoice_id)",
+    "CREATE INDEX IF NOT EXISTS ix_mileage_user_year ON mileage_entries (user_id, trip_date)",
 ]
 
 def _run_migrations():
@@ -1405,6 +1512,13 @@ app.include_router(property_report.router, prefix="/api/property-report", tags=[
 # /admin/* — guarded by 6-layer require_super_admin (see services/admin_security.py).
 # Mounted last so any earlier router can't accidentally shadow these paths.
 app.include_router(admin.router, prefix="/api/admin", tags=["Super Admin"])
+
+# Invoicing — Starter-tier feature set. All three routers gate the plan
+# server-side via _require_invoicing_plan; the frontend additionally hides
+# the menu items for Free-tier users.
+app.include_router(customers_router.router, prefix="/api/customers", tags=["Customers"])
+app.include_router(invoices_router.router, prefix="/api/invoices", tags=["Invoices"])
+app.include_router(mileage_router.router, prefix="/api/mileage", tags=["Mileage"])
 
 
 # --- Protected Uploads — owner can only access own receipts ---

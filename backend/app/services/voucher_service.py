@@ -34,10 +34,11 @@ from sqlalchemy.orm import Session
 
 from app.models.sale import Sale
 from app.models.expense import Expense
+from app.models.invoice import Invoice
 
 logger = logging.getLogger(__name__)
 
-VoucherKind = Literal["sale", "expense"]
+VoucherKind = Literal["sale", "expense", "invoice"]
 
 
 def _model_for(kind: VoucherKind):
@@ -45,6 +46,12 @@ def _model_for(kind: VoucherKind):
         return Sale
     if kind == "expense":
         return Expense
+    if kind == "invoice":
+        # Faktura uses `fakturanummer` as its sequence column and `issue_date`
+        # as the year-anchor. The functions below reference `voucher_number`
+        # and `date` generically, so we adapt at call sites for invoices
+        # (see allocate_invoice_number below).
+        return Invoice
     raise ValueError(f"Unknown voucher kind: {kind}")
 
 
@@ -103,8 +110,99 @@ def format_voucher_number(kind: VoucherKind, year: int, number: int | None) -> s
     """Format for display in PDFs and CSVs: S-2026-0001 or E-2026-0001."""
     if number is None:
         return ""
-    prefix = "S" if kind == "sale" else "E"
+    if kind == "sale":
+        prefix = "S"
+    elif kind == "expense":
+        prefix = "E"
+    elif kind == "invoice":
+        # Fakturanummer convention: "2026-0042" — no kind prefix because
+        # the document itself is labeled "Faktura" and the number is what
+        # the customer references in their bookkeeping.
+        return f"{year}-{number:04d}"
+    else:
+        prefix = "?"
     return f"{prefix}-{year}-{number:04d}"
+
+
+# ─── Invoice-specific allocator ──────────────────────────────────────
+# Invoices store their sequence under `fakturanummer` and are scoped per
+# (user_id, branch_id, year-of-issue_date) per Bogføringsloven §7 — each
+# business unit (CVR / branch) keeps its own gap-less ledger.
+
+def next_invoice_number(db: Session, user_id, branch_id, year: int) -> int:
+    """
+    Next fakturanummer for a (user, branch, year) triple.
+
+    branch_id can be None for users on the Free/Starter single-branch
+    setup; we treat None as a distinct namespace from any real branch_id.
+    """
+    from datetime import date as _date
+    start, end = _year_bounds(year)
+    q = (
+        db.query(func.max(Invoice.fakturanummer))
+        .filter(
+            Invoice.user_id == user_id,
+            Invoice.issue_date >= start,
+            Invoice.issue_date < end,
+            Invoice.fakturanummer.is_not(None),
+        )
+    )
+    if branch_id is None:
+        q = q.filter(Invoice.branch_id.is_(None))
+    else:
+        q = q.filter(Invoice.branch_id == branch_id)
+    max_existing = q.scalar()
+    return int((max_existing or 0)) + 1
+
+
+def allocate_invoice_number(db: Session, user_id, branch_id, year: int) -> int:
+    """
+    Allocate the next fakturanummer. Caller assigns + commits.
+
+    Same race-window caveat as allocate_voucher — if you observe duplicate
+    fakturanummer in production we should add a unique constraint at the
+    DB level and a SAVEPOINT retry loop. For SMB volumes we're fine.
+    """
+    n = next_invoice_number(db, user_id, branch_id, year)
+    if n < 1:
+        logger.warning(
+            "allocate_invoice_number: got non-positive %s for user=%s branch=%s year=%s",
+            n, user_id, branch_id, year,
+        )
+        return 1
+    return n
+
+
+def assert_no_invoice_gaps(db: Session, user_id, branch_id, year: int) -> dict:
+    """Same compliance check as assert_no_gaps, but for fakturanumre."""
+    from datetime import date as _date
+    start, end = _year_bounds(year)
+    q = (
+        db.query(Invoice.fakturanummer)
+        .filter(
+            Invoice.user_id == user_id,
+            Invoice.issue_date >= start,
+            Invoice.issue_date < end,
+            Invoice.fakturanummer.is_not(None),
+        )
+    )
+    if branch_id is None:
+        q = q.filter(Invoice.branch_id.is_(None))
+    else:
+        q = q.filter(Invoice.branch_id == branch_id)
+    rows = q.all()
+    numbers = sorted({int(r[0]) for r in rows if r[0] is not None})
+    if not numbers:
+        return {"max": 0, "count": 0, "missing": [], "is_compliant": True}
+    expected = set(range(1, numbers[-1] + 1))
+    actual = set(numbers)
+    missing = sorted(expected - actual)
+    return {
+        "max": numbers[-1],
+        "count": len(numbers),
+        "missing": missing,
+        "is_compliant": len(missing) == 0,
+    }
 
 
 def assert_no_gaps(db: Session, user_id, kind: VoucherKind, year: int) -> dict:
