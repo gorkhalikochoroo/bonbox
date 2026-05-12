@@ -239,6 +239,57 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // CVR auto-lookup state. Tracks the *last CVR we attempted* so a user
+  // editing the CVR (e.g. typo correction) doesn't re-fire the lookup
+  // every keystroke once 8 digits are reached.
+  const [cvrLookup, setCvrLookup] = useState({ status: "idle", forCvr: "" });
+
+  // Trigger CVR autofill once the user has typed a valid 8-digit CVR.
+  // Uses the same /business/lookup endpoint as the Profile flow — handles
+  // CVR + DAWA address verification server-side.
+  useEffect(() => {
+    if (!form.is_company) return;
+    const cvr = (form.cvr || "").trim();
+    if (cvr.length !== 8 || !/^\d{8}$/.test(cvr)) return;
+    if (cvrLookup.forCvr === cvr) return; // already tried this exact value
+
+    let cancelled = false;
+    setCvrLookup({ status: "loading", forCvr: cvr });
+    api
+      .get("/business/lookup", { params: { q: cvr, country: "DK" } })
+      .then((res) => {
+        if (cancelled) return;
+        const hit = Array.isArray(res.data) ? res.data[0] : null;
+        if (!hit?.name) {
+          setCvrLookup({ status: "no-match", forCvr: cvr });
+          return;
+        }
+        // Only auto-fill fields the user hasn't typed into — never clobber
+        // existing input.
+        setForm((f) => ({
+          ...f,
+          name: f.name || hit.name || "",
+          // hit.address is "Vesterbrogade 1, 1620 København" — but we
+          // store address + zipcode + city separately. cvrapi.dk also
+          // gives us them separately via the raw fields, but the
+          // service layer only surfaces the concatenated `address`
+          // plus separate zipcode/city, so we use those.
+          address: f.address || (hit.address || "").split(",")[0].trim() || "",
+          zipcode: f.zipcode || hit.zipcode || "",
+          city: f.city || hit.city || "",
+          email: f.email || hit.email || "",
+          phone: f.phone || hit.phone || "",
+        }));
+        setCvrLookup({ status: "ok", forCvr: cvr, hit });
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        const msg = e?.response?.data?.detail || "Lookup failed";
+        setCvrLookup({ status: "error", forCvr: cvr, msg });
+      });
+
+    return () => { cancelled = true; };
+  }, [form.cvr, form.is_company]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -311,6 +362,26 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
                   maxLength={8}
                   className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm font-mono"
                 />
+                {cvrLookup.status === "loading" && (
+                  <p className="mt-1 text-[11px] text-blue-600 dark:text-blue-400">
+                    {t("cvrLookingUp") || "Looking up CVR…"}
+                  </p>
+                )}
+                {cvrLookup.status === "ok" && (
+                  <p className="mt-1 text-[11px] text-green-600 dark:text-green-400">
+                    {t("cvrAutofilled") || "Auto-filled from CVR register"} ({cvrLookup.hit?.source || "cvrapi.dk"})
+                  </p>
+                )}
+                {cvrLookup.status === "no-match" && (
+                  <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+                    {t("cvrNoMatch") || "No match found — enter details manually"}
+                  </p>
+                )}
+                {cvrLookup.status === "error" && (
+                  <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+                    {t("cvrLookupError") || "CVR lookup unavailable — enter details manually"}
+                  </p>
+                )}
               </div>
             )}
 
