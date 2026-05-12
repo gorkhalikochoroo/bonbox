@@ -31,6 +31,16 @@ export default function BookkeepingExportPage() {
 
   useEffect(() => {
     api.get("/exports/formats").then((res) => setFormats(res.data || [])).catch(() => {});
+    // Allow the dashboard banner (or a deep link) to pre-select a format
+    // via ?format=bundle. Falls back silently if the value isn't a real
+    // format ID.
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const fmt = params.get("format");
+      if (fmt) setSelected(fmt);
+    } catch {
+      /* ignore — no window, no preselection */
+    }
   }, []);
 
   const currentFormat = formats.find((f) => f.id === selected);
@@ -109,18 +119,31 @@ export default function BookkeepingExportPage() {
             Bookkeeping platform
           </label>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {formats.map((f) => (
-              <button
-                key={f.id}
-                onClick={() => setSelected(f.id)}
-                className={`px-3 py-3 rounded-xl text-sm font-medium border transition text-left
-                  ${selected === f.id
-                    ? "bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-700 text-green-800 dark:text-green-300 ring-1 ring-green-200/60"
-                    : "bg-white dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"}`}
-              >
-                {f.label}
-              </button>
-            ))}
+            {formats.map((f) => {
+              const isBundle = f.id === "bundle";
+              const active = selected === f.id;
+              return (
+                <button
+                  key={f.id}
+                  onClick={() => setSelected(f.id)}
+                  className={`relative px-3 py-3 rounded-xl text-sm font-medium border transition text-left
+                    ${active
+                      ? (isBundle
+                          ? "bg-emerald-50 dark:bg-emerald-900/30 border-emerald-400 dark:border-emerald-600 text-emerald-800 dark:text-emerald-200 ring-2 ring-emerald-300/60"
+                          : "bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-700 text-green-800 dark:text-green-300 ring-1 ring-green-200/60")
+                      : (isBundle
+                          ? "bg-emerald-50/40 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800/50 text-gray-800 dark:text-gray-200 hover:bg-emerald-50/70"
+                          : "bg-white dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700")}`}
+                >
+                  {isBundle && (
+                    <span className="absolute -top-2 -right-2 bg-emerald-600 text-white text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded">
+                      ★ Recommended
+                    </span>
+                  )}
+                  {f.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 

@@ -16,6 +16,7 @@ import DailyBriefCard from "../components/DailyBriefCard";
 import SickCallNotificationCard from "../components/SickCallNotificationCard";
 import SwapRequestNotificationCard from "../components/SwapRequestNotificationCard";
 import SmartDriftBanner from "../components/SmartDriftBanner";
+import MonthEndBundleBanner from "../components/MonthEndBundleBanner";
 import FirstRunWizard from "../components/FirstRunWizard";
 import BranchSummaryCard from "../components/BranchSummaryCard";
 import ScheduleConfirmationCard from "../components/ScheduleConfirmationCard";
@@ -1447,6 +1448,13 @@ export default function DashboardPage() {
             Sits above the daily brief because acting on it keeps every
             other inference (and resulting recommendations) accurate. ── */}
         <SmartDriftBanner />
+
+        {/* ── MONTH-END BUNDLE NUDGE — appears in the last 5 days of the
+            month (heads-up) or first 5 days of the next month (do-it-now).
+            Dismissible per-period via localStorage. Sits above DailyBrief
+            because closing the books is the most time-sensitive recurring
+            action — losing track of it costs real revisor fees. ── */}
+        <MonthEndBundleBanner />
 
         {/* ── AI DAILY BRIEF — actionable morning brief, top of fold ── */}
         <DailyBriefCard />
