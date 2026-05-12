@@ -40,9 +40,16 @@ limiter = Limiter(key_func=get_remote_address)
 
 @router.get("/formats")
 def list_formats(_: User = Depends(get_current_user)):
-    """Available export formats — used to render the dropdown in the UI."""
+    """Available export formats — used to render the dropdown in the UI.
+    Includes `ext` so the frontend names the downloaded file correctly
+    (CSV vs ZIP for the bundle format)."""
     return [
-        {"id": k, "label": v["label"], "instructions": v["instructions"]}
+        {
+            "id": k,
+            "label": v["label"],
+            "instructions": v["instructions"],
+            "ext": v["ext"],
+        }
         for k, v in FORMATS.items()
     ]
 

@@ -23,6 +23,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import zipfile
 from datetime import date
 from typing import Iterable
 
@@ -31,6 +32,10 @@ from sqlalchemy.orm import Session
 from app.models.expense import Expense, ExpenseCategory
 from app.models.sale import Sale
 from app.models.user import User
+from app.models.invoice import Invoice
+from app.models.customer import Customer
+from app.models.mileage import MileageEntry
+from app.services.voucher_service import format_voucher_number
 
 log = logging.getLogger("bonbox.bookkeeping_export")
 
@@ -134,6 +139,57 @@ def _category_lookup(user: User, db: Session) -> dict:
         return {str(r.id): r.name for r in rows}
     except Exception as e:
         log.warning("bookkeeping_export: category lookup failed: %s", e)
+        return {}
+
+
+def _query_invoices(user: User, db: Session, start: date, end: date) -> list[Invoice]:
+    """Pull invoices issued in the range. Excludes drafts (they're not real
+    bookkeeping vouchers yet — the gap-less fakturanummer is allocated at
+    draft time but the invoice is only legally an outgoing voucher once
+    sent). Kreditnotaer are included because they reverse earlier invoices."""
+    try:
+        return (
+            db.query(Invoice)
+            .filter(
+                Invoice.user_id == user.id,
+                Invoice.issue_date >= start,
+                Invoice.issue_date <= end,
+                Invoice.status != "draft",
+            )
+            .order_by(Invoice.issue_date.asc(), Invoice.fakturanummer.asc())
+            .all()
+        )
+    except Exception as e:
+        log.exception("bookkeeping_export: invoice query failed: %s", e)
+        return []
+
+
+def _query_mileage(user: User, db: Session, start: date, end: date) -> list[MileageEntry]:
+    """Pull mileage entries logged in the range. Used both for the standalone
+    mileage CSV and the bundle ZIP."""
+    try:
+        return (
+            db.query(MileageEntry)
+            .filter(
+                MileageEntry.user_id == user.id,
+                MileageEntry.trip_date >= start,
+                MileageEntry.trip_date <= end,
+            )
+            .order_by(MileageEntry.trip_date.asc())
+            .all()
+        )
+    except Exception as e:
+        log.exception("bookkeeping_export: mileage query failed: %s", e)
+        return []
+
+
+def _customer_lookup(user: User, db: Session) -> dict:
+    """invoice.customer_id -> Customer. One query, hot in memory."""
+    try:
+        rows = db.query(Customer).filter(Customer.user_id == user.id).all()
+        return {str(r.id): r for r in rows}
+    except Exception as e:
+        log.warning("bookkeeping_export: customer lookup failed: %s", e)
         return {}
 
 
@@ -399,6 +455,186 @@ def export_generic(user: User, db: Session, start: date, end: date) -> bytes:
     return buf.getvalue().encode("utf-8-sig")
 
 
+# ───────── FAKTURA (outgoing invoices, accounts-receivable view) ─────────
+
+
+def export_faktura(user: User, db: Session, start: date, end: date) -> bytes:
+    """
+    Faktura register CSV — one row per sent/paid/credited invoice.
+
+    This is the AR-side view: what was billed, to whom, when, and whether
+    it's been paid. Revisor uses this to reconcile against bank import
+    + post AR entries in Dinero/Billy/e-conomic.
+
+    Comma-delimited, English headers, UTF-8 BOM — works in Excel + every
+    Danish bookkeeping platform's "import customers + invoices" flow.
+
+    Columns: Fakturanr · Issued · Due · Customer · CVR · Country ·
+             Excl. moms · Moms · Total · Currency · Status · Paid date ·
+             Type (faktura/kreditnota) · EAN.
+    """
+    invoices = _query_invoices(user, db, start, end)
+    cust_by_id = _customer_lookup(user, db)
+    cur = user.currency or "DKK"
+
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=",", quoting=csv.QUOTE_MINIMAL, lineterminator="\n")
+    w.writerow([
+        "Fakturanr", "Issued", "Due", "Delivery date",
+        "Customer", "CVR", "Country", "EAN",
+        "Excl. moms", "Moms", "Total", "Currency",
+        "Status", "Paid date", "Type",
+    ])
+
+    for inv in invoices:
+        customer = cust_by_id.get(str(inv.customer_id))
+        fakturanr_str = format_voucher_number(
+            "invoice", inv.issue_date.year, inv.fakturanummer
+        )
+        paid_str = (
+            inv.paid_at.date().isoformat()
+            if getattr(inv, "paid_at", None) and hasattr(inv.paid_at, "date")
+            else ""
+        )
+        delivery_str = (
+            inv.delivery_date.isoformat()
+            if getattr(inv, "delivery_date", None)
+            else ""
+        )
+        inv_type = "kreditnota" if getattr(inv, "is_credit_note", False) else "faktura"
+        w.writerow([
+            fakturanr_str,
+            inv.issue_date.isoformat() if hasattr(inv.issue_date, "isoformat") else str(inv.issue_date),
+            inv.due_date.isoformat() if hasattr(inv.due_date, "isoformat") else str(inv.due_date),
+            delivery_str,
+            (customer.name if customer else "")[:255],
+            (customer.cvr if customer and customer.cvr else ""),
+            (customer.country if customer else "DK"),
+            (getattr(customer, "ean_nummer", None) or "") if customer else "",
+            _money_dot(inv.subtotal_net),
+            _money_dot(inv.moms_total),
+            _money_dot(inv.total_gross),
+            inv.currency or cur,
+            inv.status,
+            paid_str,
+            inv_type,
+        ])
+
+    return buf.getvalue().encode("utf-8-sig")
+
+
+# ───────── MILEAGE (kørselsgodtgørelse, Skattestyrelsen-mandated log) ─────────
+
+
+def export_mileage(user: User, db: Session, start: date, end: date) -> bytes:
+    """
+    Kørselsgodtgørelse CSV — one row per logged trip.
+
+    Skattestyrelsen requires contemporaneous logs with date, from/to, km,
+    purpose, and vehicle registration. We export all of those plus the
+    frozen rate and computed deduction so the revisor can verify totals
+    without re-calculating against current-year rates.
+
+    Used by the revisor to compute the total fradrag for the period
+    and post it as a single voucher in the bookkeeping system.
+    """
+    entries = _query_mileage(user, db, start, end)
+    cur = user.currency or "DKK"
+
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=",", quoting=csv.QUOTE_MINIMAL, lineterminator="\n")
+    w.writerow([
+        "Date", "From", "To", "Km", "Purpose",
+        "Vehicle reg", "Rate (kr/km)", "Deduction", "Currency",
+    ])
+
+    total_km = 0.0
+    total_deduction = 0.0
+    for e in entries:
+        try:
+            km_val = float(e.km)
+            dedu_val = float(e.deduction_amount)
+        except (TypeError, ValueError):
+            km_val = 0.0
+            dedu_val = 0.0
+        total_km += km_val
+        total_deduction += dedu_val
+        w.writerow([
+            e.trip_date.isoformat() if hasattr(e.trip_date, "isoformat") else str(e.trip_date),
+            (e.from_address or "")[:200],
+            (e.to_address or "")[:200],
+            f"{km_val:.2f}".replace(",", ""),
+            (e.purpose or "")[:200],
+            (e.vehicle_reg or ""),
+            _money_dot(e.rate_per_km),
+            _money_dot(dedu_val),
+            cur,
+        ])
+
+    # Summary row — separator then totals. Revisor sees the period total
+    # immediately rather than running a SUM() in Excel.
+    if entries:
+        w.writerow([])
+        w.writerow([
+            "TOTAL", "", "", f"{total_km:.2f}".replace(",", ""),
+            "", "", "", _money_dot(total_deduction), cur,
+        ])
+
+    return buf.getvalue().encode("utf-8-sig")
+
+
+# ───────── BUNDLE (everything for one month, as a ZIP) ─────────
+
+
+def export_bundle(user: User, db: Session, start: date, end: date) -> bytes:
+    """
+    Monthly handoff ZIP — everything the revisor needs for the period:
+      • sales-and-expenses CSV (Dinero format — Danish default)
+      • faktura CSV (AR register)
+      • mileage CSV (kørselsfradrag log)
+      • README.txt explaining what each file is + import order
+
+    Used by the "Send to accountant" monthly button. One attachment,
+    revisor opens it, sees four files, knows exactly what to do.
+    """
+    sales_csv = export_dinero(user, db, start, end)
+    faktura_csv = export_faktura(user, db, start, end)
+    mileage_csv = export_mileage(user, db, start, end)
+
+    period_label = f"{start.isoformat()}_to_{end.isoformat()}"
+    readme = (
+        f"BonBox bookkeeping handoff\n"
+        f"Period: {start.isoformat()} → {end.isoformat()}\n"
+        f"Generated for: {user.business_name or user.email}\n\n"
+        f"FILES IN THIS BUNDLE\n"
+        f"  1. sales-expenses-dinero-{period_label}.csv\n"
+        f"     Daily sales + expense vouchers. Dinero-format CSV (semicolon\n"
+        f"     delimiter, Danish moms columns). Import order: first.\n\n"
+        f"  2. faktura-{period_label}.csv\n"
+        f"     Outgoing invoices (AR register). One row per sent/paid/credited\n"
+        f"     faktura with customer, CVR, totals, and paid status. Used to\n"
+        f"     reconcile against bank receipts.\n\n"
+        f"  3. mileage-{period_label}.csv\n"
+        f"     Kørselsgodtgørelse log. Contemporaneous trip log with frozen\n"
+        f"     2026 rates. Post the period total as a single fradrag-voucher.\n\n"
+        f"NOTES\n"
+        f"  • Sales account 1010, expense account 2750 are BonBox defaults.\n"
+        f"    Re-map in your bookkeeping software as needed.\n"
+        f"  • Faktura rows with status='credited' are voided; the kreditnota\n"
+        f"    reversal row will appear separately with type='kreditnota'.\n"
+        f"  • Mileage TOTAL row at the bottom shows the period fradrag sum.\n\n"
+        f"Questions: contact@bonbox.dk\n"
+    )
+
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(f"sales-expenses-dinero-{period_label}.csv", sales_csv)
+        zf.writestr(f"faktura-{period_label}.csv", faktura_csv)
+        zf.writestr(f"mileage-{period_label}.csv", mileage_csv)
+        zf.writestr("README.txt", readme.encode("utf-8"))
+    return out.getvalue()
+
+
 # ───────── Format registry ─────────
 
 
@@ -447,6 +683,39 @@ FORMATS = {
         "instructions": (
             "Universal columns: Date, Type, Description, Category, Amount, "
             "Currency, VAT %, Payment. Any accountant can re-format this."
+        ),
+    },
+    "faktura": {
+        "label": "Faktura (outgoing invoices)",
+        "ext": "csv",
+        "mime": "text/csv",
+        "exporter": export_faktura,
+        "instructions": (
+            "AR register — one row per sent/paid/credited faktura with customer, "
+            "CVR, totals, paid date, and type (faktura vs kreditnota). Import into "
+            "your bookkeeping software's Debitor/Faktura module."
+        ),
+    },
+    "mileage": {
+        "label": "Mileage (kørselsgodtgørelse)",
+        "ext": "csv",
+        "mime": "text/csv",
+        "exporter": export_mileage,
+        "instructions": (
+            "Skattestyrelsen-compliant trip log with frozen 2026 rates. The "
+            "bottom TOTAL row is the period fradrag sum — post that as a "
+            "single voucher in your bookkeeping software."
+        ),
+    },
+    "bundle": {
+        "label": "Monthly bundle (ZIP — everything)",
+        "ext": "zip",
+        "mime": "application/zip",
+        "exporter": export_bundle,
+        "instructions": (
+            "Everything in one ZIP: sales+expenses (Dinero format), faktura "
+            "register, mileage log, and a README. The monthly handoff your "
+            "revisor needs — one attachment, four files, clear import order."
         ),
     },
 }

@@ -62,7 +62,9 @@ export default function BookkeepingExportPage() {
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement("a");
       a.href = url;
-      a.download = `bonbox-${selected}-${start}-to-${end}.csv`;
+      // Use the format's own extension (CSV for most, ZIP for the bundle).
+      const ext = currentFormat?.ext || "csv";
+      a.download = `bonbox-${selected}-${start}-to-${end}.${ext}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -208,14 +210,14 @@ export default function BookkeepingExportPage() {
         {/* Action */}
         <div className="flex items-center justify-between pt-2">
           <div className="text-xs text-gray-500 dark:text-gray-400">
-            File: <span className="font-mono">bonbox-{selected}-{start}-to-{end}.csv</span>
+            File: <span className="font-mono">bonbox-{selected}-{start}-to-{end}.{currentFormat?.ext || "csv"}</span>
           </div>
           <button
             onClick={handleDownload}
             disabled={downloading}
             className="px-5 py-2.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg shadow-sm transition"
           >
-            {downloading ? "Generating…" : "Download CSV"}
+            {downloading ? "Generating…" : `Download ${(currentFormat?.ext || "csv").toUpperCase()}`}
           </button>
         </div>
 
