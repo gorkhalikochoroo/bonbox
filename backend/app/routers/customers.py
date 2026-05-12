@@ -18,6 +18,7 @@ from app.models.customer import Customer
 from app.models.user import User
 from app.routers.auth import get_current_user
 from app.schemas.invoicing import CustomerCreate, CustomerResponse, CustomerUpdate
+from app.services.billing import effective_plan
 
 router = APIRouter()
 
@@ -25,12 +26,19 @@ router = APIRouter()
 # ─── Plan gate ───────────────────────────────────────────────────────
 # Inlined for now — when we have more invoicing endpoints we'll lift this
 # into app/deps/plan.py as `require_starter_plan`.
+#
+# Allowed: starter, pro, business (legacy), and trial. Trial users are
+# Pro-tier during their 14-day window — must get full invoicing access,
+# otherwise the trial isn't a real trial.
 
-_STARTER_AND_ABOVE = {"starter", "pro", "business"}
+_STARTER_AND_ABOVE = {"starter", "pro", "business", "trial"}
 
 
 def _require_invoicing_plan(user: User = Depends(get_current_user)) -> User:
-    plan = (getattr(user, "plan", None) or "free").lower()
+    # Use effective_plan so:
+    #   • plan="free" + active trial_ends_at → resolves to "trial" → allowed
+    #   • legacy plan="business" → resolves to "pro" → allowed
+    plan = (effective_plan(user) or "free").lower()
     if plan not in _STARTER_AND_ABOVE:
         raise HTTPException(
             status.HTTP_402_PAYMENT_REQUIRED,

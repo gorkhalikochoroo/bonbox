@@ -843,6 +843,42 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ── Pairs with your bookkeeping (legal disclaimer reframed as feature) ── */}
+      <section className="py-16 sm:py-20 border-y border-gray-200/60 bg-white">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
+          <FadeIn>
+            <div className="text-center mb-10">
+              <span className="inline-block text-[11px] font-bold uppercase tracking-[0.15em] text-blue-600 mb-3">
+                {t("landingPairsKicker") || "Plays nice with your stack"}
+              </span>
+              <h2 className="text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900 tracking-tight mb-4">
+                {t("landingPairsTitle") || "Pairs with your bookkeeping — doesn't replace it"}
+              </h2>
+              <p className="text-gray-600 text-base md:text-lg max-w-2xl mx-auto leading-relaxed">
+                {t("landingPairsSub") || "BonBox runs alongside Dinero, Billy, e-conomic and your revisor. Keep your registered books where they are — we capture the messy operational data and feed clean exports to whoever does your accounting."}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl mx-auto mb-8">
+              {[
+                { name: "Dinero", note: t("landingPairsDineroNote") || "CSV export" },
+                { name: "Billy", note: t("landingPairsBillyNote") || "CSV export" },
+                { name: "e-conomic", note: t("landingPairsEconomicNote") || "CSV export" },
+              ].map((p) => (
+                <div key={p.name} className="bg-gray-50 border border-gray-200 rounded-xl p-5 text-center hover:border-blue-300 hover:shadow-sm transition">
+                  <div className="text-sm font-bold text-gray-900 mb-1">{p.name}</div>
+                  <div className="text-xs text-gray-500">{p.note}</div>
+                </div>
+              ))}
+            </div>
+
+            <p className="text-center text-[12px] text-gray-500 max-w-2xl mx-auto leading-relaxed">
+              {t("landingPairsDisclaimer") || "BonBox is not a registered digital bookkeeping system (registreret digitalt bogføringssystem) under Bogføringsloven 2024. If your business is legally required to use a registered system, keep using one — BonBox sits alongside it."}
+            </p>
+          </FadeIn>
+        </div>
+      </section>
+
       {/* ── Global reach ── */}
       <section className="py-16 border-y border-gray-200/60 bg-gray-50">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
@@ -883,6 +919,175 @@ export default function LandingPage() {
                 ))}
               </div>
             </div>
+          </FadeIn>
+        </div>
+      </section>
+
+      {/* ── Pricing ── */}
+      <section className="py-20 sm:py-28 bg-gradient-to-b from-white via-gray-50/40 to-white border-y border-gray-200/60">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <FadeIn>
+            <div className="text-center mb-12">
+              <span className="inline-block text-[11px] font-bold uppercase tracking-[0.15em] text-green-700 mb-3">
+                {t("landingPricingKicker") || "Pricing"}
+              </span>
+              <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 tracking-tight mb-4">
+                {t("landingPricingTitle") || "Start free. Upgrade when you've outgrown it."}
+              </h2>
+              <p className="text-gray-600 text-base md:text-lg max-w-2xl mx-auto leading-relaxed">
+                {t("landingPricingSub") || "Every signup gets 14 days of full Pro — no card, no auto-charge. Then keep Free forever, or pick the plan that fits."}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5 lg:gap-6 max-w-5xl mx-auto">
+              {/* Free */}
+              <div className="bg-white border border-gray-200 rounded-2xl p-6 lg:p-7 flex flex-col hover:border-gray-300 hover:shadow-md transition">
+                <div className="mb-5">
+                  <h3 className="text-lg font-bold text-gray-900 mb-1">{t("pricingTierFree") || "Free"}</h3>
+                  <p className="text-xs text-gray-500 leading-snug min-h-[2.5rem]">
+                    {t("pricingTaglineFree") || "Daily close in 90 seconds. Every day, free."}
+                  </p>
+                </div>
+                <div className="mb-6">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-4xl font-extrabold text-gray-900">0</span>
+                    <span className="text-sm text-gray-500 font-medium">kr / {t("month") || "mo"}</span>
+                  </div>
+                  <p className="text-[11px] text-gray-500 mt-1">{t("landingPricingForever") || "Forever, no card"}</p>
+                </div>
+                <ul className="space-y-2.5 text-sm text-gray-700 mb-7 flex-1">
+                  {[
+                    t("landingPricingFreeFeat1") || "Daily close in 90 seconds",
+                    t("landingPricingFreeFeat2") || "200 sales · 100 expenses · 30 OCR / mo",
+                    t("landingPricingFreeFeat3") || "30 AI Copilot questions / day",
+                    t("landingPricingFreeFeat4") || "90 days of history",
+                    t("landingPricingFreeFeat5") || "1 business, 1 user",
+                  ].map((f, i) => (
+                    <li key={i} className="flex items-start gap-2">
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-gray-400 mt-0.5 shrink-0">
+                        <path d="M3 8l3.5 3.5L13 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+                <Link
+                  to="/register"
+                  className="block w-full text-center py-2.5 border border-gray-300 text-gray-800 font-semibold rounded-xl text-sm hover:bg-gray-50 transition"
+                >
+                  {t("pricingSignUpFree") || "Sign up free"}
+                </Link>
+              </div>
+
+              {/* Starter */}
+              <div className="bg-white border border-gray-200 rounded-2xl p-6 lg:p-7 flex flex-col hover:border-blue-300 hover:shadow-md transition">
+                <div className="mb-5">
+                  <h3 className="text-lg font-bold text-gray-900 mb-1">{t("pricingTierStarter") || "Starter"}</h3>
+                  <p className="text-xs text-gray-500 leading-snug min-h-[2.5rem]">
+                    {t("pricingTaglineStarter") || "For the café or shop that closes every night."}
+                  </p>
+                </div>
+                <div className="mb-6">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-4xl font-extrabold text-gray-900">129</span>
+                    <span className="text-sm text-gray-500 font-medium">kr / {t("month") || "mo"}</span>
+                  </div>
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    <span className="line-through opacity-70">199 kr</span>
+                    <span className="ml-1.5 text-amber-600 font-semibold">{t("landingPricingFoundingNote") || "Founding rate · first 100"}</span>
+                  </p>
+                </div>
+                <ul className="space-y-2.5 text-sm text-gray-700 mb-7 flex-1">
+                  <li className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-0.5">
+                    {t("landingPricingStarterHeader") || "Everything in Free, unlimited — plus:"}
+                  </li>
+                  {[
+                    { text: t("landingPricingStarterFeat1") || "🧾 Faktura — send + auto bank-match", isNew: true },
+                    { text: t("landingPricingStarterFeat2") || "👥 Customers — CVR-verified debitors", isNew: true },
+                    { text: t("landingPricingStarterFeat3") || "🚗 Mileage — kørselsgodtgørelse log", isNew: true },
+                    { text: t("landingPricingStarterFeat4") || "Dinero / Billy / e-conomic CSV", isNew: false },
+                    { text: t("landingPricingStarterFeat5") || "3 users · 31-day export window", isNew: false },
+                    { text: t("landingPricingStarterFeat6") || "AI anomaly detection", isNew: false },
+                  ].map((f, i) => (
+                    <li key={i} className="flex items-start gap-2">
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-blue-600 mt-0.5 shrink-0">
+                        <path d="M3 8l3.5 3.5L13 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      <span className="flex-1">
+                        {f.text}
+                        {f.isNew && (
+                          <span className="ml-1.5 inline-block text-[9px] font-bold uppercase tracking-wider bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
+                            {t("new") || "New"}
+                          </span>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <Link
+                  to="/register"
+                  className="block w-full text-center py-2.5 bg-gray-900 text-white font-semibold rounded-xl text-sm hover:bg-gray-800 transition"
+                >
+                  {t("landingPricingStartTrial") || "Start with 14-day Pro trial"}
+                </Link>
+              </div>
+
+              {/* Pro — highlighted */}
+              <div className="relative bg-gradient-to-b from-green-50/60 to-white border-2 border-green-500 rounded-2xl p-6 lg:p-7 flex flex-col shadow-lg shadow-green-500/10 md:scale-[1.02]">
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-green-600 text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-full">
+                  {t("landingPricingMostPopular") || "🎁 14 days free · No card"}
+                </span>
+                <div className="mb-5">
+                  <h3 className="text-lg font-bold text-gray-900 mb-1">{t("pricingTierPro") || "Pro"}</h3>
+                  <p className="text-xs text-gray-500 leading-snug min-h-[2.5rem]">
+                    {t("pricingTaglinePro") || "For 2-3 locations. AI that thinks across them."}
+                  </p>
+                </div>
+                <div className="mb-6">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-4xl font-extrabold text-gray-900">249</span>
+                    <span className="text-sm text-gray-500 font-medium">kr / {t("month") || "mo"}</span>
+                  </div>
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    <span className="line-through opacity-70">349 kr</span>
+                    <span className="ml-1.5 text-amber-600 font-semibold">{t("landingPricingFoundingNote") || "Founding rate · first 100"}</span>
+                  </p>
+                </div>
+                <ul className="space-y-2.5 text-sm text-gray-700 mb-7 flex-1">
+                  <li className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-0.5">
+                    {t("landingPricingProHeader") || "Everything in Starter, plus:"}
+                  </li>
+                  {[
+                    t("landingPricingProFeat1") || "3 businesses · 5 users",
+                    t("landingPricingProFeat2") || "Cross-outlet AI consolidation",
+                    t("landingPricingProFeat3") || "Predictive AI: revenue forecast, churn risk",
+                    t("landingPricingProFeat4") || "Custom AI playbooks (your business pattern)",
+                    t("landingPricingProFeat5") || "Full-year accountant export",
+                    t("landingPricingProFeat6") || "Priority email support",
+                  ].map((f, i) => (
+                    <li key={i} className="flex items-start gap-2">
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-green-600 mt-0.5 shrink-0">
+                        <path d="M3 8l3.5 3.5L13 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+                <Link
+                  to="/register"
+                  className="block w-full text-center py-2.5 bg-green-600 text-white font-semibold rounded-xl text-sm hover:bg-green-700 transition shadow-md shadow-green-600/30"
+                >
+                  {t("landingPricingStartTrial") || "Start 14-day free trial"}
+                </Link>
+              </div>
+            </div>
+
+            <p className="mt-8 text-center text-[12px] text-gray-500 leading-relaxed max-w-2xl mx-auto">
+              {t("landingPricingFinePrint") || "All prices excl. moms. 14-day Pro trial requires no card — you only pay if you choose to subscribe after day 14. Cancel anytime."} {" "}
+              <Link to="/subscription" className="text-green-700 hover:text-green-800 font-medium underline">
+                {t("landingPricingCompareFull") || "See full feature comparison →"}
+              </Link>
+            </p>
           </FadeIn>
         </div>
       </section>

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
+import HowItWorksCard from "../components/HowItWorksCard";
 
 /**
  * CustomersPage — debitor management.
@@ -21,9 +22,11 @@ export default function CustomersPage() {
   const [editingId, setEditingId] = useState(null);
   const [q, setQ] = useState("");
 
-  // Plan gate (defense-in-depth — backend also enforces)
+  // Plan gate (defense-in-depth — backend also enforces).
+  // Trial users get Pro-tier access during the 14-day window — include them
+  // so the trial actually demos every paid feature.
   const plan = (user?.plan || "free").toLowerCase();
-  const hasAccess = ["starter", "pro", "business"].includes(plan);
+  const hasAccess = ["starter", "pro", "business", "trial"].includes(plan);
 
   useEffect(() => {
     if (!hasAccess) {
@@ -99,6 +102,43 @@ export default function CustomersPage() {
           + {t("addCustomer") || "Add customer"}
         </button>
       </div>
+
+      <HowItWorksCard
+        storageKey="customers"
+        icon="👥"
+        tone="blue"
+        title={t("customersHowTitle") || "How Customers works"}
+        steps={[
+          {
+            title: t("customersStep1Title") || "1. B2B clients — search by CVR",
+            body:
+              t("customersStep1Body") ||
+              "Type a Danish CVR number (8 digits). We auto-fill the company name, address, and postal code from the public CVR + DAWA registers — saves you from typos that nullify a faktura.",
+          },
+          {
+            title: t("customersStep2Title") || "2. Private clients — no CVR",
+            body:
+              t("customersStep2Body") ||
+              "Toggle off the B2B switch for privatpersoner. We still need a name and at least one of email or phone so the faktura has somewhere to land.",
+          },
+          {
+            title: t("customersStep3Title") || "3. Set sensible defaults",
+            body:
+              t("customersStep3Body") ||
+              "Pick the customer's invoice language (DA / EN) so the PDF arrives in the right one. Set payment terms — Danish default is 8 dage netto. These pre-fill on every new faktura for this customer.",
+          },
+          {
+            title: t("customersStep4Title") || "4. Deletes are soft",
+            body:
+              t("customersStep4Body") ||
+              "Customers tied to past invoices can't be hard-deleted (Bogføringsloven §10 needs the audit trail intact). We hide them from your list but keep them linked to historical fakturaer.",
+          },
+        ]}
+        footer={
+          t("customersHowFooter") ||
+          "CVR-numre valideres mod CVR-registeret (Erhvervsstyrelsen). Adresser hentes fra DAWA — Danmarks officielle adresseregister."
+        }
+      />
 
       <input
         type="text"

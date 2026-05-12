@@ -49,6 +49,7 @@ export default function TermsPage() {
             <ul className="list-disc pl-6 space-y-1">
               <li>A multi-terminal end-of-shift close consolidation tool</li>
               <li>An OCR-and-aggregation system for printed kasserapport receipts</li>
+              <li>An invoicing (faktura) and mileage (k&oslash;rselsgodtg&oslash;relse) data-capture tool</li>
               <li>A generator of daily-close PDFs (compatible with Bogf&oslash;ringsloven &sect;10 retention)</li>
               <li>A reporting layer that exports to Dinero / Billy / e-conomic</li>
               <li>An optional personal finance tracker (in Personal Mode)</li>
@@ -56,12 +57,32 @@ export default function TermsPage() {
             <p className="font-semibold mt-4 mb-2">BonBox is NOT:</p>
             <ul className="list-disc pl-6 space-y-1">
               <li>Accounting software as defined under Danish Bogf&oslash;ringsloven (the Bookkeeping Act)</li>
-              <li>A certified bookkeeping system</li>
+              <li>A certified bookkeeping system (registreret digitalt bogf&oslash;ringssystem)</li>
               <li>A point-of-sale (POS) system &mdash; BonBox does not process card transactions or replace your till hardware</li>
               <li>A tax advisory or tax filing service</li>
               <li>A payment processor &mdash; BonBox does not move, hold, or transfer money</li>
               <li>A replacement for professional accounting, legal, or financial advice</li>
             </ul>
+
+            <div className="mt-6 bg-amber-50 dark:bg-amber-900/20 border-l-4 border-amber-400 dark:border-amber-600 rounded-r-lg p-4 space-y-2 text-sm">
+              <p className="font-semibold text-amber-900 dark:text-amber-200">
+                Important: BonBox is not a registered digital bookkeeping system
+              </p>
+              <p className="text-amber-900/90 dark:text-amber-100/90">
+                <strong>Dansk:</strong> BonBox er <strong>ikke</strong> et registreret digitalt
+                bogf&oslash;ringssystem under Erhvervsstyrelsens anmelderordning, jf.
+                Bogf&oslash;ringsloven (2024). BonBox skal bruges sammen med din revisor eller
+                et registreret bogf&oslash;ringssystem (f.eks. Dinero, Billy, e-conomic).
+              </p>
+              <p className="text-amber-900/90 dark:text-amber-100/90">
+                <strong>English:</strong> BonBox is <strong>not</strong> a registered digital
+                bookkeeping system under the Danish Business Authority's registration scheme
+                pursuant to the 2024 Bookkeeping Act. BonBox is designed to be used together
+                with your accountant or a registered bookkeeping system (e.g. Dinero, Billy,
+                e-conomic). If your business is legally required to use a registered system,
+                you must continue to use one alongside BonBox.
+              </p>
+            </div>
           </Section>
 
           <Section num={3} title="Your account">

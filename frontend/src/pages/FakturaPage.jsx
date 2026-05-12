@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
+import HowItWorksCard from "../components/HowItWorksCard";
 
 /**
  * FakturaPage — list + create + send.
@@ -31,7 +32,9 @@ export default function FakturaPage() {
   const [statusFilter, setStatusFilter] = useState("");
 
   const plan = (user?.plan || "free").toLowerCase();
-  const hasAccess = ["starter", "pro", "business"].includes(plan);
+  // Trial users get Pro-tier access during the 14-day window — include them
+  // so the trial actually demos every paid feature.
+  const hasAccess = ["starter", "pro", "business", "trial"].includes(plan);
 
   useEffect(() => {
     if (!hasAccess) {
@@ -108,6 +111,44 @@ export default function FakturaPage() {
           </a>
         </div>
       )}
+
+      <HowItWorksCard
+        storageKey="faktura"
+        icon="🧾"
+        tone="blue"
+        title={t("fakturaHowTitle") || "How Faktura works"}
+        steps={[
+          {
+            title: t("fakturaStep1Title") || "1. Add a customer first",
+            body:
+              t("fakturaStep1Body") ||
+              "Type a CVR and we auto-fill name + address from CVR/DAWA. For private clients, toggle Privatperson — no CVR needed.",
+          },
+          {
+            title: t("fakturaStep2Title") || "2. Create the invoice",
+            body:
+              t("fakturaStep2Body") ||
+              "Add line items (description, qty, unit price). Moms (25 % default) and totals calculate live. Save as draft to edit later.",
+          },
+          {
+            title: t("fakturaStep3Title") || "3. Send — PDF + mailto",
+            body:
+              t("fakturaStep3Body") ||
+              "Click Send: the invoice locks, the PDF downloads, and your mail app opens pre-filled with the customer's email + subject + body. Attach the PDF and hit Send.",
+          },
+          {
+            title: t("fakturaStep4Title") || "4. Get paid — auto-matched",
+            body:
+              t("fakturaStep4Body") ||
+              "Import your bank CSV (or connect Open Banking). When the payment lands, BonBox auto-matches it to the open invoice within ±2 kr tolerance and flips status to Paid. You'll never chase a reconciliation again.",
+          },
+        ]}
+        footer={
+          t("fakturaHowFooter") ||
+          "Fakturanummer er løbende og uden huller per branch per år, jf. Bogføringsloven §7. Sendte fakturaer kan ikke slettes — annullér med kreditnota i stedet (vi laver den automatisk)."
+        }
+      />
+
 
       <div className="flex gap-2 flex-wrap">
         {[

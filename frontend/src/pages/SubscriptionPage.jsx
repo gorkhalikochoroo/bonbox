@@ -691,6 +691,7 @@ export default function SubscriptionPage() {
           <FaqItem q={t("faqQ3") || "How does the founding-member price work?"} a={t("faqA3") || ""} />
           <FaqItem q={t("faqQ4") || "I run a chain with multiple branches — what fits?"} a={t("faqA4") || ""} />
           <FaqItem q={t("faqQ5") || "Do I have to switch from Dinero / Billy / e-conomic?"} a={t("faqA5") || ""} />
+          <FaqItem q={t("faqQ9") || "Is BonBox a registered digital bookkeeping system?"} a={t("faqA9") || ""} />
           <FaqItem q={t("faqQ6") || "What about VAT (Moms)?"} a={t("faqA6") || ""} />
           <FaqItem q={t("faqQ7") || "Can I cancel anytime?"} a={t("faqA7") || ""} />
           <FaqItem q={t("faqQ8") || "Is my data safe?"} a={t("faqA8") || ""} />

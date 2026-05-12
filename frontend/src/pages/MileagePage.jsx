@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
+import HowItWorksCard from "../components/HowItWorksCard";
 
 /**
  * MileagePage — kørselsgodtgørelse log.
@@ -25,8 +26,9 @@ export default function MileagePage() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
+  // Trial users get Pro-tier access during the 14-day window.
   const plan = (user?.plan || "free").toLowerCase();
-  const hasAccess = ["starter", "pro", "business"].includes(plan);
+  const hasAccess = ["starter", "pro", "business", "trial"].includes(plan);
   const currentYear = new Date().getFullYear();
 
   useEffect(() => {
@@ -97,6 +99,43 @@ export default function MileagePage() {
           + {t("newTrip") || "New trip"}
         </button>
       </div>
+
+      <HowItWorksCard
+        storageKey="mileage"
+        icon="🚗"
+        tone="green"
+        title={t("mileageHowTitle") || "How Mileage works"}
+        steps={[
+          {
+            title: t("mileageStep1Title") || "1. Log every business trip — same day",
+            body:
+              t("mileageStep1Body") ||
+              "Date, km, purpose (e.g. \"supplier pickup — Grossisten\"), and your vehicle's registration. Skattestyrelsen requires contemporaneous logs — don't reconstruct trips at year-end.",
+          },
+          {
+            title: t("mileageStep2Title") || "2. Rate is auto-applied (2026)",
+            body:
+              t("mileageStep2Body") ||
+              "First 20.000 km/year: 3,79 kr/km. Above 20.000 km: 2,23 kr/km. We freeze the rate on each entry, so even if Skattestyrelsen updates rates next year, your old entries stay accurate.",
+          },
+          {
+            title: t("mileageStep3Title") || "3. Watch the YTD card",
+            body:
+              t("mileageStep3Body") ||
+              "Top card shows total km logged this year, your tax-deductible kroner, and which rate tier you're currently in. Most owners miss 10-15k kr/year by not tracking — this card makes it real.",
+          },
+          {
+            title: t("mileageStep4Title") || "4. Save your fuel receipts separately",
+            body:
+              t("mileageStep4Body") ||
+              "Kørselsgodtgørelse replaces actual fuel/maintenance costs — you can't claim both. Keep receipts as documentation, but the deduction is calculated from the km log, not the receipts.",
+          },
+        ]}
+        footer={
+          t("mileageHowFooter") ||
+          "Sats jf. Skattestyrelsens befordringsgodtgørelse 2026. Loggen skal være ført løbende (Bogføringsloven §11) — den kan kræves dokumenteret ved kontrol."
+        }
+      />
 
       {/* Year summary card */}
       {summary && (
