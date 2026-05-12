@@ -140,7 +140,7 @@ export default function FakturaPage() {
             title: t("fakturaStep4Title") || "4. Get paid — auto-matched",
             body:
               t("fakturaStep4Body") ||
-              "Import your bank CSV (or connect Open Banking). When the payment lands, BonBox auto-matches it to the open invoice within ±2 kr tolerance and flips status to Paid. You'll never chase a reconciliation again.",
+              "Export your bank's CSV (2 clicks in netbank), upload it under Bank Import. BonBox auto-matches the payment to the open invoice within ±2 kr tolerance and flips status to Paid — no manual reconciliation.",
           },
         ]}
         footer={
