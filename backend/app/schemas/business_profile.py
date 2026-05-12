@@ -30,6 +30,12 @@ class BusinessProfileCreate(BaseModel):
     dawa_address_id: str | None = None
     vat_registered: bool | None = None
     status_flags: str | None = None
+    # Payment details for faktura PDF — required by Momsbekendtgørelsen §57.
+    bank_reg_number: str | None = None
+    bank_account_number: str | None = None
+    mobilepay_number: str | None = None
+    iban: str | None = None
+    bic: str | None = None
 
 
 class BusinessProfileResponse(BaseModel):
@@ -58,6 +64,12 @@ class BusinessProfileResponse(BaseModel):
     dawa_address_id: str | None = None
     vat_registered: bool | None = None
     status_flags: str | None = None
+    # Payment details rendered on faktura PDF
+    bank_reg_number: str | None = None
+    bank_account_number: str | None = None
+    mobilepay_number: str | None = None
+    iban: str | None = None
+    bic: str | None = None
 
     model_config = {"from_attributes": True}
 

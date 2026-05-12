@@ -51,6 +51,7 @@ class InvoiceService:
         branch_id: Optional[UUID] = None,
         issue_date: Optional[date] = None,
         due_days: Optional[int] = None,
+        delivery_date: Optional[date] = None,
         notes: Optional[str] = None,
         currency: str = "DKK",
     ) -> Invoice:
@@ -92,6 +93,10 @@ class InvoiceService:
             fakturanummer=number,
             issue_date=issue,
             due_date=due,
+            # Only store leveringsdato when it differs from issue_date —
+            # nulling it for same-day work keeps the PDF clean (it only
+            # prints the leveringsdato line when present).
+            delivery_date=delivery_date if delivery_date and delivery_date != issue else None,
             status="draft",
             currency=currency,
             notes=notes,
@@ -305,6 +310,7 @@ class InvoiceService:
             ),
             "issue_date": inv.issue_date,
             "due_date": inv.due_date,
+            "delivery_date": inv.delivery_date,
             "sent_at": inv.sent_at,
             "paid_at": inv.paid_at,
             "status": inv.status,

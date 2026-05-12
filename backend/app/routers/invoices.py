@@ -47,6 +47,7 @@ def create_invoice(
         branch_id=data.branch_id,
         issue_date=data.issue_date,
         due_days=data.due_days,
+        delivery_date=data.delivery_date,
         notes=data.notes,
         currency=data.currency,
         lines=[line.model_dump() for line in data.lines],

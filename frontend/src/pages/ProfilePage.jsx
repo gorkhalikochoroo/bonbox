@@ -45,6 +45,19 @@ export default function ProfilePage() {
   const [accountantForm, setAccountantForm] = useState({ accountant_email: "", accountant_name: "" });
   const [accountantSaving, setAccountantSaving] = useState(false);
   const [accountantMsg, setAccountantMsg] = useState("");
+
+  // Payment details rendered on every faktura/kreditnota PDF — bank
+  // reg+account, MobilePay Erhverv, optional IBAN/BIC. Stored on
+  // BusinessProfile (migration 033). Required by Momsbekendtgørelsen §57.
+  const [paymentForm, setPaymentForm] = useState({
+    bank_reg_number: "",
+    bank_account_number: "",
+    mobilepay_number: "",
+    iban: "",
+    bic: "",
+  });
+  const [paymentSaving, setPaymentSaving] = useState(false);
+  const [paymentMsg, setPaymentMsg] = useState("");
   // Re-verify state — pulls a fresh CVR record into the saved profile
   const [reverifying, setReverifying] = useState(false);
   const [reverifyMsg, setReverifyMsg] = useState("");
@@ -81,6 +94,13 @@ export default function ProfilePage() {
         setAccountantForm({
           accountant_email: res.data.accountant_email || "",
           accountant_name: res.data.accountant_name || "",
+        });
+        setPaymentForm({
+          bank_reg_number: res.data.bank_reg_number || "",
+          bank_account_number: res.data.bank_account_number || "",
+          mobilepay_number: res.data.mobilepay_number || "",
+          iban: res.data.iban || "",
+          bic: res.data.bic || "",
         });
       }
     }).catch(() => {});
@@ -158,6 +178,34 @@ export default function ProfilePage() {
       setTimeout(() => setAccountantMsg(""), 4000);
     } finally {
       setAccountantSaving(false);
+    }
+  };
+
+  /** Save bank + MobilePay payment details on the BusinessProfile.
+   * These render on every faktura PDF — required by Momsbekendtgørelsen §57.
+   * Uses the same PUT /api/business upsert pattern as the accountant form. */
+  const savePayment = async (e) => {
+    e?.preventDefault?.();
+    setPaymentSaving(true);
+    setPaymentMsg("");
+    try {
+      const payload = {
+        company_name: businessProfile?.company_name || "",
+        bank_reg_number: paymentForm.bank_reg_number.trim() || null,
+        bank_account_number: paymentForm.bank_account_number.trim() || null,
+        mobilepay_number: paymentForm.mobilepay_number.trim() || null,
+        iban: paymentForm.iban.trim() || null,
+        bic: paymentForm.bic.trim() || null,
+      };
+      const res = await api.put("/business", payload);
+      setBusinessProfile(res.data);
+      setPaymentMsg(t("paymentSaved") || "Payment details saved");
+      setTimeout(() => setPaymentMsg(""), 3000);
+    } catch {
+      setPaymentMsg(t("paymentSaveFailed") || "Could not save — try again");
+      setTimeout(() => setPaymentMsg(""), 4000);
+    } finally {
+      setPaymentSaving(false);
     }
   };
 
@@ -508,6 +556,126 @@ export default function ProfilePage() {
             className="w-full sm:w-auto px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl transition disabled:opacity-50"
           >
             {accountantSaving ? (t("saving") || "Saving…") : (t("save") || "Save")}
+          </button>
+        </form>
+      </div>
+
+      {/* Payment details — rendered on every faktura PDF.
+          Required by Momsbekendtgørelsen §57 for a legally valid
+          Danish faktura. Without these the PDF prints a visible
+          "no payment details on file" warning. */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 bg-emerald-100 dark:bg-emerald-900/30 rounded-xl flex items-center justify-center">
+            <span className="text-xl">💳</span>
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+              {t("paymentDetailsTitle") || "Payment details on faktura"}
+            </h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500">
+              {t("paymentDetailsDesc") ||
+                "How customers pay you. Printed on every faktura PDF. Required for a valid Danish faktura."}
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={savePayment} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className={labelClass}>
+                {t("bankRegLabel") || "Bank reg. nr."}
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={paymentForm.bank_reg_number}
+                onChange={(e) => setPaymentForm(f => ({ ...f, bank_reg_number: e.target.value }))}
+                placeholder="1234"
+                maxLength={8}
+                className={inputClass}
+                autoComplete="off"
+              />
+            </div>
+            <div>
+              <label className={labelClass}>
+                {t("bankAccountLabel") || "Bank konto nr."}
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={paymentForm.bank_account_number}
+                onChange={(e) => setPaymentForm(f => ({ ...f, bank_account_number: e.target.value }))}
+                placeholder="1234567890"
+                maxLength={20}
+                className={inputClass}
+                autoComplete="off"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className={labelClass}>
+              {t("mobilepayLabel") || "MobilePay Erhverv nr."}
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={paymentForm.mobilepay_number}
+              onChange={(e) => setPaymentForm(f => ({ ...f, mobilepay_number: e.target.value }))}
+              placeholder="12345"
+              maxLength={20}
+              className={inputClass}
+              autoComplete="off"
+            />
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+              {t("mobilepayHint") ||
+                "Your 5-digit MobilePay Erhverv code. Renders alongside bank info on the faktura."}
+            </p>
+          </div>
+
+          <details className="text-sm">
+            <summary className="cursor-pointer text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+              {t("ibanShowToggle") || "International (IBAN/BIC)"}
+            </summary>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+              <div className="sm:col-span-2">
+                <label className={labelClass}>IBAN</label>
+                <input
+                  type="text"
+                  value={paymentForm.iban}
+                  onChange={(e) => setPaymentForm(f => ({ ...f, iban: e.target.value.toUpperCase().replace(/\s/g, "") }))}
+                  placeholder="DK5000400440116243"
+                  maxLength={34}
+                  className={inputClass + " font-mono"}
+                  autoComplete="off"
+                />
+              </div>
+              <div>
+                <label className={labelClass}>BIC / SWIFT</label>
+                <input
+                  type="text"
+                  value={paymentForm.bic}
+                  onChange={(e) => setPaymentForm(f => ({ ...f, bic: e.target.value.toUpperCase().replace(/\s/g, "") }))}
+                  placeholder="DABADKKK"
+                  maxLength={11}
+                  className={inputClass + " font-mono"}
+                  autoComplete="off"
+                />
+              </div>
+            </div>
+          </details>
+
+          {paymentMsg && (
+            <p className="text-sm text-green-600 dark:text-green-400">{paymentMsg}</p>
+          )}
+
+          <button
+            type="submit"
+            disabled={paymentSaving}
+            className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl transition disabled:opacity-50"
+          >
+            {paymentSaving ? (t("saving") || "Saving…") : (t("save") || "Save")}
           </button>
         </form>
       </div>

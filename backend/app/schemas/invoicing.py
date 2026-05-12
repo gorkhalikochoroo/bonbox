@@ -54,11 +54,24 @@ class CustomerBase(BaseModel):
     dawa_address_id: Optional[str] = Field(None, max_length=36)
     payment_terms_days: int = Field(default=14, ge=0, le=180)
     default_lang: str = Field(default="da", min_length=2, max_length=2)
+    # Public-sector EAN — 13 digits when present, optional otherwise.
+    ean_nummer: Optional[str] = Field(None, max_length=13)
+    is_public_sector: bool = False
 
     @field_validator("cvr")
     @classmethod
     def check_cvr(cls, v):
         return _validate_cvr(v)
+
+    @field_validator("ean_nummer")
+    @classmethod
+    def check_ean(cls, v):
+        if v is None or v == "":
+            return None
+        digits = "".join(c for c in v if c.isdigit())
+        if len(digits) != 13:
+            raise ValueError("EAN-nummer must be 13 digits")
+        return digits
 
 
 class CustomerCreate(CustomerBase):
@@ -79,11 +92,23 @@ class CustomerUpdate(BaseModel):
     dawa_address_id: Optional[str] = None
     payment_terms_days: Optional[int] = None
     default_lang: Optional[str] = None
+    ean_nummer: Optional[str] = None
+    is_public_sector: Optional[bool] = None
 
     @field_validator("cvr")
     @classmethod
     def check_cvr(cls, v):
         return _validate_cvr(v)
+
+    @field_validator("ean_nummer")
+    @classmethod
+    def check_ean(cls, v):
+        if v is None or v == "":
+            return None
+        digits = "".join(c for c in v if c.isdigit())
+        if len(digits) != 13:
+            raise ValueError("EAN-nummer must be 13 digits")
+        return digits
 
 
 class CustomerResponse(CustomerBase):
@@ -132,6 +157,10 @@ class InvoiceCreate(BaseModel):
     branch_id: Optional[UUID] = None
     issue_date: Optional[date] = None  # defaults to today server-side
     due_days: Optional[int] = None  # if None, uses customer.payment_terms_days
+    # Optional separate leveringsdato — only required on the PDF when it
+    # differs from issue_date (Momsbekendtgørelsen §57). Leave null for
+    # same-day work; set it for events invoiced after delivery.
+    delivery_date: Optional[date] = None
     notes: Optional[str] = None
     currency: str = Field(default="DKK", min_length=3, max_length=3)
     lines: list[InvoiceLineInput] = Field(..., min_length=1)
@@ -147,6 +176,7 @@ class InvoiceResponse(BaseModel):
     fakturanummer_formatted: str  # populated by service: "2026-0042"
     issue_date: date
     due_date: date
+    delivery_date: Optional[date] = None
     sent_at: Optional[datetime]
     paid_at: Optional[datetime]
     status: str

@@ -686,6 +686,20 @@ _migrations = [
     "CREATE INDEX IF NOT EXISTS ix_mileage_trip_date ON mileage_entries (trip_date)",
     "CREATE INDEX IF NOT EXISTS ix_mileage_invoice_id ON mileage_entries (invoice_id)",
     "CREATE INDEX IF NOT EXISTS ix_mileage_user_year ON mileage_entries (user_id, trip_date)",
+
+    # ── Migration 033: Faktura Danish-compliance fields ──
+    # Adds the fields Momsbekendtgørelsen §57 requires for a valid Danish
+    # faktura. Without these the PDF was missing seller payment details,
+    # EAN-nummer for public-sector customers, and the optional separate
+    # leveringsdato. All nullable — existing rows stay valid.
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS bank_reg_number VARCHAR(8)",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS bank_account_number VARCHAR(20)",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS mobilepay_number VARCHAR(20)",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS iban VARCHAR(34)",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS bic VARCHAR(11)",
+    "ALTER TABLE customers ADD COLUMN IF NOT EXISTS ean_nummer VARCHAR(13)",
+    "ALTER TABLE customers ADD COLUMN IF NOT EXISTS is_public_sector BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS delivery_date DATE",
 ]
 
 def _run_migrations():
@@ -854,6 +868,15 @@ def _run_migrations():
             ok += _add("business_profiles", "dawa_address_id", "VARCHAR(50)")
             ok += _add("business_profiles", "vat_registered", "BOOLEAN")
             ok += _add("business_profiles", "status_flags", "TEXT")
+            # Migration 033 — Faktura Danish-compliance fields
+            ok += _add("business_profiles", "bank_reg_number", "VARCHAR(8)")
+            ok += _add("business_profiles", "bank_account_number", "VARCHAR(20)")
+            ok += _add("business_profiles", "mobilepay_number", "VARCHAR(20)")
+            ok += _add("business_profiles", "iban", "VARCHAR(34)")
+            ok += _add("business_profiles", "bic", "VARCHAR(11)")
+            ok += _add("customers", "ean_nummer", "VARCHAR(13)")
+            ok += _add("customers", "is_public_sector", "BOOLEAN DEFAULT 0")
+            ok += _add("invoices", "delivery_date", "DATE")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",

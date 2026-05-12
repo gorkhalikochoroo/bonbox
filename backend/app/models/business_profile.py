@@ -29,6 +29,21 @@ class BusinessProfile(Base):
     # Contact
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Payment details — printed on every faktura/kreditnota so the customer
+    # knows how to pay. Required for a legally valid Danish faktura per
+    # Momsbekendtgørelsen §57 (the "betalingsoplysninger" section).
+    #
+    # Two channels: bank transfer (reg.nr + kontonr) and MobilePay Erhverv
+    # (a single 5-digit code). Either or both — the PDF renders whatever's
+    # set. If neither is set the PDF shows a "no payment details on file"
+    # warning so the gap is loud rather than silent.
+    bank_reg_number: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    bank_account_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    mobilepay_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # IBAN for cross-border payments — only rendered when set. Most domestic
+    # Danish customers pay via reg+kontonr instead.
+    iban: Mapped[str | None] = mapped_column(String(34), nullable=True)
+    bic: Mapped[str | None] = mapped_column(String(11), nullable=True)
     # Accountant — pre-fill the To: field on "Send to accountant"
     # exports (kasserapport range PDF). Saved once, used on every send.
     accountant_email: Mapped[str | None] = mapped_column(String(255), nullable=True)

@@ -187,6 +187,9 @@ def render_invoice_pdf(db: Session, invoice: Invoice) -> bytes:
     # ── Customer block ──────────────────────────────────────────────
     cust_name = customer.name if customer else "—"
     cust_cvr = customer.cvr if customer else None
+    # EAN-nummer rendered on its own line — required to invoice DK public
+    # sector via NemHandel/OIOUBL. Optional otherwise; only renders when set.
+    cust_ean = getattr(customer, "ean_nummer", None) if customer else None
     cust_addr_lines = []
     if customer:
         if customer.address:
@@ -270,6 +273,8 @@ def render_invoice_pdf(db: Session, invoice: Invoice) -> bytes:
     cust_lines = [f"<b>{cust_name}</b>"]
     if cust_cvr:
         cust_lines.append(f"{L['cvr']}: {cust_cvr}")
+    if cust_ean:
+        cust_lines.append(f"EAN: {cust_ean}")
     cust_lines.extend(cust_addr_lines)
     cust_para = Paragraph("<br/>".join(cust_lines), body)
 
@@ -291,19 +296,41 @@ def render_invoice_pdf(db: Session, invoice: Invoice) -> bytes:
     story.append(Spacer(1, 8 * mm))
 
     # ── Dates + currency ────────────────────────────────────────────
-    meta_data = [
-        [
-            Paragraph(L["issue_date"], h2),
-            Paragraph(L["due_date"], h2),
-            Paragraph("Valuta" if lang == "da" else "Currency", h2),
-        ],
-        [
-            Paragraph(f"<b>{_fmt_date(invoice.issue_date)}</b>", body),
-            Paragraph(f"<b>{_fmt_date(invoice.due_date)}</b>", body),
-            Paragraph(f"<b>{invoice.currency}</b>", body),
-        ],
-    ]
-    meta = Table(meta_data, colWidths=[57 * mm, 57 * mm, 57 * mm])
+    # Leveringsdato column appears only when set (Momsbekendtgørelsen §57
+    # requires it on the faktura when delivery ≠ issue date). Keeping it
+    # off the table for same-day jobs avoids visual noise.
+    delivery = getattr(invoice, "delivery_date", None)
+    delivery_label = "Leveringsdato" if lang == "da" else "Delivery date"
+    if delivery:
+        meta_data = [
+            [
+                Paragraph(L["issue_date"], h2),
+                Paragraph(delivery_label, h2),
+                Paragraph(L["due_date"], h2),
+                Paragraph("Valuta" if lang == "da" else "Currency", h2),
+            ],
+            [
+                Paragraph(f"<b>{_fmt_date(invoice.issue_date)}</b>", body),
+                Paragraph(f"<b>{_fmt_date(delivery)}</b>", body),
+                Paragraph(f"<b>{_fmt_date(invoice.due_date)}</b>", body),
+                Paragraph(f"<b>{invoice.currency}</b>", body),
+            ],
+        ]
+        meta = Table(meta_data, colWidths=[43 * mm, 43 * mm, 43 * mm, 42 * mm])
+    else:
+        meta_data = [
+            [
+                Paragraph(L["issue_date"], h2),
+                Paragraph(L["due_date"], h2),
+                Paragraph("Valuta" if lang == "da" else "Currency", h2),
+            ],
+            [
+                Paragraph(f"<b>{_fmt_date(invoice.issue_date)}</b>", body),
+                Paragraph(f"<b>{_fmt_date(invoice.due_date)}</b>", body),
+                Paragraph(f"<b>{invoice.currency}</b>", body),
+            ],
+        ]
+        meta = Table(meta_data, colWidths=[57 * mm, 57 * mm, 57 * mm])
     meta.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -379,17 +406,40 @@ def render_invoice_pdf(db: Session, invoice: Invoice) -> bytes:
     story.append(Spacer(1, 10 * mm))
 
     # ── Payment block ───────────────────────────────────────────────
+    # Payment details now live on BusinessProfile (migration 033), not User.
+    # Read from profile so the issuer's faktura actually tells the customer
+    # how to pay. If neither bank nor MobilePay is on file, the PDF surfaces
+    # a visible warning instead of going silent — Momsbekendtgørelsen §57
+    # treats this section as required.
     payment_lines = [f"<b>{L['payment_info']}</b>"]
-    bank_reg = getattr(user, "bank_reg_number", None) if user else None
-    bank_acct = getattr(user, "bank_account_number", None) if user else None
+    bank_reg = getattr(profile, "bank_reg_number", None) if profile else None
+    bank_acct = getattr(profile, "bank_account_number", None) if profile else None
+    mobilepay = getattr(profile, "mobilepay_number", None) if profile else None
+    iban = getattr(profile, "iban", None) if profile else None
+    bic = getattr(profile, "bic", None) if profile else None
+    has_any_payment = bool(bank_reg or bank_acct or mobilepay or iban)
+
     if bank_reg or bank_acct:
         payment_lines.append(
             f"{L['bank']}: Reg. {bank_reg or '—'} · "
             f"Konto {bank_acct or '—'}"
         )
-    mobilepay = getattr(user, "mobilepay_number", None) if user else None
     if mobilepay:
         payment_lines.append(f"{L['mobilepay']}: {mobilepay}")
+    if iban:
+        iban_line = f"IBAN: {iban}"
+        if bic:
+            iban_line += f"  ·  BIC/SWIFT: {bic}"
+        payment_lines.append(iban_line)
+    if not has_any_payment:
+        # Loud warning — better visible than a silent compliance gap.
+        warn = (
+            "Manglende betalingsoplysninger — udfyld bank/MobilePay under Profil."
+            if lang == "da"
+            else "No payment details on file — add bank/MobilePay in Profile."
+        )
+        payment_lines.append(f"<font color='#B91C1C'>⚠️  {warn}</font>")
+
     days = (invoice.due_date - invoice.issue_date).days
     payment_lines.append(f"{L['terms_label']} {L['terms_days'].format(n=days)}")
     if invoice.notes and not is_credit:

@@ -49,6 +49,12 @@ class Invoice(Base):
     # Dates
     issue_date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
     due_date: Mapped[date] = mapped_column(Date, nullable=False)
+    # Leveringsdato — when the goods/service was actually delivered.
+    # Required on a Danish faktura *only when* it differs from issue_date
+    # (Momsbekendtgørelsen §57 stk. 1 nr. 6). For same-day work this is
+    # always null and the PDF falls back to issue_date. For event/catering
+    # gigs invoiced the next week, this is the actual event date.
+    delivery_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 

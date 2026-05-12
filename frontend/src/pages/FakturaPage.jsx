@@ -371,6 +371,10 @@ function InvoiceRow({ invoice, customer, onChanged, t }) {
 function CreateInvoiceModal({ customers, onClose, onCreated, t }) {
   const [customerId, setCustomerId] = useState(customers[0]?.id || "");
   const [issueDate, setIssueDate] = useState(new Date().toISOString().slice(0, 10));
+  // Optional leveringsdato — only rendered on the PDF when it differs
+  // from issueDate (Momsbekendtgørelsen §57 stk. 1 nr. 6). Default to
+  // empty so same-day work doesn't pollute the PDF with redundant info.
+  const [deliveryDate, setDeliveryDate] = useState("");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState([
     { description: "", quantity: "1", unit: "", unit_price_net: "", moms_rate: "0.250" },
@@ -412,6 +416,7 @@ function CreateInvoiceModal({ customers, onClose, onCreated, t }) {
       const payload = {
         customer_id: customerId,
         issue_date: issueDate,
+        delivery_date: deliveryDate || undefined,
         notes: notes || undefined,
         lines: lines
           .filter((l) => l.description && l.unit_price_net)
@@ -477,6 +482,27 @@ function CreateInvoiceModal({ customers, onClose, onCreated, t }) {
               />
             </div>
           </div>
+
+          {/* Leveringsdato — collapsible, only fill when work was
+              delivered on a different day than the invoice date. Required
+              on the PDF in that case per Momsbekendtgørelsen §57. */}
+          <details>
+            <summary className="cursor-pointer text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+              {t("deliveryDateToggle") || "Set delivery date (only if different from issue date)"}
+            </summary>
+            <div className="mt-2">
+              <input
+                type="date"
+                value={deliveryDate}
+                onChange={(e) => setDeliveryDate(e.target.value)}
+                className="w-full md:w-64 px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm"
+              />
+              <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+                {t("deliveryDateHint") ||
+                  "When the goods/service was actually delivered. Leave empty for same-day work."}
+              </p>
+            </div>
+          </details>
 
           <div>
             <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 block">

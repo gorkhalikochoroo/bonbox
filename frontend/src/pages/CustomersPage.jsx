@@ -236,6 +236,8 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
     country: existing?.country || "DK",
     payment_terms_days: existing?.payment_terms_days || 14,
     default_lang: existing?.default_lang || "da",
+    ean_nummer: existing?.ean_nummer || "",
+    is_public_sector: existing?.is_public_sector || false,
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -382,6 +384,45 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
                     {t("cvrLookupError") || "CVR lookup unavailable — enter details manually"}
                   </p>
                 )}
+              </div>
+            )}
+
+            {/* Public-sector toggle — only meaningful for B2B.
+                Surfaces EAN-nummer as required since NemHandel/OIOUBL
+                routes invoices by EAN, not CVR, for kommuner + staten. */}
+            {form.is_company && (
+              <label className="md:col-span-2 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={form.is_public_sector || false}
+                  onChange={update("is_public_sector")}
+                />
+                {t("isPublicSector") || "Public sector (kommune / region / stat)"}
+              </label>
+            )}
+
+            {form.is_company && (
+              <div className="md:col-span-2">
+                <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
+                  {t("eanLabel") || "EAN-nummer"}{form.is_public_sector ? " *" : ""}
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={form.ean_nummer || ""}
+                  onChange={update("ean_nummer")}
+                  placeholder="5790001234567"
+                  maxLength={13}
+                  required={!!form.is_public_sector}
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm font-mono"
+                />
+                <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+                  {form.is_public_sector
+                    ? (t("eanHintRequired") ||
+                       "Required to invoice Danish public sector via NemHandel. 13 digits.")
+                    : (t("eanHintOptional") ||
+                       "Optional. Only needed if customer requires NemHandel-routed invoices.")}
+                </p>
               </div>
             )}
 

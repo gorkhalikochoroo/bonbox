@@ -53,6 +53,19 @@ class Customer(Base):
     default_lang: Mapped[str] = mapped_column(String(2), default="da")
     # Invoice PDF + email template localization. Independent of UI locale.
 
+    # EAN-nummer (Global Location Number, GLN13) — REQUIRED to invoice
+    # Danish public-sector customers (kommuner, regioner, staten) via
+    # NemHandel / OIOUBL. 13 digits, e.g. "5790001234567". Without it
+    # any invoice to e.g. Lyngby-Taarbæk Kommune is unmailable. Optional
+    # for private companies. We don't validate the checksum at the schema
+    # layer — Skattestyrelsen rejects malformed ones downstream and the
+    # owner gets a bounce; cheaper than maintaining the check digit logic.
+    ean_nummer: Mapped[Optional[str]] = mapped_column(String(13), nullable=True)
+    # is_public_sector — informational; toggles the "EAN required" hint in
+    # the customer form and surfaces the EAN field as mandatory. Doesn't
+    # change any business logic on its own.
+    is_public_sector: Mapped[bool] = mapped_column(Boolean, default=False)
+
     # Status
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
 
