@@ -246,6 +246,158 @@ function openMailto({ to, subject, body }) {
  * @param {string} params.language         "da" (default) | "en"
  * @returns {Promise<{ok: boolean, channel: string, reason?: string}>}
  */
+/**
+ * Build the email subject for a monthly bookkeeping bundle.
+ *
+ *   "Bogføringsbundt · Mirabelle · maj 2026"
+ *
+ * Different from the daily-close subject because this is the full monthly
+ * handoff (sales + expenses + faktura + mileage) not just kasserapport.
+ */
+export function buildBundleSubject({ businessName, fromIso, toIso, language = "da" } = {}) {
+  const parts = [];
+  if (language === "en") parts.push("Bookkeeping bundle");
+  else parts.push("Bogføringsbundt");
+  if (businessName) parts.push(businessName);
+  if (fromIso && toIso) {
+    parts.push(formatMonthLabel(fromIso, toIso, language));
+  }
+  return parts.join(" · ");
+}
+
+
+/**
+ * If the range exactly spans one calendar month, return "maj 2026" / "May 2026".
+ * Otherwise fall back to "1.5.2026 → 31.5.2026" format.
+ */
+function formatMonthLabel(fromIso, toIso, language) {
+  const [y1, m1, d1] = fromIso.split("-").map(Number);
+  const [y2, m2, d2] = toIso.split("-").map(Number);
+  // Last day of m1's month
+  const lastOfM1 = new Date(y1, m1, 0).getDate();
+  const isFullMonth = y1 === y2 && m1 === m2 && d1 === 1 && d2 === lastOfM1;
+  if (isFullMonth) {
+    const months_da = [
+      "januar", "februar", "marts", "april", "maj", "juni",
+      "juli", "august", "september", "oktober", "november", "december",
+    ];
+    const months_en = [
+      "January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December",
+    ];
+    const monthName = language === "en" ? months_en[m1 - 1] : months_da[m1 - 1];
+    return `${monthName} ${y1}`;
+  }
+  return `${formatShortDate(fromIso, language)} → ${formatShortDate(toIso, language)}`;
+}
+
+
+/**
+ * Build the email body for a bookkeeping-bundle handoff.
+ *
+ * Explains what's in the ZIP so the recipient (revisor) knows the import
+ * order before they unzip. Polite, business-formal, Danish by default
+ * because the recipient is a DK revisor in 99% of cases.
+ */
+export function buildBundleBody({
+  businessName,
+  fromIso,
+  toIso,
+  accountantName,
+  language = "da",
+} = {}) {
+  const monthLabel = formatMonthLabel(fromIso, toIso, language);
+
+  if (language === "en") {
+    const greet = accountantName ? `Hi ${accountantName},` : "Hi,";
+    const lines = [
+      greet,
+      "",
+      `Attached is the bookkeeping bundle for ${monthLabel}.`,
+      "",
+      "The ZIP contains four files:",
+      "  • sales-expenses-…csv — daily vouchers (Dinero format)",
+      "  • faktura-…csv         — outgoing invoices (AR register)",
+      "  • mileage-…csv         — kørselsgodtgørelse log",
+      "  • README.txt           — import order + notes",
+      "",
+      "Let me know if you need anything else.",
+      "",
+      "Best regards,",
+      businessName || "",
+      "",
+      "— sent from BonBox",
+    ];
+    return lines.filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n");
+  }
+
+  // Danish (default)
+  const greet = accountantName ? `Hej ${accountantName},` : "Hej,";
+  const lines = [
+    greet,
+    "",
+    `Vedlagt finder du bogføringsbundtet for ${monthLabel}.`,
+    "",
+    "ZIP-filen indeholder fire filer:",
+    "  • sales-expenses-…csv — daglige bilag (Dinero-format)",
+    "  • faktura-…csv         — udgående fakturaer (debitorbog)",
+    "  • mileage-…csv         — kørselsgodtgørelse-log",
+    "  • README.txt           — import-rækkefølge + noter",
+    "",
+    "Sig endelig til hvis du mangler noget.",
+    "",
+    "Med venlig hilsen,",
+    businessName || "",
+    "",
+    "— sendt fra BonBox",
+  ];
+  return lines.filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n");
+}
+
+
+/**
+ * Send a monthly bookkeeping bundle ZIP to the accountant.
+ *
+ * Same three-path strategy as `sendDailyCloseRangeToAccountant`:
+ *   1. Web Share API with files (mobile / Capacitor)
+ *   2. Download + mailto: (desktop, with file pre-attached for drag)
+ *   3. Plain download (last resort)
+ *
+ * Different subject + body templates because this is the full monthly
+ * handoff, not the kasserapport-only flow.
+ */
+export async function sendBundleToAccountant({
+  blob,
+  filename,
+  accountantEmail,
+  accountantName,
+  businessName,
+  fromIso,
+  toIso,
+  language = "da",
+}) {
+  const subject = buildBundleSubject({ businessName, fromIso, toIso, language });
+  const body = buildBundleBody({ businessName, fromIso, toIso, accountantName, language });
+
+  // Path 1 — native share sheet (iOS/Android/Capacitor)
+  const shareResult = await shareViaSheet(blob, filename, {
+    title: subject,
+    text: body,
+  });
+  if (shareResult.ok) return shareResult;
+
+  // Path 2 — download + mailto (desktop)
+  try {
+    downloadBlob(blob, filename);
+    await new Promise(r => setTimeout(r, 200));
+    openMailto({ to: accountantEmail, subject, body });
+    return { ok: true, channel: "mailto" };
+  } catch (e) {
+    return { ok: false, channel: "download", reason: e?.message || "mailto_failed" };
+  }
+}
+
+
 export async function sendDailyCloseRangeToAccountant({
   blob,
   filename,

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "../services/api";
 import { trackEvent } from "../hooks/useEventLog";
+import { sendBundleToAccountant } from "../utils/shareDailyCloseRange";
 
 /**
  * Bookkeeping Export — push BonBox data into the user's existing
@@ -26,11 +27,18 @@ export default function BookkeepingExportPage() {
   });
   const [end, setEnd] = useState(() => new Date().toISOString().slice(0, 10));
   const [downloading, setDownloading] = useState(false);
+  const [sending, setSending] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
+  // Needed by the "Send to revisor" button — accountant email + business
+  // name come from the user's saved profile.
+  const [businessProfile, setBusinessProfile] = useState(null);
+  const [user, setUser] = useState(null);
 
   useEffect(() => {
     api.get("/exports/formats").then((res) => setFormats(res.data || [])).catch(() => {});
+    api.get("/business").then((res) => setBusinessProfile(res.data)).catch(() => {});
+    api.get("/auth/me").then((res) => setUser(res.data)).catch(() => {});
     // Allow the dashboard banner (or a deep link) to pre-select a format
     // via ?format=bundle. Falls back silently if the value isn't a real
     // format ID.
@@ -100,6 +108,91 @@ export default function BookkeepingExportPage() {
       setErr(detail || "Could not generate export — please try a different date range.");
     } finally {
       setDownloading(false);
+    }
+  };
+
+  /** Send the current export to the saved revisor — share sheet on mobile,
+   * download + mailto on desktop. Three paths handled by the share helper.
+   *
+   * Distinct from handleDownload: this one also opens an email window
+   * pre-filled with the revisor's address and a Danish-language body
+   * explaining what's in the file. The bundle format is the obvious target
+   * here, but the button works for any format.
+   */
+  const handleSend = async () => {
+    setSending(true);
+    setErr("");
+    setMsg("");
+    try {
+      const res = await api.get(`/exports/${selected}`, {
+        params: { start, end },
+        responseType: "blob",
+      });
+      const ctype = res.headers?.["content-type"] || res.headers?.["Content-Type"] || "";
+      if (ctype.includes("application/json")) {
+        const text = await res.data.text();
+        try {
+          const json = JSON.parse(text);
+          setErr(json?.detail || "Export returned no data.");
+          return;
+        } catch (_) {
+          setErr("Unexpected response from the server.");
+          return;
+        }
+      }
+      const ext = currentFormat?.ext || "csv";
+      const mime = ext === "zip" ? "application/zip" : "text/csv";
+      const blob = new Blob([res.data], { type: mime });
+      const filename = `bonbox-${selected}-${start}-to-${end}.${ext}`;
+      // Use Danish for the email body when the user's language is Danish
+      // (default for DK accounts) — revisors are nearly always Danish-speaking.
+      const lang = (user?.language === "en") ? "en" : "da";
+
+      const result = await sendBundleToAccountant({
+        blob,
+        filename,
+        accountantEmail: businessProfile?.accountant_email || "",
+        accountantName: businessProfile?.accountant_name || "",
+        businessName: user?.business_name || businessProfile?.company_name || "",
+        fromIso: start,
+        toIso: end,
+        language: lang,
+      });
+
+      trackEvent("bookkeeping_export_send", "exports", `${selected} ${start}..${end} via ${result.channel || "?"}`);
+
+      if (result.ok) {
+        if (result.channel === "share") {
+          setMsg("Share sheet opened — pick Mail / WhatsApp.");
+        } else if (result.channel === "mailto") {
+          setMsg(
+            businessProfile?.accountant_email
+              ? "Email opened — attach the downloaded file and send."
+              : "Email opened — add revisor's address on Profile to skip typing it next time.",
+          );
+        } else {
+          setMsg("Downloaded — attach manually to email.");
+        }
+        setTimeout(() => setMsg(""), 6000);
+      } else {
+        setErr(result.reason || "Could not open the share. Try the Download button instead.");
+        setTimeout(() => setErr(""), 5000);
+      }
+    } catch (e) {
+      let detail = "";
+      const blob = e?.response?.data;
+      if (blob && typeof blob.text === "function") {
+        try {
+          const text = await blob.text();
+          const json = JSON.parse(text);
+          detail = json?.detail || "";
+        } catch (_) {
+          detail = "";
+        }
+      }
+      setErr(detail || "Could not send — please try a different date range.");
+    } finally {
+      setSending(false);
     }
   };
 
@@ -231,18 +324,42 @@ export default function BookkeepingExportPage() {
         )}
 
         {/* Action */}
-        <div className="flex items-center justify-between pt-2">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
           <div className="text-xs text-gray-500 dark:text-gray-400">
             File: <span className="font-mono">bonbox-{selected}-{start}-to-{end}.{currentFormat?.ext || "csv"}</span>
           </div>
-          <button
-            onClick={handleDownload}
-            disabled={downloading}
-            className="px-5 py-2.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg shadow-sm transition"
-          >
-            {downloading ? "Generating…" : `Download ${(currentFormat?.ext || "csv").toUpperCase()}`}
-          </button>
+          <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+            <button
+              onClick={handleDownload}
+              disabled={downloading || sending}
+              className="px-4 py-2.5 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 border border-gray-300 dark:border-gray-600 disabled:opacity-50 text-gray-800 dark:text-gray-100 text-sm font-semibold rounded-lg transition"
+            >
+              {downloading ? "Generating…" : `Download ${(currentFormat?.ext || "csv").toUpperCase()}`}
+            </button>
+            <button
+              onClick={handleSend}
+              disabled={downloading || sending}
+              title={
+                businessProfile?.accountant_email
+                  ? `Email to ${businessProfile.accountant_email}`
+                  : "Set revisor's email on Profile to skip typing it"
+              }
+              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg shadow-sm transition inline-flex items-center gap-2"
+            >
+              {sending ? "Sending…" : (
+                <>
+                  <span aria-hidden="true">📤</span>
+                  <span>Send to revisor</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
+        {!businessProfile?.accountant_email && (
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 -mt-2">
+            Tip: <a href="/profile" className="text-emerald-700 dark:text-emerald-400 hover:underline font-medium">save your revisor's email on Profile</a> to skip typing it every month.
+          </p>
+        )}
 
         {msg && (
           <p className="text-sm text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 rounded-lg px-3 py-2">{msg}</p>
