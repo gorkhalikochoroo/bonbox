@@ -843,37 +843,100 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Pairs with your bookkeeping (legal disclaimer reframed as feature) ── */}
+      {/* ── Cut your bookkeeping bill — the honest Dinero/revisor breakdown ── */}
       <section className="py-16 sm:py-20 border-y border-gray-200/60 bg-white">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <FadeIn>
             <div className="text-center mb-10">
-              <span className="inline-block text-[11px] font-bold uppercase tracking-[0.15em] text-blue-600 mb-3">
-                {t("landingPairsKicker") || "Plays nice with your stack"}
+              <span className="inline-block text-[11px] font-bold uppercase tracking-[0.15em] text-green-700 mb-3">
+                {t("landingPairsKicker") || "Cut your bookkeeping bill"}
               </span>
               <h2 className="text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900 tracking-tight mb-4">
-                {t("landingPairsTitle") || "Pairs with your bookkeeping — doesn't replace it"}
+                {t("landingPairsTitle") || "Stop paying your revisor monthly"}
               </h2>
               <p className="text-gray-600 text-base md:text-lg max-w-2xl mx-auto leading-relaxed">
-                {t("landingPairsSub") || "BonBox runs alongside Dinero, Billy, e-conomic and your revisor. Keep your registered books where they are — we capture the messy operational data and feed clean exports to whoever does your accounting."}
+                {t("landingPairsSub") || "Most Danish small-business owners pay 1.500–3.000 kr/month for a revisor to do daily bookkeeping. BonBox replaces that grind for 129 kr/month — you pair with Dinero's free tier or an annual revisor only for the official filings."}
               </p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl mx-auto mb-8">
-              {[
-                { name: "Dinero", note: t("landingPairsDineroNote") || "CSV export" },
-                { name: "Billy", note: t("landingPairsBillyNote") || "CSV export" },
-                { name: "e-conomic", note: t("landingPairsEconomicNote") || "CSV export" },
-              ].map((p) => (
-                <div key={p.name} className="bg-gray-50 border border-gray-200 rounded-xl p-5 text-center hover:border-blue-300 hover:shadow-sm transition">
-                  <div className="text-sm font-bold text-gray-900 mb-1">{p.name}</div>
-                  <div className="text-xs text-gray-500">{p.note}</div>
+            {/* Two-column split: what BonBox handles vs. what stays with revisor/Dinero */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl mx-auto mb-8">
+              <div className="bg-green-50/60 border-2 border-green-300 rounded-2xl p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-2xl">⚡</span>
+                  <div>
+                    <h3 className="text-base font-bold text-gray-900">
+                      {t("landingPairsBonBoxTitle") || "BonBox handles · 129 kr/mo"}
+                    </h3>
+                    <p className="text-xs text-green-700 font-medium">{t("landingPairsBonBoxNote") || "The monthly grind that costs you most"}</p>
+                  </div>
                 </div>
-              ))}
+                <ul className="space-y-2 text-sm text-gray-800">
+                  {[
+                    t("landingPairsBonBoxF1") || "🧾 Send fakturaer — gap-less, Bogføringsloven-compliant",
+                    t("landingPairsBonBoxF2") || "👥 Customers + CVR-verified debitors",
+                    t("landingPairsBonBoxF3") || "📷 OCR receipts — 6 sec/scan",
+                    t("landingPairsBonBoxF4") || "🚗 Mileage log — Skattestyrelsen-compliant",
+                    t("landingPairsBonBoxF5") || "🏦 Bank import — auto-matches payments to invoices",
+                    t("landingPairsBonBoxF6") || "🤖 AI anomaly detection on sales + wages",
+                  ].map((f, i) => (
+                    <li key={i} className="flex items-start gap-2">
+                      <span className="text-green-600 mt-0.5 shrink-0">✓</span>
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="bg-gray-50 border border-gray-200 rounded-2xl p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-2xl">📑</span>
+                  <div>
+                    <h3 className="text-base font-bold text-gray-900">
+                      {t("landingPairsRevisorTitle") || "Revisor or Dinero free · annual only"}
+                    </h3>
+                    <p className="text-xs text-gray-500 font-medium">{t("landingPairsRevisorNote") || "The legal filings — 1–4× per year"}</p>
+                  </div>
+                </div>
+                <ul className="space-y-2 text-sm text-gray-700">
+                  {[
+                    t("landingPairsRevisorF1") || "Moms-angivelse to SKAT (quarterly)",
+                    t("landingPairsRevisorF2") || "Årsregnskab (annual statement)",
+                    t("landingPairsRevisorF3") || "Selvangivelse review",
+                    t("landingPairsRevisorF4") || "Tax-strategy consultations",
+                  ].map((f, i) => (
+                    <li key={i} className="flex items-start gap-2">
+                      <span className="text-gray-400 mt-0.5 shrink-0">•</span>
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-4 pt-3 border-t border-gray-200 text-[11px] text-gray-500 leading-relaxed">
+                  {t("landingPairsRevisorTip") || "Tip: Dinero's free tier handles Moms-angivelse filing. Pair it with BonBox's CSV export — your revisor only needs to see you once a year for the årsregnskab."}
+                </p>
+              </div>
+            </div>
+
+            {/* Savings callout */}
+            <div className="max-w-3xl mx-auto bg-emerald-600 text-white rounded-2xl p-6 mb-8">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
+                <div>
+                  <div className="text-[11px] uppercase tracking-wider opacity-80">{t("landingPairsCostBefore") || "Monthly revisor"}</div>
+                  <div className="text-2xl font-bold mt-1">~24.000 kr/yr</div>
+                </div>
+                <div>
+                  <div className="text-[11px] uppercase tracking-wider opacity-80">{t("landingPairsCostAfter") || "BonBox + annual revisor"}</div>
+                  <div className="text-2xl font-bold mt-1">~6.500 kr/yr</div>
+                </div>
+                <div>
+                  <div className="text-[11px] uppercase tracking-wider opacity-80">{t("landingPairsSavings") || "You save"}</div>
+                  <div className="text-2xl font-bold mt-1 text-yellow-200">~17.500 kr/yr</div>
+                </div>
+              </div>
             </div>
 
             <p className="text-center text-[12px] text-gray-500 max-w-2xl mx-auto leading-relaxed">
-              {t("landingPairsDisclaimer") || "BonBox is not a registered digital bookkeeping system (registreret digitalt bogføringssystem) under Bogføringsloven 2024. If your business is legally required to use a registered system, keep using one — BonBox sits alongside it."}
+              {t("landingPairsDisclaimer") || "BonBox is not a registered digital bookkeeping system (registreret digitalt bogføringssystem) under Bogføringsloven 2024. Pair it with Dinero (or another registered system) and a revisor for the official filings. Savings estimate based on a typical Danish small business paying ~2.000 kr/month for monthly revisor service vs. annual-only revisor + BonBox."}
             </p>
           </FadeIn>
         </div>
