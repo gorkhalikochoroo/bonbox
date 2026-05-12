@@ -244,36 +244,31 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
   // every keystroke once 8 digits are reached.
   const [cvrLookup, setCvrLookup] = useState({ status: "idle", forCvr: "" });
 
-  // Trigger CVR autofill once the user has typed a valid 8-digit CVR.
-  // Uses the same /business/lookup endpoint as the Profile flow — handles
-  // CVR + DAWA address verification server-side.
+  // Debounced CVR autofill. Fires 400 ms after the last keystroke once a
+  // valid 8-digit CVR is in the field. Debouncing prevents a burst of
+  // requests when React re-renders mid-typing and also stops StrictMode
+  // double-invocation from racing the cancellation flag.
   useEffect(() => {
     if (!form.is_company) return;
     const cvr = (form.cvr || "").trim();
     if (cvr.length !== 8 || !/^\d{8}$/.test(cvr)) return;
-    if (cvrLookup.forCvr === cvr) return; // already tried this exact value
+    if (cvrLookup.forCvr === cvr && cvrLookup.status !== "idle") return;
 
-    let cancelled = false;
-    setCvrLookup({ status: "loading", forCvr: cvr });
-    api
-      .get("/business/lookup", { params: { q: cvr, country: "DK" } })
-      .then((res) => {
-        if (cancelled) return;
+    let active = true;
+    const timer = setTimeout(async () => {
+      if (!active) return;
+      setCvrLookup({ status: "loading", forCvr: cvr });
+      try {
+        const res = await api.get("/business/lookup", { params: { q: cvr, country: "DK" } });
+        if (!active) return;
         const hit = Array.isArray(res.data) ? res.data[0] : null;
         if (!hit?.name) {
           setCvrLookup({ status: "no-match", forCvr: cvr });
           return;
         }
-        // Only auto-fill fields the user hasn't typed into — never clobber
-        // existing input.
         setForm((f) => ({
           ...f,
           name: f.name || hit.name || "",
-          // hit.address is "Vesterbrogade 1, 1620 København" — but we
-          // store address + zipcode + city separately. cvrapi.dk also
-          // gives us them separately via the raw fields, but the
-          // service layer only surfaces the concatenated `address`
-          // plus separate zipcode/city, so we use those.
           address: f.address || (hit.address || "").split(",")[0].trim() || "",
           zipcode: f.zipcode || hit.zipcode || "",
           city: f.city || hit.city || "",
@@ -281,14 +276,19 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
           phone: f.phone || hit.phone || "",
         }));
         setCvrLookup({ status: "ok", forCvr: cvr, hit });
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        const msg = e?.response?.data?.detail || "Lookup failed";
-        setCvrLookup({ status: "error", forCvr: cvr, msg });
-      });
+      } catch (e) {
+        if (!active) return;
+        // Surface 503 (cvrapi.dk rate limit) and 4xx (bad CVR) the same
+        // way — the user still has to enter details manually.
+        setCvrLookup({ status: "error", forCvr: cvr });
+      }
+    }, 400);
 
-    return () => { cancelled = true; };
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.cvr, form.is_company]);
 
   const handleSubmit = async (e) => {
