@@ -261,7 +261,14 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
       if (!active) return;
       setCvrLookup({ status: "loading", forCvr: cvr });
       try {
-        const res = await api.get("/business/lookup", { params: { q: cvr, country: "DK" } });
+        // `_noRetry: true` opts out of the global axios retry-on-5xx
+        // interceptor. cvrapi.dk's 503 means upstream quota is gone —
+        // retrying for 26 seconds before showing the manual-entry hint
+        // is awful UX. Fail fast (~1s) so users can move on.
+        const res = await api.get("/business/lookup", {
+          params: { q: cvr, country: "DK" },
+          _noRetry: true,
+        });
         if (!active) return;
         const hit = Array.isArray(res.data) ? res.data[0] : null;
         if (!hit?.name) {
@@ -280,9 +287,14 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
         setCvrLookup({ status: "ok", forCvr: cvr, hit });
       } catch (e) {
         if (!active) return;
-        // Surface 503 (cvrapi.dk rate limit) and 4xx (bad CVR) the same
-        // way — the user still has to enter details manually.
-        setCvrLookup({ status: "error", forCvr: cvr });
+        // Distinguish quota/upstream-down (503) from "bad CVR" (404/400)
+        // so the message is honest. The backend uses 503 for quota-out
+        // and lookup-service-failure cases; 4xx for client-supplied bad
+        // input. Either way the user enters details manually below, but
+        // a clear message earns trust.
+        const status = e?.response?.status;
+        const reason = status === 503 ? "unavailable" : "no-match";
+        setCvrLookup({ status: "error", forCvr: cvr, reason });
       }
     }, 400);
 
@@ -379,7 +391,12 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
                     {t("cvrNoMatch") || "No match found — enter details manually"}
                   </p>
                 )}
-                {cvrLookup.status === "error" && (
+                {cvrLookup.status === "error" && cvrLookup.reason === "unavailable" && (
+                  <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+                    {t("cvrLookupUnavailable") || "CVR-opslag er midlertidigt utilgængeligt — udfyld manuelt nedenfor"}
+                  </p>
+                )}
+                {cvrLookup.status === "error" && cvrLookup.reason !== "unavailable" && (
                   <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
                     {t("cvrLookupError") || "CVR lookup unavailable — enter details manually"}
                   </p>

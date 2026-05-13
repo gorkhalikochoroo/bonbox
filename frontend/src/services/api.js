@@ -38,6 +38,10 @@ const api = axios.create({
 api.interceptors.response.use(null, async (err) => {
   const config = err.config;
   if (!config || config._retryCount >= 4) return Promise.reject(err);
+  // Opt-out flag: callers that don't want the retry-on-5xx behaviour
+  // (e.g. CVR lookup — 503 means upstream quota is gone, retrying for
+  // 26 seconds is just stuck-UI theater) pass `_noRetry: true`.
+  if (config._noRetry) return Promise.reject(err);
   const isRetryable = !err.response || err.code === "ECONNABORTED" || err.response?.status >= 500;
   if (!isRetryable) return Promise.reject(err);
   // Only retry login/register POSTs on network errors (not on 4xx)
