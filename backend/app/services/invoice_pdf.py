@@ -157,6 +157,78 @@ def _is_white_label(user: User | None) -> bool:
         return False
 
 
+# ─── MobilePay QR helper ────────────────────────────────────────────
+
+
+def _build_mobilepay_qr_payload(
+    mobilepay_number: str, amount: Decimal, faktura_ref: str,
+) -> str:
+    """Build the MobilePay deep-link URL embedded into the QR code.
+
+    The URL format is the published MobilePay scheme:
+      mobilepay://send?phone=XXXXXXXX&amount=NN.NN&comment=REFERENCE
+
+    Notes:
+      • phone — strip non-digit chars from mobilepay_number (users
+        sometimes paste '+45 12 34 56 78', the scheme wants raw digits).
+      • amount — decimal with dot separator, 2 places. MobilePay app
+        opens with this pre-filled but the payer can still edit it
+        (we can't enforce exact amount via deep-link; that's a paid-
+        MobilePay-API-only feature).
+      • comment — the fakturanummer string, so the payment lands in
+        the owner's MobilePay with the right reference and our auto-
+        matcher can later confirm it via _text_signal_matches.
+    """
+    digits = "".join(c for c in (mobilepay_number or "") if c.isdigit())
+    amount_str = f"{amount:.2f}"
+    # URL-encode the comment so weird customer-typed faktura refs don't
+    # break the deep link. quote_plus uses + for space which MobilePay
+    # accepts fine.
+    from urllib.parse import quote_plus
+    return (
+        f"mobilepay://send?phone={digits}"
+        f"&amount={amount_str}"
+        f"&comment={quote_plus(faktura_ref)}"
+    )
+
+
+def _make_mobilepay_qr_flowable(
+    mobilepay_number: str, amount: Decimal, faktura_ref: str,
+    size_mm: float = 26.0,
+) -> RLImage | None:
+    """Render the MobilePay deep-link as a QR code, returned as a
+    ReportLab Image flowable ready to drop into a Table cell.
+
+    Returns None on any error — the PDF still ships, the customer just
+    has to type the MobilePay number manually. Never break the PDF
+    over a QR rendering glitch.
+    """
+    try:
+        import qrcode
+        payload = _build_mobilepay_qr_payload(
+            mobilepay_number, amount, faktura_ref,
+        )
+        qr = qrcode.QRCode(
+            version=None,
+            # M-level error correction — 15% redundancy survives a small
+            # smudge or fold on a printed faktura, doesn't bloat the
+            # code so much that a phone camera struggles.
+            error_correction=qrcode.constants.ERROR_CORRECT_M,
+            box_size=10,
+            border=2,
+        )
+        qr.add_data(payload)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        return RLImage(buf, width=size_mm * mm, height=size_mm * mm)
+    except Exception as e:
+        logger.warning("mobilepay QR render failed: %s — skipping", e)
+        return None
+
+
 # ─── Renderer ────────────────────────────────────────────────────────
 
 def render_invoice_pdf(db: Session, invoice: Invoice) -> bytes:
@@ -579,7 +651,51 @@ def render_invoice_pdf(db: Session, invoice: Invoice) -> bytes:
     if invoice.notes and not is_credit:
         payment_lines.append("")
         payment_lines.append(f"<i>{L['notes']}: {invoice.notes}</i>")
-    story.append(Paragraph("<br/>".join(payment_lines), body))
+
+    # ── Payment block layout ────────────────────────────────────────
+    # If MobilePay is on file AND the invoice has a payable amount AND
+    # this isn't a kreditnota, render a 2-column layout:
+    #   left  → payment text (bank + MobilePay + terms + notes)
+    #   right → MobilePay deep-link QR with amount + fakturanummer
+    #            pre-filled. Customer scans → MobilePay opens with the
+    #            full payment ready, just taps "Send".
+    # No QR for credit notes (negative amount, nothing to pay).
+    # No QR if MobilePay isn't configured (the deep link would resolve
+    # to nothing useful).
+    mp_qr = None
+    if mobilepay and not is_credit and invoice.total_gross > 0:
+        mp_qr = _make_mobilepay_qr_flowable(
+            mobilepay_number=mobilepay,
+            amount=Decimal(str(invoice.total_gross)),
+            faktura_ref=fakturanr_display,
+        )
+
+    if mp_qr is not None:
+        payment_text = Paragraph("<br/>".join(payment_lines), body)
+        scan_label = (
+            "Scan med MobilePay" if lang == "da" else "Scan with MobilePay"
+        )
+        qr_cell = [mp_qr, Paragraph(
+            f"<font size='7' color='#475569'>{scan_label}</font>", small,
+        )]
+        # Left column wider so payment-info text doesn't wrap awkwardly;
+        # QR is fixed 28mm visual width incl. caption.
+        pay_row = Table(
+            [[payment_text, qr_cell]],
+            colWidths=[125 * mm, 35 * mm],
+        )
+        pay_row.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("ALIGN", (1, 0), (1, 0), "CENTER"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        story.append(pay_row)
+    else:
+        story.append(Paragraph("<br/>".join(payment_lines), body))
+
     story.append(Spacer(1, 12 * mm))
 
     # ── Footer attribution ──────────────────────────────────────────

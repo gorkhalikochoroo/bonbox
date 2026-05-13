@@ -67,6 +67,12 @@ from app.models import (
     Sale,
     User,
 )
+# Faktura intel — Day 9 of the compliance sprint. The Brief surfaces
+# overdue + payments-to-review counts so they're the first thing the
+# owner sees each morning, driving traffic to /faktura/review without
+# requiring users to remember to check.
+from app.models.invoice import Invoice
+from app.models.payment_match_suggestion import PaymentMatchSuggestion
 from app.services.billing import effective_plan, get_cap
 from app.utils.time import utc_now
 
@@ -120,6 +126,15 @@ class Precompute:
     low_stock_items: list[dict]  # [{"name": str, "qty": float, "unit": str}]
     khata_outstanding: float
     khata_with_balance: int
+    # ── Faktura intel (Day 9) ───────────────────────────────────────
+    # Counts/amounts that drive the morning "what needs my attention"
+    # block. All Numbers come from already-validated DB rows; the LLM
+    # can phrase but can't invent.
+    overdue_invoice_count: int = 0          # status='overdue' OR (sent + past due_date)
+    overdue_invoice_total: float = 0.0      # sum of total_gross on those
+    payment_suggestions_pending: int = 0    # PaymentMatchSuggestion review inbox depth
+    invoices_sent_this_month: int = 0       # progress counter — "Y sent so far"
+    invoices_paid_this_month: int = 0       # closed loop counter
 
     def to_dict(self) -> dict:
         return {k: v for k, v in self.__dict__.items()}
@@ -268,6 +283,60 @@ def compute_precompute(user: User, db: Session) -> Precompute:
             khata_total += outstanding
             khata_count += 1
 
+    # ── Faktura intel — Day 9 ───────────────────────────────────────
+    # Catch both rows already flipped to 'overdue' by the nightly
+    # status sweep AND rows still 'sent' but past their due_date (in
+    # case the sweep hasn't run yet today). Excludes credit notes —
+    # negative-amount rows aren't "owed to us".
+    overdue_q = (
+        db.query(
+            sa_func.count(Invoice.id).label("n"),
+            sa_func.coalesce(sa_func.sum(Invoice.total_gross), 0).label("total"),
+        )
+        .filter(
+            Invoice.user_id == user.id,
+            Invoice.is_credit_note.is_(False),
+            Invoice.due_date < today,
+            Invoice.status.in_(("sent", "overdue")),
+        )
+        .first()
+    )
+    overdue_count = int(overdue_q.n or 0)
+    overdue_total = float(overdue_q.total or 0)
+
+    # Pending payment-match suggestions — review inbox depth
+    pending_suggestions = (
+        db.query(sa_func.count(PaymentMatchSuggestion.id))
+        .filter(
+            PaymentMatchSuggestion.user_id == user.id,
+            PaymentMatchSuggestion.status == "pending",
+        )
+        .scalar()
+    ) or 0
+
+    # Month-to-date progress counters — only counts non-draft, non-credit
+    sent_this_month = (
+        db.query(sa_func.count(Invoice.id))
+        .filter(
+            Invoice.user_id == user.id,
+            Invoice.is_credit_note.is_(False),
+            Invoice.issue_date >= month_start,
+            Invoice.issue_date <= today,
+            Invoice.status.in_(("sent", "paid", "overdue", "credited")),
+        )
+        .scalar()
+    ) or 0
+    paid_this_month = (
+        db.query(sa_func.count(Invoice.id))
+        .filter(
+            Invoice.user_id == user.id,
+            Invoice.is_credit_note.is_(False),
+            Invoice.paid_at.isnot(None),
+            Invoice.paid_at >= datetime.combine(month_start, datetime.min.time()),
+        )
+        .scalar()
+    ) or 0
+
     return Precompute(
         business_name=user.business_name or "your business",
         currency=user.currency or "DKK",
@@ -289,6 +358,11 @@ def compute_precompute(user: User, db: Session) -> Precompute:
         low_stock_items=low_stock,
         khata_outstanding=round(khata_total, 2),
         khata_with_balance=khata_count,
+        overdue_invoice_count=int(overdue_count),
+        overdue_invoice_total=round(overdue_total, 2),
+        payment_suggestions_pending=int(pending_suggestions),
+        invoices_sent_this_month=int(sent_this_month),
+        invoices_paid_this_month=int(paid_this_month),
     )
 
 
@@ -409,6 +483,53 @@ def generate_candidates(p: Precompute) -> list[Candidate]:
             weight=0.7,
             facts=[f"{p.month_profit_margin_pct:.0f}%"],
         ))
+
+    # ── Faktura intel — Day 9 ───────────────────────────────────────
+    # Highest-weight rule when conditions hit. Owners forget about
+    # overdue fakturaer until the customer reminds them; the Brief
+    # is the morning reminder that earns its keep.
+    if p.overdue_invoice_count > 0 and p.overdue_invoice_total > 0:
+        n = p.overdue_invoice_count
+        amount = _fmt_money(p.overdue_invoice_total, cur)
+        # Singular/plural — Brief is read by Danes; even in EN we
+        # want it to feel hand-written, not template-y.
+        faktura_word = "faktura" if n == 1 else "fakturaer"
+        out.append(Candidate(
+            type="action",
+            text=f"{amount} overdue across {n} {faktura_word} — send a reminder this morning.",
+            # Same weight as low-stock-top-seller — both are "do this now"
+            weight=0.95,
+            facts=[amount, str(n)],
+        ))
+
+    # Review inbox depth — drives traffic to /faktura/review for
+    # MEDIUM/LOW confidence bank matches that need an owner decision.
+    # Only fires when there's actually something pending; we never
+    # generate filler ("0 to review" is silence, not a candidate).
+    if p.payment_suggestions_pending > 0:
+        n = p.payment_suggestions_pending
+        match_word = "match" if n == 1 else "matches"
+        out.append(Candidate(
+            type="action",
+            text=f"{n} payment {match_word} need your review — open the faktura inbox.",
+            weight=0.88,
+            facts=[str(n)],
+        ))
+
+    # Faktura momentum — month-to-date "wins" rule. Only fires when
+    # paid count is meaningful (3+) AND sent count is meaningful so
+    # we're not celebrating a single invoice.
+    if p.invoices_paid_this_month >= 3 and p.invoices_sent_this_month >= 3:
+        ratio_pct = round(
+            (p.invoices_paid_this_month / max(p.invoices_sent_this_month, 1)) * 100
+        )
+        if ratio_pct >= 70:
+            out.append(Candidate(
+                type="win",
+                text=f"{p.invoices_paid_this_month} of {p.invoices_sent_this_month} fakturaer paid this month — clean cash flow.",
+                weight=0.6,
+                facts=[str(p.invoices_paid_this_month), str(p.invoices_sent_this_month)],
+            ))
 
     # Khata outstanding (NP/DK customer credit)
     if p.khata_outstanding > 500 and p.khata_with_balance > 0:

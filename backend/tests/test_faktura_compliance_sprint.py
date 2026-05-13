@@ -732,7 +732,200 @@ def test_starter_can_use_invoicing_features():
     assert "free" not in _STARTER_AND_ABOVE
 
 
-# ─── Test 9: Auto-match guards ───────────────────────────────────
+# ─── Test 9: MobilePay QR deep-link ──────────────────────────────
+
+
+def test_mobilepay_deep_link_payload():
+    """Verify the MobilePay deep-link URL has the right shape — phone
+    digits only, amount with 2 decimals, comment URL-encoded."""
+    from app.services.invoice_pdf import _build_mobilepay_qr_payload
+
+    out = _build_mobilepay_qr_payload(
+        mobilepay_number="+45 12 34 56 78",
+        amount=Decimal("1250.00"),
+        faktura_ref="Faktura 2026-0042",
+    )
+    # Phone normalized (digits only, no '+' or spaces)
+    assert "phone=4512345678" in out
+    # Amount has 2 decimals
+    assert "amount=1250.00" in out
+    # Comment URL-encoded (space → '+', preserves faktura tracking)
+    assert "comment=Faktura+2026-0042" in out
+    # Scheme correct
+    assert out.startswith("mobilepay://send?")
+
+
+def test_mobilepay_qr_flowable_renders_for_valid_invoice():
+    """Returns an RLImage flowable for the happy path."""
+    from app.services.invoice_pdf import _make_mobilepay_qr_flowable
+
+    flow = _make_mobilepay_qr_flowable("12345678", Decimal("100.00"), "2026-0001")
+    assert flow is not None
+
+
+def test_invoice_pdf_renders_with_and_without_mobilepay(db, user, customer):
+    """End-to-end: PDF builds successfully both with and without
+    MobilePay configured. No crashes from the QR integration path."""
+    from app.models.business_profile import BusinessProfile
+    from app.services.invoice_pdf import render_invoice_pdf
+
+    profile = BusinessProfile(
+        user_id=user.id,
+        bank_reg_number="1234",
+        bank_account_number="5678901234",
+        mobilepay_number="12345678",
+    )
+    db.add(profile)
+    db.commit()
+
+    inv = _make_invoice(db, user, customer, Decimal("1250.00"))
+
+    # With MobilePay configured — 2-column layout, QR rendered
+    pdf_with_qr = render_invoice_pdf(db, inv)
+    assert pdf_with_qr.startswith(b"%PDF")
+    assert len(pdf_with_qr) > 1000  # sanity — not an empty stub
+
+    # Without MobilePay — falls back to single-column layout, no QR
+    profile.mobilepay_number = None
+    db.commit()
+    pdf_without_qr = render_invoice_pdf(db, inv)
+    assert pdf_without_qr.startswith(b"%PDF")
+    # PDF should be smaller without the QR image embedded
+    assert len(pdf_without_qr) < len(pdf_with_qr), (
+        "PDF without MobilePay QR should be smaller than with QR"
+    )
+
+
+def test_credit_note_omits_mobilepay_qr(db, user, customer):
+    """Kreditnotaer have negative totals — nothing to collect. Must NOT
+    render a QR (would confuse the customer into 'paying' a refund)."""
+    from app.models.business_profile import BusinessProfile
+    from app.services.invoice_pdf import render_invoice_pdf
+
+    profile = BusinessProfile(
+        user_id=user.id,
+        mobilepay_number="12345678",
+    )
+    db.add(profile)
+    db.commit()
+
+    # Build the invoice normally, then flip the kreditnota flag — we
+    # only care that the renderer skips the QR for credit notes.
+    inv = _make_invoice(db, user, customer, Decimal("500.00"))
+    inv.is_credit_note = True
+    db.commit()
+
+    pdf = render_invoice_pdf(db, inv)
+    assert pdf.startswith(b"%PDF")  # still renders fine
+    # Compare against same-amount non-credit invoice — credit should be
+    # smaller because the QR image is omitted.
+    inv2 = _make_invoice(db, user, customer, Decimal("500.00"))
+    pdf2 = render_invoice_pdf(db, inv2)
+    assert len(pdf) < len(pdf2), (
+        "Credit note must NOT embed a MobilePay QR (no money to collect)"
+    )
+
+
+# ─── Test 10: AI Daily Brief faktura section ─────────────────────
+
+
+def test_daily_brief_precompute_includes_faktura_intel(db, user, customer):
+    """Precompute pulls faktura counts/amounts so the LLM (or fallback)
+    can phrase them. Verifies the 5 new fields are populated correctly."""
+    from app.services.daily_brief import compute_precompute
+
+    # Two overdue invoices (1500 + 2500 = 4000 kr overdue)
+    inv1 = _make_invoice(db, user, customer, Decimal("1500.00"))
+    inv2 = _make_invoice(db, user, customer, Decimal("2500.00"))
+    # Force them past due
+    inv1.due_date = date.today() - timedelta(days=10)
+    inv2.due_date = date.today() - timedelta(days=20)
+    # One paid this month
+    inv3 = _make_invoice(db, user, customer, Decimal("750.00"))
+    InvoiceService.mark_paid(db, user, inv3.id, Decimal("750.00"), source="manual")
+    db.commit()
+
+    # One pending payment suggestion
+    sale = _make_bank_sale(db, user, Decimal("1500.00"), notes="UNKNOWN")
+    payment_match_service.try_match_sale_to_invoice(db, sale)
+    db.commit()
+
+    p = compute_precompute(user, db)
+    assert p.overdue_invoice_count == 2
+    assert p.overdue_invoice_total == 4000.00
+    assert p.payment_suggestions_pending >= 1
+    assert p.invoices_paid_this_month >= 1
+    assert p.invoices_sent_this_month >= 3  # all 3 invoices counted as sent
+
+
+def test_daily_brief_candidates_surface_overdue_action(db, user, customer):
+    """When fakturaer are overdue, the candidate list MUST include an
+    'action' card with the total kr + count. This is the morning reminder
+    that earns the Brief its keep."""
+    from app.services.daily_brief import compute_precompute, generate_candidates
+
+    inv = _make_invoice(db, user, customer, Decimal("3000.00"))
+    inv.due_date = date.today() - timedelta(days=5)
+    db.commit()
+
+    p = compute_precompute(user, db)
+    candidates = generate_candidates(p)
+
+    overdue_card = next(
+        (c for c in candidates if "overdue" in c.text.lower()), None,
+    )
+    assert overdue_card is not None, "Overdue invoice must produce a candidate"
+    assert overdue_card.type == "action"
+    # The Brief must mention the count so the owner knows the scope
+    assert "1" in overdue_card.text
+    # Each candidate's facts list must include figures that the LLM
+    # output is later validated against — no hallucinations allowed
+    assert any("3" in f for f in overdue_card.facts)
+
+
+def test_daily_brief_candidates_surface_review_inbox(db, user, customer):
+    """Pending review suggestions must surface as a candidate so the
+    Brief drives traffic to /faktura/review."""
+    from app.services.daily_brief import compute_precompute, generate_candidates
+
+    _make_invoice(db, user, customer, Decimal("1250.00"))
+    sale = _make_bank_sale(db, user, Decimal("1250.00"), notes="UNKNOWN")
+    payment_match_service.try_match_sale_to_invoice(db, sale)
+    db.commit()
+
+    p = compute_precompute(user, db)
+    candidates = generate_candidates(p)
+
+    review_card = next(
+        (c for c in candidates if "review" in c.text.lower()), None,
+    )
+    assert review_card is not None
+    assert review_card.type == "action"
+
+
+def test_daily_brief_silent_when_no_faktura_activity(db, user, customer):
+    """Zero overdue + zero pending suggestions = NO faktura candidates.
+    The Brief stays clean rather than emitting filler. Critical for the
+    'do not generate noise' rule that makes the Brief trustworthy."""
+    from app.services.daily_brief import compute_precompute, generate_candidates
+
+    p = compute_precompute(user, db)
+    assert p.overdue_invoice_count == 0
+    assert p.payment_suggestions_pending == 0
+
+    candidates = generate_candidates(p)
+    # None of the candidates should mention overdue/review when there
+    # are no real numbers to report
+    for c in candidates:
+        assert "overdue" not in c.text.lower(), (
+            f"Brief produced filler 'overdue' card with no overdue: {c.text}"
+        )
+        assert "review" not in c.text.lower(), (
+            f"Brief produced filler 'review' card with no suggestions: {c.text}"
+        )
+
+
+# ─── Test 11: Auto-match guards ──────────────────────────────────
 
 
 def test_outgoing_payments_never_match(db, user, customer):
