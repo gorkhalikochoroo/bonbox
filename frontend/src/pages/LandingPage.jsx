@@ -451,11 +451,12 @@ export default function LandingPage() {
         </div>
       </Section>
 
-      {/* ── PROOF NUMBERS ──────────────────────────────────────── */}
-      {/* Three big numbers that earn the strip. No 4-card row of
-          generic stats. Each number is a real claim made elsewhere
-          on the site so there's no contradiction. */}
-      <section className="py-14 border-y border-stone-200/70 bg-white">
+      {/* ── PROOF NUMBERS + INDUSTRIES STRIP ────────────────────── */}
+      {/* Three big numbers that earn the strip + a "built for" line
+          that quietly signals BonBox knows its segment. The strip
+          replaces the previous "we trust this without naming names"
+          look with a real positioning statement. */}
+      <section className="py-12 border-y border-stone-200/70 bg-white">
         <div className="max-w-5xl mx-auto px-5 sm:px-6 lg:px-8">
           <div className="grid grid-cols-3 gap-6 sm:gap-10">
             {[
@@ -469,6 +470,32 @@ export default function LandingPage() {
                 </p>
                 <p className="text-[13px] sm:text-[14px] text-stone-500 mt-1.5">{s.label}</p>
               </div>
+            ))}
+          </div>
+
+          {/* Built-for chips — small, restrained, single line on
+              desktop. Communicates segment without claiming customer
+              logos we don't have yet. Each chip is a real persona
+              BonBox is configured for (modules pre-enabled, copy
+              tuned, OCR templates pre-built). */}
+          <div className="mt-10 pt-8 border-t border-stone-100 flex flex-wrap items-center justify-center gap-x-2 gap-y-2 text-[13px]">
+            <span className="text-stone-500 mr-1">
+              {tx_("landingBuiltFor", "Built for")}
+            </span>
+            {[
+              tx_("landingIndCafe", "Cafés"),
+              tx_("landingIndRestaurant", "Restaurants"),
+              tx_("landingIndBar", "Bars"),
+              tx_("landingIndShop", "Retail shops"),
+              tx_("landingIndFreelance", "Freelancers"),
+              tx_("landingIndKonsulent", "Konsulenter"),
+            ].map((label) => (
+              <span
+                key={label}
+                className="px-2.5 py-1 bg-stone-50 border border-stone-200 rounded-full text-stone-700 font-medium"
+              >
+                {label}
+              </span>
             ))}
           </div>
         </div>
@@ -537,6 +564,108 @@ export default function LandingPage() {
             />
           ))}
         </div>
+      </Section>
+
+      {/* ── EVERYTHING IN BONBOX — dense feature index ───────── */}
+      {/* The 6 cards above tell the story. This section answers
+          the "...but do you have X?" question for every X. Five
+          named categories, ~6 capabilities each = 30 things shown
+          in one structured viewport-height block. Replaces the old
+          "27 random pills" antipattern with real information
+          architecture. */}
+      <Section className="bg-white border-y border-stone-200/70">
+        <div className="text-center max-w-2xl mx-auto mb-14">
+          <Eyebrow>{tx_("landingAllTag", "Everything in BonBox")}</Eyebrow>
+          <Heading>{tx_("landingAllTitle", "One app. 30+ tools that work together.")}</Heading>
+          <p className="mt-5 text-[16px] text-stone-600 leading-relaxed">
+            {tx_("landingAllSub", "BonBox replaces the spreadsheet + POS + bookkeeping glue. Every module shares the same data, so the morning Brief actually knows what you sold yesterday.")}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-7 lg:gap-5">
+          {[
+            {
+              titleKey: "landingCatMoney",
+              titleFallback: "Money",
+              items: [
+                tx_("landingCatMoney1", "POS + Sales"),
+                tx_("landingCatMoney2", "Expenses + OCR"),
+                tx_("landingCatMoney3", "Cash Book"),
+                tx_("landingCatMoney4", "Budget tracker"),
+                tx_("landingCatMoney5", "Bank import"),
+                tx_("landingCatMoney6", "Tax Autopilot (Moms)"),
+              ],
+            },
+            {
+              titleKey: "landingCatFaktura",
+              titleFallback: "Faktura",
+              items: [
+                tx_("landingCatFaktura1", "Send fakturaer"),
+                tx_("landingCatFaktura2", "CVR-verified customers"),
+                tx_("landingCatFaktura3", "Bank auto-match"),
+                tx_("landingCatFaktura4", "Audit log (10y)"),
+                tx_("landingCatFaktura5", "Brand + logo on PDF"),
+                tx_("landingCatFaktura6", "Kreditnota"),
+              ],
+            },
+            {
+              titleKey: "landingCatStock",
+              titleFallback: "Stock",
+              items: [
+                tx_("landingCatStock1", "Inventory tracking"),
+                tx_("landingCatStock2", "Low-stock alerts"),
+                tx_("landingCatStock3", "Expiry warnings"),
+                tx_("landingCatStock4", "Bar pour system"),
+                tx_("landingCatStock5", "Smart import"),
+                tx_("landingCatStock6", "Unit converter"),
+              ],
+            },
+            {
+              titleKey: "landingCatStaff",
+              titleFallback: "Staff",
+              items: [
+                tx_("landingCatStaff1", "Weekly schedule"),
+                tx_("landingCatStaff2", "Hours logged"),
+                tx_("landingCatStaff3", "Tip-pool split"),
+                tx_("landingCatStaff4", "Payroll PDF"),
+                tx_("landingCatStaff5", "Staff portal"),
+                tx_("landingCatStaff6", "Multi-branch"),
+              ],
+            },
+            {
+              titleKey: "landingCatAi",
+              titleFallback: "AI",
+              items: [
+                tx_("landingCatAi1", "Daily Brief"),
+                tx_("landingCatAi2", "Anomaly detection"),
+                tx_("landingCatAi3", "Predictive staffing"),
+                tx_("landingCatAi4", "OCR receipts"),
+                tx_("landingCatAi5", "Smart Drift"),
+                tx_("landingCatAi6", "BonBox Agent"),
+              ],
+            },
+          ].map((cat) => (
+            <div key={cat.titleKey}>
+              <h3 className="text-[13px] font-semibold text-emerald-700 uppercase tracking-[0.1em] mb-4">
+                {tx_(cat.titleKey, cat.titleFallback)}
+              </h3>
+              <ul className="space-y-2.5">
+                {cat.items.map((item) => (
+                  <li key={item} className="flex gap-2.5 text-[14px] text-stone-700 leading-snug">
+                    <span className="mt-1 flex-shrink-0 w-1 h-1 rounded-full bg-emerald-500" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+
+        {/* Footnote — there are more, this is the headline set.
+            Sets honest expectation without dumping 60 things. */}
+        <p className="mt-12 text-center text-[13px] text-stone-500">
+          {tx_("landingAllFootnote", "Plus Khata, Loan tracker, Multi-currency, 6 languages, Dark mode, and a few weekend-project bonuses you'll find along the way.")}
+        </p>
       </Section>
 
       {/* ── HOW IT WORKS — 3 steps, restrained ─────────────────── */}
