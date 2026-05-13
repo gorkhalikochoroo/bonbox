@@ -594,15 +594,22 @@ export default function LandingPage() {
           </p>
         </div>
 
+        {/* Pricing — must match the source-of-truth in
+            backend/app/services/billing.py + frontend/src/pages/SubscriptionPage.jsx:
+              Starter  regular 199 kr/mo · founding 129 kr/mo
+              Pro      regular 349 kr/mo · founding 249 kr/mo
+            Founding rate is locked in for life for the first 100
+            customers. We surface both so the page reads honest:
+            big number = what you actually pay today, small struck-
+            through = the rate after the founding window closes. */}
         <div className="grid md:grid-cols-3 gap-5">
           {[
             {
               name: "Free",
-              priceKey: "landingPriceFree",
-              priceFallback: "0 kr",
-              cycle: "/mo",
-              descKey: "landingPriceFreeDesc",
+              price: 0,
+              regularPrice: null,
               descFallback: "Try BonBox for as long as you like.",
+              descKey: "landingPriceFreeDesc",
               features: [
                 tx_("landingFreeF1", "POS + Sales + Expenses"),
                 tx_("landingFreeF2", "AI Daily Brief (1× refresh/day)"),
@@ -614,11 +621,10 @@ export default function LandingPage() {
             },
             {
               name: "Starter",
-              priceKey: "landingPriceStarter",
-              priceFallback: "129 kr",
-              cycle: "/mo",
-              descKey: "landingPriceStarterDesc",
+              price: 129,           // founding rate
+              regularPrice: 199,    // post-founding rate
               descFallback: "When you start sending fakturaer.",
+              descKey: "landingPriceStarterDesc",
               features: [
                 tx_("landingStarterF1", "Faktura + bank-match + audit log"),
                 tx_("landingStarterF2", "Brand on faktura (logo + accent)"),
@@ -630,11 +636,10 @@ export default function LandingPage() {
             },
             {
               name: "Pro",
-              priceKey: "landingPricePro",
-              priceFallback: "299 kr",
-              cycle: "/mo",
-              descKey: "landingPriceProDesc",
+              price: 249,           // founding rate (was wrongly 299)
+              regularPrice: 349,    // post-founding rate
               descFallback: "Clean PDFs + multi-branch.",
+              descKey: "landingPriceProDesc",
               features: [
                 tx_("landingProF1", "White-label faktura PDF (no BonBox footer)"),
                 tx_("landingProF2", "AI predictive staffing + multi-branch dashboard"),
@@ -660,12 +665,24 @@ export default function LandingPage() {
               )}
               <h3 className="text-[18px] font-semibold text-gray-900">{p.name}</h3>
               <p className="text-[14px] text-stone-600 mt-1">{tx_(p.descKey, p.descFallback)}</p>
-              <div className="mt-5 flex items-baseline gap-1">
+              <div className="mt-5 flex items-baseline gap-2 flex-wrap">
                 <span className="text-[40px] font-semibold tracking-tight tabular-nums text-gray-900">
-                  {tx_(p.priceKey, p.priceFallback)}
+                  {p.price === 0 ? "0" : p.price} kr
                 </span>
-                <span className="text-[15px] text-stone-500">{p.cycle}</span>
+                <span className="text-[15px] text-stone-500">
+                  {p.price === 0 ? tx_("landingForever", "forever") : "/mo"}
+                </span>
+                {p.regularPrice && (
+                  <span className="text-[13px] text-stone-400 line-through tabular-nums">
+                    {p.regularPrice} kr
+                  </span>
+                )}
               </div>
+              {p.regularPrice && (
+                <p className="mt-1.5 text-[11px] font-medium uppercase tracking-wider text-emerald-700">
+                  {tx_("landingFoundingRate", "Founding rate · first 100 customers")}
+                </p>
+              )}
               <Link
                 to={p.ctaHref}
                 className={`mt-6 block text-center px-5 py-3 rounded-md text-[14px] font-medium transition ${
