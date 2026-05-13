@@ -16,6 +16,7 @@ from app.models.user import User
 from app.models.sale import Sale
 from app.models.expense import Expense
 from app.models.daily_close import DailyClose
+from app.models.invoice import Invoice
 
 logger = logging.getLogger(__name__)
 
@@ -211,26 +212,64 @@ def _resolve_frequency(user, config: dict) -> str:
 def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
               vat_rate: float, prices_include_moms: bool = True) -> dict:
     """
-    Calculate VAT for a period.
+    Calculate VAT for a period — dual revenue stream:
 
-    prices_include_moms determines the extraction formula:
+      1. POS sales (Sale table). Cash basis-ish at the data layer
+         but treated as accrual for VAT (DK doesn't allow cash basis
+         for Moms above 5M kr/yr — vanishingly few BonBox users).
+         FILTER: invoice_id IS NULL — exclude sales that are payment
+         receipts for fakturaer. The Invoice is the source of truth
+         for that revenue; counting the Sale too would double-count.
+
+      2. Faktura revenue (Invoice table). Accrual basis, recognized
+         on issue_date per Bogføringsloven. Status >= 'sent', no
+         drafts (drafts aren't real outgoing vouchers yet). Includes
+         kreditnotaer with their already-negative totals so the period
+         net is correct.
+
+    Why two streams: BonBox supports both POS-style businesses
+    (café/restaurant) and faktura-style businesses (event organizer,
+    freelancer). Most have a mix. Without the dedup, marking an
+    invoice paid via bank-import auto-match would inflate revenue by
+    the exact invoice amount.
+
+    prices_include_moms determines the POS extraction formula:
       - True  (B2C — café, retail; the customer's receipt amount):
               VAT = gross * rate / (1 + rate)
               Net = gross / (1 + rate)
       - False (B2B — net invoicing; price excludes VAT):
               VAT = net * rate
               Gross = net * (1 + rate)
-
-    Picking the wrong mode silently shifts every number by 25% (DK), which
-    is the third bug we fixed today (with BUG 1 = period mapping shift,
-    BUG 2 = no half-yearly option).
+    Invoices always store net + moms separately, so they're rendered
+    directly without the prices_include_moms toggle.
     """
-    sales_total = float(
+    # POS revenue — Sales NOT linked to an invoice
+    pos_total = float(
         db.query(func.coalesce(func.sum(Sale.amount), 0))
         .filter(Sale.user_id == user_id, Sale.date >= start_date, Sale.date < end_date,
-                Sale.is_deleted.isnot(True), Sale.is_tax_exempt.isnot(True))
+                Sale.is_deleted.isnot(True), Sale.is_tax_exempt.isnot(True),
+                Sale.invoice_id.is_(None))
         .scalar()
     )
+    # Faktura revenue — Invoice.total_gross for non-credit-notes
+    # PLUS Invoice.total_gross for credit notes (already negative).
+    # Drafts excluded — not yet legally recognized as outgoing.
+    invoice_total_gross = float(
+        db.query(func.coalesce(func.sum(Invoice.total_gross), 0))
+        .filter(Invoice.user_id == user_id,
+                Invoice.issue_date >= start_date, Invoice.issue_date < end_date,
+                Invoice.status.in_(("sent", "paid", "overdue", "credited")))
+        .scalar()
+    )
+    # And the exact moms portion from invoices — already stored separately
+    invoice_moms = float(
+        db.query(func.coalesce(func.sum(Invoice.moms_total), 0))
+        .filter(Invoice.user_id == user_id,
+                Invoice.issue_date >= start_date, Invoice.issue_date < end_date,
+                Invoice.status.in_(("sent", "paid", "overdue", "credited")))
+        .scalar()
+    )
+
     expenses_total = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
         .filter(Expense.user_id == user_id, Expense.date >= start_date, Expense.date < end_date,
@@ -239,19 +278,28 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
         .scalar()
     )
 
+    # POS output VAT
     if vat_rate <= 0:
-        output_vat = input_vat = 0.0
+        pos_output_vat = 0.0
+        input_vat = 0.0
     elif prices_include_moms:
-        # Gross-input mode (B2C default): extract VAT from total
-        output_vat = round(sales_total * vat_rate / (1 + vat_rate), 2)
+        pos_output_vat = round(pos_total * vat_rate / (1 + vat_rate), 2)
         input_vat = round(expenses_total * vat_rate / (1 + vat_rate), 2)
     else:
-        # Net-input mode (B2B): VAT is rate * net
-        output_vat = round(sales_total * vat_rate, 2)
+        pos_output_vat = round(pos_total * vat_rate, 2)
         input_vat = round(expenses_total * vat_rate, 2)
 
+    # Faktura output VAT comes straight from Invoice.moms_total (no
+    # extraction needed — already separated at line-item level).
+    output_vat = round(pos_output_vat + invoice_moms, 2)
+
+    # Total revenue: POS gross + Invoice gross (which already includes moms)
+    sales_total = round(pos_total + invoice_total_gross, 2)
+
     return {
-        "sales_total": round(sales_total, 2),
+        "sales_total": sales_total,
+        "pos_revenue": round(pos_total, 2),
+        "invoice_revenue": round(invoice_total_gross, 2),
         "expenses_total": round(expenses_total, 2),
         "output_vat": output_vat,
         "input_vat": input_vat,

@@ -33,7 +33,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import (
-    SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, KeepTogether,
+    SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, KeepTogether, Image as RLImage,
 )
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
 from sqlalchemy.orm import Session
@@ -171,6 +171,59 @@ def render_invoice_pdf(db: Session, invoice: Invoice) -> bytes:
     num_label = L["credit_no"] if is_credit else L["invoice_no"]
     fakturanr_display = format_voucher_number("invoice", invoice.issue_date.year, invoice.fakturanummer)
 
+    # ── Branding: logo + accent color (migration 034) ───────────────
+    # Both come from BusinessProfile. Logo is an S3 key — we fetch the
+    # raw bytes here (NOT a signed URL — ReportLab parses bytes locally).
+    # Failures degrade gracefully: no logo = plain text business name,
+    # no accent color = neutral slate.
+    logo_image_bytes: bytes | None = None
+    logo_position = "left"
+    accent_hex = "#0F172A"  # neutral default (matches body text)
+
+    if profile:
+        if profile.logo_url:
+            try:
+                from app.services.storage import get_storage
+                storage = get_storage()
+                if hasattr(storage, "get"):
+                    logo_image_bytes = storage.get(profile.logo_url)
+            except Exception:
+                # Logo fetch is best-effort. If storage is down or the
+                # key is stale, we render without a logo rather than
+                # breaking the PDF generation entirely.
+                logger.exception("logo fetch failed for user=%s key=%s",
+                                 invoice.user_id, profile.logo_url)
+                logo_image_bytes = None
+        if profile.logo_position in ("left", "center"):
+            logo_position = profile.logo_position
+        if profile.accent_color and profile.accent_color.startswith("#") and len(profile.accent_color) == 7:
+            # Validated at schema layer to be a palette hex — extra
+            # paranoia: only accept exactly 7-char hex starting with #.
+            accent_hex = profile.accent_color
+
+    def _make_logo_flowable() -> RLImage | None:
+        """Build a sized ReportLab Image from the loaded bytes. Max 30mm
+        tall to keep the header proportional. Aspect ratio preserved."""
+        if not logo_image_bytes:
+            return None
+        try:
+            img = RLImage(io.BytesIO(logo_image_bytes))
+            # Cap height at 22mm — Copenhagen-standard faktura keeps
+            # the logo restrained, not screaming. Width scales by
+            # aspect ratio. ReportLab handles the math when only one
+            # dimension is set.
+            iw, ih = img.imageWidth, img.imageHeight
+            target_h = 22 * mm
+            scale = target_h / ih if ih else 1
+            target_w = min(iw * scale, 60 * mm)  # cap width too
+            target_h = target_w * (ih / iw) if iw else target_h
+            img.drawHeight = target_h
+            img.drawWidth = target_w
+            return img
+        except Exception:
+            logger.exception("logo flowable build failed user=%s", invoice.user_id)
+            return None
+
     # ── Issuer block ────────────────────────────────────────────────
     issuer_name = (profile.company_name if profile and profile.company_name else None) or (user.business_name if user and user.business_name else None) or "BonBox"
     issuer_cvr = (profile.vat_number if profile and profile.vat_number else None) or (profile.org_number if profile and profile.org_number else None)
@@ -235,30 +288,92 @@ def render_invoice_pdf(db: Session, invoice: Invoice) -> bytes:
     right_small = ParagraphStyle(
         "right_small", parent=small, alignment=TA_RIGHT,
     )
+    # Total style uses accent_hex when the owner picked a brand color,
+    # otherwise the neutral charcoal that's been here from the start.
+    # The migration-034 accent_hex variable lives in the outer function
+    # scope (defined above when we read profile.accent_color).
     total_style = ParagraphStyle(
         "total", parent=body, fontSize=13, leading=16,
-        textColor=colors.HexColor("#0F172A"), fontName="Helvetica-Bold",
+        textColor=colors.HexColor(accent_hex), fontName="Helvetica-Bold",
     )
 
     story = []
 
+    # ── Logo (top, centered) — migration 034 ────────────────────────
+    # 'center' position renders the logo on its own row above the title.
+    # 'left' position embeds it next to the title in the same row.
+    logo_flowable = _make_logo_flowable()
+
+    if logo_flowable and logo_position == "center":
+        center_logo_row = Table(
+            [[logo_flowable]],
+            colWidths=[170 * mm],
+        )
+        center_logo_row.setStyle(TableStyle([
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        story.append(center_logo_row)
+        story.append(Spacer(1, 4 * mm))
+
     # ── Title + number top row ──────────────────────────────────────
-    title_row = Table(
-        [[
-            Paragraph(f"<b>{title}</b>", h1),
-            Paragraph(
-                f"<b>{num_label}</b><br/><font size=14>{fakturanr_display}</font>",
-                right,
-            ),
-        ]],
-        colWidths=[110 * mm, 60 * mm],
-    )
-    title_row.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-    ]))
+    if logo_flowable and logo_position == "left":
+        # 3-column row: logo | title | invoice nr
+        title_row = Table(
+            [[
+                logo_flowable,
+                Paragraph(f"<b>{title}</b>", h1),
+                Paragraph(
+                    f"<b>{num_label}</b><br/><font size=14>{fakturanr_display}</font>",
+                    right,
+                ),
+            ]],
+            colWidths=[40 * mm, 70 * mm, 60 * mm],
+        )
+        title_row.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ]))
+    else:
+        title_row = Table(
+            [[
+                Paragraph(f"<b>{title}</b>", h1),
+                Paragraph(
+                    f"<b>{num_label}</b><br/><font size=14>{fakturanr_display}</font>",
+                    right,
+                ),
+            ]],
+            colWidths=[110 * mm, 60 * mm],
+        )
+        title_row.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ]))
     story.append(title_row)
+
+    # Accent color bar — 2mm tall line under the title row using the
+    # business's accent color. Subtle "this is a branded faktura" cue
+    # without overwhelming the content.
+    if accent_hex != "#0F172A":
+        accent_bar = Table(
+            [[""]],
+            colWidths=[174 * mm],
+            rowHeights=[1.5 * mm],
+        )
+        accent_bar.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(accent_hex)),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        story.append(Spacer(1, 2 * mm))
+        story.append(accent_bar)
+
     story.append(Spacer(1, 8 * mm))
 
     # ── From / To party blocks ──────────────────────────────────────

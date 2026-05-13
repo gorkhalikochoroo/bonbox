@@ -31,6 +31,11 @@ export default function FakturaPage() {
   const [error, setError] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [statusFilter, setStatusFilter] = useState("");
+  // Date range filter — defaults to "all time" (both empty). Preset
+  // chips set both ends in one click. Persisted in URL not done yet —
+  // could be a later UX nicety.
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   // Pending-count for the "📥 N to review" badge. Polled lazily on
   // mount + when the invoice list refreshes (after any mutation that
   // could clear a suggestion via accept/reject).
@@ -47,12 +52,15 @@ export default function FakturaPage() {
       return;
     }
     fetchAll();
-  }, [hasAccess, statusFilter]);
+  }, [hasAccess, statusFilter, fromDate, toDate]);
 
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const params = statusFilter ? { status_filter: statusFilter } : {};
+      const params = {};
+      if (statusFilter) params.status_filter = statusFilter;
+      if (fromDate) params.from_date = fromDate;
+      if (toDate) params.to_date = toDate;
       // Fire all 3 in parallel — pending-count is cheap (single COUNT query
       // server-side) so we can fetch on every refresh without lag.
       const [inv, cust, pending] = await Promise.all([
@@ -169,6 +177,73 @@ export default function FakturaPage() {
         }
       />
 
+
+      {/* Date range filter — preset chips set both from + to in one
+          click. Manual date inputs available for precise range work.
+          Defaults to all-time (both empty) so the page shows everything
+          on first load — preset chips narrow when needed. */}
+      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap text-xs">
+            <span className="text-gray-500 dark:text-gray-400 font-medium">
+              {t("dateRange") || "Date range"}:
+            </span>
+            {[
+              { label: t("allTime") || "All time", from: "", to: "" },
+              {
+                label: t("thisMonth") || "This month",
+                from: (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10); })(),
+                to: new Date().toISOString().slice(0, 10),
+              },
+              {
+                label: t("lastMonth") || "Last month",
+                from: (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth() - 1, 1).toISOString().slice(0, 10); })(),
+                to: (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 0).toISOString().slice(0, 10); })(),
+              },
+              {
+                label: t("thisQuarter") || "This quarter",
+                from: (() => { const d = new Date(); const q = Math.floor(d.getMonth() / 3); return new Date(d.getFullYear(), q * 3, 1).toISOString().slice(0, 10); })(),
+                to: new Date().toISOString().slice(0, 10),
+              },
+              {
+                label: t("yearToDate") || "Year to date",
+                from: `${new Date().getFullYear()}-01-01`,
+                to: new Date().toISOString().slice(0, 10),
+              },
+            ].map((p) => {
+              const active = fromDate === p.from && toDate === p.to;
+              return (
+                <button
+                  key={p.label}
+                  onClick={() => { setFromDate(p.from); setToDate(p.to); }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${
+                    active
+                      ? "bg-green-600 text-white"
+                      : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-xs"
+            />
+            <span className="text-gray-400">→</span>
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-xs"
+            />
+          </div>
+        </div>
+      </div>
 
       <div className="flex gap-2 flex-wrap">
         {[

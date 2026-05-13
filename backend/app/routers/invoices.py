@@ -62,10 +62,20 @@ def list_invoices(
     status_filter: Optional[str] = None,
     customer_id: Optional[UUID] = None,
     branch_id: Optional[UUID] = None,
+    from_date: Optional[str] = None,   # ISO YYYY-MM-DD
+    to_date: Optional[str] = None,     # ISO YYYY-MM-DD
     db: Session = Depends(get_db),
     user: User = Depends(_require_invoicing_plan),
 ):
-    """List invoices for the current user, newest first."""
+    """
+    List invoices for the current user, newest first.
+
+    Date range params (from_date / to_date) filter by issue_date. Both
+    are inclusive. Either can be omitted. Invalid ISO strings are
+    silently ignored (better UX than 422 on an old query string).
+    """
+    from datetime import date as date_type
+
     query = db.query(Invoice).filter(Invoice.user_id == user.id)
     if status_filter:
         query = query.filter(Invoice.status == status_filter)
@@ -73,7 +83,21 @@ def list_invoices(
         query = query.filter(Invoice.customer_id == customer_id)
     if branch_id is not None:
         query = query.filter(Invoice.branch_id == branch_id)
-    invoices = query.order_by(Invoice.issue_date.desc(), Invoice.fakturanummer.desc()).all()
+    if from_date:
+        try:
+            d = date_type.fromisoformat(from_date)
+            query = query.filter(Invoice.issue_date >= d)
+        except ValueError:
+            pass  # ignore garbage input rather than 422
+    if to_date:
+        try:
+            d = date_type.fromisoformat(to_date)
+            query = query.filter(Invoice.issue_date <= d)
+        except ValueError:
+            pass
+    invoices = query.order_by(
+        Invoice.issue_date.desc(), Invoice.fakturanummer.desc()
+    ).limit(500).all()  # safety cap — UI is paginated client-side
     return [InvoiceService.to_response_dict(i) for i in invoices]
 
 
