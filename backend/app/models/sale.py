@@ -80,6 +80,15 @@ class Sale(Base):
     # Soft delete
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Faktura linkage — populated when bank-import or manual-match links this
+    # Sale to an outgoing Invoice. Used by revenue queries to dedupe:
+    # Sale.invoice_id IS NOT NULL → invoice is the source-of-truth revenue
+    # event (accrual basis, recognized on issue_date) and this Sale exists
+    # only as a payment receipt, not as revenue. Migration 034.
+    invoice_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("invoices.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, onupdate=utc_now

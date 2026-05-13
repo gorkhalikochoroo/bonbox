@@ -29,6 +29,22 @@ class BusinessProfile(Base):
     # Contact
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Logo + brand customization on faktura PDF (migration 034).
+    # logo_url: S3 key under business-logos/{user_id}/{uuid}.png. Never
+    # public — accessed via presigned URLs with short TTL. NULL = render
+    # business name in plain text instead.
+    logo_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # accent_color: hex like '#10B981'. Locked to a 6-preset palette at
+    # the schema layer (validator) — free hex would let users ship
+    # neon-green fakturaer which looks unprofessional and harms our brand.
+    accent_color: Mapped[str | None] = mapped_column(String(7), nullable=True)
+    # logo_position: 'left' (default, Copenhagen standard) | 'center'.
+    logo_position: Mapped[str] = mapped_column(String(10), default="left")
+    # data_retention_years: Bogføringsloven §12 mandates 5 years minimum.
+    # Default 6 (buffer year for cross-financial-year edge cases). Locked
+    # to range [5, 10] at the validator — never let users self-shoot below
+    # legal minimum.
+    data_retention_years: Mapped[int] = mapped_column(Integer, default=6)
     # Payment details — printed on every faktura/kreditnota so the customer
     # knows how to pay. Required for a legally valid Danish faktura per
     # Momsbekendtgørelsen §57 (the "betalingsoplysninger" section).

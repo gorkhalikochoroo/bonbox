@@ -68,6 +68,19 @@ class Invoice(Base):
     moms_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
     total_gross: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
     paid_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), nullable=True)
+    # Payment provenance (migration 034). Tracks HOW the invoice was marked
+    # paid so we can:
+    #   • Audit incorrect auto-matches by paid_via='auto_match' filter
+    #   • Show "marked by you" vs "matched from bank" UX hints
+    #   • Reverse only auto-matches if a bug is found, never manual marks
+    paid_via: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    # 'manual' | 'bank_csv' | 'auto_match' | 'mobilepay' | 'open_banking'
+    paid_reference: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Free-text — bank transaction description if auto/CSV-matched, or
+    # owner-typed note if manual ("Paid via MobilePay 12345").
+    auto_match_reversible: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Set true when auto-match flips status. UI surfaces an "Undo" button
+    # for 7 days after this is set; service layer enforces the 7-day window.
     currency: Mapped[str] = mapped_column(String(3), default="DKK")
 
     # Content

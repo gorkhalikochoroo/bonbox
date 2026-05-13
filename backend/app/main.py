@@ -700,6 +700,72 @@ _migrations = [
     "ALTER TABLE customers ADD COLUMN IF NOT EXISTS ean_nummer VARCHAR(13)",
     "ALTER TABLE customers ADD COLUMN IF NOT EXISTS is_public_sector BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS delivery_date DATE",
+
+    # ── Migration 034: Faktura safety + branding + audit trail ──
+    # Additive columns + two new tables. All nullable / defaulted so the
+    # migration is safe to re-run and never blocks existing data.
+    #
+    # business_profiles — logo + brand customization + retention policy
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS logo_url TEXT",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS accent_color VARCHAR(7)",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS logo_position VARCHAR(10) NOT NULL DEFAULT 'left'",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS data_retention_years INTEGER NOT NULL DEFAULT 6",
+
+    # invoices — payment provenance + 7-day reversibility flag
+    "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS paid_via VARCHAR(20)",
+    "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS paid_reference TEXT",
+    "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS auto_match_reversible BOOLEAN NOT NULL DEFAULT FALSE",
+
+    # sales — link to invoice for revenue-dedup queries (Tax Autopilot)
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS invoice_id UUID REFERENCES invoices(id) ON DELETE SET NULL",
+    "CREATE INDEX IF NOT EXISTS ix_sales_invoice_id ON sales (invoice_id)",
+
+    # payment_match_suggestions — confidence-tiered review queue
+    """CREATE TABLE IF NOT EXISTS payment_match_suggestions (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id),
+        sale_id UUID NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+        invoice_id UUID NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+        confidence VARCHAR(10) NOT NULL,
+        reason TEXT NOT NULL,
+        status VARCHAR(10) NOT NULL DEFAULT 'pending',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_payment_match_user_status ON payment_match_suggestions (user_id, status, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_payment_match_invoice ON payment_match_suggestions (invoice_id, status)",
+
+    # audit_logs — append-only mutation history
+    # JSONB on Postgres, plain TEXT on SQLite. Switched at runtime in
+    # _run_migrations (the SQLite path uses TEXT for both state cols).
+    """CREATE TABLE IF NOT EXISTS audit_logs (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id),
+        actor_id UUID REFERENCES users(id),
+        actor_type VARCHAR(50) NOT NULL DEFAULT 'user',
+        ip_address VARCHAR(45),
+        action VARCHAR(80) NOT NULL,
+        entity_type VARCHAR(50) NOT NULL,
+        entity_id UUID,
+        before_state TEXT,
+        after_state TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_audit_entity ON audit_logs (entity_type, entity_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_audit_user_time ON audit_logs (user_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_audit_action_time ON audit_logs (action, created_at)",
+    # Postgres-only: reject UPDATE/DELETE at the DB layer. Defense-in-
+    # depth — if app code has a bug that tries to modify an audit row,
+    # the DB refuses silently rather than corrupting the trail.
+    # CREATE RULE is Postgres-specific; wrapped in DO so it no-ops on SQLite.
+    """DO $$ BEGIN
+        IF EXISTS (SELECT 1 FROM pg_class WHERE relname='audit_logs') THEN
+            EXECUTE 'CREATE OR REPLACE RULE audit_logs_no_update AS ON UPDATE TO audit_logs DO INSTEAD NOTHING';
+            EXECUTE 'CREATE OR REPLACE RULE audit_logs_no_delete AS ON DELETE TO audit_logs DO INSTEAD NOTHING';
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        NULL;
+    END $$""",
 ]
 
 def _run_migrations():
@@ -877,6 +943,17 @@ def _run_migrations():
             ok += _add("customers", "ean_nummer", "VARCHAR(13)")
             ok += _add("customers", "is_public_sector", "BOOLEAN DEFAULT 0")
             ok += _add("invoices", "delivery_date", "DATE")
+            # Migration 034 — branding + payment provenance + audit trail.
+            # Two new tables (created via the main MIGRATIONS list above —
+            # CREATE TABLE IF NOT EXISTS works on SQLite). Columns added here.
+            ok += _add("business_profiles", "logo_url", "TEXT")
+            ok += _add("business_profiles", "accent_color", "VARCHAR(7)")
+            ok += _add("business_profiles", "logo_position", "VARCHAR(10) DEFAULT 'left'")
+            ok += _add("business_profiles", "data_retention_years", "INTEGER DEFAULT 6")
+            ok += _add("invoices", "paid_via", "VARCHAR(20)")
+            ok += _add("invoices", "paid_reference", "TEXT")
+            ok += _add("invoices", "auto_match_reversible", "BOOLEAN DEFAULT 0")
+            ok += _add("sales", "invoice_id", "VARCHAR(36)")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",
