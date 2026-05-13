@@ -558,8 +558,99 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ── GROW WITH BONBOX — outcomes, not features ─────────── */}
+      {/* The "features" section below tells WHAT BonBox is. This one
+          tells what changes in your business when you use it. The
+          page now leads with outcomes (this section) and follows
+          with the features that deliver them. Three outcome cards,
+          each grounded in a real module we already shipped, so the
+          claims aren't marketing wishes. */}
+      <Section className="bg-[#fafaf7]">
+        <div className="max-w-2xl mb-14">
+          <Eyebrow>{tx_("landingGrowTag", "Grow with BonBox")}</Eyebrow>
+          <Heading>{tx_("landingGrowTitle", "Built to grow your business — not just track it.")}</Heading>
+          <p className="mt-5 text-[16px] text-stone-600 leading-relaxed">
+            {tx_("landingGrowSub", "Most accounting tools tell you what already happened. BonBox surfaces what to do next — every morning, with numbers from your actual yesterday.")}
+          </p>
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-5">
+          {[
+            {
+              icon: (
+                <svg className="w-5 h-5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 17l6-6 4 4 8-8" />
+                  <path d="M14 7h7v7" />
+                </svg>
+              ),
+              titleKey: "landingGrow1Title",
+              titleFallback: "Higher margins",
+              bodyKey: "landingGrow1Body",
+              bodyFallback: "Catch what's bleeding before it costs you a month. Bar over-pour, low-margin items, waste creeping up — BonBox flags the anomalies in the morning Brief, not in next month's revisor meeting.",
+              proofKey: "landingGrow1Proof",
+              proofFallback: "Powered by · AI anomaly detection · Bar pour system · Expense OCR",
+            },
+            {
+              icon: (
+                <svg className="w-5 h-5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M9 12l2 2 4-4" />
+                </svg>
+              ),
+              titleKey: "landingGrow2Title",
+              titleFallback: "Steadier cash flow",
+              bodyKey: "landingGrow2Body",
+              bodyFallback: "Get paid faster, chase less. Bank deposits auto-match to open fakturaer. Overdue invoices surface in the morning Brief. Tax Autopilot never lets you miss a SKAT deadline — no surprise penalties.",
+              proofKey: "landingGrow2Proof",
+              proofFallback: "Powered by · Bank import · Faktura auto-match · Tax Autopilot",
+            },
+            {
+              icon: (
+                <svg className="w-5 h-5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
+                </svg>
+              ),
+              titleKey: "landingGrow3Title",
+              titleFallback: "Smarter decisions",
+              bodyKey: "landingGrow3Body",
+              bodyFallback: "What today's top seller is, whether you're tracking ahead of last Wednesday, which customers pay late, when to staff up for the weekend rush. The kind of insight you'd otherwise pay a bookkeeper 2,000 kr/month to surface.",
+              proofKey: "landingGrow3Proof",
+              proofFallback: "Powered by · AI Daily Brief · Smart Drift · Predictive staffing",
+            },
+          ].map((o) => (
+            <div
+              key={o.titleKey}
+              className="bg-white rounded-2xl p-7 border border-stone-200/80 hover:border-stone-300 hover:shadow-[0_4px_24px_-8px_rgba(15,23,42,0.08)] transition-all duration-200"
+            >
+              <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center mb-5">
+                {o.icon}
+              </div>
+              <h3 className="text-[18px] font-semibold text-gray-900 mb-3 tracking-tight">
+                {tx_(o.titleKey, o.titleFallback)}
+              </h3>
+              <p className="text-[14.5px] text-stone-600 leading-relaxed">
+                {tx_(o.bodyKey, o.bodyFallback)}
+              </p>
+              {/* Proof strip — ties each outcome to real modules we
+                  ship, so the marketing claim is auditable. */}
+              <p className="mt-5 pt-5 border-t border-stone-100 text-[11px] font-medium uppercase tracking-[0.08em] text-emerald-700/80">
+                {tx_(o.proofKey, o.proofFallback)}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {/* Quiet conversion nudge tied to the section theme.
+            "See yesterday's profit" is a real action a user can
+            take in BonBox on day one — anchors the abstract outcome
+            language to a concrete first-session moment. */}
+        <p className="mt-10 text-center text-[14px] text-stone-600">
+          {tx_("landingGrowFootnote", "Log today's revenue tonight. See yesterday's profit (and what to do today) tomorrow morning.")}
+        </p>
+      </Section>
+
       {/* ── FEATURES (6, not 14) ───────────────────────────────── */}
-      <Section id="features" className="bg-[#fafaf7]">
+      <Section id="features" className="bg-white border-y border-stone-200/70">
         <div className="max-w-2xl mb-14">
           <Eyebrow>{tx_("landingFeaturesTag", "Everything in one place")}</Eyebrow>
           <Heading>{tx_("landingFeaturesTitle", "Built for the closer. Owned by the owner.")}</Heading>
