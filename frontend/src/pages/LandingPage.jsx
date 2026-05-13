@@ -529,8 +529,8 @@ export default function LandingPage() {
             <FeatureCard
               key={f.titleKey}
               icon={f.icon}
-              title={t(f.titleKey) || f.titleFallback}
-              body={t(f.bodyKey) || f.bodyFallback}
+              title={tx_(f.titleKey, f.titleFallback)}
+              body={tx_(f.bodyKey, f.bodyFallback)}
             />
           ))}
         </div>
@@ -570,10 +570,10 @@ export default function LandingPage() {
             <div key={s.n}>
               <p className="text-[13px] font-semibold text-emerald-700 tabular-nums tracking-wider mb-3">{s.n}</p>
               <h3 className="text-[18px] font-semibold text-gray-900 mb-2 tracking-tight">
-                {t(s.titleKey) || s.titleFallback}
+                {tx_(s.titleKey, s.titleFallback)}
               </h3>
               <p className="text-[14.5px] text-gray-600 leading-relaxed">
-                {t(s.bodyKey) || s.bodyFallback}
+                {tx_(s.bodyKey, s.bodyFallback)}
               </p>
             </div>
           ))}
@@ -737,10 +737,10 @@ export default function LandingPage() {
                 </span>
               )}
               <h3 className="text-[18px] font-semibold text-gray-900">{p.name}</h3>
-              <p className="text-[14px] text-gray-600 mt-1">{t(p.descKey) || p.descFallback}</p>
+              <p className="text-[14px] text-gray-600 mt-1">{tx_(p.descKey, p.descFallback)}</p>
               <div className="mt-5 flex items-baseline gap-1">
                 <span className="text-[40px] font-semibold tracking-tight tabular-nums text-gray-900">
-                  {t(p.priceKey) || p.priceFallback}
+                  {tx_(p.priceKey, p.priceFallback)}
                 </span>
                 <span className="text-[15px] text-gray-500">{p.cycle}</span>
               </div>
