@@ -125,15 +125,27 @@ function HeroPhone() {
 }
 
 // ─── Counter — animates a number once it scrolls into view ──────────
+// Initial value = `end`, so the first paint shows the REAL number, not
+// a "0s · 0+ · 0 min" zero-flash that briefly tells visitors our close
+// takes zero seconds. When the strip scrolls into view we briefly
+// reset to 0 and animate up — but only if motion is allowed and the
+// initial render had time to commit. Belt + braces.
 function Counter({ end, duration = 1400, suffix = "", prefix = "" }) {
-  const [val, setVal] = useState(0);
+  const [val, setVal] = useState(end);
   const ref = useRef(null);
   const started = useRef(false);
   useEffect(() => {
+    // Respect prefers-reduced-motion → keep the static end value
+    const prefersReduced =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    if (prefersReduced) return;
+
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting && !started.current) {
           started.current = true;
+          setVal(0);
           const startTime = performance.now();
           const tick = (now) => {
             const progress = Math.min((now - startTime) / duration, 1);
@@ -196,6 +208,12 @@ function FeatureCard({ icon, title, body }) {
 // Each is a 20×20 stroke-1.75 icon at currentColor (emerald-700 in
 // the feature card slot).
 const Icons = {
+  Clock: (
+    <svg className="w-5 h-5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  ),
   Receipt: (
     <svg className="w-5 h-5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <path d="M7 3h10a1 1 0 011 1v17l-3-2-3 2-3-2-3 2V4a1 1 0 011-1z" />
@@ -284,6 +302,33 @@ export default function LandingPage() {
       <style>{`
         @keyframes heroFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
         html { scroll-behavior: smooth; }
+
+        /* Flow demo — staggered fade-in loop. Each step lights up in
+           sequence (snap → merge → PDF) then loops. Reduced motion
+           respected so users who hate animation see all three steady. */
+        @keyframes flowFadeIn {
+          0%, 100% { opacity: 0.45; transform: translateY(0); }
+          15%, 85% { opacity: 1; transform: translateY(-3px); }
+        }
+        @keyframes flowArrowPulse {
+          0%, 100% { opacity: 0.35; }
+          50%      { opacity: 1; }
+        }
+        @keyframes flowPulse {
+          0%, 100% { transform: scale(1);   opacity: 0.0; }
+          50%      { transform: scale(1.4); opacity: 0.6; }
+        }
+        .flowStep  { animation: flowFadeIn 4.5s ease-in-out infinite; }
+        .flowStep1 { animation-delay: 0s; }
+        .flowStep2 { animation-delay: 1.5s; }
+        .flowStep3 { animation-delay: 3s; }
+        .flowArrow  { animation: flowArrowPulse 4.5s ease-in-out infinite; }
+        .flowArrow1 { animation-delay: 0.75s; }
+        .flowArrow2 { animation-delay: 2.25s; }
+        .flowPulse { animation: flowPulse 1.5s ease-in-out infinite; animation-delay: 1.5s; }
+        @media (prefers-reduced-motion: reduce) {
+          .flowStep, .flowArrow, .flowPulse { animation: none; opacity: 1; }
+        }
       `}</style>
 
       {/* ── NAV ────────────────────────────────────────────────── */}
@@ -419,6 +464,18 @@ export default function LandingPage() {
                   <path d="M5 12h14M13 6l6 6-6 6" />
                 </svg>
               </Link>
+              {/* Secondary CTA — for the "kick tires before signup"
+                  visitor. Smooth-scrolls to the how-it-works section
+                  rather than forcing them through the register flow. */}
+              <a
+                href="#how"
+                className="inline-flex items-center justify-center px-5 py-3.5 bg-white border border-stone-200 rounded-md hover:border-stone-300 transition text-[14px] font-medium text-stone-800"
+              >
+                {tx_("landingCtaSecondary", "See how it works")}
+                <svg className="w-4 h-4 ml-2 text-stone-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 5v14M19 12l-7 7-7-7" />
+                </svg>
+              </a>
               <a
                 href="https://apps.apple.com/dk/app/bonbox-daily-close/id6762066960"
                 target="_blank"
@@ -514,7 +571,7 @@ export default function LandingPage() {
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {[
             {
-              icon: Icons.Receipt,
+              icon: Icons.Clock,
               titleKey: "landingFeatHeroTitle",
               titleFallback: "Daily close in 90 seconds",
               bodyKey: "landingFeatHeroBody",
@@ -668,6 +725,97 @@ export default function LandingPage() {
         </p>
       </Section>
 
+      {/* ── ANIMATED FLOW — the 36-second story, no video needed ─ */}
+      {/* Stripe / Linear / Notion all show "the actual flow" without
+          requiring a Loom recording. We do the same with pure HTML
+          + CSS: three boxes animate in sequence to show the path
+          from kasserapport photo → AI merge → owner's inbox PDF.
+          The infinite-loop animation is what visitors see in lieu
+          of a real demo video until we record one. */}
+      <Section className="bg-[#fafaf7]">
+        <div className="text-center max-w-2xl mx-auto mb-14">
+          <Eyebrow>{tx_("landingFlowTag", "See it in action")}</Eyebrow>
+          <Heading>{tx_("landingFlowTitle", "Snap. Merge. Done — in 36 seconds.")}</Heading>
+          <p className="mt-5 text-[16px] text-stone-600 leading-relaxed">
+            {tx_("landingFlowSub", "Three steps. No retyping. The owner sees the consolidated PDF before lights out.")}
+          </p>
+        </div>
+
+        {/* Flow rail. Mobile = vertical stack with down-arrows, desktop = horizontal with right-arrows. */}
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr_auto_1fr] gap-6 md:gap-3 items-stretch max-w-5xl mx-auto">
+          {/* Step 1 — Snap */}
+          <div className="bg-white border border-stone-200 rounded-2xl p-6 text-center flowStep flowStep1">
+            <div className="mx-auto w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center mb-4">
+              <svg className="w-6 h-6 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 7h3l2-3h6l2 3h3a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V8a1 1 0 011-1z" />
+                <circle cx="12" cy="13" r="4" />
+              </svg>
+            </div>
+            <p className="text-[11px] uppercase tracking-[0.1em] font-semibold text-emerald-700 mb-1">01</p>
+            <h3 className="text-[16px] font-semibold text-gray-900 mb-1.5 tracking-tight">{tx_("landingFlow1", "Snap the kasserapport")}</h3>
+            <p className="text-[13.5px] text-stone-600 leading-relaxed">{tx_("landingFlow1Sub", "Front-of-house photographs the receipt strip from each terminal.")}</p>
+            <p className="mt-4 text-[11px] font-mono text-stone-400 tabular-nums">~6s per terminal</p>
+          </div>
+
+          {/* Arrow */}
+          <div className="hidden md:flex items-center justify-center flowArrow flowArrow1">
+            <svg className="w-6 h-6 text-stone-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 12h14M13 6l6 6-6 6" />
+            </svg>
+          </div>
+          <div className="flex md:hidden items-center justify-center -my-2">
+            <svg className="w-5 h-5 text-stone-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 5v14M19 12l-7 7-7-7" />
+            </svg>
+          </div>
+
+          {/* Step 2 — AI merge */}
+          <div className="bg-white border border-stone-200 rounded-2xl p-6 text-center flowStep flowStep2">
+            <div className="mx-auto w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center mb-4">
+              {/* Pulse ring to suggest "thinking" */}
+              <span className="absolute w-12 h-12 rounded-xl bg-emerald-400/30 flowPulse" />
+              <svg className="w-6 h-6 text-emerald-700 relative" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
+              </svg>
+            </div>
+            <p className="text-[11px] uppercase tracking-[0.1em] font-semibold text-emerald-700 mb-1">02</p>
+            <h3 className="text-[16px] font-semibold text-gray-900 mb-1.5 tracking-tight">{tx_("landingFlow2", "AI merges them")}</h3>
+            <p className="text-[13.5px] text-stone-600 leading-relaxed">{tx_("landingFlow2Sub", "OCR reads each strip. BonBox cross-checks the totals across all terminals.")}</p>
+            <p className="mt-4 text-[11px] font-mono text-stone-400 tabular-nums">~6s</p>
+          </div>
+
+          {/* Arrow */}
+          <div className="hidden md:flex items-center justify-center flowArrow flowArrow2">
+            <svg className="w-6 h-6 text-stone-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 12h14M13 6l6 6-6 6" />
+            </svg>
+          </div>
+          <div className="flex md:hidden items-center justify-center -my-2">
+            <svg className="w-5 h-5 text-stone-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 5v14M19 12l-7 7-7-7" />
+            </svg>
+          </div>
+
+          {/* Step 3 — PDF in owner's inbox */}
+          <div className="bg-white border border-stone-200 rounded-2xl p-6 text-center flowStep flowStep3">
+            <div className="mx-auto w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center mb-4">
+              <svg className="w-6 h-6 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 6h16v12H4z" />
+                <path d="M4 6l8 7 8-7" />
+              </svg>
+            </div>
+            <p className="text-[11px] uppercase tracking-[0.1em] font-semibold text-emerald-700 mb-1">03</p>
+            <h3 className="text-[16px] font-semibold text-gray-900 mb-1.5 tracking-tight">{tx_("landingFlow3", "PDF in owner's inbox")}</h3>
+            <p className="text-[13.5px] text-stone-600 leading-relaxed">{tx_("landingFlow3Sub", "Consolidated kasserapport PDF — signed, dated, ready for the revisor.")}</p>
+            <p className="mt-4 text-[11px] font-mono text-stone-400 tabular-nums">before close-up</p>
+          </div>
+        </div>
+
+        <p className="mt-10 text-center text-[13px] text-stone-500">
+          {tx_("landingFlowFootnote", "Built for multi-terminal closes — restaurants, bars, cafés, takeaways with 2-6 registers.")}
+        </p>
+      </Section>
+
       {/* ── HOW IT WORKS — 3 steps, restrained ─────────────────── */}
       <Section id="how" className="bg-white border-y border-stone-200/70">
         <div className="max-w-2xl mb-12">
@@ -742,7 +890,7 @@ export default function LandingPage() {
               features: [
                 tx_("landingFreeF1", "POS + Sales + Expenses"),
                 tx_("landingFreeF2", "AI Daily Brief (1× refresh/day)"),
-                tx_("landingFreeF3", "1 branch · 1 team user"),
+                tx_("landingFreeF3", "Solo owners · 1 location"),
               ],
               cta: tx_("landingFreeCta", "Start free"),
               ctaHref: "/register",
@@ -836,6 +984,116 @@ export default function LandingPage() {
 
         <p className="mt-10 text-center text-[13px] text-stone-500">
           {tx_("landingPricingNote", "All plans include Bogføringsloven §12 retention + audit log. Cancel anytime, no questions asked.")}
+        </p>
+      </Section>
+
+      {/* ── POSITIONING — what BonBox IS / what BonBox IS NOT ─── */}
+      {/* Danish café owners already know Dinero, Billy, Lightspeed.
+          We don't name competitors (user moved that off the front
+          page), but we DO clarify what BonBox replaces vs what it
+          sits alongside. Cuts the "is this another bookkeeping app?"
+          confusion in one viewport. */}
+      <Section className="bg-[#fafaf7]">
+        <div className="text-center max-w-2xl mx-auto mb-12">
+          <Eyebrow>{tx_("landingPositioningTag", "Where it fits")}</Eyebrow>
+          <Heading>{tx_("landingPositioningTitle", "Not bookkeeping. Not POS. The layer on top.")}</Heading>
+          <p className="mt-5 text-[16px] text-stone-600 leading-relaxed">
+            {tx_("landingPositioningSub", "BonBox is the morning-after close + AI brief that sits on top of whatever you already use. Keep your POS. Keep your bookkeeper. We do the part nobody else does.")}
+          </p>
+        </div>
+        <div className="grid md:grid-cols-2 gap-5 max-w-4xl mx-auto">
+          {/* IS column */}
+          <div className="bg-white border-2 border-emerald-500 rounded-2xl p-6">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-700 mb-4">
+              {tx_("landingPositioningIs", "BonBox is")}
+            </p>
+            <ul className="space-y-3">
+              {[
+                tx_("landingPosIs1", "The 90-second multi-terminal daily close"),
+                tx_("landingPosIs2", "Faktura with Bogføringsloven §7 gap-less numbering"),
+                tx_("landingPosIs3", "The AI morning Brief that knows your last 90 days"),
+                tx_("landingPosIs4", "OCR receipts + auto-match bank deposits to invoices"),
+                tx_("landingPosIs5", "Revisor-ready CSV bundle for the årsregnskab"),
+              ].map((line) => (
+                <li key={line} className="flex gap-3 text-[14px] text-stone-700 leading-snug">
+                  <span className="mt-0.5 flex-shrink-0">{Icons.Check}</span>
+                  <span>{line}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          {/* IS NOT column */}
+          <div className="bg-white border border-stone-200 rounded-2xl p-6">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-stone-500 mb-4">
+              {tx_("landingPositioningIsNot", "BonBox is not")}
+            </p>
+            <ul className="space-y-3">
+              {[
+                tx_("landingPosNot1", "A POS terminal — keep yours, we sync from it"),
+                tx_("landingPosNot2", "A registered digital bookkeeping system — pair with one for SKAT filings"),
+                tx_("landingPosNot3", "A replacement for your revisor at årsregnskab time"),
+                tx_("landingPosNot4", "A payment processor — MobilePay / Stripe stay yours"),
+                tx_("landingPosNot5", "A spreadsheet — but it absorbs the busywork the spreadsheet was hiding"),
+              ].map((line) => (
+                <li key={line} className="flex gap-3 text-[14px] text-stone-600 leading-snug">
+                  <span className="mt-1 flex-shrink-0 w-1.5 h-1.5 rounded-full bg-stone-300" />
+                  <span>{line}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </Section>
+
+      {/* ── FAQ — 5 honest answers above the final CTA ────────── */}
+      <Section className="bg-white border-y border-stone-200/70">
+        <div className="text-center max-w-2xl mx-auto mb-12">
+          <Eyebrow>{tx_("landingFaqTag", "Questions")}</Eyebrow>
+          <Heading>{tx_("landingFaqTitle", "What people ask before signing up.")}</Heading>
+        </div>
+        <div className="max-w-3xl mx-auto divide-y divide-stone-200 border border-stone-200 rounded-2xl overflow-hidden bg-white">
+          {[
+            {
+              q: tx_("landingFaq1Q", "Does this work with my POS?"),
+              a: tx_("landingFaq1A", "BonBox doesn't replace your POS — it reads what comes out of it. Snap a photo of the kasserapport from any phone, BonBox merges them. Works regardless of brand (Lightspeed, Square, SumUp, paper, whatever)."),
+            },
+            {
+              q: tx_("landingFaq2Q", "Do I still need an accountant?"),
+              a: tx_("landingFaq2A", "Yes, for the årsregnskab and SKAT filings. BonBox handles the monthly grind (sales, faktura, bank-match, OCR receipts, Moms tracking) so your revisor only needs you once a year. Most users save ~17,500 kr/yr vs monthly revisor service."),
+            },
+            {
+              q: tx_("landingFaq3Q", "What if the AI misreads a kasserapport?"),
+              a: tx_("landingFaq3A", "Every parsed receipt is editable — the AI suggests, you confirm. Low-confidence matches go to a Review inbox instead of the books. Nothing flips to 'final' without your tap. Plus a 10-year audit log records every change."),
+            },
+            {
+              q: tx_("landingFaq4Q", "Where does my data live?"),
+              a: tx_("landingFaq4A", "EU-only. Hosted in Denmark. Encrypted at rest, audit log immutable at the DB level (Postgres rules), GDPR-first by design. You can export everything as CSV at any time and delete your account in one click."),
+            },
+            {
+              q: tx_("landingFaq5Q", "Do I need a CVR to sign up?"),
+              a: tx_("landingFaq5A", "No. Sign up with email. Add CVR later when you want CVR-verified customers + auto-fill on fakturaer. Freelancers without a CVR work fine — just toggle 'Privatperson' on each customer."),
+            },
+            {
+              q: tx_("landingFaq6Q", "What happens after the 14-day trial?"),
+              a: tx_("landingFaq6A", "You drop to Free automatically — no card, no auto-charge. Free keeps POS + Sales + Expenses + the AI Brief forever. To unlock faktura + bank-match + brand-on-PDF, upgrade to Starter (129 kr/mo founding). Pricing is shown on this page; nothing is hidden."),
+            },
+          ].map((item) => (
+            <details key={item.q} className="group">
+              <summary className="flex items-center justify-between cursor-pointer px-6 py-5 hover:bg-stone-50 transition-colors list-none">
+                <span className="text-[15px] font-semibold text-gray-900 tracking-tight">{item.q}</span>
+                <svg className="w-5 h-5 text-stone-400 group-open:rotate-180 transition-transform flex-shrink-0 ml-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </summary>
+              <div className="px-6 pb-5 text-[14.5px] text-stone-600 leading-relaxed">
+                {item.a}
+              </div>
+            </details>
+          ))}
+        </div>
+        <p className="mt-8 text-center text-[13px] text-stone-500">
+          {tx_("landingFaqMore", "Different question? Email")}{" "}
+          <a href="mailto:hello@bonbox.dk" className="text-emerald-700 hover:text-emerald-800 underline underline-offset-2">hello@bonbox.dk</a>
         </p>
       </Section>
 

@@ -6205,6 +6205,12 @@ const translations = {
 const LANGUAGES = [
   { code: "en", label: "English", flag: "🇬🇧" },
   { code: "da", label: "Dansk", flag: "🇩🇰" },
+  // German added 2026-05-13 — de.js already had 410 lines of real
+  // translations, just wasn't exposed in the picker. Useful for
+  // Sønderjylland-area shops + CPH restaurants with German staff.
+  // Falls back to English for keys not yet translated (most of the
+  // newer landing copy) — the tx_() helper handles this gracefully.
+  { code: "de", label: "Deutsch", flag: "🇩🇪" },
   { code: "np", label: "नेपाली", flag: "🇳🇵" },
   { code: "vi", label: "Tiếng Việt", flag: "🇻🇳" },
   { code: "th", label: "ภาษาไทย", flag: "🇹🇭" },
