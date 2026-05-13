@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -96,6 +96,7 @@ def get_invoice(
 @router.post("/{invoice_id}/send", response_model=InvoiceResponse)
 def send_invoice(
     invoice_id: UUID,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(_require_invoicing_plan),
 ):
@@ -106,7 +107,8 @@ def send_invoice(
     PDF generation and mailto: link happen client-side from the response
     payload. Server-side SMTP delivery is a v2 feature.
     """
-    inv = InvoiceService.mark_sent(db, user, invoice_id)
+    ip = getattr(request.client, "host", None)
+    inv = InvoiceService.mark_sent(db, user, invoice_id, ip_address=ip)
     db.commit()
     db.refresh(inv)
     return InvoiceService.to_response_dict(inv)
@@ -116,13 +118,38 @@ def send_invoice(
 def mark_invoice_paid(
     invoice_id: UUID,
     payload: InvoiceMarkPaid,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(_require_invoicing_plan),
 ):
     """Mark a sent invoice as paid (manual confirmation)."""
+    ip = getattr(request.client, "host", None)
     inv = InvoiceService.mark_paid(
         db, user, invoice_id, payload.amount, payload.source,
+        paid_reference=getattr(payload, "paid_reference", None),
+        ip_address=ip,
     )
+    db.commit()
+    db.refresh(inv)
+    return InvoiceService.to_response_dict(inv)
+
+
+@router.post("/{invoice_id}/unmark-paid", response_model=InvoiceResponse)
+def unmark_invoice_paid(
+    invoice_id: UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(_require_invoicing_plan),
+):
+    """
+    Reverse a paid status (one-tap undo).
+
+    Auto-matches reversible only within 7 days.
+    Manual marks always reversible.
+    Service-layer enforces both rules.
+    """
+    ip = getattr(request.client, "host", None)
+    inv = InvoiceService.unmark_paid(db, user, invoice_id, ip_address=ip)
     db.commit()
     db.refresh(inv)
     return InvoiceService.to_response_dict(inv)
@@ -170,6 +197,7 @@ def get_invoice_pdf(
 def void_invoice(
     invoice_id: UUID,
     payload: InvoiceVoid,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(_require_invoicing_plan),
 ):
@@ -180,8 +208,9 @@ def void_invoice(
     updated server-side to status='credited' with credited_by_id
     pointing at the new record.
     """
+    ip = getattr(request.client, "host", None)
     kreditnota = InvoiceService.void_and_credit(
-        db, user, invoice_id, payload.reason,
+        db, user, invoice_id, payload.reason, ip_address=ip,
     )
     db.commit()
     db.refresh(kreditnota)

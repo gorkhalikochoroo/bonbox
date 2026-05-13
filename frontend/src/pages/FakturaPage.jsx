@@ -312,6 +312,19 @@ function InvoiceRow({ invoice, customer, onChanged, t }) {
     }
   };
 
+  // Reverse a paid status. Service-layer enforces eligibility:
+  // auto-matches only within 7 days, manual marks always reversible.
+  // Backend returns 409 if outside window — we surface the message.
+  const handleUnmarkPaid = async () => {
+    if (!confirm(t("confirmUnmarkPaid") || `Unmark ${invoice.fakturanummer_formatted} as paid?`)) return;
+    try {
+      await api.post(`/invoices/${invoice.id}/unmark-paid`);
+      onChanged();
+    } catch (e) {
+      alert(e?.response?.data?.detail || "Unmark failed");
+    }
+  };
+
   const handleVoid = async () => {
     const reason = prompt(t("voidReasonPrompt") || "Reason for voiding this invoice?");
     if (!reason) return;
@@ -322,6 +335,15 @@ function InvoiceRow({ invoice, customer, onChanged, t }) {
       alert(e?.response?.data?.detail || "Void failed");
     }
   };
+
+  // Is unmark reasonable to surface right now?
+  // - paid status required
+  // - manual marks: always show
+  // - auto-matches: only if auto_match_reversible is still true (server
+  //   resets it when the 7-day window passes via unmark attempt)
+  const unmarkAvailable =
+    invoice.status === "paid" &&
+    (invoice.paid_via !== "auto_match" || invoice.auto_match_reversible === true);
 
   return (
     <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
@@ -342,25 +364,44 @@ function InvoiceRow({ invoice, customer, onChanged, t }) {
           {invoice.status}
         </span>
       </td>
-      <td className="px-5 py-3 text-right text-xs space-x-2 whitespace-nowrap">
-        {invoice.status === "draft" && (
-          <button onClick={handleSend} className="text-blue-600 hover:underline font-medium">
-            {t("send") || "Send"}
-          </button>
-        )}
-        {(invoice.status === "sent" || invoice.status === "overdue") && (
-          <>
-            <button onClick={handleMarkPaid} className="text-green-600 hover:underline font-medium">
-              {t("markPaid") || "Mark paid"}
+      <td className="px-5 py-3 text-right whitespace-nowrap">
+        <div className="inline-flex items-center gap-2 justify-end">
+          {invoice.status === "draft" && (
+            <button onClick={handleSend} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition">
+              {t("send") || "Send"}
             </button>
-            <button onClick={handleVoid} className="text-red-600 hover:underline font-medium">
+          )}
+          {(invoice.status === "sent" || invoice.status === "overdue") && (
+            <button
+              onClick={handleMarkPaid}
+              className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold rounded-lg transition"
+              title={t("markPaidHint") || "Click when customer's payment lands in your bank"}
+            >
+              ✓ {t("markPaid") || "Mark paid"}
+            </button>
+          )}
+          {unmarkAvailable && (
+            <button
+              onClick={handleUnmarkPaid}
+              className="px-2 py-1.5 border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 text-xs rounded-lg transition"
+              title={
+                invoice.paid_via === "auto_match"
+                  ? (t("undoAutoMatchHint") || "Auto-matched — reversible within 7 days")
+                  : (t("undoManualHint") || "Reverse this paid status")
+              }
+            >
+              ↩ {t("undo") || "Undo"}
+            </button>
+          )}
+          {(invoice.status === "sent" || invoice.status === "overdue" || invoice.status === "paid") && !invoice.is_credit_note && (
+            <button onClick={handleVoid} className="text-red-600 hover:underline text-xs font-medium px-2">
               {t("voidInvoice") || "Void"}
             </button>
-          </>
-        )}
-        <button onClick={handleDownloadPdf} className="text-gray-600 dark:text-gray-300 hover:underline">
-          {t("downloadPdf") || "PDF"}
-        </button>
+          )}
+          <button onClick={handleDownloadPdf} className="text-gray-600 dark:text-gray-300 hover:underline text-xs">
+            {t("downloadPdf") || "PDF"}
+          </button>
+        </div>
       </td>
     </tr>
   );

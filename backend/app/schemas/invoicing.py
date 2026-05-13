@@ -184,6 +184,12 @@ class InvoiceResponse(BaseModel):
     moms_total: Decimal
     total_gross: Decimal
     paid_amount: Optional[Decimal]
+    # Payment provenance (migration 034). Surfaced so the frontend can
+    # render the "Undo" button conditionally — auto-matches show it only
+    # while auto_match_reversible is True (server resets after 7 days).
+    paid_via: Optional[str] = None
+    paid_reference: Optional[str] = None
+    auto_match_reversible: bool = False
     currency: str
     notes: Optional[str]
     customer_lang: str
@@ -197,7 +203,13 @@ class InvoiceResponse(BaseModel):
 
 class InvoiceMarkPaid(BaseModel):
     amount: Decimal = Field(..., gt=0)
-    source: str = Field(default="manual", max_length=20)  # 'manual' | 'auto'
+    # 'manual' | 'bank_csv' | 'auto_match' | 'mobilepay' | 'open_banking'
+    # Frontend defaults to 'manual'; bank import / auto-match passes their
+    # own source. Strictly enum-like but kept as str for forward-compat
+    # if we add more provenance sources later.
+    source: str = Field(default="manual", max_length=20)
+    # Optional note / bank reference. Free-text, capped to prevent abuse.
+    paid_reference: Optional[str] = Field(default=None, max_length=500)
 
 
 class InvoiceVoid(BaseModel):

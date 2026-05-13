@@ -25,8 +25,16 @@ from sqlalchemy.orm import Session
 from app.models.customer import Customer
 from app.models.invoice import Invoice, InvoiceLine
 from app.models.user import User
+from app.services import audit_service
 from app.services.voucher_service import allocate_invoice_number, format_voucher_number
 from app.utils.time import utc_now
+
+# Reversibility window for auto-matched invoices. If an auto-flip turns
+# out to be wrong (coincidental amount match, bank API quirk), the owner
+# has 7 days to undo it via /api/invoices/{id}/unmark-paid. Manual marks
+# are always reversible — they were explicit user actions, the user can
+# always change their mind.
+AUTO_MATCH_REVERSIBLE_DAYS = 7
 
 logger = logging.getLogger(__name__)
 
@@ -146,13 +154,20 @@ class InvoiceService:
     # ─── Send: flip to sent + lock + record sent_at ─────────────────
 
     @staticmethod
-    def mark_sent(db: Session, user: User, invoice_id: UUID) -> Invoice:
+    def mark_sent(
+        db: Session, user: User, invoice_id: UUID,
+        ip_address: str | None = None,
+    ) -> Invoice:
         """
         Flip status draft → sent. After this, the invoice is locked.
 
         Does NOT email/PDF — that's the router's job (it generates a PDF
         URL and opens mailto: on the client). This method is the
         authoritative state transition.
+
+        Writes an audit log entry — every send is a real-world
+        revenue-recognition event under accrual accounting (Bogføringsloven
+        §9), so we must be able to defend the timing if challenged.
         """
         inv = InvoiceService._get_owned_or_404(db, user, invoice_id)
         if inv.status != "draft":
@@ -160,10 +175,18 @@ class InvoiceService:
                 status.HTTP_409_CONFLICT,
                 f"Invoice is already {inv.status}; can only send drafts",
             )
+        before = {"id": str(inv.id), "status": inv.status, "locked": inv.locked}
         inv.status = "sent"
         inv.sent_at = utc_now()
         inv.locked = True
         db.flush()
+        audit_service.record(
+            db, user, "invoice.send",
+            entity_type="invoice", entity_id=inv.id,
+            before=before,
+            after={"id": str(inv.id), "status": "sent", "sent_at": inv.sent_at.isoformat(), "locked": True},
+            ip_address=ip_address,
+        )
         logger.info("invoice.sent user=%s fakturanummer=%s", user.id, inv.fakturanummer)
         return inv
 
@@ -176,34 +199,178 @@ class InvoiceService:
         invoice_id: UUID,
         amount: Decimal,
         source: str = "manual",
+        paid_reference: str | None = None,
+        ip_address: str | None = None,
     ) -> Invoice:
         """
-        Mark a sent invoice as paid. Accepts partial payments — if the
-        amount doesn't fully cover, status stays 'sent' but paid_amount
-        accumulates. (V1: full payment only; partial is a v2 feature.)
+        Mark a sent/overdue invoice as paid.
+
+        State machine: only 'sent' or 'overdue' invoices can transition
+        to 'paid'. Drafts must be sent first; paid is idempotent (re-call
+        returns the existing record); credited is terminal.
+
+        Provenance tracked via `source` (paid_via column):
+          'manual'      — owner clicked Mark as Paid
+          'bank_csv'    — matched from a CSV upload
+          'auto_match'  — high-confidence bank-import auto-match
+                          (sets auto_match_reversible=True, opens 7-day undo)
+          'mobilepay'   — future MobilePay webhook
+          'open_banking'— future GoCardless integration
+
+        Audit log captures who/when/IP/amount/source — required for
+        Skattestyrelsen dispute defense and for the future revenue
+        Tax Autopilot accuracy.
         """
         inv = InvoiceService._get_owned_or_404(db, user, invoice_id)
+
+        # Idempotency: re-marking already-paid invoice from the same
+        # source is a no-op (returns existing). Prevents double-audit
+        # when bank import races with manual click.
+        if inv.status == "paid":
+            return inv
+
         if inv.status not in ("sent", "overdue"):
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
                 f"Invoice is {inv.status}; can only mark sent/overdue invoices as paid",
             )
+
         amount = _round_kr(Decimal(str(amount)))
-        # V1: require full payment to flip status.
-        # Future: track partial via paid_amount.
-        if amount < inv.total_gross - Decimal("2"):  # within 2 kr tolerance
+        # V1: require full payment to flip status (±2 kr tolerance for
+        # bank gebyr). Partial payments are a v2 feature requiring
+        # different state ('partial') and accumulated paid_amount.
+        if amount < inv.total_gross - Decimal("2"):
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
                 f"Amount {amount} is below invoice total {inv.total_gross}. "
                 "Partial payments not yet supported.",
             )
+
+        before = {
+            "id": str(inv.id),
+            "status": inv.status,
+            "paid_at": None,
+            "paid_amount": str(inv.paid_amount) if inv.paid_amount else None,
+            "paid_via": inv.paid_via,
+        }
         inv.status = "paid"
         inv.paid_amount = amount
         inv.paid_at = utc_now()
+        inv.paid_via = source
+        inv.paid_reference = paid_reference
+        # Auto-matches get a 7-day undo window. Manual marks don't need
+        # the flag — they're always reversible via unmark_paid.
+        inv.auto_match_reversible = (source == "auto_match")
         db.flush()
+
+        audit_service.record(
+            db, user, "invoice.mark_paid",
+            entity_type="invoice", entity_id=inv.id,
+            before=before,
+            after={
+                "status": "paid",
+                "paid_at": inv.paid_at.isoformat(),
+                "paid_amount": str(amount),
+                "paid_via": source,
+                "paid_reference": paid_reference,
+                "auto_match_reversible": inv.auto_match_reversible,
+            },
+            ip_address=ip_address,
+        )
         logger.info(
             "invoice.paid user=%s fakturanummer=%s source=%s amount=%s",
             user.id, inv.fakturanummer, source, amount,
+        )
+        return inv
+
+    # ─── Unmark paid (reverse a mistake) ────────────────────────────
+
+    @staticmethod
+    def unmark_paid(
+        db: Session,
+        user: User,
+        invoice_id: UUID,
+        ip_address: str | None = None,
+    ) -> Invoice:
+        """
+        Reverse a 'paid' status back to 'sent' (or 'overdue' if past due).
+
+        Eligibility:
+          • Status must currently be 'paid'.
+          • Auto-matches: only reversible within 7 days of paid_at, and
+            only if auto_match_reversible=True (set by mark_paid for
+            source='auto_match'). After that window the auto-match is
+            considered settled — owner needs to use kreditnota to
+            correct further.
+          • Manual marks (paid_via='manual' / 'bank_csv'): always
+            reversible — owner explicitly marked it, owner can change
+            their mind.
+
+        Audit log captures the reversal with full before/after state
+        so the trail shows what was paid + when + reversed by whom.
+        """
+        inv = InvoiceService._get_owned_or_404(db, user, invoice_id)
+        if inv.status != "paid":
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"Invoice is {inv.status}; only paid invoices can be unmarked",
+            )
+
+        # Auto-match 7-day window enforcement
+        if inv.paid_via == "auto_match":
+            if not inv.auto_match_reversible:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "Auto-match reversibility window has expired. Use kreditnota to correct.",
+                )
+            if inv.paid_at:
+                age = (utc_now() - inv.paid_at).days
+                if age > AUTO_MATCH_REVERSIBLE_DAYS:
+                    inv.auto_match_reversible = False
+                    db.flush()
+                    raise HTTPException(
+                        status.HTTP_409_CONFLICT,
+                        f"Auto-match more than {AUTO_MATCH_REVERSIBLE_DAYS} days old "
+                        "can't be auto-reversed. Use kreditnota to correct.",
+                    )
+
+        before = {
+            "id": str(inv.id),
+            "status": "paid",
+            "paid_at": inv.paid_at.isoformat() if inv.paid_at else None,
+            "paid_amount": str(inv.paid_amount) if inv.paid_amount else None,
+            "paid_via": inv.paid_via,
+        }
+
+        # Restore to 'sent' or 'overdue' based on whether due_date passed
+        new_status = "overdue" if inv.due_date < date.today() else "sent"
+        inv.status = new_status
+        inv.paid_at = None
+        inv.paid_amount = None
+        inv.paid_via = None
+        inv.paid_reference = None
+        inv.auto_match_reversible = False
+
+        # Detach any linked Sale row so revenue queries don't double-count.
+        # (Sale.invoice_id is the dedup signal in Tax Autopilot.)
+        from app.models.sale import Sale
+        db.query(Sale).filter(
+            Sale.user_id == user.id,
+            Sale.invoice_id == inv.id,
+        ).update({"invoice_id": None})
+
+        db.flush()
+
+        audit_service.record(
+            db, user, "invoice.unmark_paid",
+            entity_type="invoice", entity_id=inv.id,
+            before=before,
+            after={"status": new_status},
+            ip_address=ip_address,
+        )
+        logger.info(
+            "invoice.unmark_paid user=%s fakturanummer=%s from=%s to=%s",
+            user.id, inv.fakturanummer, "paid", new_status,
         )
         return inv
 
@@ -215,6 +382,7 @@ class InvoiceService:
         user: User,
         invoice_id: UUID,
         reason: str,
+        ip_address: str | None = None,
     ) -> Invoice:
         """
         Void an already-sent invoice by creating a kreditnota (credit note).
@@ -272,10 +440,34 @@ class InvoiceService:
         db.add(kn)
         db.flush()
 
+        original_status_before = original.status
         # Link the original
         original.status = "credited"
         original.credited_by_id = kn.id
         db.flush()
+
+        # Audit both records — the original is now credited, the kreditnota
+        # is a new ledger entry. Two log rows so the trail shows both halves
+        # of the reversal cleanly.
+        audit_service.record(
+            db, user, "invoice.void",
+            entity_type="invoice", entity_id=original.id,
+            before={"id": str(original.id), "status": original_status_before},
+            after={"status": "credited", "credited_by_id": str(kn.id), "reason": reason},
+            ip_address=ip_address,
+        )
+        audit_service.record(
+            db, user, "invoice.credit_note_issued",
+            entity_type="invoice", entity_id=kn.id,
+            before=None,
+            after={
+                "fakturanummer": kn.fakturanummer,
+                "is_credit_note": True,
+                "credits_invoice_id": str(original.id),
+                "total_gross": str(kn.total_gross),
+            },
+            ip_address=ip_address,
+        )
 
         logger.info(
             "invoice.credited user=%s original=%s kreditnota=%s reason=%s",
@@ -318,6 +510,9 @@ class InvoiceService:
             "moms_total": inv.moms_total,
             "total_gross": inv.total_gross,
             "paid_amount": inv.paid_amount,
+            "paid_via": inv.paid_via,
+            "paid_reference": inv.paid_reference,
+            "auto_match_reversible": bool(inv.auto_match_reversible),
             "currency": inv.currency,
             "notes": inv.notes,
             "customer_lang": inv.customer_lang,
