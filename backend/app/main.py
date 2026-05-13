@@ -42,6 +42,7 @@ from app.config import settings
 from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, inventory_smart_import, smart_drift, support, search as search_router, modules as modules_router, ai as ai_router
 # Invoicing — Customer/Invoice/Mileage. Gated to Starter+ at the route level.
 from app.routers import customers as customers_router, invoices as invoices_router, mileage as mileage_router
+from app.routers import payment_suggestions as payment_suggestions_router
 from app.database import engine, Base, get_db
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -1618,6 +1619,7 @@ app.include_router(admin.router, prefix="/api/admin", tags=["Super Admin"])
 # the menu items for Free-tier users.
 app.include_router(customers_router.router, prefix="/api/customers", tags=["Customers"])
 app.include_router(invoices_router.router, prefix="/api/invoices", tags=["Invoices"])
+app.include_router(payment_suggestions_router.router, prefix="/api/payment-suggestions", tags=["Payment match"])
 app.include_router(mileage_router.router, prefix="/api/mileage", tags=["Mileage"])
 
 

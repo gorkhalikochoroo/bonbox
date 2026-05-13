@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
@@ -30,6 +31,10 @@ export default function FakturaPage() {
   const [error, setError] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [statusFilter, setStatusFilter] = useState("");
+  // Pending-count for the "📥 N to review" badge. Polled lazily on
+  // mount + when the invoice list refreshes (after any mutation that
+  // could clear a suggestion via accept/reject).
+  const [pendingCount, setPendingCount] = useState(0);
 
   const plan = (user?.plan || "free").toLowerCase();
   // Trial users get Pro-tier access during the 14-day window — include them
@@ -48,12 +53,16 @@ export default function FakturaPage() {
     setLoading(true);
     try {
       const params = statusFilter ? { status_filter: statusFilter } : {};
-      const [inv, cust] = await Promise.all([
+      // Fire all 3 in parallel — pending-count is cheap (single COUNT query
+      // server-side) so we can fetch on every refresh without lag.
+      const [inv, cust, pending] = await Promise.all([
         api.get("/invoices", { params }),
         api.get("/customers"),
+        api.get("/payment-suggestions/pending-count").catch(() => ({ data: { pending_count: 0 } })),
       ]);
       setInvoices(inv.data);
       setCustomers(cust.data);
+      setPendingCount(pending.data?.pending_count || 0);
     } catch (e) {
       setError(e?.response?.data?.detail || "Failed to load");
     } finally {
@@ -92,6 +101,16 @@ export default function FakturaPage() {
             {t("fakturaDesc") || "Send invoices · gap-less numbering · auto-paid via bank match"}
           </p>
         </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {pendingCount > 0 && (
+            <Link
+              to="/faktura/review"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/30 dark:hover:bg-amber-900/50 text-amber-800 dark:text-amber-200 rounded-xl text-sm font-semibold transition"
+              title={t("reviewBadgeHint") || "Bank deposits that need your confirmation"}
+            >
+              📥 {pendingCount} {t("toReview") || "to review"}
+            </Link>
+          )}
         <button
           onClick={() => setShowForm(true)}
           disabled={customers.length === 0}
@@ -100,6 +119,7 @@ export default function FakturaPage() {
         >
           + {t("newInvoice") || "New invoice"}
         </button>
+        </div>
       </div>
 
       {customers.length === 0 && (
