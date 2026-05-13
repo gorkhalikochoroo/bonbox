@@ -925,7 +925,78 @@ def test_daily_brief_silent_when_no_faktura_activity(db, user, customer):
         )
 
 
-# ─── Test 11: Auto-match guards ──────────────────────────────────
+# ─── Test 11: Tax router safe-empty must not crash frontend ─────
+
+
+def test_safe_empty_has_complete_tax_overview_shape():
+    """The /tax/overview fallback when get_tax_overview throws MUST
+    return the same shape as the happy path — otherwise the frontend
+    destructure `const { current_month, ytd } = data; current_month.vat_payable`
+    crashes with 'cannot read properties of undefined'.
+
+    This was a production crash on 2026-05-13: PG migration 034 had a
+    UUID/VARCHAR(36) FK type mismatch → Sale.invoice_id never created →
+    every Sale query 500'd → _calc_vat threw → _safe_empty returned a
+    flat shape missing current_month/ytd → TaxAutopilotPage crashed.
+
+    Locks the shape so even if every backend layer fails, the page
+    renders with zeros instead of an error boundary."""
+    from app.routers.tax import _safe_empty
+
+    out = _safe_empty()
+
+    # Top-level keys the frontend destructures
+    required_top = [
+        "tax_name", "authority", "rate", "rate_pct", "frequency",
+        "available_frequencies", "prices_include_moms", "currency",
+        "upcoming_deadlines", "payroll_deadlines",
+        "current_month", "ytd",
+        "alerts", "daily_close_reconciliation",
+    ]
+    for k in required_top:
+        assert k in out, f"_safe_empty missing top-level key {k!r}"
+
+    # current_month and ytd MUST be dicts with vat_payable + the other
+    # numeric fields the page reads
+    required_vat = [
+        "vat_payable", "output_vat", "input_vat",
+        "sales_total", "expenses_total", "pos_revenue", "invoice_revenue",
+    ]
+    for k in required_vat:
+        assert k in out["current_month"], f"current_month missing {k!r}"
+        assert k in out["ytd"], f"ytd missing {k!r}"
+
+    # daily_close_reconciliation has its own shape the alerts pane reads
+    assert "current_month" in out["daily_close_reconciliation"]
+    assert "ytd" in out["daily_close_reconciliation"]
+    assert "status" in out["daily_close_reconciliation"]["current_month"]
+
+
+def test_tax_overview_shape_matches_safe_empty_keys(db, user):
+    """Happy-path get_tax_overview MUST be a superset (key-wise) of
+    _safe_empty so the frontend never sees missing keys on either path."""
+    from app.routers.tax import _safe_empty
+    from app.services.tax_service import get_tax_overview
+
+    happy = get_tax_overview(user, db)
+    safe = _safe_empty()
+
+    # Every key in safe must also be in happy (happy may have extras)
+    for k in safe.keys():
+        if k.startswith("_"):  # underscore meta-fields are allowed to differ
+            continue
+        assert k in happy, f"happy-path missing key {k!r} that _safe_empty provides"
+
+    # current_month + ytd inner shape parity
+    for k in safe["current_month"].keys():
+        if k == "month":
+            continue  # happy provides "May 2026", safe provides ""
+        assert k in happy["current_month"], (
+            f"happy.current_month missing key {k!r} that _safe_empty provides"
+        )
+
+
+# ─── Test 12: Auto-match guards ──────────────────────────────────
 
 
 def test_outgoing_payments_never_match(db, user, customer):

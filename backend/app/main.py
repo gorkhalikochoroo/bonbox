@@ -717,16 +717,34 @@ _migrations = [
     "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS paid_reference TEXT",
     "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS auto_match_reversible BOOLEAN NOT NULL DEFAULT FALSE",
 
-    # sales — link to invoice for revenue-dedup queries (Tax Autopilot)
-    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS invoice_id UUID REFERENCES invoices(id) ON DELETE SET NULL",
+    # sales — link to invoice for revenue-dedup queries (Tax Autopilot).
+    #
+    # CRITICAL TYPE NOTE — Postgres FK type mismatch hotfix (2026-05-13):
+    # The GUID() TypeDecorator in app/database.py maps to VARCHAR(36) on
+    # both SQLite AND Postgres (it does NOT use native UUID). So
+    # invoices.id and sales.id are VARCHAR(36) on prod. Declaring the new
+    # FK column as native UUID would fail with "foreign key constraint
+    # type mismatch" — and because _run_migrations swallows per-statement
+    # errors via SAVEPOINT, the failure goes silent. The column never
+    # gets created and every query that auto-selects Sale.invoice_id
+    # (i.e. every Sale query SQLAlchemy issues) returns 500.
+    # Lesson: always match the existing column type when adding FKs via
+    # raw SQL. Use VARCHAR(36) to match GUID().
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS invoice_id VARCHAR(36) REFERENCES invoices(id) ON DELETE SET NULL",
     "CREATE INDEX IF NOT EXISTS ix_sales_invoice_id ON sales (invoice_id)",
 
-    # payment_match_suggestions — confidence-tiered review queue
+    # payment_match_suggestions — confidence-tiered review queue.
+    # NOTE: This CREATE TABLE is a safety net — the table is already
+    # created via Base.metadata.create_all() in startup (uses GUID() →
+    # VARCHAR(36)), so this is normally a no-op. Kept here in case
+    # create_all is bypassed in an emergency-restore scenario.
+    # IMPORTANT: column types must match what create_all produces
+    # (VARCHAR(36) for ids), otherwise FKs to existing tables fail.
     """CREATE TABLE IF NOT EXISTS payment_match_suggestions (
-        id UUID PRIMARY KEY,
-        user_id UUID NOT NULL REFERENCES users(id),
-        sale_id UUID NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
-        invoice_id UUID NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        sale_id VARCHAR(36) NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+        invoice_id VARCHAR(36) NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
         confidence VARCHAR(10) NOT NULL,
         reason TEXT NOT NULL,
         status VARCHAR(10) NOT NULL DEFAULT 'pending',
@@ -739,15 +757,18 @@ _migrations = [
     # audit_logs — append-only mutation history
     # JSONB on Postgres, plain TEXT on SQLite. Switched at runtime in
     # _run_migrations (the SQLite path uses TEXT for both state cols).
+    # audit_logs — same VARCHAR(36) pattern as payment_match_suggestions.
+    # Matches what Base.metadata.create_all() produces via GUID() type;
+    # avoids the foreign-key type-mismatch failure that bit Sale.invoice_id.
     """CREATE TABLE IF NOT EXISTS audit_logs (
-        id UUID PRIMARY KEY,
-        user_id UUID NOT NULL REFERENCES users(id),
-        actor_id UUID REFERENCES users(id),
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        actor_id VARCHAR(36) REFERENCES users(id),
         actor_type VARCHAR(50) NOT NULL DEFAULT 'user',
         ip_address VARCHAR(45),
         action VARCHAR(80) NOT NULL,
         entity_type VARCHAR(50) NOT NULL,
-        entity_id UUID,
+        entity_id VARCHAR(36),
         before_state TEXT,
         after_state TEXT,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
