@@ -1,80 +1,109 @@
+/*
+ * LandingPage — rebuilt 2026-05-13.
+ *
+ * Design rules (intentional, not vibe-coded):
+ *
+ *   1. ONE accent colour: BonBox green (#10B981 / emerald-500). No
+ *      per-section purple/teal/blue gradient backgrounds. Decoration
+ *      that doesn't carry meaning gets cut.
+ *
+ *   2. Editorial typography: large display heading, restrained body,
+ *      mono-feel for numbers. Hierarchy does the work, not colour.
+ *
+ *   3. Restrained palette: warm white (#fafaf7) for sections, true
+ *      white for cards, charcoal (#0f172a) for the hero band. No
+ *      4-colour gradient washes.
+ *
+ *   4. 7 sections, max. The previous landing had 16 with heavy
+ *      padding — users gave up halfway. Sections that didn't earn
+ *      their space (per-vertical spotlights, 27-pill ribbon,
+ *      "global reach" with zero users) are gone.
+ *
+ *   5. Sticky nav with smooth-scroll anchors so the page is
+ *      navigable as well as scrollable.
+ *
+ *   6. Single fade-in is fine on hero. Below-the-fold sections
+ *      render fully — no fade-in-on-scroll theatre that makes the
+ *      page look broken until you scroll past it.
+ *
+ * The HeroPhone component is preserved (it works) but tightened.
+ * The LiveDemo / Spotlight components are intentionally NOT carried
+ * over — they conflicted with the single-accent rule and added
+ * scroll without adding clarity.
+ */
+
 import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 
-/* Hero phone mockup showing BonBox dashboard */
+// ─── HeroPhone ──────────────────────────────────────────────────────
+//
+// Compact mock of the BonBox dashboard inside a phone frame. Same
+// component as before — single accent (green), tight layout, no
+// status-bar/notch overkill. Used in the hero, not elsewhere.
 function HeroPhone() {
   const { t } = useLanguage();
   return (
-    <div className="relative w-full max-w-sm mx-auto" style={{ animation: "heroFloat 4s ease-in-out infinite" }}>
-      {/* Glow behind phone */}
-      <div className="absolute inset-0 bg-green-500/20 rounded-[3rem] blur-[60px] scale-110" />
-      {/* Phone frame */}
-      <div className="relative bg-gray-900 rounded-[2.5rem] p-3 border-2 border-gray-700/60 shadow-2xl shadow-green-500/10">
-        {/* Notch */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-28 h-6 bg-gray-900 rounded-b-2xl z-10" />
-        {/* Screen */}
-        <div className="bg-gray-950 rounded-[2rem] overflow-hidden p-4 pt-8">
-          {/* Status bar */}
-          <div className="flex items-center justify-between mb-4 px-1">
-            <span className="text-white text-[10px] font-semibold">9:41</span>
-            <div className="flex items-center gap-1">
-              <div className="w-3.5 h-2 border border-white/60 rounded-sm relative"><div className="absolute inset-0.5 bg-green-400 rounded-[1px]" style={{width:"70%"}} /></div>
+    <div className="relative w-full max-w-[280px] sm:max-w-[300px] mx-auto" style={{ animation: "heroFloat 5s ease-in-out infinite" }}>
+      <div className="absolute inset-0 bg-emerald-500/25 rounded-[3rem] blur-[80px] scale-110 pointer-events-none" />
+      <div className="relative bg-gray-900 rounded-[2.25rem] p-2.5 border border-gray-800 shadow-2xl shadow-emerald-500/10">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-5 bg-gray-900 rounded-b-2xl z-10" />
+        <div className="bg-gray-950 rounded-[1.85rem] overflow-hidden p-3.5 pt-7">
+          {/* status row */}
+          <div className="flex items-center justify-between mb-3 px-1">
+            <span className="text-white/80 text-[9px] font-semibold tabular-nums">9:41</span>
+            <div className="flex items-center gap-1 text-white/40">
+              <div className="w-3 h-1.5 border border-white/40 rounded-sm">
+                <div className="h-full bg-emerald-400 rounded-[1px]" style={{ width: "70%" }} />
+              </div>
             </div>
           </div>
-          {/* App header */}
+          {/* header */}
           <div className="flex items-center justify-between mb-3">
             <div>
-              <p className="text-white text-xs font-bold">{t("dashboard")}</p>
-              <p className="text-gray-500 text-[9px]">{t("today")}</p>
+              <p className="text-white text-[11px] font-bold leading-tight">{t("dashboard") || "Dashboard"}</p>
+              <p className="text-gray-500 text-[8px]">{t("today") || "Today"}</p>
             </div>
-            <div className="w-6 h-6 bg-green-500/20 rounded-full flex items-center justify-center">
-              <span className="text-[8px]">+</span>
-            </div>
+            <div className="w-5 h-5 bg-emerald-500/20 rounded-full" />
           </div>
           {/* KPI cards */}
           <div className="grid grid-cols-2 gap-1.5 mb-2">
-            <div className="bg-gray-800/80 rounded-lg p-2 border border-green-500/20">
-              <p className="text-gray-500 text-[7px]">{t("revenue")}</p>
-              <p className="text-white text-sm font-bold">24,500 kr</p>
-              <p className="text-green-400 text-[7px]">+12%</p>
+            <div className="bg-gray-800/70 rounded-md p-2">
+              <p className="text-gray-500 text-[7px] uppercase tracking-wider">{t("revenue") || "Revenue"}</p>
+              <p className="text-white text-[13px] font-bold tabular-nums mt-0.5">24,500 kr</p>
+              <p className="text-emerald-400 text-[7px] mt-0.5">+12%</p>
             </div>
-            <div className="bg-gray-800/80 rounded-lg p-2 border border-green-500/20">
-              <p className="text-gray-500 text-[7px]">{t("profit")}</p>
-              <p className="text-white text-sm font-bold">70,097 kr</p>
-              <p className="text-green-400 text-[7px]">57.8%</p>
+            <div className="bg-gray-800/70 rounded-md p-2">
+              <p className="text-gray-500 text-[7px] uppercase tracking-wider">{t("profit") || "Profit"}</p>
+              <p className="text-white text-[13px] font-bold tabular-nums mt-0.5">70,097 kr</p>
+              <p className="text-emerald-400 text-[7px] mt-0.5">57.8%</p>
             </div>
           </div>
-          {/* Mini chart */}
-          <div className="bg-gray-800/80 rounded-lg p-2 border border-gray-700/50 mb-2">
-            <p className="text-gray-500 text-[7px] mb-1">{t("weeklySales")}</p>
-            <svg viewBox="0 0 200 40" className="w-full h-8">
+          {/* sparkline */}
+          <div className="bg-gray-800/70 rounded-md p-2 mb-2">
+            <p className="text-gray-500 text-[7px] uppercase tracking-wider mb-1">{t("weeklySales") || "Weekly sales"}</p>
+            <svg viewBox="0 0 200 36" className="w-full h-7">
               <defs>
-                <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#22c55e" stopOpacity="0.3" />
-                  <stop offset="100%" stopColor="#22c55e" stopOpacity="0" />
+                <linearGradient id="hpGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#10b981" stopOpacity="0.35" />
+                  <stop offset="100%" stopColor="#10b981" stopOpacity="0" />
                 </linearGradient>
               </defs>
-              <path d="M0,30 L30,22 L60,28 L90,15 L120,18 L150,8 L180,12 L200,5 L200,40 L0,40 Z" fill="url(#chartGrad)" />
-              <polyline points="0,30 30,22 60,28 90,15 120,18 150,8 180,12 200,5" fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" />
+              <path d="M0,28 L30,22 L60,26 L90,14 L120,18 L150,8 L180,12 L200,5 L200,36 L0,36 Z" fill="url(#hpGrad)" />
+              <polyline points="0,28 30,22 60,26 90,14 120,18 150,8 180,12 200,5" fill="none" stroke="#10b981" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </div>
-          {/* Recent sales */}
-          <div className="bg-gray-800/80 rounded-lg p-2 border border-gray-700/50">
-            <p className="text-gray-500 text-[7px] mb-1">{t("recentSales")}</p>
-            {["Coca-Cola x10", "Rice 5kg", "Vodka 2x"].map((s, i) => (
-              <div key={i} className="flex items-center justify-between py-0.5 border-b border-gray-700/30 last:border-0">
-                <span className="text-gray-300 text-[8px]">{s}</span>
-                <span className="text-white text-[8px] font-medium">{["150", "1,350", "90"][i]} kr</span>
-              </div>
-            ))}
-          </div>
-          {/* Bottom nav */}
-          <div className="flex items-center justify-around mt-3 pt-2 border-t border-gray-700/40">
-            {["Home", "Sales", "Stock", "Staff", "More"].map((tab, i) => (
-              <div key={tab} className={`text-center ${i === 0 ? "text-green-400" : "text-gray-600"}`}>
-                <div className={`w-4 h-4 mx-auto mb-0.5 rounded ${i === 0 ? "bg-green-400/20" : ""}`} />
-                <span className="text-[6px]">{tab}</span>
+          {/* recent items — compact */}
+          <div className="bg-gray-800/70 rounded-md p-2">
+            <p className="text-gray-500 text-[7px] uppercase tracking-wider mb-1">{t("recentSales") || "Recent sales"}</p>
+            {[
+              ["Coca-Cola x10", "150"],
+              ["Rice 5kg", "1,350"],
+              ["Vodka 2x", "90"],
+            ].map(([n, p]) => (
+              <div key={n} className="flex items-center justify-between py-0.5">
+                <span className="text-gray-300 text-[8px]">{n}</span>
+                <span className="text-white text-[8px] font-medium tabular-nums">{p} kr</span>
               </div>
             ))}
           </div>
@@ -84,12 +113,11 @@ function HeroPhone() {
   );
 }
 
-/* ── Animated counter ── */
-function Counter({ end, duration = 1800, prefix = "", suffix = "" }) {
+// ─── Counter — animates a number once it scrolls into view ──────────
+function Counter({ end, duration = 1400, suffix = "", prefix = "" }) {
   const [val, setVal] = useState(0);
   const ref = useRef(null);
   const started = useRef(false);
-
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -105,1114 +133,691 @@ function Counter({ end, duration = 1800, prefix = "", suffix = "" }) {
           requestAnimationFrame(tick);
         }
       },
-      { threshold: 0.3 }
+      { threshold: 0.4 }
     );
     if (ref.current) observer.observe(ref.current);
     return () => observer.disconnect();
   }, [end, duration]);
-
-  return <span ref={ref}>{prefix}{val.toLocaleString()}{suffix}</span>;
+  return <span ref={ref} className="tabular-nums">{prefix}{val.toLocaleString("da-DK")}{suffix}</span>;
 }
 
-/* ── Fade-in on scroll ── */
-function FadeIn({ children, className = "", delay = 0 }) {
-  const ref = useRef(null);
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) setVisible(true); },
-      { threshold: 0.15 }
-    );
-    if (ref.current) observer.observe(ref.current);
-    return () => observer.disconnect();
-  }, []);
-
+// ─── Section primitive — consistent padding + max-width ─────────────
+function Section({ id, className = "", children }) {
   return (
-    <div
-      ref={ref}
-      className={`transition-all duration-700 ${visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6"} ${className}`}
-      style={{ transitionDelay: `${delay}ms` }}
-    >
+    <section id={id} className={`relative py-16 sm:py-24 ${className}`}>
+      <div className="max-w-6xl mx-auto px-5 sm:px-6 lg:px-8">{children}</div>
+    </section>
+  );
+}
+
+// ─── Eyebrow heading — small uppercase label above section title ────
+function Eyebrow({ children }) {
+  return (
+    <span className="inline-block text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-700 mb-3">
       {children}
+    </span>
+  );
+}
+
+// ─── Heading — restrained, editorial, single colour ────────────────
+function Heading({ as: As = "h2", className = "", children }) {
+  return (
+    <As className={`text-[28px] sm:text-[36px] lg:text-[44px] leading-[1.1] tracking-tight font-semibold text-gray-900 ${className}`}>
+      {children}
+    </As>
+  );
+}
+
+// ─── Feature card — uniform, single accent, no per-card colour ──────
+function FeatureCard({ icon, title, body }) {
+  return (
+    <div className="group relative bg-white rounded-2xl p-7 border border-gray-200/80 hover:border-gray-300 hover:shadow-[0_4px_24px_-8px_rgba(15,23,42,0.08)] transition-all duration-200">
+      <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center mb-5 group-hover:bg-emerald-100 transition-colors">
+        {icon}
+      </div>
+      <h3 className="text-[17px] font-semibold text-gray-900 mb-2 tracking-tight">{title}</h3>
+      <p className="text-[14.5px] text-gray-600 leading-relaxed">{body}</p>
     </div>
   );
 }
 
-/* ── Interactive demo dashboard ── */
-function LiveDemo({ t, currency }) {
-  const [activeTab, setActiveTab] = useState("dashboard");
-  const tabs = [
-    { key: "dashboard", label: t("landingDemoTabDashboard") },
-    { key: "sales", label: t("landingDemoTabSales") },
-    { key: "inventory", label: t("landingDemoTabInventory") },
-    { key: "staff", label: t("landingDemoTabStaff") },
+// Monochrome line icons — one design language, not a 14-emoji parade.
+// Each is a 20×20 stroke-1.75 icon at currentColor (emerald-700 in
+// the feature card slot).
+const Icons = {
+  Receipt: (
+    <svg className="w-5 h-5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M7 3h10a1 1 0 011 1v17l-3-2-3 2-3-2-3 2V4a1 1 0 011-1z" />
+      <path d="M9 8h6M9 12h6M9 16h3" />
+    </svg>
+  ),
+  Spark: (
+    <svg className="w-5 h-5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
+    </svg>
+  ),
+  Bank: (
+    <svg className="w-5 h-5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 10l9-6 9 6M5 10v8M9 10v8M15 10v8M19 10v8M3 20h18" />
+    </svg>
+  ),
+  Stack: (
+    <svg className="w-5 h-5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 7l9-4 9 4-9 4-9-4zM3 12l9 4 9-4M3 17l9 4 9-4" />
+    </svg>
+  ),
+  Calendar: (
+    <svg className="w-5 h-5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M3 9h18M8 3v4M16 3v4" />
+    </svg>
+  ),
+  Shield: (
+    <svg className="w-5 h-5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3l8 3v5c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6l8-3z" />
+      <path d="M9 12l2 2 4-4" />
+    </svg>
+  ),
+  Apple: (
+    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" />
+    </svg>
+  ),
+  Check: (
+    <svg className="w-4 h-4 text-emerald-600" viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M16.7 5.3a1 1 0 010 1.4l-8 8a1 1 0 01-1.4 0l-4-4a1 1 0 011.4-1.4L8 12.6l7.3-7.3a1 1 0 011.4 0z" clipRule="evenodd" />
+    </svg>
+  ),
+  Cross: (
+    <svg className="w-4 h-4 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M4.3 4.3a1 1 0 011.4 0L10 8.6l4.3-4.3a1 1 0 111.4 1.4L11.4 10l4.3 4.3a1 1 0 11-1.4 1.4L10 11.4l-4.3 4.3a1 1 0 11-1.4-1.4L8.6 10 4.3 5.7a1 1 0 010-1.4z" clipRule="evenodd" />
+    </svg>
+  ),
+};
+
+// ═══════════════════════════════════════════════════════════════════
+//                        Main component
+// ═══════════════════════════════════════════════════════════════════
+export default function LandingPage() {
+  const { t, lang, setLang, LANGUAGES } = useLanguage();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+
+  // Add a thin shadow to the nav once we've scrolled past the hero so
+  // the floating chrome reads against any background.
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 16);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Nav anchors — these set the navigable shape of the page. Keep
+  // short (3-4 items) so the nav doesn't crowd the brand on mobile.
+  const navLinks = [
+    { href: "#features", label: t("landingNavFeatures") || "Features" },
+    { href: "#compare", label: t("landingNavCompare") || "vs Dinero" },
+    { href: "#pricing", label: t("landingNavPricing") || "Pricing" },
   ];
 
   return (
-    <div className="bg-gray-950/80 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl shadow-green-500/5 p-3 sm:p-5">
-      {/* browser bar */}
-      <div className="flex items-center gap-2 mb-4 px-1">
-        <div className="flex gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-full bg-red-500/80" />
-          <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/80" />
-          <div className="w-2.5 h-2.5 rounded-full bg-green-500/80" />
-        </div>
-        <div className="flex-1 flex justify-center">
-          <div className="px-4 py-1 bg-gray-800/80 rounded-md text-[10px] text-gray-500 font-mono">bonbox.dk/dashboard</div>
-        </div>
-      </div>
-
-      {/* Tab switcher */}
-      <div className="flex gap-1 mb-3 px-1">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`px-3 py-1.5 rounded-lg text-[11px] font-medium transition ${
-              activeTab === tab.key
-                ? "bg-green-500/20 text-green-400 border border-green-500/30"
-                : "text-gray-500 hover:text-gray-300"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="bg-gray-900 rounded-xl p-3 sm:p-5 min-h-[280px]">
-        {activeTab === "dashboard" && (
-          <>
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <p className="text-white text-sm font-semibold">{t("landingDemoWelcome")}</p>
-                <p className="text-gray-500 text-[11px]">{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
-              </div>
-              <div className="hidden sm:flex gap-2">
-                <span className="px-3 py-1.5 bg-green-600 text-white text-[11px] rounded-lg font-semibold flex items-center gap-1">
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
-                  {t("quickSale")}
-                </span>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-3">
-              {[
-                { label: t("todayRevenue"), val: `24,500 ${currency}`, sub: "+12%", color: "text-white", subColor: "text-green-400", border: "border-green-500/20" },
-                { label: t("profit"), val: `70,097 ${currency}`, sub: "57.8%", color: "text-white", subColor: "text-green-400", border: "border-green-500/20" },
-                { label: t("inventoryAlerts"), val: "3", sub: t("landingDemoLowStock"), color: "text-yellow-400", subColor: "text-yellow-400", border: "border-yellow-500/20" },
-                { label: t("landingDemoKhata"), val: `40,000 ${currency}`, sub: t("landingDemo5Customers"), color: "text-orange-400", subColor: "text-gray-500", border: "border-orange-500/20" },
-              ].map((kpi) => (
-                <div key={kpi.label} className={`bg-gray-800/60 p-2.5 sm:p-3 rounded-lg border ${kpi.border}`}>
-                  <p className="text-gray-500 text-[10px] sm:text-xs">{kpi.label}</p>
-                  <p className={`${kpi.color} text-base sm:text-lg font-bold mt-0.5`}>{kpi.val}</p>
-                  <p className={`${kpi.subColor} text-[10px]`}>{kpi.sub}</p>
-                </div>
-              ))}
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
-              <div className="bg-gray-800/60 rounded-lg border border-gray-700/50 p-3 flex items-center gap-4">
-                <div className="text-center flex-shrink-0">
-                  <div className="w-12 h-12 rounded-full border-[3px] border-green-500 flex items-center justify-center bg-green-500/10">
-                    <span className="text-green-400 font-bold text-base">76</span>
-                  </div>
-                  <p className="text-gray-500 text-[10px] mt-1">{t("businessHealth")}</p>
-                </div>
-                <div className="flex-1 space-y-1.5 hidden sm:block">
-                  {[
-                    { label: t("profitability"), pct: 82, color: "bg-green-500" },
-                    { label: t("consistency"), pct: 95, color: "bg-blue-500" },
-                    { label: t("costControl"), pct: 60, color: "bg-yellow-500" },
-                  ].map((bar) => (
-                    <div key={bar.label} className="flex items-center gap-2">
-                      <span className="text-gray-500 text-[10px] w-20">{bar.label}</span>
-                      <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                        <div className={`h-full ${bar.color} rounded-full`} style={{width: `${bar.pct}%`}} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="bg-gray-800/60 rounded-lg border border-gray-700/50 p-3">
-                <p className="text-gray-400 text-[10px] font-semibold uppercase tracking-wider mb-2">{t("recentSales")}</p>
-                <div className="space-y-1.5">
-                  {[
-                    { name: "Coca-Cola x 10", price: `150 ${currency}`, method: t("cash") },
-                    { name: "Basmati Rice 5kg", price: `1,350 ${currency}`, method: "MobilePay" },
-                    { name: "Bar: 2x Vodka", price: `90 ${currency}`, method: t("card") },
-                  ].map((s, i) => (
-                    <div key={i} className="flex items-center justify-between text-[11px] py-1 border-b border-gray-700/30 last:border-0">
-                      <span className="text-gray-300">{s.name}</span>
-                      <div className="flex items-center gap-3">
-                        <span className="text-white font-medium">{s.price}</span>
-                        <span className="text-gray-600 text-[10px]">{s.method}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-
-        {activeTab === "sales" && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-white text-sm font-semibold">{t("salesTracker")}</p>
-              <span className="px-3 py-1 bg-green-600 text-white text-[11px] rounded-lg font-semibold">{t("logSale")}</span>
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              {[100, 250, 500, 1000, 2500, 5000].map((amt) => (
-                <button key={amt} className="bg-gray-800/60 border border-gray-700/50 rounded-lg p-2.5 text-center hover:border-green-500/40 transition">
-                  <p className="text-white font-bold text-sm">{amt.toLocaleString()}</p>
-                  <p className="text-gray-500 text-[10px]">{currency}</p>
-                </button>
-              ))}
-            </div>
-            <div className="bg-gray-800/40 rounded-lg p-3 mt-2">
-              <p className="text-gray-400 text-[10px] font-semibold uppercase mb-2">{t("recentSales")}</p>
-              <div className="space-y-1.5">
-                {[
-                  { date: "Apr 2", amount: "24,500", method: "Cash" },
-                  { date: "Apr 1", amount: "18,200", method: "MobilePay" },
-                  { date: "Mar 31", amount: "31,800", method: "Card" },
-                ].map((s, i) => (
-                  <div key={i} className="flex items-center justify-between text-[11px] py-1.5 border-b border-gray-700/30 last:border-0">
-                    <span className="text-gray-400">{s.date}</span>
-                    <span className="text-white font-bold">{s.amount} {currency}</span>
-                    <span className="text-gray-500 text-[10px]">{s.method}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === "inventory" && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-white text-sm font-semibold">{t("inventoryMonitor")}</p>
-              <span className="px-2.5 py-1 bg-yellow-500/20 text-yellow-400 text-[11px] rounded-lg font-medium">3 {t("lowStockAlerts")}</span>
-            </div>
-            <div className="space-y-1.5">
-              {[
-                { name: "Coca-Cola", qty: 4, min: 10, unit: t("pieces"), status: "low" },
-                { name: "Basmati Rice 5kg", qty: 45, min: 10, unit: t("kg"), status: "ok" },
-                { name: "Vodka 750ml", qty: 2, min: 5, unit: t("bottles"), status: "low" },
-                { name: "Tomatoes", qty: 8, min: 3, unit: t("kg"), status: "ok" },
-                { name: "Chicken Breast", qty: 1, min: 5, unit: t("kg"), status: "low" },
-              ].map((item) => (
-                <div key={item.name} className="flex items-center justify-between bg-gray-800/60 rounded-lg p-2.5 border border-gray-700/50">
-                  <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${item.status === "low" ? "bg-red-400 animate-pulse" : "bg-green-400"}`} />
-                    <span className="text-gray-200 text-[12px] font-medium">{item.name}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className={`text-[11px] font-bold ${item.status === "low" ? "text-red-400" : "text-green-400"}`}>
-                      {item.qty} {item.unit}
-                    </span>
-                    <span className="text-gray-600 text-[10px]">min: {item.min}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {activeTab === "staff" && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-white text-sm font-semibold">{t("landingDemoStaffTitle")}</p>
-              <span className="px-3 py-1 bg-purple-600 text-white text-[11px] rounded-lg font-semibold">{t("landingDemoPublish")}</span>
-            </div>
-            {/* Weekly schedule mini grid */}
-            <div className="bg-gray-800/60 border border-gray-700/50 rounded-lg p-3">
-              <p className="text-gray-400 text-[10px] font-semibold uppercase tracking-wider mb-2">{t("landingDemoThisWeek")}</p>
-              <div className="grid grid-cols-7 gap-1 mb-2">
-                {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d => (
-                  <div key={d} className="text-center text-[9px] text-gray-500 font-medium">{d}</div>
-                ))}
-              </div>
-              {[
-                { name: "Maria K.", shifts: [1,1,0,1,1,0,0], role: "Kitchen", on: "bg-orange-500/30 border border-orange-500/40" },
-                { name: "Jakob R.", shifts: [0,1,1,1,0,1,1], role: "Bar", on: "bg-purple-500/30 border border-purple-500/40" },
-                { name: "Rina T.", shifts: [1,0,1,0,1,1,0], role: "Floor", on: "bg-blue-500/30 border border-blue-500/40" },
-              ].map((staff) => (
-                <div key={staff.name} className="flex items-center gap-2 py-1.5 border-b border-gray-700/30 last:border-0">
-                  <span className="text-gray-300 text-[11px] font-medium w-16 truncate">{staff.name}</span>
-                  <div className="flex-1 grid grid-cols-7 gap-1">
-                    {staff.shifts.map((s, i) => (
-                      <div key={i} className={`h-5 rounded ${s ? staff.on : "bg-gray-800"} flex items-center justify-center`}>
-                        {s ? <span className="text-[8px] text-gray-300">{staff.role.charAt(0)}</span> : null}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-            {/* Hours + Tips summary */}
-            <div className="grid grid-cols-2 gap-2">
-              <div className="bg-gray-800/60 border border-gray-700/50 rounded-lg p-3">
-                <p className="text-gray-400 text-[10px] font-semibold uppercase mb-2">{t("landingDemoHoursLogged")}</p>
-                <p className="text-white text-2xl font-bold">127<span className="text-gray-500 text-sm font-normal">h</span></p>
-                <p className="text-green-400 text-[10px]">3 {t("landingDemoStaffMembers")}</p>
-              </div>
-              <div className="bg-gray-800/60 border border-gray-700/50 rounded-lg p-3">
-                <p className="text-gray-400 text-[10px] font-semibold uppercase mb-2">{t("landingDemoTipPool")}</p>
-                <p className="text-white text-2xl font-bold">4,820 <span className="text-gray-500 text-sm font-normal">{currency}</span></p>
-                <p className="text-purple-400 text-[10px]">{t("landingDemoSplitByHours")}</p>
-              </div>
-            </div>
-            <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-2.5 flex items-center gap-2">
-              <span className="text-lg">📄</span>
-              <span className="text-green-400 text-[11px] font-medium flex-1">{t("landingDemoPayrollReady")}</span>
-              <span className="px-2 py-1 bg-green-600 text-white text-[10px] rounded font-semibold">PDF</span>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════ */
-export default function LandingPage() {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const { t, lang, setLang, LANGUAGES } = useLanguage();
-  const currency = "kr";
-
-  return (
-    <div className="min-h-screen bg-[#fafaf7] overflow-x-hidden">
+    <div className="min-h-screen bg-[#fafaf7] text-gray-900 antialiased">
       <style>{`
-        @keyframes heroFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
-        @keyframes heroTwinkle { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.2; transform: scale(0.5); } }
+        @keyframes heroFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+        html { scroll-behavior: smooth; }
       `}</style>
 
-      {/* ── Navigation (Copenhagen-clean: light bg, restrained accent) ── */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-[#fafaf7]/85 backdrop-blur-xl border-b border-gray-200/60">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2.5 group">
-            <div className="w-9 h-9 bg-green-500 rounded-lg flex items-center justify-center shadow-sm">
-              <svg width="20" height="20" viewBox="0 0 28 28" fill="none">
-                <rect x="4" y="2" width="20" height="24" rx="3" stroke="white" strokeWidth="2.2" />
-                <path d="M9 8h10M9 12h10M9 16h6" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-                <path d="M4 20h20" stroke="#fde68a" strokeWidth="2" />
+      {/* ── NAV ────────────────────────────────────────────────── */}
+      <nav
+        className={`fixed inset-x-0 top-0 z-50 backdrop-blur-xl transition-shadow ${
+          scrolled
+            ? "bg-[#fafaf7]/90 border-b border-gray-200 shadow-[0_1px_0_rgba(15,23,42,0.04)]"
+            : "bg-[#fafaf7]/70 border-b border-transparent"
+        }`}
+      >
+        <div className="max-w-6xl mx-auto px-5 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <Link to="/" className="flex items-center gap-2.5">
+            <div className="w-8 h-8 bg-emerald-500 rounded-md flex items-center justify-center">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="4" y="3" width="16" height="18" rx="2" />
+                <path d="M8 8h8M8 12h8M8 16h5" />
               </svg>
             </div>
-            <span className="text-[17px] font-semibold text-gray-900 tracking-tight">BonBox</span>
+            <span className="text-[16px] font-semibold tracking-tight">BonBox</span>
           </Link>
 
-          <div className="hidden sm:flex items-center gap-3">
+          <div className="hidden md:flex items-center gap-1">
+            {navLinks.map((l) => (
+              <a
+                key={l.href}
+                href={l.href}
+                className="px-3 py-2 text-[14px] text-gray-700 hover:text-gray-900 transition-colors"
+              >
+                {l.label}
+              </a>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2">
             <select
               value={lang}
               onChange={(e) => setLang(e.target.value)}
               aria-label="Language"
-              className="text-[13px] bg-transparent border border-gray-200 rounded-md px-2.5 py-1.5 text-gray-700 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer"
+              className="hidden sm:block text-[13px] bg-transparent border border-gray-200 rounded-md px-2 py-1.5 text-gray-700 hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-300 cursor-pointer"
             >
               {LANGUAGES.map((l) => (
                 <option key={l.code} value={l.code}>{l.label}</option>
               ))}
             </select>
-            <Link to="/login" className="px-3 py-2 text-[14px] font-medium text-gray-700 hover:text-gray-900 transition">
-              {t("landingSignIn")}
+            <Link
+              to="/login"
+              className="hidden sm:inline-block px-3 py-2 text-[14px] font-medium text-gray-700 hover:text-gray-900"
+            >
+              {t("landingSignIn") || "Sign in"}
             </Link>
-            <Link to="/register" className="px-4 py-2 text-[14px] font-medium bg-green-500 text-white rounded-lg hover:bg-green-600 transition shadow-sm">
-              {t("landingStartFree")}
+            <Link
+              to="/register"
+              className="px-4 py-2 text-[14px] font-medium bg-gray-900 text-white rounded-md hover:bg-gray-800 transition shadow-sm"
+            >
+              {t("landingStartFree") || "Get started"}
             </Link>
+            <button
+              onClick={() => setMenuOpen(!menuOpen)}
+              className="md:hidden text-gray-700 p-2 -mr-2"
+              aria-label="Menu"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                {menuOpen
+                  ? <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  : <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M4 12h16M4 17h16" />}
+              </svg>
+            </button>
           </div>
-
-          <button onClick={() => setMenuOpen(!menuOpen)} className="sm:hidden text-gray-700 p-2" aria-label="Menu">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              {menuOpen ? (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              )}
-            </svg>
-          </button>
         </div>
         {menuOpen && (
-          <div className="sm:hidden px-4 pb-4 space-y-2 border-t border-gray-200/60 pt-3 bg-[#fafaf7]">
-            <select
-              value={lang}
-              onChange={(e) => setLang(e.target.value)}
-              className="w-full text-sm bg-white border border-gray-200 rounded-lg px-3 py-2.5 mb-1"
-            >
-              {LANGUAGES.map((l) => (
-                <option key={l.code} value={l.code}>{l.label}</option>
+          <div className="md:hidden border-t border-gray-200 bg-[#fafaf7]">
+            <div className="px-5 py-3 space-y-1">
+              {navLinks.map((l) => (
+                <a
+                  key={l.href}
+                  href={l.href}
+                  onClick={() => setMenuOpen(false)}
+                  className="block py-2 text-[15px] text-gray-700"
+                >
+                  {l.label}
+                </a>
               ))}
-            </select>
-            <Link to="/login" className="block w-full text-center px-4 py-3 text-sm font-medium text-gray-800 border border-gray-300 rounded-lg">{t("landingSignIn")}</Link>
-            <Link to="/register" className="block w-full text-center px-4 py-3 text-sm font-medium bg-green-500 text-white rounded-lg shadow-sm">{t("landingStartFree")}</Link>
+              <div className="flex gap-2 pt-2">
+                <Link to="/login" onClick={() => setMenuOpen(false)} className="flex-1 text-center py-2.5 text-[14px] border border-gray-300 rounded-md text-gray-800">
+                  {t("landingSignIn") || "Sign in"}
+                </Link>
+              </div>
+              <select
+                value={lang}
+                onChange={(e) => setLang(e.target.value)}
+                className="mt-2 w-full text-[14px] bg-white border border-gray-200 rounded-md px-3 py-2"
+              >
+                {LANGUAGES.map((l) => (
+                  <option key={l.code} value={l.code}>{l.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
         )}
       </nav>
 
-      {/* ── Hero (warm-white Copenhagen + BonBox green signature) ── */}
-      <section className="relative pt-32 sm:pt-40 pb-20 sm:pb-32 text-gray-900 overflow-hidden">
-        <div className="absolute top-20 left-1/4 w-[500px] h-[500px] bg-green-100/60 rounded-full blur-[120px] pointer-events-none" />
-        <div className="absolute top-40 right-1/4 w-[400px] h-[400px] bg-emerald-100/50 rounded-full blur-[120px] pointer-events-none" />
-
-        <div className="relative max-w-6xl mx-auto px-4 sm:px-6">
-          {/* Split hero: text left, illustration right */}
-          <div className="flex flex-col lg:flex-row items-center gap-12 lg:gap-16">
-            {/* Left — text */}
-            <div className="flex-1 text-center lg:text-left">
-              <FadeIn>
-                <div className="inline-flex items-center gap-2 px-3 py-1 bg-green-50 rounded-full text-[12px] font-medium text-green-700 mb-8 border border-green-200/70">
-                  <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-                  {t("landingBadge")}
-                </div>
-              </FadeIn>
-
-              <FadeIn delay={100}>
-                <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-[1.08] tracking-tight text-gray-900">
-                  {t("landingHeroLine1")}
-                  <br />
-                  <span className="bg-gradient-to-r from-green-600 to-emerald-500 bg-clip-text text-transparent">
-                    {t("landingHeroLine2")}
-                  </span>
-                </h1>
-              </FadeIn>
-
-              <FadeIn delay={200}>
-                <p className="mt-6 text-lg text-gray-600 max-w-lg mx-auto lg:mx-0 leading-relaxed">
-                  {t("landingHeroSub")}
-                </p>
-              </FadeIn>
-
-              <FadeIn delay={300}>
-                <div className="mt-10 flex flex-col sm:flex-row items-center lg:items-start justify-center lg:justify-start gap-3">
-                  <Link to="/register" className="w-full sm:w-auto px-7 py-3.5 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 transition text-center text-[15px] shadow-md shadow-green-500/20">
-                    {t("landingCtaPrimary")}
-                  </Link>
-                  <a href="https://apps.apple.com/dk/app/bonbox-daily-close/id6762066960" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-3 bg-white border border-gray-300 rounded-lg hover:border-gray-400 transition">
-                    <svg className="w-5 h-5 text-gray-900" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
-                    <div className="text-left">
-                      <div className="text-[9px] text-gray-500 leading-none">Download on the</div>
-                      <div className="text-[13px] text-gray-900 font-semibold leading-tight">App Store</div>
-                    </div>
-                  </a>
-                </div>
-              </FadeIn>
-
-              <FadeIn delay={350}>
-                <div className="mt-6 flex flex-wrap items-center justify-center lg:justify-start gap-5 text-[13px] text-gray-600">
-                  {[t("landingCheck1"), t("landingCheck2"), t("landingCheck3")].map((txt) => (
-                    <span key={txt} className="flex items-center gap-1.5">
-                      <svg className="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
-                      {txt}
-                    </span>
-                  ))}
-                </div>
-              </FadeIn>
-            </div>
-
-            {/* Right — phone mockup */}
-            <FadeIn delay={400} className="flex-1 hidden md:block">
-              <HeroPhone />
-            </FadeIn>
-          </div>
-
-          {/* ── Interactive Demo ── */}
-          <FadeIn delay={500}>
-            <div className="mt-16 max-w-5xl mx-auto">
-              <LiveDemo t={t} currency={currency} />
-              <p className="text-gray-500 text-xs mt-3 tracking-wide">{t("landingDemoCaption")}</p>
-            </div>
-          </FadeIn>
+      {/* ── HERO ───────────────────────────────────────────────── */}
+      <Section className="pt-32 sm:pt-36 pb-12 sm:pb-16">
+        {/* Single subtle glow — replaces the previous 2 blur circles
+            that made the page look like a 2019 SaaS template. */}
+        <div className="absolute inset-x-0 top-20 -z-10 flex justify-center pointer-events-none">
+          <div className="h-[420px] w-[820px] bg-emerald-200/40 blur-[140px] rounded-full" />
         </div>
-      </section>
 
-      {/* ── Stats bar (Copenhagen-light: subtle gray panel) ── */}
-      <section className="py-12 border-y border-gray-200/70 bg-white">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
-            {[
-              // Stats reframed around the segment — these are what matter for
-              // a multi-terminal hospitality buyer, not generic SaaS feature
-              // counts. 90 / 6 / 6 / 5 all match claims made elsewhere on the
-              // site (hero, pricing, founding banner) so no contradictions.
-              { val: 90, suffix: " sec", label: t("landingStatCloseTime") },
-              { val: 6, suffix: "+", label: t("landingStatTerminals") },
-              { val: 6, suffix: "", label: t("landingStatLanguages") },
-              { val: 5, suffix: "", label: t("landingStatSetup"), prefix: "" },
-            ].map((s) => (
-              <FadeIn key={s.label}>
-                <div>
-                  <p className="text-3xl sm:text-4xl font-bold text-gray-900">
-                    <Counter end={s.val} duration={1200} prefix={s.prefix} suffix={s.suffix} />
-                  </p>
-                  <p className="text-gray-500 text-sm mt-1">{s.label}</p>
-                </div>
-              </FadeIn>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Features ── */}
-      <section className="py-20 sm:py-28">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <FadeIn>
-            <div className="text-center mb-16">
-              <p className="text-green-600 text-xs font-semibold uppercase tracking-wider mb-3">{t("landingFeaturesTag")}</p>
-              <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 tracking-tight">
-                {t("landingFeaturesTitle")}
-              </h2>
-              <p className="mt-5 text-gray-600 text-lg max-w-xl mx-auto">
-                {t("landingFeaturesSub")}
-              </p>
-            </div>
-          </FadeIn>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {[
-              { icon: "💰", titleKey: "landingFeature1Title", descKey: "landingFeature1Desc", accent: "from-green-500/20 to-emerald-500/10", border: "border-green-500/20 hover:border-green-500/40" },
-              { icon: "📦", titleKey: "landingFeature2Title", descKey: "landingFeature2Desc", accent: "from-blue-500/20 to-cyan-500/10", border: "border-blue-500/20 hover:border-blue-500/40" },
-              { icon: "🍸", titleKey: "landingFeature3Title", descKey: "landingFeature3Desc", accent: "from-orange-500/20 to-amber-500/10", border: "border-orange-500/20 hover:border-orange-500/40" },
-              { icon: "👥", titleKey: "landingFeature4Title", descKey: "landingFeature4Desc", accent: "from-violet-500/20 to-purple-500/10", border: "border-violet-500/20 hover:border-violet-500/40" },
-              { icon: "📊", titleKey: "landingFeature5Title", descKey: "landingFeature5Desc", accent: "from-emerald-500/20 to-green-500/10", border: "border-emerald-500/20 hover:border-emerald-500/40" },
-              { icon: "🗑️", titleKey: "landingFeature6Title", descKey: "landingFeature6Desc", accent: "from-red-500/20 to-rose-500/10", border: "border-red-500/20 hover:border-red-500/40" },
-              { icon: "🌦️", titleKey: "landingFeature7Title", descKey: "landingFeature7Desc", accent: "from-cyan-500/20 to-sky-500/10", border: "border-cyan-500/20 hover:border-cyan-500/40" },
-              { icon: "🔧", titleKey: "landingFeature8Title", descKey: "landingFeature8Desc", accent: "from-amber-500/20 to-yellow-500/10", border: "border-amber-500/20 hover:border-amber-500/40" },
-              { icon: "🏢", titleKey: "landingFeature9Title", descKey: "landingFeature9Desc", accent: "from-indigo-500/20 to-violet-500/10", border: "border-indigo-500/20 hover:border-indigo-500/40" },
-              { icon: "🍷", titleKey: "landingFeature10Title", descKey: "landingFeature10Desc", accent: "from-purple-500/20 to-pink-500/10", border: "border-purple-500/20 hover:border-purple-500/40" },
-              { icon: "👨‍💼", titleKey: "landingFeature11Title", descKey: "landingFeature11Desc", accent: "from-teal-500/20 to-cyan-500/10", border: "border-teal-500/20 hover:border-teal-500/40" },
-              { icon: "🧮", titleKey: "landingFeature12Title", descKey: "landingFeature12Desc", accent: "from-lime-500/20 to-green-500/10", border: "border-lime-500/20 hover:border-lime-500/40" },
-              { icon: "🔄", titleKey: "landingFeature13Title", descKey: "landingFeature13Desc", accent: "from-sky-500/20 to-blue-500/10", border: "border-sky-500/20 hover:border-sky-500/40" },
-              { icon: "✨", titleKey: "landingFeature14Title", descKey: "landingFeature14Desc", accent: "from-emerald-500/20 to-teal-500/10", border: "border-emerald-500/20 hover:border-emerald-500/40" },
-            ].map((f, i) => (
-              <FadeIn key={f.titleKey} delay={i * 80}>
-                <div className="bg-white rounded-2xl p-6 border border-gray-200 hover:border-gray-300 transition-all duration-300 h-full group">
-                  <div className="text-3xl mb-4">{f.icon}</div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">{t(f.titleKey)}</h3>
-                  <p className="text-gray-600 text-sm leading-relaxed">{t(f.descKey)}</p>
-                </div>
-              </FadeIn>
-            ))}
-          </div>
-
-          {/* Extra features ribbon */}
-          <FadeIn delay={200}>
-            <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
-              {[
-                t("landingTagCashBook"), t("landingTagKhata"), t("landingTagVat"),
-                t("landingTagPdf"), t("landingTagLoan"), t("landingTagPersonal"),
-                t("landingTagDark"), t("landingTagSeasonal"), t("landingTagMultiCurrency"),
-                t("landingTagMultiLang"), t("landingTagTax"), t("landingTagBudget"),
-                t("landingTagExpiry"), t("landingTagCompetitor"), t("landingTagBranch"),
-                t("landingTagWorkshop"), t("landingTagDailyClose"), t("landingTagMultiBiz"),
-                t("landingTagWineList"), t("landingTagScanBottle"), t("landingTagSommelier"),
-                t("landingTagStaffSchedule"), t("landingTagTipSplit"), t("landingTagPayrollPdf"), t("landingTagUnitConvert"),
-                t("landingTagSmartSetup"), t("landingTagAutoDetectTerminals"), t("landingTagDriftSuggestions"),
-              ].map((f) => (
-                <span key={f} className="px-4 py-2 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-full hover:border-green-300 hover:text-green-700 transition">
-                  {f}
-                </span>
-              ))}
-            </div>
-          </FadeIn>
-        </div>
-      </section>
-
-      {/* ── Intelligence Suite ── */}
-      <section className="py-20 sm:py-28 bg-gradient-to-b from-white via-purple-50/40 to-white border-y border-gray-200/60">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6">
-          <FadeIn>
-            <div className="text-center mb-12">
-              <p className="text-purple-600 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingIntelTag")}</p>
-              <h2 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">
-                {t("landingIntelTitle1")}
-                <br />
-                <span className="text-purple-600">{t("landingIntelTitle2")}</span>
-              </h2>
-              <p className="mt-5 text-gray-600 text-lg max-w-xl mx-auto">
-                {t("landingIntelSub")}
-              </p>
-            </div>
-          </FadeIn>
-
-          <FadeIn delay={100}>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-              {[
-                { icon: "💲", titleKey: "landingIntel1", subKey: "landingIntel1Sub", color: "hover:border-green-400/60" },
-                { icon: "🤝", titleKey: "landingIntel2", subKey: "landingIntel2Sub", color: "hover:border-pink-400/60" },
-                { icon: "🔍", titleKey: "landingIntel3", subKey: "landingIntel3Sub", color: "hover:border-purple-400/60" },
-                { icon: "⏰", titleKey: "landingIntel4", subKey: "landingIntel4Sub", color: "hover:border-amber-400/60" },
-                { icon: "🏢", titleKey: "landingIntel5", subKey: "landingIntel5Sub", color: "hover:border-slate-400/60" },
-                { icon: "🧾", titleKey: "landingIntel6", subKey: "landingIntel6Sub", color: "hover:border-emerald-400/60" },
-              ].map((f, i) => (
-                <FadeIn key={f.titleKey} delay={i * 80}>
-                  <div className={`bg-white border border-gray-200 rounded-2xl p-5 text-center transition-all duration-300 hover:shadow-md ${f.color}`}>
-                    <div className="text-3xl mb-3">{f.icon}</div>
-                    <p className="text-gray-900 font-bold text-sm">{t(f.titleKey)}</p>
-                    <p className="text-gray-600 text-xs mt-1.5 leading-relaxed">{t(f.subKey)}</p>
-                  </div>
-                </FadeIn>
-              ))}
-            </div>
-          </FadeIn>
-        </div>
-      </section>
-
-      {/* ── Bar/Restaurant Spotlight ── */}
-      <section className="py-20 sm:py-28 bg-gray-50 border-y border-gray-200/60">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6">
-          <FadeIn>
-            <div className="text-center mb-12">
-              <p className="text-amber-600 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingBarTag")}</p>
-              <h2 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">
-                {t("landingBarTitle1")}
-                <br />
-                <span className="text-amber-600">{t("landingBarTitle2")}</span>
-              </h2>
-            </div>
-          </FadeIn>
-
-          <FadeIn delay={100}>
-            <div className="bg-white border border-gray-200 rounded-2xl p-6 sm:p-10 shadow-sm">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6 text-center">
-                {[
-                  { icon: "🍾", titleKey: "landingBarStep1", subKey: "landingBarStep1Sub", color: "text-gray-900" },
-                  { icon: "🥃", titleKey: "landingBarStep2", subKey: "landingBarStep2Sub", color: "text-gray-900" },
-                  { icon: "📉", titleKey: "landingBarStep3", subKey: "landingBarStep3Sub", color: "text-green-600" },
-                  { icon: "💵", titleKey: "landingBarStep4", subKey: "landingBarStep4Sub", color: "text-amber-600" },
-                ].map((step, i) => (
-                  <div key={step.titleKey} className="relative">
-                    <div className="text-4xl mb-3">{step.icon}</div>
-                    <p className={`font-bold text-sm ${step.color}`}>{t(step.titleKey)}</p>
-                    <p className="text-gray-600 text-xs mt-1">{t(step.subKey)}</p>
-                    {i < 3 && (
-                      <span className="hidden sm:block absolute top-8 -right-3 sm:-right-4 text-amber-500 text-lg font-bold">→</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <p className="text-center text-green-600 font-semibold text-sm mt-8">{t("landingBarBottom")}</p>
-            </div>
-          </FadeIn>
-        </div>
-      </section>
-
-      {/* ── Staff Management Spotlight ── */}
-      <section className="py-20 sm:py-28 bg-gradient-to-b from-white via-teal-50/40 to-white border-y border-gray-200/60">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6">
-          <FadeIn>
-            <div className="text-center mb-12">
-              <p className="text-teal-600 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingStaffTag")}</p>
-              <h2 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">
-                {t("landingStaffTitle1")}
-                <br />
-                <span className="text-teal-600">{t("landingStaffTitle2")}</span>
-              </h2>
-            </div>
-          </FadeIn>
-
-          <FadeIn delay={100}>
-            <div className="bg-white border border-gray-200 rounded-2xl p-6 sm:p-10 shadow-sm">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6 text-center">
-                {[
-                  { icon: "📅", titleKey: "landingStaffStep1", subKey: "landingStaffStep1Sub", color: "text-gray-900" },
-                  { icon: "⏱️", titleKey: "landingStaffStep2", subKey: "landingStaffStep2Sub", color: "text-gray-900" },
-                  { icon: "💰", titleKey: "landingStaffStep3", subKey: "landingStaffStep3Sub", color: "text-teal-600" },
-                  { icon: "📄", titleKey: "landingStaffStep4", subKey: "landingStaffStep4Sub", color: "text-green-600" },
-                ].map((step, i) => (
-                  <div key={step.titleKey} className="relative">
-                    <div className="text-4xl mb-3">{step.icon}</div>
-                    <p className={`font-bold text-sm ${step.color}`}>{t(step.titleKey)}</p>
-                    <p className="text-gray-600 text-xs mt-1">{t(step.subKey)}</p>
-                    {i < 3 && (
-                      <span className="hidden sm:block absolute top-8 -right-3 sm:-right-4 text-teal-500 text-lg font-bold">&#8594;</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <p className="text-center text-teal-600 font-semibold text-sm mt-8">{t("landingStaffBottom")}</p>
-            </div>
-          </FadeIn>
-        </div>
-      </section>
-
-      {/* ── Smart Setup Spotlight ──
-          Communicates the inference-first promise: BonBox sets itself
-          up by watching your data instead of asking you to fill in
-          forms. Slots between Staff (manual ops) and How-it-works
-          (the close flow) so the visual rhythm goes:
-            "you do staff" → "we set up your business" → "you close" */}
-      <section className="py-20 sm:py-28 bg-gradient-to-b from-white via-emerald-50/40 to-white border-y border-gray-200/60">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6">
-          <FadeIn>
-            <div className="text-center mb-12">
-              <p className="text-emerald-600 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingSmartSetupTag")}</p>
-              <h2 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">
-                {t("landingSmartSetupTitle1")}
-                <br />
-                <span className="text-emerald-600">{t("landingSmartSetupTitle2")}</span>
-              </h2>
-              <p className="mt-5 text-gray-600 text-lg max-w-xl mx-auto">
-                {t("landingSmartSetupSub")}
-              </p>
-            </div>
-          </FadeIn>
-
-          <FadeIn delay={100}>
-            <div className="bg-white border border-gray-200 rounded-2xl p-6 sm:p-10 shadow-sm">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6 text-center">
-                {[
-                  { icon: "🌙", titleKey: "landingSmartSetupStep1", subKey: "landingSmartSetupStep1Sub", color: "text-gray-900" },
-                  { icon: "👀", titleKey: "landingSmartSetupStep2", subKey: "landingSmartSetupStep2Sub", color: "text-gray-900" },
-                  { icon: "💡", titleKey: "landingSmartSetupStep3", subKey: "landingSmartSetupStep3Sub", color: "text-emerald-600" },
-                  { icon: "✓",  titleKey: "landingSmartSetupStep4", subKey: "landingSmartSetupStep4Sub", color: "text-emerald-600" },
-                ].map((step, i) => (
-                  <div key={step.titleKey} className="relative">
-                    <div className="text-4xl mb-3">{step.icon}</div>
-                    <p className={`font-bold text-sm ${step.color}`}>{t(step.titleKey)}</p>
-                    <p className="text-gray-600 text-xs mt-1">{t(step.subKey)}</p>
-                    {i < 3 && (
-                      <span className="hidden sm:block absolute top-8 -right-3 sm:-right-4 text-emerald-500 text-lg font-bold">&#8594;</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <p className="text-center text-emerald-600 font-semibold text-sm mt-8">{t("landingSmartSetupBottom")}</p>
-            </div>
-          </FadeIn>
-        </div>
-      </section>
-
-      {/* ── How it works ── */}
-      <section className="py-20 sm:py-28">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <FadeIn>
-            <div className="text-center mb-16">
-              <p className="text-green-400 text-sm font-semibold uppercase tracking-wider mb-3">{t("landingHowTag")}</p>
-              <h2 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">
-                {t("landingHowTitle")}
-              </h2>
-            </div>
-          </FadeIn>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl mx-auto">
-            {[
-              { num: "1", titleKey: "landingStep1Title", subKey: "landingStep1Sub", icon: "👤" },
-              { num: "2", titleKey: "landingStep2Title", subKey: "landingStep2Sub", icon: "✏️" },
-              { num: "3", titleKey: "landingStep3Title", subKey: "landingStep3Sub", icon: "⚡" },
-            ].map((step, i) => (
-              <FadeIn key={step.num} delay={i * 120}>
-                <div className="text-center relative">
-                  {i < 2 && (
-                    <div className="hidden md:block absolute top-8 left-[60%] w-[80%] border-t-2 border-dashed border-gray-300" />
-                  )}
-                  <div className="relative z-10 w-16 h-16 bg-green-50 border border-green-200 text-3xl rounded-2xl flex items-center justify-center mx-auto mb-5">
-                    {step.icon}
-                  </div>
-                  <div className="text-green-600 text-xs font-bold mb-2">{t("landingStepLabel")} {step.num}</div>
-                  <h3 className="text-lg font-bold text-gray-900 mb-1">{t(step.titleKey)}</h3>
-                  <p className="text-gray-600 text-sm">{t(step.subKey)}</p>
-                </div>
-              </FadeIn>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Download the App ── */}
-      <section className="py-16 border-y border-gray-200/60 bg-gradient-to-r from-emerald-50 via-white to-emerald-50">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6">
-          <FadeIn>
-            <div className="flex flex-col md:flex-row items-center justify-between gap-8">
-              <div className="text-center md:text-left">
-                <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-2">
-                  Take BonBox Everywhere
-                </h2>
-                <p className="text-gray-600 text-sm">
-                  Available on iOS. Your dashboard in your pocket.
-                </p>
-              </div>
-              <div className="flex flex-row gap-3 flex-shrink-0">
-                <a href="https://apps.apple.com/dk/app/bonbox-daily-close/id6762066960" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 px-5 py-3 bg-white text-black rounded-xl hover:bg-gray-100 transition shadow-lg">
-                  <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
-                  <div className="text-left">
-                    <div className="text-[9px] text-gray-500 leading-none font-medium">Download on the</div>
-                    <div className="text-base font-bold leading-tight">App Store</div>
-                  </div>
-                </a>
-              </div>
-            </div>
-          </FadeIn>
-        </div>
-      </section>
-
-      {/* ── Cut your bookkeeping bill — the honest Dinero/revisor breakdown ── */}
-      <section className="py-16 sm:py-20 border-y border-gray-200/60 bg-white">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6">
-          <FadeIn>
-            <div className="text-center mb-10">
-              <span className="inline-block text-[11px] font-bold uppercase tracking-[0.15em] text-green-700 mb-3">
-                {t("landingPairsKicker") || "Cut your bookkeeping bill"}
-              </span>
-              <h2 className="text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900 tracking-tight mb-4">
-                {t("landingPairsTitle") || "Stop paying your revisor monthly"}
-              </h2>
-              <p className="text-gray-600 text-base md:text-lg max-w-2xl mx-auto leading-relaxed">
-                {t("landingPairsSub") || "Most Danish small-business owners pay 1.500–3.000 kr/month for a revisor to do daily bookkeeping. BonBox replaces that grind for 129 kr/month — you pair with Dinero's free tier or an annual revisor only for the official filings."}
-              </p>
+        <div className="grid lg:grid-cols-[1.1fr_1fr] gap-12 lg:gap-20 items-center">
+          <div>
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-emerald-200/80 rounded-full text-[12px] font-medium text-emerald-700 mb-7">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              {t("landingBadge") || "For multi-terminal hospitality"}
             </div>
 
-            {/* Two-column split: what BonBox handles vs. what stays with revisor/Dinero */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl mx-auto mb-8">
-              <div className="bg-green-50/60 border-2 border-green-300 rounded-2xl p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="text-2xl">⚡</span>
-                  <div>
-                    <h3 className="text-base font-bold text-gray-900">
-                      {t("landingPairsBonBoxTitle") || "BonBox handles · 129 kr/mo"}
-                    </h3>
-                    <p className="text-xs text-green-700 font-medium">{t("landingPairsBonBoxNote") || "The monthly grind that costs you most"}</p>
-                  </div>
-                </div>
-                <ul className="space-y-2 text-sm text-gray-800">
-                  {[
-                    t("landingPairsBonBoxF1") || "🧾 Send fakturaer — gap-less, Bogføringsloven-compliant",
-                    t("landingPairsBonBoxF2") || "👥 Customers + CVR-verified debitors",
-                    t("landingPairsBonBoxF3") || "📷 OCR receipts — 6 sec/scan",
-                    t("landingPairsBonBoxF4") || "🚗 Mileage log — Skattestyrelsen-compliant",
-                    t("landingPairsBonBoxF5") || "🏦 Bank import — auto-matches payments to invoices",
-                    t("landingPairsBonBoxF6") || "🤖 AI anomaly detection on sales + wages",
-                  ].map((f, i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      <span className="text-green-600 mt-0.5 shrink-0">✓</span>
-                      <span>{f}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+            <h1 className="text-[40px] sm:text-[52px] lg:text-[60px] leading-[1.04] tracking-tight font-semibold">
+              {t("landingHeroLine1") || "The 90 seconds between"}{" "}
+              <span className="text-emerald-600">{t("landingHeroLine2") || "last guest and lights out."}</span>
+            </h1>
 
-              <div className="bg-gray-50 border border-gray-200 rounded-2xl p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="text-2xl">📑</span>
-                  <div>
-                    <h3 className="text-base font-bold text-gray-900">
-                      {t("landingPairsRevisorTitle") || "Revisor or Dinero free · annual only"}
-                    </h3>
-                    <p className="text-xs text-gray-500 font-medium">{t("landingPairsRevisorNote") || "The legal filings — 1–4× per year"}</p>
-                  </div>
-                </div>
-                <ul className="space-y-2 text-sm text-gray-700">
-                  {[
-                    t("landingPairsRevisorF1") || "Moms-angivelse to SKAT (quarterly)",
-                    t("landingPairsRevisorF2") || "Årsregnskab (annual statement)",
-                    t("landingPairsRevisorF3") || "Selvangivelse review",
-                    t("landingPairsRevisorF4") || "Tax-strategy consultations",
-                  ].map((f, i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      <span className="text-gray-400 mt-0.5 shrink-0">•</span>
-                      <span>{f}</span>
-                    </li>
-                  ))}
-                </ul>
-                <p className="mt-4 pt-3 border-t border-gray-200 text-[11px] text-gray-500 leading-relaxed">
-                  {t("landingPairsRevisorTip") || "Tip: Dinero's free tier handles Moms-angivelse filing. Pair it with BonBox's CSV export — your revisor only needs to see you once a year for the årsregnskab."}
-                </p>
-              </div>
-            </div>
-
-            {/* Savings callout */}
-            <div className="max-w-3xl mx-auto bg-emerald-600 text-white rounded-2xl p-6 mb-8">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
-                <div>
-                  <div className="text-[11px] uppercase tracking-wider opacity-80">{t("landingPairsCostBefore") || "Monthly revisor"}</div>
-                  <div className="text-2xl font-bold mt-1">~24.000 kr/yr</div>
-                </div>
-                <div>
-                  <div className="text-[11px] uppercase tracking-wider opacity-80">{t("landingPairsCostAfter") || "BonBox + annual revisor"}</div>
-                  <div className="text-2xl font-bold mt-1">~6.500 kr/yr</div>
-                </div>
-                <div>
-                  <div className="text-[11px] uppercase tracking-wider opacity-80">{t("landingPairsSavings") || "You save"}</div>
-                  <div className="text-2xl font-bold mt-1 text-yellow-200">~17.500 kr/yr</div>
-                </div>
-              </div>
-            </div>
-
-            <p className="text-center text-[12px] text-gray-500 max-w-2xl mx-auto leading-relaxed">
-              {t("landingPairsDisclaimer") || "BonBox is not a registered digital bookkeeping system (registreret digitalt bogføringssystem) under Bogføringsloven 2024. Pair it with Dinero (or another registered system) and a revisor for the official filings. Savings estimate based on a typical Danish small business paying ~2.000 kr/month for monthly revisor service vs. annual-only revisor + BonBox."}
+            <p className="mt-6 text-[17px] sm:text-[18px] text-gray-600 leading-relaxed max-w-[520px]">
+              {t("landingHeroSub") || "Front-of-house snaps each kasserapport. AI merges them in 6 seconds. Owner gets the consolidated PDF before close-up is even done."}
             </p>
-          </FadeIn>
-        </div>
-      </section>
 
-      {/* ── Global reach ── */}
-      <section className="py-16 border-y border-gray-200/60 bg-gray-50">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6">
-          <FadeIn>
-            <div className="text-center">
-              <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-4">
-                {t("landingGlobalTitle")}
-              </h2>
-              <p className="text-gray-600 text-lg mb-8 max-w-lg mx-auto">
-                {t("landingGlobalSub")}
-              </p>
-              <div className="flex flex-wrap justify-center gap-3 mb-10">
-                {[
-                  { flag: "🇩🇰", name: "Denmark" }, { flag: "🇳🇵", name: "Nepal" },
-                  { flag: "🇩🇪", name: "Germany" }, { flag: "🇫🇷", name: "France" },
-                  { flag: "🇪🇸", name: "Spain" }, { flag: "🇬🇧", name: "UK" },
-                  { flag: "🇳🇱", name: "Netherlands" }, { flag: "🇸🇪", name: "Sweden" },
-                  { flag: "🇳🇴", name: "Norway" }, { flag: "🇵🇹", name: "Portugal" },
-                  { flag: "🇮🇹", name: "Italy" }, { flag: "🇯🇵", name: "Japan" },
-                  { flag: "🇮🇳", name: "India" }, { flag: "🇪🇺", name: "Europe" },
-                ].map((c) => (
-                  <span key={c.name} className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-full hover:border-green-300 transition">
-                    <span className="text-lg">{c.flag}</span>
-                    {c.name}
-                  </span>
-                ))}
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl mx-auto">
-                {[
-                  { icon: "🎓", textKey: "landingCredibility1" },
-                  { icon: "📱", textKey: "landingCredibility2" },
-                  { icon: "🔒", textKey: "landingCredibility3" },
-                ].map((item) => (
-                  <div key={item.textKey} className="bg-white border border-gray-200 rounded-xl p-4 text-center hover:border-green-300 hover:shadow-sm transition">
-                    <div className="text-2xl mb-2">{item.icon}</div>
-                    <p className="text-gray-700 text-sm">{t(item.textKey)}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </FadeIn>
-        </div>
-      </section>
-
-      {/* ── Pricing ── */}
-      <section className="py-20 sm:py-28 bg-gradient-to-b from-white via-gray-50/40 to-white border-y border-gray-200/60">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <FadeIn>
-            <div className="text-center mb-12">
-              <span className="inline-block text-[11px] font-bold uppercase tracking-[0.15em] text-green-700 mb-3">
-                {t("landingPricingKicker") || "Pricing"}
-              </span>
-              <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 tracking-tight mb-4">
-                {t("landingPricingTitle") || "Start free. Upgrade when you've outgrown it."}
-              </h2>
-              <p className="text-gray-600 text-base md:text-lg max-w-2xl mx-auto leading-relaxed">
-                {t("landingPricingSub") || "Every signup gets 14 days of full Pro — no card, no auto-charge. Then keep Free forever, or pick the plan that fits."}
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5 lg:gap-6 max-w-5xl mx-auto">
-              {/* Free */}
-              <div className="bg-white border border-gray-200 rounded-2xl p-6 lg:p-7 flex flex-col hover:border-gray-300 hover:shadow-md transition">
-                <div className="mb-5">
-                  <h3 className="text-lg font-bold text-gray-900 mb-1">{t("pricingTierFree") || "Free"}</h3>
-                  <p className="text-xs text-gray-500 leading-snug min-h-[2.5rem]">
-                    {t("pricingTaglineFree") || "Daily close in 90 seconds. Every day, free."}
-                  </p>
-                </div>
-                <div className="mb-6">
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-4xl font-extrabold text-gray-900">0</span>
-                    <span className="text-sm text-gray-500 font-medium">kr / {t("month") || "mo"}</span>
-                  </div>
-                  <p className="text-[11px] text-gray-500 mt-1">{t("landingPricingForever") || "Forever, no card"}</p>
-                </div>
-                <ul className="space-y-2.5 text-sm text-gray-700 mb-7 flex-1">
-                  {[
-                    t("landingPricingFreeFeat1") || "Daily close in 90 seconds",
-                    t("landingPricingFreeFeat2") || "200 sales · 100 expenses · 30 OCR / mo",
-                    t("landingPricingFreeFeat3") || "30 AI Copilot questions / day",
-                    t("landingPricingFreeFeat4") || "90 days of history",
-                    t("landingPricingFreeFeat5") || "1 business, 1 user",
-                  ].map((f, i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-gray-400 mt-0.5 shrink-0">
-                        <path d="M3 8l3.5 3.5L13 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                      <span>{f}</span>
-                    </li>
-                  ))}
-                </ul>
-                <Link
-                  to="/register"
-                  className="block w-full text-center py-2.5 border border-gray-300 text-gray-800 font-semibold rounded-xl text-sm hover:bg-gray-50 transition"
-                >
-                  {t("pricingSignUpFree") || "Sign up free"}
-                </Link>
-              </div>
-
-              {/* Starter */}
-              <div className="bg-white border border-gray-200 rounded-2xl p-6 lg:p-7 flex flex-col hover:border-blue-300 hover:shadow-md transition">
-                <div className="mb-5">
-                  <h3 className="text-lg font-bold text-gray-900 mb-1">{t("pricingTierStarter") || "Starter"}</h3>
-                  <p className="text-xs text-gray-500 leading-snug min-h-[2.5rem]">
-                    {t("pricingTaglineStarter") || "For the café or shop that closes every night."}
-                  </p>
-                </div>
-                <div className="mb-6">
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-4xl font-extrabold text-gray-900">129</span>
-                    <span className="text-sm text-gray-500 font-medium">kr / {t("month") || "mo"}</span>
-                  </div>
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    <span className="line-through opacity-70">199 kr</span>
-                    <span className="ml-1.5 text-amber-600 font-semibold">{t("landingPricingFoundingNote") || "Founding rate · first 100"}</span>
-                  </p>
-                </div>
-                <ul className="space-y-2.5 text-sm text-gray-700 mb-7 flex-1">
-                  <li className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-0.5">
-                    {t("landingPricingStarterHeader") || "Everything in Free, unlimited — plus:"}
-                  </li>
-                  {[
-                    { text: t("landingPricingStarterFeat1") || "🧾 Faktura — send + auto bank-match", isNew: true },
-                    { text: t("landingPricingStarterFeat2") || "👥 Customers — CVR-verified debitors", isNew: true },
-                    { text: t("landingPricingStarterFeat3") || "🚗 Mileage — kørselsgodtgørelse log", isNew: true },
-                    { text: t("landingPricingStarterFeat4") || "Dinero / Billy / e-conomic CSV", isNew: false },
-                    { text: t("landingPricingStarterFeat5") || "3 users · 31-day export window", isNew: false },
-                    { text: t("landingPricingStarterFeat6") || "AI anomaly detection", isNew: false },
-                  ].map((f, i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-blue-600 mt-0.5 shrink-0">
-                        <path d="M3 8l3.5 3.5L13 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                      <span className="flex-1">
-                        {f.text}
-                        {f.isNew && (
-                          <span className="ml-1.5 inline-block text-[9px] font-bold uppercase tracking-wider bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
-                            {t("new") || "New"}
-                          </span>
-                        )}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-                <Link
-                  to="/register"
-                  className="block w-full text-center py-2.5 bg-gray-900 text-white font-semibold rounded-xl text-sm hover:bg-gray-800 transition"
-                >
-                  {t("landingPricingStartTrial") || "Start with 14-day Pro trial"}
-                </Link>
-              </div>
-
-              {/* Pro — highlighted */}
-              <div className="relative bg-gradient-to-b from-green-50/60 to-white border-2 border-green-500 rounded-2xl p-6 lg:p-7 flex flex-col shadow-lg shadow-green-500/10 md:scale-[1.02]">
-                <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-green-600 text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-full">
-                  {t("landingPricingMostPopular") || "🎁 14 days free · No card"}
-                </span>
-                <div className="mb-5">
-                  <h3 className="text-lg font-bold text-gray-900 mb-1">{t("pricingTierPro") || "Pro"}</h3>
-                  <p className="text-xs text-gray-500 leading-snug min-h-[2.5rem]">
-                    {t("pricingTaglinePro") || "For 2-3 locations. AI that thinks across them."}
-                  </p>
-                </div>
-                <div className="mb-6">
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-4xl font-extrabold text-gray-900">249</span>
-                    <span className="text-sm text-gray-500 font-medium">kr / {t("month") || "mo"}</span>
-                  </div>
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    <span className="line-through opacity-70">349 kr</span>
-                    <span className="ml-1.5 text-amber-600 font-semibold">{t("landingPricingFoundingNote") || "Founding rate · first 100"}</span>
-                  </p>
-                </div>
-                <ul className="space-y-2.5 text-sm text-gray-700 mb-7 flex-1">
-                  <li className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-0.5">
-                    {t("landingPricingProHeader") || "Everything in Starter, plus:"}
-                  </li>
-                  {[
-                    t("landingPricingProFeat1") || "3 businesses · 5 users",
-                    t("landingPricingProFeat2") || "Cross-outlet AI consolidation",
-                    t("landingPricingProFeat3") || "Predictive AI: revenue forecast, churn risk",
-                    t("landingPricingProFeat4") || "Custom AI playbooks (your business pattern)",
-                    t("landingPricingProFeat5") || "Full-year accountant export",
-                    t("landingPricingProFeat6") || "Priority email support",
-                  ].map((f, i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-green-600 mt-0.5 shrink-0">
-                        <path d="M3 8l3.5 3.5L13 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                      <span>{f}</span>
-                    </li>
-                  ))}
-                </ul>
-                <Link
-                  to="/register"
-                  className="block w-full text-center py-2.5 bg-green-600 text-white font-semibold rounded-xl text-sm hover:bg-green-700 transition shadow-md shadow-green-600/30"
-                >
-                  {t("landingPricingStartTrial") || "Start 14-day free trial"}
-                </Link>
-              </div>
-            </div>
-
-            <p className="mt-8 text-center text-[12px] text-gray-500 leading-relaxed max-w-2xl mx-auto">
-              {t("landingPricingFinePrint") || "All prices excl. moms. 14-day Pro trial requires no card — you only pay if you choose to subscribe after day 14. Cancel anytime."} {" "}
-              <Link to="/subscription" className="text-green-700 hover:text-green-800 font-medium underline">
-                {t("landingPricingCompareFull") || "See full feature comparison →"}
+            <div className="mt-9 flex flex-col sm:flex-row gap-3">
+              <Link
+                to="/register"
+                className="inline-flex items-center justify-center px-6 py-3.5 bg-gray-900 text-white text-[15px] font-medium rounded-md hover:bg-gray-800 transition shadow-sm"
+              >
+                {t("landingCtaPrimary") || "Get started — free"}
+                <svg className="w-4 h-4 ml-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 12h14M13 6l6 6-6 6" />
+                </svg>
               </Link>
-            </p>
-          </FadeIn>
-        </div>
-      </section>
-
-      {/* ── Final CTA (Copenhagen-clean: warm white, restrained accent) ── */}
-      <section className="relative py-24 sm:py-32 text-gray-900 text-center overflow-hidden bg-white">
-        <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute top-10 left-1/3 w-72 h-72 bg-green-100/60 rounded-full blur-[100px]" />
-          <div className="absolute bottom-10 right-1/3 w-60 h-60 bg-emerald-100/50 rounded-full blur-[100px]" />
-        </div>
-        <div className="relative max-w-3xl mx-auto px-4 sm:px-6">
-          <FadeIn>
-            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-5 tracking-tight text-gray-900">
-              {t("landingCtaTitle1")}
-              <br />
-              <span className="bg-gradient-to-r from-green-600 to-emerald-500 bg-clip-text text-transparent">{t("landingCtaTitle2")}</span>
-            </h2>
-            <p className="text-gray-600 text-lg mb-10 max-w-lg mx-auto">
-              {t("landingCtaSub")}
-            </p>
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-              <Link to="/register" className="w-full sm:w-auto px-9 py-3.5 bg-green-500 text-white font-medium rounded-lg hover:bg-green-600 transition text-[15px] shadow-md shadow-green-500/20">
-                {t("landingCtaButton")}
-              </Link>
-              <a href="https://apps.apple.com/dk/app/bonbox-daily-close/id6762066960" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-5 py-3.5 bg-white border border-gray-300 rounded-lg hover:border-gray-400 transition">
-                <svg className="w-5 h-5 text-gray-900" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
-                <span className="text-[14px] text-gray-900 font-semibold">App Store</span>
+              <a
+                href="https://apps.apple.com/dk/app/bonbox-daily-close/id6762066960"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2.5 px-5 py-3.5 bg-white border border-gray-200 rounded-md hover:border-gray-300 transition text-[14px]"
+              >
+                <span className="text-gray-900">{Icons.Apple}</span>
+                <span className="text-gray-900 font-medium">App Store</span>
               </a>
             </div>
-            <p className="mt-5 text-gray-500 text-sm">{t("landingNoCard")}</p>
-          </FadeIn>
+
+            <div className="mt-7 flex flex-wrap gap-x-6 gap-y-2 text-[13px] text-gray-600">
+              {[
+                t("landingCheck1") || "Free 14-day trial",
+                t("landingCheck2") || "No card required",
+                t("landingCheck3") || "Cancel anytime",
+              ].map((txt) => (
+                <span key={txt} className="flex items-center gap-1.5">
+                  {Icons.Check}
+                  {txt}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Phone mockup — single, centred, no decorative duplicates */}
+          <div className="hidden lg:block">
+            <HeroPhone />
+          </div>
+        </div>
+      </Section>
+
+      {/* ── PROOF NUMBERS ──────────────────────────────────────── */}
+      {/* Three big numbers that earn the strip. No 4-card row of
+          generic stats. Each number is a real claim made elsewhere
+          on the site so there's no contradiction. */}
+      <section className="py-14 border-y border-gray-200/70 bg-white">
+        <div className="max-w-5xl mx-auto px-5 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-3 gap-6 sm:gap-10">
+            {[
+              { val: 90, suffix: "s", label: t("landingStatCloseTime") || "to close a day" },
+              { val: 6, suffix: "+", label: t("landingStatTerminals") || "terminals merged at once" },
+              { val: 5, suffix: " min", label: t("landingStatSetup") || "from signup to first sale" },
+            ].map((s) => (
+              <div key={s.label} className="text-center">
+                <p className="text-[36px] sm:text-[44px] font-semibold tracking-tight text-gray-900">
+                  <Counter end={s.val} suffix={s.suffix} />
+                </p>
+                <p className="text-[13px] sm:text-[14px] text-gray-500 mt-1.5">{s.label}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* ── Footer ── */}
-      <footer className="py-10 border-t border-gray-200/60 bg-[#fafaf7]">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5">
-            <div className="inline-flex items-center justify-center w-7 h-7 bg-green-500 rounded-md shadow-sm">
-              <svg width="16" height="16" viewBox="0 0 28 28" fill="none">
-                <rect x="4" y="2" width="20" height="24" rx="3" stroke="white" strokeWidth="2.2" />
-                <path d="M9 8h10M9 12h10M9 16h6" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-                <path d="M4 20h20" stroke="#fde68a" strokeWidth="2" />
-              </svg>
-            </div>
-            <span className="text-gray-900 font-semibold text-sm">BonBox</span>
-          </div>
-          <p className="text-gray-500 text-xs text-center">
-            &copy; 2026 BonBox &middot; {t("landingFooterTagline")}
+      {/* ── FEATURES (6, not 14) ───────────────────────────────── */}
+      <Section id="features" className="bg-[#fafaf7]">
+        <div className="max-w-2xl mb-14">
+          <Eyebrow>{t("landingFeaturesTag") || "Everything in one place"}</Eyebrow>
+          <Heading>{t("landingFeaturesTitle") || "Built for the closer. Owned by the owner."}</Heading>
+          <p className="mt-5 text-[16px] text-gray-600 leading-relaxed">
+            {t("landingFeaturesSub") || "Six things BonBox does so you don't have to glue spreadsheets, POS apps, and a revisor every month."}
           </p>
-          <div className="flex items-center gap-4">
-            <Link to="/contact" className="text-gray-600 text-sm hover:text-gray-900 transition">{t("landingFooterContact")}</Link>
-            <Link to="/privacy" className="text-gray-600 text-sm hover:text-gray-900 transition">{t("landingFooterPrivacy")}</Link>
-            <Link to="/terms" className="text-gray-600 text-sm hover:text-gray-900 transition">{t("terms")}</Link>
+        </div>
+
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {[
+            {
+              icon: Icons.Receipt,
+              titleKey: "landingFeatHeroTitle",
+              titleFallback: "Daily close in 90 seconds",
+              bodyKey: "landingFeatHeroBody",
+              bodyFallback: "Staff snap each kasserapport from any phone. AI merges them, owner gets the consolidated PDF before close-up is done.",
+            },
+            {
+              icon: Icons.Receipt,
+              titleKey: "landingFeatFakturaTitle",
+              titleFallback: "Faktura, properly",
+              bodyKey: "landingFeatFakturaBody",
+              bodyFallback: "Gap-less fakturanummer per Bogføringsloven §7. Send + email + PDF in one tap. Auto-matched when the bank deposit lands.",
+            },
+            {
+              icon: Icons.Bank,
+              titleKey: "landingFeatBankTitle",
+              titleFallback: "Bank import that thinks",
+              bodyKey: "landingFeatBankBody",
+              bodyFallback: "Upload your bank CSV. We auto-match incoming deposits to open fakturaer with confidence tiers — the ones we're not sure about land in a review inbox, not the books.",
+            },
+            {
+              icon: Icons.Stack,
+              titleKey: "landingFeatPosTitle",
+              titleFallback: "POS + Inventory + Cash",
+              bodyKey: "landingFeatPosBody",
+              bodyFallback: "Log sales in 2 taps. Track stock with auto-deduction and low-stock alerts. Cash book stays in sync with every entry.",
+            },
+            {
+              icon: Icons.Calendar,
+              titleKey: "landingFeatStaffTitle",
+              titleFallback: "Staff & shifts",
+              bodyKey: "landingFeatStaffBody",
+              bodyFallback: "Weekly schedule, hours logged from the staff portal, tip-pool split, PDF lønseddel preview ready for your revisor.",
+            },
+            {
+              icon: Icons.Spark,
+              titleKey: "landingFeatAiTitle",
+              titleFallback: "AI that knows your business",
+              bodyKey: "landingFeatAiBody",
+              bodyFallback: "Morning brief with overdue fakturaer, low-stock items, and revenue trend vs your usual. Not a chatbot — a quiet assistant.",
+            },
+          ].map((f) => (
+            <FeatureCard
+              key={f.titleKey}
+              icon={f.icon}
+              title={t(f.titleKey) || f.titleFallback}
+              body={t(f.bodyKey) || f.bodyFallback}
+            />
+          ))}
+        </div>
+      </Section>
+
+      {/* ── HOW IT WORKS — 3 steps, restrained ─────────────────── */}
+      <Section className="bg-white border-y border-gray-200/70">
+        <div className="max-w-2xl mb-12">
+          <Eyebrow>{t("landingHowTag") || "How it works"}</Eyebrow>
+          <Heading>{t("landingHowTitle") || "From signup to first sale in under 5 minutes."}</Heading>
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-8 md:gap-10">
+          {[
+            {
+              n: "01",
+              titleKey: "landingHow1Title",
+              titleFallback: "Pick your business type",
+              bodyKey: "landingHow1Body",
+              bodyFallback: "Café, bar, restaurant, shop, freelancer. We pre-fill the right modules so you're not staring at a blank slate.",
+            },
+            {
+              n: "02",
+              titleKey: "landingHow2Title",
+              titleFallback: "Add your first customer or sale",
+              bodyKey: "landingHow2Body",
+              bodyFallback: "Type a CVR — we auto-fill name + address from the public register. Or just log today's revenue and grow from there.",
+            },
+            {
+              n: "03",
+              titleKey: "landingHow3Title",
+              titleFallback: "Open the Brief tomorrow morning",
+              bodyKey: "landingHow3Body",
+              bodyFallback: "BonBox is most useful 24 hours in. The morning Brief tells you what you'd otherwise have asked your accountant.",
+            },
+          ].map((s) => (
+            <div key={s.n}>
+              <p className="text-[13px] font-semibold text-emerald-700 tabular-nums tracking-wider mb-3">{s.n}</p>
+              <h3 className="text-[18px] font-semibold text-gray-900 mb-2 tracking-tight">
+                {t(s.titleKey) || s.titleFallback}
+              </h3>
+              <p className="text-[14.5px] text-gray-600 leading-relaxed">
+                {t(s.bodyKey) || s.bodyFallback}
+              </p>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      {/* ── COMPARE TO DINERO ──────────────────────────────────── */}
+      <Section id="compare">
+        <div className="max-w-2xl mb-12">
+          <Eyebrow>{t("landingCompareTag") || "Honest comparison"}</Eyebrow>
+          <Heading>{t("landingCompareTitle") || "BonBox + annual revisor beats monthly revisor."}</Heading>
+          <p className="mt-5 text-[16px] text-gray-600 leading-relaxed">
+            {t("landingCompareSub") || "BonBox isn't a registered digital bookkeeping system. Pair it with Dinero (or similar) for filings + a revisor for the årsregnskab. You still save ~17,500 kr/year."}
+          </p>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-5">
+          {/* BonBox card */}
+          <div className="bg-white border-2 border-emerald-500 rounded-2xl p-7 relative">
+            <span className="absolute -top-3 left-6 px-2.5 py-0.5 bg-emerald-500 text-white text-[11px] font-semibold rounded-full">
+              {t("landingCompareUs") || "BonBox · 129 kr/mo"}
+            </span>
+            <p className="text-[13px] text-gray-500 mb-5 mt-1">{t("landingCompareUsSub") || "The monthly grind that costs you most"}</p>
+            <ul className="space-y-3">
+              {[
+                t("landingCompareUs1") || "Send fakturaer — gap-less per Bogføringsloven §7",
+                t("landingCompareUs2") || "CVR-verified customers + DAWA addresses",
+                t("landingCompareUs3") || "OCR receipts in 6 seconds/scan",
+                t("landingCompareUs4") || "Mileage log with the fields Skattestyrelsen requires",
+                t("landingCompareUs5") || "Bank import auto-matches payments to invoices",
+                t("landingCompareUs6") || "AI anomaly detection on sales + wages",
+              ].map((line) => (
+                <li key={line} className="flex gap-3 text-[14px] text-gray-700">
+                  <span className="mt-0.5 flex-shrink-0">{Icons.Check}</span>
+                  <span>{line}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Revisor card */}
+          <div className="bg-white border border-gray-200 rounded-2xl p-7">
+            <p className="text-[14px] font-semibold text-gray-900 mb-1">
+              {t("landingCompareThem") || "Revisor + Dinero · annual only"}
+            </p>
+            <p className="text-[13px] text-gray-500 mb-5">{t("landingCompareThemSub") || "Legal filings — 1–4× per year"}</p>
+            <ul className="space-y-3">
+              {[
+                t("landingCompareThem1") || "Moms-angivelse to SKAT (quarterly)",
+                t("landingCompareThem2") || "Årsregnskab (annual statement)",
+                t("landingCompareThem3") || "Selvangivelse review",
+                t("landingCompareThem4") || "Tax-strategy consultations",
+              ].map((line) => (
+                <li key={line} className="flex gap-3 text-[14px] text-gray-700">
+                  <span className="mt-0.5 flex-shrink-0">
+                    <svg className="w-4 h-4 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+                      <circle cx="10" cy="10" r="3" />
+                    </svg>
+                  </span>
+                  <span>{line}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
-        {/* Trademark notice */}
-        <p className="mt-6 text-[10px] text-gray-500 text-center max-w-3xl mx-auto px-4 leading-relaxed">
-          Dinero, Billy, e-conomic, Visma, MobilePay, Dankort, Apple, App Store, Anthropic and Claude are
-          trademarks of their respective owners. BonBox is operated independently and is not affiliated
-          with or endorsed by these companies. See <Link to="/terms" className="underline hover:text-gray-700">Terms § 13</Link> for the full notice.
+
+        {/* Savings strip — replaces the "green panel" that screamed
+            with a quieter, restrained one-row summary */}
+        <div className="mt-6 grid grid-cols-3 divide-x divide-gray-200 bg-white border border-gray-200 rounded-2xl overflow-hidden">
+          {[
+            { label: t("landingCompareCostA") || "Monthly revisor", val: "~24,000 kr/yr", muted: true },
+            { label: t("landingCompareCostB") || "BonBox + annual revisor", val: "~6,500 kr/yr" },
+            { label: t("landingCompareCostC") || "You save", val: "~17,500 kr/yr", emphasis: true },
+          ].map((c) => (
+            <div key={c.label} className="px-5 py-5 text-center">
+              <p className="text-[11px] uppercase tracking-wider text-gray-500 mb-1.5 font-medium">{c.label}</p>
+              <p className={`text-[20px] sm:text-[22px] font-semibold tabular-nums ${c.emphasis ? "text-emerald-600" : c.muted ? "text-gray-400" : "text-gray-900"}`}>
+                {c.val}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        <p className="mt-5 text-[12px] text-gray-500 max-w-2xl leading-relaxed">
+          {t("landingCompareDisclaimer") || "BonBox is not a registered digital bookkeeping system (registreret digitalt bogføringssystem) under Bogføringsloven 2024. Savings estimate based on a typical Danish small business paying ~2,000 kr/month for monthly revisor service vs. annual-only revisor + BonBox."}
         </p>
+      </Section>
+
+      {/* ── PRICING ────────────────────────────────────────────── */}
+      <Section id="pricing" className="bg-white border-y border-gray-200/70">
+        <div className="text-center max-w-2xl mx-auto mb-14">
+          <Eyebrow>{t("landingPricingTag") || "Pricing"}</Eyebrow>
+          <Heading>{t("landingPricingTitle") || "Free to start. Pro unlocks white-label."}</Heading>
+          <p className="mt-5 text-[16px] text-gray-600">
+            {t("landingPricingSub") || "Every tier includes Bogføringsloven §7 / §12 compliance and the AI brief. No per-seat pricing."}
+          </p>
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-5">
+          {[
+            {
+              name: "Free",
+              priceKey: "landingPriceFree",
+              priceFallback: "0 kr",
+              cycle: "/mo",
+              descKey: "landingPriceFreeDesc",
+              descFallback: "Try BonBox for as long as you like.",
+              features: [
+                t("landingFreeF1") || "POS + Sales + Expenses",
+                t("landingFreeF2") || "AI Daily Brief (1× refresh/day)",
+                t("landingFreeF3") || "1 branch · 1 team user",
+              ],
+              cta: t("landingFreeCta") || "Start free",
+              ctaHref: "/register",
+              emphasis: false,
+            },
+            {
+              name: "Starter",
+              priceKey: "landingPriceStarter",
+              priceFallback: "129 kr",
+              cycle: "/mo",
+              descKey: "landingPriceStarterDesc",
+              descFallback: "When you start sending fakturaer.",
+              features: [
+                t("landingStarterF1") || "Faktura + bank-match + audit log",
+                t("landingStarterF2") || "Brand on faktura (logo + accent)",
+                t("landingStarterF3") || "Revisor-ready CSV exports",
+              ],
+              cta: t("landingStarterCta") || "Start 14-day trial",
+              ctaHref: "/register",
+              emphasis: true,
+            },
+            {
+              name: "Pro",
+              priceKey: "landingPricePro",
+              priceFallback: "299 kr",
+              cycle: "/mo",
+              descKey: "landingPriceProDesc",
+              descFallback: "Clean PDFs + multi-branch.",
+              features: [
+                t("landingProF1") || "White-label faktura PDF (no BonBox footer)",
+                t("landingProF2") || "AI predictive staffing + multi-branch dashboard",
+                t("landingProF3") || "Priority support",
+              ],
+              cta: t("landingProCta") || "Start 14-day trial",
+              ctaHref: "/register",
+              emphasis: false,
+            },
+          ].map((p) => (
+            <div
+              key={p.name}
+              className={`relative bg-white rounded-2xl p-7 ${
+                p.emphasis
+                  ? "border-2 border-gray-900 shadow-[0_8px_32px_-8px_rgba(15,23,42,0.18)]"
+                  : "border border-gray-200"
+              }`}
+            >
+              {p.emphasis && (
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 bg-gray-900 text-white text-[11px] font-semibold rounded-full">
+                  {t("landingPricingMostPopular") || "Most popular"}
+                </span>
+              )}
+              <h3 className="text-[18px] font-semibold text-gray-900">{p.name}</h3>
+              <p className="text-[14px] text-gray-600 mt-1">{t(p.descKey) || p.descFallback}</p>
+              <div className="mt-5 flex items-baseline gap-1">
+                <span className="text-[40px] font-semibold tracking-tight tabular-nums text-gray-900">
+                  {t(p.priceKey) || p.priceFallback}
+                </span>
+                <span className="text-[15px] text-gray-500">{p.cycle}</span>
+              </div>
+              <Link
+                to={p.ctaHref}
+                className={`mt-6 block text-center px-5 py-3 rounded-md text-[14px] font-medium transition ${
+                  p.emphasis
+                    ? "bg-gray-900 text-white hover:bg-gray-800"
+                    : "bg-white border border-gray-300 text-gray-900 hover:border-gray-400"
+                }`}
+              >
+                {p.cta}
+              </Link>
+              <ul className="mt-7 space-y-3 border-t border-gray-100 pt-6">
+                {p.features.map((f) => (
+                  <li key={f} className="flex gap-3 text-[14px] text-gray-700">
+                    <span className="mt-0.5 flex-shrink-0">{Icons.Check}</span>
+                    <span>{f}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+
+        <p className="mt-10 text-center text-[13px] text-gray-500">
+          {t("landingPricingNote") || "All plans include Bogføringsloven §12 retention + audit log. Cancel anytime, no questions asked."}
+        </p>
+      </Section>
+
+      {/* ── FINAL CTA ──────────────────────────────────────────── */}
+      <Section>
+        <div className="relative bg-gray-900 rounded-3xl px-8 sm:px-14 py-14 sm:py-20 text-center overflow-hidden">
+          <div className="absolute inset-0 -z-10 flex items-center justify-center">
+            <div className="w-[720px] h-[360px] bg-emerald-500/20 blur-[120px] rounded-full" />
+          </div>
+          <h2 className="text-[28px] sm:text-[38px] lg:text-[44px] font-semibold tracking-tight text-white leading-tight">
+            {t("landingFinalTitle") || "Try BonBox for two weeks."}
+            <br />
+            <span className="text-emerald-400">{t("landingFinalTitle2") || "Decide on day 15."}</span>
+          </h2>
+          <p className="mt-5 text-[16px] sm:text-[17px] text-gray-300 max-w-lg mx-auto">
+            {t("landingFinalSub") || "No card. No setup call. Open the app, log today's revenue, and see your morning Brief tomorrow."}
+          </p>
+          <div className="mt-9 flex flex-col sm:flex-row gap-3 justify-center">
+            <Link
+              to="/register"
+              className="inline-flex items-center justify-center px-7 py-3.5 bg-emerald-500 text-white text-[15px] font-medium rounded-md hover:bg-emerald-400 transition"
+            >
+              {t("landingFinalCta") || "Start free trial"}
+              <svg className="w-4 h-4 ml-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12h14M13 6l6 6-6 6" />
+              </svg>
+            </Link>
+            <a
+              href="https://apps.apple.com/dk/app/bonbox-daily-close/id6762066960"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2.5 px-6 py-3.5 bg-white/10 border border-white/15 rounded-md text-white hover:bg-white/15 transition text-[14px] font-medium backdrop-blur-sm"
+            >
+              {Icons.Apple}
+              App Store
+            </a>
+          </div>
+        </div>
+      </Section>
+
+      {/* ── FOOTER ─────────────────────────────────────────────── */}
+      <footer className="border-t border-gray-200/70 bg-[#fafaf7]">
+        <div className="max-w-6xl mx-auto px-5 sm:px-6 lg:px-8 py-10">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
+            <Link to="/" className="flex items-center gap-2.5">
+              <div className="w-7 h-7 bg-emerald-500 rounded-md flex items-center justify-center">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="4" y="3" width="16" height="18" rx="2" />
+                  <path d="M8 8h8M8 12h8M8 16h5" />
+                </svg>
+              </div>
+              <span className="text-[15px] font-semibold tracking-tight text-gray-900">BonBox</span>
+            </Link>
+
+            <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13px] text-gray-600">
+              <Link to="/privacy" className="hover:text-gray-900 transition">{t("privacy") || "Privacy"}</Link>
+              <Link to="/terms" className="hover:text-gray-900 transition">{t("terms") || "Terms"}</Link>
+              <Link to="/cookies" className="hover:text-gray-900 transition">{t("cookies") || "Cookies"}</Link>
+              <Link to="/contact" className="hover:text-gray-900 transition">{t("contact") || "Contact"}</Link>
+            </div>
+
+            <p className="text-[12px] text-gray-500">
+              © {new Date().getFullYear()} BonBox · København
+            </p>
+          </div>
+        </div>
       </footer>
     </div>
   );
