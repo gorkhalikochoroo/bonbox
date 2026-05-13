@@ -36,6 +36,17 @@ import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 
+// tx(t, key, fallback) — wrapper around the i18n t() helper that
+// falls back to the supplied default when the key isn't present in
+// any locale. The shared t() returns the key itself on miss (so the
+// idiomatic `t(k) || fb` never fires), and we don't want to change
+// global i18n behaviour. Pure function, no React hooks — safe to use
+// inside any component (HeroPhone, Counter, the main page itself).
+function tx(t, key, fallback) {
+  const v = t(key);
+  return (v && v !== key) ? v : fallback;
+}
+
 // ─── HeroPhone ──────────────────────────────────────────────────────
 //
 // Compact mock of the BonBox dashboard inside a phone frame. Same
@@ -61,27 +72,27 @@ function HeroPhone() {
           {/* header */}
           <div className="flex items-center justify-between mb-3">
             <div>
-              <p className="text-white text-[11px] font-bold leading-tight">{t("dashboard") || "Dashboard"}</p>
-              <p className="text-gray-500 text-[8px]">{t("today") || "Today"}</p>
+              <p className="text-white text-[11px] font-bold leading-tight">{tx(t, "dashboard", "Dashboard")}</p>
+              <p className="text-gray-500 text-[8px]">{tx(t, "today", "Today")}</p>
             </div>
             <div className="w-5 h-5 bg-emerald-500/20 rounded-full" />
           </div>
           {/* KPI cards */}
           <div className="grid grid-cols-2 gap-1.5 mb-2">
             <div className="bg-gray-800/70 rounded-md p-2">
-              <p className="text-gray-500 text-[7px] uppercase tracking-wider">{t("revenue") || "Revenue"}</p>
+              <p className="text-gray-500 text-[7px] uppercase tracking-wider">{tx(t, "revenue", "Revenue")}</p>
               <p className="text-white text-[13px] font-bold tabular-nums mt-0.5">24,500 kr</p>
               <p className="text-emerald-400 text-[7px] mt-0.5">+12%</p>
             </div>
             <div className="bg-gray-800/70 rounded-md p-2">
-              <p className="text-gray-500 text-[7px] uppercase tracking-wider">{t("profit") || "Profit"}</p>
+              <p className="text-gray-500 text-[7px] uppercase tracking-wider">{tx(t, "profit", "Profit")}</p>
               <p className="text-white text-[13px] font-bold tabular-nums mt-0.5">70,097 kr</p>
               <p className="text-emerald-400 text-[7px] mt-0.5">57.8%</p>
             </div>
           </div>
           {/* sparkline */}
           <div className="bg-gray-800/70 rounded-md p-2 mb-2">
-            <p className="text-gray-500 text-[7px] uppercase tracking-wider mb-1">{t("weeklySales") || "Weekly sales"}</p>
+            <p className="text-gray-500 text-[7px] uppercase tracking-wider mb-1">{tx(t, "weeklySales", "Weekly sales")}</p>
             <svg viewBox="0 0 200 36" className="w-full h-7">
               <defs>
                 <linearGradient id="hpGrad" x1="0" y1="0" x2="0" y2="1">
@@ -95,7 +106,7 @@ function HeroPhone() {
           </div>
           {/* recent items — compact */}
           <div className="bg-gray-800/70 rounded-md p-2">
-            <p className="text-gray-500 text-[7px] uppercase tracking-wider mb-1">{t("recentSales") || "Recent sales"}</p>
+            <p className="text-gray-500 text-[7px] uppercase tracking-wider mb-1">{tx(t, "recentSales", "Recent sales")}</p>
             {[
               ["Coca-Cola x10", "150"],
               ["Rice 5kg", "1,350"],
@@ -243,6 +254,11 @@ export default function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
+  // Bind the module-level tx() helper to this component's t() so call
+  // sites can write `tx_("key", "fallback")` without threading t/
+  // through every prop.
+  const tx_ = (key, fallback) => tx(t, key, fallback);
+
   // Add a thin shadow to the nav once we've scrolled past the hero so
   // the floating chrome reads against any background.
   useEffect(() => {
@@ -255,9 +271,9 @@ export default function LandingPage() {
   // Nav anchors — these set the navigable shape of the page. Keep
   // short (3-4 items) so the nav doesn't crowd the brand on mobile.
   const navLinks = [
-    { href: "#features", label: t("landingNavFeatures") || "Features" },
-    { href: "#compare", label: t("landingNavCompare") || "vs Dinero" },
-    { href: "#pricing", label: t("landingNavPricing") || "Pricing" },
+    { href: "#features", label: tx_("landingNavFeatures", "Features") },
+    { href: "#compare", label: tx_("landingNavCompare", "vs Dinero") },
+    { href: "#pricing", label: tx_("landingNavPricing", "Pricing") },
   ];
 
   return (
@@ -313,13 +329,13 @@ export default function LandingPage() {
               to="/login"
               className="hidden sm:inline-block px-3 py-2 text-[14px] font-medium text-gray-700 hover:text-gray-900"
             >
-              {t("landingSignIn") || "Sign in"}
+              {tx_("landingSignIn", "Sign in")}
             </Link>
             <Link
               to="/register"
               className="px-4 py-2 text-[14px] font-medium bg-gray-900 text-white rounded-md hover:bg-gray-800 transition shadow-sm"
             >
-              {t("landingStartFree") || "Get started"}
+              {tx_("landingStartFree", "Get started")}
             </Link>
             <button
               onClick={() => setMenuOpen(!menuOpen)}
@@ -349,7 +365,7 @@ export default function LandingPage() {
               ))}
               <div className="flex gap-2 pt-2">
                 <Link to="/login" onClick={() => setMenuOpen(false)} className="flex-1 text-center py-2.5 text-[14px] border border-gray-300 rounded-md text-gray-800">
-                  {t("landingSignIn") || "Sign in"}
+                  {tx_("landingSignIn", "Sign in")}
                 </Link>
               </div>
               <select
@@ -378,16 +394,16 @@ export default function LandingPage() {
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-emerald-200/80 rounded-full text-[12px] font-medium text-emerald-700 mb-7">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              {t("landingBadge") || "For multi-terminal hospitality"}
+              {tx_("landingBadge", "For multi-terminal hospitality")}
             </div>
 
             <h1 className="text-[40px] sm:text-[52px] lg:text-[60px] leading-[1.04] tracking-tight font-semibold">
-              {t("landingHeroLine1") || "The 90 seconds between"}{" "}
-              <span className="text-emerald-600">{t("landingHeroLine2") || "last guest and lights out."}</span>
+              {tx_("landingHeroLine1", "The 90 seconds between")}{" "}
+              <span className="text-emerald-600">{tx_("landingHeroLine2", "last guest and lights out.")}</span>
             </h1>
 
             <p className="mt-6 text-[17px] sm:text-[18px] text-gray-600 leading-relaxed max-w-[520px]">
-              {t("landingHeroSub") || "Front-of-house snaps each kasserapport. AI merges them in 6 seconds. Owner gets the consolidated PDF before close-up is even done."}
+              {tx_("landingHeroSub", "Front-of-house snaps each kasserapport. AI merges them in 6 seconds. Owner gets the consolidated PDF before close-up is even done.")}
             </p>
 
             <div className="mt-9 flex flex-col sm:flex-row gap-3">
@@ -395,7 +411,7 @@ export default function LandingPage() {
                 to="/register"
                 className="inline-flex items-center justify-center px-6 py-3.5 bg-gray-900 text-white text-[15px] font-medium rounded-md hover:bg-gray-800 transition shadow-sm"
               >
-                {t("landingCtaPrimary") || "Get started — free"}
+                {tx_("landingCtaPrimary", "Get started — free")}
                 <svg className="w-4 h-4 ml-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M5 12h14M13 6l6 6-6 6" />
                 </svg>
@@ -413,9 +429,9 @@ export default function LandingPage() {
 
             <div className="mt-7 flex flex-wrap gap-x-6 gap-y-2 text-[13px] text-gray-600">
               {[
-                t("landingCheck1") || "Free 14-day trial",
-                t("landingCheck2") || "No card required",
-                t("landingCheck3") || "Cancel anytime",
+                tx_("landingCheck1", "Free 14-day trial"),
+                tx_("landingCheck2", "No card required"),
+                tx_("landingCheck3", "Cancel anytime"),
               ].map((txt) => (
                 <span key={txt} className="flex items-center gap-1.5">
                   {Icons.Check}
@@ -440,9 +456,9 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto px-5 sm:px-6 lg:px-8">
           <div className="grid grid-cols-3 gap-6 sm:gap-10">
             {[
-              { val: 90, suffix: "s", label: t("landingStatCloseTime") || "to close a day" },
-              { val: 6, suffix: "+", label: t("landingStatTerminals") || "terminals merged at once" },
-              { val: 5, suffix: " min", label: t("landingStatSetup") || "from signup to first sale" },
+              { val: 90, suffix: "s", label: tx_("landingStatCloseTime", "to close a day") },
+              { val: 6, suffix: "+", label: tx_("landingStatTerminals", "terminals merged at once") },
+              { val: 5, suffix: " min", label: tx_("landingStatSetup", "from signup to first sale") },
             ].map((s) => (
               <div key={s.label} className="text-center">
                 <p className="text-[36px] sm:text-[44px] font-semibold tracking-tight text-gray-900">
@@ -458,10 +474,10 @@ export default function LandingPage() {
       {/* ── FEATURES (6, not 14) ───────────────────────────────── */}
       <Section id="features" className="bg-[#fafaf7]">
         <div className="max-w-2xl mb-14">
-          <Eyebrow>{t("landingFeaturesTag") || "Everything in one place"}</Eyebrow>
-          <Heading>{t("landingFeaturesTitle") || "Built for the closer. Owned by the owner."}</Heading>
+          <Eyebrow>{tx_("landingFeaturesTag", "Everything in one place")}</Eyebrow>
+          <Heading>{tx_("landingFeaturesTitle", "Built for the closer. Owned by the owner.")}</Heading>
           <p className="mt-5 text-[16px] text-gray-600 leading-relaxed">
-            {t("landingFeaturesSub") || "Six things BonBox does so you don't have to glue spreadsheets, POS apps, and a revisor every month."}
+            {tx_("landingFeaturesSub", "Six things BonBox does so you don't have to glue spreadsheets, POS apps, and a revisor every month.")}
           </p>
         </div>
 
@@ -523,8 +539,8 @@ export default function LandingPage() {
       {/* ── HOW IT WORKS — 3 steps, restrained ─────────────────── */}
       <Section className="bg-white border-y border-gray-200/70">
         <div className="max-w-2xl mb-12">
-          <Eyebrow>{t("landingHowTag") || "How it works"}</Eyebrow>
-          <Heading>{t("landingHowTitle") || "From signup to first sale in under 5 minutes."}</Heading>
+          <Eyebrow>{tx_("landingHowTag", "How it works")}</Eyebrow>
+          <Heading>{tx_("landingHowTitle", "From signup to first sale in under 5 minutes.")}</Heading>
         </div>
 
         <div className="grid md:grid-cols-3 gap-8 md:gap-10">
@@ -567,10 +583,10 @@ export default function LandingPage() {
       {/* ── COMPARE TO DINERO ──────────────────────────────────── */}
       <Section id="compare">
         <div className="max-w-2xl mb-12">
-          <Eyebrow>{t("landingCompareTag") || "Honest comparison"}</Eyebrow>
-          <Heading>{t("landingCompareTitle") || "BonBox + annual revisor beats monthly revisor."}</Heading>
+          <Eyebrow>{tx_("landingCompareTag", "Honest comparison")}</Eyebrow>
+          <Heading>{tx_("landingCompareTitle", "BonBox + annual revisor beats monthly revisor.")}</Heading>
           <p className="mt-5 text-[16px] text-gray-600 leading-relaxed">
-            {t("landingCompareSub") || "BonBox isn't a registered digital bookkeeping system. Pair it with Dinero (or similar) for filings + a revisor for the årsregnskab. You still save ~17,500 kr/year."}
+            {tx_("landingCompareSub", "BonBox isn't a registered digital bookkeeping system. Pair it with Dinero (or similar) for filings + a revisor for the årsregnskab. You still save ~17,500 kr/year.")}
           </p>
         </div>
 
@@ -578,17 +594,17 @@ export default function LandingPage() {
           {/* BonBox card */}
           <div className="bg-white border-2 border-emerald-500 rounded-2xl p-7 relative">
             <span className="absolute -top-3 left-6 px-2.5 py-0.5 bg-emerald-500 text-white text-[11px] font-semibold rounded-full">
-              {t("landingCompareUs") || "BonBox · 129 kr/mo"}
+              {tx_("landingCompareUs", "BonBox · 129 kr/mo")}
             </span>
-            <p className="text-[13px] text-gray-500 mb-5 mt-1">{t("landingCompareUsSub") || "The monthly grind that costs you most"}</p>
+            <p className="text-[13px] text-gray-500 mb-5 mt-1">{tx_("landingCompareUsSub", "The monthly grind that costs you most")}</p>
             <ul className="space-y-3">
               {[
-                t("landingCompareUs1") || "Send fakturaer — gap-less per Bogføringsloven §7",
-                t("landingCompareUs2") || "CVR-verified customers + DAWA addresses",
-                t("landingCompareUs3") || "OCR receipts in 6 seconds/scan",
-                t("landingCompareUs4") || "Mileage log with the fields Skattestyrelsen requires",
-                t("landingCompareUs5") || "Bank import auto-matches payments to invoices",
-                t("landingCompareUs6") || "AI anomaly detection on sales + wages",
+                tx_("landingCompareUs1", "Send fakturaer — gap-less per Bogføringsloven §7"),
+                tx_("landingCompareUs2", "CVR-verified customers + DAWA addresses"),
+                tx_("landingCompareUs3", "OCR receipts in 6 seconds/scan"),
+                tx_("landingCompareUs4", "Mileage log with the fields Skattestyrelsen requires"),
+                tx_("landingCompareUs5", "Bank import auto-matches payments to invoices"),
+                tx_("landingCompareUs6", "AI anomaly detection on sales + wages"),
               ].map((line) => (
                 <li key={line} className="flex gap-3 text-[14px] text-gray-700">
                   <span className="mt-0.5 flex-shrink-0">{Icons.Check}</span>
@@ -601,15 +617,15 @@ export default function LandingPage() {
           {/* Revisor card */}
           <div className="bg-white border border-gray-200 rounded-2xl p-7">
             <p className="text-[14px] font-semibold text-gray-900 mb-1">
-              {t("landingCompareThem") || "Revisor + Dinero · annual only"}
+              {tx_("landingCompareThem", "Revisor + Dinero · annual only")}
             </p>
-            <p className="text-[13px] text-gray-500 mb-5">{t("landingCompareThemSub") || "Legal filings — 1–4× per year"}</p>
+            <p className="text-[13px] text-gray-500 mb-5">{tx_("landingCompareThemSub", "Legal filings — 1–4× per year")}</p>
             <ul className="space-y-3">
               {[
-                t("landingCompareThem1") || "Moms-angivelse to SKAT (quarterly)",
-                t("landingCompareThem2") || "Årsregnskab (annual statement)",
-                t("landingCompareThem3") || "Selvangivelse review",
-                t("landingCompareThem4") || "Tax-strategy consultations",
+                tx_("landingCompareThem1", "Moms-angivelse to SKAT (quarterly)"),
+                tx_("landingCompareThem2", "Årsregnskab (annual statement)"),
+                tx_("landingCompareThem3", "Selvangivelse review"),
+                tx_("landingCompareThem4", "Tax-strategy consultations"),
               ].map((line) => (
                 <li key={line} className="flex gap-3 text-[14px] text-gray-700">
                   <span className="mt-0.5 flex-shrink-0">
@@ -628,9 +644,9 @@ export default function LandingPage() {
             with a quieter, restrained one-row summary */}
         <div className="mt-6 grid grid-cols-3 divide-x divide-gray-200 bg-white border border-gray-200 rounded-2xl overflow-hidden">
           {[
-            { label: t("landingCompareCostA") || "Monthly revisor", val: "~24,000 kr/yr", muted: true },
-            { label: t("landingCompareCostB") || "BonBox + annual revisor", val: "~6,500 kr/yr" },
-            { label: t("landingCompareCostC") || "You save", val: "~17,500 kr/yr", emphasis: true },
+            { label: tx_("landingCompareCostA", "Monthly revisor"), val: "~24,000 kr/yr", muted: true },
+            { label: tx_("landingCompareCostB", "BonBox + annual revisor"), val: "~6,500 kr/yr" },
+            { label: tx_("landingCompareCostC", "You save"), val: "~17,500 kr/yr", emphasis: true },
           ].map((c) => (
             <div key={c.label} className="px-5 py-5 text-center">
               <p className="text-[11px] uppercase tracking-wider text-gray-500 mb-1.5 font-medium">{c.label}</p>
@@ -642,17 +658,17 @@ export default function LandingPage() {
         </div>
 
         <p className="mt-5 text-[12px] text-gray-500 max-w-2xl leading-relaxed">
-          {t("landingCompareDisclaimer") || "BonBox is not a registered digital bookkeeping system (registreret digitalt bogføringssystem) under Bogføringsloven 2024. Savings estimate based on a typical Danish small business paying ~2,000 kr/month for monthly revisor service vs. annual-only revisor + BonBox."}
+          {tx_("landingCompareDisclaimer", "BonBox is not a registered digital bookkeeping system (registreret digitalt bogføringssystem) under Bogføringsloven 2024. Savings estimate based on a typical Danish small business paying ~2,000 kr/month for monthly revisor service vs. annual-only revisor + BonBox.")}
         </p>
       </Section>
 
       {/* ── PRICING ────────────────────────────────────────────── */}
       <Section id="pricing" className="bg-white border-y border-gray-200/70">
         <div className="text-center max-w-2xl mx-auto mb-14">
-          <Eyebrow>{t("landingPricingTag") || "Pricing"}</Eyebrow>
-          <Heading>{t("landingPricingTitle") || "Free to start. Pro unlocks white-label."}</Heading>
+          <Eyebrow>{tx_("landingPricingTag", "Pricing")}</Eyebrow>
+          <Heading>{tx_("landingPricingTitle", "Free to start. Pro unlocks white-label.")}</Heading>
           <p className="mt-5 text-[16px] text-gray-600">
-            {t("landingPricingSub") || "Every tier includes Bogføringsloven §7 / §12 compliance and the AI brief. No per-seat pricing."}
+            {tx_("landingPricingSub", "Every tier includes Bogføringsloven §7 / §12 compliance and the AI brief. No per-seat pricing.")}
           </p>
         </div>
 
@@ -666,11 +682,11 @@ export default function LandingPage() {
               descKey: "landingPriceFreeDesc",
               descFallback: "Try BonBox for as long as you like.",
               features: [
-                t("landingFreeF1") || "POS + Sales + Expenses",
-                t("landingFreeF2") || "AI Daily Brief (1× refresh/day)",
-                t("landingFreeF3") || "1 branch · 1 team user",
+                tx_("landingFreeF1", "POS + Sales + Expenses"),
+                tx_("landingFreeF2", "AI Daily Brief (1× refresh/day)"),
+                tx_("landingFreeF3", "1 branch · 1 team user"),
               ],
-              cta: t("landingFreeCta") || "Start free",
+              cta: tx_("landingFreeCta", "Start free"),
               ctaHref: "/register",
               emphasis: false,
             },
@@ -682,11 +698,11 @@ export default function LandingPage() {
               descKey: "landingPriceStarterDesc",
               descFallback: "When you start sending fakturaer.",
               features: [
-                t("landingStarterF1") || "Faktura + bank-match + audit log",
-                t("landingStarterF2") || "Brand on faktura (logo + accent)",
-                t("landingStarterF3") || "Revisor-ready CSV exports",
+                tx_("landingStarterF1", "Faktura + bank-match + audit log"),
+                tx_("landingStarterF2", "Brand on faktura (logo + accent)"),
+                tx_("landingStarterF3", "Revisor-ready CSV exports"),
               ],
-              cta: t("landingStarterCta") || "Start 14-day trial",
+              cta: tx_("landingStarterCta", "Start 14-day trial"),
               ctaHref: "/register",
               emphasis: true,
             },
@@ -698,11 +714,11 @@ export default function LandingPage() {
               descKey: "landingPriceProDesc",
               descFallback: "Clean PDFs + multi-branch.",
               features: [
-                t("landingProF1") || "White-label faktura PDF (no BonBox footer)",
-                t("landingProF2") || "AI predictive staffing + multi-branch dashboard",
-                t("landingProF3") || "Priority support",
+                tx_("landingProF1", "White-label faktura PDF (no BonBox footer)"),
+                tx_("landingProF2", "AI predictive staffing + multi-branch dashboard"),
+                tx_("landingProF3", "Priority support"),
               ],
-              cta: t("landingProCta") || "Start 14-day trial",
+              cta: tx_("landingProCta", "Start 14-day trial"),
               ctaHref: "/register",
               emphasis: false,
             },
@@ -717,7 +733,7 @@ export default function LandingPage() {
             >
               {p.emphasis && (
                 <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 bg-gray-900 text-white text-[11px] font-semibold rounded-full">
-                  {t("landingPricingMostPopular") || "Most popular"}
+                  {tx_("landingPricingMostPopular", "Most popular")}
                 </span>
               )}
               <h3 className="text-[18px] font-semibold text-gray-900">{p.name}</h3>
@@ -751,7 +767,7 @@ export default function LandingPage() {
         </div>
 
         <p className="mt-10 text-center text-[13px] text-gray-500">
-          {t("landingPricingNote") || "All plans include Bogføringsloven §12 retention + audit log. Cancel anytime, no questions asked."}
+          {tx_("landingPricingNote", "All plans include Bogføringsloven §12 retention + audit log. Cancel anytime, no questions asked.")}
         </p>
       </Section>
 
@@ -762,19 +778,19 @@ export default function LandingPage() {
             <div className="w-[720px] h-[360px] bg-emerald-500/20 blur-[120px] rounded-full" />
           </div>
           <h2 className="text-[28px] sm:text-[38px] lg:text-[44px] font-semibold tracking-tight text-white leading-tight">
-            {t("landingFinalTitle") || "Try BonBox for two weeks."}
+            {tx_("landingFinalTitle", "Try BonBox for two weeks.")}
             <br />
-            <span className="text-emerald-400">{t("landingFinalTitle2") || "Decide on day 15."}</span>
+            <span className="text-emerald-400">{tx_("landingFinalTitle2", "Decide on day 15.")}</span>
           </h2>
           <p className="mt-5 text-[16px] sm:text-[17px] text-gray-300 max-w-lg mx-auto">
-            {t("landingFinalSub") || "No card. No setup call. Open the app, log today's revenue, and see your morning Brief tomorrow."}
+            {tx_("landingFinalSub", "No card. No setup call. Open the app, log today's revenue, and see your morning Brief tomorrow.")}
           </p>
           <div className="mt-9 flex flex-col sm:flex-row gap-3 justify-center">
             <Link
               to="/register"
               className="inline-flex items-center justify-center px-7 py-3.5 bg-emerald-500 text-white text-[15px] font-medium rounded-md hover:bg-emerald-400 transition"
             >
-              {t("landingFinalCta") || "Start free trial"}
+              {tx_("landingFinalCta", "Start free trial")}
               <svg className="w-4 h-4 ml-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M5 12h14M13 6l6 6-6 6" />
               </svg>
@@ -807,10 +823,10 @@ export default function LandingPage() {
             </Link>
 
             <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13px] text-gray-600">
-              <Link to="/privacy" className="hover:text-gray-900 transition">{t("privacy") || "Privacy"}</Link>
-              <Link to="/terms" className="hover:text-gray-900 transition">{t("terms") || "Terms"}</Link>
-              <Link to="/cookies" className="hover:text-gray-900 transition">{t("cookies") || "Cookies"}</Link>
-              <Link to="/contact" className="hover:text-gray-900 transition">{t("contact") || "Contact"}</Link>
+              <Link to="/privacy" className="hover:text-gray-900 transition">{tx_("privacy", "Privacy")}</Link>
+              <Link to="/terms" className="hover:text-gray-900 transition">{tx_("terms", "Terms")}</Link>
+              <Link to="/cookies" className="hover:text-gray-900 transition">{tx_("cookies", "Cookies")}</Link>
+              <Link to="/contact" className="hover:text-gray-900 transition">{tx_("contact", "Contact")}</Link>
             </div>
 
             <p className="text-[12px] text-gray-500">
