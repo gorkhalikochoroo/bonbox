@@ -45,6 +45,32 @@ def _round_kr(v: Decimal) -> Decimal:
     return Decimal(v).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+# Bank-transaction descriptions can carry PII: payer's full name, account
+# fragments, free-text memos. Under GDPR we must minimize data we keep,
+# so when we persist a paid_reference we:
+#   • truncate to 80 chars (enough for reconciliation traceability —
+#     the fakturanummer or a short signal — but not enough to copy a
+#     full address or message)
+#   • collapse whitespace
+#   • drop control chars (defends against log-injection from weird CSVs)
+# The original `Sale.notes` row still holds the full text for the bank
+# import audit trail; this is only the snapshot that propagates onto the
+# Invoice row (which gets surfaced in PDFs and exports).
+_PAID_REFERENCE_MAX_CHARS = 80
+
+
+def _sanitize_paid_reference(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    s = "".join(c for c in str(raw) if c == " " or (c.isprintable() and ord(c) >= 0x20))
+    s = " ".join(s.split())  # collapse repeated whitespace
+    if not s:
+        return None
+    if len(s) > _PAID_REFERENCE_MAX_CHARS:
+        s = s[: _PAID_REFERENCE_MAX_CHARS - 1].rstrip() + "…"
+    return s
+
+
 class InvoiceService:
     """Stateless namespace — every method takes db + caller info explicitly."""
 
@@ -257,7 +283,7 @@ class InvoiceService:
         inv.paid_amount = amount
         inv.paid_at = utc_now()
         inv.paid_via = source
-        inv.paid_reference = paid_reference
+        inv.paid_reference = _sanitize_paid_reference(paid_reference)
         # Auto-matches get a 7-day undo window. Manual marks don't need
         # the flag — they're always reversible via unmark_paid.
         inv.auto_match_reversible = (source == "auto_match")
@@ -272,7 +298,10 @@ class InvoiceService:
                 "paid_at": inv.paid_at.isoformat(),
                 "paid_amount": str(amount),
                 "paid_via": source,
-                "paid_reference": paid_reference,
+                # Use the SANITIZED value in the audit snapshot — never
+                # the raw bank description (would re-introduce PII to a
+                # 10-year-retained record).
+                "paid_reference": inv.paid_reference,
                 "auto_match_reversible": inv.auto_match_reversible,
             },
             ip_address=ip_address,

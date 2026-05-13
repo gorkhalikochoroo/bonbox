@@ -229,12 +229,16 @@ def try_match_sale_to_invoice(
         )
 
         if has_text_signal:
-            # HIGH confidence — auto-flip
+            # HIGH confidence — auto-flip.
+            # Route via _sanitize_paid_reference so the persisted reference
+            # is truncated + scrubbed (bank descriptions can hold PII;
+            # GDPR data-minimization).
+            from app.services.invoice_service import _sanitize_paid_reference
             invoice.status = "paid"
             invoice.paid_amount = amount
             invoice.paid_at = utc_now()
             invoice.paid_via = "auto_match"
-            invoice.paid_reference = sale.notes
+            invoice.paid_reference = _sanitize_paid_reference(sale.notes)
             invoice.auto_match_reversible = True
             sale.invoice_id = invoice.id  # dedup signal for Tax Autopilot
             db.flush()

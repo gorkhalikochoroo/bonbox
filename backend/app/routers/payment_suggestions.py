@@ -124,13 +124,29 @@ def list_suggestions(
     if not suggestions:
         return []
 
-    # Hydrate context — one query per table, indexed by id
+    # Hydrate context — one query per table, indexed by id.
+    # Defense in depth: every hydration query re-filters by user_id even
+    # though the parent suggestion was already tenant-scoped. If a future
+    # bug leaks a foreign id into the suggestion row, we still won't
+    # return cross-tenant data.
     inv_ids = {s.invoice_id for s in suggestions}
     sale_ids = {s.sale_id for s in suggestions}
-    invoices = {i.id: i for i in db.query(Invoice).filter(Invoice.id.in_(inv_ids)).all()}
-    sales = {s.id: s for s in db.query(Sale).filter(Sale.id.in_(sale_ids)).all()}
+    invoices = {
+        i.id: i for i in db.query(Invoice).filter(
+            Invoice.id.in_(inv_ids), Invoice.user_id == user.id,
+        ).all()
+    }
+    sales = {
+        s.id: s for s in db.query(Sale).filter(
+            Sale.id.in_(sale_ids), Sale.user_id == user.id,
+        ).all()
+    }
     cust_ids = {i.customer_id for i in invoices.values()}
-    customers = {c.id: c for c in db.query(Customer).filter(Customer.id.in_(cust_ids)).all()}
+    customers = {
+        c.id: c for c in db.query(Customer).filter(
+            Customer.id.in_(cust_ids), Customer.user_id == user.id,
+        ).all()
+    }
 
     return [
         _to_response(

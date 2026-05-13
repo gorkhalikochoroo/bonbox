@@ -759,15 +759,64 @@ _migrations = [
     # depth — if app code has a bug that tries to modify an audit row,
     # the DB refuses silently rather than corrupting the trail.
     # CREATE RULE is Postgres-specific; wrapped in DO so it no-ops on SQLite.
+    #
+    # Failure surfacing: previously this swallowed all exceptions with
+    # WHEN OTHERS THEN NULL, which made a missed RULE install invisible
+    # (audit-log tamper resistance silently disappears). Now we RAISE
+    # NOTICE so the failure appears in Postgres logs, and we perform a
+    # startup self-test below to verify the rule is actually active.
     """DO $$ BEGIN
         IF EXISTS (SELECT 1 FROM pg_class WHERE relname='audit_logs') THEN
             EXECUTE 'CREATE OR REPLACE RULE audit_logs_no_update AS ON UPDATE TO audit_logs DO INSTEAD NOTHING';
             EXECUTE 'CREATE OR REPLACE RULE audit_logs_no_delete AS ON DELETE TO audit_logs DO INSTEAD NOTHING';
         END IF;
     EXCEPTION WHEN OTHERS THEN
-        NULL;
+        RAISE NOTICE 'audit_logs immutability RULE install failed: %', SQLERRM;
     END $$""",
 ]
+
+
+def _verify_audit_log_immutability(conn) -> None:
+    """Postgres-only startup self-test: insert a sentinel audit row,
+    try to DELETE it, and confirm the row is still there. If the DELETE
+    succeeded, the RULE is missing and we log a CRITICAL warning so an
+    operator can investigate before audit history can be tampered with.
+
+    Runs once per startup. SQLite skips it.
+    """
+    import uuid as _uuid
+    from datetime import datetime as _dt
+    from sqlalchemy import text as _text
+
+    if not str(engine.url).startswith("postgresql"):
+        return
+    try:
+        sentinel = _uuid.uuid4()
+        conn.execute(_text(
+            "INSERT INTO audit_logs (id, user_id, actor_type, action, entity_type, created_at) "
+            "VALUES (:id, :uid, 'system.selftest', 'audit.selftest', 'system', :now)"
+        ), {"id": sentinel, "uid": _uuid.uuid4(), "now": _dt.utcnow()})
+        conn.execute(_text("DELETE FROM audit_logs WHERE id = :id"), {"id": sentinel})
+        still_there = conn.execute(_text(
+            "SELECT 1 FROM audit_logs WHERE id = :id"
+        ), {"id": sentinel}).first()
+        if not still_there:
+            # DELETE succeeded — RULE is missing. Audit log is mutable.
+            import logging as _lg
+            _lg.getLogger("bonbox.security").critical(
+                "AUDIT LOG IMMUTABILITY CHECK FAILED — audit_logs_no_delete RULE is not active. "
+                "Audit history can be tampered with. Investigate immediately."
+            )
+        else:
+            # RULE blocked DELETE — clean up the sentinel by leaving it
+            # (it'll be auto-purged by the 10-year retention sweep).
+            pass
+        conn.commit()
+    except Exception as e:
+        import logging as _lg
+        _lg.getLogger("bonbox.security").warning(
+            "audit_logs immutability self-test could not run: %s", e
+        )
 
 def _run_migrations():
     """Run schema migrations — works with both PostgreSQL and SQLite."""
@@ -991,6 +1040,16 @@ def _run_migrations():
                     print(f"Migration {i} skipped: {e}")
             conn.commit()
             print(f"Schema migrations (PG): {ok} applied, {failed} skipped")
+
+            # After all migrations land, run the audit-log immutability
+            # self-test. If the RULE didn't install we want to know NOW,
+            # not the first time a malicious INSERT-INTO-DELETE-FROM
+            # sequence successfully tampers with audit history.
+            try:
+                _verify_audit_log_immutability(conn)
+            except Exception as e:
+                print(f"audit_logs self-test wrapper failed: {e}")
+
 
 def _run_data_migration():
     """Fix cashbook auto-synced entries (runs once at startup)."""

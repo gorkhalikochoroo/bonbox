@@ -1,0 +1,683 @@
+"""
+End-to-end integration test for the Faktura Compliance + Safety Sprint
+(Days 1-6 of the build).
+
+Covers:
+  1. State machine: draft → sent → paid → unmark → sent (with audit entries
+     at every step).
+  2. Auto-match HIGH confidence: customer name in bank text auto-flips
+     invoice to paid + links Sale.invoice_id + writes audit.
+  3. Auto-match MEDIUM confidence: amount matches but no text signal —
+     creates suggestion, invoice stays 'sent'.
+  4. Auto-match LOW confidence: multiple amount candidates — creates one
+     suggestion per candidate, invoice unchanged.
+  5. Owner accepts a MEDIUM suggestion → mark_paid wrapper runs, sibling
+     suggestions auto-reject.
+  6. Tax Autopilot dedup: bank-matched Sale must NOT double-count when
+     the invoice is also in the revenue stream.
+  7. Logo upload security: SVG/GIF rejected, palette validates, position
+     enum validates.
+  8. Retention sweep: ancient drafts hard-deleted, paid invoices
+     preserved, suggestion garbage-collected after resolution+1y.
+
+Run: cd backend && pytest tests/test_faktura_compliance_sprint.py -v
+"""
+from __future__ import annotations
+
+import uuid
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
+
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.database import Base
+from app.models.audit_log import AuditLog
+from app.models.business_profile import BusinessProfile
+from app.models.customer import Customer
+from app.models.invoice import Invoice
+from app.models.payment_match_suggestion import PaymentMatchSuggestion
+from app.models.sale import Sale
+from app.models.user import User
+from app.services import payment_match_service
+from app.services.invoice_service import InvoiceService
+from app.services.logo_service import (
+    ACCENT_COLOR_PALETTE,
+    validate_accent_color,
+    validate_logo_position,
+)
+
+
+# ─── Fixtures ────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def db():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine)
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+@pytest.fixture
+def user(db):
+    u = User(
+        email="owner@bonbox.test",
+        password_hash="x",
+        business_name="Bon Bakery",
+        business_type="cafe",
+        currency="DKK",
+    )
+    db.add(u)
+    db.commit()
+    db.refresh(u)
+    return u
+
+
+@pytest.fixture
+def other_user(db):
+    """Second tenant to prove cross-tenant isolation."""
+    u = User(
+        email="evil@bonbox.test",
+        password_hash="x",
+        business_name="Evil Cafe",
+        business_type="cafe",
+        currency="DKK",
+    )
+    db.add(u)
+    db.commit()
+    db.refresh(u)
+    return u
+
+
+@pytest.fixture
+def customer(db, user):
+    c = Customer(
+        user_id=user.id,
+        name="Lyngby Storkunde ApS",
+        is_company=True,
+        email="finance@lyngby.test",
+        country="DK",
+        payment_terms_days=14,
+        default_lang="da",
+    )
+    db.add(c)
+    db.commit()
+    db.refresh(c)
+    return c
+
+
+def _make_invoice(db, user, customer, total_kr: Decimal = Decimal("1250.00")) -> Invoice:
+    """Helper: create a draft + send it so we have a status='sent' faktura."""
+    # Line totals: net + 25% moms = total_kr
+    net = (total_kr / Decimal("1.25")).quantize(Decimal("0.01"))
+    inv = InvoiceService.create_draft(
+        db, user, customer.id,
+        lines=[{
+            "description": "Konsulentydelse maj",
+            "quantity": Decimal("1"),
+            "unit_price_net": net,
+            "moms_rate": Decimal("0.250"),
+        }],
+    )
+    InvoiceService.mark_sent(db, user, inv.id, ip_address="10.0.0.1")
+    db.commit()
+    db.refresh(inv)
+    return inv
+
+
+def _make_bank_sale(
+    db, user, amount: Decimal, notes: str, sale_date: date | None = None,
+) -> Sale:
+    s = Sale(
+        user_id=user.id,
+        date=sale_date or date.today(),
+        amount=amount,
+        payment_method="bank_transfer",
+        notes=notes,
+        order_channel="dine_in",
+    )
+    db.add(s)
+    db.commit()
+    db.refresh(s)
+    return s
+
+
+# ─── Test 1: state machine + audit ───────────────────────────────
+
+
+def test_state_machine_and_audit_trail(db, user, customer):
+    """draft → sent → paid → unmark → sent, audit log at every step."""
+    inv = InvoiceService.create_draft(
+        db, user, customer.id,
+        lines=[{
+            "description": "Konsulentydelse",
+            "quantity": Decimal("1"),
+            "unit_price_net": Decimal("1000.00"),
+            "moms_rate": Decimal("0.250"),
+        }],
+    )
+    db.commit()
+    assert inv.status == "draft"
+    assert inv.locked is False
+
+    InvoiceService.mark_sent(db, user, inv.id, ip_address="10.0.0.1")
+    db.commit()
+    db.refresh(inv)
+    assert inv.status == "sent"
+    assert inv.locked is True
+    assert inv.sent_at is not None
+
+    # Can't double-send
+    with pytest.raises(Exception):
+        InvoiceService.mark_sent(db, user, inv.id, ip_address="10.0.0.1")
+
+    InvoiceService.mark_paid(
+        db, user, inv.id, Decimal("1250.00"),
+        source="manual", ip_address="10.0.0.1",
+    )
+    db.commit()
+    db.refresh(inv)
+    assert inv.status == "paid"
+    assert inv.paid_via == "manual"
+    assert inv.auto_match_reversible is False  # manual not flagged
+
+    # Manual marks are always reversible
+    InvoiceService.unmark_paid(db, user, inv.id, ip_address="10.0.0.1")
+    db.commit()
+    db.refresh(inv)
+    assert inv.status in ("sent", "overdue")
+    assert inv.paid_at is None
+    assert inv.paid_via is None
+
+    # Audit trail
+    rows = (
+        db.query(AuditLog)
+        .filter(AuditLog.entity_type == "invoice", AuditLog.entity_id == inv.id)
+        .order_by(AuditLog.created_at.asc())
+        .all()
+    )
+    actions = [r.action for r in rows]
+    assert "invoice.send" in actions
+    assert "invoice.mark_paid" in actions
+    assert "invoice.unmark_paid" in actions
+    # Every entry must carry IP for production traceability
+    for r in rows:
+        assert r.ip_address == "10.0.0.1", f"audit row {r.action} missing IP"
+        assert r.user_id == user.id
+
+
+def test_paid_reference_pii_sanitization(db, user, customer):
+    """Bank tx descriptions can carry PII (payer name, account fragment,
+    free-text memo). When persisted onto Invoice.paid_reference we must
+    truncate to 80 chars + drop control characters. The raw text stays
+    on Sale.notes for bank-import audit trail; the Invoice copy is
+    sanitized for GDPR data-minimization."""
+    from app.services.invoice_service import _sanitize_paid_reference
+
+    # Truncation
+    long_text = "OVF FRA " + ("X" * 200)
+    out = _sanitize_paid_reference(long_text)
+    assert out is not None
+    assert len(out) <= 80
+    assert out.endswith("…")
+
+    # Control chars dropped (log-injection defense)
+    out = _sanitize_paid_reference("OVF\x00\x07\x1bDROP TABLE invoices\nNORMAL")
+    assert out is not None
+    assert "\x00" not in out
+    assert "\x07" not in out
+    assert "\x1b" not in out
+    # Newline (a control char) gets dropped too, then whitespace collapsed
+    assert "  " not in out
+
+    # Empty / None passthrough
+    assert _sanitize_paid_reference(None) is None
+    assert _sanitize_paid_reference("") is None
+    assert _sanitize_paid_reference("   ") is None
+
+    # End-to-end: mark_paid stores the sanitized version
+    inv = _make_invoice(db, user, customer, Decimal("1250.00"))
+    InvoiceService.mark_paid(
+        db, user, inv.id, Decimal("1250.00"),
+        source="manual",
+        paid_reference="OVF FRA " + ("X" * 200),
+    )
+    db.commit()
+    db.refresh(inv)
+    assert inv.paid_reference is not None
+    assert len(inv.paid_reference) <= 80
+
+
+def test_idempotent_mark_paid(db, user, customer):
+    """Re-marking already-paid invoice from any source is a no-op (no
+    double audit entries)."""
+    inv = _make_invoice(db, user, customer)
+    InvoiceService.mark_paid(db, user, inv.id, Decimal("1250.00"), source="manual")
+    db.commit()
+    InvoiceService.mark_paid(db, user, inv.id, Decimal("1250.00"), source="manual")
+    db.commit()
+
+    n_paid_audits = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.entity_id == inv.id,
+            AuditLog.action == "invoice.mark_paid",
+        )
+        .count()
+    )
+    assert n_paid_audits == 1, "Idempotent mark_paid must not double-audit"
+
+
+# ─── Test 2: HIGH-confidence auto-match ──────────────────────────
+
+
+def test_high_confidence_automatch(db, user, customer):
+    """Bank deposit + matching amount + customer name in description →
+    auto-flip to paid, Sale.invoice_id linked, audit written, no
+    suggestion row."""
+    inv = _make_invoice(db, user, customer, Decimal("1250.00"))
+
+    sale = _make_bank_sale(
+        db, user, Decimal("1250.00"),
+        notes="OVF FRA LYNGBY STORKUNDE APS REF 2026-001",
+    )
+
+    payment_match_service.try_match_sale_to_invoice(db, sale)
+    db.commit()
+    db.refresh(inv)
+    db.refresh(sale)
+
+    assert inv.status == "paid"
+    assert inv.paid_via == "auto_match"
+    assert inv.auto_match_reversible is True
+    assert sale.invoice_id == inv.id
+
+    # No suggestion row created (auto-flipped, not suggested)
+    n_sugg = db.query(PaymentMatchSuggestion).count()
+    assert n_sugg == 0
+
+
+def test_diacritic_normalization_match(db, user):
+    """'Café Lyngby' on faktura should match 'CAFE LYNGBY' on bank line.
+    Danish banks strip diacritics — without NFKD normalization we'd
+    miss legitimate auto-matches for any business with æøå/é/è."""
+    cust = Customer(
+        user_id=user.id, name="Café Lyngby Test", is_company=True,
+        country="DK", payment_terms_days=14, default_lang="da",
+    )
+    db.add(cust)
+    db.commit()
+    db.refresh(cust)
+
+    inv = _make_invoice(db, user, cust, Decimal("500.00"))
+    sale = _make_bank_sale(
+        db, user, Decimal("500.00"),
+        notes="PAYMENT FROM CAFE LYNGBY TEST",
+    )
+
+    payment_match_service.try_match_sale_to_invoice(db, sale)
+    db.commit()
+    db.refresh(inv)
+    assert inv.status == "paid", "Diacritic-stripped match should auto-flip"
+
+
+def test_auto_match_undo_within_window(db, user, customer):
+    """Auto-match is reversible within 7 days. Manual marks always
+    reversible."""
+    inv = _make_invoice(db, user, customer, Decimal("1250.00"))
+    sale = _make_bank_sale(
+        db, user, Decimal("1250.00"),
+        notes="OVF LYNGBY STORKUNDE",
+    )
+    payment_match_service.try_match_sale_to_invoice(db, sale)
+    db.commit()
+
+    # Within window — undo works
+    InvoiceService.unmark_paid(db, user, inv.id, ip_address="10.0.0.1")
+    db.commit()
+    db.refresh(inv)
+    assert inv.status in ("sent", "overdue")
+
+    # Detached the sale linkage too — critical for revenue dedup
+    db.refresh(sale)
+    assert sale.invoice_id is None
+
+
+# ─── Test 3: MEDIUM-confidence suggestion ────────────────────────
+
+
+def test_medium_confidence_suggestion(db, user, customer):
+    """Amount matches, NO text signal → MEDIUM suggestion created,
+    invoice untouched."""
+    inv = _make_invoice(db, user, customer, Decimal("1250.00"))
+
+    sale = _make_bank_sale(
+        db, user, Decimal("1250.00"),
+        notes="OVF REF UNKNOWN PARTY",
+    )
+    payment_match_service.try_match_sale_to_invoice(db, sale)
+    db.commit()
+    db.refresh(inv)
+
+    assert inv.status == "sent", "Invoice should NOT auto-flip without text signal"
+    sugg = (
+        db.query(PaymentMatchSuggestion)
+        .filter(PaymentMatchSuggestion.invoice_id == inv.id)
+        .first()
+    )
+    assert sugg is not None
+    assert sugg.confidence == "medium"
+    assert sugg.status == "pending"
+
+
+def test_accept_suggestion_rejects_siblings(db, user, customer):
+    """Accepting a suggestion runs mark_paid AND auto-rejects all other
+    pending suggestions for the same Sale — only one invoice can be
+    paid by one bank line."""
+    inv1 = _make_invoice(db, user, customer, Decimal("1250.00"))
+    inv2 = _make_invoice(db, user, customer, Decimal("1250.00"))
+
+    sale = _make_bank_sale(
+        db, user, Decimal("1250.00"),
+        notes="OVF REF UNKNOWN",
+    )
+    # try_match: 2 candidates @ same amount → LOW confidence x2
+    payment_match_service.try_match_sale_to_invoice(db, sale)
+    db.commit()
+    suggs = (
+        db.query(PaymentMatchSuggestion)
+        .filter(PaymentMatchSuggestion.sale_id == sale.id)
+        .all()
+    )
+    assert len(suggs) == 2
+    assert all(s.confidence == "low" for s in suggs)
+
+    # Owner accepts the first one
+    target = suggs[0]
+    payment_match_service.accept_suggestion(
+        db, user.id, target.id, ip_address="10.0.0.1",
+    )
+    db.commit()
+
+    db.refresh(target)
+    sibling = next(s for s in suggs if s.id != target.id)
+    db.refresh(sibling)
+    assert target.status == "accepted"
+    assert sibling.status == "rejected"
+
+
+# ─── Test 4: Tax Autopilot dedup ─────────────────────────────────
+
+
+def test_tax_autopilot_dedup_bank_matched_sale(db, user, customer):
+    """A Sale.invoice_id != NULL must be EXCLUDED from POS revenue so
+    we don't double-count: once as a cash sale, again as an invoice
+    payment. This was the bug Day 5 fixed."""
+    from app.services.tax_service import _calc_vat
+
+    _make_invoice(db, user, customer, Decimal("1250.00"))
+
+    # Bank deposit gets linked to invoice (HIGH-confidence auto-match path)
+    sale = _make_bank_sale(
+        db, user, Decimal("1250.00"),
+        notes="OVF FRA LYNGBY STORKUNDE",
+    )
+    payment_match_service.try_match_sale_to_invoice(db, sale)
+    db.commit()
+
+    today = date.today()
+    period_start = today.replace(day=1) - timedelta(days=60)
+    # End date is exclusive in _calc_vat — include today
+    period_end = today + timedelta(days=1)
+
+    result = _calc_vat(
+        db, user.id, period_start, period_end,
+        vat_rate=0.25, prices_include_moms=True,
+    )
+    pos_rev = Decimal(str(result.get("pos_revenue", 0)))
+    invoice_rev = Decimal(str(result.get("invoice_revenue", 0)))
+    # The matched Sale must NOT show up as POS revenue (invoice_id is set)
+    assert pos_rev == Decimal("0"), (
+        f"POS revenue should be 0 (sale linked to invoice), got {pos_rev}"
+    )
+    # The invoice IS the revenue
+    assert invoice_rev > 0, "Invoice revenue must be positive"
+
+
+def test_tax_autopilot_unlinked_sale_still_counts(db, user, customer):
+    """A regular POS Sale (no invoice_id) must still contribute to
+    pos_revenue — only invoice-linked Sales are excluded."""
+    from app.services.tax_service import _calc_vat
+
+    # A pure cash sale, no faktura involvement
+    _make_bank_sale(db, user, Decimal("500.00"), notes="WALK-IN")
+    db.commit()
+
+    today = date.today()
+    period_start = today.replace(day=1) - timedelta(days=60)
+    period_end = today + timedelta(days=1)
+    result = _calc_vat(
+        db, user.id, period_start, period_end,
+        vat_rate=0.25, prices_include_moms=True,
+    )
+    assert Decimal(str(result["pos_revenue"])) >= Decimal("500.00")
+
+
+# ─── Test 5: Logo + brand validation ─────────────────────────────
+
+
+def test_logo_palette_has_six_colors():
+    """6-color preset palette — security/consistency constraint."""
+    assert len(ACCENT_COLOR_PALETTE) == 6
+    for name, hex_code in ACCENT_COLOR_PALETTE.items():
+        assert hex_code.startswith("#")
+        assert len(hex_code) == 7
+
+
+def test_accent_color_validator_rejects_arbitrary_hex():
+    """Only the 6 preset hex codes are valid. Arbitrary user-supplied
+    hex (e.g. '#FF00FF') must be rejected — keeps brand recognizable
+    across the user's invoices."""
+    # Whitelist allows palette hex
+    assert validate_accent_color("#10B981") == "#10B981"
+    # Whitelist allows palette name → canonicalized hex
+    assert validate_accent_color("emerald") == "#10B981"
+    # Empty string is a 'cleared field' signal, not an attack — returns None
+    assert validate_accent_color("") is None
+    assert validate_accent_color(None) is None
+    # Arbitrary hex must be rejected
+    with pytest.raises(Exception):
+        validate_accent_color("#FF00FF")
+    # XSS-style payloads must be rejected
+    with pytest.raises(Exception):
+        validate_accent_color("javascript:alert(1)")
+    # SQL-injection-style payloads must be rejected
+    with pytest.raises(Exception):
+        validate_accent_color("'; DROP TABLE business_profiles; --")
+
+
+def test_logo_position_validator():
+    assert validate_logo_position("left") == "left"
+    assert validate_logo_position("center") == "center"
+    with pytest.raises(Exception):
+        validate_logo_position("right")
+    with pytest.raises(Exception):
+        validate_logo_position("../../etc/passwd")
+
+
+def test_logo_service_rejects_svg_and_gif():
+    """SVG can carry inline JS (XSS) — must be rejected at magic-byte
+    check. GIF is allowed by PIL but rejected by our magic-byte
+    allowlist (PNG/JPEG only)."""
+    from app.services import logo_service
+
+    svg_bytes = b"<svg onload=alert(1)></svg>"
+    with pytest.raises(Exception):
+        logo_service.upload_logo(uuid.uuid4(), svg_bytes)
+
+    gif_bytes = b"GIF89a" + b"\x00" * 100
+    with pytest.raises(Exception):
+        logo_service.upload_logo(uuid.uuid4(), gif_bytes)
+
+    empty = b""
+    with pytest.raises(Exception):
+        logo_service.upload_logo(uuid.uuid4(), empty)
+
+
+# ─── Test 6: Retention sweep ─────────────────────────────────────
+
+
+def test_retention_sweep_purges_ancient_drafts(db, user, customer):
+    """Drafts older than data_retention_years should be hard-deleted.
+    Paid/sent invoices stay (Bogføringsloven §12 — they ARE the books)."""
+    from app.services.accounting_retention import run_retention_sweep_for_user
+
+    # Give user a profile with 5y retention
+    profile = BusinessProfile(
+        user_id=user.id,
+        data_retention_years=5,
+    )
+    db.add(profile)
+    db.commit()
+
+    # Ancient draft (7 years old) — should be purged
+    ancient_draft = Invoice(
+        user_id=user.id,
+        customer_id=customer.id,
+        fakturanummer=999001,
+        issue_date=date.today() - timedelta(days=7 * 366),
+        due_date=date.today() - timedelta(days=7 * 366 - 14),
+        status="draft",
+        subtotal_net=Decimal("100.00"),
+        moms_total=Decimal("25.00"),
+        total_gross=Decimal("125.00"),
+        currency="DKK",
+        customer_lang="da",
+    )
+    # Ancient paid invoice — must stay (it's accounting record)
+    ancient_paid = Invoice(
+        user_id=user.id,
+        customer_id=customer.id,
+        fakturanummer=999002,
+        issue_date=date.today() - timedelta(days=7 * 366),
+        due_date=date.today() - timedelta(days=7 * 366 - 14),
+        status="paid",
+        paid_at=datetime.now(timezone.utc) - timedelta(days=7 * 366),
+        paid_amount=Decimal("125.00"),
+        paid_via="manual",
+        subtotal_net=Decimal("100.00"),
+        moms_total=Decimal("25.00"),
+        total_gross=Decimal("125.00"),
+        currency="DKK",
+        customer_lang="da",
+    )
+    db.add_all([ancient_draft, ancient_paid])
+    db.commit()
+    draft_id = ancient_draft.id
+    paid_id = ancient_paid.id
+
+    counts = run_retention_sweep_for_user(db, user)
+    db.commit()
+
+    assert counts["invoices_drafts_purged"] == 1
+    assert db.query(Invoice).filter(Invoice.id == draft_id).first() is None
+    assert db.query(Invoice).filter(Invoice.id == paid_id).first() is not None
+
+
+def test_retention_sweep_clamps_to_legal_min(db, user):
+    """User can't set retention < 5y (Bogføringsloven §12 floor) or
+    > 10y (Skatteforvaltningsloven §31 ceiling). The clamp protects
+    the user from accidentally (or maliciously) self-shooting."""
+    from app.services.accounting_retention import _user_retention_years
+
+    profile = BusinessProfile(user_id=user.id, data_retention_years=1)
+    assert _user_retention_years(profile) == 5  # clamped up
+
+    profile.data_retention_years = 99
+    assert _user_retention_years(profile) == 10  # clamped down
+
+    profile.data_retention_years = 7
+    assert _user_retention_years(profile) == 7  # passthrough
+
+    assert _user_retention_years(None) == 6  # default
+
+
+# ─── Test 7: Tenant isolation ────────────────────────────────────
+
+
+def test_cross_tenant_unmark_paid_rejected(db, user, other_user, customer):
+    """Other_user must NOT be able to unmark paid one of user's
+    invoices via spoofed invoice_id."""
+    inv = _make_invoice(db, user, customer, Decimal("1250.00"))
+    InvoiceService.mark_paid(db, user, inv.id, Decimal("1250.00"), source="manual")
+    db.commit()
+
+    with pytest.raises(Exception):
+        InvoiceService.unmark_paid(db, other_user, inv.id, ip_address="10.0.0.2")
+
+
+def test_cross_tenant_accept_suggestion_rejected(db, user, other_user, customer):
+    """Other_user must NOT be able to accept user's payment suggestion."""
+    inv = _make_invoice(db, user, customer, Decimal("1250.00"))
+    sale = _make_bank_sale(
+        db, user, Decimal("1250.00"),
+        notes="OVF UNKNOWN",
+    )
+    payment_match_service.try_match_sale_to_invoice(db, sale)
+    db.commit()
+    sugg = db.query(PaymentMatchSuggestion).first()
+    assert sugg is not None
+
+    with pytest.raises(Exception):
+        payment_match_service.accept_suggestion(
+            db, other_user.id, sugg.id, ip_address="10.0.0.2",
+        )
+
+
+# ─── Test 8: Auto-match guards ───────────────────────────────────
+
+
+def test_outgoing_payments_never_match(db, user, customer):
+    """A negative-amount Sale (outgoing) must NEVER trigger any match
+    logic. The matcher returned None and created no suggestions."""
+    _make_invoice(db, user, customer, Decimal("1250.00"))
+    out = _make_bank_sale(
+        db, user, Decimal("-1250.00"),
+        notes="REFUND TO CUSTOMER",
+    )
+    result = payment_match_service.try_match_sale_to_invoice(db, out)
+    db.commit()
+    assert result is None
+    assert db.query(PaymentMatchSuggestion).count() == 0
+
+
+def test_draft_invoice_never_matches(db, user, customer):
+    """Auto-match must only consider sent/overdue invoices. A draft
+    must never auto-flip to paid (state machine violation)."""
+    inv = InvoiceService.create_draft(
+        db, user, customer.id,
+        lines=[{
+            "description": "Test",
+            "quantity": Decimal("1"),
+            "unit_price_net": Decimal("1000.00"),
+            "moms_rate": Decimal("0.250"),
+        }],
+    )
+    db.commit()
+    assert inv.status == "draft"
+
+    sale = _make_bank_sale(
+        db, user, Decimal("1250.00"),
+        notes="OVF LYNGBY STORKUNDE",
+    )
+    payment_match_service.try_match_sale_to_invoice(db, sale)
+    db.commit()
+    db.refresh(inv)
+    assert inv.status == "draft", "Draft must NOT be auto-flipped"
+    assert db.query(PaymentMatchSuggestion).count() == 0
