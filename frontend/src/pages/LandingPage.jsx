@@ -73,26 +73,26 @@ function HeroPhone() {
           <div className="flex items-center justify-between mb-3">
             <div>
               <p className="text-white text-[11px] font-bold leading-tight">{tx(t, "dashboard", "Dashboard")}</p>
-              <p className="text-gray-500 text-[8px]">{tx(t, "today", "Today")}</p>
+              <p className="text-stone-500 text-[8px]">{tx(t, "today", "Today")}</p>
             </div>
             <div className="w-5 h-5 bg-emerald-500/20 rounded-full" />
           </div>
           {/* KPI cards */}
           <div className="grid grid-cols-2 gap-1.5 mb-2">
             <div className="bg-gray-800/70 rounded-md p-2">
-              <p className="text-gray-500 text-[7px] uppercase tracking-wider">{tx(t, "revenue", "Revenue")}</p>
+              <p className="text-stone-500 text-[7px] uppercase tracking-wider">{tx(t, "revenue", "Revenue")}</p>
               <p className="text-white text-[13px] font-bold tabular-nums mt-0.5">24,500 kr</p>
               <p className="text-emerald-400 text-[7px] mt-0.5">+12%</p>
             </div>
             <div className="bg-gray-800/70 rounded-md p-2">
-              <p className="text-gray-500 text-[7px] uppercase tracking-wider">{tx(t, "profit", "Profit")}</p>
+              <p className="text-stone-500 text-[7px] uppercase tracking-wider">{tx(t, "profit", "Profit")}</p>
               <p className="text-white text-[13px] font-bold tabular-nums mt-0.5">70,097 kr</p>
               <p className="text-emerald-400 text-[7px] mt-0.5">57.8%</p>
             </div>
           </div>
           {/* sparkline */}
           <div className="bg-gray-800/70 rounded-md p-2 mb-2">
-            <p className="text-gray-500 text-[7px] uppercase tracking-wider mb-1">{tx(t, "weeklySales", "Weekly sales")}</p>
+            <p className="text-stone-500 text-[7px] uppercase tracking-wider mb-1">{tx(t, "weeklySales", "Weekly sales")}</p>
             <svg viewBox="0 0 200 36" className="w-full h-7">
               <defs>
                 <linearGradient id="hpGrad" x1="0" y1="0" x2="0" y2="1">
@@ -106,7 +106,7 @@ function HeroPhone() {
           </div>
           {/* recent items — compact */}
           <div className="bg-gray-800/70 rounded-md p-2">
-            <p className="text-gray-500 text-[7px] uppercase tracking-wider mb-1">{tx(t, "recentSales", "Recent sales")}</p>
+            <p className="text-stone-500 text-[7px] uppercase tracking-wider mb-1">{tx(t, "recentSales", "Recent sales")}</p>
             {[
               ["Coca-Cola x10", "150"],
               ["Rice 5kg", "1,350"],
@@ -182,12 +182,12 @@ function Heading({ as: As = "h2", className = "", children }) {
 // ─── Feature card — uniform, single accent, no per-card colour ──────
 function FeatureCard({ icon, title, body }) {
   return (
-    <div className="group relative bg-white rounded-2xl p-7 border border-gray-200/80 hover:border-gray-300 hover:shadow-[0_4px_24px_-8px_rgba(15,23,42,0.08)] transition-all duration-200">
+    <div className="group relative bg-white rounded-2xl p-7 border border-stone-200/80 hover:border-stone-300 hover:shadow-[0_4px_24px_-8px_rgba(15,23,42,0.08)] transition-all duration-200">
       <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center mb-5 group-hover:bg-emerald-100 transition-colors">
         {icon}
       </div>
       <h3 className="text-[17px] font-semibold text-gray-900 mb-2 tracking-tight">{title}</h3>
-      <p className="text-[14.5px] text-gray-600 leading-relaxed">{body}</p>
+      <p className="text-[14.5px] text-stone-600 leading-relaxed">{body}</p>
     </div>
   );
 }
@@ -270,9 +270,12 @@ export default function LandingPage() {
 
   // Nav anchors — these set the navigable shape of the page. Keep
   // short (3-4 items) so the nav doesn't crowd the brand on mobile.
+  // Anchor links kept intentionally short. We don't link to the
+  // comparison/competitor on the landing — BonBox stands on its own
+  // story, not by sending users to research Dinero.
   const navLinks = [
     { href: "#features", label: tx_("landingNavFeatures", "Features") },
-    { href: "#compare", label: tx_("landingNavCompare", "vs Dinero") },
+    { href: "#how", label: tx_("landingNavHow", "How it works") },
     { href: "#pricing", label: tx_("landingNavPricing", "Pricing") },
   ];
 
@@ -287,7 +290,7 @@ export default function LandingPage() {
       <nav
         className={`fixed inset-x-0 top-0 z-50 backdrop-blur-xl transition-shadow ${
           scrolled
-            ? "bg-[#fafaf7]/90 border-b border-gray-200 shadow-[0_1px_0_rgba(15,23,42,0.04)]"
+            ? "bg-[#fafaf7]/90 border-b border-stone-200 shadow-[0_1px_0_rgba(15,23,42,0.04)]"
             : "bg-[#fafaf7]/70 border-b border-transparent"
         }`}
       >
@@ -319,7 +322,7 @@ export default function LandingPage() {
               value={lang}
               onChange={(e) => setLang(e.target.value)}
               aria-label="Language"
-              className="hidden sm:block text-[13px] bg-transparent border border-gray-200 rounded-md px-2 py-1.5 text-gray-700 hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-300 cursor-pointer"
+              className="hidden sm:block text-[13px] bg-transparent border border-stone-200 rounded-md px-2 py-1.5 text-gray-700 hover:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-300 cursor-pointer"
             >
               {LANGUAGES.map((l) => (
                 <option key={l.code} value={l.code}>{l.label}</option>
@@ -333,7 +336,7 @@ export default function LandingPage() {
             </Link>
             <Link
               to="/register"
-              className="px-4 py-2 text-[14px] font-medium bg-gray-900 text-white rounded-md hover:bg-gray-800 transition shadow-sm"
+              className="px-4 py-2 text-[14px] font-medium bg-emerald-600 text-white rounded-md hover:bg-emerald-700 transition shadow-sm"
             >
               {tx_("landingStartFree", "Get started")}
             </Link>
@@ -351,7 +354,7 @@ export default function LandingPage() {
           </div>
         </div>
         {menuOpen && (
-          <div className="md:hidden border-t border-gray-200 bg-[#fafaf7]">
+          <div className="md:hidden border-t border-stone-200 bg-[#fafaf7]">
             <div className="px-5 py-3 space-y-1">
               {navLinks.map((l) => (
                 <a
@@ -364,14 +367,14 @@ export default function LandingPage() {
                 </a>
               ))}
               <div className="flex gap-2 pt-2">
-                <Link to="/login" onClick={() => setMenuOpen(false)} className="flex-1 text-center py-2.5 text-[14px] border border-gray-300 rounded-md text-gray-800">
+                <Link to="/login" onClick={() => setMenuOpen(false)} className="flex-1 text-center py-2.5 text-[14px] border border-stone-300 rounded-md text-gray-800">
                   {tx_("landingSignIn", "Sign in")}
                 </Link>
               </div>
               <select
                 value={lang}
                 onChange={(e) => setLang(e.target.value)}
-                className="mt-2 w-full text-[14px] bg-white border border-gray-200 rounded-md px-3 py-2"
+                className="mt-2 w-full text-[14px] bg-white border border-stone-200 rounded-md px-3 py-2"
               >
                 {LANGUAGES.map((l) => (
                   <option key={l.code} value={l.code}>{l.label}</option>
@@ -402,14 +405,14 @@ export default function LandingPage() {
               <span className="text-emerald-600">{tx_("landingHeroLine2", "last guest and lights out.")}</span>
             </h1>
 
-            <p className="mt-6 text-[17px] sm:text-[18px] text-gray-600 leading-relaxed max-w-[520px]">
+            <p className="mt-6 text-[17px] sm:text-[18px] text-stone-600 leading-relaxed max-w-[520px]">
               {tx_("landingHeroSub", "Front-of-house snaps each kasserapport. AI merges them in 6 seconds. Owner gets the consolidated PDF before close-up is even done.")}
             </p>
 
             <div className="mt-9 flex flex-col sm:flex-row gap-3">
               <Link
                 to="/register"
-                className="inline-flex items-center justify-center px-6 py-3.5 bg-gray-900 text-white text-[15px] font-medium rounded-md hover:bg-gray-800 transition shadow-sm"
+                className="inline-flex items-center justify-center px-6 py-3.5 bg-emerald-600 text-white text-[15px] font-medium rounded-md hover:bg-emerald-700 transition shadow-[0_4px_14px_-4px_rgba(16,185,129,0.4)]"
               >
                 {tx_("landingCtaPrimary", "Get started — free")}
                 <svg className="w-4 h-4 ml-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -420,14 +423,14 @@ export default function LandingPage() {
                 href="https://apps.apple.com/dk/app/bonbox-daily-close/id6762066960"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2.5 px-5 py-3.5 bg-white border border-gray-200 rounded-md hover:border-gray-300 transition text-[14px]"
+                className="inline-flex items-center gap-2.5 px-5 py-3.5 bg-white border border-stone-200 rounded-md hover:border-stone-300 transition text-[14px]"
               >
                 <span className="text-gray-900">{Icons.Apple}</span>
                 <span className="text-gray-900 font-medium">App Store</span>
               </a>
             </div>
 
-            <div className="mt-7 flex flex-wrap gap-x-6 gap-y-2 text-[13px] text-gray-600">
+            <div className="mt-7 flex flex-wrap gap-x-6 gap-y-2 text-[13px] text-stone-600">
               {[
                 tx_("landingCheck1", "Free 14-day trial"),
                 tx_("landingCheck2", "No card required"),
@@ -452,7 +455,7 @@ export default function LandingPage() {
       {/* Three big numbers that earn the strip. No 4-card row of
           generic stats. Each number is a real claim made elsewhere
           on the site so there's no contradiction. */}
-      <section className="py-14 border-y border-gray-200/70 bg-white">
+      <section className="py-14 border-y border-stone-200/70 bg-white">
         <div className="max-w-5xl mx-auto px-5 sm:px-6 lg:px-8">
           <div className="grid grid-cols-3 gap-6 sm:gap-10">
             {[
@@ -464,7 +467,7 @@ export default function LandingPage() {
                 <p className="text-[36px] sm:text-[44px] font-semibold tracking-tight text-gray-900">
                   <Counter end={s.val} suffix={s.suffix} />
                 </p>
-                <p className="text-[13px] sm:text-[14px] text-gray-500 mt-1.5">{s.label}</p>
+                <p className="text-[13px] sm:text-[14px] text-stone-500 mt-1.5">{s.label}</p>
               </div>
             ))}
           </div>
@@ -476,7 +479,7 @@ export default function LandingPage() {
         <div className="max-w-2xl mb-14">
           <Eyebrow>{tx_("landingFeaturesTag", "Everything in one place")}</Eyebrow>
           <Heading>{tx_("landingFeaturesTitle", "Built for the closer. Owned by the owner.")}</Heading>
-          <p className="mt-5 text-[16px] text-gray-600 leading-relaxed">
+          <p className="mt-5 text-[16px] text-stone-600 leading-relaxed">
             {tx_("landingFeaturesSub", "Six things BonBox does so you don't have to glue spreadsheets, POS apps, and a revisor every month.")}
           </p>
         </div>
@@ -537,7 +540,7 @@ export default function LandingPage() {
       </Section>
 
       {/* ── HOW IT WORKS — 3 steps, restrained ─────────────────── */}
-      <Section className="bg-white border-y border-gray-200/70">
+      <Section id="how" className="bg-white border-y border-stone-200/70">
         <div className="max-w-2xl mb-12">
           <Eyebrow>{tx_("landingHowTag", "How it works")}</Eyebrow>
           <Heading>{tx_("landingHowTitle", "From signup to first sale in under 5 minutes.")}</Heading>
@@ -572,7 +575,7 @@ export default function LandingPage() {
               <h3 className="text-[18px] font-semibold text-gray-900 mb-2 tracking-tight">
                 {tx_(s.titleKey, s.titleFallback)}
               </h3>
-              <p className="text-[14.5px] text-gray-600 leading-relaxed">
+              <p className="text-[14.5px] text-stone-600 leading-relaxed">
                 {tx_(s.bodyKey, s.bodyFallback)}
               </p>
             </div>
@@ -580,94 +583,13 @@ export default function LandingPage() {
         </div>
       </Section>
 
-      {/* ── COMPARE TO DINERO ──────────────────────────────────── */}
-      <Section id="compare">
-        <div className="max-w-2xl mb-12">
-          <Eyebrow>{tx_("landingCompareTag", "Honest comparison")}</Eyebrow>
-          <Heading>{tx_("landingCompareTitle", "BonBox + annual revisor beats monthly revisor.")}</Heading>
-          <p className="mt-5 text-[16px] text-gray-600 leading-relaxed">
-            {tx_("landingCompareSub", "BonBox isn't a registered digital bookkeeping system. Pair it with Dinero (or similar) for filings + a revisor for the årsregnskab. You still save ~17,500 kr/year.")}
-          </p>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-5">
-          {/* BonBox card */}
-          <div className="bg-white border-2 border-emerald-500 rounded-2xl p-7 relative">
-            <span className="absolute -top-3 left-6 px-2.5 py-0.5 bg-emerald-500 text-white text-[11px] font-semibold rounded-full">
-              {tx_("landingCompareUs", "BonBox · 129 kr/mo")}
-            </span>
-            <p className="text-[13px] text-gray-500 mb-5 mt-1">{tx_("landingCompareUsSub", "The monthly grind that costs you most")}</p>
-            <ul className="space-y-3">
-              {[
-                tx_("landingCompareUs1", "Send fakturaer — gap-less per Bogføringsloven §7"),
-                tx_("landingCompareUs2", "CVR-verified customers + DAWA addresses"),
-                tx_("landingCompareUs3", "OCR receipts in 6 seconds/scan"),
-                tx_("landingCompareUs4", "Mileage log with the fields Skattestyrelsen requires"),
-                tx_("landingCompareUs5", "Bank import auto-matches payments to invoices"),
-                tx_("landingCompareUs6", "AI anomaly detection on sales + wages"),
-              ].map((line) => (
-                <li key={line} className="flex gap-3 text-[14px] text-gray-700">
-                  <span className="mt-0.5 flex-shrink-0">{Icons.Check}</span>
-                  <span>{line}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Revisor card */}
-          <div className="bg-white border border-gray-200 rounded-2xl p-7">
-            <p className="text-[14px] font-semibold text-gray-900 mb-1">
-              {tx_("landingCompareThem", "Revisor + Dinero · annual only")}
-            </p>
-            <p className="text-[13px] text-gray-500 mb-5">{tx_("landingCompareThemSub", "Legal filings — 1–4× per year")}</p>
-            <ul className="space-y-3">
-              {[
-                tx_("landingCompareThem1", "Moms-angivelse to SKAT (quarterly)"),
-                tx_("landingCompareThem2", "Årsregnskab (annual statement)"),
-                tx_("landingCompareThem3", "Selvangivelse review"),
-                tx_("landingCompareThem4", "Tax-strategy consultations"),
-              ].map((line) => (
-                <li key={line} className="flex gap-3 text-[14px] text-gray-700">
-                  <span className="mt-0.5 flex-shrink-0">
-                    <svg className="w-4 h-4 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
-                      <circle cx="10" cy="10" r="3" />
-                    </svg>
-                  </span>
-                  <span>{line}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-
-        {/* Savings strip — replaces the "green panel" that screamed
-            with a quieter, restrained one-row summary */}
-        <div className="mt-6 grid grid-cols-3 divide-x divide-gray-200 bg-white border border-gray-200 rounded-2xl overflow-hidden">
-          {[
-            { label: tx_("landingCompareCostA", "Monthly revisor"), val: "~24,000 kr/yr", muted: true },
-            { label: tx_("landingCompareCostB", "BonBox + annual revisor"), val: "~6,500 kr/yr" },
-            { label: tx_("landingCompareCostC", "You save"), val: "~17,500 kr/yr", emphasis: true },
-          ].map((c) => (
-            <div key={c.label} className="px-5 py-5 text-center">
-              <p className="text-[11px] uppercase tracking-wider text-gray-500 mb-1.5 font-medium">{c.label}</p>
-              <p className={`text-[20px] sm:text-[22px] font-semibold tabular-nums ${c.emphasis ? "text-emerald-600" : c.muted ? "text-gray-400" : "text-gray-900"}`}>
-                {c.val}
-              </p>
-            </div>
-          ))}
-        </div>
-
-        <p className="mt-5 text-[12px] text-gray-500 max-w-2xl leading-relaxed">
-          {tx_("landingCompareDisclaimer", "BonBox is not a registered digital bookkeeping system (registreret digitalt bogføringssystem) under Bogføringsloven 2024. Savings estimate based on a typical Danish small business paying ~2,000 kr/month for monthly revisor service vs. annual-only revisor + BonBox.")}
-        </p>
-      </Section>
 
       {/* ── PRICING ────────────────────────────────────────────── */}
-      <Section id="pricing" className="bg-white border-y border-gray-200/70">
+      <Section id="pricing" className="bg-white border-y border-stone-200/70">
         <div className="text-center max-w-2xl mx-auto mb-14">
           <Eyebrow>{tx_("landingPricingTag", "Pricing")}</Eyebrow>
           <Heading>{tx_("landingPricingTitle", "Free to start. Pro unlocks white-label.")}</Heading>
-          <p className="mt-5 text-[16px] text-gray-600">
+          <p className="mt-5 text-[16px] text-stone-600">
             {tx_("landingPricingSub", "Every tier includes Bogføringsloven §7 / §12 compliance and the AI brief. No per-seat pricing.")}
           </p>
         </div>
@@ -727,29 +649,29 @@ export default function LandingPage() {
               key={p.name}
               className={`relative bg-white rounded-2xl p-7 ${
                 p.emphasis
-                  ? "border-2 border-gray-900 shadow-[0_8px_32px_-8px_rgba(15,23,42,0.18)]"
-                  : "border border-gray-200"
+                  ? "border-2 border-emerald-500 shadow-[0_8px_32px_-8px_rgba(16,185,129,0.25)]"
+                  : "border border-stone-200"
               }`}
             >
               {p.emphasis && (
-                <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 bg-gray-900 text-white text-[11px] font-semibold rounded-full">
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 bg-emerald-600 text-white text-[11px] font-semibold rounded-full">
                   {tx_("landingPricingMostPopular", "Most popular")}
                 </span>
               )}
               <h3 className="text-[18px] font-semibold text-gray-900">{p.name}</h3>
-              <p className="text-[14px] text-gray-600 mt-1">{tx_(p.descKey, p.descFallback)}</p>
+              <p className="text-[14px] text-stone-600 mt-1">{tx_(p.descKey, p.descFallback)}</p>
               <div className="mt-5 flex items-baseline gap-1">
                 <span className="text-[40px] font-semibold tracking-tight tabular-nums text-gray-900">
                   {tx_(p.priceKey, p.priceFallback)}
                 </span>
-                <span className="text-[15px] text-gray-500">{p.cycle}</span>
+                <span className="text-[15px] text-stone-500">{p.cycle}</span>
               </div>
               <Link
                 to={p.ctaHref}
                 className={`mt-6 block text-center px-5 py-3 rounded-md text-[14px] font-medium transition ${
                   p.emphasis
-                    ? "bg-gray-900 text-white hover:bg-gray-800"
-                    : "bg-white border border-gray-300 text-gray-900 hover:border-gray-400"
+                    ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                    : "bg-white border border-stone-300 text-gray-900 hover:border-stone-400"
                 }`}
               >
                 {p.cta}
@@ -766,29 +688,34 @@ export default function LandingPage() {
           ))}
         </div>
 
-        <p className="mt-10 text-center text-[13px] text-gray-500">
+        <p className="mt-10 text-center text-[13px] text-stone-500">
           {tx_("landingPricingNote", "All plans include Bogføringsloven §12 retention + audit log. Cancel anytime, no questions asked.")}
         </p>
       </Section>
 
       {/* ── FINAL CTA ──────────────────────────────────────────── */}
+      {/* Replaced the dark slab with a warm light panel — the
+          black/green/white sandwich felt harsh. Soft emerald wash on
+          warm cream reads as confident-not-aggressive, matches the
+          Copenhagen restraint we set up in the hero. */}
       <Section>
-        <div className="relative bg-gray-900 rounded-3xl px-8 sm:px-14 py-14 sm:py-20 text-center overflow-hidden">
-          <div className="absolute inset-0 -z-10 flex items-center justify-center">
-            <div className="w-[720px] h-[360px] bg-emerald-500/20 blur-[120px] rounded-full" />
+        <div className="relative rounded-3xl px-8 sm:px-14 py-14 sm:py-20 text-center overflow-hidden bg-gradient-to-br from-emerald-50 via-stone-50 to-emerald-50 border border-emerald-100/80">
+          {/* Subtle accent glow behind the headline */}
+          <div className="absolute inset-x-0 top-0 -z-10 flex justify-center pointer-events-none">
+            <div className="h-[300px] w-[640px] bg-emerald-200/40 blur-[140px] rounded-full" />
           </div>
-          <h2 className="text-[28px] sm:text-[38px] lg:text-[44px] font-semibold tracking-tight text-white leading-tight">
+          <h2 className="text-[28px] sm:text-[38px] lg:text-[44px] font-semibold tracking-tight text-stone-900 leading-tight">
             {tx_("landingFinalTitle", "Try BonBox for two weeks.")}
             <br />
-            <span className="text-emerald-400">{tx_("landingFinalTitle2", "Decide on day 15.")}</span>
+            <span className="text-emerald-700">{tx_("landingFinalTitle2", "Decide on day 15.")}</span>
           </h2>
-          <p className="mt-5 text-[16px] sm:text-[17px] text-gray-300 max-w-lg mx-auto">
+          <p className="mt-5 text-[16px] sm:text-[17px] text-stone-600 max-w-lg mx-auto leading-relaxed">
             {tx_("landingFinalSub", "No card. No setup call. Open the app, log today's revenue, and see your morning Brief tomorrow.")}
           </p>
           <div className="mt-9 flex flex-col sm:flex-row gap-3 justify-center">
             <Link
               to="/register"
-              className="inline-flex items-center justify-center px-7 py-3.5 bg-emerald-500 text-white text-[15px] font-medium rounded-md hover:bg-emerald-400 transition"
+              className="inline-flex items-center justify-center px-7 py-3.5 bg-emerald-600 text-white text-[15px] font-medium rounded-md hover:bg-emerald-700 transition shadow-[0_4px_14px_-4px_rgba(16,185,129,0.4)]"
             >
               {tx_("landingFinalCta", "Start free trial")}
               <svg className="w-4 h-4 ml-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -799,7 +726,7 @@ export default function LandingPage() {
               href="https://apps.apple.com/dk/app/bonbox-daily-close/id6762066960"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2.5 px-6 py-3.5 bg-white/10 border border-white/15 rounded-md text-white hover:bg-white/15 transition text-[14px] font-medium backdrop-blur-sm"
+              className="inline-flex items-center gap-2.5 px-6 py-3.5 bg-white border border-stone-200 rounded-md text-stone-900 hover:border-stone-300 transition text-[14px] font-medium"
             >
               {Icons.Apple}
               App Store
@@ -809,7 +736,7 @@ export default function LandingPage() {
       </Section>
 
       {/* ── FOOTER ─────────────────────────────────────────────── */}
-      <footer className="border-t border-gray-200/70 bg-[#fafaf7]">
+      <footer className="border-t border-stone-200/70 bg-[#fafaf7]">
         <div className="max-w-6xl mx-auto px-5 sm:px-6 lg:px-8 py-10">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
             <Link to="/" className="flex items-center gap-2.5">
@@ -822,14 +749,14 @@ export default function LandingPage() {
               <span className="text-[15px] font-semibold tracking-tight text-gray-900">BonBox</span>
             </Link>
 
-            <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13px] text-gray-600">
+            <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13px] text-stone-600">
               <Link to="/privacy" className="hover:text-gray-900 transition">{tx_("privacy", "Privacy")}</Link>
               <Link to="/terms" className="hover:text-gray-900 transition">{tx_("terms", "Terms")}</Link>
               <Link to="/cookies" className="hover:text-gray-900 transition">{tx_("cookies", "Cookies")}</Link>
               <Link to="/contact" className="hover:text-gray-900 transition">{tx_("contact", "Contact")}</Link>
             </div>
 
-            <p className="text-[12px] text-gray-500">
+            <p className="text-[12px] text-stone-500">
               © {new Date().getFullYear()} BonBox · København
             </p>
           </div>
