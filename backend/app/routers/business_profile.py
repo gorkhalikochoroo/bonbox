@@ -653,3 +653,233 @@ def get_staffing_suggestion(
         # Never propagate to a 5xx — the SmartCard's job is to be calm
         # and dismissible, not to crash the whole profile page.
         return _SAFE_DEFAULT
+
+
+# ─── Logo + brand customization (migration 034) ──────────────────────────
+#
+# Layer architecture:
+#   • logo_service.py — sanitization + storage (pure function-style)
+#   • here          — HTTP boundary: auth, rate limit, audit, ownership
+#   • storage.py    — backend abstraction (Supabase/local)
+#
+# Security:
+#   • Rate limited (10/hour for upload — protects against abuse +
+#     storage quota burn)
+#   • Multipart file handled by FastAPI's UploadFile (streamed, not
+#     loaded entirely into memory until we read bytes)
+#   • Tenant ownership enforced via _get_or_create_profile + user.id
+#   • Audit-logged on success
+#   • Errors never leak storage paths to the client
+
+from typing import Annotated
+from fastapi import UploadFile, File
+from app.services.logo_service import (
+    upload_logo,
+    delete_logo,
+    logo_signed_url,
+    validate_accent_color,
+    validate_logo_position,
+    ACCENT_COLOR_PALETTE,
+    MAX_LOGO_BYTES,
+)
+from app.services import audit_service
+
+
+class _BrandUpdateRequest(BaseModel):
+    """Patch payload for /api/business/brand. All fields optional —
+    user can change just one without echoing the others. Validation
+    runs server-side via validate_* helpers to keep the schema layer
+    dumb and the policy layer in services/logo_service.py."""
+    accent_color: str | None = None  # palette name or hex
+    logo_position: str | None = None  # 'left'|'center'
+
+
+class _BrandResponse(BaseModel):
+    logo_url: str | None = None  # signed URL with 1h TTL, never the storage key
+    accent_color: str | None = None
+    logo_position: str = "left"
+    accent_palette: dict[str, str]  # so the frontend can render the picker
+
+    model_config = {"from_attributes": False}
+
+
+def _get_or_create_profile(db: Session, user: User) -> BusinessProfile:
+    """Helper — every brand/logo endpoint needs a profile row."""
+    profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == user.id)
+        .first()
+    )
+    if profile is None:
+        profile = BusinessProfile(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            company_name=user.business_name or "",
+        )
+        db.add(profile)
+        db.flush()
+    return profile
+
+
+@router.get("/brand", response_model=_BrandResponse)
+def get_brand(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Read brand settings — used by Profile UI and the faktura PDF
+    renderer. Returns a SIGNED URL for the logo (1h TTL), never the
+    raw storage key.
+    """
+    profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == user.id)
+        .first()
+    )
+    storage_key = profile.logo_url if profile else None
+    return _BrandResponse(
+        logo_url=logo_signed_url(storage_key) if storage_key else None,
+        accent_color=profile.accent_color if profile else None,
+        logo_position=(profile.logo_position if profile else None) or "left",
+        accent_palette=ACCENT_COLOR_PALETTE,
+    )
+
+
+@router.post("/logo", response_model=_BrandResponse)
+@_limiter.limit("10/hour")
+async def upload_logo_endpoint(
+    request: Request,
+    file: Annotated[UploadFile, File(...)],
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Upload a new logo. PNG or JPEG, max 1 MB.
+
+    Multi-layer validation pipeline (every step can reject):
+      1. Size check (HTTP-level via FastAPI's request size config)
+      2. Magic byte verification (logo_service)
+      3. Pillow re-encode (strips EXIF, validates format, downscales)
+      4. SHA-content-addressed storage path (no filename collision)
+      5. Tenant-isolated S3 prefix
+      6. Audit log entry on success
+    """
+    # FastAPI streams the upload — read it fully here. We bound the read
+    # via MAX_LOGO_BYTES + a 1-byte overshoot to detect oversized files
+    # WITHOUT loading the entire payload first.
+    raw = await file.read(MAX_LOGO_BYTES + 1)
+    if len(raw) > MAX_LOGO_BYTES:
+        raise HTTPException(
+            413,
+            f"Logo too large (max {MAX_LOGO_BYTES // 1000} KB)",
+        )
+
+    profile = _get_or_create_profile(db, user)
+
+    # Remember the old key so we can clean it up after successful save.
+    old_key = profile.logo_url
+
+    storage_key, out_bytes = upload_logo(user.id, raw)
+
+    before = {"logo_url": old_key}
+    profile.logo_url = storage_key
+    after = {"logo_url": storage_key, "size_bytes": out_bytes}
+
+    audit_service.record(
+        db, user, "business_profile.logo_upload",
+        entity_type="business_profile", entity_id=profile.id,
+        before=before, after=after,
+        ip_address=getattr(request.client, "host", None),
+    )
+    db.commit()
+
+    # Delete the old logo from storage AFTER the DB commit succeeded —
+    # if storage delete fails, we still have the new logo recorded.
+    if old_key and old_key != storage_key:
+        delete_logo(old_key)
+
+    return _BrandResponse(
+        logo_url=logo_signed_url(storage_key),
+        accent_color=profile.accent_color,
+        logo_position=profile.logo_position or "left",
+        accent_palette=ACCENT_COLOR_PALETTE,
+    )
+
+
+@router.delete("/logo", response_model=_BrandResponse)
+def delete_logo_endpoint(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Remove the logo. Faktura PDFs revert to plain business name."""
+    profile = _get_or_create_profile(db, user)
+    old_key = profile.logo_url
+    profile.logo_url = None
+
+    audit_service.record(
+        db, user, "business_profile.logo_delete",
+        entity_type="business_profile", entity_id=profile.id,
+        before={"logo_url": old_key}, after={"logo_url": None},
+        ip_address=getattr(request.client, "host", None),
+    )
+    db.commit()
+
+    if old_key:
+        delete_logo(old_key)
+
+    return _BrandResponse(
+        logo_url=None,
+        accent_color=profile.accent_color,
+        logo_position=profile.logo_position or "left",
+        accent_palette=ACCENT_COLOR_PALETTE,
+    )
+
+
+@router.patch("/brand", response_model=_BrandResponse)
+def update_brand(
+    data: _BrandUpdateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Update accent color and/or logo position.
+
+    Color is server-validated against the 6-preset palette — anything
+    else is rejected with 422. This is intentional: a free hex picker
+    on the frontend would let users ship neon-green tax invoices,
+    which damages our brand and accessibility.
+    """
+    profile = _get_or_create_profile(db, user)
+    before = {
+        "accent_color": profile.accent_color,
+        "logo_position": profile.logo_position,
+    }
+
+    if data.accent_color is not None:
+        try:
+            profile.accent_color = validate_accent_color(data.accent_color)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+    if data.logo_position is not None:
+        try:
+            profile.logo_position = validate_logo_position(data.logo_position)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+
+    after = {
+        "accent_color": profile.accent_color,
+        "logo_position": profile.logo_position,
+    }
+    audit_service.record(
+        db, user, "business_profile.brand_update",
+        entity_type="business_profile", entity_id=profile.id,
+        before=before, after=after,
+        ip_address=getattr(request.client, "host", None),
+    )
+    db.commit()
+
+    return _BrandResponse(
+        logo_url=logo_signed_url(profile.logo_url) if profile.logo_url else None,
+        accent_color=profile.accent_color,
+        logo_position=profile.logo_position or "left",
+        accent_palette=ACCENT_COLOR_PALETTE,
+    )

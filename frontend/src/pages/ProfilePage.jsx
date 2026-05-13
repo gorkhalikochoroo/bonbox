@@ -58,6 +58,20 @@ export default function ProfilePage() {
   });
   const [paymentSaving, setPaymentSaving] = useState(false);
   const [paymentMsg, setPaymentMsg] = useState("");
+
+  // Brand & logo card (migration 034). State is intentionally separate
+  // from businessProfile because we use a dedicated /api/business/brand
+  // endpoint pair — keeps the brand mutations atomic + audit-logged
+  // independent of the main profile PUT.
+  const [brand, setBrand] = useState({
+    logo_url: null,
+    accent_color: null,
+    logo_position: "left",
+    accent_palette: {},
+  });
+  const [brandSaving, setBrandSaving] = useState(false);
+  const [brandMsg, setBrandMsg] = useState("");
+  const [logoUploading, setLogoUploading] = useState(false);
   // Re-verify state — pulls a fresh CVR record into the saved profile
   const [reverifying, setReverifying] = useState(false);
   const [reverifyMsg, setReverifyMsg] = useState("");
@@ -104,6 +118,10 @@ export default function ProfilePage() {
         });
       }
     }).catch(() => {});
+    // Brand & logo — separate endpoint because it returns a signed
+    // logo URL (1h TTL) we can't keep in main profile response (would
+    // expire mid-session). Refetched on save.
+    api.get("/business/brand").then((res) => setBrand(res.data)).catch(() => {});
   }, []);
 
   /** Re-verify the saved profile against CVR (or whichever register
@@ -206,6 +224,76 @@ export default function ProfilePage() {
       setTimeout(() => setPaymentMsg(""), 4000);
     } finally {
       setPaymentSaving(false);
+    }
+  };
+
+  /** Upload a new logo. Client-side validation is a UX nicety — the
+   * authoritative validation runs server-side in logo_service.py
+   * (magic bytes, Pillow re-encode, size limits, etc).
+   */
+  const uploadLogo = async (file) => {
+    if (!file) return;
+    // Client gate: only PNG/JPEG, max 1MB. Mirrors server policy so
+    // the user gets immediate feedback rather than waiting for upload.
+    if (!["image/png", "image/jpeg"].includes(file.type)) {
+      setBrandMsg("Logo must be PNG or JPEG (SVG not allowed)");
+      setTimeout(() => setBrandMsg(""), 5000);
+      return;
+    }
+    if (file.size > 1_000_000) {
+      setBrandMsg("Logo too large (max 1 MB)");
+      setTimeout(() => setBrandMsg(""), 5000);
+      return;
+    }
+    setLogoUploading(true);
+    setBrandMsg("");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await api.post("/business/logo", form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setBrand(res.data);
+      setBrandMsg(t("logoUploaded") || "Logo uploaded");
+      setTimeout(() => setBrandMsg(""), 3000);
+    } catch (err) {
+      const detail = err?.response?.data?.detail || "Upload failed";
+      setBrandMsg(detail);
+      setTimeout(() => setBrandMsg(""), 5000);
+    } finally {
+      setLogoUploading(false);
+    }
+  };
+
+  const deleteLogo = async () => {
+    if (!confirm(t("confirmDeleteLogo") || "Remove logo from your fakturaer?")) return;
+    try {
+      const res = await api.delete("/business/logo");
+      setBrand(res.data);
+      setBrandMsg(t("logoDeleted") || "Logo removed");
+      setTimeout(() => setBrandMsg(""), 3000);
+    } catch {
+      setBrandMsg(t("logoDeleteFailed") || "Could not remove logo");
+      setTimeout(() => setBrandMsg(""), 5000);
+    }
+  };
+
+  /** Save accent color + logo position. Server-side validation rejects
+   * anything outside the 6-color palette. */
+  const saveBrand = async (next) => {
+    setBrandSaving(true);
+    setBrandMsg("");
+    try {
+      const res = await api.patch("/business/brand", next);
+      setBrand(res.data);
+      setBrandMsg(t("brandSaved") || "Brand settings saved");
+      setTimeout(() => setBrandMsg(""), 3000);
+    } catch (err) {
+      const detail = err?.response?.data?.detail || "Could not save";
+      setBrandMsg(detail);
+      setTimeout(() => setBrandMsg(""), 5000);
+    } finally {
+      setBrandSaving(false);
     }
   };
 
@@ -678,6 +766,133 @@ export default function ProfilePage() {
             {paymentSaving ? (t("saving") || "Saving…") : (t("save") || "Save")}
           </button>
         </form>
+      </div>
+
+      {/* Brand & logo — appears on every faktura PDF. Server enforces
+          a 6-color palette + magic-byte logo validation; the UI here
+          is just a friendly entry point. (Migration 034.) */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl flex items-center justify-center">
+            <span className="text-xl">🎨</span>
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+              {t("brandTitle") || "Brand & logo on faktura"}
+            </h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500">
+              {t("brandDesc") ||
+                "Customize how your faktura looks. Logo + one accent color from our Copenhagen palette."}
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-5">
+          {/* Logo block */}
+          <div>
+            <label className={labelClass}>{t("brandLogoLabel") || "Logo"}</label>
+            <div className="flex items-center gap-4">
+              {brand.logo_url ? (
+                <img
+                  src={brand.logo_url}
+                  alt="Current logo"
+                  className="w-20 h-20 object-contain border border-gray-200 dark:border-gray-700 rounded-lg bg-white p-2"
+                />
+              ) : (
+                <div className="w-20 h-20 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg flex items-center justify-center text-2xl text-gray-300 dark:text-gray-600">
+                  🖼️
+                </div>
+              )}
+              <div className="flex flex-col gap-2">
+                <label className="cursor-pointer inline-block px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-sm font-medium rounded-lg transition">
+                  {logoUploading
+                    ? (t("uploading") || "Uploading…")
+                    : (brand.logo_url ? (t("brandReplaceLogo") || "Replace") : (t("brandUploadLogo") || "Upload logo"))}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg"
+                    onChange={(e) => uploadLogo(e.target.files?.[0])}
+                    disabled={logoUploading}
+                    className="hidden"
+                  />
+                </label>
+                {brand.logo_url && (
+                  <button
+                    onClick={deleteLogo}
+                    type="button"
+                    className="px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition"
+                  >
+                    {t("brandRemoveLogo") || "Remove"}
+                  </button>
+                )}
+              </div>
+            </div>
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-2">
+              {t("brandLogoHint") || "PNG or JPEG, max 1 MB. Auto-resized + EXIF stripped for privacy."}
+            </p>
+          </div>
+
+          {/* Logo position */}
+          <div>
+            <label className={labelClass}>{t("brandPositionLabel") || "Logo position"}</label>
+            <div className="flex gap-2">
+              {[
+                { value: "left", label: t("brandPositionLeft") || "Left (default)" },
+                { value: "center", label: t("brandPositionCenter") || "Center" },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => saveBrand({ logo_position: opt.value })}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium border transition
+                    ${brand.logo_position === opt.value
+                      ? "bg-indigo-50 dark:bg-indigo-900/30 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300"
+                      : "bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600"}`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Accent color picker — 6 presets only (server-locked) */}
+          <div>
+            <label className={labelClass}>{t("brandColorLabel") || "Accent color"}</label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => saveBrand({ accent_color: null })}
+                className={`w-10 h-10 rounded-lg border-2 transition inline-flex items-center justify-center
+                  ${!brand.accent_color
+                    ? "border-gray-900 dark:border-white"
+                    : "border-gray-200 dark:border-gray-600"}`}
+                title="Default (no color)"
+              >
+                <span className="text-gray-400 text-xs">✕</span>
+              </button>
+              {Object.entries(brand.accent_palette || {}).map(([name, hex]) => (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() => saveBrand({ accent_color: name })}
+                  className={`w-10 h-10 rounded-lg border-2 transition
+                    ${(brand.accent_color || "").toUpperCase() === hex.toUpperCase()
+                      ? "border-gray-900 dark:border-white scale-105"
+                      : "border-gray-200 dark:border-gray-600"}`}
+                  style={{ backgroundColor: hex }}
+                  title={name}
+                />
+              ))}
+            </div>
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-2">
+              {t("brandColorHint") || "Locked to 6 presets — keeps fakturaer professional."}
+            </p>
+          </div>
+
+          {brandMsg && (
+            <p className="text-sm text-green-600 dark:text-green-400">{brandMsg}</p>
+          )}
+        </div>
       </div>
 
       {/* Change Password */}
