@@ -27,6 +27,10 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
+# Brand-on-faktura is part of the invoicing module; same plan gate as
+# the rest of /api/invoices/*. Free tier can't issue fakturaer, so they
+# would never see the logo — keep the surface consistent.
+from app.routers.customers import _require_invoicing_plan
 from app.models.business_profile import BusinessProfile
 from app.schemas.business_profile import (
     BusinessProfileCreate,
@@ -724,7 +728,7 @@ def _get_or_create_profile(db: Session, user: User) -> BusinessProfile:
 @router.get("/brand", response_model=_BrandResponse)
 def get_brand(
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(_require_invoicing_plan),
 ):
     """Read brand settings — used by Profile UI and the faktura PDF
     renderer. Returns a SIGNED URL for the logo (1h TTL), never the
@@ -750,7 +754,7 @@ async def upload_logo_endpoint(
     request: Request,
     file: Annotated[UploadFile, File(...)],
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(_require_invoicing_plan),
 ):
     """Upload a new logo. PNG or JPEG, max 1 MB.
 
@@ -808,7 +812,7 @@ async def upload_logo_endpoint(
 def delete_logo_endpoint(
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(_require_invoicing_plan),
 ):
     """Remove the logo. Faktura PDFs revert to plain business name."""
     profile = _get_or_create_profile(db, user)
@@ -839,7 +843,7 @@ def update_brand(
     data: _BrandUpdateRequest,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(_require_invoicing_plan),
 ):
     """Update accent color and/or logo position.
 

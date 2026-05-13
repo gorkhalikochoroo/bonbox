@@ -640,7 +640,99 @@ def test_cross_tenant_accept_suggestion_rejected(db, user, other_user, customer)
         )
 
 
-# ─── Test 8: Auto-match guards ───────────────────────────────────
+# ─── Test 8: Tier gating — Pro must have everything in the sprint ──
+
+
+def test_white_label_pdf_gate_per_tier(db, user):
+    """Pro tier has white_label_pdf=True → invoice PDF must omit the
+    'bonbox.dk' footer. Starter / Free see the attribution.
+
+    Without this, paying customers (Pro) still get BonBox-branded
+    invoices going out to their own customers, which is the exact thing
+    they paid extra to avoid.
+
+    Tests the gate function directly (PDF bytes are flate-compressed so
+    grepping the rendered output is brittle)."""
+    from app.services.invoice_pdf import _is_white_label
+
+    user.plan = "free"
+    db.commit()
+    assert _is_white_label(user) is False, "Free must NOT be white-label"
+
+    user.plan = "starter"
+    db.commit()
+    assert _is_white_label(user) is False, "Starter must NOT be white-label"
+
+    user.plan = "pro"
+    db.commit()
+    assert _is_white_label(user) is True, "Pro MUST be white-label"
+
+    # None defaults to non-white-label (safer to keep attribution than
+    # silently strip on missing-user paths)
+    assert _is_white_label(None) is False
+
+
+def test_white_label_pdf_produces_smaller_output_for_pro(db, user, customer):
+    """Quick end-to-end smoke: Pro-rendered invoice should be smaller
+    than Free-rendered (one fewer Paragraph + Spacer). Doesn't depend
+    on text extraction, but proves the gate actually changes output."""
+    from app.services.invoice_pdf import render_invoice_pdf
+
+    inv = _make_invoice(db, user, customer, Decimal("1250.00"))
+
+    user.plan = "free"
+    db.commit()
+    pdf_free = render_invoice_pdf(db, inv)
+
+    user.plan = "pro"
+    db.commit()
+    pdf_pro = render_invoice_pdf(db, inv)
+
+    # Pro PDF removes one Paragraph flowable + its content. Should be
+    # smaller — even with PDF metadata overhead, the difference is
+    # detectable (typically 30-200 bytes).
+    assert len(pdf_pro) < len(pdf_free), (
+        f"Pro PDF ({len(pdf_pro)} bytes) should be smaller than "
+        f"Free ({len(pdf_free)} bytes) — footer attribution stripped"
+    )
+
+
+def test_pro_has_every_sprint_feature_flag():
+    """Locks the entitlements contract: every feature flag this sprint
+    relies on must be True on Pro. If a future PLAN_FEATURES refactor
+    flips one to False, this test fails loudly."""
+    from app.services.billing import PLAN_FEATURES
+
+    sprint_pro_features = [
+        "white_label_pdf",       # clean invoice PDF
+        "ai_anomaly_detection",  # used by Tax Autopilot dedup signals
+        "custom_export_templates",  # revisor CSV bundles incl. faktura
+        "ai_predictive_staffing",   # smart_drift hooks faktura revenue
+        "advanced_benchmarks",
+        "multi_branch_dashboard",
+    ]
+    for f in sprint_pro_features:
+        assert PLAN_FEATURES["pro"].get(f) is True, (
+            f"Pro must have {f}=True (sprint feature contract)"
+        )
+        # Trial inherits Pro
+        assert PLAN_FEATURES["trial"].get(f) is True, (
+            f"Trial must have {f}=True (mirrors Pro)"
+        )
+
+
+def test_starter_can_use_invoicing_features():
+    """Sanity check — Starter tier is the entry to invoicing. They must
+    have access to mark_paid, brand customization, payment suggestions.
+    Free is excluded. Verifies _require_invoicing_plan's whitelist."""
+    from app.routers.customers import _STARTER_AND_ABOVE
+    assert "starter" in _STARTER_AND_ABOVE
+    assert "pro" in _STARTER_AND_ABOVE
+    assert "trial" in _STARTER_AND_ABOVE
+    assert "free" not in _STARTER_AND_ABOVE
+
+
+# ─── Test 9: Auto-match guards ───────────────────────────────────
 
 
 def test_outgoing_payments_never_match(db, user, customer):

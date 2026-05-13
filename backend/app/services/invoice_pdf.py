@@ -138,6 +138,25 @@ def _fmt_date(d: date) -> str:
     return f"{d.day}. {months[d.month - 1]} {d.year}"
 
 
+# ─── White-label gate ────────────────────────────────────────────────
+
+
+def _is_white_label(user: User | None) -> bool:
+    """Should the rendered PDF omit the BonBox attribution footer?
+
+    True only if `user` has the `white_label_pdf` feature enabled in
+    PLAN_FEATURES (currently Pro + trial). Defaults to False on any
+    error — safer to leave the attribution in than to silently strip it.
+    """
+    if user is None:
+        return False
+    try:
+        from app.services.billing import has_feature
+        return bool(has_feature(user, "white_label_pdf"))
+    except Exception:
+        return False
+
+
 # ─── Renderer ────────────────────────────────────────────────────────
 
 def render_invoice_pdf(db: Session, invoice: Invoice) -> bytes:
@@ -564,7 +583,12 @@ def render_invoice_pdf(db: Session, invoice: Invoice) -> bytes:
     story.append(Spacer(1, 12 * mm))
 
     # ── Footer attribution ──────────────────────────────────────────
-    story.append(Paragraph(L["footer_attr"], small))
+    # Pro tier (and trial) gets a clean, white-label PDF — no "bonbox.dk"
+    # at the bottom. Starter + Free see the attribution. Logic lives in
+    # _is_white_label so tests can pin the gate without re-rendering the
+    # whole PDF + grepping compressed bytes.
+    if not _is_white_label(user):
+        story.append(Paragraph(L["footer_attr"], small))
 
     # Build
     doc.build(story)
