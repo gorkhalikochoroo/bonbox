@@ -502,7 +502,14 @@ export default function LandingPage() {
           </div>
 
           {/* Phone mockup — single, centred, no decorative duplicates */}
-          <div className="hidden lg:block">
+          {/* Phone mockup — visible from md (768px) up. Was hidden
+              below lg (1024px) which meant tablets + portrait iPads
+              saw a text-only hero with too much whitespace on the
+              right. md works because HeroPhone scales nicely down
+              to 280px wide. Mobile (<md) still hides it — the hero
+              text + CTA stack reads cleaner on a 390px viewport
+              than any squeezed visual. */}
+          <div className="hidden md:block">
             <HeroPhone />
           </div>
         </div>
@@ -535,8 +542,12 @@ export default function LandingPage() {
               logos we don't have yet. Each chip is a real persona
               BonBox is configured for (modules pre-enabled, copy
               tuned, OCR templates pre-built). */}
-          <div className="mt-10 pt-8 border-t border-stone-100 flex flex-wrap items-center justify-center gap-x-2 gap-y-2 text-[13px]">
-            <span className="text-stone-500 mr-1">
+          {/* Smaller chips at mobile (11px) so all 6 fit in 2 even
+              rows of 3 instead of 5+1 awkward. Bumps back to 13px on
+              sm+ where there's room. "Built for" label drops below
+              the chips on mobile to give them centre alignment. */}
+          <div className="mt-10 pt-8 border-t border-stone-100 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-2 text-[11px] sm:text-[13px]">
+            <span className="hidden sm:inline text-stone-500 mr-1 text-[13px]">
               {tx_("landingBuiltFor", "Built for")}
             </span>
             {[
@@ -549,12 +560,18 @@ export default function LandingPage() {
             ].map((label) => (
               <span
                 key={label}
-                className="px-2.5 py-1 bg-stone-50 border border-stone-200 rounded-full text-stone-700 font-medium"
+                className="px-2 sm:px-2.5 py-1 bg-stone-50 border border-stone-200 rounded-full text-stone-700 font-medium"
               >
                 {label}
               </span>
             ))}
           </div>
+          {/* "Built for" label only on mobile, sits above the chips
+              once they wrap to multiple rows. Keeps the desktop
+              inline layout but solves the lone "Konsulenter" widow. */}
+          <p className="sm:hidden text-center text-[11px] text-stone-500 mt-2">
+            {tx_("landingBuiltFor", "Built for")}
+          </p>
         </div>
       </section>
 
