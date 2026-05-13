@@ -52,7 +52,7 @@ export default function PrivacyPolicyPage() {
 
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-12">
         <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Privacy Policy</h1>
-        <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Last updated: 30 April 2026</p>
+        <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Last updated: 13 May 2026</p>
 
         <div className="prose prose-gray dark:prose-invert max-w-none space-y-4 text-gray-700 dark:text-gray-300 leading-relaxed">
 
@@ -198,10 +198,15 @@ export default function PrivacyPolicyPage() {
               headers={["Data type", "Retention period"]}
               rows={[
                 ["Account data", "Until you delete your account"],
-                ["Business profile", "Until you delete your account"],
+                ["Business profile (incl. logo)", "Until you delete your account"],
                 ["Financial data (sales, expenses, inventory)", "Until you delete your account"],
+                ["Fakturaer + customer records", "6 years (Bogføringsloven §12 minimum) — adjustable 5–10 years"],
+                ["Mileage / kørselsgodtgørelse log", "Per your faktura retention setting (5–10 years)"],
+                ["Audit log (every mark-paid / void / brand change)", "10 years (Skatteforvaltningsloven §31 maximum)"],
+                ["Payment-match suggestions (pending)", "Until accepted/rejected by you"],
+                ["Payment-match suggestions (resolved)", "1 year after resolution"],
                 ["Bank CSV files (raw)", "Deleted within 30 days of import"],
-                ["Parsed bank transactions", "Until you delete your account"],
+                ["Parsed bank transactions", "Per your faktura retention setting"],
                 ["Product analytics events", "180 days (auto-purged daily)"],
                 ["AI insights derived from events", "Auto-expire 1–30 days; can be dismissed any time"],
                 ["AI Copilot question logs (first 200 chars)", "180 days"],
@@ -210,7 +215,9 @@ export default function PrivacyPolicyPage() {
                 ["Email communication logs", "90 days"],
               ]}
             />
-            <p>When you delete your account, all your personal and financial data is permanently deleted within 30 days. Backups are purged within 90 days. The security audit log is retained for forensic purposes but no longer linked to your identity once your account is deleted.</p>
+            <p className="mt-3"><strong>Why fakturaer and audit logs stay so long:</strong> Danish law (Bogføringsloven §12) requires us to retain accounting records for at least 5 years from the end of the financial year. Skattestyrelsen disputes can reach back 10 years (Skatteforvaltningsloven §31). We default to 6 years (5-year legal minimum + 1-year buffer) and let you extend up to 10 years from your Profile. We will not let you go below 5 years — that would expose you to penalties under Bogføringsloven §16.</p>
+            <p className="mt-3"><strong>Audit log immutability:</strong> Every time you mark an invoice paid, void it, upload a logo, or change brand settings, we write a row to an append-only audit log capturing the action, your IP, and before/after state. These rows cannot be edited or deleted — by you, by us, or by anyone except after the 10-year window expires. This is required by Bogføringsloven §9 (every accounting entry must be traceable to source).</p>
+            <p className="mt-3">When you delete your account, all your personal and financial data is permanently deleted within 30 days <em>except</em> records the law requires us to retain — those remain in cold storage for the legal window, no longer linked to your identity once you delete. Backups are purged within 90 days.</p>
           </Section>
 
           <Section title="Your rights under GDPR">

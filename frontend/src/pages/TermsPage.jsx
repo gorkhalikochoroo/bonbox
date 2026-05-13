@@ -33,7 +33,7 @@ export default function TermsPage() {
 
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-12">
         <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Terms of Service</h1>
-        <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Last updated: April 7, 2026</p>
+        <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Last updated: 13 May 2026</p>
 
         <div className="prose prose-gray dark:prose-invert max-w-none space-y-4 text-gray-700 dark:text-gray-300 leading-relaxed">
 
@@ -99,6 +99,15 @@ export default function TermsPage() {
               <li>You can delete your account and all data at any time</li>
               <li>See our <Link to="/privacy" className="text-blue-600 dark:text-blue-400 hover:underline">Privacy Policy</Link> for full details on data handling</li>
             </ul>
+
+            <p className="font-semibold mt-4">Mandatory retention of accounting records</p>
+            <p className="mt-1">Danish law (Bogf&oslash;ringsloven &sect;12) requires us to retain accounting records — including fakturaer, kreditnotaer, mileage logs, and the related audit trail — for at least 5 years from the end of the financial year they relate to. BonBox defaults to 6 years (5-year legal minimum plus a 1-year buffer) and you can extend up to 10 years (the maximum applicable Skatteforvaltningsloven &sect;31 window) from your Profile settings. You cannot set retention below 5 years; doing so would expose you to penalties under Bogf&oslash;ringsloven &sect;16.</p>
+
+            <p className="font-semibold mt-4">Immutable audit log</p>
+            <p className="mt-1">Every financial mutation (marking an invoice paid, voiding, brand changes, etc.) is recorded in an append-only audit log capturing the action, your IP address, and before/after state. These rows cannot be edited or deleted — by you or by us — for 10 years from creation, as required by Bogf&oslash;ringsloven &sect;9. This protects you in the event of a Skattestyrelsen dispute.</p>
+
+            <p className="font-semibold mt-4">Account deletion and the legal-retention exception</p>
+            <p className="mt-1">When you delete your account, all personal and financial data is purged within 30 days <em>except</em> records the law requires us to retain. Those rows remain in cold storage for the legal window, no longer linked to your identity. Backups are purged within 90 days.</p>
           </Section>
 
           <Section num={5} title="Financial reports and disclaimers">

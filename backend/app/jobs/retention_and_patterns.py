@@ -120,11 +120,27 @@ def smart_drift_scan_for_all() -> dict:
 
 
 def daily_maintenance() -> dict:
-    """Composite job — run all four steps and return a summary."""
-    return {
+    """Composite job — run all maintenance steps and return a summary.
+
+    Ordering note: accounting_retention runs LAST so any new drafts
+    created during the night's other work are still subject to the
+    cutoff on the next sweep, not this one. Each step is wrapped in
+    its own try/except so a failure in one doesn't block the others."""
+    summary: dict = {
         "events_purged": purge_old_events(),
         "patterns_expired": expire_stale_patterns(),
         **detect_patterns_for_all(),
         **smart_drift_scan_for_all(),
         "ran_at": utc_now().isoformat(),
     }
+    # Accounting retention sweep — Bogføringsloven §12 (5y min) +
+    # Skatteforvaltningsloven §31 (10y max) compliance. Soft-archive
+    # only; permanent deletes only for orphan drafts + ancient audit
+    # logs. Per-tenant scoped by data_retention_years setting.
+    try:
+        from app.services.accounting_retention import run_retention_sweep
+        summary["accounting_retention"] = run_retention_sweep()
+    except Exception as e:
+        # Retention failure must not block the rest of nightly maintenance.
+        summary["accounting_retention_error"] = str(e)
+    return summary
