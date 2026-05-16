@@ -276,6 +276,46 @@ export default function StaffPayrollPage() {
     setPdfLoading(false);
   };
 
+  /* ─── Email payroll PDF directly to accountant ───
+   *
+   * Mirrors the daily-close-to-accountant pattern: one button → server
+   * renders the PDF and ships it via Resend with the owner set as
+   * reply-to. Falls back gracefully if no accountant_email is set on
+   * Profile (surfaces the helpful 400 detail).
+   */
+  const [sending, setSending] = useState(false);
+  const [sendToast, setSendToast] = useState("");
+  const sendToAccountant = async () => {
+    if (!period || selectedIds.size === 0) return;
+    setSending(true);
+    setError("");
+    setSendToast("");
+    try {
+      const r = await api.post("/staff/payroll/send-to-accountant", {
+        period_start: period.period_start,
+        period_end: period.period_end,
+        staff_ids: Array.from(selectedIds),
+        cc_self: true,
+      });
+      if (r.data?.ok) {
+        setSendToast(
+          (t("payrollSentTo", "✓ Sent to") + " " + r.data.sent_to) +
+          (r.data.cc_self ? ` (${t("ccdYou", "you cc'd")})` : "")
+        );
+        setTimeout(() => setSendToast(""), 7000);
+      }
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      setError(
+        typeof detail === "string"
+          ? detail
+          : (detail?.message || t("payrollSendFailed", "Couldn't email the payroll. Try downloading the PDF instead."))
+      );
+    } finally {
+      setSending(false);
+    }
+  };
+
   /* ─── Log sick call ─── */
   const logSickCall = async (e) => {
     e.preventDefault();
@@ -679,11 +719,12 @@ export default function StaffPayrollPage() {
       <FadeIn delay={0.2}>
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
           <h2 className="font-bold text-gray-800 dark:text-white mb-3">{t("exportLabel")}</h2>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 flex-wrap">
             <button
               onClick={generatePdf}
-              disabled={pdfLoading || selectedIds.size === 0}
-              className="flex items-center gap-2 px-5 py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-semibold transition shadow-sm shadow-green-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={pdfLoading || sending || selectedIds.size === 0}
+              className="flex items-center gap-2 px-5 py-3 bg-gray-700 hover:bg-gray-800 dark:bg-gray-600 dark:hover:bg-gray-500 text-white rounded-xl font-semibold transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              title={t("downloadPdfTooltip", "Download PDF to your device")}
             >
               {pdfLoading ? (
                 <>
@@ -691,7 +732,22 @@ export default function StaffPayrollPage() {
                   Generating...
                 </>
               ) : (
-                <>📄 Generate PDF</>
+                <>📄 {t("generatePdf", "Generate PDF")}</>
+              )}
+            </button>
+            <button
+              onClick={sendToAccountant}
+              disabled={sending || pdfLoading || selectedIds.size === 0}
+              className="flex items-center gap-2 px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold transition shadow-sm shadow-emerald-600/20 disabled:opacity-50 disabled:cursor-not-allowed"
+              title={t("payrollSendTooltip", "Email this payroll directly to your accountant — set their address on Profile")}
+            >
+              {sending ? (
+                <>
+                  <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  {t("payrollSending", "Sending…")}
+                </>
+              ) : (
+                <>📤 {t("payrollSendToAccountant", "Send to accountant")}</>
               )}
             </button>
             <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -700,6 +756,9 @@ export default function StaffPayrollPage() {
                 : `${selectedIds.size} staff member${selectedIds.size > 1 ? "s" : ""} selected · ${period ? periodLabel(period.period_start, period.period_end) : ""}`}
             </p>
           </div>
+          {sendToast && (
+            <p className="text-emerald-600 dark:text-emerald-400 text-sm mt-3">{sendToast}</p>
+          )}
           {error && (
             <p className="text-red-500 text-sm mt-3">{error}</p>
           )}

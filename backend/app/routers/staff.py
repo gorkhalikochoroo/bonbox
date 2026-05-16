@@ -50,7 +50,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from fastapi.responses import StreamingResponse
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 from app.database import get_db
 from app.models.user import User
@@ -1934,19 +1934,13 @@ def loenseddel_pdf(
     )
 
 
-@router.post("/payroll/pdf")
-def generate_payroll_pdf(
-    body: PayrollPDFRequest,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    """
-    Build a payroll PDF (per-staff hours detail + summary page).
+def _render_payroll_pdf_bytes(body: "PayrollPDFRequest", db: Session, user: User) -> bytes:
+    """Build the payroll PDF and return the raw bytes.
 
-    Defensive build: the whole pipeline is wrapped so reportlab errors
-    (bad chars in name, missing rate, etc.) surface as a structured 500
-    instead of a generic gateway error — the frontend can then show the
-    real cause to the user.
+    Extracted so both the download endpoint (/payroll/pdf) and the
+    send-to-accountant endpoint can share one rendering pipeline —
+    guarantees the emailed file is byte-identical to the downloaded
+    one. Raises HTTPException on failure (same shape as before).
     """
     import html as _html
     import logging as _logging
@@ -2235,12 +2229,190 @@ def generate_payroll_pdf(
         )
 
     buf.seek(0)
+    return buf.getvalue()
+
+
+@router.post("/payroll/pdf")
+def generate_payroll_pdf(
+    body: PayrollPDFRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Build a payroll PDF (per-staff hours detail + summary page).
+
+    Thin wrapper around _render_payroll_pdf_bytes — see that helper for
+    rendering logic. Kept separate so the rendering is reusable from
+    /payroll/send-to-accountant without duplicating reportlab code.
+    """
+    pdf_bytes = _render_payroll_pdf_bytes(body, db, user)
     filename = f"payroll_{body.period_start.isoformat()}_{body.period_end.isoformat()}.pdf"
     return StreamingResponse(
-        iter([buf.getvalue()]),
+        iter([pdf_bytes]),
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+# ── Payroll → accountant email ───────────────────────────────────────────
+#
+# Same pattern as daily-close-to-accountant and faktura-to-customer:
+# one button → server-side Resend delivery with attachment. Reply-to
+# is the owner's email so the accountant's reply lands in the owner's
+# inbox, not noreply@bonbox.dk. cc_self default true so the owner has
+# a copy for their records.
+
+
+class PayrollSendToAccountantRequest(BaseModel):
+    """Body for POST /staff/payroll/send-to-accountant."""
+    period_start: date
+    period_end: date
+    staff_ids: list[str] | None = None
+    # Override recipient — defaults to BusinessProfile.accountant_email
+    accountant_email: EmailStr | None = None
+    # Free-text message (HTML-escaped before render)
+    message: str | None = None
+    cc_self: bool = True
+
+
+@router.post("/payroll/send-to-accountant")
+def send_payroll_to_accountant(
+    body: PayrollSendToAccountantRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Email the payroll PDF directly to the accountant.
+
+    Mirrors /daily-close/send-to-accountant — same recipient resolution,
+    same Resend pipeline, same auditing approach. Most owners send
+    payroll to the bogholder monthly; this turns a 5-step manual-attach
+    workflow into one tap.
+    """
+    from app.services.email_service import send_email_with_attachment
+
+    profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
+    recipient = (
+        (body.accountant_email or "").strip().lower()
+        if body.accountant_email else ""
+    ) or ((getattr(profile, "accountant_email", None) or "").strip().lower())
+    if not recipient:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "no_accountant_email",
+                "message": (
+                    "Set your accountant's email on Profile, or include "
+                    "accountant_email in the request body."
+                ),
+            },
+        )
+
+    # Reuse the PDF rendering pipeline — exact same bytes the
+    # download endpoint produces (audit-friendly: identical files).
+    pdf_payload = PayrollPDFRequest(
+        period_start=body.period_start,
+        period_end=body.period_end,
+        staff_ids=body.staff_ids,
+    )
+    try:
+        pdf_bytes = _render_payroll_pdf_bytes(pdf_payload, db, user)
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not render payroll PDF: {type(e).__name__}",
+        ) from e
+
+    currency = user.currency or "DKK"
+    is_danish = (currency == "DKK")
+    biz_name = (
+        getattr(profile, "company_name", None)
+        or getattr(user, "business_name", None)
+        or "BonBox"
+    )
+
+    filename = f"payroll_{body.period_start.isoformat()}_{body.period_end.isoformat()}.pdf"
+    if is_danish:
+        subject = (
+            f"Lønningsliste {body.period_start.isoformat()} → "
+            f"{body.period_end.isoformat()} — {biz_name}"
+        )
+        greeting = "Hej,"
+        intro = (
+            f"Vedhæftet finder du lønningslisten for <strong>{biz_name}</strong> "
+            f"for perioden <strong>{body.period_start.isoformat()} → "
+            f"{body.period_end.isoformat()}</strong>."
+        )
+        footer = (
+            "Sendt direkte fra BonBox. "
+            "Svar på denne mail for at kontakte ejeren."
+        )
+    else:
+        subject = (
+            f"Payroll {body.period_start.isoformat()} → "
+            f"{body.period_end.isoformat()} — {biz_name}"
+        )
+        greeting = "Hello,"
+        intro = (
+            f"Attached is the payroll report for <strong>{biz_name}</strong> "
+            f"for the period <strong>{body.period_start.isoformat()} → "
+            f"{body.period_end.isoformat()}</strong>."
+        )
+        footer = (
+            "Sent directly from BonBox. "
+            "Reply to this email to reach the owner."
+        )
+
+    user_note_html = ""
+    if (body.message or "").strip():
+        from html import escape
+        safe = escape(body.message.strip()).replace("\n", "<br>")
+        user_note_html = (
+            "<div style='margin:16px 0;padding:12px;background:#f9fafb;"
+            "border-left:3px solid #10b981;color:#374151;font-size:14px;"
+            "line-height:1.5;'>"
+            f"{safe}"
+            "</div>"
+        )
+
+    html = (
+        "<div style='font-family:system-ui,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;"
+        "color:#111827;line-height:1.5;font-size:14px;max-width:560px;'>"
+        f"<p>{greeting}</p>"
+        f"<p>{intro}</p>"
+        f"{user_note_html}"
+        f"<p style='color:#6b7280;font-size:13px;margin-top:16px;'>{footer}</p>"
+        "</div>"
+    )
+
+    cc = [user.email] if (body.cc_self and user.email) else None
+    ok, err = send_email_with_attachment(
+        recipient, subject, html,
+        attachment_bytes=pdf_bytes,
+        attachment_filename=filename,
+        attachment_mime="application/pdf",
+        reply_to=user.email,
+        cc=cc,
+    )
+
+    if not ok:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "email_send_failed",
+                "reason": err or "unknown",
+                "message": "Couldn't send right now. You can still download the PDF and email it manually.",
+            },
+        )
+
+    return {
+        "ok": True,
+        "sent_to": recipient,
+        "cc_self": bool(cc),
+        "filename": filename,
+        "subject": subject,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
