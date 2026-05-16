@@ -76,6 +76,16 @@ export default function AdminPage() {
     return () => { cancelled = true; };
   }, []);
 
+  // Local map of full-id → email, primed from the loaded `users` list. Any id
+  // *not* in this map (because it falls outside the 100-row pagination window)
+  // is resolved lazily via /admin/users?search=<prefix> on click.
+  // MUST be declared before any conditional return — Rules of Hooks.
+  const userById = useMemo(() => {
+    const m = {};
+    for (const u of users) m[u.id] = u;
+    return m;
+  }, [users]);
+
   if (loading) {
     return (
       <div className="p-6 max-w-7xl mx-auto">
@@ -103,15 +113,6 @@ export default function AdminPage() {
   }
 
   const PIE_COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16"];
-
-  // Local map of full-id → email, primed from the loaded `users` list. Any id
-  // *not* in this map (because it falls outside the 100-row pagination window)
-  // is resolved lazily via /admin/users?search=<prefix> on click.
-  const userById = useMemo(() => {
-    const m = {};
-    for (const u of users) m[u.id] = u;
-    return m;
-  }, [users]);
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6 pb-24">
