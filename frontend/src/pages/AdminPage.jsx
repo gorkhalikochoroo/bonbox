@@ -398,20 +398,19 @@ export default function AdminPage() {
  * for ids outside the loaded paginated window.
  */
 function UserIdResolver({ userId, userById }) {
+  // ALL hooks must run on every render — keep them at the top, no early returns.
   const [expanded, setExpanded] = useState(false);
   const [resolved, setResolved] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  if (!userId) return <span>—</span>;
-
-  const prefix = userId.slice(0, 8);
-  const cached = userById?.[userId];
-  // Prefer cached hit
+  const prefix = userId ? userId.slice(0, 8) : "";
+  const cached = userId ? userById?.[userId] : null;
   const display = resolved || cached;
 
   const onClick = useCallback(async (e) => {
     e.stopPropagation();
+    if (!userId) return;
     if (expanded) { setExpanded(false); return; }
     setExpanded(true);
     if (cached || resolved) return;
@@ -428,6 +427,9 @@ function UserIdResolver({ userId, userById }) {
       setLoading(false);
     }
   }, [expanded, cached, resolved, prefix, userId]);
+
+  // Render-time guard — safe here because all hooks have already run.
+  if (!userId) return <span className="text-gray-400">—</span>;
 
   return (
     <span className="inline-block">
