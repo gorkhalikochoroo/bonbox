@@ -132,3 +132,21 @@ class BusinessProfile(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
+
+    # ──────────────────────────────────────────────────────────────────
+    # Compatibility alias
+    # ──────────────────────────────────────────────────────────────────
+    # The underlying column is `company_name` (CVR-style legal entity).
+    # Historical code in PDF generators, notifications, and staff portal
+    # references `profile.business_name`. Rather than rename the column
+    # (would require a migration + risk breaking faktura PDFs that
+    # already render company_name), expose a read-only Python alias.
+    #
+    # Hotfix context (2026-05-16): every call to `profile.business_name`
+    # was raising AttributeError → 500 on the daily-close PDF endpoint
+    # and silently degrading staff portal / notifications. This alias
+    # restores the contract those callsites assumed.
+    @property
+    def business_name(self) -> str:
+        """Read-only alias for `company_name` to satisfy legacy callsites."""
+        return self.company_name or ""
