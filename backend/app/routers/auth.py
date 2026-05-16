@@ -260,6 +260,42 @@ _DISPOSABLE_EMAIL_DOMAINS = frozenset({
     # Spam/SEO operations frequently observed
     "pokemail.net", "spamex.com", "spam.la", "spambog.com",
     "trbvm.com", "byom.de", "deadaddress.com", "easytrashmail.com",
+    # 2026-05-16 incident: nejesap768@hilostar.com fuzzer used hilostar
+    # as throwaway. hilostar/cintego/etcero/tafmail/yxzx are part of the
+    # same operator's rotating-domain family. Lock the whole network.
+    "hilostar.com", "hilostore.com", "cintego.com", "etcero.com",
+    "tafmail.com", "yxzx.net", "smartnator.com", "yhrwt.com",
+    # 1secmail family (heavily abused for sign-up automation)
+    "1secmail.com", "1secmail.net", "1secmail.org",
+    "esiix.com", "wwjmp.com", "qiott.com", "kzccv.com",
+    "icznn.com", "vjuum.com", "laafd.com", "dpptd.com",
+    "vddaz.com", "txcct.com", "rfcdrive.com",
+    # DropMail / OpenTrashMail / mail.tm / EmailFake clusters
+    "dropmail.me", "10mail.org", "10mail.tk",
+    "mail-temp.com", "mail.tm", "mail.gw",
+    "emailfake.com", "fakemailgenerator.com", "fakemailgenerator.net",
+    "tempmailo.com", "tempmailaddress.com", "tempmail.plus",
+    "tempmailbox.net", "mailpoof.com", "tempemail.co", "tempemail.net",
+    # YOPmail mirrors + EmailOnDeck mirrors
+    "cool.fr.nf", "courriel.fr.nf", "jetable.fr.nf", "moncourrier.fr.nf",
+    "monemail.fr.nf", "monmail.fr.nf", "nospam.ze.tc", "filzmail.com",
+    # SpamGourmet / TrashMail / Discard.email family
+    "discard.email", "discardmail.com", "discardmail.de",
+    "spam4.me", "spambog.de", "spambog.ru",
+    "anonbox.net", "anonmails.de", "anonymbox.com",
+    # Burner phone-tier disposable inboxes used heavily for SaaS abuse
+    "trbvn.com", "tmpmail.org", "tmpmail.net",
+    "tmpeml.com", "tmpemail.org", "tmail.gg",
+    "fakeinbox.ml", "fakeinbox.tk",
+    "mvrht.com", "mvrht.net",
+    "dispostable.org", "throwam.com", "thraway.com",
+    # *.tk / *.ml / *.ga / *.cf / *.gq Freenom freebies — heavily abused
+    # We don't blanket-ban these TLDs (false positives) but list the most
+    # common disposable subdomains.
+    "boximail.com", "spam.com", "spam.org",
+    # 2026 wave — observed in BonBox probe attempts
+    "nuclearedinburgh.com", "edu.sg.opayq.com", "azuretechtalk.net",
+    "ddwrt.org", "vusra.com", "vidchart.com",
 })
 
 
@@ -372,6 +408,14 @@ def google_auth(request: Request, response: Response, data: GoogleAuthRequest, d
     is_new = False
 
     if not user:
+        # NEW signups via Google: same disposable-email gate as /register.
+        # Existing users are exempt — login should keep working even if
+        # their domain landed on the list after their signup.
+        if _is_disposable_email(email):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Please use a real email address (work or personal). Disposable email services aren't supported.",
+            )
         # Auto-register — Google already verified their email
         is_new = True
         name = idinfo.get("name", "")
@@ -596,6 +640,13 @@ def apple_auth(
             # neither, refuse. Multi-layer: catches malformed tokens
             # and avoids creating ghost users with NULL email.
             raise HTTPException(status_code=401, detail="Apple did not return an email")
+        # Disposable-email gate (Apple relay addresses are intentionally
+        # exempt — Apple guarantees forwarding to the user's real inbox).
+        if not is_relay_email and _is_disposable_email(email):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Please use a real email address (work or personal). Disposable email services aren't supported.",
+            )
         full_name = (data.full_name or "").strip()
         user = User(
             email=email,
@@ -640,6 +691,14 @@ def apple_auth(
 def login(request: Request, response: Response, data: UserLogin, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == data.email).first()
     if not user or not verify_password(data.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+        )
+
+    # Locked accounts refuse login. Same error message as bad-password so
+    # attackers can't enumerate which emails got banned.
+    if getattr(user, "is_locked", False):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",

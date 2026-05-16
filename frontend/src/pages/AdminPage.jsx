@@ -256,6 +256,7 @@ export default function AdminPage() {
                 <th className="text-right px-2 py-2">Active days</th>
                 <th className="text-left px-2 py-2">Last seen</th>
                 <th className="text-left px-2 py-2">Joined</th>
+                <th className="text-right px-2 py-2">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -269,7 +270,7 @@ export default function AdminPage() {
                 else if (minsSince < 60) { dotClass = "bg-yellow-500"; dotTitle = "Recently active (within an hour)"; }
                 else if (minsSince < 60 * 24) { dotClass = "bg-blue-400"; dotTitle = "Active today"; }
                 return (
-                  <tr key={u.id} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/30">
+                  <tr key={u.id} className={`border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/30 ${u.is_locked ? "bg-red-50/40 dark:bg-red-900/10" : ""}`}>
                     <td className="px-2 py-2">
                       <span className={`inline-block w-2 h-2 rounded-full ${dotClass}`} title={dotTitle} aria-label={dotTitle}></span>
                     </td>
@@ -277,6 +278,7 @@ export default function AdminPage() {
                       {u.email}
                       {!u.email_verified && <span className="ml-1 text-red-500" title="Email not verified">⚠</span>}
                       {u.role === "super_admin" && <span className="ml-1 text-purple-500" title="Super admin">🛡️</span>}
+                      {u.is_locked && <span className="ml-1 px-1 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 rounded text-[10px] font-sans" title={u.locked_reason || "Account locked"}>🔒 LOCKED</span>}
                     </td>
                     <td className="px-2 py-2">{u.business_name || "—"}</td>
                     <td className="px-2 py-2 text-xs text-gray-600 dark:text-gray-300">{u.business_type}</td>
@@ -288,6 +290,9 @@ export default function AdminPage() {
                     <td className="px-2 py-2 text-right font-mono">{u.active_days}</td>
                     <td className="px-2 py-2 text-xs text-gray-600 dark:text-gray-300">{u.last_active ? relativeTime(u.last_active) : "never"}</td>
                     <td className="px-2 py-2 text-xs text-gray-600 dark:text-gray-300">{relativeTime(u.created_at)}</td>
+                    <td className="px-2 py-2 text-right">
+                      <LockToggle user={u} onChange={() => api.get("/admin/users", { params: { limit: 100 } }).then(r => setUsers(r.data))} />
+                    </td>
                   </tr>
                 );
               })}
@@ -460,6 +465,76 @@ function UserIdResolver({ userId, userById }) {
           )}
         </span>
       )}
+    </span>
+  );
+}
+
+/**
+ * Lock/unlock toggle for a user row. Refuses to act on super_admin or self
+ * (matches backend guard) by simply hiding for super_admin and showing a
+ * disabled button if you somehow encounter your own row.
+ */
+function LockToggle({ user, onChange }) {
+  const { user: me } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  // Hide for super_admin rows entirely — can't lock those anyway.
+  if (user.role === "super_admin") {
+    return <span className="text-xs text-gray-400">—</span>;
+  }
+  // Don't show on own row (defensive — backend will also refuse)
+  if (me && me.id === user.id) {
+    return <span className="text-xs text-gray-400">self</span>;
+  }
+
+  async function toggle() {
+    setErr(null);
+    if (user.is_locked) {
+      if (!window.confirm(`Unlock ${user.email}?\nThis re-enables login for this account.`)) return;
+      setBusy(true);
+      try {
+        await api.post(`/admin/users/${user.id}/unlock`);
+        onChange?.();
+      } catch (e) {
+        setErr(e.response?.data?.detail || "failed");
+      } finally {
+        setBusy(false);
+      }
+    } else {
+      const reason = window.prompt(
+        `Lock ${user.email}?\n\nThis will:\n• Invalidate their current session\n• Block all future logins\n• Audited via SecurityEvent\n\nReason (optional, max 255 chars):`,
+        ""
+      );
+      if (reason === null) return; // user cancelled
+      setBusy(true);
+      try {
+        await api.post(`/admin/users/${user.id}/lock`, { reason: (reason || "").slice(0, 255) });
+        onChange?.();
+      } catch (e) {
+        setErr(e.response?.data?.detail || "failed");
+      } finally {
+        setBusy(false);
+      }
+    }
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1">
+      <button
+        type="button"
+        onClick={toggle}
+        disabled={busy}
+        className={`px-2 py-0.5 rounded text-[11px] font-semibold transition ${
+          user.is_locked
+            ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/60"
+            : "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/60"
+        } ${busy ? "opacity-50 cursor-wait" : "cursor-pointer"}`}
+        title={user.is_locked ? "Click to unlock" : "Click to lock this account"}
+      >
+        {busy ? "…" : user.is_locked ? "Unlock" : "Lock"}
+      </button>
+      {err && <span className="text-[10px] text-red-500" title={err}>!</span>}
     </span>
   );
 }

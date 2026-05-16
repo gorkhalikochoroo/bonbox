@@ -5,14 +5,18 @@ require_super_admin (multi-layer guard with audit logging).
 This router exposes CROSS-USER aggregated data for the platform owner — used
 to power the /admin dashboard and to feed the AI pattern-recognition engine.
 
-Read-only by design. There are intentionally NO mutation endpoints here:
-  - role elevation must be done in the DB directly
-  - data deletions go through the regular user-scoped endpoints
+Almost read-only. The only mutations exposed here:
+  - /users/{id}/lock and /unlock — incident-response account control
+  - /run-triage and /training/run-* — internal ML pipeline triggers
+  - /cleanup-spam — anti-spam sweep
+Role elevation must still be done in the DB directly.
+Data deletions go through the regular user-scoped endpoints.
 """
 
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 from sqlalchemy import func, distinct, or_, String
 from sqlalchemy.orm import Session
 
@@ -23,7 +27,7 @@ from app.models.sale import Sale
 from app.models.security_event import SecurityEvent
 from app.models.triage_note import TriageNote
 from app.models.user import User
-from app.services.admin_security import require_super_admin
+from app.services.admin_security import _audit, require_super_admin
 from app.services.triage_service import run_triage, serialize_note
 from app.utils.time import utc_now
 
@@ -158,6 +162,9 @@ def admin_user_list(
                 "currency": u.currency,
                 "role": u.role,
                 "email_verified": u.email_verified,
+                "is_locked": bool(getattr(u, "is_locked", False)),
+                "locked_at": u.locked_at.isoformat() if getattr(u, "locked_at", None) else None,
+                "locked_reason": getattr(u, "locked_reason", None),
                 "created_at": u.created_at.isoformat(),
                 "last_active": last_event.isoformat() if last_event else None,
                 "sale_count": sale_count,
@@ -168,6 +175,92 @@ def admin_user_list(
             }
         )
     return out
+
+
+# ─────────────────────── Account lockdown ───────────────────────
+#
+# Super-admin can lock any account except their own (and any other super_admin).
+# Locking flips `is_locked` → True; get_current_user rejects the JWT on next
+# request (effective session kill) and /auth/login refuses re-auth.
+#
+# Audited via SecurityEvent so a malicious admin can't lock accounts quietly.
+
+
+class LockRequest(BaseModel):
+    reason: str = Field(default="", max_length=255, description="Free-text justification (audited)")
+
+
+@router.post("/users/{user_id}/lock")
+def admin_lock_user(
+    user_id: str,
+    request: Request,
+    payload: LockRequest = LockRequest(),
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Lock a user account. Refuses to lock self or other super_admins."""
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if str(target.id) == str(admin.id):
+        raise HTTPException(status_code=400, detail="Cannot lock your own account")
+    if target.role == "super_admin":
+        raise HTTPException(status_code=400, detail="Cannot lock another super_admin")
+
+    already = bool(getattr(target, "is_locked", False))
+    target.is_locked = True
+    target.locked_at = utc_now()
+    target.locked_reason = (payload.reason or "")[:255] or None
+    db.commit()
+
+    _audit(
+        db,
+        admin.id,
+        "admin_locked_user",
+        request,
+        detail=f"target={target.id} email={target.email} reason={target.locked_reason or '-'} already_locked={already}",
+    )
+    return {
+        "ok": True,
+        "user_id": str(target.id),
+        "email": target.email,
+        "is_locked": True,
+        "locked_at": target.locked_at.isoformat() if target.locked_at else None,
+        "locked_reason": target.locked_reason,
+    }
+
+
+@router.post("/users/{user_id}/unlock")
+def admin_unlock_user(
+    user_id: str,
+    request: Request,
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Unlock a previously locked account. Audited."""
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    was_locked = bool(getattr(target, "is_locked", False))
+    target.is_locked = False
+    target.locked_at = None
+    target.locked_reason = None
+    db.commit()
+
+    _audit(
+        db,
+        admin.id,
+        "admin_unlocked_user",
+        request,
+        detail=f"target={target.id} email={target.email} was_locked={was_locked}",
+    )
+    return {
+        "ok": True,
+        "user_id": str(target.id),
+        "email": target.email,
+        "is_locked": False,
+    }
 
 
 @router.get("/users/{user_id}/timeline")

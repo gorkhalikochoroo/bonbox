@@ -794,6 +794,17 @@ _migrations = [
     EXCEPTION WHEN OTHERS THEN
         RAISE NOTICE 'audit_logs immutability RULE install failed: %', SQLERRM;
     END $$""",
+
+    # ── Migration 035: account lockdown for hostile / probe users ──
+    # is_locked = True causes get_current_user to reject the JWT, which
+    # effectively kills the session even though the token itself remains
+    # cryptographically valid. Reversible via the /unlock endpoint.
+    # locked_at / locked_reason are forensic — who/why/when.
+    # Default false + nullable timestamps = safe for existing rows.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_locked BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_reason VARCHAR(255)",
+    "CREATE INDEX IF NOT EXISTS ix_users_is_locked ON users (is_locked) WHERE is_locked = true",
 ]
 
 

@@ -83,6 +83,12 @@ class User(Base):
     # comes back as a private relay address (`<random>@privaterelay.
     # appleid.com`) which we deliberately don't try to match by email.
     apple_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # Admin-imposed lock. When True, get_current_user rejects the JWT
+    # immediately — effective session kill for hostile/probe accounts.
+    # Set via /api/admin/users/{id}/lock; reversible via /unlock.
+    is_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    locked_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, onupdate=utc_now

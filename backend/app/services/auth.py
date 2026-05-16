@@ -94,4 +94,16 @@ def get_current_user(
     user = db.query(User).filter(User.id == user_id).first()
     if user is None:
         raise credentials_exception
+    # Account lockdown — set by super-admin via /admin/users/{id}/lock.
+    # Effectively revokes any active JWT for this user without needing
+    # a server-side token blacklist. Use case: instantly disable hostile
+    # accounts (probe / fuzz) without waiting for token expiry.
+    # We raise 401 (not 403) so all clients route through their existing
+    # token-expired handler (forces re-login → login endpoint will refuse).
+    if getattr(user, "is_locked", False):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Account is locked. Contact support.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user
