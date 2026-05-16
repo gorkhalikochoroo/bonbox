@@ -362,9 +362,48 @@ function InvoiceRow({ invoice, customer, onChanged, t }) {
       return;
     }
     try {
-      // 1. Flip status to 'sent' + lock + record sent_at
-      await api.post(`/invoices/${invoice.id}/send`);
-      // 2. Download the PDF for attachment
+      // 1. Flip status to 'sent' + lock + record sent_at (only if still draft)
+      if (invoice.status === "draft") {
+        await api.post(`/invoices/${invoice.id}/send`);
+      }
+
+      // 2. PRIMARY: server-side direct email via Resend. The customer
+      //    gets the PDF straight in their inbox — no mailto dance, no
+      //    manual re-attach on iPhone Safari. Reply-to is the owner's
+      //    email so the customer can reply directly.
+      try {
+        const r = await api.post(`/invoices/${invoice.id}/send-email`, {
+          cc_self: true,
+        });
+        if (r.data?.ok) {
+          alert(
+            (t("invoiceSentDirect") || "✓ Faktura emailed to") +
+            ` ${r.data.sent_to}` +
+            (r.data.cc_self ? ` (${t("ccdYou") || "you cc'd"})` : "")
+          );
+          onChanged();
+          return;
+        }
+      } catch (sendErr) {
+        // 5xx or transient — fall through to the mailto fallback so the
+        // user always has a working path. 4xx (no_recipient, plan-cap)
+        // we surface directly.
+        const status = sendErr.response?.status;
+        if (status && status >= 400 && status < 500 && status !== 402) {
+          const detail = sendErr.response?.data?.detail;
+          alert(
+            typeof detail === "string"
+              ? detail
+              : (detail?.message || (t("sendFailed") || "Send failed"))
+          );
+          return;
+        }
+        // 5xx → fall through to manual mailto fallback below
+      }
+
+      // 3. FALLBACK: download PDF + open mailto so the user can attach
+      //    manually. Same UX as before — runs only if Resend is down or
+      //    not configured.
       const res = await api.get(`/invoices/${invoice.id}/pdf`, { responseType: "blob" });
       const url = URL.createObjectURL(res.data);
       const a = document.createElement("a");
@@ -374,7 +413,6 @@ function InvoiceRow({ invoice, customer, onChanged, t }) {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      // 3. Open mail app with subject + body — owner manually attaches PDF
       const subject = encodeURIComponent(
         `Faktura ${invoice.fakturanummer_formatted}`
       );
