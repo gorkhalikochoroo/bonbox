@@ -1468,7 +1468,18 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
   const [rangePreset, setRangePreset] = useState("7d"); // 7d | 14d | 1m | 3m | custom
   const [customFrom, setCustomFrom] = useState(isoDaysAgo(7));
   const [customTo, setCustomTo] = useState(todayIso());
-  const [exportingFmt, setExportingFmt] = useState(null); // 'pdf' | 'csv' | null
+  const [exportingFmt, setExportingFmt] = useState(null); // 'pdf' | 'csv' | 'xlsx' | null
+  // Accountant-send format chooser. Persisted so the user doesn't
+  // re-pick on every send. Default: xlsx (what most DK accountants
+  // actually want — sortable + filterable + pivotable).
+  const [accountantFmt, setAccountantFmt] = useState(() => {
+    try { return localStorage.getItem("bonbox_accountant_fmt") || "xlsx"; }
+    catch { return "xlsx"; }
+  });
+  const persistAccountantFmt = (fmt) => {
+    setAccountantFmt(fmt);
+    try { localStorage.setItem("bonbox_accountant_fmt", fmt); } catch {}
+  };
   const [exportError, setExportError] = useState("");
   // True iff the last export failure was a plan-cap (402). Drives an
   // inline "Upgrade →" link in the error banner so the user can
@@ -1519,15 +1530,22 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
     [data, activeRange],
   );
 
+  // MIME types for the three supported export formats. Used both by
+  // the download flow (blob() needs the right type for Safari to
+  // render correctly) and by the accountant-send flow.
+  const _MIME = {
+    pdf:  "application/pdf",
+    csv:  "text/csv;charset=utf-8",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  };
+
   const downloadRange = async (fmt) => {
     setExportingFmt(fmt);
     setExportError("");
     try {
       const url = `/daily-close/export.${fmt}?from=${activeRange.from}&to=${activeRange.to}`;
       const res = await api.get(url, { responseType: "blob" });
-      const blob = new Blob([res.data], {
-        type: fmt === "pdf" ? "application/pdf" : "text/csv;charset=utf-8",
-      });
+      const blob = new Blob([res.data], { type: _MIME[fmt] || "application/octet-stream" });
       const objectUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = objectUrl;
@@ -1567,10 +1585,11 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
     setExportError("");
     setSendStatus("");
     try {
-      const url = `/daily-close/export.pdf?from=${activeRange.from}&to=${activeRange.to}`;
+      const fmt = accountantFmt; // honour the user's saved choice
+      const url = `/daily-close/export.${fmt}?from=${activeRange.from}&to=${activeRange.to}`;
       const res = await api.get(url, { responseType: "blob" });
-      const blob = new Blob([res.data], { type: "application/pdf" });
-      const filename = `daily-close_${activeRange.from}_to_${activeRange.to}.pdf`;
+      const blob = new Blob([res.data], { type: _MIME[fmt] || "application/octet-stream" });
+      const filename = `daily-close_${activeRange.from}_to_${activeRange.to}.${fmt}`;
 
       // Inherit language from user.language (set in Profile) — defaults
       // to Danish since the recipient is typically a DK accountant.
@@ -1890,11 +1909,23 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
               ? (t("closeSingular") || "close")
               : (t("closePlural") || "closes")}
           </p>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 items-center">
+            {/* Download buttons — one per format */}
+            <button
+              onClick={() => downloadRange("xlsx")}
+              disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
+              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition"
+              title={t("excelTooltip", "Best for your accountant — sortable, filterable, pivotable")}
+            >
+              {exportingFmt === "xlsx"
+                ? (t("generatingPdfBtn") || "⏳ Generating…")
+                : "📊 Excel"}
+            </button>
             <button
               onClick={() => downloadRange("pdf")}
               disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
-              className="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition"
+              className="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-800 dark:bg-gray-600 dark:hover:bg-gray-500 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition"
+              title={t("pdfTooltip", "One-pager — easy to read, not editable")}
             >
               {exportingFmt === "pdf"
                 ? (t("generatingPdfBtn") || "⏳ Generating…")
@@ -1904,25 +1935,43 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
               onClick={() => downloadRange("csv")}
               disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
               className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition"
+              title={t("csvTooltip", "Raw data — for e-conomic / Dinero / Billy imports")}
             >
               {exportingFmt === "csv"
                 ? (t("generatingPdfBtn") || "⏳ Generating…")
-                : "📊 CSV"}
+                : "📑 CSV"}
             </button>
-            <button
-              onClick={sendToAccountant}
-              disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
-              className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition"
-              title={
-                businessProfile?.accountant_email
-                  ? `${t("sendToTooltip") || "Send to"} ${businessProfile.accountant_email}`
-                  : (t("sendToAccountantTooltipNoEmail") || "Send to accountant — set their email on Profile to skip typing it")
-              }
-            >
-              {sendingToAccountant
-                ? (t("sendingBtn") || "⏳ Sending…")
-                : (t("sendToAccountantBtn") || "📤 Send to accountant")}
-            </button>
+
+            {/* Vertical divider + send-to-accountant group */}
+            <div className="hidden sm:block w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1" />
+
+            <div className="flex gap-1 items-center">
+              <select
+                value={accountantFmt}
+                onChange={(e) => persistAccountantFmt(e.target.value)}
+                disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
+                className="px-2 py-1.5 rounded-l-lg border border-amber-300 dark:border-amber-700 dark:bg-gray-800 text-amber-700 dark:text-amber-300 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50"
+                title={t("accountantFmtTooltip", "Pick the format your accountant prefers")}
+              >
+                <option value="xlsx">📊 Excel</option>
+                <option value="pdf">📄 PDF</option>
+                <option value="csv">📑 CSV</option>
+              </select>
+              <button
+                onClick={sendToAccountant}
+                disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
+                className="px-3 py-1.5 rounded-r-lg bg-amber-600 hover:bg-amber-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition border-l border-amber-700"
+                title={
+                  businessProfile?.accountant_email
+                    ? `${t("sendToTooltip") || "Send to"} ${businessProfile.accountant_email}`
+                    : (t("sendToAccountantTooltipNoEmail") || "Send to accountant — set their email on Profile to skip typing it")
+                }
+              >
+                {sendingToAccountant
+                  ? (t("sendingBtn") || "⏳ Sending…")
+                  : (t("sendToAccountantBtn") || "📤 Send to accountant")}
+              </button>
+            </div>
           </div>
         </div>
 

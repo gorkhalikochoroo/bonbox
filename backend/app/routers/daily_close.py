@@ -42,6 +42,7 @@ from app.services.receipt_ocr import save_receipt_photo, parse_z_report
 from app.services.daily_close_range_export import (
     build_daily_close_range_pdf,
     closes_to_csv_bytes,
+    build_daily_close_range_xlsx,
 )
 from app.utils.time import utc_now
 
@@ -1017,6 +1018,7 @@ def export_range_pdf(
     pdf_bytes = build_daily_close_range_pdf(
         closes, from_date=f, to_date=t,
         business_name=business_name, currency=currency,
+        profile=profile, db=db, user_id=user.id,
     )
     filename = f"daily-close_{f.isoformat()}_to_{t.isoformat()}.pdf"
     return Response(
@@ -1055,6 +1057,62 @@ def export_range_csv(
     return Response(
         content=csv_bytes,
         media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
+@router.get("/export.xlsx")
+@_limiter.limit("10/minute")
+def export_range_xlsx(
+    request: Request,
+    from_date: date = Query(None, alias="from"),
+    to_date: date = Query(None, alias="to"),
+    branch_id: str = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Multi-day daily-close Excel workbook for accountant handoff.
+
+    Two-sheet workbook:
+      • Summary  — business header, period, KPI totals (confirmed only)
+      • Daily    — one row per close with typed columns (numbers as
+                   numbers, dates as dates), frozen header, totals row
+                   built from SUM() formulas so the accountant can edit
+                   rows and totals stay correct.
+
+    Accountants strongly prefer XLSX over PDF because they can sort,
+    filter, and pivot. We keep PDF + CSV available for the
+    "lightweight share" and "raw import" flows respectively.
+
+    Same plan-cap logic as PDF/CSV (Free=7d / Starter=31d / Pro=366d).
+    """
+    f, t = _resolve_range(from_date, to_date, user=user)
+    closes = _fetch_range_closes(
+        db, user_id=user.id, from_date=f, to_date=t, branch_id=branch_id,
+    )
+
+    profile = db.query(BusinessProfile).filter(
+        BusinessProfile.user_id == user.id,
+    ).first()
+    business_name = (
+        getattr(profile, "company_name", None)
+        or getattr(user, "business_name", None)
+        or "Daily Close Report"
+    )
+    currency = user.currency or "DKK"
+
+    xlsx_bytes = build_daily_close_range_xlsx(
+        closes, from_date=f, to_date=t,
+        business_name=business_name, currency=currency,
+        profile=profile, db=db, user_id=user.id,
+    )
+    filename = f"daily-close_{f.isoformat()}_to_{t.isoformat()}.xlsx"
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Cache-Control": "private, no-store",
