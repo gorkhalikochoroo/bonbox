@@ -423,7 +423,28 @@ export default function ProfilePage() {
           </div>
           <div>
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{user.business_name}</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">{user.email}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+              <span>{user.email}</span>
+              {user.email_verified ? (
+                <span
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 rounded-full text-[10px] font-medium border border-emerald-200/60 dark:border-emerald-800/60"
+                  title="Email verified"
+                >
+                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  Verified
+                </span>
+              ) : (
+                <a
+                  href="/verify-email"
+                  className="inline-flex items-center px-1.5 py-0.5 bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded-full text-[10px] font-medium border border-amber-200/60 dark:border-amber-800/60 hover:bg-amber-100 dark:hover:bg-amber-900/50 transition"
+                  title="Click to verify your email"
+                >
+                  ⚠ Unverified
+                </a>
+              )}
+            </p>
           </div>
         </div>
 

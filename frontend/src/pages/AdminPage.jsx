@@ -276,7 +276,19 @@ export default function AdminPage() {
                     </td>
                     <td className="px-2 py-2 font-mono text-xs">
                       {u.email}
-                      {!u.email_verified && <span className="ml-1 text-red-500" title="Email not verified">⚠</span>}
+                      {u.email_verified ? (
+                        <span
+                          className="ml-1 text-emerald-600 dark:text-emerald-400"
+                          title="Email verified — completed the 6-digit code flow"
+                          aria-label="verified"
+                        >✓</span>
+                      ) : (
+                        <span
+                          className="ml-1 text-red-500"
+                          title="Email not verified — never completed the 6-digit code flow (likely bot/abandoned)"
+                          aria-label="unverified"
+                        >⚠</span>
+                      )}
                       {u.role === "super_admin" && <span className="ml-1 text-purple-500" title="Super admin">🛡️</span>}
                       {u.is_locked && <span className="ml-1 px-1 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 rounded text-[10px] font-sans" title={u.locked_reason || "Account locked"}>🔒 LOCKED</span>}
                     </td>
@@ -455,7 +467,11 @@ function UserIdResolver({ userId, userById }) {
               {display.email}
               {display.business_name && <span className="text-emerald-600/70 dark:text-emerald-400/70"> · {display.business_name}</span>}
               {display.role === "super_admin" && <span title="Super admin" className="ml-1">🛡️</span>}
-              {!display.email_verified && <span title="Unverified" className="ml-1 text-red-500">⚠</span>}
+              {display.email_verified ? (
+                <span title="Email verified" className="ml-1 text-emerald-700 dark:text-emerald-300">✓</span>
+              ) : (
+                <span title="Email not verified" className="ml-1 text-red-500">⚠</span>
+              )}
             </span>
           )}
           {!loading && !display && error && (
