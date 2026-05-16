@@ -40,7 +40,19 @@ export default function CompetitorPage() {
   const [theirPrice, setTheirPrice] = useState("");
   const [ourPrice, setOurPrice] = useState("");
 
+  // Suggested items — chips above the price form. Pulled from the user's
+  // own inventory (with prices for autofill) + vertical defaults so a
+  // brand-new tenant isn't staring at an empty form.
+  const [suggestedItems, setSuggestedItems] = useState([]);
+
   useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    // Load suggestions in parallel; failure is silent (empty array
+    // → form just shows manual entry, which is the old behavior).
+    api.get("/competitors/suggested-items")
+      .then(r => setSuggestedItems(r.data?.items || []))
+      .catch(() => setSuggestedItems([]));
+  }, []);
 
   const fetchData = async () => {
     setLoading(true);
@@ -379,22 +391,70 @@ export default function CompetitorPage() {
           {/* Price check form */}
           {competitors?.length > 0 && (
             <form onSubmit={handlePriceCheck} className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm space-y-3 border border-gray-100 dark:border-gray-700">
-              <h2 className="font-bold text-gray-800 dark:text-white">📋 Log Price Check</h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Visit a competitor, check their menu, and log prices here.</p>
+              <h2 className="font-bold text-gray-800 dark:text-white">📋 {t("logPriceCheck", "Log Price Check")}</h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {t(
+                  "logPriceCheckHint",
+                  "Pick a competitor and one of your menu items. We've pre-filled your own price from inventory — just enter what the competitor charges."
+                )}
+              </p>
+
+              {/* Suggested-item chips — one click to pick what to track */}
+              {suggestedItems.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 font-semibold">
+                    {t("suggestedItems", "Suggested items")}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {suggestedItems.map((it) => {
+                      const selected = priceItem.trim().toLowerCase() === it.name.toLowerCase();
+                      const fromInventory = it.source === "inventory";
+                      return (
+                        <button
+                          key={`${it.source}:${it.name}`}
+                          type="button"
+                          onClick={() => {
+                            setPriceItem(it.name);
+                            if (it.our_price != null) setOurPrice(String(it.our_price));
+                          }}
+                          className={
+                            "px-2.5 py-1 rounded-full text-xs font-medium border transition " +
+                            (selected
+                              ? "bg-emerald-600 text-white border-emerald-600"
+                              : fromInventory
+                                ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100"
+                                : "bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600")
+                          }
+                          title={
+                            fromInventory
+                              ? (it.our_price != null
+                                  ? `${t("yourPrice", "Your price")}: ${it.our_price} ${currency}`
+                                  : t("fromYourInventory", "From your inventory"))
+                              : t("commonItemForYourType", "Common item for your business type")
+                          }
+                        >
+                          {fromInventory ? "📦 " : ""}{it.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <select value={priceCompId} onChange={(e) => setPriceCompId(e.target.value)}
                   className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" required>
                   <option value="">{t("selectCompetitor")}</option>
                   {competitors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
-                <input value={priceItem} onChange={(e) => setPriceItem(e.target.value)} placeholder={t("itemNamePlaceholder")}
+                <input value={priceItem} onChange={(e) => setPriceItem(e.target.value)} placeholder={t("itemNamePlaceholder", "Item name (e.g. Latte, Burger)")}
                   className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" required />
                 <input type="number" step="0.01" value={theirPrice} onChange={(e) => setTheirPrice(e.target.value)}
-                  placeholder={`Their price (${currency})`} className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" required />
+                  placeholder={`${t("theirPrice", "Their price")} (${currency})`} className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" required />
                 <input type="number" step="0.01" value={ourPrice} onChange={(e) => setOurPrice(e.target.value)}
-                  placeholder={`Our price (${currency}, optional)`} className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" />
+                  placeholder={`${t("ourPrice", "Our price")} (${currency})`} className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" />
               </div>
-              <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">{t("logPriceCheck")}</button>
+              <button type="submit" className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700">{t("logPriceCheck", "Log Price Check")}</button>
             </form>
           )}
 

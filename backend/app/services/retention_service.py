@@ -56,15 +56,26 @@ def get_retention_insights(user_id: str, db: Session) -> dict:
         if not txns:
             continue
 
-        # Filter out rows with bad/NULL dates — defensive against schema drift
-        valid_txns = [t for t in txns if t.date is not None and t.amount is not None]
+        # Filter out rows with bad/NULL dates. The model uses
+        # `purchase_amount` (what they bought / credit) and `paid_amount`
+        # (what they paid back / debit) — there is NO `amount` or `type`
+        # column. Previously this code read t.amount/t.type which silently
+        # raised AttributeError → _safe_empty() → user saw "Could not
+        # load retention data right now" on every load.
+        valid_txns = [
+            t for t in txns
+            if t.date is not None
+            and (t.purchase_amount is not None or t.paid_amount is not None)
+        ]
         if not valid_txns:
             continue
 
         try:
-            # Transaction stats — coerce to safe defaults
-            total_spent = sum(float(t.amount or 0) for t in valid_txns if t.type == "credit")
-            total_paid = sum(float(t.amount or 0) for t in valid_txns if t.type == "debit")
+            # Transaction stats:
+            # • total_spent  = sum of customer purchases (their lifetime spend)
+            # • total_paid   = sum of payments received (debits against balance)
+            total_spent = sum(float(t.purchase_amount or 0) for t in valid_txns)
+            total_paid = sum(float(t.paid_amount or 0) for t in valid_txns)
             txn_count = len(valid_txns)
             first_txn = min(t.date for t in valid_txns)
             last_txn = max(t.date for t in valid_txns)

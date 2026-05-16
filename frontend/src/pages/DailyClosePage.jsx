@@ -1374,12 +1374,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             <div className="space-y-3">
               <div>
                 <label className="text-sm font-medium text-gray-600 dark:text-gray-300">{t("closedBy")}</label>
-                <input type="text" placeholder={t("managerNamePlaceholder") || "Manager name..."} className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl"
+                <input type="text" placeholder={t("managerNamePlaceholder", "Manager name…")} className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl"
                   value={closedBy} onChange={e => setClosedBy(e.target.value)} />
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-600 dark:text-gray-300">{t("notes")}</label>
-                <textarea placeholder={t("notesPlaceholderTonight") || "Any notes for tonight..."} rows={2} className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl resize-none"
+                <textarea placeholder={t("notesPlaceholderTonight", "Any notes for tonight…")} rows={2} className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl resize-none"
                   value={notes} onChange={e => setNotes(e.target.value)} />
               </div>
             </div>

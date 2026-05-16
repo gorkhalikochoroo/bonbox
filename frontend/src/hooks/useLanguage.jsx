@@ -431,6 +431,8 @@ const translations = {
     salesPosHint: "What the POS reported as today's gross",
     closedBy: "Closed by",
     closedByPlaceholder: "e.g. Caro, Anton",
+    managerNamePlaceholder: "Manager name…",
+    notesPlaceholderTonight: "Any notes for tonight…",
     back: "Back",
     calculating: "Calculating…",
     continueToReview: "Continue → Review",
@@ -2512,6 +2514,8 @@ const translations = {
     salesPosHint: "Hvad POS'en rapporterede som dagens omsætning",
     closedBy: "Lukket af",
     closedByPlaceholder: "f.eks. Caro, Anton",
+    managerNamePlaceholder: "Manager-navn…",
+    notesPlaceholderTonight: "Noter til aftenen…",
     back: "Tilbage",
     calculating: "Beregner…",
     continueToReview: "Fortsæt → Gennemgang",
@@ -6386,8 +6390,16 @@ export function LanguageProvider({ children }) {
 
   // EN is always inline so the fallback path never depends on a
   // network fetch — search/SEO/initial-paint stay deterministic.
-  const t = useCallback((key) => {
-    return loaded[lang]?.[key] || loaded.en[key] || key;
+  //
+  // Second-arg fallback (added 2026-05-16): when both `lang` and EN
+  // lack the key, return the caller-supplied fallback instead of the
+  // raw key. Older 1-arg calls keep working — they just get the key
+  // back, which is what callers historically guarded with `|| "…"`
+  // (but that pattern is broken when the key string is truthy).
+  const t = useCallback((key, fallback) => {
+    const hit = loaded[lang]?.[key] || loaded.en[key];
+    if (hit) return hit;
+    return fallback !== undefined ? fallback : key;
   }, [loaded, lang]);
 
   return (
