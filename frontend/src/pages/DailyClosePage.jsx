@@ -1584,8 +1584,56 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
     setSendingToAccountant(true);
     setExportError("");
     setSendStatus("");
+    const fmt = accountantFmt; // honour the user's saved choice
+
+    // ── PRIMARY PATH: server-side direct email via Resend ──
+    // If the user has an accountant_email saved, ship the attachment
+    // straight from BonBox — no mailto dance, no manual attach. The
+    // user's email is set as reply_to so the accountant can hit Reply
+    // and reach them directly.
+    if (businessProfile?.accountant_email) {
+      try {
+        const r = await api.post(
+          `/daily-close/send-to-accountant?from=${activeRange.from}&to=${activeRange.to}`,
+          { fmt, cc_self: true },
+        );
+        if (r.data?.ok) {
+          setSendStatus(
+            (t("sentToAccountantOk") || "✓ Sent to") +
+            ` ${r.data.sent_to}` +
+            (r.data.cc_self ? ` (${t("ccdYou") || "you cc'd"})` : "")
+          );
+          setTimeout(() => setSendStatus(""), 6000);
+          setSendingToAccountant(false);
+          return;
+        }
+      } catch (e) {
+        // 503 = email service down (transient or unconfigured).
+        // 400 = no accountant email (shouldn't hit here because we
+        // checked above, but be defensive). Anything else = treat
+        // same as 503 and fall through to the share/mailto fallback.
+        const status = e.response?.status;
+        if (status === 503 || status === 502 || status === 500) {
+          // Fall through to share/mailto silently — the user still
+          // gets a working path.
+          // (We could surface a toast, but the fallback is good UX.)
+        } else if (status === 402) {
+          // Plan cap — surface the upgrade CTA same as downloadRange
+          const parsed = await parseExportError(e);
+          setExportError(parsed.message);
+          setExportErrorIsCap(parsed.isPlanCap);
+          setTimeout(() => { setExportError(""); setExportErrorIsCap(false); }, 8000);
+          setSendingToAccountant(false);
+          return;
+        }
+        // Otherwise fall through
+      }
+    }
+
+    // ── FALLBACK PATH: download + share/mailto (existing flow) ──
+    // Triggered when no accountant_email is saved, or the direct-email
+    // service is down. User still gets a usable path.
     try {
-      const fmt = accountantFmt; // honour the user's saved choice
       const url = `/daily-close/export.${fmt}?from=${activeRange.from}&to=${activeRange.to}`;
       const res = await api.get(url, { responseType: "blob" });
       const blob = new Blob([res.data], { type: _MIME[fmt] || "application/octet-stream" });

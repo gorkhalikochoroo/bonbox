@@ -21,6 +21,7 @@ from io import BytesIO
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from pydantic import BaseModel, EmailStr, Field
 from fastapi.responses import Response, StreamingResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -1118,6 +1119,249 @@ def export_range_xlsx(
             "Cache-Control": "private, no-store",
         },
     )
+
+
+# ─────────────────────── Send-to-accountant ───────────────────────
+#
+# One-tap email of the daily-close range to the accountant. We
+# generate the chosen format server-side, attach it to a Resend email
+# addressed to BusinessProfile.accountant_email, set reply_to to the
+# user's own email so the accountant can hit Reply and reach the
+# owner directly (not noreply@bonbox.dk), and return success/failure.
+#
+# Falls back to a friendly 400 if the user hasn't set an accountant
+# email — the frontend then offers the existing mailto/share path.
+
+
+class SendToAccountantRequest(BaseModel):
+    fmt: str = Field(default="xlsx", pattern="^(pdf|csv|xlsx)$")
+    # Optional override — if omitted, we use BusinessProfile.accountant_email
+    accountant_email: EmailStr | None = None
+    # Free-text message the user wants to include in the email body
+    message: str | None = Field(default=None, max_length=2000)
+    # cc the user's own email so they have a copy for their records
+    cc_self: bool = True
+
+
+def _accountant_email_body(*, business_name: str, from_iso: str, to_iso: str,
+                          n_closes: int, currency: str, total_revenue: float,
+                          total_moms: float, fmt: str, message: str | None,
+                          is_danish: bool) -> str:
+    """Build the HTML body for the accountant email.
+
+    Danish for DKK currency, English otherwise. Includes the two
+    numbers that matter most for the accountant (revenue + MOMS) so
+    they can verify the attachment lines up before opening it.
+    """
+    if is_danish:
+        greeting = "Hej,"
+        intro = (
+            f"Vedhæftet finder du kasserapporten for <strong>{business_name}</strong> "
+            f"for perioden <strong>{from_iso} → {to_iso}</strong> "
+            f"({n_closes} lukninger)."
+        )
+        kpi_label_rev = "Omsætning"
+        kpi_label_moms = "Salgsmoms (25%)"
+        footer = (
+            "Filen er sendt direkte fra BonBox. "
+            "Svar på denne mail for at kontakte ejeren."
+        )
+        format_note = {
+            "pdf":  "Format: PDF (én-sides oversigt).",
+            "xlsx": "Format: Excel (sortérbar, filtrérbar — anbefalet til bogføring).",
+            "csv":  "Format: CSV (rå data — kan importeres i e-conomic, Dinero, Billy).",
+        }[fmt]
+    else:
+        greeting = "Hello,"
+        intro = (
+            f"Attached is the daily-close report for <strong>{business_name}</strong> "
+            f"for the period <strong>{from_iso} → {to_iso}</strong> "
+            f"({n_closes} closes)."
+        )
+        kpi_label_rev = "Revenue"
+        kpi_label_moms = "Output VAT (25%)"
+        footer = (
+            "Sent directly from BonBox. "
+            "Reply to this email to reach the owner."
+        )
+        format_note = {
+            "pdf":  "Format: PDF (one-page summary).",
+            "xlsx": "Format: Excel (sortable, filterable — recommended for bookkeeping).",
+            "csv":  "Format: CSV (raw data — can be imported into e-conomic / Dinero / Billy).",
+        }[fmt]
+
+    def _fmt(v):
+        if is_danish:
+            return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        return f"{v:,.2f}"
+
+    user_note_html = ""
+    if (message or "").strip():
+        # Escape user-provided text — never let it inject HTML
+        from html import escape
+        safe = escape(message.strip()).replace("\n", "<br>")
+        user_note_html = (
+            "<div style='margin:16px 0;padding:12px;background:#f9fafb;"
+            "border-left:3px solid #10b981;color:#374151;font-size:14px;"
+            "line-height:1.5;'>"
+            f"{safe}"
+            "</div>"
+        )
+
+    return (
+        "<div style='font-family:system-ui,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;"
+        "color:#111827;line-height:1.5;font-size:14px;max-width:560px;'>"
+        f"<p>{greeting}</p>"
+        f"<p>{intro}</p>"
+        f"{user_note_html}"
+        "<table style='border-collapse:collapse;margin:16px 0;'>"
+        f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>{kpi_label_rev}</td>"
+        f"<td style='padding:4px 0;font-weight:600;text-align:right;'>{_fmt(total_revenue)} {currency}</td></tr>"
+        f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>{kpi_label_moms}</td>"
+        f"<td style='padding:4px 0;font-weight:600;text-align:right;'>{_fmt(total_moms)} {currency}</td></tr>"
+        "</table>"
+        f"<p style='color:#6b7280;font-size:13px;margin-top:16px;'>{format_note}</p>"
+        f"<p style='color:#6b7280;font-size:13px;'>{footer}</p>"
+        "</div>"
+    )
+
+
+@router.post("/send-to-accountant")
+@_limiter.limit("5/minute")
+def send_to_accountant(
+    request: Request,
+    body: SendToAccountantRequest,
+    from_date: date = Query(None, alias="from"),
+    to_date: date = Query(None, alias="to"),
+    branch_id: str = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Email the daily-close range to the accountant.
+
+    Generates the file in the chosen format (pdf / xlsx / csv) and
+    attaches it to a Resend email. Uses BusinessProfile.accountant_email
+    by default; accepts an override in the body for one-off recipients.
+
+    Layered defense (same shape as scan-report + export endpoints):
+      L1 auth → L2 input bounds → L3 rate limit (5/min) →
+      L4 tenant scope → L5 plan cap → L6 attachment-size cap (25 MB)
+    """
+    profile = db.query(BusinessProfile).filter(
+        BusinessProfile.user_id == user.id,
+    ).first()
+
+    # Pick recipient: body override wins, else profile, else 400
+    recipient = (
+        (body.accountant_email or "").strip().lower()
+        if body.accountant_email else ""
+    ) or (
+        (getattr(profile, "accountant_email", None) or "").strip().lower()
+    )
+    if not recipient:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "no_accountant_email",
+                "message": (
+                    "Set your accountant's email on Profile, or include "
+                    "accountant_email in the request body."
+                ),
+            },
+        )
+
+    # Resolve + fetch closes (reuses the same range-resolution + plan-cap
+    # logic as the export endpoints below)
+    f, t = _resolve_range(from_date, to_date, user=user)
+    closes = _fetch_range_closes(
+        db, user_id=user.id, from_date=f, to_date=t, branch_id=branch_id,
+    )
+
+    business_name = (
+        getattr(profile, "company_name", None)
+        or getattr(user, "business_name", None)
+        or "Daily Close Report"
+    )
+    currency = user.currency or "DKK"
+    fmt = body.fmt
+
+    # Build the attachment bytes per the chosen format
+    if fmt == "pdf":
+        attachment = build_daily_close_range_pdf(
+            closes, from_date=f, to_date=t,
+            business_name=business_name, currency=currency,
+            profile=profile, db=db, user_id=user.id,
+        )
+        mime = "application/pdf"
+        ext = "pdf"
+    elif fmt == "csv":
+        attachment = closes_to_csv_bytes(closes)
+        mime = "text/csv; charset=utf-8"
+        ext = "csv"
+    else:  # xlsx
+        attachment = build_daily_close_range_xlsx(
+            closes, from_date=f, to_date=t,
+            business_name=business_name, currency=currency,
+            profile=profile, db=db, user_id=user.id,
+        )
+        mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ext = "xlsx"
+
+    filename = f"daily-close_{f.isoformat()}_to_{t.isoformat()}.{ext}"
+
+    # Subject + body — confirmed-only totals so what the accountant
+    # sees in the email body matches what's in the attachment's totals row.
+    confirmed = [c for c in closes if (getattr(c, "status", None) or "confirmed") == "confirmed"]
+    n_conf = len(confirmed)
+    total_revenue = sum(float(c.revenue_total or 0) for c in confirmed)
+    total_moms = sum(float(c.moms_total or 0) for c in confirmed)
+    is_danish = (currency == "DKK")
+
+    subject_prefix = "Kasserapport" if is_danish else "Daily Close"
+    subject = f"{subject_prefix} {f.isoformat()} → {t.isoformat()} — {business_name}"
+
+    html = _accountant_email_body(
+        business_name=business_name,
+        from_iso=f.isoformat(), to_iso=t.isoformat(),
+        n_closes=n_conf, currency=currency,
+        total_revenue=total_revenue, total_moms=total_moms,
+        fmt=fmt, message=body.message, is_danish=is_danish,
+    )
+
+    # Send via Resend with attachment. reply_to is the user's own email
+    # so the accountant can hit Reply and reach the owner directly.
+    from app.services.email_service import send_email_with_attachment
+
+    cc = [user.email] if (body.cc_self and user.email) else None
+    ok, err = send_email_with_attachment(
+        recipient, subject, html,
+        attachment_bytes=attachment,
+        attachment_filename=filename,
+        attachment_mime=mime,
+        reply_to=user.email,
+        cc=cc,
+    )
+
+    if not ok:
+        # 503 so the frontend can fall back to the existing mailto flow
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "email_send_failed",
+                "reason": err or "unknown",
+                "message": "Couldn't send email right now. The file is still available to download or share.",
+            },
+        )
+
+    return {
+        "ok": True,
+        "sent_to": recipient,
+        "cc_self": bool(cc),
+        "filename": filename,
+        "format": fmt,
+        "n_closes": n_conf,
+        "subject": subject,
+    }
 
 
 # ─── GET — single close ───
