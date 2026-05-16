@@ -240,6 +240,58 @@ export default function StaffSchedulePage() {
   };
 
   const [exporting, setExporting] = useState(false);
+  const [emailing, setEmailing] = useState(false);
+  const [emailToast, setEmailToast] = useState("");
+
+  /** Email this week's schedule directly to every active staff
+   *  member with an email on file. Reply-to is set server-side to
+   *  the owner's address so staff replies come back to the owner.
+   *
+   *  We do a confirm() first because this fires a real email to
+   *  every recipient — easy to surprise an owner who didn't realize
+   *  the button does that. The confirm tells them up front how many
+   *  emails are about to go out.
+   */
+  const handleEmailToStaff = async () => {
+    const eligible = staff.filter(
+      (s) => s.is_active !== false && (s.email || "").includes("@")
+    );
+    if (eligible.length === 0) {
+      setError(
+        t("scheduleEmailNoRecipients", "No active staff have an email yet. Add an email on each staff member.")
+      );
+      return;
+    }
+    const ok = window.confirm(
+      (t("scheduleEmailConfirm", "Email this week's schedule to {n} staff?").replace("{n}", eligible.length))
+      + "\n\n" + eligible.map(s => `• ${s.name} <${s.email}>`).join("\n")
+    );
+    if (!ok) return;
+
+    setEmailing(true);
+    setError("");
+    setEmailToast("");
+    try {
+      const r = await api.post("/staff/schedules/email", {
+        week_start: toISO(weekStart),
+        lang: lang || "en",
+        cc_self: true,
+      });
+      const sent = r.data?.sent || 0;
+      const skipped = r.data?.skipped_no_email || 0;
+      const failed = (r.data?.failed || []).length;
+      let msg = `✓ ${sent} ${t("scheduleEmailSent", "sent")}`;
+      if (skipped) msg += ` · ${skipped} ${t("scheduleEmailSkippedNoEmail", "skipped (no email)")}`;
+      if (failed) msg += ` · ${failed} ${t("scheduleEmailFailed", "failed")}`;
+      setEmailToast(msg);
+      setTimeout(() => setEmailToast(""), 7000);
+    } catch (err) {
+      setError(err?.response?.data?.detail?.message || err?.response?.data?.detail || (t("scheduleEmailFailedAll", "Couldn't email the schedule.")));
+    } finally {
+      setEmailing(false);
+    }
+  };
+
   const handleExportPdf = async () => {
     setExporting(true);
     setError("");
@@ -365,6 +417,20 @@ export default function StaffSchedulePage() {
               >
                 {exporting ? "…" : "📄 PDF"}
               </button>
+              {/* Email schedule to all active staff — one tap delivers
+                  the PDF straight to their inbox via Resend. Reply-to
+                  is the owner so any "can I swap Thursday?" comes back
+                  to them, not noreply@bonbox.dk. */}
+              <button
+                onClick={handleEmailToStaff}
+                disabled={emailing || exporting}
+                title={t("scheduleEmailTitle", "Email the week's schedule to every staff member with an email on file")}
+                className="px-3 py-2 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white transition disabled:opacity-50"
+              >
+                {emailing
+                  ? (t("scheduleEmailSending", "Sending…"))
+                  : ("📧 " + t("scheduleEmailButton", "Email staff"))}
+              </button>
             </div>
           </div>
         </div>
@@ -375,6 +441,13 @@ export default function StaffSchedulePage() {
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-3 text-red-700 dark:text-red-300 text-sm flex items-center justify-between">
           <span>{error}</span>
           <button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700 font-bold">{"\u00D7"}</button>
+        </div>
+      )}
+      {/* Email-success toast (auto-dismisses after 7s \u2014 see handleEmailToStaff) */}
+      {emailToast && (
+        <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl p-3 text-emerald-700 dark:text-emerald-300 text-sm flex items-center justify-between">
+          <span>{emailToast}</span>
+          <button onClick={() => setEmailToast("")} className="ml-2 text-emerald-500 hover:text-emerald-700 font-bold">{"\u00D7"}</button>
         </div>
       )}
 

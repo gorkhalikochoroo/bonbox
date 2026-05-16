@@ -46,7 +46,7 @@ from datetime import date, datetime, timedelta
 from io import BytesIO
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
@@ -847,6 +847,193 @@ def export_schedule_pdf(
             "Cache-Control": "no-store",
         },
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Email the week's schedule to all staff (bulk send)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Replaces the "download then paste-into-WhatsApp" workflow most owners
+# do today. One tap → every staff member with an email on file gets the
+# week's schedule PDF in their inbox, reply-to set to the owner so any
+# "can I swap Thursday?" question lands in their actual inbox.
+#
+# Recipient resolution per staff member:
+#   1. StaffMember.email if set
+#   2. Skip (no email) — included in the response so the UI can show
+#      "12 sent, 2 staff have no email — add an address?"
+
+
+class _EmailScheduleRequest(BaseModel):
+    """Body for POST /staff/schedules/email."""
+    week_start: date
+    lang: str = "en"  # "en" | "da"
+    # Optional staff_ids filter — None means "every active staff member
+    # with an email". Lets the owner re-send to one or two people who
+    # missed it without spamming the whole crew.
+    staff_ids: list[str] | None = None
+    # Free-text message rendered at the top of the email body
+    message: str | None = None
+    # cc the owner so they have a record / can forward
+    cc_self: bool = True
+
+
+@router.post("/schedules/email")
+def email_schedule_to_staff(
+    body: _EmailScheduleRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Email the week's schedule PDF to all (or selected) staff via Resend.
+
+    Multi-layer:
+      • Auth-gated.
+      • Tenant-scoped: staff/schedule queries filter on user_id.
+      • Reply-to = owner.email so the staff member can reply back
+        directly (not to noreply@bonbox.dk).
+      • Per-recipient failures are isolated — one bad email address
+        doesn't tank the whole send. Returns counts so the UI can
+        show "Sent to 12 of 14 — 2 had no email".
+
+    Returns:
+      {
+        ok: True,
+        sent: int,           # successfully delivered
+        skipped_no_email: int,
+        failed: [{name, email, reason}],
+        attempted: int,
+      }
+    """
+    if (body.lang or "").lower() not in ("en", "da"):
+        raise HTTPException(status_code=422, detail="lang must be 'en' or 'da'")
+
+    from io import BytesIO  # noqa: F401 (matches pattern in /schedules/pdf)
+    from app.services.staff_schedule_pdf import render_schedule_pdf
+    from app.services.email_service import send_email_with_attachment
+
+    try:
+        pdf_bytes = render_schedule_pdf(
+            db, user_id=user.id, week_start=body.week_start, lang=body.lang,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail="Could not render schedule PDF. Try again in a moment.",
+        ) from exc
+
+    # Staff filter — selected ids OR every active staff member
+    staff_q = db.query(StaffMember).filter(
+        StaffMember.user_id == user.id,
+        StaffMember.is_active.isnot(False),
+    )
+    if body.staff_ids:
+        staff_q = staff_q.filter(StaffMember.id.in_(body.staff_ids))
+    targets = staff_q.all()
+
+    if not targets:
+        return {
+            "ok": True, "sent": 0, "skipped_no_email": 0,
+            "failed": [], "attempted": 0,
+            "message": "No active staff matched.",
+        }
+
+    # Business name on the email body / subject
+    profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == user.id)
+        .first()
+    )
+    biz_name = (
+        getattr(profile, "company_name", None)
+        or getattr(user, "business_name", None)
+        or "BonBox"
+    )
+
+    is_danish = (body.lang or "").lower() == "da"
+    week_iso = body.week_start.isoformat()
+    filename = f"bonbox-schedule-{week_iso}.pdf"
+
+    # HTML body — personalized per-staff so we re-render the greeting
+    # for each recipient. Owner's free-text message goes above the
+    # standard intro and is HTML-escaped.
+    from html import escape
+    user_note_html = ""
+    if (body.message or "").strip():
+        safe = escape(body.message.strip()).replace("\n", "<br>")
+        user_note_html = (
+            "<div style='margin:16px 0;padding:12px;background:#f9fafb;"
+            "border-left:3px solid #10b981;color:#374151;font-size:14px;"
+            "line-height:1.5;'>"
+            f"{safe}"
+            "</div>"
+        )
+
+    sent = 0
+    skipped = 0
+    failed: list[dict] = []
+    cc = [user.email] if (body.cc_self and user.email) else None
+
+    for s in targets:
+        addr = (s.email or "").strip().lower()
+        if not addr or "@" not in addr:
+            skipped += 1
+            continue
+
+        first_name = (s.name or "").split(" ")[0] or s.name or ""
+        if is_danish:
+            subject = f"Vagtplan uge {body.week_start.strftime('%V')} — {biz_name}"
+            greeting = f"Hej {first_name},".strip(", ")
+            intro = (
+                f"Vedhæftet finder du vagtplanen for ugen "
+                f"<strong>fra mandag {week_iso}</strong>."
+            )
+            footer = (
+                "Sendt direkte fra BonBox. "
+                f"Svar på denne mail for at kontakte {biz_name}."
+            )
+        else:
+            subject = f"Schedule week {body.week_start.strftime('%V')} — {biz_name}"
+            greeting = f"Hi {first_name},".strip(", ")
+            intro = (
+                f"Attached is the schedule for the week starting "
+                f"<strong>Monday {week_iso}</strong>."
+            )
+            footer = (
+                "Sent directly from BonBox. "
+                f"Reply to this email to reach {biz_name}."
+            )
+
+        html = (
+            "<div style='font-family:system-ui,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;"
+            "color:#111827;line-height:1.5;font-size:14px;max-width:560px;'>"
+            f"<p>{greeting}</p>"
+            f"<p>{intro}</p>"
+            f"{user_note_html}"
+            f"<p style='color:#6b7280;font-size:13px;margin-top:16px;'>{footer}</p>"
+            "</div>"
+        )
+
+        ok, err = send_email_with_attachment(
+            addr, subject, html,
+            attachment_bytes=pdf_bytes,
+            attachment_filename=filename,
+            attachment_mime="application/pdf",
+            reply_to=user.email,
+            cc=cc,
+        )
+        if ok:
+            sent += 1
+        else:
+            failed.append({"name": s.name, "email": addr, "reason": err or "unknown"})
+
+    return {
+        "ok": True,
+        "sent": sent,
+        "skipped_no_email": skipped,
+        "failed": failed,
+        "attempted": len(targets),
+    }
 
 
 @router.get("/schedule-confirmation-summary")
