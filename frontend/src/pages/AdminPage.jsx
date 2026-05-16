@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
 import api from "../services/api";
 import {
@@ -103,6 +103,15 @@ export default function AdminPage() {
   }
 
   const PIE_COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16"];
+
+  // Local map of full-id → email, primed from the loaded `users` list. Any id
+  // *not* in this map (because it falls outside the 100-row pagination window)
+  // is resolved lazily via /admin/users?search=<prefix> on click.
+  const userById = useMemo(() => {
+    const m = {};
+    for (const u of users) m[u.id] = u;
+    return m;
+  }, [users]);
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6 pb-24">
@@ -310,7 +319,9 @@ export default function AdminPage() {
                         {s.event_type}
                       </span>
                     </td>
-                    <td className="px-2 py-1.5 font-mono text-gray-600 dark:text-gray-300">{s.user_id ? s.user_id.slice(0, 8) : "—"}</td>
+                    <td className="px-2 py-1.5">
+                      <UserIdResolver userId={s.user_id} userById={userById} />
+                    </td>
                     <td className="px-2 py-1.5 font-mono text-gray-600 dark:text-gray-300">{s.ip_address || "—"}</td>
                     <td className="px-2 py-1.5 text-gray-600 dark:text-gray-300">{s.detail || "—"}</td>
                   </tr>
@@ -363,10 +374,10 @@ export default function AdminPage() {
                     <td className="px-2 py-1.5 text-gray-600 dark:text-gray-300 truncate max-w-[280px]" title={e.message}>
                       {e.message}
                     </td>
-                    <td className="px-2 py-1.5 font-mono text-gray-600 dark:text-gray-300 whitespace-nowrap">
-                      {e.user_id ? e.user_id.slice(0, 8) : "—"}
+                    <td className="px-2 py-1.5 text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                      <UserIdResolver userId={e.user_id} userById={userById} />
                       <span className="text-gray-400 mx-1">·</span>
-                      {e.ip_address || "—"}
+                      <span className="font-mono">{e.ip_address || "—"}</span>
                     </td>
                   </tr>
                 ))}
@@ -380,6 +391,75 @@ export default function AdminPage() {
 }
 
 /* ───── Helpers ───── */
+
+/**
+ * Renders a truncated 8-char user_id as a clickable chip that reveals the full
+ * email + business name when expanded. Falls back to `/admin/users?search=<prefix>`
+ * for ids outside the loaded paginated window.
+ */
+function UserIdResolver({ userId, userById }) {
+  const [expanded, setExpanded] = useState(false);
+  const [resolved, setResolved] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  if (!userId) return <span>—</span>;
+
+  const prefix = userId.slice(0, 8);
+  const cached = userById?.[userId];
+  // Prefer cached hit
+  const display = resolved || cached;
+
+  const onClick = useCallback(async (e) => {
+    e.stopPropagation();
+    if (expanded) { setExpanded(false); return; }
+    setExpanded(true);
+    if (cached || resolved) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await api.get("/admin/users", { params: { search: prefix, limit: 5 } });
+      const match = (r.data || []).find((u) => u.id === userId) || (r.data && r.data[0]);
+      if (match) setResolved(match);
+      else setError("not found");
+    } catch (err) {
+      setError(err.response?.status === 404 ? "denied" : "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [expanded, cached, resolved, prefix, userId]);
+
+  return (
+    <span className="inline-block">
+      <button
+        type="button"
+        onClick={onClick}
+        className="font-mono text-gray-600 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline cursor-pointer"
+        title={expanded ? "Click to collapse" : "Click to resolve to email"}
+      >
+        {prefix}
+      </button>
+      {expanded && (
+        <span className="ml-2 inline-flex items-center gap-1 text-xs">
+          {loading && <span className="text-gray-400">resolving…</span>}
+          {!loading && display && (
+            <span className="px-1.5 py-0.5 bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 rounded text-emerald-700 dark:text-emerald-300">
+              {display.email}
+              {display.business_name && <span className="text-emerald-600/70 dark:text-emerald-400/70"> · {display.business_name}</span>}
+              {display.role === "super_admin" && <span title="Super admin" className="ml-1">🛡️</span>}
+              {!display.email_verified && <span title="Unverified" className="ml-1 text-red-500">⚠</span>}
+            </span>
+          )}
+          {!loading && !display && error && (
+            <span className="px-1.5 py-0.5 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded text-red-700 dark:text-red-300">
+              {error === "not found" ? "no match (likely deleted)" : error}
+            </span>
+          )}
+        </span>
+      )}
+    </span>
+  );
+}
 
 function KpiCard({ label, value, sub, accent }) {
   const accentClass =

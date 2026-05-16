@@ -13,7 +13,7 @@ Read-only by design. There are intentionally NO mutation endpoints here:
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, distinct
+from sqlalchemy import func, distinct, or_, String
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -100,12 +100,28 @@ def admin_overview(
 def admin_user_list(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    search: str | None = Query(None, description="Match on user id prefix or email substring (case-insensitive)"),
     admin: User = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
-    """All users (paginated) with engagement stats."""
+    """All users (paginated) with engagement stats.
+
+    Optional `search` performs prefix match on UUID *or* case-insensitive substring
+    match on email. Useful for resolving truncated 8-char user ids from security logs
+    back to the actual account.
+    """
+    q = db.query(User)
+    if search:
+        s = search.strip().lower()
+        if s:
+            q = q.filter(
+                or_(
+                    func.lower(func.cast(User.id, String)).like(f"{s}%"),
+                    func.lower(User.email).like(f"%{s}%"),
+                )
+            )
     users = (
-        db.query(User).order_by(User.created_at.desc()).offset(offset).limit(limit).all()
+        q.order_by(User.created_at.desc()).offset(offset).limit(limit).all()
     )
     out = []
     for u in users:
