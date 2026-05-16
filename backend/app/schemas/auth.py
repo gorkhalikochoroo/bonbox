@@ -9,6 +9,11 @@ class UserRegister(BaseModel):
     business_name: str = Field(..., min_length=1, max_length=200)
     business_type: str = "restaurant"
     currency: str = "DKK"
+    # Anti-bot honeypot. The frontend renders this as a visually-hidden
+    # input that real users never see or touch. Naive form-fillers populate
+    # every visible-looking input, so a non-empty value here = bot.
+    # Default empty string keeps the field optional for legitimate clients.
+    website: str = Field(default="", max_length=200)
 
     @field_validator("password")
     @classmethod

@@ -10,6 +10,10 @@ passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 python-multipart==0.0.20
 email-validator==2.2.0
+# Explicit pin: email-validator pulls dnspython transitively, but we use
+# dns.resolver directly for MX-record checks at signup. Pinning here
+# avoids drift if email-validator ever vendors its own DNS lib.
+dnspython==2.7.0
 reportlab==4.2.5
 openpyxl==3.1.5
 pillow==11.1.0

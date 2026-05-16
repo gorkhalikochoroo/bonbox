@@ -86,6 +86,10 @@ export default function RegisterPage() {
     business_name: "",
     business_type: "",
     currency: "DKK",
+    // Anti-bot honeypot — visually-hidden input below. Real users
+    // never see or touch this field; naive form-fillers populate every
+    // visible-looking input and trigger a server-side rejection.
+    website: "",
   });
   const [error, setError] = useState("");
   const [alreadyExists, setAlreadyExists] = useState(false);
@@ -327,6 +331,35 @@ export default function RegisterPage() {
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Honeypot — visually hidden + aria-hidden + tabindex=-1.
+                  Real users never see, focus, or fill this. Bots that
+                  scrape the DOM and fill every input populate this and
+                  get rejected server-side with a generic 422. */}
+              <div
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  left: "-9999px",
+                  width: "1px",
+                  height: "1px",
+                  overflow: "hidden",
+                  opacity: 0,
+                  pointerEvents: "none",
+                }}
+              >
+                <label htmlFor="website-confirm">
+                  Your website (leave blank — anti-spam)
+                </label>
+                <input
+                  type="text"
+                  id="website-confirm"
+                  name="website"
+                  value={form.website}
+                  onChange={handleChange}
+                  tabIndex={-1}
+                  autoComplete="off"
+                />
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">{t("email")}</label>
                 <div className="relative">

@@ -1,8 +1,10 @@
 import io
 import csv
 import json
+import re
 import secrets
 from datetime import datetime, timedelta
+from functools import lru_cache
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -307,17 +309,146 @@ def _is_disposable_email(email: str) -> bool:
     return domain in _DISPOSABLE_EMAIL_DOMAINS
 
 
+def _audit_signup(db: Session, request: Request, event_type: str, email: str) -> None:
+    """Write a SecurityEvent for signup-time events (rejections + suspicious
+    patterns). Lets us measure bot pressure without polluting the user table.
+
+    `user_id` is intentionally NULL — these events fire BEFORE any user
+    row exists. The email goes in `detail` for forensic lookup.
+    """
+    try:
+        from app.models.security_event import SecurityEvent
+        ip = request.client.host if request and request.client else None
+        ua = request.headers.get("user-agent", "")[:500] if request else None
+        evt = SecurityEvent(
+            user_id=None,
+            event_type=event_type,
+            ip_address=ip,
+            user_agent=ua,
+            detail=f"email={email[:120]}",
+        )
+        db.add(evt)
+        db.commit()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Failed to write signup audit event: %s", e)
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+# ───── Anti-bot signup defenses (added 2026-05-16 after hilostar incident) ─────
+
+
+# Major free providers — we trust their MX records exist and skip the DNS
+# lookup for them (saves ~50–300 ms per signup for 95%+ of real signups).
+_WHITELISTED_MAIL_DOMAINS = frozenset({
+    "gmail.com", "googlemail.com",
+    "outlook.com", "hotmail.com", "live.com", "msn.com",
+    "yahoo.com", "yahoo.co.uk", "yahoo.dk",
+    "icloud.com", "me.com", "mac.com",
+    "protonmail.com", "proton.me", "pm.me",
+    "fastmail.com", "fastmail.fm",
+    "aol.com", "zoho.com",
+})
+
+
+@lru_cache(maxsize=4096)
+def _domain_has_mx(domain: str) -> bool:
+    """Verify the domain has at least one MX record (i.e. real mail server).
+
+    Cached in-process — most signups in a session retry the same domain,
+    and DNS results don't change minute-to-minute. Negative results cache
+    too (so a typo-attacker doesn't get to keep hammering DNS).
+
+    Returns True on lookup failure (NXDOMAIN aside) so we never block a
+    legit user because the network glitched. The disposable-domain list
+    catches the high-volume abuse; this catches typos and made-up TLDs.
+    """
+    try:
+        import dns.resolver  # dnspython — already a transitive dep via email-validator
+        resolver = dns.resolver.Resolver()
+        resolver.lifetime = 3.0  # hard cap so a slow DNS doesn't stall the signup
+        resolver.timeout = 2.0
+        answers = resolver.resolve(domain, "MX")
+        return len(answers) > 0
+    except Exception as e:  # noqa: BLE001
+        # NXDOMAIN / NoAnswer / no nameserver → real "no MX" → block.
+        # Anything else (timeout, network) → fail open so we don't lock
+        # users out when our DNS upstream is flaky.
+        try:
+            import dns.resolver
+            if isinstance(e, (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer)):
+                return False
+        except Exception:
+            pass
+        return True  # fail open on transient errors
+
+
+def _domain_passes_mx_check(email: str) -> bool:
+    """High-level wrapper: short-circuit on whitelisted providers."""
+    if not email or "@" not in email:
+        return False
+    domain = email.split("@", 1)[1].strip().lower()
+    if domain in _WHITELISTED_MAIL_DOMAINS:
+        return True
+    return _domain_has_mx(domain)
+
+
+# Regex matches the kind of local-part that 2026-05-16's attacker used —
+# random consonant-vowel-consonant cluster followed by 3+ digits ("nejesap768").
+# Real users almost never have this shape; bots generating throwaway aliases
+# from a wordlist (or output of /dev/urandom -> base32) do.
+# We DON'T reject on match — we just flag for forensics. A signup is allowed
+# but a SecurityEvent is written so an admin can review later if abuse spikes.
+_RANDOM_LOCAL_PATTERN = re.compile(
+    r"^[a-z]{4,10}\d{3,5}$"   # e.g. nejesap768, qwzxcv123, mailer4567
+)
+
+
+def _looks_machine_generated(email: str) -> bool:
+    if not email or "@" not in email:
+        return False
+    local = email.split("@", 1)[0].strip().lower()
+    return bool(_RANDOM_LOCAL_PATTERN.match(local))
+
+
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")  # Tightened from 15/min — bots were burning the budget
 def register(request: Request, response: Response, data: UserRegister, db: Session = Depends(get_db)):
-    # Defense layer 1: disposable email blocklist
+    # Defense layer 1: honeypot — `website` field is rendered as a visually-
+    # hidden input in the frontend that real users never see or touch. Naive
+    # form-fillers populate every visible-looking input and trip the trap.
+    # We return the SAME 422 we'd return for any signup failure — no clue
+    # to the bot about which check fired.
+    if (data.website or "").strip():
+        # Audit so we can quantify bot pressure over time without polluting
+        # the user table with rejected signups.
+        _audit_signup(db, request, "signup_blocked_honeypot", data.email)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Registration could not be completed. Please try again or contact support.",
+        )
+
+    # Defense layer 2: disposable email blocklist
     if _is_disposable_email(data.email):
         # Generic 422 to not give bots feedback for retry. Real users get the
         # same response if they try a disposable provider — they'll know to use
         # their real email.
+        _audit_signup(db, request, "signup_blocked_disposable", data.email)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Please use a real email address (work or personal). Disposable email services aren't supported.",
+        )
+
+    # Defense layer 3: domain must have real MX records. Catches typos
+    # ("@gmial.cmo") and made-up domains. Whitelisted providers skip the
+    # DNS lookup for speed.
+    if not _domain_passes_mx_check(data.email):
+        _audit_signup(db, request, "signup_blocked_no_mx", data.email)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="That email domain doesn't appear to exist. Please check the spelling.",
         )
 
     existing = db.query(User).filter(User.email == data.email).first()
@@ -346,6 +477,14 @@ def register(request: Request, response: Response, data: UserRegister, db: Sessi
     db.add(user)
     db.commit()
     db.refresh(user)
+
+    # Defense layer 4 (post-success): flag random-looking emails for review.
+    # Don't block — the 2026-05-16 attacker's pattern (consonant-vowel-cluster
+    # + digits, e.g. "nejesap768") matches a small share of legit usernames
+    # too. We let them in but write a SecurityEvent so an admin can correlate
+    # later if the same IP / pattern starts spamming.
+    if _looks_machine_generated(data.email):
+        _audit_signup(db, request, "signup_flagged_random_pattern", data.email)
 
     # Send verification email (non-blocking — don't fail registration if email fails)
     try:

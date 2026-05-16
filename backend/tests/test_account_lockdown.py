@@ -156,15 +156,22 @@ def test_register_allows_real_gmail(db_session, client):
 
 def test_register_allows_custom_business_domain(db_session, client):
     """Don't false-positive on a small-biz custom domain (e.g. their
-    restaurant's own .dk address)."""
-    r = client.post("/api/auth/register", json={
-        "email": "info@my-restaurant.dk",
-        "password": "validpassword123",
-        "business_name": "My Café",
-        "business_type": "restaurant",
-        "currency": "DKK",
-    })
-    assert r.status_code == 201
+    restaurant's own .dk address). Mock DNS so this test doesn't depend
+    on the actual MX records for my-restaurant.dk (which is fictional)."""
+    from unittest.mock import patch
+    from app.routers.auth import _domain_has_mx
+    _domain_has_mx.cache_clear()
+    with patch("dns.resolver.Resolver") as mock_resolver_cls:
+        # Simulate a successful MX lookup — real custom domain has mail server
+        mock_resolver_cls.return_value.resolve.return_value = [object()]
+        r = client.post("/api/auth/register", json={
+            "email": "info@my-restaurant.dk",
+            "password": "validpassword123",
+            "business_name": "My Café",
+            "business_type": "restaurant",
+            "currency": "DKK",
+        })
+        assert r.status_code == 201
 
 
 def test_disposable_check_is_case_insensitive(db_session, client):
