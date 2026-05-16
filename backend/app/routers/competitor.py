@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.routers.auth import get_current_user
+from app.models.business_profile import BusinessProfile
 from app.models.competitor import Competitor
 from app.models.user import User
 from app.models.inventory import InventoryItem
@@ -204,6 +205,101 @@ def discover(
     for p in result.get("places", []):
         p["already_tracked"] = p.get("place_id", "") in tracked_ids
     return result
+
+
+@router.get("/cuisine-market")
+def cuisine_market(
+    radius: int = Query(3000, ge=500, le=10000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """How many nearby businesses serve the same cuisine as me?
+
+    Reads `cuisine` from BusinessProfile, runs a Google Places nearbysearch
+    with that string as the keyword, returns:
+      {
+        "cuisine": "nepali",
+        "count": 3,
+        "places": [...],  # with `already_tracked` flag per row
+        "radius_m": 3000,
+        "needs_setup": false,
+      }
+
+    Surfaces:
+      • needs_setup=true if user hasn't set cuisine yet → frontend shows
+        a prompt to set it in Profile
+      • needs_location=true if user hasn't set lat/lon → same pattern
+      • count=0 with valid setup → genuine "you're the only one nearby"
+        (that's actionable insight, not an error)
+    """
+    profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == current_user.id)
+        .first()
+    )
+    cuisine = (getattr(profile, "cuisine", None) or "").strip() if profile else ""
+
+    if not cuisine:
+        return {
+            "cuisine": "",
+            "count": 0,
+            "places": [],
+            "radius_m": radius,
+            "needs_setup": True,
+            "message": "Tell us what you serve in Profile, then we'll show you who else serves it near you.",
+        }
+
+    lat = float(current_user.latitude) if current_user.latitude else None
+    lon = float(current_user.longitude) if current_user.longitude else None
+    if not lat or not lon:
+        return {
+            "cuisine": cuisine,
+            "count": 0,
+            "places": [],
+            "radius_m": radius,
+            "needs_location": True,
+            "message": "Set your business location in Profile, then we'll scan the area.",
+        }
+
+    # Pull already-tracked place_ids so the frontend can show "Tracked" badges
+    tracked = (
+        db.query(Competitor.place_id)
+        .filter(Competitor.user_id == current_user.id, Competitor.place_id.isnot(None))
+        .all()
+    )
+    tracked_ids = {r[0] for r in tracked}
+
+    # Google Places nearbysearch with cuisine as keyword. We also pass
+    # type=restaurant when the user's business_type is restaurant/cafe/bar,
+    # but for workshop/retail/service we let Google interpret the keyword
+    # without a type constraint.
+    bt = (current_user.business_type or "").lower()
+    use_type = bt if bt in {"restaurant", "cafe", "bar", "bakery"} else None
+    try:
+        result = discover_nearby(lat, lon, cuisine, radius, place_type=use_type) \
+            if "place_type" in discover_nearby.__code__.co_varnames \
+            else discover_nearby(lat, lon, cuisine, radius)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("cuisine_market discover failed: %s", e)
+        return {
+            "cuisine": cuisine,
+            "count": 0,
+            "places": [],
+            "radius_m": radius,
+            "error": "Couldn't scan right now. Try again in a minute.",
+        }
+
+    places = result.get("places", []) or []
+    for p in places:
+        p["already_tracked"] = p.get("place_id", "") in tracked_ids
+
+    return {
+        "cuisine": cuisine,
+        "count": len(places),
+        "places": places[:20],  # cap to keep response small
+        "radius_m": radius,
+        "source": result.get("source"),
+    }
 
 
 @router.post("/add")

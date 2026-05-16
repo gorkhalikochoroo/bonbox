@@ -36,6 +36,12 @@ class BusinessProfileCreate(BaseModel):
     mobilepay_number: str | None = None
     iban: str | None = None
     bic: str | None = None
+    # Cuisine / specialization — finer than business_type. Used as the
+    # Google Places `keyword` for the "Same cuisine market" scan.
+    # Examples: "italian", "nepali", "french bistro", "ramen", "tapas".
+    # Free text capped at 60 chars; users can type whatever fits their
+    # niche (e.g. workshop owners might use "BMW + Audi specialist").
+    cuisine: str | None = None
 
 
 class BusinessProfileResponse(BaseModel):
@@ -70,6 +76,8 @@ class BusinessProfileResponse(BaseModel):
     mobilepay_number: str | None = None
     iban: str | None = None
     bic: str | None = None
+    # Cuisine / specialization — surfaced on the Competitor Scan page
+    cuisine: str | None = None
 
     model_config = {"from_attributes": True}
 

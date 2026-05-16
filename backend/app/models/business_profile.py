@@ -26,6 +26,15 @@ class BusinessProfile(Base):
     industry: Mapped[str | None] = mapped_column(String(200), nullable=True)
     industry_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
     company_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Cuisine / specialization — finer-grained than user.business_type.
+    # business_type tells us the vertical (restaurant/cafe/bar). cuisine
+    # tells us the slice (italian, nepali, french-bistro, sushi, ...).
+    # Powers the "Same cuisine market" feature on Competitor Scan:
+    # we run a Google Places nearbysearch with keyword=cuisine to count
+    # and surface competitors serving the same food. Free text so users
+    # in niche verticals (e.g. workshop "specialties: BMW + Audi") can
+    # use the same field. Capped at 60 chars.
+    cuisine: Mapped[str | None] = mapped_column(String(60), nullable=True, index=True)
     # Contact
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)

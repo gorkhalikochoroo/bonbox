@@ -45,6 +45,12 @@ export default function CompetitorPage() {
   // brand-new tenant isn't staring at an empty form.
   const [suggestedItems, setSuggestedItems] = useState([]);
 
+  // Same-cuisine market — "how many other Nepali restaurants are near me"
+  // Auto-loads on mount; falls back gracefully if user hasn't set cuisine
+  // or hasn't shared location yet (the card shows a CTA instead).
+  const [cuisineMarket, setCuisineMarket] = useState(null);
+  const [cuisineLoading, setCuisineLoading] = useState(false);
+
   useEffect(() => { fetchData(); }, []);
   useEffect(() => {
     // Load suggestions in parallel; failure is silent (empty array
@@ -52,6 +58,12 @@ export default function CompetitorPage() {
     api.get("/competitors/suggested-items")
       .then(r => setSuggestedItems(r.data?.items || []))
       .catch(() => setSuggestedItems([]));
+    // Same-cuisine market — parallel fetch, silent failure
+    setCuisineLoading(true);
+    api.get("/competitors/cuisine-market", { params: { radius: 3000 } })
+      .then(r => setCuisineMarket(r.data))
+      .catch(() => setCuisineMarket(null))
+      .finally(() => setCuisineLoading(false));
   }, []);
 
   const fetchData = async () => {
@@ -385,6 +397,124 @@ export default function CompetitorPage() {
       {/* ═══ DISCOVER TAB ═══ */}
       {tab === "discover" && (
         <div className="space-y-4">
+          {/* Same-cuisine market — actionable competitive intel before
+              the user even searches. Surfaces three states:
+                1. needs_setup → CTA to set cuisine in Profile
+                2. needs_location → CTA to set lat/lon
+                3. has data → big number + scrollable competitor list
+                              with one-click "Track" per row */}
+          {cuisineLoading ? (
+            <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
+              <p className="text-sm text-gray-400 animate-pulse">🔍 {t("cuisineMarketLoading", "Scanning your local market…")}</p>
+            </div>
+          ) : cuisineMarket?.needs_setup ? (
+            <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl p-5 border border-emerald-200 dark:border-emerald-800">
+              <h3 className="font-bold text-emerald-900 dark:text-emerald-100 mb-1">
+                🍽️ {t("cuisineMarketSetupTitle", "Tell us what you serve")}
+              </h3>
+              <p className="text-sm text-emerald-700 dark:text-emerald-300 mb-3">
+                {cuisineMarket.message || t("cuisineMarketSetupBody",
+                  "Set your cuisine in Profile and we'll show you how many places nearby serve the same thing — and let you track them in one click.")}
+              </p>
+              <a
+                href="/profile"
+                className="inline-block px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-lg"
+              >
+                {t("setCuisineCTA", "Set my cuisine →")}
+              </a>
+            </div>
+          ) : cuisineMarket?.needs_location ? (
+            <div className="bg-amber-50 dark:bg-amber-900/20 rounded-2xl p-5 border border-amber-200 dark:border-amber-800">
+              <h3 className="font-bold text-amber-900 dark:text-amber-100 mb-1">
+                📍 {t("locationNeededTitle", "Set your location first")}
+              </h3>
+              <p className="text-sm text-amber-700 dark:text-amber-300 mb-2">
+                {cuisineMarket.message}
+              </p>
+              <a href="/profile" className="text-sm font-semibold text-amber-800 underline">{t("openProfile", "Open Profile →")}</a>
+            </div>
+          ) : cuisineMarket && cuisineMarket.cuisine ? (
+            <div className="bg-gradient-to-br from-emerald-50 to-blue-50 dark:from-emerald-900/20 dark:to-blue-900/20 rounded-2xl p-5 border border-emerald-200/60 dark:border-emerald-800/60">
+              <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 font-semibold">
+                    {t("cuisineMarketLabel", "Same cuisine within {km} km").replace("{km}", String((cuisineMarket.radius_m || 3000) / 1000))}
+                  </p>
+                  <h3 className="font-bold text-xl text-gray-800 dark:text-white mt-0.5">
+                    <span className="text-emerald-600 dark:text-emerald-400">{cuisineMarket.count}</span>{" "}
+                    {cuisineMarket.count === 1
+                      ? t("placeServes", "place serves")
+                      : t("placesServe", "places serve")}{" "}
+                    <span className="capitalize">{cuisineMarket.cuisine}</span>
+                  </h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    {cuisineMarket.count === 0
+                      ? t("youreTheOnlyOne", "You're the only one. That's a moat — own it.")
+                      : cuisineMarket.count <= 3
+                        ? t("lowCompetition", "Low competition. Lots of room to grow.")
+                        : cuisineMarket.count <= 8
+                          ? t("healthyMarket", "Healthy market — differentiation matters.")
+                          : t("crowdedMarket", "Crowded — your niche, pricing, and quality have to be sharp.")}
+                  </p>
+                </div>
+                <a
+                  href="/profile"
+                  className="text-xs text-emerald-700 dark:text-emerald-300 underline whitespace-nowrap"
+                  title={t("changeCuisine", "Change cuisine")}
+                >
+                  {t("changeCuisine", "Change cuisine")}
+                </a>
+              </div>
+
+              {cuisineMarket.places?.length > 0 && (
+                <div className="space-y-1.5">
+                  {cuisineMarket.places.slice(0, 5).map((p) => (
+                    <div
+                      key={p.place_id}
+                      className="flex items-center gap-2 bg-white/70 dark:bg-gray-800/40 rounded-lg px-3 py-2"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-sm text-gray-800 dark:text-gray-100 truncate">{p.name}</span>
+                          {p.google_rating && (
+                            <span className="text-[10px] bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 px-1.5 py-0.5 rounded">
+                              ⭐ {p.google_rating}
+                            </span>
+                          )}
+                          {p.already_tracked && (
+                            <span className="text-[10px] bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 rounded font-medium">
+                              ✓ {t("tracked", "Tracked")}
+                            </span>
+                          )}
+                        </div>
+                        {p.address && <p className="text-[11px] text-gray-500 truncate">{p.address}</p>}
+                      </div>
+                      {p.distance_m != null && (
+                        <span className="text-[11px] text-gray-500 whitespace-nowrap">
+                          {p.distance_m < 1000 ? `${p.distance_m}m` : `${(p.distance_m / 1000).toFixed(1)}km`}
+                        </span>
+                      )}
+                      {!p.already_tracked && (
+                        <button
+                          onClick={() => handleTrackPlace(p)}
+                          disabled={addingId === p.place_id}
+                          className="text-[11px] px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md font-medium disabled:opacity-50"
+                        >
+                          {addingId === p.place_id ? "…" : "+ " + t("track", "Track")}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {cuisineMarket.places.length > 5 && (
+                    <p className="text-[11px] text-gray-500 text-center pt-1">
+                      {t("andMore", "and {n} more").replace("{n}", String(cuisineMarket.places.length - 5))}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : null}
+
           {/* Search bar */}
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
             <h3 className="font-bold text-gray-800 dark:text-white mb-3 flex items-center gap-2">

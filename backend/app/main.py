@@ -805,6 +805,14 @@ _migrations = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_reason VARCHAR(255)",
     "CREATE INDEX IF NOT EXISTS ix_users_is_locked ON users (is_locked) WHERE is_locked = true",
+
+    # ── Migration 036: cuisine / specialization on business profile ──
+    # Powers the "Same cuisine market" card on Competitor Scan — we use
+    # this string as the Google Places `keyword` to surface nearby
+    # restaurants serving the same food. Free text (max 60), nullable
+    # so existing tenants don't break.
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS cuisine VARCHAR(60)",
+    "CREATE INDEX IF NOT EXISTS ix_business_profiles_cuisine ON business_profiles (cuisine)",
 ]
 
 
