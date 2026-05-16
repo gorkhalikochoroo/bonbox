@@ -141,6 +141,127 @@ export default function CompetitorPage() {
     } catch { /* silent */ }
   };
 
+  // ═════ Menu-scan modal state ══════════════════════════════════════
+  // The user clicks "📷 Scan menu" on a competitor card → modal opens
+  // with two options: pick from Google photos (if available) or upload
+  // a fresh phone snap. Either way → Claude vision extracts items →
+  // user reviews extracted rows → bulk-import to price checks.
+  const [scanCompId, setScanCompId] = useState(null);
+  const [scanStep, setScanStep] = useState("choose"); // choose | extracting | review
+  const [googlePhotos, setGooglePhotos] = useState([]);
+  const [googlePhotosLoading, setGooglePhotosLoading] = useState(false);
+  const [extractedItems, setExtractedItems] = useState([]);
+  const [scanConfidence, setScanConfidence] = useState(null);
+  const [scanNote, setScanNote] = useState(null);
+  const [scanError, setScanError] = useState("");
+  const [bulkSaving, setBulkSaving] = useState(false);
+
+  const openScanModal = async (competitorId) => {
+    setScanCompId(competitorId);
+    setScanStep("choose");
+    setExtractedItems([]);
+    setScanError("");
+    setScanConfidence(null);
+    setScanNote(null);
+    setGooglePhotosLoading(true);
+    try {
+      const r = await api.get(`/competitors/${competitorId}/photos`);
+      setGooglePhotos(r.data?.photos || []);
+    } catch {
+      setGooglePhotos([]);
+    }
+    setGooglePhotosLoading(false);
+  };
+
+  const closeScanModal = () => {
+    setScanCompId(null);
+    setScanStep("choose");
+    setExtractedItems([]);
+    setGooglePhotos([]);
+    setScanError("");
+  };
+
+  const scanFromUpload = async (file) => {
+    if (!file || !scanCompId) return;
+    setScanStep("extracting");
+    setScanError("");
+    const form = new FormData();
+    form.append("photo", file);
+    try {
+      const r = await api.post(
+        `/competitors/${scanCompId}/scan-menu`,
+        form,
+        { headers: { "Content-Type": "multipart/form-data" } },
+      );
+      const items = (r.data?.items || []).map((it) => ({
+        ...it,
+        include: true, // pre-checked so user just hits "Add all"
+        our_price: it.our_price ?? "",
+      }));
+      setExtractedItems(items);
+      setScanConfidence(r.data?.confidence || null);
+      setScanNote(r.data?.note || null);
+      if (items.length === 0) {
+        setScanError(r.data?.error || "No menu items found. Try a clearer photo.");
+      }
+      setScanStep("review");
+    } catch (e) {
+      setScanError(e.response?.data?.detail || "Extraction failed. Try again.");
+      setScanStep("choose");
+    }
+  };
+
+  const scanFromGooglePhoto = async (photoRef) => {
+    if (!scanCompId) return;
+    setScanStep("extracting");
+    setScanError("");
+    try {
+      const r = await api.post(
+        `/competitors/${scanCompId}/scan-menu-from-ref`,
+        { photo_reference: photoRef },
+      );
+      const items = (r.data?.items || []).map((it) => ({
+        ...it,
+        include: true,
+        our_price: it.our_price ?? "",
+      }));
+      setExtractedItems(items);
+      setScanConfidence(r.data?.confidence || null);
+      setScanNote(r.data?.note || null);
+      if (items.length === 0) {
+        setScanError(r.data?.error || "No menu items found in this photo.");
+      }
+      setScanStep("review");
+    } catch (e) {
+      setScanError(e.response?.data?.detail || "Extraction failed.");
+      setScanStep("choose");
+    }
+  };
+
+  const importExtractedItems = async () => {
+    const toImport = extractedItems.filter((it) => it.include && it.name && it.price > 0);
+    if (toImport.length === 0) return;
+    setBulkSaving(true);
+    try {
+      const r = await api.post("/competitors/price-check/bulk", {
+        competitor_id: scanCompId,
+        items: toImport.map((it) => ({
+          item_name: it.name,
+          their_price: parseFloat(it.price),
+          our_price: it.our_price !== "" && it.our_price != null ? parseFloat(it.our_price) : null,
+        })),
+      });
+      const inserted = r.data?.inserted || 0;
+      closeScanModal();
+      await fetchData();
+      // Use a non-blocking toast-style message via window.alert for now
+      alert(`✓ ${inserted} price check${inserted === 1 ? "" : "s"} added.`);
+    } catch (e) {
+      setScanError(e.response?.data?.detail || "Couldn't import. Try again.");
+    }
+    setBulkSaving(false);
+  };
+
   if (loading) {
     return (
       <div className="p-4 md:p-8 flex items-center justify-center min-h-[400px]">
@@ -494,7 +615,21 @@ export default function CompetitorPage() {
                   </div>
                   {comp.address && <p className="text-xs text-gray-500 mt-1">📍 {comp.address}</p>}
                 </div>
-                <button onClick={() => handleDelete(comp.id)} className="text-xs text-red-500 hover:underline flex-shrink-0 ml-2">{t("remove")}</button>
+                <div className="flex flex-col gap-1 items-end flex-shrink-0 ml-2">
+                  <button
+                    onClick={() => openScanModal(comp.id)}
+                    className="text-xs px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 font-medium"
+                    title={t("scanMenuTitle", "Scan their menu — extract items + prices with AI")}
+                  >
+                    📷 {t("scanMenu", "Scan menu")}
+                  </button>
+                  <button
+                    onClick={() => handleDelete(comp.id)}
+                    className="text-xs text-red-500 hover:underline"
+                  >
+                    {t("remove")}
+                  </button>
+                </div>
               </div>
               {comp.recent_prices?.length > 0 ? (
                 <div className="space-y-1">
@@ -529,6 +664,182 @@ export default function CompetitorPage() {
               </p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ═══ SCAN MENU MODAL ═══ */}
+      {scanCompId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b dark:border-gray-700">
+              <div>
+                <h3 className="font-bold text-gray-800 dark:text-white">📷 {t("scanMenuTitle2", "Scan competitor menu")}</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  {scanStep === "choose" && t("scanMenuStepChoose", "Pick a Google Maps photo or upload your own. AI will extract items + prices.")}
+                  {scanStep === "extracting" && t("scanMenuStepExtracting", "Reading the menu…")}
+                  {scanStep === "review" && t("scanMenuStepReview", "Review extracted items, then import.")}
+                </p>
+              </div>
+              <button onClick={closeScanModal} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">×</button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              {scanStep === "choose" && (
+                <div className="space-y-4">
+                  {googlePhotosLoading ? (
+                    <p className="text-sm text-gray-400 text-center py-4">{t("scanMenuLoadingPhotos", "Loading photos from Google Maps…")}</p>
+                  ) : googlePhotos.length > 0 ? (
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-2">
+                        {t("scanMenuFromGoogle", "From Google Maps")}
+                      </p>
+                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                        {googlePhotos.map((p) => (
+                          <button
+                            key={p.photo_reference}
+                            onClick={() => scanFromGooglePhoto(p.photo_reference)}
+                            className="aspect-square rounded-lg overflow-hidden border-2 border-transparent hover:border-emerald-500 focus:border-emerald-500 transition group relative"
+                            title={t("scanMenuTapToScan", "Tap to scan this photo")}
+                          >
+                            <img src={p.view_url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-center justify-center opacity-0 group-hover:opacity-100">
+                              <span className="text-white text-xs font-semibold">📷 {t("scanMenuScan", "Scan")}</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400 italic text-center py-2">
+                      {t("scanMenuNoGooglePhotos", "No Google Maps photos available for this competitor.")}
+                    </p>
+                  )}
+
+                  <div className="flex items-center gap-2 my-3">
+                    <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                    <span className="text-xs text-gray-400 uppercase tracking-wide">{t("or", "or")}</span>
+                    <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                  </div>
+
+                  <label className="block">
+                    <span className="block text-xs uppercase tracking-wide text-gray-500 font-semibold mb-2">
+                      {t("scanMenuUpload", "Upload your own photo")}
+                    </span>
+                    <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-6 text-center cursor-pointer hover:border-emerald-500 transition">
+                      <p className="text-3xl mb-1">📤</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-300 font-medium">
+                        {t("scanMenuTapToUpload", "Tap to take a photo or pick from gallery")}
+                      </p>
+                      <p className="text-[11px] text-gray-400 mt-1">{t("scanMenuMaxSize", "Max 10 MB · JPEG, PNG, HEIC")}</p>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={(e) => e.target.files?.[0] && scanFromUpload(e.target.files[0])}
+                      />
+                    </div>
+                  </label>
+
+                  {scanError && (
+                    <p className="text-sm text-red-500 text-center mt-2">{scanError}</p>
+                  )}
+                </div>
+              )}
+
+              {scanStep === "extracting" && (
+                <div className="text-center py-10">
+                  <div className="text-4xl mb-3 animate-pulse">🤖</div>
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{t("scanMenuExtracting", "AI is reading the menu…")}</p>
+                  <p className="text-xs text-gray-400 mt-1">{t("scanMenuExtractingHint", "Usually 5–15 seconds")}</p>
+                </div>
+              )}
+
+              {scanStep === "review" && (
+                <div className="space-y-3">
+                  {extractedItems.length === 0 ? (
+                    <div className="text-center py-8">
+                      <p className="text-3xl mb-2">🤔</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-300 font-medium">
+                        {scanError || t("scanMenuNothingFound", "No menu items found. Try a clearer photo.")}
+                      </p>
+                      {scanNote && <p className="text-xs text-gray-400 mt-1">{scanNote}</p>}
+                      <button onClick={() => setScanStep("choose")} className="mt-4 text-sm text-emerald-600 underline">
+                        {t("scanMenuTryAnother", "Try another photo")}
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-500">
+                          {t("scanMenuFoundCount", "Found")} <strong>{extractedItems.length}</strong> {t("scanMenuItems", "items")}
+                          {scanConfidence && (
+                            <span className={
+                              "ml-2 px-1.5 py-0.5 rounded text-[10px] font-semibold " +
+                              (scanConfidence === "high" ? "bg-emerald-100 text-emerald-700"
+                                : scanConfidence === "medium" ? "bg-amber-100 text-amber-700"
+                                : "bg-red-100 text-red-700")
+                            }>
+                              {scanConfidence}
+                            </span>
+                          )}
+                        </span>
+                        <div className="flex gap-2">
+                          <button onClick={() => setExtractedItems(items => items.map(i => ({ ...i, include: true })))}
+                            className="text-xs text-emerald-600 hover:underline">{t("scanMenuSelectAll", "Select all")}</button>
+                          <button onClick={() => setExtractedItems(items => items.map(i => ({ ...i, include: false })))}
+                            className="text-xs text-gray-500 hover:underline">{t("scanMenuClear", "Clear")}</button>
+                        </div>
+                      </div>
+                      <div className="border dark:border-gray-700 rounded-lg max-h-[44vh] overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
+                        {extractedItems.map((it, idx) => (
+                          <label key={idx} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={it.include}
+                              onChange={(e) => setExtractedItems(items => items.map((x, i) => i === idx ? { ...x, include: e.target.checked } : x))}
+                              className="accent-emerald-600"
+                            />
+                            <input
+                              type="text"
+                              value={it.name}
+                              onChange={(e) => setExtractedItems(items => items.map((x, i) => i === idx ? { ...x, name: e.target.value } : x))}
+                              className="flex-1 text-sm bg-transparent border-none focus:outline-none focus:ring-0 dark:text-gray-100"
+                            />
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={it.price}
+                              onChange={(e) => setExtractedItems(items => items.map((x, i) => i === idx ? { ...x, price: e.target.value } : x))}
+                              className="w-20 text-sm text-right bg-gray-50 dark:bg-gray-900/40 rounded px-2 py-0.5 border border-gray-200 dark:border-gray-600"
+                            />
+                            <span className="text-xs text-gray-400 w-10">{(it.currency || currency).slice(0, 3)}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {scanStep === "review" && extractedItems.length > 0 && (
+              <div className="px-5 py-3 border-t dark:border-gray-700 flex items-center justify-between">
+                <button onClick={() => setScanStep("choose")} className="text-sm text-gray-500 hover:underline">
+                  ← {t("scanMenuBack", "Back")}
+                </button>
+                <button
+                  onClick={importExtractedItems}
+                  disabled={bulkSaving || extractedItems.every((i) => !i.include)}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold disabled:opacity-50"
+                >
+                  {bulkSaving
+                    ? t("scanMenuSaving", "Saving…")
+                    : t("scanMenuImport", "Import") + " " + extractedItems.filter((i) => i.include).length + " " + t("scanMenuItems", "items")}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
