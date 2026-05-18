@@ -150,7 +150,27 @@ function KpiCard({ title, numericValue, value, currency: cur, change, changeLabe
 
 function RevenueTrendChart({ data, currency, onNavigate }) {
   const { t } = useLanguage();
-  if (!data || data.length === 0) return null;
+  // Empty state — instead of returning null and creating a sparse dashboard
+  // for new users, render the card chrome with a friendly CTA. The card
+  // structure stays consistent across loading / empty / populated states.
+  if (!data || data.length === 0) {
+    return (
+      <div
+        onClick={onNavigate}
+        className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+      >
+        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
+          {t("revenueTrend", "Revenue trend")}
+        </h3>
+        <div className="h-40 flex flex-col items-center justify-center text-center">
+          <div className="text-3xl mb-2">📈</div>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            {t("revenueTrendEmpty", "Log your first sale to start the chart.")}
+          </p>
+        </div>
+      </div>
+    );
+  }
   const avg = Math.round(data.reduce((s, d) => s + d.amount, 0) / data.length);
 
   return (
@@ -214,7 +234,27 @@ const translateDayShort = (day, t) => {
 function ForecastWeatherStaffing({ forecast, weather, staffing, currency, onNavigate }) {
   const { t } = useLanguage();
   const [sel, setSel] = useState(null);
-  if (!forecast?.forecast?.length) return null;
+  // Empty state — the forecast service can be unavailable on a fresh
+  // tenant (no historical data to forecast from) or during an outage.
+  // Previously the whole card vanished silently; now we keep the chrome
+  // and explain. Owners want to know the section EXISTS.
+  if (!forecast?.forecast?.length) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm">
+        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
+          🔮 {t("forecastWeather", "Next 7 days — forecast & weather")}
+        </h3>
+        <div className="py-6 text-center">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            {t(
+              "forecastEmpty",
+              "Log a few weeks of sales and we'll forecast revenue, weather, and staffing here.",
+            )}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const data = forecast.forecast;
   const total = forecast.total_predicted || data.reduce((s, f) => s + f.predicted_revenue, 0);
@@ -379,7 +419,25 @@ function ForecastWeatherStaffing({ forecast, weather, staffing, currency, onNavi
 function InventoryPanel({ items, currency, onNavigate }) {
   const { t } = useLanguage();
   const [filter, setFilter] = useState("all");
-  if (!items || items.length === 0) return null;
+  // Empty state — same card chrome, friendly CTA. New users without
+  // inventory should still see the section so they know it exists.
+  if (!items || items.length === 0) {
+    return (
+      <div
+        onClick={onNavigate}
+        className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+      >
+        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
+          📦 {t("inventory", "Inventory")}
+        </h3>
+        <div className="py-6 text-center">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            {t("inventoryEmpty", "Add items to track stock, reorders, and expiry dates.")}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   // Process items
   const processed = items.map((it) => {
@@ -708,7 +766,24 @@ const EXPENSE_COLORS = ["#EF4444", "#F59E0B", "#22C55E", "#3B82F6", "#8B5CF6", "
 
 function ExpenseBreakdown({ breakdown, currency, onNavigate }) {
   const { t } = useLanguage();
-  if (!breakdown || breakdown.length === 0) return null;
+  // Empty state for new users / months with no logged expenses
+  if (!breakdown || breakdown.length === 0) {
+    return (
+      <div
+        onClick={onNavigate}
+        className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+      >
+        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
+          💸 {t("expenses", "Expenses")}
+        </h3>
+        <div className="py-6 text-center">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            {t("expensesEmpty", "Log expenses to see where the money goes.")}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const total = breakdown.reduce((s, e) => s + e.amount, 0);
   const sorted = [...breakdown].sort((a, b) => b.amount - a.amount);
@@ -765,7 +840,23 @@ const TOP_BAR_COLORS = ["#22C55E", "#3B82F6", "#8B5CF6", "#F59E0B", "#EF4444", "
 function TopSellersCard({ topSellers, currency, onNavigate }) {
   const { t } = useLanguage();
   const [mode, setMode] = useState("revenue"); // "revenue" | "qty"
-  if (!topSellers || topSellers.length === 0) return null;
+  if (!topSellers || topSellers.length === 0) {
+    return (
+      <div
+        onClick={onNavigate}
+        className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+      >
+        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
+          🏆 {t("topSellers", "Top sellers")}
+        </h3>
+        <div className="py-6 text-center">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            {t("topSellersEmpty", "Log sales with item names to surface your bestsellers.")}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const medals = ["🥇", "🥈", "🥉"];
 
@@ -850,7 +941,23 @@ function TopSellersCard({ topSellers, currency, onNavigate }) {
 
 function PaymentBreakdownCard({ paymentBreakdown, currency, onNavigate }) {
   const { t } = useLanguage();
-  if (!paymentBreakdown || paymentBreakdown.length === 0) return null;
+  if (!paymentBreakdown || paymentBreakdown.length === 0) {
+    return (
+      <div
+        onClick={onNavigate}
+        className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+      >
+        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
+          💳 {t("paymentMethods", "Payment methods")}
+        </h3>
+        <div className="py-6 text-center">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            {t("paymentMethodsEmpty", "Log sales by payment method to see the breakdown.")}
+          </p>
+        </div>
+      </div>
+    );
+  }
   const total = paymentBreakdown.reduce((s, p) => s + p.amount, 0);
   const methodColors = { cash: "#22C55E", card: "#3B82F6", mobilepay: "#8B5CF6" };
 
@@ -1012,7 +1119,13 @@ function HealthScore({ summary, monthlyData, onNavigate }) {
         {/* Gauge */}
         <div className="flex items-center sm:flex-col gap-4 sm:gap-2">
           <div className="relative w-20 h-20 flex-shrink-0">
-            <svg className="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
+            <svg
+              className="w-20 h-20 -rotate-90"
+              viewBox="0 0 80 80"
+              role="img"
+              aria-label={`${t("businessHealth")}: ${total} / 100 — ${label}`}
+            >
+              <title>{`${t("businessHealth")}: ${total} / 100 — ${label}`}</title>
               <circle cx="40" cy="40" r="34" fill="none" stroke="currentColor" strokeWidth="5" className="text-gray-100 dark:text-gray-700" />
               <circle cx="40" cy="40" r="34" fill="none" strokeWidth="5" strokeLinecap="round" stroke={color}
                 strokeDasharray={`${filled} ${circumference}`}
@@ -1538,7 +1651,10 @@ export default function DashboardPage() {
               title={t("bestDay")}
               numericValue={bestDay ? bestDay.amount : 0}
               currency={currency}
-              subtitle={bestDay ? formatDateShort(bestDay.date) : "—"}
+              // Only show the date when there's actually revenue on that
+              // day — otherwise the card shows day-1 of the period at 0,
+              // which reads as "the best day was a day with no sales".
+              subtitle={bestDay && bestDay.amount > 0 ? formatDateShort(bestDay.date) : "—"}
               sparkData={monthSparkData}
               onClick={() => navigate("/reports")}
             />
