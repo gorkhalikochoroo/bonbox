@@ -328,7 +328,18 @@ function ForecastWeatherStaffing({ forecast, weather, staffing, currency, onNavi
                 <div key={i} onClick={() => setSel(isActive ? null : i)}
                   className={`flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-lg cursor-pointer transition ${isActive ? "bg-gray-100 dark:bg-gray-700/40" : ""}`}>
                   <span className="text-sm">{CONDITION_ICON(w.condition)}</span>
-                  <span className={`text-[11px] font-semibold ${temp >= 14 ? "text-green-500" : temp <= 8 ? "text-blue-400" : "text-gray-300"}`}>{temp}°</span>
+                  {/* Temperature color: previously the "neutral" range
+                      8-14°C used text-gray-300 which is invisible on
+                      the gray card surface — and that's the temperature
+                      range for ~9 months of the Danish year. Use a
+                      visible neutral (slate-600 / slate-300) for the
+                      mid range so the number is readable everywhere. */}
+                  <span className={`text-[11px] font-semibold ${
+                    temp >= 18 ? "text-orange-500 dark:text-orange-400"
+                    : temp >= 14 ? "text-emerald-600 dark:text-emerald-400"
+                    : temp >= 4 ? "text-slate-600 dark:text-slate-300"
+                    : "text-blue-500 dark:text-blue-400"
+                  }`}>{temp}°</span>
                 </div>
               );
             })}
@@ -479,20 +490,22 @@ function InventoryPanel({ items, currency, onNavigate }) {
       <div className="flex items-start justify-between mb-3">
         <div>
           <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("inventory")}</h3>
-          <p className="text-xs text-gray-400 mt-0.5">{items.length} items</p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {items.length} {t("inventoryItemsLabel", "items")}
+          </p>
         </div>
         <div className="text-right">
           <p className="text-sm font-bold text-gray-800 dark:text-white">{totalValue.toLocaleString()}</p>
-          <p className="text-[10px] text-gray-400">{currency} stock value</p>
+          <p className="text-[10px] text-gray-400">{currency} {t("stockValue", "stock value")}</p>
         </div>
       </div>
 
-      {/* Filter pills */}
+      {/* Filter pills — DK accountants/staff see this; translate. */}
       <div className="flex gap-1.5 mb-3">
         {[
-          { k: "all", label: `All (${items.length})`, color: "#3B82F6" },
-          { k: "low", label: `Low (${lowCount})`, color: "#EF4444" },
-          { k: "exp", label: `Expiring (${expCount})`, color: "#F59E0B" },
+          { k: "all", label: `${t("inventoryAll", "All")} (${items.length})`, color: "#3B82F6" },
+          { k: "low", label: `${t("inventoryLow", "Low")} (${lowCount})`, color: "#EF4444" },
+          { k: "exp", label: `${t("inventoryExpiring", "Expiring")} (${expCount})`, color: "#F59E0B" },
         ].map((f) => (
           <button key={f.k} onClick={() => setFilter(f.k)}
             className={`text-[11px] font-medium px-2.5 py-1 rounded-md border transition
@@ -515,7 +528,9 @@ function InventoryPanel({ items, currency, onNavigate }) {
               {it.status !== "ok" && (
                 <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded
                   ${it.status === "critical" ? "text-red-600 bg-red-100 dark:bg-red-900/20" : "text-amber-600 bg-amber-100 dark:bg-amber-900/20"}`}>
-                  {it.status === "critical" ? "Critical" : "Low"}
+                  {it.status === "critical"
+                    ? t("inventoryCritical", "Critical")
+                    : t("inventoryLow", "Low")}
                 </span>
               )}
             </div>
@@ -528,10 +543,10 @@ function InventoryPanel({ items, currency, onNavigate }) {
               </span>
             </div>
             <div className="flex gap-3 mt-1 text-[10px] text-gray-400">
-              <span>Min: {it.min}</span>
+              <span>{t("inventoryMin", "Min")}: {it.min}</span>
               {it.daysToExpiry < 999 && (
                 <span className={it.daysToExpiry <= 3 ? "text-amber-500 font-semibold" : ""}>
-                  Exp: {it.daysToExpiry}d
+                  {t("inventoryExpShort", "Exp")}: {it.daysToExpiry}{t("daysShort", "d")}
                 </span>
               )}
             </div>
@@ -543,7 +558,7 @@ function InventoryPanel({ items, currency, onNavigate }) {
       {lowCount > 0 && (
         <div className="mt-3 px-3 py-2.5 rounded-xl bg-red-50 dark:bg-red-900/10 border border-red-200/50 dark:border-red-800/30">
           <p className="text-xs font-semibold text-red-600 dark:text-red-400 mb-1">
-            📦 Reorder needed ({lowCount} items)
+            📦 {t("reorderNeeded", "Reorder needed")} ({lowCount} {t("inventoryItemsLabel", "items")})
           </p>
           <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-2">
             {processed.filter((i) => i.isLow).map((i) => i.name).slice(0, 4).join(", ")}
@@ -657,10 +672,10 @@ function AlertsPanel({ actionItems, summary, weekComparison, onNavigate }) {
       {/* Filter pills */}
       <div className="flex gap-1.5 mb-3 overflow-x-auto">
         {[
-          { k: "all", label: "All", color: "#f1f1f1" },
-          { k: "critical", label: `Critical (${critCount})`, color: "#EF4444" },
-          { k: "warning", label: "Warnings", color: "#F59E0B" },
-          { k: "info", label: "Info", color: "#3B82F6" },
+          { k: "all", label: t("alertsAll", "All"), color: "#f1f1f1" },
+          { k: "critical", label: `${t("alertsCritical", "Critical")} (${critCount})`, color: "#EF4444" },
+          { k: "warning", label: t("alertsWarnings", "Warnings"), color: "#F59E0B" },
+          { k: "info", label: t("alertsInfo", "Info"), color: "#3B82F6" },
         ].map((f) => (
           <button key={f.k} onClick={() => setFilter(f.k)}
             className={`text-[11px] font-medium px-2.5 py-1 rounded-md border whitespace-nowrap transition
@@ -694,7 +709,9 @@ function AlertsPanel({ actionItems, summary, weekComparison, onNavigate }) {
           </div>
         ))}
         {visible.length === 0 && (
-          <p className="text-center py-4 text-sm text-gray-400">✅ All clear — no active alerts</p>
+          <p className="text-center py-4 text-sm text-gray-400">
+            ✅ {t("alertsAllClear", "All clear — no active alerts")}
+          </p>
         )}
       </div>
     </div>
@@ -722,11 +739,28 @@ function PLCard({ revenue, expenses, profit, margin, currency, onNavigate, loadi
       <div className="border-b border-gray-100 dark:border-gray-700 pb-3 mb-3 space-y-2">
         <div className="flex justify-between">
           <span className="text-sm text-gray-500 dark:text-gray-400">{t("revenue")}</span>
-          <span className="text-sm font-semibold text-green-600 dark:text-green-400">{loading ? placeholder : `+${revenue.toLocaleString()} ${currency}`}</span>
+          <span className="text-sm font-semibold text-green-600 dark:text-green-400">
+            {loading
+              ? placeholder
+              // Revenue is always non-negative in our model — but be
+              // defensive in case of voids/refunds being aggregated.
+              : (revenue >= 0
+                  ? `+${revenue.toLocaleString()} ${currency}`
+                  : `−${Math.abs(revenue).toLocaleString()} ${currency}`)}
+          </span>
         </div>
         <div className="flex justify-between">
           <span className="text-sm text-gray-500 dark:text-gray-400">{t("expenses")}</span>
-          <span className="text-sm font-semibold text-red-500 dark:text-red-400">{loading ? placeholder : `-${expenses.toLocaleString()} ${currency}`}</span>
+          <span className="text-sm font-semibold text-red-500 dark:text-red-400">
+            {loading
+              ? placeholder
+              // Guard against double-minus when an expense row is itself
+              // negative (refund / reversal aggregated into the total).
+              // Old code printed "--1500 DKK" — wrong + ugly.
+              : (expenses >= 0
+                  ? `−${expenses.toLocaleString()} ${currency}`
+                  : `+${Math.abs(expenses).toLocaleString()} ${currency}`)}
+          </span>
         </div>
       </div>
 

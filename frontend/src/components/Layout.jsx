@@ -280,9 +280,24 @@ export default function Layout() {
   useEffect(() => {
     const onKey = (e) => {
       const isCmdOrCtrl = e.metaKey || e.ctrlKey;
+      // ⌘K / Ctrl+K — power-user keyboard shortcut (always works)
       if (isCmdOrCtrl && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
         setSearchOpen(true);
+        return;
+      }
+      // "/" — Slack / GitHub / Notion convention. Only fires when the
+      // user isn't typing into something — prevents stealing keystrokes
+      // from inputs / textareas / contenteditable fields.
+      if (e.key === "/" && !isCmdOrCtrl && !e.altKey && !e.shiftKey) {
+        const tag = (e.target?.tagName || "").toLowerCase();
+        const isEditable =
+          tag === "input" || tag === "textarea" || tag === "select" ||
+          e.target?.isContentEditable;
+        if (!isEditable) {
+          e.preventDefault();
+          setSearchOpen(true);
+        }
       }
     };
     window.addEventListener("keydown", onKey);

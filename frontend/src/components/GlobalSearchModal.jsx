@@ -310,9 +310,39 @@ export default function GlobalSearchModal({ open, onClose }) {
             </div>
           )}
 
-          {/* Empty state */}
+          {/* Empty state — true command-palette style.
+              Quick actions on top (one-tap "do something") +
+              recent searches OR sample search terms below it.
+              Click any quick action → navigate + close modal. */}
           {!query && (
             <div className="px-4 py-3">
+              {/* Quick actions — the most-common "I want to do X now"
+                  intents. Tap = navigate to the page (which auto-opens
+                  the relevant create flow). Matches Notion/Linear UX. */}
+              <p className="text-[11px] text-gray-400 uppercase tracking-wider mb-2 font-semibold">
+                {t("searchQuickActions", "Quick actions")}
+              </p>
+              <div className="grid grid-cols-2 gap-1.5 mb-4">
+                {[
+                  { icon: "💰", label: t("newSaleAction", "New sale"),         to: "/sales?new=1" },
+                  { icon: "💸", label: t("newExpenseAction", "New expense"),   to: "/expenses?new=1" },
+                  { icon: "🧾", label: t("newInvoiceAction", "New faktura"),   to: "/faktura?new=1" },
+                  { icon: "📋", label: t("dailyCloseAction", "Close the day"), to: "/daily-close" },
+                  { icon: "📦", label: t("scanReceiptAction", "Scan receipt"), to: "/expenses?scan=1" },
+                  { icon: "📤", label: t("sendToAccountantAction", "Send to accountant"), to: "/daily-close" },
+                ].map((qa) => (
+                  <button
+                    key={qa.to + qa.label}
+                    onClick={() => { onClose(); navigate(qa.to); }}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700/40 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 hover:text-emerald-700 dark:hover:text-emerald-300 text-xs sm:text-sm text-gray-700 dark:text-gray-200 transition text-left"
+                  >
+                    <span className="text-base shrink-0">{qa.icon}</span>
+                    <span className="truncate">{qa.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Recent searches OR sample queries */}
               <p className="text-[11px] text-gray-400 uppercase tracking-wider mb-2 font-semibold">
                 {recents.length
                   ? (t("searchRecent") || "Recent")
@@ -392,6 +422,10 @@ export default function GlobalSearchModal({ open, onClose }) {
           <span><kbd className="font-mono px-1 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">↑↓</kbd> {t("searchHintNavigate") || "navigate"}</span>
           <span><kbd className="font-mono px-1 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">↵</kbd> {t("searchHintOpen") || "open"}</span>
           <span><kbd className="font-mono px-1 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">esc</kbd> {t("searchHintClose") || "close"}</span>
+          <span className="ml-auto">
+            <kbd className="font-mono px-1 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">/</kbd>
+            {" "}{t("searchHintReopen", "to re-open")}
+          </span>
         </div>
       </div>
     </div>
