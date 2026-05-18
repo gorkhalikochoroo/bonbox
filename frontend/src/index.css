@@ -99,27 +99,42 @@ body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
-/* === iOS Native Feel === */
+/* ════════════════════════════════════════════════════════════════
+   TOUCH-DEVICE BEHAVIOURS
+   ────────────────────────────────────────────────────────────────
+   Everything in this block was previously global and silently
+   broke Windows/desktop:
+     • 16px input font-size with !important overrode every Tailwind
+       text-xs / text-sm form control across the app
+     • 44px button/anchor min-height made inline text links + dense
+       table rows look comically tall on Windows mouse users
+     • :active { scale(0.97); opacity: 0.7 } made every mouse click
+       flash + shrink — twitchy desktop feel
+   Now scoped to `(pointer: coarse)` so they only apply on actual
+   touch devices (phones, tablets). Desktop browsers keep their
+   native chrome.
+   ════════════════════════════════════════════════════════════════ */
+@media (pointer: coarse) {
+  /* Prevent iOS auto-zoom on input focus — must be 16px+ */
+  input, select, textarea {
+    font-size: 16px;
+  }
 
-/* Prevent iOS auto-zoom on input focus — must be 16px+ */
-input, select, textarea {
-  font-size: 16px !important;
+  /* Minimum 44px touch targets — Apple HIG / Material 48dp */
+  button, a, [role="button"],
+  input[type="checkbox"], input[type="radio"] {
+    min-height: 44px;
+  }
+
+  /* Active press state — native touch feel */
+  button:active, a:active, [role="button"]:active {
+    opacity: 0.7;
+    transform: scale(0.97);
+    transition: all 0.1s ease;
+  }
 }
 
-/* Minimum 44px touch targets — Apple App Store requirement */
-button, a, [role="button"],
-input[type="checkbox"], input[type="radio"] {
-  min-height: 44px;
-}
-
-/* Active press state — iOS native feel */
-button:active, a:active, [role="button"]:active {
-  opacity: 0.7;
-  transform: scale(0.97);
-  transition: all 0.1s ease;
-}
-
-/* Disable text selection on UI chrome */
+/* Disable text selection on UI chrome — safe on all platforms */
 button, nav, [role="button"], .nav-item, .tab {
   -webkit-user-select: none;
   user-select: none;
@@ -130,6 +145,11 @@ button, nav, [role="button"], .nav-item, .tab {
 button, a, input, select, textarea {
   -webkit-tap-highlight-color: transparent;
 }
+
+/* Note: Android Chrome :hover sticky-tap is a known issue but a
+   global reset is too risky (breaks intentional menu/dropdown
+   hover states). Components that want touch-safe hover should use
+   Tailwind's `[@media(hover:hover)]:hover:...` variant pattern. */
 
 /* GPU-accelerated transforms for smooth motion */
 [data-framer-motion],
@@ -160,9 +180,22 @@ html {
   overflow-y: auto;
   overscroll-behavior-y: contain;
 }
-/* Hide scrollbars on iOS (ugly in dark mode) */
-.scrollable::-webkit-scrollbar { display: none; }
-.scrollable { -ms-overflow-style: none; scrollbar-width: none; }
+/* Thin scrollbars on desktop (so users know there's more content);
+   hidden on touch (where the gesture is obvious). Previously hid
+   everywhere — Windows users couldn't see overflow in modals. */
+@media (pointer: coarse) {
+  .scrollable::-webkit-scrollbar { display: none; }
+  .scrollable { -ms-overflow-style: none; scrollbar-width: none; }
+}
+@media (pointer: fine) {
+  .scrollable { scrollbar-width: thin; }
+  .scrollable::-webkit-scrollbar { width: 8px; height: 8px; }
+  .scrollable::-webkit-scrollbar-thumb {
+    background-color: rgba(120, 113, 108, 0.35);
+    border-radius: 4px;
+  }
+  .scrollable::-webkit-scrollbar-track { background: transparent; }
+}
 
 /* Prevent body scroll when modal is open */
 body.modal-open {
