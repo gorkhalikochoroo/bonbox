@@ -5,6 +5,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useBranch } from "../components/BranchSelector";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
+import { UpgradeNudge } from "../components/ui";
 
 /* ═══════════════════════════════════════════════════════════
    CONSTANTS & HELPERS
@@ -242,6 +243,9 @@ export default function StaffSchedulePage() {
   const [exporting, setExporting] = useState(false);
   const [emailing, setEmailing] = useState(false);
   const [emailToast, setEmailToast] = useState("");
+  // UpgradeNudge state — bulk-staff-email is Pro+. Free/Starter
+  // users still get the PDF download for printing/WhatsApp share.
+  const [upgradeNudge, setUpgradeNudge] = useState(null);
 
   /** Email this week's schedule directly to every active staff
    *  member with an email on file. Reply-to is set server-side to
@@ -286,7 +290,20 @@ export default function StaffSchedulePage() {
       setEmailToast(msg);
       setTimeout(() => setEmailToast(""), 7000);
     } catch (err) {
-      setError(err?.response?.data?.detail?.message || err?.response?.data?.detail || (t("scheduleEmailFailedAll", "Couldn't email the schedule.")));
+      const detail = err?.response?.data?.detail;
+      // 402 plan_required — surface as the UpgradeNudge dialog so the
+      // owner sees a clean Pro pitch instead of a generic error toast.
+      if (err?.response?.status === 402 &&
+          detail?.code === "plan_required" &&
+          detail?.feature === "bulk_staff_email") {
+        setUpgradeNudge({
+          tier: detail.required_plan || "pro",
+          benefit: t("nudgeBulkStaffEmail", "Email this week's schedule to every staff member in one tap"),
+          icon: "📧",
+        });
+      } else {
+        setError(detail?.message || (typeof detail === "string" ? detail : null) || (t("scheduleEmailFailedAll", "Couldn't email the schedule.")));
+      }
     } finally {
       setEmailing(false);
     }
@@ -554,6 +571,20 @@ export default function StaffSchedulePage() {
             fetchShifts();
           }}
           branchId={branchId}
+        />
+      )}
+
+      {/* Upgrade nudge — Free/Starter user trying bulk-email-staff
+          (Pro+). The PDF download button stays available so they
+          can still print or paste a link into WhatsApp. */}
+      {upgradeNudge && (
+        <UpgradeNudge
+          intent="dialog"
+          tier={upgradeNudge.tier}
+          benefit={upgradeNudge.benefit}
+          icon={upgradeNudge.icon}
+          ctaLabel={t("nudgeSeePlans", "See plans")}
+          onTry={() => setUpgradeNudge(null)}
         />
       )}
     </div>

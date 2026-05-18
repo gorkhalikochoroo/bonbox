@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
 import HowItWorksCard from "../components/HowItWorksCard";
+import { UpgradeNudge } from "../components/ui";
 
 /**
  * FakturaPage — list + create + send.
@@ -54,6 +55,16 @@ export default function FakturaPage() {
     fetchAll();
   }, [hasAccess, statusFilter, fromDate, toDate]);
 
+  // Faktura monthly usage — drives the "12 of 30 this month" chip
+  // and the "approaching cap" UpgradeNudge banner near the limit.
+  // null = not loaded yet (Pro shows nothing); on Starter shows the
+  // chip + a soft "Upgrade to Pro for unlimited" hint at 80%+.
+  const [usage, setUsage] = useState(null);
+  // Modal-style nudge — fires when /invoices POST returns 402 because
+  // the user hit their Starter monthly cap. Provides a clear pitch
+  // instead of a generic error.
+  const [upgradeNudge, setUpgradeNudge] = useState(null);
+
   const fetchAll = async () => {
     setLoading(true);
     try {
@@ -61,16 +72,18 @@ export default function FakturaPage() {
       if (statusFilter) params.status_filter = statusFilter;
       if (fromDate) params.from_date = fromDate;
       if (toDate) params.to_date = toDate;
-      // Fire all 3 in parallel — pending-count is cheap (single COUNT query
-      // server-side) so we can fetch on every refresh without lag.
-      const [inv, cust, pending] = await Promise.all([
+      // Fire all 4 in parallel — payment-suggestions + usage are both
+      // single-COUNT queries server-side so the parallelism is free.
+      const [inv, cust, pending, usageRes] = await Promise.all([
         api.get("/invoices", { params }),
         api.get("/customers"),
         api.get("/payment-suggestions/pending-count").catch(() => ({ data: { pending_count: 0 } })),
+        api.get("/invoices/usage").catch(() => ({ data: null })),
       ]);
       setInvoices(inv.data);
       setCustomers(cust.data);
       setPendingCount(pending.data?.pending_count || 0);
+      setUsage(usageRes.data);
     } catch (e) {
       setError(e?.response?.data?.detail || "Failed to load");
     } finally {
@@ -129,6 +142,45 @@ export default function FakturaPage() {
         </button>
         </div>
       </div>
+
+      {/* Monthly usage chip — only shown for tiers with a real cap
+          (Starter). Pro / Trial = unlimited → no chip. Free can't
+          reach this page because hasAccess gates everything. */}
+      {usage && !usage.unlimited && typeof usage.monthly_cap === "number" && (
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-900/40 border border-stone-200 dark:border-stone-800 text-xs">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-stone-500 dark:text-stone-400">
+              {t("fakturaMonthlyUsage", "This month")}
+            </span>
+            <span className="font-semibold text-stone-800 dark:text-stone-100">
+              {usage.used_this_month} / {usage.monthly_cap}
+            </span>
+            {/* Progress bar */}
+            <div className="hidden sm:block flex-1 max-w-[160px] h-1.5 bg-stone-200 dark:bg-stone-700 rounded-full overflow-hidden ml-2">
+              <div
+                className={
+                  "h-full transition-all " +
+                  (usage.used_this_month / usage.monthly_cap >= 0.9
+                    ? "bg-amber-500"
+                    : "bg-emerald-500")
+                }
+                style={{
+                  width: `${Math.min(100, (usage.used_this_month / usage.monthly_cap) * 100)}%`,
+                }}
+              />
+            </div>
+          </div>
+          {/* Soft nudge once Starter is at 80% — gentle "Pro is
+              unlimited" reminder. Not blocking; just informational. */}
+          {usage.used_this_month / usage.monthly_cap >= 0.8 && (
+            <UpgradeNudge
+              intent="inline"
+              tier="pro"
+              benefit={t("nudgeUnlimitedFakt", "Unlimited fakturaer")}
+            />
+          )}
+        </div>
+      )}
 
       {customers.length === 0 && (
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-2xl p-4 text-sm text-blue-800 dark:text-blue-300">
@@ -320,7 +372,32 @@ export default function FakturaPage() {
             setShowForm(false);
             fetchAll();
           }}
+          onPlanCap={(detail) => {
+            // Starter hit the 30/month cap. Close the form and surface
+            // the Pro upgrade dialog with the used/cap counts.
+            setShowForm(false);
+            setUpgradeNudge({
+              tier: detail.required_plan || "pro",
+              benefit: t(
+                "nudgeInvoiceCap",
+                `You've issued ${detail.used_this_month} of ${detail.monthly_cap} fakturaer this month. Pro is unlimited.`
+              ),
+              icon: "🧾",
+            });
+          }}
           t={t}
+        />
+      )}
+
+      {/* Upgrade nudge dialog — Starter user hit the monthly cap */}
+      {upgradeNudge && (
+        <UpgradeNudge
+          intent="dialog"
+          tier={upgradeNudge.tier}
+          benefit={upgradeNudge.benefit}
+          icon={upgradeNudge.icon}
+          ctaLabel={t("nudgeSeePlans", "See plans")}
+          onTry={() => setUpgradeNudge(null)}
         />
       )}
     </div>
@@ -542,7 +619,7 @@ function InvoiceRow({ invoice, customer, onChanged, t }) {
 
 // ─── Create modal ──────────────────────────────────────────────────
 
-function CreateInvoiceModal({ customers, onClose, onCreated, t }) {
+function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, t }) {
   const [customerId, setCustomerId] = useState(customers[0]?.id || "");
   const [issueDate, setIssueDate] = useState(new Date().toISOString().slice(0, 10));
   // Optional leveringsdato — only rendered on the PDF when it differs
@@ -610,7 +687,20 @@ function CreateInvoiceModal({ customers, onClose, onCreated, t }) {
       await api.post("/invoices", payload);
       onCreated();
     } catch (err) {
-      setError(err?.response?.data?.detail || "Create failed");
+      const detail = err?.response?.data?.detail;
+      // 402 plan_required with the faktura cap detail → call the
+      // parent's onPlanCap so the page can surface the UpgradeNudge.
+      if (err?.response?.status === 402 &&
+          detail?.code === "plan_required" &&
+          typeof detail?.used_this_month === "number" &&
+          onPlanCap) {
+        onPlanCap(detail);
+        return;
+      }
+      setError(
+        detail?.message ||
+        (typeof detail === "string" ? detail : "Create failed")
+      );
     } finally {
       setSaving(false);
     }

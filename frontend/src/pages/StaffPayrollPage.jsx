@@ -6,6 +6,7 @@ import { displayCurrency } from "../utils/currency";
 import { formatDate } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
+import { UpgradeNudge } from "../components/ui";
 
 /* ═══════════════════════════════════════════════════════════
    HELPERS
@@ -285,6 +286,10 @@ export default function StaffPayrollPage() {
    */
   const [sending, setSending] = useState(false);
   const [sendToast, setSendToast] = useState("");
+  // UpgradeNudge state — shown as a dialog when a Free user tries
+  // to send payroll to the accountant (Starter+ gated feature).
+  const [upgradeNudge, setUpgradeNudge] = useState(null);
+
   const sendToAccountant = async () => {
     if (!period || selectedIds.size === 0) return;
     setSending(true);
@@ -306,11 +311,24 @@ export default function StaffPayrollPage() {
       }
     } catch (err) {
       const detail = err?.response?.data?.detail;
-      setError(
-        typeof detail === "string"
-          ? detail
-          : (detail?.message || t("payrollSendFailed", "Couldn't email the payroll. Try downloading the PDF instead."))
-      );
+      // 402 plan_required — surface as the tasteful UpgradeNudge dialog
+      // instead of a red error message. Free user can still download
+      // the PDF and attach it manually via the "Generate PDF" button.
+      if (err?.response?.status === 402 &&
+          detail?.code === "plan_required" &&
+          detail?.feature === "direct_accountant_email") {
+        setUpgradeNudge({
+          tier: detail.required_plan || "starter",
+          benefit: t("nudgePayrollSend", "Email payroll to your bogholder in one tap"),
+          icon: "📤",
+        });
+      } else {
+        setError(
+          typeof detail === "string"
+            ? detail
+            : (detail?.message || t("payrollSendFailed", "Couldn't email the payroll. Try downloading the PDF instead."))
+        );
+      }
     } finally {
       setSending(false);
     }
@@ -877,6 +895,21 @@ export default function StaffPayrollPage() {
           )}
         </div>
       </FadeIn>
+
+      {/* Upgrade nudge — Free user trying gated payroll send. The
+          modal explains the value sentence + founding rate price +
+          a "See plans" link. Closing returns them to the page so
+          they can still hit "Generate PDF" and email manually. */}
+      {upgradeNudge && (
+        <UpgradeNudge
+          intent="dialog"
+          tier={upgradeNudge.tier}
+          benefit={upgradeNudge.benefit}
+          icon={upgradeNudge.icon}
+          ctaLabel={t("nudgeSeePlans", "See plans")}
+          onTry={() => setUpgradeNudge(null)}
+        />
+      )}
     </div>
   );
 }

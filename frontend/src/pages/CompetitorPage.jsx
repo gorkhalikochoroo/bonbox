@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
+import { UpgradeNudge } from "../components/ui";
 
 function fmt(n) { return n != null ? Math.round(n).toLocaleString() : "\u2014"; }
 
@@ -159,6 +160,9 @@ export default function CompetitorPage() {
   // a fresh phone snap. Either way → Claude vision extracts items →
   // user reviews extracted rows → bulk-import to price checks.
   const [scanCompId, setScanCompId] = useState(null);
+  // UpgradeNudge state — AI menu scan is Pro+. Free/Starter users
+  // tapping the scan button get the modal closed + the Pro nudge.
+  const [upgradeNudge, setUpgradeNudge] = useState(null);
   const [scanStep, setScanStep] = useState("choose"); // choose | extracting | review
   const [googlePhotos, setGooglePhotos] = useState([]);
   const [googlePhotosLoading, setGooglePhotosLoading] = useState(false);
@@ -218,7 +222,21 @@ export default function CompetitorPage() {
       }
       setScanStep("review");
     } catch (e) {
-      setScanError(e.response?.data?.detail || "Extraction failed. Try again.");
+      // 402 plan_required → close the scan modal entirely and surface
+      // the UpgradeNudge dialog. Free/Starter user trying Pro feature.
+      if (e?.response?.status === 402 &&
+          e.response?.data?.detail?.code === "plan_required" &&
+          e.response?.data?.detail?.feature === "ai_menu_scan") {
+        closeScanModal();
+        setUpgradeNudge({
+          tier: e.response.data.detail.required_plan || "pro",
+          benefit: t("nudgeMenuScan", "Read competitor prices from a photo — 30 items in 10 seconds"),
+          icon: "📷",
+        });
+        return;
+      }
+      const detail = e.response?.data?.detail;
+      setScanError(detail?.message || (typeof detail === "string" ? detail : "Extraction failed. Try again."));
       setScanStep("choose");
     }
   };
@@ -245,7 +263,19 @@ export default function CompetitorPage() {
       }
       setScanStep("review");
     } catch (e) {
-      setScanError(e.response?.data?.detail || "Extraction failed.");
+      if (e?.response?.status === 402 &&
+          e.response?.data?.detail?.code === "plan_required" &&
+          e.response?.data?.detail?.feature === "ai_menu_scan") {
+        closeScanModal();
+        setUpgradeNudge({
+          tier: e.response.data.detail.required_plan || "pro",
+          benefit: t("nudgeMenuScan", "Read competitor prices from a photo — 30 items in 10 seconds"),
+          icon: "📷",
+        });
+        return;
+      }
+      const detail = e.response?.data?.detail;
+      setScanError(detail?.message || (typeof detail === "string" ? detail : "Extraction failed."));
       setScanStep("choose");
     }
   };
@@ -971,6 +1001,20 @@ export default function CompetitorPage() {
             )}
           </div>
         </div>
+      )}
+
+      {/* Upgrade nudge — Free/Starter user tried AI menu scan (Pro+).
+          They can still manually log price checks via the form below
+          the competitor cards. */}
+      {upgradeNudge && (
+        <UpgradeNudge
+          intent="dialog"
+          tier={upgradeNudge.tier}
+          benefit={upgradeNudge.benefit}
+          icon={upgradeNudge.icon}
+          ctaLabel={t("nudgeSeePlans", "See plans")}
+          onTry={() => setUpgradeNudge(null)}
+        />
       )}
     </div>
   );
