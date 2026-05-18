@@ -211,10 +211,13 @@ export default function FakturaPage() {
               "Add line items (description, qty, unit price). Moms (25 % default) and totals calculate live. Save as draft to edit later.",
           },
           {
-            title: t("fakturaStep3Title") || "3. Send — PDF + mailto",
+            // Updated 2026-05-19 — direct Resend send is now the
+            // primary path; mailto only as fallback if the server
+            // can't deliver (Resend down / customer.email missing).
+            title: t("fakturaStep3TitleNew", "3. Send — one tap, direct email"),
             body:
-              t("fakturaStep3Body") ||
-              "Click Send: the invoice locks, the PDF downloads, and your mail app opens pre-filled with the customer's email + subject + body. Attach the PDF and hit Send.",
+              t("fakturaStep3BodyNew",
+                "Click Send: the invoice locks, the PDF goes straight to the customer's inbox via BonBox, and you're CC'd on every send. Reply-to is your email so the customer replies to you, not to noreply."),
           },
           {
             title: t("fakturaStep4Title") || "4. Get paid — auto-matched",

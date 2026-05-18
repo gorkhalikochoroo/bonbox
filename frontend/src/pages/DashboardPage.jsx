@@ -770,7 +770,12 @@ function PLCard({ revenue, expenses, profit, margin, currency, onNavigate, loadi
           <p className={`text-xl font-bold ${loading ? "text-gray-400" : (isProfit ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400")}`}>
             {loading ? placeholder : `${isProfit ? "+" : ""}${profit.toLocaleString()} ${currency}`}
           </p>
-          <p className="text-xs text-gray-400">{loading ? " " : t("marginColonPct", { pct: margin })}</p>
+          <p className="text-xs text-gray-400">
+            {/* t() doesn't do {pct} interpolation — substitute at call
+                site. Previously this rendered the literal "Margin: {pct}%"
+                because the object 2nd arg was ignored. */}
+            {loading ? " " : t("marginColonPct", "Margin: {pct}%").replace("{pct}", margin)}
+          </p>
         </div>
       </div>
 
