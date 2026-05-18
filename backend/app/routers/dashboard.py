@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Path, Query, Request
 from sqlalchemy import func, extract
 from sqlalchemy.orm import Session
 
@@ -43,6 +43,88 @@ _ai_limiter = Limiter(key_func=get_remote_address)
 
 OPEN_METEO_FORECAST = "https://api.open-meteo.com/v1/forecast"
 
+
+# Per-process weather cache. The Open-Meteo call sits *inside* a request
+# handler that's holding a DB pool connection — at 5s timeout, 3 slow
+# fetches can pin 3 of our 15 pool slots indefinitely. We now serve
+# weather from cache (1-hour TTL, geo-quantized to ~1km precision so
+# multiple users in the same neighborhood share entries) and only call
+# Open-Meteo on misses with a 2s timeout. Cache key uses rounded lat/lon
+# so two users at (55.6761, 12.5683) and (55.6759, 12.5685) share the
+# same response. Bound the dict to ~500 keys to cap memory.
+_WEATHER_CACHE: dict[tuple[float, float, str], tuple[float, dict]] = {}
+_WEATHER_TTL_SECONDS = 3600
+
+
+def _fetch_weather_cached(lat: float, lon: float) -> dict | None:
+    """Return Open-Meteo daily/current forecast for (lat, lon), or None.
+
+    Cached per (rounded lat, rounded lon, today's ISO date) for 1h. The
+    `today` part of the key forces a refresh at the day boundary even
+    if the previous response is still inside the TTL window.
+    """
+    if lat is None or lon is None:
+        return None
+    import time as _time
+    now = _time.time()
+    today_iso = date.today().isoformat()
+    key = (round(float(lat), 2), round(float(lon), 2), today_iso)
+
+    cached = _WEATHER_CACHE.get(key)
+    if cached and (now - cached[0] < _WEATHER_TTL_SECONDS):
+        return cached[1]
+
+    try:
+        resp = httpx.get(OPEN_METEO_FORECAST, params={
+            "latitude": lat, "longitude": lon,
+            "current": "temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m,precipitation",
+            "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,wind_speed_10m_max",
+            "timezone": "auto",
+        }, timeout=2.5)
+    except Exception as exc:  # noqa: BLE001 - network failures must not 500 /batch
+        logger.warning("Weather fetch error: %s", exc)
+        return None
+    if resp.status_code != 200:
+        return None
+    payload = resp.json()
+    w_data = payload["daily"]
+    current_data = payload.get("current", {})
+    current = None
+    if current_data:
+        cwmo = current_data.get("weather_code", 0)
+        current = {
+            "temperature": current_data.get("temperature_2m"),
+            "feels_like": current_data.get("apparent_temperature"),
+            "humidity": current_data.get("relative_humidity_2m"),
+            "wind_speed": current_data.get("wind_speed_10m"),
+            "precipitation": current_data.get("precipitation"),
+            "weather_code": cwmo,
+            "condition": _WMO_MAP.get(cwmo, "cloudy"),
+        }
+    days = []
+    for i in range(len(w_data["time"])):
+        wmo = w_data["weather_code"][i]
+        days.append({
+            "date": w_data["time"][i],
+            "temp_max": w_data["temperature_2m_max"][i],
+            "temp_min": w_data["temperature_2m_min"][i],
+            "precipitation": w_data["precipitation_sum"][i],
+            "wind_speed": w_data["wind_speed_10m_max"][i],
+            "weather_code": wmo,
+            "condition": _WMO_MAP.get(wmo, "cloudy"),
+        })
+    result = {"current": current, "days": days, "timezone": payload.get("timezone", "UTC")}
+
+    # Bound cache size to avoid unbounded growth in long-running workers
+    if len(_WEATHER_CACHE) > 500:
+        # Drop oldest 100 entries (cheap-and-cheerful LRU substitute)
+        oldest = sorted(_WEATHER_CACHE.items(), key=lambda kv: kv[1][0])[:100]
+        for k, _ in oldest:
+            _WEATHER_CACHE.pop(k, None)
+
+    _WEATHER_CACHE[key] = (now, result)
+    return result
+
 # WMO weather code -> condition (duplicated from weather router to avoid import)
 _WMO_MAP = {
     0: "clear", 1: "clear", 2: "cloudy", 3: "cloudy",
@@ -57,10 +139,15 @@ _WMO_MAP = {
 
 
 @router.get("/batch")
+@_ai_limiter.limit("60/minute")  # Heaviest endpoint — 15 queries + outbound HTTPS
 def get_dashboard_batch(
-    period: str = Query("month"),
-    year: Optional[int] = Query(None),
-    month: Optional[int] = Query(None),
+    request: Request,
+    # Bounded inputs — pre-fix, year=99999999 / month=99 surfaced
+    # calendar.IllegalMonthError / OverflowError as uncaught 500 with
+    # stack traces. The 2026-05-16 fuzzer would 100% hit this.
+    period: str = Query("month", pattern="^(day|week|month|year)$"),
+    year: Optional[int] = Query(None, ge=2000, le=2100),
+    month: Optional[int] = Query(None, ge=1, le=12),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -662,47 +749,18 @@ def get_dashboard_batch(
         for r in pay_rows
     ]
 
-    # ── 13. WEATHER FORECAST (optional) ──────────────────────────
+    # ── 13. WEATHER FORECAST (optional, 1h cached) ───────────────
+    # Open-Meteo call now goes through _fetch_weather_cached() — 1h
+    # TTL keyed by rounded geo so neighbors share entries. Drops both
+    # the latency (1-3s on miss → 0ms on hit) and the connection-pool
+    # pressure (DB session was previously pinned for the full HTTP
+    # round trip). Defensive shape — never blocks the rest of /batch.
     weather_data = None
     try:
-        lat = getattr(user, "latitude", None)
-        lon = getattr(user, "longitude", None)
-        if lat and lon:
-            resp = httpx.get(OPEN_METEO_FORECAST, params={
-                "latitude": lat, "longitude": lon,
-                "current": "temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m,precipitation",
-                "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,wind_speed_10m_max",
-                "timezone": "auto",
-            }, timeout=5)
-            if resp.status_code == 200:
-                body = resp.json()
-                w_data = body["daily"]
-                current_data = body.get("current", {})
-                current = None
-                if current_data:
-                    cwmo = current_data.get("weather_code", 0)
-                    current = {
-                        "temperature": current_data.get("temperature_2m"),
-                        "feels_like": current_data.get("apparent_temperature"),
-                        "humidity": current_data.get("relative_humidity_2m"),
-                        "wind_speed": current_data.get("wind_speed_10m"),
-                        "precipitation": current_data.get("precipitation"),
-                        "weather_code": cwmo,
-                        "condition": _WMO_MAP.get(cwmo, "cloudy"),
-                    }
-                days = []
-                for i in range(len(w_data["time"])):
-                    wmo = w_data["weather_code"][i]
-                    days.append({
-                        "date": w_data["time"][i],
-                        "temp_max": w_data["temperature_2m_max"][i],
-                        "temp_min": w_data["temperature_2m_min"][i],
-                        "precipitation": w_data["precipitation_sum"][i],
-                        "wind_speed": w_data["wind_speed_10m_max"][i],
-                        "weather_code": wmo,
-                        "condition": _WMO_MAP.get(wmo, "cloudy"),
-                    })
-                weather_data = {"current": current, "days": days, "timezone": body.get("timezone", "UTC")}
+        weather_data = _fetch_weather_cached(
+            getattr(user, "latitude", None),
+            getattr(user, "longitude", None),
+        )
     except Exception as exc:
         logger.warning("Batch: weather fetch failed: %s", exc)
 
@@ -733,6 +791,10 @@ def get_dashboard_batch(
             else:
                 budget_map[b.category] = float(b.limit_amount)
 
+        # Sargable date filter — extract("year/month", date) is NOT
+        # index-friendly (Postgres can't use ix_expense_user_date).
+        # Use the bounded range instead — same semantics, but Postgres
+        # walks the index. month_start/month_end were computed above.
         spending_rows = (
             db.query(ExpenseCategory.name, func.sum(Expense.amount))
             .join(ExpenseCategory, Expense.category_id == ExpenseCategory.id)
@@ -740,8 +802,8 @@ def get_dashboard_batch(
                 Expense.user_id == user.id,
                 Expense.is_personal == False,
                 Expense.is_deleted.isnot(True),
-                extract("year", Expense.date) == target_year,
-                extract("month", Expense.date) == target_month,
+                Expense.date >= month_start,
+                Expense.date <= month_end,
             )
             .group_by(ExpenseCategory.name)
             .all()
@@ -999,7 +1061,12 @@ class DismissAlertRequest(BaseModel):
 @_ai_limiter.limit("60/minute")
 def dismiss_anomaly(
     request: Request,
-    alert_id: str,
+    # UUID-shaped string only — caps payload size + ensures the value
+    # is the right shape before it hits SQLAlchemy (defence in depth;
+    # SA already parameterises but pre-validation gives cleaner errors
+    # and stops 1-MB-string log floods).
+    alert_id: str = Path(..., min_length=8, max_length=64,
+                         pattern=r"^[0-9a-fA-F-]{8,64}$"),
     body: DismissAlertRequest | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -1148,7 +1215,9 @@ def get_summary(
 def get_top_sellers(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-    days: int = 30,
+    # Bounded — pre-fix, days=10**18 caused OverflowError in timedelta.
+    # Upper bound is 365 (one year of trailing data).
+    days: int = Query(30, ge=1, le=365),
 ):
     """Top selling items by revenue and quantity in the last N days."""
     since = date.today() - timedelta(days=days)

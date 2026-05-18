@@ -813,6 +813,16 @@ _migrations = [
     # so existing tenants don't break.
     "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS cuisine VARCHAR(60)",
     "CREATE INDEX IF NOT EXISTS ix_business_profiles_cuisine ON business_profiles (cuisine)",
+
+    # ── Migration 037: Khata user_id indexes (dashboard perf) ──
+    # The dashboard's "receivable" computation joins khata_customers +
+    # khata_transactions and filters by user_id on both. Neither column
+    # was indexed, so Postgres seq-scanned both tables on every batch.
+    # The new ix_khata_*_user_id indexes are idempotent (IF NOT EXISTS)
+    # so re-runs are safe.
+    "CREATE INDEX IF NOT EXISTS ix_khata_customers_user_id ON khata_customers (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_khata_transactions_user_id ON khata_transactions (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_khata_transactions_customer_id ON khata_transactions (customer_id)",
 ]
 
 

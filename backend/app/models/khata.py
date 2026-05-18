@@ -12,7 +12,9 @@ class KhataCustomer(Base):
     __tablename__ = "khata_customers"
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
+    # Indexed: every Khata query in dashboard.py filters by user_id;
+    # without the index Postgres seq-scans on every dashboard load.
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"), index=True)
     name: Mapped[str] = mapped_column(String(200))
     phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -27,8 +29,11 @@ class KhataTransaction(Base):
     __tablename__ = "khata_transactions"
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
-    customer_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("khata_customers.id"))
-    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
+    # Composite-friendly indexes: dashboard receivable query filters
+    # (user_id) and joins on customer_id. Two single-column indexes
+    # cover both lookup patterns without needing a multi-column one.
+    customer_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("khata_customers.id"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"), index=True)
     date: Mapped[date] = mapped_column(Date)
     purchase_amount: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     paid_amount: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
