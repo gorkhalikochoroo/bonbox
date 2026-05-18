@@ -71,7 +71,7 @@ export default function SmartLanguageToast() {
     <div
       role="status"
       aria-live="polite"
-      className="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-md w-[92vw] sm:w-auto px-4 py-2.5 rounded-xl bg-gray-900/95 text-white shadow-lg flex items-center gap-3 text-[13px]"
+      className="fixed left-1/2 -translate-x-1/2 z-50 max-w-md w-[92vw] sm:w-auto px-4 py-2.5 rounded-xl bg-gray-900/95 text-white shadow-lg flex items-center gap-3 text-[13px] top-[max(1rem,env(safe-area-inset-top))]"
     >
       <span className="flex-1 min-w-0">
         <span aria-hidden>🌍 </span>

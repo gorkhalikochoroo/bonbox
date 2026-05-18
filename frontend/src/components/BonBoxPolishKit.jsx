@@ -122,7 +122,9 @@ export function useToast() {
   }, []);
 
   const ToastContainer = () => (
-    <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
+    // Safe-area aware: toasts dodge the notch on iPhone X+/Android punch-holes.
+    // max(1rem, env(...)) keeps the existing 16px offset on no-notch devices.
+    <div className="fixed right-4 z-50 flex flex-col gap-2 pointer-events-none top-[max(1rem,env(safe-area-inset-top))]">
       {toasts.map((toast) => (
         <div
           key={toast.id}

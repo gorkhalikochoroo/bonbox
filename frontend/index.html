@@ -4,7 +4,13 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <!-- viewport-fit=cover exposes env(safe-area-inset-*) so layouts can
+         dodge the notch / punch-hole camera. We dropped maximum-scale +
+         user-scalable=no so kitchen owners can pinch-zoom into a small
+         kasserapport thumbnail or read fine print on faktura — WCAG
+         2.1 (1.4.4) requires zoom to work. iOS auto-zoom on inputs is
+         already handled by the 16px font-size in index.css. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#22c55e" />
     <meta name="description" content="BonBox — Multi-terminal close for hospitality. Front-of-house snaps each kasserapport, AI merges them in 6 seconds, owner gets the consolidated PDF before close-up is done. Built for the closer. Owned by the owner. Not bookkeeping. Not POS." />
     <meta name="apple-mobile-web-app-capable" content="yes" />

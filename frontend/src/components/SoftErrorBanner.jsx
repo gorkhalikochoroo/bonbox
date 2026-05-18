@@ -55,7 +55,9 @@ export default function SoftErrorBanner() {
     <div
       role="status"
       aria-live="polite"
-      className="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm pointer-events-none"
+      // top-[max(...)] composes the base 1rem offset with the safe-area
+      // inset so notched phones don't tuck the banner behind the camera
+      className="fixed right-4 z-50 flex flex-col gap-2 max-w-sm pointer-events-none top-[max(1rem,env(safe-area-inset-top))]"
     >
       {errors.map((e) => (
         <div

@@ -331,13 +331,20 @@ export default function LandingPage() {
         }
       `}</style>
 
-      {/* ── NAV ────────────────────────────────────────────────── */}
+      {/* ── NAV ──────────────────────────────────────────────────
+          Safe-area aware: nav extends behind the notch / status bar
+          (so the blur covers the whole top edge) but the actual link
+          row sits BELOW the inset, never under the notch. Uses
+          `env(safe-area-inset-top)` which is exposed because we have
+          `viewport-fit=cover` in the viewport meta. Falls back to 0
+          on devices without a notch (Android tablets, desktop). */}
       <nav
         className={`fixed inset-x-0 top-0 z-50 backdrop-blur-xl transition-shadow ${
           scrolled
             ? "bg-[#fafaf7]/90 border-b border-stone-200 shadow-[0_1px_0_rgba(15,23,42,0.04)]"
             : "bg-[#fafaf7]/70 border-b border-transparent"
         }`}
+        style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
       >
         <div className="max-w-6xl mx-auto px-5 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2.5">
@@ -430,8 +437,15 @@ export default function LandingPage() {
         )}
       </nav>
 
-      {/* ── HERO ───────────────────────────────────────────────── */}
-      <Section className="pt-32 sm:pt-36 pb-12 sm:pb-16">
+      {/* ── HERO ───────────────────────────────────────────────────
+          Top padding = base (matches old pt-32 sm:pt-36) PLUS the
+          dynamic notch inset on phones with status-bar cutouts.
+          `env(safe-area-inset-top, 0px)` resolves to 0 on devices
+          without a notch (desktop / older Androids / iPads in portrait)
+          so layout is unchanged there. Tailwind arbitrary-value brackets
+          preserve the `sm:` breakpoint so desktop still gets the
+          original 144px spacing. */}
+      <Section className="pt-[calc(env(safe-area-inset-top,0px)+8rem)] sm:pt-[calc(env(safe-area-inset-top,0px)+9rem)] pb-12 sm:pb-16">
         {/* Single subtle glow — replaces the previous 2 blur circles
             that made the page look like a 2019 SaaS template. */}
         <div className="absolute inset-x-0 top-20 -z-10 flex justify-center pointer-events-none">
