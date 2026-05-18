@@ -908,6 +908,23 @@ def email_schedule_to_staff(
     if (body.lang or "").lower() not in ("en", "da"):
         raise HTTPException(status_code=422, detail="lang must be 'en' or 'da'")
 
+    # Tier gate (Pro+ — bulk-staff feature for multi-employee operations)
+    from app.services.billing import has_feature, effective_plan
+    if not has_feature(user, "bulk_staff_email"):
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "code": "plan_required",
+                "feature": "bulk_staff_email",
+                "required_plan": "pro",
+                "current_plan": effective_plan(user),
+                "message": (
+                    "Email-to-all-staff is on Pro. You can still print the "
+                    "schedule PDF and share it via WhatsApp."
+                ),
+            },
+        )
+
     from io import BytesIO  # noqa: F401 (matches pattern in /schedules/pdf)
     from app.services.staff_schedule_pdf import render_schedule_pdf
     from app.services.email_service import send_email_with_attachment
@@ -2281,13 +2298,29 @@ def send_payroll_to_accountant(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Email the payroll PDF directly to the accountant.
+    """Email the payroll PDF directly to the accountant. Starter+ feature
+    (shares the `direct_accountant_email` flag with the daily-close send).
 
-    Mirrors /daily-close/send-to-accountant — same recipient resolution,
-    same Resend pipeline, same auditing approach. Most owners send
-    payroll to the bogholder monthly; this turns a 5-step manual-attach
-    workflow into one tap.
+    Free users get a 402 + can still download the PDF manually via the
+    existing /payroll/pdf endpoint and attach it themselves.
     """
+    # Tier gate (Polish Pass tier reshuffle)
+    from app.services.billing import has_feature, effective_plan
+    if not has_feature(user, "direct_accountant_email"):
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "code": "plan_required",
+                "feature": "direct_accountant_email",
+                "required_plan": "starter",
+                "current_plan": effective_plan(user),
+                "message": (
+                    "Direct email to your accountant is on Starter. "
+                    "You can still download the payroll PDF and attach it manually."
+                ),
+            },
+        )
+
     from app.services.email_service import send_email_with_attachment
 
     profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()

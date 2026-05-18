@@ -1237,16 +1237,34 @@ def send_to_accountant(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Email the daily-close range to the accountant.
+    """Email the daily-close range to the accountant. Starter+ feature.
 
-    Generates the file in the chosen format (pdf / xlsx / csv) and
-    attaches it to a Resend email. Uses BusinessProfile.accountant_email
-    by default; accepts an override in the body for one-off recipients.
+    Free users hit a structured 402 the frontend uses to render the
+    UpgradeNudge dialog. Free users CAN still download Excel/PDF/CSV
+    and attach via mailto — only the one-tap server-side Resend send
+    is gated. The mailto fallback in the frontend handles them.
 
     Layered defense (same shape as scan-report + export endpoints):
       L1 auth → L2 input bounds → L3 rate limit (5/min) →
-      L4 tenant scope → L5 plan cap → L6 attachment-size cap (25 MB)
+      L4 tenant scope → L5 plan-feature gate → L6 attachment-size cap
     """
+    # Tier gate (Polish Pass tier reshuffle — Starter+ killer feature)
+    from app.services.billing import has_feature, effective_plan
+    if not has_feature(user, "direct_accountant_email"):
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "code": "plan_required",
+                "feature": "direct_accountant_email",
+                "required_plan": "starter",
+                "current_plan": effective_plan(user),
+                "message": (
+                    "Direct email to your accountant is on Starter. "
+                    "You can still download the file and attach it manually."
+                ),
+            },
+        )
+
     profile = db.query(BusinessProfile).filter(
         BusinessProfile.user_id == user.id,
     ).first()

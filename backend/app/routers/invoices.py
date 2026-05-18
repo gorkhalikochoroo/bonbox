@@ -34,6 +34,62 @@ router = APIRouter()
 
 # ─── Endpoints ───────────────────────────────────────────────────────
 
+def _enforce_monthly_invoice_cap(db: Session, user: User, issue_date):
+    """Tier-aware monthly faktura cap. Starter = 30/month. Pro = unlimited.
+    Free is already blocked by `_require_invoicing_plan`.
+
+    Counts invoices issued in the SAME calendar month as the new one
+    (so a Starter user creating a draft dated 2026-05-02 is measured
+    against May's count, not "the last 30 days"). is_voided rows are
+    excluded — voids shouldn't count toward the quota.
+    """
+    from datetime import date as _date
+    from app.services.billing import get_cap, effective_plan
+
+    cap = get_cap(user, "invoices_per_month")
+    if cap is None or cap < 0:
+        return  # unlimited (Pro / Trial)
+
+    # Issue date can be None (defaults to today server-side later); use
+    # today as the reference month if so.
+    target = issue_date or _date.today()
+    month_start = target.replace(day=1)
+    if target.month == 12:
+        next_month_start = target.replace(year=target.year + 1, month=1, day=1)
+    else:
+        next_month_start = target.replace(month=target.month + 1, day=1)
+
+    issued_this_month = (
+        db.query(Invoice)
+        .filter(
+            Invoice.user_id == user.id,
+            Invoice.issue_date >= month_start,
+            Invoice.issue_date < next_month_start,
+            # Voided invoices don't count — the owner had to retract them
+            Invoice.status != "voided",
+        )
+        .count()
+    )
+
+    if issued_this_month >= cap:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "code": "plan_required",
+                "feature": "unlimited_invoices",
+                "required_plan": "pro",
+                "current_plan": effective_plan(user),
+                "used_this_month": issued_this_month,
+                "monthly_cap": cap,
+                "message": (
+                    f"You've issued {issued_this_month} of your {cap} "
+                    f"monthly fakturaer on Starter. Upgrade to Pro for "
+                    f"unlimited invoicing."
+                ),
+            },
+        )
+
+
 @router.post("", response_model=InvoiceResponse, status_code=status.HTTP_201_CREATED)
 def create_invoice(
     data: InvoiceCreate,
@@ -43,7 +99,13 @@ def create_invoice(
     """
     Create a draft invoice. Allocates the next fakturanummer for the
     user × branch × year immediately so the owner sees a stable ID.
+
+    Tier-aware: Starter is capped at 30 invoices/month (per
+    PLAN_CAPS.invoices_per_month). Pro is unlimited. Free is already
+    blocked by `_require_invoicing_plan`. The 402 from the cap returns
+    structured detail the frontend uses to render the UpgradeNudge.
     """
+    _enforce_monthly_invoice_cap(db, user, data.issue_date)
     inv = InvoiceService.create_draft(
         db=db,
         user=user,
@@ -59,6 +121,51 @@ def create_invoice(
     db.commit()
     db.refresh(inv)
     return InvoiceService.to_response_dict(inv)
+
+
+@router.get("/usage")
+def get_invoice_usage(
+    db: Session = Depends(get_db),
+    user: User = Depends(_require_invoicing_plan),
+):
+    """Current-month invoice counter for the UI.
+
+    Returns the same data the UpgradeNudge needs to show e.g.
+    "12 of 30 this month" on the Faktura page, plus the structured
+    plan + cap fields so the page can choose the right tone.
+
+    Used by FakturaPage to render the inline progress chip + the
+    "Upgrade to Pro for unlimited" nudge near the 30-cap edge.
+    """
+    from datetime import date as _date
+    from app.services.billing import get_cap, effective_plan
+
+    today = _date.today()
+    month_start = today.replace(day=1)
+    if today.month == 12:
+        next_month_start = today.replace(year=today.year + 1, month=1, day=1)
+    else:
+        next_month_start = today.replace(month=today.month + 1, day=1)
+
+    used = (
+        db.query(Invoice)
+        .filter(
+            Invoice.user_id == user.id,
+            Invoice.issue_date >= month_start,
+            Invoice.issue_date < next_month_start,
+            Invoice.status != "voided",
+        )
+        .count()
+    )
+    cap = get_cap(user, "invoices_per_month")
+    unlimited = cap is None or cap < 0
+    return {
+        "used_this_month": used,
+        "monthly_cap": (None if unlimited else cap),
+        "unlimited": unlimited,
+        "plan": effective_plan(user),
+        "month": today.strftime("%Y-%m"),
+    }
 
 
 @router.get("", response_model=list[InvoiceResponse])

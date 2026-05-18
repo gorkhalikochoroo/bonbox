@@ -16,6 +16,7 @@ import {
   shareCloseSummary,
 } from "../utils/shareClose";
 import { sendDailyCloseRangeToAccountant } from "../utils/shareDailyCloseRange";
+import { UpgradeNudge } from "../components/ui";
 
 /**
  * Decode an axios error from a blob-typed request.
@@ -1500,6 +1501,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
   // authoritative gate either way.
   const [exportCapDays, setExportCapDays] = useState(366);
   const [planTier, setPlanTier] = useState("free");
+  // UpgradeNudge state — shown as a dialog when a Free user tries
+  // the gated "Send to accountant" feature. Null = no nudge open.
+  const [upgradeNudge, setUpgradeNudge] = useState(null);
   useEffect(() => {
     api.get("/business").then(r => setBusinessProfile(r.data)).catch(() => {});
     api.get("/billing/me").then(r => {
@@ -1618,7 +1622,27 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
           // gets a working path.
           // (We could surface a toast, but the fallback is good UX.)
         } else if (status === 402) {
-          // Plan cap — surface the upgrade CTA same as downloadRange
+          // 402 — plan-required. Two variants:
+          //   • feature: "direct_accountant_email" → Free user trying
+          //     the new gated feature. Show the UpgradeNudge dialog
+          //     instead of an error toast.
+          //   • else (date-range cap exceeded) → keep the old upgrade
+          //     CTA banner behavior for backwards compatibility.
+          const detail = e.response?.data?.detail;
+          if (detail?.code === "plan_required" &&
+              detail?.feature === "direct_accountant_email") {
+            setUpgradeNudge({
+              tier: detail.required_plan || "starter",
+              benefit: t(
+                "nudgeAccountantSend",
+                "Email your accountant in one tap"
+              ),
+              icon: "📤",
+            });
+            setSendingToAccountant(false);
+            return;
+          }
+          // Existing date-range plan-cap path
           const parsed = await parseExportError(e);
           setExportError(parsed.message);
           setExportErrorIsCap(parsed.isPlanCap);
@@ -2202,6 +2226,20 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Upgrade nudge — shown when a Free user tries the gated
+          "Send to accountant" feature. dialog intent renders a
+          centered modal with the value sentence + price + try CTA. */}
+      {upgradeNudge && (
+        <UpgradeNudge
+          intent="dialog"
+          tier={upgradeNudge.tier}
+          benefit={upgradeNudge.benefit}
+          icon={upgradeNudge.icon}
+          ctaLabel={t("nudgeSeePlans", "See plans")}
+          onTry={() => setUpgradeNudge(null)}
+        />
       )}
     </div>
   );

@@ -127,6 +127,9 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "kasse_extracts_per_day": 5,
         "ai_brief_refreshes_per_day": 1,
         "ai_chat_messages_per_day": 10,
+        # Faktura is Starter+ entirely (via require_invoicing_plan)
+        # so Free is hard-blocked, not metered. 0 = no quota at all.
+        "invoices_per_month": 0,
     },
     "starter": {
         "branches": 1,
@@ -139,6 +142,11 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "kasse_extracts_per_day": 30,
         "ai_brief_refreshes_per_day": 3,
         "ai_chat_messages_per_day": 50,
+        # Starter = 30 fakturaer / month. A 30-cover Copenhagen café
+        # typically issues 5-10 invoices/month so the cap doesn't
+        # bite normal users — but B2B-heavy or busier tenants will
+        # bump into it and have a clear "I need Pro" moment.
+        "invoices_per_month": 30,
     },
     "trial": {  # = full Pro for 14 days
         "branches": 3,
@@ -151,6 +159,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "kasse_extracts_per_day": 100,
         "ai_brief_refreshes_per_day": 5,
         "ai_chat_messages_per_day": 200,
+        "invoices_per_month": -1,  # unlimited
     },
     "pro": {
         "branches": 3,
@@ -163,6 +172,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "kasse_extracts_per_day": 100,
         "ai_brief_refreshes_per_day": 5,
         "ai_chat_messages_per_day": 200,
+        "invoices_per_month": -1,  # unlimited
     },
 }
 
@@ -206,6 +216,20 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "custom_export_templates": False,
         "advanced_benchmarks": False,
         "multi_branch_dashboard": False,
+        # Polish Pass 2026-05-17 tier reshuffle (founding rates):
+        # `direct_accountant_email` — Starter+ killer feature.
+        # Free still downloads Excel/PDF/CSV; the new gate is the
+        # one-tap server-side Resend send. Mailto fallback in frontend
+        # gives Free a working path.
+        "direct_accountant_email": False,
+        # `ai_menu_scan` — Pro+ (Claude vision is expensive AND the
+        # bulk-extracts-30-prices-in-10-seconds is the most impressive
+        # value moment we have).
+        "ai_menu_scan": False,
+        # `bulk_staff_email` — Pro+. Solo owners don't need it; it's
+        # a multi-staff feature so it belongs with the other multi-*
+        # entitlements.
+        "bulk_staff_email": False,
     },
     "starter": {
         "ai_anomaly_detection": True,
@@ -215,6 +239,9 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "custom_export_templates": True,
         "advanced_benchmarks": True,
         "multi_branch_dashboard": False,  # 1 branch only on Starter
+        "direct_accountant_email": True,   # THE Starter killer feature
+        "ai_menu_scan": False,
+        "bulk_staff_email": False,
     },
     "trial": {  # = full Pro
         "ai_anomaly_detection": True,
@@ -224,6 +251,9 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "custom_export_templates": True,
         "advanced_benchmarks": True,
         "multi_branch_dashboard": True,
+        "direct_accountant_email": True,
+        "ai_menu_scan": True,
+        "bulk_staff_email": True,
     },
     "pro": {
         "ai_anomaly_detection": True,
@@ -233,6 +263,9 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "custom_export_templates": True,
         "advanced_benchmarks": True,
         "multi_branch_dashboard": True,
+        "direct_accountant_email": True,
+        "ai_menu_scan": True,
+        "bulk_staff_email": True,
     },
 }
 

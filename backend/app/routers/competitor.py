@@ -515,6 +515,28 @@ def _fetch_photo_bytes(photo_reference: str) -> tuple[bytes | None, str]:
         return None, ""
 
 
+def _enforce_menu_scan_plan(user: User):
+    """Tier gate for AI menu scan endpoints. Pro+ only — the Claude
+    vision call is the most expensive thing we offer (~2¢ per scan,
+    bulk-extracts 30 prices in 10 seconds). It's also the most
+    impressive feature we have; gating it gives Pro a clear pitch."""
+    from app.services.billing import has_feature, effective_plan
+    if not has_feature(user, "ai_menu_scan"):
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "code": "plan_required",
+                "feature": "ai_menu_scan",
+                "required_plan": "pro",
+                "current_plan": effective_plan(user),
+                "message": (
+                    "AI menu scan is on Pro. Compare competitor prices "
+                    "manually with the price-check log on any plan."
+                ),
+            },
+        )
+
+
 @router.post("/{competitor_id}/scan-menu")
 async def scan_menu_from_upload(
     competitor_id: str,
@@ -532,7 +554,12 @@ async def scan_menu_from_upload(
 
     Use /scan-menu-from-ref instead when you want the backend to
     fetch the Google photo directly (avoids a CORS round-trip).
+
+    Tier-gated: Pro+ (ai_menu_scan feature). The Claude vision call
+    is our most expensive per-request feature and the bulk-import is
+    the most impressive value moment we have.
     """
+    _enforce_menu_scan_plan(current_user)
     _verify_competitor(competitor_id, db, current_user)
 
     # Bound the upload size up front — UploadFile reads lazily, but we
@@ -567,7 +594,11 @@ def scan_menu_from_google_ref(
 ):
     """Same as /scan-menu but the photo is fetched server-side from a
     Google Places photo_reference. Saves a CORS round-trip when the
-    user picks a Google photo from the /photos result."""
+    user picks a Google photo from the /photos result.
+
+    Tier-gated: Pro+ (ai_menu_scan feature) — shared gate with
+    /scan-menu upload variant."""
+    _enforce_menu_scan_plan(current_user)
     _verify_competitor(competitor_id, db, current_user)
 
     data, media_type = _fetch_photo_bytes(body.photo_reference)
