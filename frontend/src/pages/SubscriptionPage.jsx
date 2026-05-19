@@ -159,16 +159,21 @@ const buildTiers = (t) => [
       "🎁 14 days free · No card required",
     addsHeader: t("featProAdds", "Everything in Starter, plus:") || "Everything in Starter, plus:",
     features: [
-      { text: t("featProMenuScan", "AI menu scan — read competitor prices from photos in 10 seconds") || "AI menu scan — read competitor prices from photos in 10 seconds" },
+      // Refreshed May 2026 — Pro now leads with the staff-schedule
+      // autopilot (just shipped) + tax filing PDF (just shipped). These
+      // are the features that justify 249 DKK/mo over Starter. AI menu
+      // scan and competitor scan are still in the app but lose their
+      // headline slots — production usage was effectively zero, so
+      // we stop promising them as the reason to upgrade.
+      { text: t("featProScheduleAutopilot", "Staff schedule autopilot — weather + revenue forecast + DK labor law, in one tap") || "Staff schedule autopilot — weather + revenue forecast + DK labor law, in one tap" },
+      { text: t("featProTaxFilingPdf", "MOMS filing-ready PDF — pre-filled angivelse format your revisor can upload to SKAT") || "MOMS filing-ready PDF — pre-filled angivelse format your revisor can upload to SKAT" },
+      { text: t("featProLoyalty", "Customer loyalty signal in the Brief — top regulars who haven't been back") || "Customer loyalty signal in the Brief — top regulars who haven't been back" },
+      { text: t("featProFakturaUnlimited", "Faktura — unlimited") || "Faktura — unlimited" },
       { text: t("featProMultiTerm", "Multi-terminal close — merge Z-reports from every POS into one PDF") || "Multi-terminal close — merge Z-reports from every POS into one PDF" },
       { text: t("featProStaffEmail", "Email schedule to every staff member at once") || "Email schedule to every staff member at once" },
-      { text: t("featProStaffing", "Predictive staffing forecast — AI tells you who to roster") || "Predictive staffing forecast — AI tells you who to roster" },
-      { text: t("featProFakturaUnlimited", "Faktura — unlimited") || "Faktura — unlimited" },
-      { text: t("featProWhiteLabel", "White-label faktura PDFs — no BonBox brand") || "White-label faktura PDFs — no BonBox brand" },
       { text: t("featProMulti3", "3 branches, 5 team members") || "3 branches, 5 team members" },
-      { text: t("featProBank", "Bank import + automatic payment matching") || "Bank import + automatic payment matching" },
-      { text: t("featProBrief5", "AI brief — 5 refreshes / day") || "AI brief — 5 refreshes / day" },
-      { text: t("featProChat200", "AI chat — 200 messages / day") || "AI chat — 200 messages / day" },
+      { text: t("featProWhiteLabel", "White-label faktura PDFs — no BonBox brand") || "White-label faktura PDFs — no BonBox brand" },
+      { text: t("featProBrief5", "AI brief — 5 refreshes / day, 200 chat messages") || "AI brief — 5 refreshes / day, 200 chat messages" },
       { text: t("featProPriority", "Priority email support") || "Priority email support" },
     ],
   },
