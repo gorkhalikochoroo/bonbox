@@ -31,6 +31,8 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -46,6 +48,13 @@ from app.services.demo_seed import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Audit P3 (Task #75 follow-up): rate-limit seed/clear so a hostile
+# owner can't churn the DB.  Each seed is ~75 rows and clear deletes
+# them — without a cap, a loop costs almost nothing to the attacker
+# and meaningful CPU/IO to the server.  3/hour per IP is generous for
+# a genuine "tried sample, decided I'm done" flow.
+limiter = Limiter(key_func=get_remote_address)
 
 
 def _client_ip(request: Request) -> str | None:
@@ -71,6 +80,7 @@ def get_demo_status(
 
 
 @router.post("/seed")
+@limiter.limit("3/hour")
 def seed_demo(
     request: Request,
     db: Session = Depends(get_db),
@@ -119,6 +129,7 @@ def seed_demo(
 
 
 @router.post("/clear")
+@limiter.limit("3/hour")
 def clear_demo(
     request: Request,
     db: Session = Depends(get_db),

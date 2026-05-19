@@ -267,29 +267,38 @@ def oauth_apple(
             logger.warning("oauth_apple: start_trial failed: %s", e)
         db.add(user)
 
-    # ── Step 4: stamp oauth_provider on every sign-in ────────────────
+    # ── Step 4: refuse locked accounts BEFORE persisting any mutation
+    # ── (Audit P3 — Task #75 follow-up).
+    # The prior ordering committed the apple_sub link and an
+    # oauth_signin row to a locked account before 401-ing, which left
+    # noise in audit logs that complicates incident response.  Refuse
+    # first so locked accounts stay byte-identical across hostile pokes.
+    if getattr(user, "is_locked", False):
+        # Roll back the in-session new-user create (if any) so a
+        # locked-account match never leaks a fresh row.
+        if is_new:
+            db.expunge(user)
+        else:
+            db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Account is locked. Contact support.",
+        )
+
+    # ── Step 5: stamp oauth_provider on every sign-in ────────────────
     user.oauth_provider = "apple"
     if not user.apple_sub:
         user.apple_sub = sub
 
     db.flush()
 
-    # ── Step 5: audit ────────────────────────────────────────────────
+    # ── Step 6: audit ────────────────────────────────────────────────
     if was_linked:
         _audit(db, user, "auth.oauth_linked", ip, "apple", is_new=False, was_linked=True)
     _audit(db, user, "auth.oauth_signin", ip, "apple", is_new=is_new, was_linked=was_linked)
 
     db.commit()
     db.refresh(user)
-
-    # Locked accounts can't bypass via OAuth either. We check AFTER
-    # potential link so a hostile account locked mid-flow still gets
-    # the link audit row for forensics, but is then refused.
-    if getattr(user, "is_locked", False):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Account is locked. Contact support.",
-        )
 
     # ── Step 6: issue session ────────────────────────────────────────
     # Reuse the auth-cookie helper from the existing router so the
@@ -399,26 +408,32 @@ def oauth_google(
             logger.warning("oauth_google: start_trial failed: %s", e)
         db.add(user)
 
-    # ── Step 4: stamp oauth_provider ─────────────────────────────────
+    # ── Step 4: refuse locked accounts BEFORE persisting any mutation
+    # ── (Audit P3 — Task #75 follow-up; see oauth_apple for context).
+    if getattr(user, "is_locked", False):
+        if is_new:
+            db.expunge(user)
+        else:
+            db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Account is locked. Contact support.",
+        )
+
+    # ── Step 5: stamp oauth_provider ─────────────────────────────────
     user.oauth_provider = "google"
     if not user.google_sub:
         user.google_sub = sub
 
     db.flush()
 
-    # ── Step 5: audit ────────────────────────────────────────────────
+    # ── Step 6: audit ────────────────────────────────────────────────
     if was_linked:
         _audit(db, user, "auth.oauth_linked", ip, "google", is_new=False, was_linked=True)
     _audit(db, user, "auth.oauth_signin", ip, "google", is_new=is_new, was_linked=was_linked)
 
     db.commit()
     db.refresh(user)
-
-    if getattr(user, "is_locked", False):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Account is locked. Contact support.",
-        )
 
     from app.routers.auth import _set_auth_cookie
 
