@@ -456,16 +456,19 @@ export default function LandingPage() {
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-emerald-200/80 rounded-full text-[12px] font-medium text-emerald-700 mb-7">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              {tx_("landingBadge", "For multi-terminal hospitality")}
+              {tx_("landingBadge", "Built for Danish hospitality")}
             </div>
 
             <h1 className="text-[40px] sm:text-[52px] lg:text-[60px] leading-[1.04] tracking-tight font-semibold">
-              {tx_("landingHeroLine1", "The 90 seconds between")}{" "}
-              <span className="text-emerald-600">{tx_("landingHeroLine2", "last guest and lights out.")}</span>
+              {tx_("landingHeroLine1", "The AI manager for")}{" "}
+              <span className="text-emerald-600">{tx_("landingHeroLine2", "Danish café owners.")}</span>
             </h1>
 
             <p className="mt-6 text-[17px] sm:text-[18px] text-stone-600 leading-relaxed max-w-[520px]">
-              {tx_("landingHeroSub", "Front-of-house snaps each kasserapport. AI merges them in 6 seconds. Owner gets the consolidated PDF before close-up is even done.")}
+              {tx_(
+                "landingHeroSub",
+                "Connect your bank. We tell you who to schedule. We file your MOMS. We tell you when your regulars are slipping. A 9am brief that actually helps. 129 DKK/mo founding rate.",
+              )}
             </p>
 
             <div className="mt-9 flex flex-col sm:flex-row gap-3">
@@ -683,56 +686,63 @@ export default function LandingPage() {
       {/* ── FEATURES (6, not 14) ───────────────────────────────── */}
       <Section id="features" className="bg-white border-y border-stone-200/70">
         <div className="max-w-2xl mb-14">
-          <Eyebrow>{tx_("landingFeaturesTag", "Everything in one place")}</Eyebrow>
-          <Heading>{tx_("landingFeaturesTitle", "Built for the closer. Owned by the owner.")}</Heading>
+          <Eyebrow>{tx_("landingFeaturesTag", "Six things that actually save time")}</Eyebrow>
+          <Heading>{tx_("landingFeaturesTitle", "An owner's app, not an accountant's.")}</Heading>
           <p className="mt-5 text-[16px] text-stone-600 leading-relaxed">
-            {tx_("landingFeaturesSub", "Six things BonBox does so you don't have to glue spreadsheets, POS apps, and a revisor every month.")}
+            {tx_(
+              "landingFeaturesSub",
+              "Most accounting tools are built for revisors first. BonBox is built for the owner who lives in the kitchen, checks the books on a phone at 22:00, and just wants the day to make sense in 30 seconds.",
+            )}
           </p>
         </div>
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {[
+            // Refreshed May 2026 — six headline features that reflect
+            // what BonBox actually ships today + the strategic thesis
+            // (the 9am brief is the product surface). Order ranks by
+            // owner impact, not technical feature list.
+            {
+              icon: Icons.Spark,
+              titleKey: "landingFeatBriefTitle",
+              titleFallback: "The 9am brief that actually helps",
+              bodyKey: "landingFeatBriefBody",
+              bodyFallback: "Each morning at 8am: revenue trend, MOMS countdown, regulars who haven't been back, recurring bills due, low-stock alerts. One tap to action, forward to your partner.",
+            },
             {
               icon: Icons.Clock,
               titleKey: "landingFeatHeroTitle",
               titleFallback: "Daily close in 90 seconds",
               bodyKey: "landingFeatHeroBody",
-              bodyFallback: "Staff snap each kasserapport from any phone. AI merges them, owner gets the consolidated PDF before close-up is done.",
+              bodyFallback: "Snap your Z-report, BonBox reads the numbers. Four steps — Revenue, Payments, Cash, Review. POS sales register reconciliation flags any variance before you lock.",
             },
             {
               icon: Icons.Receipt,
               titleKey: "landingFeatFakturaTitle",
-              titleFallback: "Faktura, properly",
+              titleFallback: "Faktura + kreditnota, properly",
               bodyKey: "landingFeatFakturaBody",
-              bodyFallback: "Gap-less fakturanummer per Bogføringsloven §7. Send + email + PDF in one tap. Auto-matched when the bank deposit lands.",
+              bodyFallback: "Gap-less fakturanummer per Bogføringsloven §7. Direct customer email. Voiding generates a real kreditnota with the next number — your revisor never asks questions.",
             },
             {
               icon: Icons.Bank,
               titleKey: "landingFeatBankTitle",
-              titleFallback: "Bank import that thinks",
+              titleFallback: "Bank reconciliation that thinks",
               bodyKey: "landingFeatBankBody",
-              bodyFallback: "Upload your bank CSV. We auto-match incoming deposits to open fakturaer with confidence tiers — the ones we're not sure about land in a review inbox, not the books.",
-            },
-            {
-              icon: Icons.Stack,
-              titleKey: "landingFeatPosTitle",
-              titleFallback: "POS + Inventory + Cash",
-              bodyKey: "landingFeatPosBody",
-              bodyFallback: "Log sales in 2 taps. Track stock with auto-deduction and low-stock alerts. Cash book stays in sync with every entry.",
+              bodyFallback: "Upload your netbank CSV — BonBox auto-matches incoming payments to open fakturaer with confidence tiers. Unsure ones land in a review inbox, not the books. Aiia integration coming soon.",
             },
             {
               icon: Icons.Calendar,
               titleKey: "landingFeatStaffTitle",
-              titleFallback: "Staff & shifts",
+              titleFallback: "Staff schedule autopilot",
               bodyKey: "landingFeatStaffBody",
-              bodyFallback: "Weekly schedule, hours logged from the staff portal, tip-pool split, PDF lønseddel preview ready for your revisor.",
+              bodyFallback: "Weather forecast + 8 weeks of revenue history + DK labor law = next week's schedule in one tap. Tap Apply, tweak per shift, publish. Pro tier saves cafés 5-10% on labor.",
             },
             {
-              icon: Icons.Spark,
-              titleKey: "landingFeatAiTitle",
-              titleFallback: "AI that knows your business",
-              bodyKey: "landingFeatAiBody",
-              bodyFallback: "Morning brief with overdue fakturaer, low-stock items, and revenue trend vs your usual. Not a chatbot — a quiet assistant.",
+              icon: Icons.Stack,
+              titleKey: "landingFeatRevisorTitle",
+              titleFallback: "Your revisor logs in for free",
+              bodyKey: "landingFeatRevisorBody",
+              bodyFallback: "Invite your bogholder by email. They get a read-only login, audit-logged. No more password sharing or GDPR risk. Once they're in BonBox, switching tools means retraining them.",
             },
           ].map((f) => (
             <FeatureCard
@@ -763,28 +773,31 @@ export default function LandingPage() {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-7 lg:gap-5">
           {[
+            // Refreshed May 2026 — categories surface the FEATURES SHIPPED
+            // in the current product, not aspirational ones. Each item
+            // ships and works for a tenant who's on the right tier.
             {
               titleKey: "landingCatMoney",
               titleFallback: "Money",
               items: [
                 tx_("landingCatMoney1", "POS + Sales"),
-                tx_("landingCatMoney2", "Expenses + OCR"),
-                tx_("landingCatMoney3", "Cash Book"),
-                tx_("landingCatMoney4", "Budget tracker"),
-                tx_("landingCatMoney5", "Bank import"),
-                tx_("landingCatMoney6", "Tax Autopilot (Moms)"),
+                tx_("landingCatMoney2", "Receipt OCR — snap, we fill the expense"),
+                tx_("landingCatMoney3", "Recurring expenses (rent, internet, subs)"),
+                tx_("landingCatMoney4", "Cash Book + cash drawer variance"),
+                tx_("landingCatMoney5", "Bank reconciliation auto-match"),
+                tx_("landingCatMoney6", "Tax Autopilot + MOMS filing PDF"),
               ],
             },
             {
               titleKey: "landingCatFaktura",
               titleFallback: "Faktura",
               items: [
-                tx_("landingCatFaktura1", "Send fakturaer"),
+                tx_("landingCatFaktura1", "Send fakturaer (direct email)"),
                 tx_("landingCatFaktura2", "CVR-verified customers"),
-                tx_("landingCatFaktura3", "Bank auto-match"),
-                tx_("landingCatFaktura4", "Audit log (10y)"),
+                tx_("landingCatFaktura3", "Bank auto-match (±2 kr tolerance)"),
+                tx_("landingCatFaktura4", "Proper kreditnota (Bogf. §7)"),
                 tx_("landingCatFaktura5", "Brand + logo on PDF"),
-                tx_("landingCatFaktura6", "Kreditnota"),
+                tx_("landingCatFaktura6", "Bilagsnummer audit trail"),
               ],
             },
             {
@@ -796,31 +809,31 @@ export default function LandingPage() {
                 tx_("landingCatStock3", "Expiry warnings"),
                 tx_("landingCatStock4", "Bar pour system"),
                 tx_("landingCatStock5", "Smart import"),
-                tx_("landingCatStock6", "Unit converter"),
+                tx_("landingCatStock6", "Per-channel breakdown (Wolt / Uber Eats / Foodora)"),
               ],
             },
             {
               titleKey: "landingCatStaff",
               titleFallback: "Staff",
               items: [
-                tx_("landingCatStaff1", "Weekly schedule"),
-                tx_("landingCatStaff2", "Hours logged"),
-                tx_("landingCatStaff3", "Tip-pool split"),
-                tx_("landingCatStaff4", "Payroll PDF"),
-                tx_("landingCatStaff5", "Staff portal"),
-                tx_("landingCatStaff6", "Multi-branch"),
+                tx_("landingCatStaff1", "Schedule autopilot (Pro)"),
+                tx_("landingCatStaff2", "Hours logged + tip-pool"),
+                tx_("landingCatStaff3", "Payroll PDF + lønseddel"),
+                tx_("landingCatStaff4", "Staff portal (mobile)"),
+                tx_("landingCatStaff5", "Revisor read-only login"),
+                tx_("landingCatStaff6", "Multi-branch + role permissions"),
               ],
             },
             {
               titleKey: "landingCatAi",
               titleFallback: "AI",
               items: [
-                tx_("landingCatAi1", "Daily Brief"),
-                tx_("landingCatAi2", "Anomaly detection"),
-                tx_("landingCatAi3", "Predictive staffing"),
-                tx_("landingCatAi4", "OCR receipts"),
-                tx_("landingCatAi5", "Smart Drift"),
-                tx_("landingCatAi6", "BonBox Agent"),
+                tx_("landingCatAi1", "Daily Brief 2.0 (8am email + in-app)"),
+                tx_("landingCatAi2", "MOMS countdown widget"),
+                tx_("landingCatAi3", "Regulars-at-risk alerts"),
+                tx_("landingCatAi4", "Sales↔Close variance flagging"),
+                tx_("landingCatAi5", "Receipt OCR (vendor + amount + date)"),
+                tx_("landingCatAi6", "Weather-aware staff predictions"),
               ],
             },
           ].map((cat) => (
