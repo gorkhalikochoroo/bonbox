@@ -1737,7 +1737,7 @@ def _init_db():
 async def db_readiness_gate(request: Request, call_next):
     path = request.url.path
     # Always allow health checks, root, docs, and CORS preflight through
-    if path in ("/", "/api/health", "/api/health/db", "/docs", "/redoc", "/openapi.json") or request.method == "OPTIONS":
+    if path in ("/", "/api/health", "/api/health/db", "/api/keepalive", "/docs", "/redoc", "/openapi.json") or request.method == "OPTIONS":
         return await call_next(request)
     # Return 503 instantly if DB isn't ready yet (non-blocking — won't freeze event loop)
     if not _db_ready.is_set():
@@ -2585,6 +2585,32 @@ def root():
 @app.api_route("/api/health", methods=["GET", "HEAD"])
 def health_check():
     return {"status": "ok"}
+
+
+@app.api_route("/api/keepalive", methods=["GET", "HEAD"])
+def keepalive():
+    """Cheap warm-keep endpoint — Task #97 multi-layer defense.
+
+    External uptime pinger (UptimeRobot / cron-job.org / BetterStack)
+    hits this every 10 minutes to keep Render's free dyno warm and
+    prevent the 20-30s cold-start that ate the first sign-in flow
+    every day.  Returns 204 No Content with zero DB hit, no
+    middleware overhead, no JSON serialization — cheapest endpoint
+    we can offer.
+
+    Why a separate endpoint instead of just /api/health?
+      • /api/health is documented as a Render healthcheck — it sits
+        behind the DB-readiness gate's allowlist but it's still
+        conceptually "is the app alive".  Pinging it works but
+        muddies the operator's metrics (healthcheck graph vs
+        keepalive traffic).
+      • /api/keepalive is explicitly opted into by the operator,
+        with a documented external pinger.  Both metrics stay clean.
+
+    See docs/DEPLOYMENT.md §11 for the setup instructions.
+    """
+    from fastapi import Response
+    return Response(status_code=204)
 
 
 @app.get("/api/health/db")

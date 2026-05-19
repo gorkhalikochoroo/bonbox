@@ -62,8 +62,56 @@ api.interceptors.response.use(null, async (err) => {
   const attempt = config._retryCount || 0;
   const backoffMs = [2000, 4000, 8000, 12000][attempt] || 12000;
   config._retryCount = attempt + 1;
+  // Layer 3 — observable retry progress.  The LoginPage (and any
+  // future "we're working on it" UI) listens to these events to swap
+  // "Cannot reach server" for "Server is waking up — attempt 2 of 4
+  // (retrying in 4s)".  Detail carries enough context that the
+  // listener can render a meaningful progress strip without owning
+  // its own retry counter.
+  try {
+    window.dispatchEvent(
+      new CustomEvent("bonbox:api-retry", {
+        detail: {
+          url: config.url,
+          method: (config.method || "get").toUpperCase(),
+          attempt: config._retryCount,
+          maxAttempts: 4,
+          delayMs: backoffMs,
+          status: status || 0,
+          isColdStart: status === 503 || !err.response,
+        },
+      }),
+    );
+  } catch {
+    /* no DOM, no listeners — fine */
+  }
   await new Promise((r) => setTimeout(r, backoffMs));
   return api(config);
+});
+
+// Layer 3b — when an API call exhausts all retries, fire a
+// "give-up" event so UI surfaces can offer fallbacks
+// (e.g. LoginPage proposes magic-link instead of password retry).
+api.interceptors.response.use(null, async (err) => {
+  const config = err.config;
+  // Only fire when we've actually retried — i.e. retry path ran and
+  // gave up.  A 4xx that propagated immediately is NOT a "give up".
+  if (config && (config._retryCount || 0) >= 4) {
+    try {
+      window.dispatchEvent(
+        new CustomEvent("bonbox:api-retry-exhausted", {
+          detail: {
+            url: config.url,
+            method: (config.method || "get").toUpperCase(),
+            status: err.response?.status || 0,
+          },
+        }),
+      );
+    } catch {
+      /* no DOM */
+    }
+  }
+  return Promise.reject(err);
 });
 
 // Multi-layer defense: detect _error flag in 200-OK responses.

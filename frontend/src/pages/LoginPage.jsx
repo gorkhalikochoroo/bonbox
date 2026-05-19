@@ -132,9 +132,50 @@ export default function LoginPage() {
     return () => window.removeEventListener("resize", measure);
   }, [hasGoogle]);
 
+  // Task #97 — multi-layer cold-start UX.
+  //
+  // When the axios retry interceptor is mid-backoff against a sleeping
+  // Render dyno, we want the user to SEE that we're working on it
+  // instead of staring at a silent spinner.  We listen to the
+  // `bonbox:api-retry` event the interceptor fires per attempt and
+  // surface the friendly progress message.  After the final retry
+  // exhausts (`bonbox:api-retry-exhausted`) we surface the magic-link
+  // fallback prominently so the user isn't dead-ended on password.
+  const [retryStatus, setRetryStatus] = useState(null); // { attempt, max, delayMs, coldStart }
+  const [suggestMagic, setSuggestMagic] = useState(false);
+  useEffect(() => {
+    const onRetry = (e) => {
+      const d = e?.detail || {};
+      // Only show progress for auth flows the user explicitly triggered.
+      const url = d.url || "";
+      if (!url.includes("/auth/")) return;
+      setRetryStatus({
+        attempt: d.attempt || 1,
+        max: d.maxAttempts || 4,
+        delayMs: d.delayMs || 0,
+        coldStart: !!d.isColdStart,
+      });
+    };
+    const onExhausted = (e) => {
+      const d = e?.detail || {};
+      const url = d.url || "";
+      if (!url.includes("/auth/")) return;
+      setRetryStatus(null);
+      setSuggestMagic(true);
+    };
+    window.addEventListener("bonbox:api-retry", onRetry);
+    window.addEventListener("bonbox:api-retry-exhausted", onExhausted);
+    return () => {
+      window.removeEventListener("bonbox:api-retry", onRetry);
+      window.removeEventListener("bonbox:api-retry-exhausted", onExhausted);
+    };
+  }, []);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    setRetryStatus(null);
+    setSuggestMagic(false);
     setLoading(true);
     try {
       const data = await login(email, password);
@@ -322,6 +363,35 @@ export default function LoginPage() {
               {t("signInDescription")}
             </p>
 
+            {/* Task #97 — multi-layer cold-start UX banner.  While the
+                axios retry interceptor is mid-backoff against a sleeping
+                Render dyno, show "Server is waking up…" instead of the
+                silent button-spinner so the user knows we're not stuck. */}
+            {retryStatus && (loading || magicSending) && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="mt-6 flex items-start gap-2.5 bg-amber-50
+                border border-amber-200 text-amber-900 px-3.5 py-3 rounded-lg text-[13px]"
+              >
+                <svg className="w-4 h-4 shrink-0 mt-0.5 animate-spin" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                </svg>
+                <span>
+                  {retryStatus.coldStart
+                    ? (t("loginWarmingUp") || "Server is waking up — this usually takes 20-30 seconds the first time.")
+                    : (t("loginRetrying") || "Network hiccup — retrying.")}
+                  {" "}
+                  <span className="text-amber-700/80 ml-1">
+                    {t("loginAttemptOf", "Attempt {n} of {max}")
+                      .replace("{n}", retryStatus.attempt)
+                      .replace("{max}", retryStatus.max)}
+                  </span>
+                </span>
+              </div>
+            )}
+
             {error && (
               <div
                 role="alert"
@@ -334,6 +404,43 @@ export default function LoginPage() {
                         d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"/>
                 </svg>
                 <span>{error}</span>
+              </div>
+            )}
+
+            {/* Task #97 — when password retries are exhausted, surface
+                magic-link as a one-click fallback so the user isn't
+                dead-ended.  Magic-link uses a different code path
+                (email-only, no /auth/login) so it can succeed when
+                password POST keeps timing out. */}
+            {suggestMagic && !loading && !magicSending && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="mt-3 flex items-start gap-2.5 bg-blue-50
+                border border-blue-200 text-blue-900 px-3.5 py-3 rounded-lg text-[13px]"
+              >
+                <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M3 8l9 6 9-6M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                </svg>
+                <span>
+                  {t("loginPasswordStuckTryMagic", "Password sign-in is having trouble. Try the one-click email link instead — it works even when the API is slow.")}
+                  {" "}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSuggestMagic(false);
+                      setError("");
+                      if (!magicMode) {
+                        // switchToMagicMode is declared elsewhere; inlined here
+                        // to avoid the cross-reference dance.
+                        if (typeof switchToMagicMode === "function") switchToMagicMode();
+                      }
+                    }}
+                    className="underline font-medium text-blue-700 hover:text-blue-900"
+                  >
+                    {t("loginUseMagicLink", "Send me a sign-in link")}
+                  </button>
+                </span>
               </div>
             )}
 

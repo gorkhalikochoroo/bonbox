@@ -504,3 +504,58 @@ broad launch until the 7 test failures triage. Specifically:
    `source: "claude"` in the response.
 
 When the YELLOW items above are clean, this becomes **GREEN**.
+
+---
+
+## 11. Keep-warm against Render free-tier cold starts
+
+Render's Free dyno sleeps after 15 min of inactivity.  First request
+to a sleeping dyno takes 20-30 s while the container restarts —
+visible to users as a hung sign-in form.  Multi-layer defense
+shipped on 2026-05-19 (Task #97):
+
+| Layer | What it does | Where |
+|---|---|---|
+| **Layer 1 — Keep-warm pinger** | External cron hits `GET /api/keepalive` every 10 minutes so the dyno never falls under the 15-min idle threshold.  Endpoint returns `204` with no DB hit. | Operator setup (below) |
+| **Layer 2 — POST retry on 503** | Axios client retries POST `/auth/login`, `/auth/oauth/*`, `/auth/magic-link/request`, `/demo/*` on 503 with exp backoff (2/4/8/12 s = ~26 s).  503 is the only 5xx that's retry-safe because RFC 9110 §15.6.4 says the server hasn't processed the request. | `frontend/src/services/api.js` |
+| **Layer 3 — Visible "waking up" UX** | While the retry interceptor is backing off, the LoginPage swaps the silent spinner for an amber "Server is waking up — attempt 2 of 4" banner so the user knows we're working on it. | `frontend/src/pages/LoginPage.jsx` |
+| **Layer 4 — Magic-link fallback** | If password retries exhaust, surface a one-click "Send me a sign-in link instead" prompt.  Magic-link uses a different POST so it can succeed when password keeps timing out. | `LoginPage.jsx` (Task #97) |
+| **Layer 5 — Bootstrap probes opt out** | `/auth/me` and `/billing/entitlements` on initial page load use `_noRetry: true` so the LANDING PAGE renders immediately, even if the API is cold.  Auth flips to "you're logged out" silently — exactly what we want for an anonymous landing visitor. | `useAuth.jsx` / `useEntitlements.jsx` |
+
+### Operator setup — Layer 1 keep-warm
+
+Pick ONE external pinger (free tiers are fine):
+
+**Option A: cron-job.org** (recommended — Danish-friendly UTC)
+
+1. Sign up at https://cron-job.org (free, no card)
+2. Create a new job:
+   - URL: `https://api.bonbox.dk/api/keepalive`
+   - Schedule: every 10 minutes
+   - Method: GET
+   - Notifications: on failure only
+3. Save — the dyno now stays warm 24/7.
+
+**Option B: UptimeRobot**
+
+1. Sign up at https://uptimerobot.com (free 50 monitors)
+2. Add monitor:
+   - Type: HTTP(s)
+   - URL: `https://api.bonbox.dk/api/keepalive`
+   - Interval: 5 minutes (UptimeRobot's minimum for free tier)
+3. Bonus — you also get uptime alerting for free.
+
+**Option C: Render Cron Job** (in-platform)
+
+If you upgrade to Render Starter ($7/mo), Render's own cron-job
+service can ping the API every 10 min and you skip the third-party
+service.  Recommended if you've already upgraded for the no-spin-down
+benefit anyway.
+
+### What "good" looks like after the layers are wired
+
+- First visit to `bonbox.dk`: renders the landing in <500 ms even on cold dyno.
+- Sign-in click on a cold dyno: shows "Server is waking up… attempt 1 of 4" within 200 ms; logs the user in within ~25 s.
+- Sign-in click on a warm dyno: completes in <800 ms with no banner at all.
+- Three failed retries in a row on the same email: magic-link fallback prompt shows; user clicks → gets the link via Resend; logs in.
+
