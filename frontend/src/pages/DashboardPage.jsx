@@ -26,6 +26,7 @@ import DismissibleTip from "../components/DismissibleTip";
 import CloserPromptCard from "../components/CloserPromptCard";
 import TrialFinalStretchTip from "../components/TrialFinalStretchTip";
 import MomsCountdownCard from "../components/MomsCountdownCard";
+import ConnectionsProgressCard from "../components/ConnectionsProgressCard";
 import {
   AnimatedCounter,
   SkeletonCard,
@@ -1614,6 +1615,12 @@ export default function DashboardPage() {
             Self-hides on accounts with no tax preferences saved. Tap to
             open Tax Autopilot for the full breakdown. ── */}
         <MomsCountdownCard />
+
+        {/* ── CONNECTIONS PROGRESS — surfaces incomplete setup directly
+            on the dashboard so new owners don't have to hunt for
+            /connections. Self-hides when everything is connected or
+            after 30-day dismissal. ── */}
+        <ConnectionsProgressCard />
 
         {/* ── AI DAILY BRIEF — actionable morning brief, top of fold ── */}
         <DailyBriefCard />
