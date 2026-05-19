@@ -1,11 +1,20 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import api from "../services/api";
+import { Icon } from "./ui";
 
 /**
  * Daily AI Brief — Copenhagen-style card at the top of the dashboard.
  *
+ * Brief 2.0 (May 2026) adds:
+ *   • Per-insight CTA chips — "Open Tax Autopilot", "Review matches",
+ *     etc. — so each observation becomes a tap-to-action.
+ *   • "Forward" affordance — owner can copy or email the brief to a
+ *     co-founder / partner. This is the viral moment we engineered for.
+ *
  * Renders ONLY pure text — no dangerouslySetInnerHTML, no markdown parsing,
- * no URLs from the response. The backend already validates every number
+ * no URLs from the response except the in-app cta_url (which the backend
+ * controls; not user input). The backend already validates every number
  * the model produced against precomputed data, so the strings here are
  * already cross-checked.
  *
@@ -26,11 +35,40 @@ function _dismissKey() {
   return `bonbox_brief_dismissed_${_todayKey()}`;
 }
 
+/**
+ * Restrict CTA URLs to in-app paths. The backend only emits paths like
+ * "/tax", "/faktura", "/bank-import" — but defense in depth: reject
+ * anything that doesn't start with a single slash (and isn't a double
+ * slash, which would be protocol-relative).
+ */
+function _safeCtaPath(url) {
+  if (typeof url !== "string") return null;
+  if (!url.startsWith("/") || url.startsWith("//")) return null;
+  if (url.includes("javascript:") || url.includes("data:")) return null;
+  return url;
+}
+
+function _buildShareText(brief) {
+  if (!brief) return "";
+  const lines = [];
+  if (brief.greeting) lines.push(brief.greeting);
+  if (brief.date_label) lines.push(brief.date_label);
+  if (lines.length) lines.push("");
+  if (brief.headline) lines.push(brief.headline);
+  for (const ins of brief.insights || []) {
+    if (ins?.text) lines.push(`• ${ins.text}`);
+  }
+  lines.push("");
+  lines.push("— BonBox");
+  return lines.join("\n");
+}
+
 export default function DailyBriefCard() {
   const [brief, setBrief] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [hidden, setHidden] = useState(false);
+  const [shareToast, setShareToast] = useState("");
 
   // Respect the user's choice to dismiss for the day before we even fetch
   // — saves an API round trip if they've already dismissed today.
@@ -70,6 +108,43 @@ export default function DailyBriefCard() {
     }
   };
 
+  // Copy-to-clipboard for the forward-to-partner viral moment. Tries the
+  // modern async clipboard API first, falls back to a textarea trick on
+  // browsers that block it (older Safari, embedded webviews). Either way
+  // shows the same toast so the user gets feedback.
+  const onCopy = async () => {
+    const text = _buildShareText(brief);
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setShareToast("Copied!");
+      setTimeout(() => setShareToast(""), 2000);
+    } catch {
+      setShareToast("Couldn't copy — long-press to select.");
+      setTimeout(() => setShareToast(""), 3000);
+    }
+  };
+
+  // Forward via email — opens the user's mail client with the brief
+  // pre-filled. Subject is "Today at BonBox — Tuesday 19 May 2026"
+  // style. Body is plain text (no HTML — survives every mail client).
+  const onForward = () => {
+    const text = _buildShareText(brief);
+    const subject = `Today at BonBox — ${brief?.date_label || ""}`.trim();
+    const url = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
+    window.location.href = url;
+  };
+
   if (hidden) return null;
 
   if (loading) {
@@ -99,17 +174,14 @@ export default function DailyBriefCard() {
   );
   const isEmpty = visibleInsights.length === 0;
   const canRefresh = (brief.refreshes_left ?? 0) > 0;
+  const headlineCta = _safeCtaPath(brief.headline_cta_url);
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-sm p-6 sm:p-7">
       <div className="flex items-start justify-between gap-4 mb-3">
         <div className="flex items-start gap-3 min-w-0">
-          <div className="w-9 h-9 rounded-lg bg-[#22c55e]/10 dark:bg-[#22c55e]/15 flex items-center justify-center shrink-0 mt-0.5">
-            {/* Sun glyph — calm, no emoji */}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="4" />
-              <path d="M12 3v1.5M12 19.5V21M3 12h1.5M19.5 12H21M5.6 5.6l1 1M17.4 17.4l1 1M5.6 18.4l1-1M17.4 6.6l1-1" />
-            </svg>
+          <div className="w-9 h-9 rounded-lg bg-emerald-500/10 dark:bg-emerald-500/15 flex items-center justify-center shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400">
+            <Icon name="Sparkles" size={16} strokeWidth={1.75} />
           </div>
           <div className="min-w-0">
             <h2 className="text-[17px] sm:text-[18px] font-semibold text-gray-900 dark:text-white tracking-tight truncate">
@@ -118,7 +190,7 @@ export default function DailyBriefCard() {
             <p className="text-[12.5px] text-gray-500 dark:text-gray-400 mt-0.5">{brief.date_label}</p>
           </div>
         </div>
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           {canRefresh && (
             <button
               type="button"
@@ -144,36 +216,83 @@ export default function DailyBriefCard() {
         </div>
       </div>
 
-      <p className="text-[15.5px] sm:text-[16px] leading-snug text-gray-900 dark:text-gray-100 mb-4">
+      <p className="text-[15.5px] sm:text-[16px] leading-snug text-gray-900 dark:text-gray-100 mb-2">
         {brief.headline}
       </p>
+      {/* Headline-level CTA — Brief 2.0. Only renders for in-app paths. */}
+      {headlineCta && (
+        <Link
+          to={headlineCta}
+          className="inline-flex items-center gap-1 text-[12.5px] font-medium text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 mb-3 transition"
+        >
+          {brief.headline_cta_label || "Open"}
+          <span aria-hidden="true">→</span>
+        </Link>
+      )}
 
       {!isEmpty && (
-        <ul className="space-y-2.5">
-          {visibleInsights.map((ins, i) => (
-            <li key={i} className="flex items-start gap-2.5">
-              <span
-                className="w-1.5 h-1.5 rounded-full mt-[8px] shrink-0"
-                style={{ backgroundColor: dotColor(ins.type) }}
-                aria-hidden="true"
-              />
-              <p className="text-[14px] sm:text-[14.5px] leading-relaxed text-gray-700 dark:text-gray-300">
-                {ins.text}
-              </p>
-            </li>
-          ))}
+        <ul className="space-y-3 mt-2">
+          {visibleInsights.map((ins, i) => {
+            const cta = _safeCtaPath(ins?.cta_url);
+            return (
+              <li key={i} className="flex items-start gap-2.5">
+                <span
+                  className="w-1.5 h-1.5 rounded-full mt-[8px] shrink-0"
+                  style={{ backgroundColor: dotColor(ins.type) }}
+                  aria-hidden="true"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[14px] sm:text-[14.5px] leading-relaxed text-gray-700 dark:text-gray-300">
+                    {ins.text}
+                  </p>
+                  {cta && (
+                    <Link
+                      to={cta}
+                      className="inline-flex items-center gap-1 mt-1 text-[12px] font-medium text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 transition"
+                    >
+                      {ins.cta_label || "Open"}
+                      <span aria-hidden="true">→</span>
+                    </Link>
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
 
-      <div className="mt-5 pt-3.5 border-t border-gray-100 dark:border-gray-700/60 flex items-center justify-between">
+      <div className="mt-5 pt-3.5 border-t border-gray-100 dark:border-gray-700/60 flex items-center justify-between gap-3">
         <span className="text-[10.5px] uppercase tracking-[0.08em] text-gray-400 dark:text-gray-500">
           {brief.ai_polished ? "AI Insight · BonBox" : "BonBox Insight"}
         </span>
-        {brief.from_cache && (
-          <span className="text-[10.5px] text-gray-400 dark:text-gray-500">
-            Updated today
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {shareToast && (
+            <span className="text-[11px] text-emerald-700 dark:text-emerald-400">
+              {shareToast}
+            </span>
+          )}
+          {/* Share affordances — the viral moment we engineered for.
+              Copy goes to clipboard; Forward opens the mail client.
+              Both build the same plain-text brief from the response. */}
+          <button
+            type="button"
+            onClick={onCopy}
+            aria-label="Copy brief to clipboard"
+            title="Copy"
+            className="w-7 h-7 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700/60 dark:hover:text-gray-200 transition flex items-center justify-center"
+          >
+            <Icon name="ClipboardList" size={14} strokeWidth={1.75} />
+          </button>
+          <button
+            type="button"
+            onClick={onForward}
+            aria-label="Forward brief by email"
+            title="Forward"
+            className="w-7 h-7 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700/60 dark:hover:text-gray-200 transition flex items-center justify-center"
+          >
+            <Icon name="Send" size={14} strokeWidth={1.75} />
+          </button>
+        </div>
       </div>
     </div>
   );

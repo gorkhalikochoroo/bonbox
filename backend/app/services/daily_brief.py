@@ -136,6 +136,26 @@ class Precompute:
     invoices_sent_this_month: int = 0       # progress counter — "Y sent so far"
     invoices_paid_this_month: int = 0       # closed loop counter
 
+    # ── Brief 2.0 signals (May 2026) ──────────────────────────────
+    # MOMS countdown — pulled from tax_service.get_tax_overview(). When
+    # the deadline is within 30 days we surface it; closer = higher
+    # weight in the candidate ranker.
+    moms_days_left: int | None = None
+    moms_estimated_owed: float | None = None
+    moms_deadline_date: str | None = None   # ISO YYYY-MM-DD
+
+    # Recurring expenses materializing in the next 3 days — gives
+    # owners a "head's up your rent posts tomorrow" before the cron
+    # runs. Empty list when none upcoming.
+    recurring_due_soon: list[dict] = field(default_factory=list)   # [{name, amount, day_of_month, when_text}]
+    recurring_due_soon_total: float = 0.0
+
+    # Latest daily_close compared to the same date's sales register.
+    # When variance > 10%, fires an "audit your numbers" alert because
+    # the close + the POS disagree by a meaningful margin.
+    last_close_variance_pct: float | None = None  # signed; positive = close > sales
+    last_close_date: str | None = None
+
     def to_dict(self) -> dict:
         return {k: v for k, v in self.__dict__.items()}
 
@@ -337,6 +357,118 @@ def compute_precompute(user: User, db: Session) -> Precompute:
         .scalar()
     ) or 0
 
+    # ── Brief 2.0 signals — MOMS countdown ──────────────────────────
+    # Pulled via the tax service so the deadline math (jurisdiction,
+    # filing frequency, prices-include-moms toggle) stays in ONE place.
+    # Defensive: wrap in try/except since tax service has a lot of
+    # surface area and we never want it to take down the brief.
+    moms_days_left = None
+    moms_estimated_owed = None
+    moms_deadline_date = None
+    try:
+        from app.services.tax_service import get_tax_overview
+        tx = get_tax_overview(user, db) or {}
+        deadlines = tx.get("upcoming_deadlines") or []
+        # First deadline = the soonest. Skip payroll deadlines — those
+        # are handled separately by the staff brief.
+        next_vat = next(
+            (d for d in deadlines if (d.get("type") or "vat") in ("vat", "moms")),
+            deadlines[0] if deadlines else None,
+        )
+        if next_vat and next_vat.get("date"):
+            try:
+                _d = date.fromisoformat(str(next_vat["date"])[:10])
+                moms_days_left = (_d - today).days
+                moms_deadline_date = _d.isoformat()
+                # estimated_amount may live on the deadline OR on ytd.vat_payable.
+                amt = next_vat.get("estimated_amount")
+                if amt is None:
+                    amt = (tx.get("ytd") or {}).get("vat_payable")
+                if amt is not None:
+                    moms_estimated_owed = float(amt)
+            except (ValueError, TypeError):
+                pass
+    except Exception as e:  # noqa: BLE001
+        logger.debug("daily_brief: tax_overview unavailable: %s", e)
+
+    # ── Brief 2.0 signals — recurring expenses due in next 3 days ──
+    # Owners need a heads-up before a 18k rent posts. Idempotent and
+    # tolerant of the table not existing yet (fresh deploys).
+    recurring_due_soon: list[dict] = []
+    recurring_due_soon_total = 0.0
+    try:
+        from app.models.recurring_expense import RecurringExpense
+        upcoming_window = today + timedelta(days=3)
+        rules = (
+            db.query(RecurringExpense)
+            .filter(
+                RecurringExpense.user_id == user.id,
+                RecurringExpense.is_active.is_(True),
+                RecurringExpense.next_run_date.isnot(None),
+                RecurringExpense.next_run_date <= upcoming_window,
+                RecurringExpense.next_run_date >= today,
+            )
+            .order_by(RecurringExpense.next_run_date.asc())
+            .limit(5)
+            .all()
+        )
+        for r in rules:
+            days_out = (r.next_run_date - today).days
+            when_text = (
+                "today" if days_out == 0
+                else "tomorrow" if days_out == 1
+                else f"in {days_out} days"
+            )
+            recurring_due_soon.append({
+                "name": r.name,
+                "amount": float(r.amount or 0),
+                "day_of_month": r.day_of_month,
+                "when_text": when_text,
+            })
+            recurring_due_soon_total += float(r.amount or 0)
+    except Exception as e:  # noqa: BLE001
+        # Table may not exist on legacy deploys — fail open so the brief still renders.
+        logger.debug("daily_brief: recurring_expenses unavailable: %s", e)
+
+    # ── Brief 2.0 signals — last close variance vs sales register ──
+    # When the owner posts a close that materially diverges from the
+    # POS sales total for the same date, flag it. Tied to the Daily
+    # Close reconciliation we shipped earlier — turns a hidden warning
+    # into a morning action.
+    last_close_variance_pct = None
+    last_close_date = None
+    try:
+        from app.models.daily_close import DailyClose
+        recent_close = (
+            db.query(DailyClose)
+            .filter(
+                DailyClose.user_id == user.id,
+                DailyClose.is_deleted.isnot(True),
+                DailyClose.status == "confirmed",
+            )
+            .order_by(DailyClose.date.desc(), DailyClose.closed_at.desc())
+            .first()
+        )
+        if recent_close and recent_close.revenue_total and recent_close.revenue_total > 0:
+            pos_for_date = (
+                db.query(sa_func.coalesce(sa_func.sum(Sale.amount), 0))
+                .filter(
+                    Sale.user_id == user.id,
+                    Sale.date == recent_close.date,
+                    Sale.is_deleted.isnot(True),
+                    Sale.status == "completed",
+                )
+                .scalar()
+            ) or 0
+            pos_for_date = float(pos_for_date)
+            close_rev = float(recent_close.revenue_total)
+            if pos_for_date > 0:
+                diff_pct = ((close_rev - pos_for_date) / pos_for_date) * 100
+                last_close_variance_pct = round(diff_pct, 1)
+                last_close_date = recent_close.date.isoformat()
+    except Exception as e:  # noqa: BLE001
+        logger.debug("daily_brief: close-variance signal unavailable: %s", e)
+
     return Precompute(
         business_name=user.business_name or "your business",
         currency=user.currency or "DKK",
@@ -363,6 +495,13 @@ def compute_precompute(user: User, db: Session) -> Precompute:
         payment_suggestions_pending=int(pending_suggestions),
         invoices_sent_this_month=int(sent_this_month),
         invoices_paid_this_month=int(paid_this_month),
+        moms_days_left=moms_days_left,
+        moms_estimated_owed=moms_estimated_owed,
+        moms_deadline_date=moms_deadline_date,
+        recurring_due_soon=recurring_due_soon,
+        recurring_due_soon_total=round(recurring_due_soon_total, 2),
+        last_close_variance_pct=last_close_variance_pct,
+        last_close_date=last_close_date,
     )
 
 
@@ -381,6 +520,14 @@ class Candidate:
     # Numbers / item names that appear in this candidate. Used by Layer 4
     # validation to confirm the LLM didn't invent anything.
     facts: list[str] = field(default_factory=list)
+    # Optional "tap to open" target the frontend renders as a chip next
+    # to the insight. cta_url is an in-app path (never an external URL)
+    # so we don't have to deal with safe-link checks. cta_label is the
+    # short button text — "Open faktura inbox", "Review matches", etc.
+    # Brief 2.0 (May 2026) — turns insights into actions, not just
+    # observations. None when no clear next step exists.
+    cta_label: str | None = None
+    cta_url: str | None = None
 
 
 def _fmt_money(amount: float, currency: str) -> str:
@@ -538,6 +685,114 @@ def generate_candidates(p: Precompute) -> list[Candidate]:
             text=f"{_fmt_money(p.khata_outstanding, cur)} owed by {p.khata_with_balance} customer{'s' if p.khata_with_balance > 1 else ''} — reach out this week.",
             weight=0.7,
             facts=[_fmt_money(p.khata_outstanding, cur), str(p.khata_with_balance)],
+            cta_label="Open Khata",
+            cta_url="/khata",
+        ))
+
+    # ── Brief 2.0: MOMS deadline countdown ──────────────────────────
+    # Single most anxiety-reducing signal for a DK biz owner. Weight
+    # scales with urgency — overdue is highest, then ≤3 days, then ≤14,
+    # then ≤30. Beyond 30 days we suppress (don't be noisy).
+    if p.moms_days_left is not None and p.moms_days_left <= 30:
+        owed_text = (
+            f", est. {_fmt_money(p.moms_estimated_owed, cur)} owed"
+            if p.moms_estimated_owed and p.moms_estimated_owed > 0
+            else ""
+        )
+        if p.moms_days_left < 0:
+            n = abs(p.moms_days_left)
+            out.append(Candidate(
+                type="watch",
+                text=f"Moms filing is {n} day{'s' if n != 1 else ''} overdue{owed_text} — file before SKAT fines accrue.",
+                weight=0.98,
+                facts=[str(n)] + ([_fmt_money(p.moms_estimated_owed, cur)] if p.moms_estimated_owed else []),
+                cta_label="Open Tax Autopilot",
+                cta_url="/tax",
+            ))
+        elif p.moms_days_left == 0:
+            out.append(Candidate(
+                type="action",
+                text=f"Moms filing is due today{owed_text} — file before midnight.",
+                weight=0.97,
+                facts=([_fmt_money(p.moms_estimated_owed, cur)] if p.moms_estimated_owed else []),
+                cta_label="File now",
+                cta_url="/tax",
+            ))
+        elif p.moms_days_left <= 3:
+            out.append(Candidate(
+                type="action",
+                text=f"Moms filing in {p.moms_days_left} day{'s' if p.moms_days_left != 1 else ''}{owed_text} — review now to avoid the rush.",
+                weight=0.92,
+                facts=[str(p.moms_days_left)] + ([_fmt_money(p.moms_estimated_owed, cur)] if p.moms_estimated_owed else []),
+                cta_label="Review filing",
+                cta_url="/tax",
+            ))
+        elif p.moms_days_left <= 14:
+            out.append(Candidate(
+                type="watch",
+                text=f"Moms filing in {p.moms_days_left} days{owed_text}.",
+                weight=0.75,
+                facts=[str(p.moms_days_left)] + ([_fmt_money(p.moms_estimated_owed, cur)] if p.moms_estimated_owed else []),
+                cta_label="Open Tax Autopilot",
+                cta_url="/tax",
+            ))
+        # 15-30 days = suppress (would be noise this far out)
+
+    # ── Brief 2.0: bank reconciliation pending matches ──────────────
+    # Reuses the payment_suggestions_pending counter (already in
+    # Precompute via PaymentMatchSuggestion). The existing faktura
+    # rule above covers the Faktura context — this rule fires
+    # specifically when the count is HIGH (≥10) so it surfaces as a
+    # separate "you have real bank-rec backlog" insight worth its own
+    # bullet point. Keeps weight under the faktura rule by design.
+    if p.payment_suggestions_pending >= 10:
+        out.append(Candidate(
+            type="action",
+            text=f"{p.payment_suggestions_pending} bank transactions waiting to be matched — clear the backlog before month-end.",
+            weight=0.82,
+            facts=[str(p.payment_suggestions_pending)],
+            cta_label="Review matches",
+            cta_url="/bank-import",
+        ))
+
+    # ── Brief 2.0: recurring expenses due in next 3 days ────────────
+    # Heads-up before a 18k rent auto-posts. Friendly: name the items
+    # so the owner immediately knows what's about to hit their books.
+    if p.recurring_due_soon:
+        # Compact preview — first 2 by name, "+N more" if longer.
+        names = [r["name"] for r in p.recurring_due_soon[:2]]
+        more = max(0, len(p.recurring_due_soon) - 2)
+        if more > 0:
+            names_text = f"{', '.join(names)} +{more} more"
+        else:
+            names_text = ", ".join(names) if names else "—"
+        # When-text uses the soonest (first item, since the SQL ORDERed).
+        when = p.recurring_due_soon[0]["when_text"]
+        out.append(Candidate(
+            type="watch",
+            text=f"Recurring posts {when}: {names_text} ({_fmt_money(p.recurring_due_soon_total, cur)}).",
+            weight=0.7,
+            facts=[when, _fmt_money(p.recurring_due_soon_total, cur)] + names,
+            cta_label="Manage recurring",
+            cta_url="/expenses",
+        ))
+
+    # ── Brief 2.0: daily close vs POS variance ──────────────────────
+    # When the owner's last confirmed close diverges >10% from the
+    # POS sales total for the same date, flag it. Caught silently by
+    # Daily Close Step 1 today; the brief makes it morning-visible.
+    if p.last_close_variance_pct is not None and abs(p.last_close_variance_pct) >= 10:
+        sign = "above" if p.last_close_variance_pct > 0 else "below"
+        out.append(Candidate(
+            type="watch",
+            text=f"Latest close ({p.last_close_date}) is {abs(p.last_close_variance_pct):.0f}% {sign} POS sales — audit before sending to your accountant.",
+            weight=0.86,
+            facts=[
+                p.last_close_date or "",
+                f"{abs(p.last_close_variance_pct):.0f}%",
+            ],
+            cta_label="Open Daily Close",
+            cta_url="/daily-close",
         ))
 
     # Sort by weight descending so the LLM (or the fallback) picks
@@ -571,7 +826,21 @@ def fallback_brief(p: Precompute, candidates: list[Candidate], user: User | None
         "greeting": _greeting_for(user),
         "date_label": _date_label_for(p),
         "headline": head.text,
-        "insights": [{"type": c.type, "text": c.text} for c in rest],
+        # Brief 2.0 — pass cta through to the client so each insight can
+        # render its own "Open X" action chip. The frontend handles the
+        # None case (no chip) gracefully.
+        "insights": [
+            {
+                "type": c.type,
+                "text": c.text,
+                "cta_label": c.cta_label,
+                "cta_url": c.cta_url,
+            }
+            for c in rest
+        ],
+        # Top candidate's CTA — used by the headline row in the frontend.
+        "headline_cta_label": head.cta_label,
+        "headline_cta_url": head.cta_url,
         "ai_polished": False,
     }
 
@@ -910,6 +1179,51 @@ def get_or_create_brief(
     payload["from_cache"] = False
     tier = effective_plan(user)
     payload["tier"] = tier
+
+    # Brief 2.0 — re-attach CTAs to LLM-rephrased insights.
+    # The LLM rewrites the candidate text in friendly prose, but loses
+    # the cta_label/cta_url that came with each Candidate. Match each
+    # output insight back to its source candidate by checking whether
+    # the candidate's distinctive facts (long enough numbers / proper
+    # nouns) all appear in the rephrased text. When a match is found,
+    # carry over the candidate's CTA so the frontend can render a
+    # tap-to-action chip.
+    #
+    # Fuzzy but safe: a candidate without facts can't be matched →
+    # no CTA, no false positive. Multiple candidates matching the
+    # same text → first (highest weight) wins.
+    if polished:
+        def _norm(s):
+            return " ".join(str(s).lower().split())
+
+        def _match_candidate_cta(text: str):
+            t = _norm(text)
+            for c in candidates:
+                if not c.cta_url:
+                    continue
+                facts = [_norm(f) for f in c.facts if len(str(f)) >= 2]
+                if not facts:
+                    continue
+                if all(f in t for f in facts):
+                    return c.cta_label, c.cta_url
+            return None, None
+
+        # Headline
+        if payload.get("headline") and not payload.get("headline_cta_url"):
+            lbl, url = _match_candidate_cta(payload["headline"])
+            if url:
+                payload["headline_cta_label"] = lbl
+                payload["headline_cta_url"] = url
+
+        # Insights — add cta_* fields when a match exists. Keep existing
+        # fields untouched (the LLM doesn't emit cta_*, but be defensive).
+        for ins in payload.get("insights") or []:
+            if ins.get("cta_url"):
+                continue
+            lbl, url = _match_candidate_cta(ins.get("text") or "")
+            if url:
+                ins["cta_label"] = lbl
+                ins["cta_url"] = url
 
     payload_json = json.dumps(payload, ensure_ascii=False)
 
