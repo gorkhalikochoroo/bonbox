@@ -1,6 +1,42 @@
-import { useState, useEffect } from "react";
+/**
+ * ProfilePage — owner settings, redesigned 2026-05-19 for scannability.
+ *
+ * Layout:
+ *   • Desktop (≥ md): two-column. Sticky table-of-contents on the left,
+ *     anchored Card sections on the right.
+ *   • Mobile: single column, no TOC. Cards stack vertically.
+ *
+ * Sections, in display order (each is an anchor target for the TOC):
+ *   #account            Sign-in details + change password
+ *   #business           Business name/type/currency + cuisine + CVR lookup
+ *   #operations         Smart-staffing card + operating profile editor
+ *   #billing            Bank/MobilePay payment details + accountant contact
+ *   #brand              Logo + accent color (faktura) + app theme picker
+ *   #notifications      Email digests + push + WhatsApp bot
+ *   #privacy            Analytics opt-out + data export + tax-prefs link
+ *   #danger             Delete account
+ *
+ * Design rules respected throughout:
+ *   • Flat surfaces — no gradients
+ *   • Lucide icons via `Icon` primitive — no emoji in chrome, no
+ *     rainbow inline SVGs (a couple of legacy emoji survive inside
+ *     legally-required Danish copy + the WhatsApp brand glyph which
+ *     stays as the actual WhatsApp logo)
+ *   • Card primitive for every section — `default` for editable
+ *     forms, `subtle` for informational/secondary cards
+ *   • Button primitive for every action — `primary` for the section
+ *     CTA, `accent` for "money moment" saves, `secondary`/`ghost`
+ *     for navigation, `danger` for destructive
+ *   • Consistent 16-20px gaps; labels above inputs, smaller h2's
+ *
+ * Functional contract preserved exactly:
+ *   • Every existing API endpoint is still called with the same payload
+ *   • Every existing translation key is still used (the new keys are
+ *     additive — none were renamed)
+ *   • The `/profile` URL is unchanged
+ */
+import { useState, useEffect, useMemo } from "react";
 import api from "../services/api";
-import { useDarkMode } from "../hooks/useDarkMode";
 import { useTheme, THEMES } from "../hooks/useTheme";
 import { useLanguage } from "../hooks/useLanguage";
 import { FadeIn } from "../components/AnimationKit";
@@ -10,9 +46,39 @@ import OperatingProfileSection from "../components/OperatingProfileSection";
 import SmartStaffingCard from "../components/SmartStaffingCard";
 import { resetAllTips } from "../components/DismissibleTip";
 import { localIso } from "../utils/dateFormat";
+import { Button, Card, Icon } from "../components/ui";
+
+/* ─── form primitives ─────────────────────────────────────────────
+   Centralised here so every form field on the page lands at exactly
+   the same height, radius, and focus colour. The old hand-rolled
+   class strings drifted between sections (e.g. rounded-lg vs
+   rounded-xl) which made the page feel inconsistent at a glance. */
+const INPUT_CLASS =
+  "w-full px-3 py-2.5 rounded-lg border border-stone-300 dark:border-stone-700 " +
+  "bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 text-sm " +
+  "placeholder:text-stone-400 dark:placeholder:text-stone-500 " +
+  "focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent " +
+  "disabled:opacity-50";
+const LABEL_CLASS =
+  "block text-xs font-medium text-stone-700 dark:text-stone-300 mb-1.5";
+const HINT_CLASS =
+  "text-[11px] text-stone-500 dark:text-stone-400 mt-1.5";
+
+/** The eight Card sections rendered on this page. The TOC reads from
+ *  this list so adding a section in one place automatically gets the
+ *  matching nav entry on desktop. */
+const SECTIONS = [
+  { id: "account",       titleKey: "profileSectionAccount",       descKey: "profileSectionAccountDesc",       icon: "User" },
+  { id: "business",      titleKey: "profileSectionBusiness",      descKey: "profileSectionBusinessDesc",      icon: "Building2" },
+  { id: "operations",    titleKey: "profileSectionOperations",    descKey: "profileSectionOperationsDesc",    icon: "Calendar" },
+  { id: "billing",       titleKey: "profileSectionBilling",       descKey: "profileSectionBillingDesc",       icon: "CreditCard" },
+  { id: "brand",         titleKey: "profileSectionBrand",         descKey: "profileSectionBrandDesc",         icon: "Palette" },
+  { id: "notifications", titleKey: "profileSectionNotifications", descKey: "profileSectionNotificationsDesc", icon: "Bell" },
+  { id: "privacy",       titleKey: "profileSectionPrivacy",       descKey: "profileSectionPrivacyDesc",       icon: "Shield" },
+  { id: "danger",        titleKey: "profileSectionDanger",        descKey: "profileSectionDangerDesc",        icon: "AlertTriangle" },
+];
 
 export default function ProfilePage() {
-  const [dark] = useDarkMode();
   const [theme, setTheme] = useTheme();
   const { t } = useLanguage();
   const [user, setUser] = useState(null);
@@ -30,26 +96,19 @@ export default function ProfilePage() {
   // backend silently drops every event_log write for this user.
   const [analyticsOptOut, setAnalyticsOptOut] = useState(false);
   // SmartStaffingCard's "Edit details" button toggles this — opens the
-  // OperatingProfileSection editor inline + scrolls into view. The
-  // separate <details> wrapper used to hide this affordance behind a
-  // collapsed summary that owners didn't find.
+  // OperatingProfileSection editor inline + scrolls into view.
   const [editorExpanded, setEditorExpanded] = useState(false);
   const [privacyMsg, setPrivacyMsg] = useState("");
-  // Tax preferences live in /tax now (next to where they take effect),
-  // so no local state for them here anymore — see TaxAutopilotPage.jsx.
   const { permission: pushPerm, supported: pushSupported, requestPermission: requestPush } = usePushNotifications();
   const [businessProfile, setBusinessProfile] = useState(null);
-  // Accountant contact — stored on BusinessProfile, used by the
-  // Daily Close range export "Send to accountant" button to pre-fill
-  // the To: + greeting. Optional; left blank means the user types
-  // recipient on each send.
+  // Accountant contact — pre-fills the Daily Close "Send to accountant"
+  // export button. Stored on BusinessProfile.
   const [accountantForm, setAccountantForm] = useState({ accountant_email: "", accountant_name: "" });
   const [accountantSaving, setAccountantSaving] = useState(false);
   const [accountantMsg, setAccountantMsg] = useState("");
 
-  // Payment details rendered on every faktura/kreditnota PDF — bank
-  // reg+account, MobilePay Erhverv, optional IBAN/BIC. Stored on
-  // BusinessProfile (migration 033). Required by Momsbekendtgørelsen §57.
+  // Payment details rendered on every faktura PDF — bank reg+account,
+  // MobilePay Erhverv, optional IBAN/BIC. Required by Momsbekendtgørelsen §57.
   const [paymentForm, setPaymentForm] = useState({
     bank_reg_number: "",
     bank_account_number: "",
@@ -61,17 +120,13 @@ export default function ProfilePage() {
   const [paymentMsg, setPaymentMsg] = useState("");
 
   // Cuisine / specialization — finer than business_type. Powers the
-  // "Same cuisine market" feature on Competitor Scan. Free text but
-  // we suggest common values via chips below the input. Saved on
-  // BusinessProfile (migration 036).
+  // "Same cuisine market" feature on Competitor Scan.
   const [cuisine, setCuisine] = useState("");
   const [cuisineSaving, setCuisineSaving] = useState(false);
   const [cuisineMsg, setCuisineMsg] = useState("");
 
-  // Brand & logo card (migration 034). State is intentionally separate
-  // from businessProfile because we use a dedicated /api/business/brand
-  // endpoint pair — keeps the brand mutations atomic + audit-logged
-  // independent of the main profile PUT.
+  // Brand & logo (migration 034). Lives behind a dedicated endpoint so
+  // mutations are atomic + audit-logged independent of /api/business.
   const [brand, setBrand] = useState({
     logo_url: null,
     accent_color: null,
@@ -81,9 +136,11 @@ export default function ProfilePage() {
   const [brandSaving, setBrandSaving] = useState(false);
   const [brandMsg, setBrandMsg] = useState("");
   const [logoUploading, setLogoUploading] = useState(false);
+
   // Re-verify state — pulls a fresh CVR record into the saved profile
   const [reverifying, setReverifying] = useState(false);
   const [reverifyMsg, setReverifyMsg] = useState("");
+
   const [sendingTest, setSendingTest] = useState(false);
   const [waStatus, setWaStatus] = useState(null);
   const [waPhone, setWaPhone] = useState("");
@@ -129,16 +186,12 @@ export default function ProfilePage() {
       }
     }).catch(() => {});
     // Brand & logo — separate endpoint because it returns a signed
-    // logo URL (1h TTL) we can't keep in main profile response (would
-    // expire mid-session). Refetched on save.
+    // logo URL (1h TTL) we can't keep in main profile response.
     api.get("/business/brand").then((res) => setBrand(res.data)).catch(() => {});
   }, []);
 
   /** Re-verify the saved profile against CVR (or whichever register
-   * applies for the country). Updates name/address/industry/status
-   * flags + bumps cvr_verified_at = now. Surfaced via the "Re-verify"
-   * button on the verified banner.
-   */
+   *  applies for the country). */
   const reverifyProfile = async () => {
     setReverifying(true);
     setReverifyMsg("");
@@ -146,27 +199,23 @@ export default function ProfilePage() {
       const res = await api.post("/business/reverify");
       const data = res.data || {};
       if (data.refreshed) {
-        // Pull the updated profile so the UI reflects whatever changed
         const fresh = await api.get("/business");
         setBusinessProfile(fresh.data);
         const changed = data.fields_changed || [];
         setReverifyMsg(
           changed.length === 0
-            ? "✓ Profile is already up to date"
-            : `✓ Updated: ${changed.join(", ")}`,
+            ? "Profile is already up to date"
+            : `Updated: ${changed.join(", ")}`,
         );
       } else {
         setReverifyMsg(data.message || "Could not refresh — try again");
       }
       setTimeout(() => setReverifyMsg(""), 5000);
     } catch (err) {
-      // The cooldown 429 returns a structured detail with a friendly
-      // wait-time message. Fall back to a generic string for other
-      // failure modes.
       const inner = err?.response?.data?.detail;
       let msg;
       if (inner && typeof inner === "object" && inner.code === "reverify_cooldown") {
-        msg = inner.message;  // already includes the wait time
+        msg = inner.message;
       } else if (typeof inner === "string") {
         msg = inner;
       } else if (inner?.message) {
@@ -174,25 +223,21 @@ export default function ProfilePage() {
       } else {
         msg = "Re-verify failed — try again";
       }
-      setReverifyMsg(`⚠️ ${msg}`);
+      setReverifyMsg(msg);
       setTimeout(() => setReverifyMsg(""), 6000);
     } finally {
       setReverifying(false);
     }
   };
 
-  /** Save accountant contact onto the BusinessProfile. PUT /api/business
-   * upserts so we can reuse the same endpoint without changing other
-   * fields — backend uses model_dump(exclude_unset=True). */
+  /** PUT /api/business does an upsert; we echo company_name so the
+   *  backend (model_dump exclude_unset) doesn't blank it. */
   const saveAccountant = async (e) => {
     e?.preventDefault?.();
     setAccountantSaving(true);
     setAccountantMsg("");
     try {
       const payload = {
-        // Send the existing company_name so the backend doesn't blank
-        // it (PUT acts as upsert and would replace empty fields if
-        // we didn't echo them — defensive).
         company_name: businessProfile?.company_name || "",
         accountant_email: accountantForm.accountant_email.trim() || null,
         accountant_name: accountantForm.accountant_name.trim() || null,
@@ -209,16 +254,12 @@ export default function ProfilePage() {
     }
   };
 
-  /** Save cuisine / specialization on the BusinessProfile. Used by
-   * the Competitor Scan "Same cuisine market" feature to count and
-   * surface other businesses serving the same food. */
   const saveCuisine = async (e) => {
     e?.preventDefault?.();
     setCuisineSaving(true);
     setCuisineMsg("");
     try {
       const payload = {
-        // Echo company_name so the PUT-upsert doesn't blank it
         company_name: businessProfile?.company_name || "",
         cuisine: cuisine.trim() || null,
       };
@@ -234,9 +275,6 @@ export default function ProfilePage() {
     }
   };
 
-  /** Save bank + MobilePay payment details on the BusinessProfile.
-   * These render on every faktura PDF — required by Momsbekendtgørelsen §57.
-   * Uses the same PUT /api/business upsert pattern as the accountant form. */
   const savePayment = async (e) => {
     e?.preventDefault?.();
     setPaymentSaving(true);
@@ -262,14 +300,8 @@ export default function ProfilePage() {
     }
   };
 
-  /** Upload a new logo. Client-side validation is a UX nicety — the
-   * authoritative validation runs server-side in logo_service.py
-   * (magic bytes, Pillow re-encode, size limits, etc).
-   */
   const uploadLogo = async (file) => {
     if (!file) return;
-    // Client gate: only PNG/JPEG, max 1MB. Mirrors server policy so
-    // the user gets immediate feedback rather than waiting for upload.
     if (!["image/png", "image/jpeg"].includes(file.type)) {
       setBrandMsg("Logo must be PNG or JPEG (SVG not allowed)");
       setTimeout(() => setBrandMsg(""), 5000);
@@ -283,9 +315,9 @@ export default function ProfilePage() {
     setLogoUploading(true);
     setBrandMsg("");
     try {
-      const form = new FormData();
-      form.append("file", file);
-      const res = await api.post("/business/logo", form, {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await api.post("/business/logo", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setBrand(res.data);
@@ -313,8 +345,6 @@ export default function ProfilePage() {
     }
   };
 
-  /** Save accent color + logo position. Server-side validation rejects
-   * anything outside the 6-color palette. */
   const saveBrand = async (next) => {
     setBrandSaving(true);
     setBrandMsg("");
@@ -350,7 +380,7 @@ export default function ProfilePage() {
       setPrivacyMsg(next ? "Analytics paused — no new events will be recorded." : "Analytics resumed.");
       setTimeout(() => setPrivacyMsg(""), 4000);
     } catch {
-      setAnalyticsOptOut(!next); // roll back
+      setAnalyticsOptOut(!next);
       setPrivacyMsg("Couldn't update — please try again.");
       setTimeout(() => setPrivacyMsg(""), 4000);
     }
@@ -400,7 +430,6 @@ export default function ProfilePage() {
     try {
       const res = await api.patch("/auth/profile", form);
       setUser(res.data);
-      // Update stored user in localStorage
       const stored = localStorage.getItem("bonbox_user");
       if (stored) {
         const parsed = JSON.parse(stored);
@@ -441,978 +470,1147 @@ export default function ProfilePage() {
     setChangingPw(false);
   };
 
-  if (!user) return <div className="p-6 text-center text-gray-500">{t("loading")}</div>;
+  /** Cuisine quick-suggest chips, keyed by business_type. */
+  const cuisinePresets = useMemo(() => {
+    const PRESETS = {
+      restaurant: ["French bistro", "Italian", "Nepali", "Indian", "Thai", "Sushi", "Ramen", "Mexican", "Spanish tapas", "Mediterranean", "Vegan", "Steakhouse"],
+      cafe:       ["Specialty coffee", "Brunch", "Vegan bakery", "Pastries", "Sandwiches"],
+      bar:        ["Cocktail bar", "Wine bar", "Sports pub", "Beer garden", "Whisky bar"],
+      bakery:     ["Sourdough", "French patisserie", "Gluten-free", "Danish wienerbrød", "Nordic bread"],
+      food_truck: ["Burgers", "Tacos", "Asian fusion", "BBQ"],
+      workshop:   ["BMW + Audi", "Tesla + EV", "Classic cars", "Motorcycle"],
+    };
+    return PRESETS[form.business_type] || PRESETS.restaurant;
+  }, [form.business_type]);
 
-  const inputClass = "w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500";
-  const labelClass = "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1";
+  if (!user) return <div className="p-6 text-center text-stone-500">{t("loading")}</div>;
 
   return (
-    <div className="p-4 sm:p-6 max-w-2xl mx-auto space-y-6">
-      <FadeIn><h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t("profile")}</h1></FadeIn>
-
-      {/* Account Info */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-        <div className="flex items-center gap-4 mb-6">
-          <div className="w-14 h-14 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-2xl font-bold text-blue-600 dark:text-blue-400">
-            {user.business_name?.charAt(0)?.toUpperCase() || "B"}
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{user.business_name}</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
-              <span>{user.email}</span>
-              {user.email_verified ? (
-                <span
-                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 rounded-full text-[10px] font-medium border border-emerald-200/60 dark:border-emerald-800/60"
-                  title="Email verified"
-                >
-                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                  Verified
-                </span>
-              ) : (
-                <a
-                  href="/verify-email"
-                  className="inline-flex items-center px-1.5 py-0.5 bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded-full text-[10px] font-medium border border-amber-200/60 dark:border-amber-800/60 hover:bg-amber-100 dark:hover:bg-amber-900/50 transition"
-                  title="Click to verify your email"
-                >
-                  ⚠ Unverified
-                </a>
-              )}
-            </p>
-          </div>
-        </div>
-
-        <form onSubmit={saveProfile} className="space-y-4">
-          <div>
-            <label className={labelClass}>{t("emailLabel")}</label>
-            <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={inputClass} />
-          </div>
-          <div>
-            <label className={labelClass}>{t("businessNameLabel")}</label>
-            <input type="text" value={form.business_name} onChange={(e) => setForm({ ...form, business_name: e.target.value })} className={inputClass} />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={labelClass}>{t("businessTypeLabel")}</label>
-              <select value={form.business_type} onChange={(e) => setForm({ ...form, business_type: e.target.value })} className={inputClass}>
-                <option value="restaurant">{t("restaurantType")}</option>
-                <option value="cafe">{t("cafeType")}</option>
-                <option value="bar">{t("barType")}</option>
-                <option value="bakery">{t("bakeryType")}</option>
-                <option value="food_truck">{t("foodTruckType")}</option>
-                <option value="retail">{t("retailShopType")}</option>
-                <option value="clothing">{t("clothingStoreType")}</option>
-                <option value="grocery">{t("groceryStoreType")}</option>
-                <option value="salon">{t("salonBeautyType")}</option>
-                <option value="pharmacy">{t("pharmacyType")}</option>
-                <option value="other">{t("otherType")}</option>
-              </select>
-            </div>
-            <div>
-              <label className={labelClass}>{t("currencyLabel")}</label>
-              <select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} className={inputClass}>
-                <option value="DKK">DKK - Danish Krone (Moms 25%)</option>
-                <option value="SEK">SEK - Swedish Krona (Moms 25%)</option>
-                <option value="NOK">NOK - Norwegian Krone (MVA 25%)</option>
-                <option value="EUR">EUR - Euro (General, VAT 20%)</option>
-                <option value="EUR_PT">EUR - Portugal (IVA 23%)</option>
-                <option value="EUR_DE">EUR - Germany (MwSt 19%)</option>
-                <option value="EUR_FR">EUR - France (TVA 20%)</option>
-                <option value="EUR_ES">EUR - Spain (IVA 21%)</option>
-                <option value="EUR_IT">EUR - Italy (IVA 22%)</option>
-                <option value="EUR_NL">EUR - Netherlands (BTW 21%)</option>
-                <option value="USD">USD - US Dollar (Sales Tax varies)</option>
-                <option value="GBP">GBP - British Pound (VAT 20%)</option>
-                <option value="NPR">NPR - Nepalese Rupee (VAT 13%)</option>
-                <option value="INR">INR - Indian Rupee (GST 18%)</option>
-                <option value="JPY">JPY - Japanese Yen (税 10%)</option>
-                <option value="AUD">AUD - Australian Dollar (GST 10%)</option>
-                <option value="CAD">CAD - Canadian Dollar (GST 5%)</option>
-                <option value="CHF">CHF - Swiss Franc (MWST 8.1%)</option>
-              </select>
-            </div>
-          </div>
-
-          {error && <p className="text-sm text-red-500">{error}</p>}
-          {success && <p className="text-sm text-green-500">{success}</p>}
-
-          <button type="submit" disabled={saving}
-            className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl transition disabled:opacity-50">
-            {saving ? t("saving") : t("saveChanges")}
-          </button>
-        </form>
-      </div>
-
-      {/* Cuisine / specialization — powers "Same cuisine market" on Competitor Scan */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-        <div className="mb-3">
-          <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-            🍽️ {t("cuisineSectionTitle", "What do you serve?")}
-          </h2>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            {t(
-              "cuisineSectionHint",
-              "Tells us how to find your competitors. We'll scan nearby places serving the same thing — e.g. 'French bistro' finds other French bistros, 'Nepali' finds Nepali restaurants."
-            )}
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto">
+      <FadeIn>
+        <header className="mb-6 sm:mb-8">
+          <h1 className="text-lg sm:text-xl font-semibold text-stone-900 dark:text-stone-100">
+            {t("profile")}
+          </h1>
+          <p className="text-sm text-stone-500 dark:text-stone-400 mt-1">
+            {t("profileSubtitle")}
           </p>
-        </div>
-        <form onSubmit={saveCuisine} className="space-y-3">
-          <input
-            type="text"
-            value={cuisine}
-            onChange={(e) => setCuisine(e.target.value.slice(0, 60))}
-            placeholder={
-              (form.business_type === "cafe" && t("cuisineExampleCafe", "e.g. specialty coffee, brunch, vegan bakery"))
-              || (form.business_type === "bar" && t("cuisineExampleBar", "e.g. cocktail bar, sports pub, wine bar"))
-              || (form.business_type === "bakery" && t("cuisineExampleBakery", "e.g. sourdough, French patisserie, gluten-free"))
-              || t("cuisineExampleRestaurant", "e.g. French bistro, Nepali, sushi, ramen, Italian, vegan, tapas")
-            }
-            className={inputClass}
-            maxLength={60}
-          />
-          {/* Quick-suggest chips based on business_type */}
-          <div className="flex flex-wrap gap-1.5">
-            {(() => {
-              const PRESETS = {
-                restaurant: ["French bistro", "Italian", "Nepali", "Indian", "Thai", "Sushi", "Ramen", "Mexican", "Spanish tapas", "Mediterranean", "Vegan", "Steakhouse"],
-                cafe:       ["Specialty coffee", "Brunch", "Vegan bakery", "Pastries", "Sandwiches"],
-                bar:        ["Cocktail bar", "Wine bar", "Sports pub", "Beer garden", "Whisky bar"],
-                bakery:     ["Sourdough", "French patisserie", "Gluten-free", "Danish wienerbrød", "Nordic bread"],
-                food_truck: ["Burgers", "Tacos", "Asian fusion", "BBQ"],
-                workshop:   ["BMW + Audi", "Tesla + EV", "Classic cars", "Motorcycle"],
-              };
-              const presets = PRESETS[form.business_type] || PRESETS.restaurant;
-              return presets.map((p) => (
-                <button
-                  type="button"
-                  key={p}
-                  onClick={() => setCuisine(p)}
-                  className={
-                    "px-2.5 py-1 rounded-full text-xs font-medium border transition " +
-                    (cuisine.toLowerCase() === p.toLowerCase()
-                      ? "bg-emerald-600 text-white border-emerald-600"
-                      : "bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:bg-gray-100")
-                  }
-                >
-                  {p}
-                </button>
-              ));
-            })()}
-          </div>
-          {cuisineMsg && <p className={"text-sm " + (cuisineMsg.toLowerCase().includes("could not") ? "text-red-500" : "text-emerald-600")}>{cuisineMsg}</p>}
-          <button
-            type="submit"
-            disabled={cuisineSaving}
-            className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl transition disabled:opacity-50"
-          >
-            {cuisineSaving ? t("saving") : t("save")}
-          </button>
-        </form>
-      </div>
+        </header>
+      </FadeIn>
 
-      {/* Business Registration */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900/30 rounded-xl flex items-center justify-center">
-            <svg className="w-5 h-5 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-            </svg>
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t("businessRegistration") || "Business Registration"}</h2>
-            <p className="text-xs text-gray-400 dark:text-gray-500">{t("businessRegistrationDesc") || "Look up and save your company details from public registers"}</p>
-          </div>
-        </div>
+      <div className="md:grid md:grid-cols-[200px_minmax(0,1fr)] md:gap-10">
+        {/* Sticky table of contents — desktop only */}
+        <TableOfContents t={t} />
 
-        {businessProfile && (
-          <VerifiedBusinessBanner
-            profile={businessProfile}
-            reverifying={reverifying}
-            reverifyMsg={reverifyMsg}
-            onReverify={reverifyProfile}
-          />
-        )}
-
-        <BusinessLookup
-          onSave={(profile) => {
-            setBusinessProfile(profile);
-            if (profile) {
-              setAccountantForm({
-                accountant_email: profile.accountant_email || "",
-                accountant_name: profile.accountant_name || "",
-              });
-            }
-            // Also refresh user data since business_name syncs
-            api.get("/auth/me").then((res) => {
-              setUser(res.data);
-              setForm(f => ({ ...f, business_name: res.data.business_name || "" }));
-            });
-          }}
-          initialProfile={businessProfile}
-          currentBusinessType={user?.business_type}
-          // Prefer user.currency over navigator.language for country
-          // detection — DK businesses on en-GB Chrome were defaulting
-          // to United Kingdom.
-          defaultCountry={countryFromCurrency(user?.currency)}
-        />
-      </div>
-
-      {/* Smart Staffing — inference-first: we watched their sales,
-          here's what we see. One-tap confirm. The OperatingProfileSection
-          below is the "edit details" power-user path; the simple card
-          handles the 80% case.
-
-          Wired up so the SmartStaffingCard's "Edit details" button
-          flips the expanded state directly — no more separate
-          <details> summary that owners couldn't find. They click
-          "Edit details" on the card → the form below smoothly
-          appears + scrolls into view. The toggle is React-controlled
-          so we can also auto-collapse after a save in future. */}
-      <SmartStaffingCard onEditClick={() => {
-        setEditorExpanded(true);
-        // Smooth scroll to the editor on the next tick after expand
-        setTimeout(() => {
-          document.getElementById("operating-profile-editor")?.scrollIntoView({
-            behavior: "smooth", block: "start",
-          });
-        }, 50);
-      }} />
-      {editorExpanded ? (
-        <div id="operating-profile-editor" className="mt-3">
-          <div className="flex items-center justify-between mb-2 px-1">
-            <span className="text-xs text-gray-500 dark:text-gray-400">
-              {t("smartStaffingFineTune") || "Fine-tune individual values below — these save independently from the card above."}
-            </span>
-            <button
-              type="button"
-              onClick={() => setEditorExpanded(false)}
-              className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-            >
-              {t("smartStaffingHideAdvanced") || "Hide advanced editor ↑"}
-            </button>
-          </div>
-          <OperatingProfileSection />
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setEditorExpanded(true)}
-          className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-1"
-        >
-          {t("smartStaffingShowAdvanced") || "Show advanced operating-profile editor"}
-        </button>
-      )}
-
-      {/* Accountant Contact — pre-fills the "Send to accountant"
-          button on the Daily Close range export. Optional. Saved
-          locally to the BusinessProfile, never shared with anyone. */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900/30 rounded-xl flex items-center justify-center">
-            <span className="text-xl">📧</span>
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-              {t("accountantContact") || "Accountant contact"}
-            </h2>
-            <p className="text-xs text-gray-400 dark:text-gray-500">
-              {t("accountantContactDesc") ||
-                "Pre-fills the Send button on Daily Close range exports. Optional."}
-            </p>
-          </div>
-        </div>
-
-        <form onSubmit={saveAccountant} className="space-y-4">
-          <div>
-            <label className={labelClass}>
-              {t("accountantNameLabel") || "Accountant name (optional)"}
-            </label>
-            <input
-              type="text"
-              value={accountantForm.accountant_name}
-              onChange={(e) => setAccountantForm(f => ({ ...f, accountant_name: e.target.value }))}
-              placeholder="Anna Hansen"
-              maxLength={150}
-              className={inputClass}
-              autoComplete="off"
-            />
-            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
-              {t("accountantNameHint") ||
-                "Used in the email greeting (\"Hej Anna,\")."}
-            </p>
-          </div>
-          <div>
-            <label className={labelClass}>
-              {t("accountantEmailLabel") || "Accountant email"}
-            </label>
-            <input
-              type="email"
-              value={accountantForm.accountant_email}
-              onChange={(e) => setAccountantForm(f => ({ ...f, accountant_email: e.target.value }))}
-              placeholder="anna@revisor.dk"
-              maxLength={254}
-              className={inputClass}
-              autoComplete="off"
-            />
-          </div>
-
-          {accountantMsg && (
-            <p className="text-sm text-green-600 dark:text-green-400">{accountantMsg}</p>
-          )}
-
-          <button
-            type="submit"
-            disabled={accountantSaving}
-            className="w-full sm:w-auto px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl transition disabled:opacity-50"
-          >
-            {accountantSaving ? (t("saving") || "Saving…") : (t("save") || "Save")}
-          </button>
-        </form>
-      </div>
-
-      {/* Payment details — rendered on every faktura PDF.
-          Required by Momsbekendtgørelsen §57 for a legally valid
-          Danish faktura. Without these the PDF prints a visible
-          "no payment details on file" warning. */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-emerald-100 dark:bg-emerald-900/30 rounded-xl flex items-center justify-center">
-            <span className="text-xl">💳</span>
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-              {t("paymentDetailsTitle") || "Payment details on faktura"}
-            </h2>
-            <p className="text-xs text-gray-400 dark:text-gray-500">
-              {t("paymentDetailsDesc") ||
-                "How customers pay you. Printed on every faktura PDF. Required for a valid Danish faktura."}
-            </p>
-          </div>
-        </div>
-
-        <form onSubmit={savePayment} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className={labelClass}>
-                {t("bankRegLabel") || "Bank reg. nr."}
-              </label>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={paymentForm.bank_reg_number}
-                onChange={(e) => setPaymentForm(f => ({ ...f, bank_reg_number: e.target.value }))}
-                placeholder="1234"
-                maxLength={8}
-                className={inputClass}
-                autoComplete="off"
+        <main className="space-y-6 min-w-0">
+          {/* ─── Account ─────────────────────────────────────────── */}
+          <SectionAnchor id="account">
+            <Card>
+              <Card.Header
+                title={t("profileSectionAccount")}
+                subtitle={t("profileSectionAccountDesc")}
+                icon={<Icon name="User" size={18} />}
               />
-            </div>
-            <div>
-              <label className={labelClass}>
-                {t("bankAccountLabel") || "Bank konto nr."}
-              </label>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={paymentForm.bank_account_number}
-                onChange={(e) => setPaymentForm(f => ({ ...f, bank_account_number: e.target.value }))}
-                placeholder="1234567890"
-                maxLength={20}
-                className={inputClass}
-                autoComplete="off"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className={labelClass}>
-              {t("mobilepayLabel") || "MobilePay Erhverv nr."}
-            </label>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={paymentForm.mobilepay_number}
-              onChange={(e) => setPaymentForm(f => ({ ...f, mobilepay_number: e.target.value }))}
-              placeholder="12345"
-              maxLength={20}
-              className={inputClass}
-              autoComplete="off"
-            />
-            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
-              {t("mobilepayHint") ||
-                "Your 5-digit MobilePay Erhverv code. Renders alongside bank info on the faktura."}
-            </p>
-          </div>
-
-          <details className="text-sm">
-            <summary className="cursor-pointer text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
-              {t("ibanShowToggle") || "International (IBAN/BIC)"}
-            </summary>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
-              <div className="sm:col-span-2">
-                <label className={labelClass}>IBAN</label>
-                <input
-                  type="text"
-                  value={paymentForm.iban}
-                  onChange={(e) => setPaymentForm(f => ({ ...f, iban: e.target.value.toUpperCase().replace(/\s/g, "") }))}
-                  placeholder="DK5000400440116243"
-                  maxLength={34}
-                  className={inputClass + " font-mono"}
-                  autoComplete="off"
-                />
-              </div>
-              <div>
-                <label className={labelClass}>BIC / SWIFT</label>
-                <input
-                  type="text"
-                  value={paymentForm.bic}
-                  onChange={(e) => setPaymentForm(f => ({ ...f, bic: e.target.value.toUpperCase().replace(/\s/g, "") }))}
-                  placeholder="DABADKKK"
-                  maxLength={11}
-                  className={inputClass + " font-mono"}
-                  autoComplete="off"
-                />
-              </div>
-            </div>
-          </details>
-
-          {paymentMsg && (
-            <p className="text-sm text-green-600 dark:text-green-400">{paymentMsg}</p>
-          )}
-
-          <button
-            type="submit"
-            disabled={paymentSaving}
-            className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl transition disabled:opacity-50"
-          >
-            {paymentSaving ? (t("saving") || "Saving…") : (t("save") || "Save")}
-          </button>
-        </form>
-      </div>
-
-      {/* Brand & logo — appears on every faktura PDF. Server enforces
-          a 6-color palette + magic-byte logo validation; the UI here
-          is just a friendly entry point. (Migration 034.) */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl flex items-center justify-center">
-            <span className="text-xl">🎨</span>
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-              {t("brandTitle") || "Brand & logo on faktura"}
-            </h2>
-            <p className="text-xs text-gray-400 dark:text-gray-500">
-              {t("brandDesc") ||
-                "Customize how your faktura looks. Logo + one accent color from our Copenhagen palette."}
-            </p>
-          </div>
-        </div>
-
-        <div className="space-y-5">
-          {/* Logo block */}
-          <div>
-            <label className={labelClass}>{t("brandLogoLabel") || "Logo"}</label>
-            <div className="flex items-center gap-4">
-              {brand.logo_url ? (
-                <img
-                  src={brand.logo_url}
-                  alt="Current logo"
-                  className="w-20 h-20 object-contain border border-gray-200 dark:border-gray-700 rounded-lg bg-white p-2"
-                />
-              ) : (
-                <div className="w-20 h-20 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg flex items-center justify-center text-2xl text-gray-300 dark:text-gray-600">
-                  🖼️
-                </div>
-              )}
-              <div className="flex flex-col gap-2">
-                <label className="cursor-pointer inline-block px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-sm font-medium rounded-lg transition">
-                  {logoUploading
-                    ? (t("uploading") || "Uploading…")
-                    : (brand.logo_url ? (t("brandReplaceLogo") || "Replace") : (t("brandUploadLogo") || "Upload logo"))}
+              <ProfileIdentity user={user} t={t} />
+              <form onSubmit={saveProfile} className="space-y-4 mt-4">
+                <Field label={t("emailLabel")}>
                   <input
-                    type="file"
-                    accept="image/png,image/jpeg"
-                    onChange={(e) => uploadLogo(e.target.files?.[0])}
-                    disabled={logoUploading}
-                    className="hidden"
+                    type="email"
+                    value={form.email}
+                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    className={INPUT_CLASS}
                   />
-                </label>
-                {brand.logo_url && (
-                  <button
-                    onClick={deleteLogo}
-                    type="button"
-                    className="px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition"
-                  >
-                    {t("brandRemoveLogo") || "Remove"}
-                  </button>
-                )}
-              </div>
-            </div>
-            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-2">
-              {t("brandLogoHint") || "PNG or JPEG, max 1 MB. Auto-resized + EXIF stripped for privacy."}
-            </p>
-          </div>
+                </Field>
+                {error && <Message tone="error">{error}</Message>}
+                {success && <Message tone="success">{success}</Message>}
+                <div className="flex justify-end pt-1">
+                  <Button type="submit" variant="primary" busy={saving}>
+                    {saving ? t("saving") : t("saveChanges")}
+                  </Button>
+                </div>
+              </form>
+            </Card>
 
-          {/* Logo position */}
-          <div>
-            <label className={labelClass}>{t("brandPositionLabel") || "Logo position"}</label>
-            <div className="flex gap-2">
-              {[
-                { value: "left", label: t("brandPositionLeft") || "Left (default)" },
-                { value: "center", label: t("brandPositionCenter") || "Center" },
-              ].map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => saveBrand({ logo_position: opt.value })}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium border transition
-                    ${brand.logo_position === opt.value
-                      ? "bg-indigo-50 dark:bg-indigo-900/30 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300"
-                      : "bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600"}`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Accent color picker — 6 presets only (server-locked) */}
-          <div>
-            <label className={labelClass}>{t("brandColorLabel") || "Accent color"}</label>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => saveBrand({ accent_color: null })}
-                className={`w-10 h-10 rounded-lg border-2 transition inline-flex items-center justify-center
-                  ${!brand.accent_color
-                    ? "border-gray-900 dark:border-white"
-                    : "border-gray-200 dark:border-gray-600"}`}
-                title="Default (no color)"
-              >
-                <span className="text-gray-400 text-xs">✕</span>
-              </button>
-              {Object.entries(brand.accent_palette || {}).map(([name, hex]) => (
-                <button
-                  key={name}
-                  type="button"
-                  onClick={() => saveBrand({ accent_color: name })}
-                  className={`w-10 h-10 rounded-lg border-2 transition
-                    ${(brand.accent_color || "").toUpperCase() === hex.toUpperCase()
-                      ? "border-gray-900 dark:border-white scale-105"
-                      : "border-gray-200 dark:border-gray-600"}`}
-                  style={{ backgroundColor: hex }}
-                  title={name}
-                />
-              ))}
-            </div>
-            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-2">
-              {t("brandColorHint") || "Locked to 6 presets — keeps fakturaer professional."}
-            </p>
-          </div>
-
-          {brandMsg && (
-            <p className="text-sm text-green-600 dark:text-green-400">{brandMsg}</p>
-          )}
-        </div>
-      </div>
-
-      {/* Change Password */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">{t("changePassword")}</h2>
-        <form onSubmit={changePassword} className="space-y-4">
-          <div>
-            <label className={labelClass}>{t("currentPassword")}</label>
-            <input type="password" value={passwords.current_password}
-              onChange={(e) => setPasswords({ ...passwords, current_password: e.target.value })}
-              className={inputClass} required />
-          </div>
-          <div>
-            <label className={labelClass}>{t("newPassword")}</label>
-            <input type="password" value={passwords.new_password}
-              onChange={(e) => setPasswords({ ...passwords, new_password: e.target.value })}
-              className={inputClass} required />
-          </div>
-          <div>
-            <label className={labelClass}>{t("confirmNewPassword")}</label>
-            <input type="password" value={passwords.confirm_password}
-              onChange={(e) => setPasswords({ ...passwords, confirm_password: e.target.value })}
-              className={inputClass} required />
-          </div>
-
-          {pwError && <p className="text-sm text-red-500">{pwError}</p>}
-          {pwSuccess && <p className="text-sm text-green-500">{pwSuccess}</p>}
-
-          <button type="submit" disabled={changingPw}
-            className="w-full py-3 bg-gray-800 dark:bg-gray-600 hover:bg-gray-900 dark:hover:bg-gray-500 text-white font-semibold rounded-xl transition disabled:opacity-50">
-            {changingPw ? t("changing") : t("changePassword")}
-          </button>
-        </form>
-      </div>
-
-      {/* Email Notifications */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">{t("emailNotifications")}</h2>
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("dailyDigestLabel")}</p>
-              <p className="text-xs text-gray-400 dark:text-gray-500">{t("dailyDigestDesc")}</p>
-            </div>
-            <button
-              onClick={() => toggleEmailPref("daily_digest_enabled")}
-              className={`relative w-11 h-6 rounded-full transition ${emailPrefs.daily_digest_enabled ? "bg-green-600" : "bg-gray-300 dark:bg-gray-600"}`}
-            >
-              <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${emailPrefs.daily_digest_enabled ? "translate-x-5" : ""}`} />
-            </button>
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("expenseAlertsLabel")}</p>
-              <p className="text-xs text-gray-400 dark:text-gray-500">{t("expenseAlertsDesc")}</p>
-            </div>
-            <button
-              onClick={() => toggleEmailPref("expense_alerts_enabled")}
-              className={`relative w-11 h-6 rounded-full transition ${emailPrefs.expense_alerts_enabled ? "bg-green-600" : "bg-gray-300 dark:bg-gray-600"}`}
-            >
-              <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${emailPrefs.expense_alerts_enabled ? "translate-x-5" : ""}`} />
-            </button>
-          </div>
-          {/* Push notifications */}
-          {pushSupported && (
-            <div className="flex items-center justify-between py-2">
-              <div>
-                <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{t("pushNotificationsLabel")}</p>
-                <p className="text-xs text-gray-400">{t("pushNotificationsDesc")}</p>
-              </div>
-              {pushPerm === "granted" ? (
-                <span className="text-xs font-medium text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 px-2.5 py-1 rounded-full">Enabled</span>
-              ) : pushPerm === "denied" ? (
-                <span className="text-xs text-red-500">{t("blockedInBrowser")}</span>
-              ) : (
-                <button
-                  onClick={requestPush}
-                  className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 transition"
-                >
-                  Enable
-                </button>
-              )}
-            </div>
-          )}
-          <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
-            <button
-              onClick={sendTestDigest}
-              disabled={sendingTest}
-              className="px-4 py-2 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg text-sm font-medium hover:bg-blue-100 dark:hover:bg-blue-900/50 transition disabled:opacity-50"
-            >
-              {sendingTest ? t("sending") : t("sendTestDigest")}
-            </button>
-            {emailMsg && <span className="ml-3 text-sm text-green-600 dark:text-green-400">{emailMsg}</span>}
-          </div>
-        </div>
-      </div>
-
-      {/* Privacy & Data */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900/30 rounded-xl flex items-center justify-center">
-            <svg className="w-5 h-5 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t("privacyDataSection")}</h2>
-            <p className="text-xs text-gray-400 dark:text-gray-500">{t("privacyDataDesc")}</p>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("pauseAnalytics")}</p>
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                When ON, BonBox stops recording your clicks, page views and AI questions.
-                Your business data (sales, expenses, inventory) is unaffected.
-                You can resume any time. Existing analytics older than 180 days
-                are auto-deleted.
-              </p>
-            </div>
-            <button
-              onClick={toggleAnalyticsOptOut}
-              aria-pressed={analyticsOptOut}
-              aria-label="Pause product analytics"
-              className={`shrink-0 mt-1 relative w-11 h-6 rounded-full transition ${analyticsOptOut ? "bg-purple-600" : "bg-gray-300 dark:bg-gray-600"}`}
-            >
-              <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${analyticsOptOut ? "translate-x-5" : ""}`} />
-            </button>
-          </div>
-          {privacyMsg && (
-            <p className="text-xs text-purple-600 dark:text-purple-400">{privacyMsg}</p>
-          )}
-          <p className="text-[11px] text-gray-400 dark:text-gray-500 pt-2 border-t border-gray-100 dark:border-gray-700">
-            🇪🇺 GDPR: BonBox processes analytics under legitimate-interest basis.
-            Your right to opt out is respected here. To delete all your data, see "Your Data" below.
-          </p>
-        </div>
-      </div>
-
-      {/* WhatsApp Bot */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center">
-            <svg className="w-6 h-6 text-green-600" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t("whatsappBot")}</h2>
-            <p className="text-xs text-gray-400 dark:text-gray-500">{t("whatsappBotDesc")}</p>
-          </div>
-        </div>
-
-        {waStatus?.verified ? (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 px-4 py-3 bg-green-50 dark:bg-green-900/20 rounded-xl">
-              <span className="w-2 h-2 bg-green-500 rounded-full" />
-              <span className="text-sm font-medium text-green-700 dark:text-green-400">{t("connectedLabel")}: {waStatus.phone}</span>
-            </div>
-            <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
-              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">{t("quickCommandsLabel")}:</p>
-              <div className="grid grid-cols-2 gap-1 text-xs text-gray-600 dark:text-gray-300">
-                <span><code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">14500</code> → Log revenue</span>
-                <span><code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">expense 2500 food</code> → Log expense</span>
-                <span><code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">summary</code> → Today's stats</span>
-                <span><code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">profit</code> → Monthly profit</span>
-                <span><code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">inventory</code> → Stock alerts</span>
-                <span><code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">help</code> → All commands</span>
-              </div>
-            </div>
-            <button onClick={unlinkWhatsApp} className="text-xs text-red-500 hover:underline">{t("unlinkWhatsapp")}</button>
-          </div>
-        ) : waStatus?.linked ? (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 px-4 py-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl">
-              <span className="w-2 h-2 bg-yellow-500 rounded-full" />
-              <span className="text-sm text-yellow-700 dark:text-yellow-400">{t("verificationPendingFor")} {waStatus.phone}</span>
-            </div>
-            {waCode && (
-              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 text-center">
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t("yourVerificationCode")}:</p>
-                <p className="text-3xl font-bold tracking-widest text-blue-600 dark:text-blue-400">{waCode}</p>
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">{t("sendCodeToBonbox")}</p>
-              </div>
-            )}
-            {!waCode && <p className="text-xs text-gray-400">{t("sendCodeToBonbox")}</p>}
-            <button onClick={unlinkWhatsApp} className="text-xs text-red-500 hover:underline">{t("unlinkWhatsapp")}</button>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <p className="text-sm text-gray-600 dark:text-gray-300">{t("linkPhoneDesc")}</p>
-            <div className="flex gap-2">
-              <input
-                type="tel"
-                value={waPhone}
-                onChange={(e) => setWaPhone(e.target.value)}
-                placeholder="+45 91 67 59 74"
-                className={inputClass + " flex-1"}
+            <Card className="mt-4">
+              <Card.Header
+                title={t("changePassword")}
+                subtitle={t("passwordMinLength") /* fallback hint */}
+                icon={<Icon name="Lock" size={18} />}
               />
-              <button
-                onClick={linkWhatsApp}
-                disabled={waLinking || !waPhone.trim()}
-                className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 transition disabled:opacity-50"
-              >
-                {waLinking ? t("sending") : t("link")}
-              </button>
-            </div>
-            {waMsg && <p className="text-sm text-green-600 dark:text-green-400">{waMsg}</p>}
-          </div>
-        )}
-      </div>
-
-      {/* Account Details */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">{t("accountDetailsTitle")}</h2>
-        <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
-          <p>{t("accountIdLabel")}: <span className="font-mono text-xs">{user.id}</span></p>
-          <p>{t("dailyGoal")}: {user.daily_goal > 0 ? `${Number(user.daily_goal).toLocaleString()} ${form.currency}` : t("notSetLabel")}</p>
-        </div>
-      </div>
-
-      {/* GDPR: Your Data */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-red-200 dark:border-red-900/50 p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-red-100 dark:bg-red-900/30 rounded-xl flex items-center justify-center">
-            <svg className="w-5 h-5 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-            </svg>
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t("yourData") || "Your Data"}</h2>
-            <p className="text-xs text-gray-400 dark:text-gray-500">{t("gdprRights") || "GDPR: Right to data portability & right to erasure"}</p>
-          </div>
-        </div>
-
-        {/* Export Data */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
-            <div>
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("exportAllData") || "Export All Data"}</p>
-              <p className="text-xs text-gray-400">{t("exportAllDataDesc") || "Download everything BonBox stores about you as a CSV file"}</p>
-            </div>
-            <button
-              onClick={async () => {
-                setExporting(true);
-                try {
-                  const res = await api.get("/auth/export-data", { responseType: "blob" });
-                  const url = window.URL.createObjectURL(new Blob([res.data]));
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = `bonbox_export_${localIso()}.csv`;
-                  a.click();
-                  window.URL.revokeObjectURL(url);
-                } catch { /* ignore */ }
-                setExporting(false);
-              }}
-              disabled={exporting}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition disabled:opacity-50 shrink-0"
-            >
-              {exporting ? t("exporting") || "Exporting..." : t("downloadCsv") || "Download CSV"}
-            </button>
-          </div>
-
-          {/* Tax preferences moved → Tax Autopilot page (next to the deadlines they drive). */}
-          <a
-            href="/tax"
-            className="block p-4 rounded-xl border border-green-200/70 dark:border-green-800/40 bg-green-50/60 dark:bg-green-900/15 hover:border-green-300 dark:hover:border-green-700 transition"
-          >
-            <div className="flex items-center gap-3">
-              <span className="text-xl">🧾</span>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-green-900 dark:text-green-100">{t("taxPrefsMoved")}</p>
-                <p className="text-xs text-green-800/80 dark:text-green-200/80 mt-0.5">
-                  Filing frequency, Moms inclusion and employee flag now live in Tax Autopilot — next to the deadlines they affect.
-                </p>
-              </div>
-              <span className="text-green-700 dark:text-green-300 text-sm">→</span>
-            </div>
-          </a>
-
-          {/* Help — show all dismissed tips again (works across all pages) */}
-          <div className="p-4 bg-gray-50 dark:bg-gray-800/40 rounded-xl">
-            <div className="mb-3">
-              <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{t("tipsHints")}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                We show small contextual tips around the app. Dismissed them all and want a refresher?
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                resetAllTips();
-                // Force a reload so every mounted DismissibleTip re-reads localStorage.
-                window.location.reload();
-              }}
-              className="px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-800 dark:text-gray-100 rounded-lg hover:border-green-400 hover:text-green-700 dark:hover:text-green-300 transition"
-            >
-              Show all tips again
-            </button>
-          </div>
-
-          {/* Appearance — theme picker (4 accent themes; works alongside light/dark mode) */}
-          <div className="p-4 bg-gray-50 dark:bg-gray-800/40 rounded-xl">
-            <div className="mb-3">
-              <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{t("appearance") || "Appearance"}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">{t("accentDesc")}</p>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {THEMES.map((th) => {
-                const active = theme === th.id;
-                return (
-                  <button
-                    key={th.id}
-                    onClick={() => setTheme(th.id)}
-                    aria-pressed={active}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition
-                      ${active
-                        ? "bg-white dark:bg-gray-700 border-2 border-gray-700 dark:border-gray-300 text-gray-900 dark:text-white"
-                        : "bg-white dark:bg-gray-700/60 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-gray-400"}`}
-                  >
-                    <span
-                      className="w-4 h-4 rounded-full shrink-0 ring-1 ring-black/10 dark:ring-white/10"
-                      style={{ backgroundColor: th.swatch }}
-                    />
-                    <span>{th.name}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Delete Account */}
-          <div className="p-4 bg-red-50 dark:bg-red-900/10 rounded-xl">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-red-700 dark:text-red-400">{t("deleteAccount") || "Delete Account"}</p>
-                <p className="text-xs text-red-500/70 dark:text-red-400/60">{t("deleteAccountDesc") || "Permanently delete your account and all data. This cannot be undone."}</p>
-              </div>
-              {!deleteConfirm && (
-                <button
-                  onClick={() => setDeleteConfirm(true)}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition shrink-0"
-                >
-                  {t("deleteMyAccount") || "Delete My Account"}
-                </button>
-              )}
-            </div>
-
-            {deleteConfirm && (
-              <div className="mt-4 pt-4 border-t border-red-200 dark:border-red-800/50 space-y-3">
-                <p className="text-sm text-red-600 dark:text-red-400 font-medium">
-                  {t("deleteConfirmWarning") || "This will permanently delete ALL your data: sales, expenses, inventory, reports, everything. Enter your password to confirm."}
-                </p>
-                <div className="flex gap-2">
+              <form onSubmit={changePassword} className="space-y-4">
+                <Field label={t("currentPassword")}>
                   <input
                     type="password"
-                    value={deletePassword}
-                    onChange={(e) => { setDeletePassword(e.target.value); setDeleteError(""); }}
-                    placeholder={t("enterPassword") || "Enter your password"}
-                    className="flex-1 px-3 py-2 rounded-lg border border-red-300 dark:border-red-700 bg-white dark:bg-gray-800 text-sm text-gray-800 dark:text-gray-200"
+                    value={passwords.current_password}
+                    onChange={(e) => setPasswords({ ...passwords, current_password: e.target.value })}
+                    className={INPUT_CLASS}
+                    required
+                    autoComplete="current-password"
                   />
+                </Field>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field label={t("newPassword")}>
+                    <input
+                      type="password"
+                      value={passwords.new_password}
+                      onChange={(e) => setPasswords({ ...passwords, new_password: e.target.value })}
+                      className={INPUT_CLASS}
+                      required
+                      autoComplete="new-password"
+                    />
+                  </Field>
+                  <Field label={t("confirmNewPassword")}>
+                    <input
+                      type="password"
+                      value={passwords.confirm_password}
+                      onChange={(e) => setPasswords({ ...passwords, confirm_password: e.target.value })}
+                      className={INPUT_CLASS}
+                      required
+                      autoComplete="new-password"
+                    />
+                  </Field>
+                </div>
+                {pwError && <Message tone="error">{pwError}</Message>}
+                {pwSuccess && <Message tone="success">{pwSuccess}</Message>}
+                <div className="flex justify-end pt-1">
+                  <Button type="submit" variant="primary" busy={changingPw}>
+                    {changingPw ? t("changing") : t("changePassword")}
+                  </Button>
+                </div>
+              </form>
+            </Card>
+          </SectionAnchor>
+
+          {/* ─── Business profile ────────────────────────────────── */}
+          <SectionAnchor id="business">
+            <Card>
+              <Card.Header
+                title={t("profileBusinessAccountTitle")}
+                subtitle={t("profileBusinessAccountDesc")}
+                icon={<Icon name="Building2" size={18} />}
+              />
+              <form onSubmit={saveProfile} className="space-y-4">
+                <Field label={t("businessNameLabel")}>
+                  <input
+                    type="text"
+                    value={form.business_name}
+                    onChange={(e) => setForm({ ...form, business_name: e.target.value })}
+                    className={INPUT_CLASS}
+                  />
+                </Field>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field label={t("businessTypeLabel")}>
+                    <select
+                      value={form.business_type}
+                      onChange={(e) => setForm({ ...form, business_type: e.target.value })}
+                      className={INPUT_CLASS}
+                    >
+                      <option value="restaurant">{t("restaurantType")}</option>
+                      <option value="cafe">{t("cafeType")}</option>
+                      <option value="bar">{t("barType")}</option>
+                      <option value="bakery">{t("bakeryType")}</option>
+                      <option value="food_truck">{t("foodTruckType")}</option>
+                      <option value="retail">{t("retailShopType")}</option>
+                      <option value="clothing">{t("clothingStoreType")}</option>
+                      <option value="grocery">{t("groceryStoreType")}</option>
+                      <option value="salon">{t("salonBeautyType")}</option>
+                      <option value="pharmacy">{t("pharmacyType")}</option>
+                      <option value="other">{t("otherType")}</option>
+                    </select>
+                  </Field>
+                  <Field label={t("currencyLabel")}>
+                    <select
+                      value={form.currency}
+                      onChange={(e) => setForm({ ...form, currency: e.target.value })}
+                      className={INPUT_CLASS}
+                    >
+                      <option value="DKK">DKK - Danish Krone (Moms 25%)</option>
+                      <option value="SEK">SEK - Swedish Krona (Moms 25%)</option>
+                      <option value="NOK">NOK - Norwegian Krone (MVA 25%)</option>
+                      <option value="EUR">EUR - Euro (General, VAT 20%)</option>
+                      <option value="EUR_PT">EUR - Portugal (IVA 23%)</option>
+                      <option value="EUR_DE">EUR - Germany (MwSt 19%)</option>
+                      <option value="EUR_FR">EUR - France (TVA 20%)</option>
+                      <option value="EUR_ES">EUR - Spain (IVA 21%)</option>
+                      <option value="EUR_IT">EUR - Italy (IVA 22%)</option>
+                      <option value="EUR_NL">EUR - Netherlands (BTW 21%)</option>
+                      <option value="USD">USD - US Dollar (Sales Tax varies)</option>
+                      <option value="GBP">GBP - British Pound (VAT 20%)</option>
+                      <option value="NPR">NPR - Nepalese Rupee (VAT 13%)</option>
+                      <option value="INR">INR - Indian Rupee (GST 18%)</option>
+                      <option value="JPY">JPY - Japanese Yen (税 10%)</option>
+                      <option value="AUD">AUD - Australian Dollar (GST 10%)</option>
+                      <option value="CAD">CAD - Canadian Dollar (GST 5%)</option>
+                      <option value="CHF">CHF - Swiss Franc (MWST 8.1%)</option>
+                    </select>
+                  </Field>
+                </div>
+                {error && <Message tone="error">{error}</Message>}
+                {success && <Message tone="success">{success}</Message>}
+                <div className="flex justify-end pt-1">
+                  <Button type="submit" variant="primary" busy={saving}>
+                    {saving ? t("saving") : t("saveChanges")}
+                  </Button>
+                </div>
+              </form>
+            </Card>
+
+            <Card className="mt-4">
+              <Card.Header
+                title={t("profileCuisineCardTitle")}
+                subtitle={t("profileCuisineCardDesc")}
+                icon={<Icon name="Utensils" size={18} />}
+              />
+              <form onSubmit={saveCuisine} className="space-y-3">
+                <input
+                  type="text"
+                  value={cuisine}
+                  onChange={(e) => setCuisine(e.target.value.slice(0, 60))}
+                  placeholder={
+                    (form.business_type === "cafe" && t("cuisineExampleCafe", "e.g. specialty coffee, brunch, vegan bakery"))
+                    || (form.business_type === "bar" && t("cuisineExampleBar", "e.g. cocktail bar, sports pub, wine bar"))
+                    || (form.business_type === "bakery" && t("cuisineExampleBakery", "e.g. sourdough, French patisserie, gluten-free"))
+                    || t("cuisineExampleRestaurant", "e.g. French bistro, Nepali, sushi, ramen, Italian, vegan, tapas")
+                  }
+                  className={INPUT_CLASS}
+                  maxLength={60}
+                />
+                <div className="flex flex-wrap gap-1.5">
+                  {cuisinePresets.map((p) => {
+                    const active = cuisine.toLowerCase() === p.toLowerCase();
+                    return (
+                      <button
+                        type="button"
+                        key={p}
+                        onClick={() => setCuisine(p)}
+                        className={
+                          "px-2.5 py-1 rounded-full text-xs font-medium border transition " +
+                          (active
+                            ? "bg-emerald-600 text-white border-emerald-600"
+                            : "bg-stone-50 dark:bg-stone-800 text-stone-700 dark:text-stone-200 border-stone-200 dark:border-stone-700 hover:bg-stone-100 dark:hover:bg-stone-700")
+                        }
+                      >
+                        {p}
+                      </button>
+                    );
+                  })}
+                </div>
+                {cuisineMsg && (
+                  <Message tone={cuisineMsg.toLowerCase().includes("could not") ? "error" : "success"}>
+                    {cuisineMsg}
+                  </Message>
+                )}
+                <div className="flex justify-end pt-1">
+                  <Button type="submit" variant="primary" busy={cuisineSaving}>
+                    {cuisineSaving ? t("saving") : t("save")}
+                  </Button>
+                </div>
+              </form>
+            </Card>
+
+            <Card className="mt-4">
+              <Card.Header
+                title={t("businessRegistration") || "Business Registration"}
+                subtitle={t("businessRegistrationDesc") || "Look up and save your company details from public registers"}
+                icon={<Icon name="FileText" size={18} />}
+              />
+              {businessProfile && (
+                <VerifiedBusinessBanner
+                  profile={businessProfile}
+                  reverifying={reverifying}
+                  reverifyMsg={reverifyMsg}
+                  onReverify={reverifyProfile}
+                />
+              )}
+              <BusinessLookup
+                onSave={(profile) => {
+                  setBusinessProfile(profile);
+                  if (profile) {
+                    setAccountantForm({
+                      accountant_email: profile.accountant_email || "",
+                      accountant_name: profile.accountant_name || "",
+                    });
+                  }
+                  api.get("/auth/me").then((res) => {
+                    setUser(res.data);
+                    setForm((f) => ({ ...f, business_name: res.data.business_name || "" }));
+                  });
+                }}
+                initialProfile={businessProfile}
+                currentBusinessType={user?.business_type}
+                defaultCountry={countryFromCurrency(user?.currency)}
+              />
+            </Card>
+          </SectionAnchor>
+
+          {/* ─── Operations (smart staffing / operating profile) ── */}
+          <SectionAnchor id="operations">
+            <div className="space-y-4">
+              <SmartStaffingCard
+                onEditClick={() => {
+                  setEditorExpanded(true);
+                  setTimeout(() => {
+                    document
+                      .getElementById("operating-profile-editor")
+                      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }, 50);
+                }}
+              />
+              {editorExpanded ? (
+                <div id="operating-profile-editor">
+                  <div className="flex items-center justify-between mb-2 px-1">
+                    <span className="text-xs text-stone-500 dark:text-stone-400">
+                      {t("smartStaffingFineTune") ||
+                        "Fine-tune individual values below — these save independently from the card above."}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setEditorExpanded(false)}
+                      className="text-xs text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-200"
+                    >
+                      {t("smartStaffingHideAdvanced") || "Hide advanced editor"}
+                    </button>
+                  </div>
+                  <OperatingProfileSection />
+                </div>
+              ) : (
+                <div className="px-1">
                   <button
-                    onClick={async () => {
-                      if (!deletePassword) return;
-                      setDeleting(true);
-                      setDeleteError("");
-                      try {
-                        await api.delete("/auth/delete-account", { data: { password: deletePassword } });
-                        localStorage.clear();
-                        window.location.href = "/login";
-                      } catch (err) {
-                        setDeleteError(err.response?.data?.detail || t("deleteFailed") || "Failed to delete account");
-                      }
-                      setDeleting(false);
-                    }}
-                    disabled={deleting || !deletePassword}
-                    className="px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-bold hover:bg-red-800 transition disabled:opacity-50"
+                    type="button"
+                    onClick={() => setEditorExpanded(true)}
+                    className="text-xs text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-200"
                   >
-                    {deleting ? t("deleting") || "Deleting..." : t("confirmDelete") || "Confirm Delete"}
-                  </button>
-                  <button
-                    onClick={() => { setDeleteConfirm(false); setDeletePassword(""); setDeleteError(""); }}
-                    className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition"
-                  >
-                    {t("cancel") || "Cancel"}
+                    {t("smartStaffingShowAdvanced") || "Show advanced operating-profile editor"}
                   </button>
                 </div>
-                {deleteError && <p className="text-sm text-red-500">{deleteError}</p>}
+              )}
+            </div>
+          </SectionAnchor>
+
+          {/* ─── Billing details + accountant ─────────────────────── */}
+          <SectionAnchor id="billing">
+            <Card>
+              <Card.Header
+                title={t("paymentDetailsTitle") || "Payment details on faktura"}
+                subtitle={
+                  t("paymentDetailsDesc") ||
+                  "How customers pay you. Printed on every faktura PDF. Required for a valid Danish faktura."
+                }
+                icon={<Icon name="CreditCard" size={18} />}
+              />
+              <form onSubmit={savePayment} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field label={t("bankRegLabel") || "Bank reg. nr."}>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={paymentForm.bank_reg_number}
+                      onChange={(e) => setPaymentForm((f) => ({ ...f, bank_reg_number: e.target.value }))}
+                      placeholder="1234"
+                      maxLength={8}
+                      className={INPUT_CLASS}
+                      autoComplete="off"
+                    />
+                  </Field>
+                  <Field label={t("bankAccountLabel") || "Bank konto nr."}>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={paymentForm.bank_account_number}
+                      onChange={(e) => setPaymentForm((f) => ({ ...f, bank_account_number: e.target.value }))}
+                      placeholder="1234567890"
+                      maxLength={20}
+                      className={INPUT_CLASS}
+                      autoComplete="off"
+                    />
+                  </Field>
+                </div>
+                <Field
+                  label={t("mobilepayLabel") || "MobilePay Erhverv nr."}
+                  hint={
+                    t("mobilepayHint") ||
+                    "Your 5-digit MobilePay Erhverv code. Renders alongside bank info on the faktura."
+                  }
+                >
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={paymentForm.mobilepay_number}
+                    onChange={(e) => setPaymentForm((f) => ({ ...f, mobilepay_number: e.target.value }))}
+                    placeholder="12345"
+                    maxLength={20}
+                    className={INPUT_CLASS}
+                    autoComplete="off"
+                  />
+                </Field>
+
+                <details className="text-sm">
+                  <summary className="cursor-pointer text-stone-600 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200">
+                    {t("ibanShowToggle") || "International (IBAN/BIC)"}
+                  </summary>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+                    <div className="sm:col-span-2">
+                      <Field label="IBAN">
+                        <input
+                          type="text"
+                          value={paymentForm.iban}
+                          onChange={(e) =>
+                            setPaymentForm((f) => ({ ...f, iban: e.target.value.toUpperCase().replace(/\s/g, "") }))
+                          }
+                          placeholder="DK5000400440116243"
+                          maxLength={34}
+                          className={INPUT_CLASS + " font-mono"}
+                          autoComplete="off"
+                        />
+                      </Field>
+                    </div>
+                    <Field label="BIC / SWIFT">
+                      <input
+                        type="text"
+                        value={paymentForm.bic}
+                        onChange={(e) =>
+                          setPaymentForm((f) => ({ ...f, bic: e.target.value.toUpperCase().replace(/\s/g, "") }))
+                        }
+                        placeholder="DABADKKK"
+                        maxLength={11}
+                        className={INPUT_CLASS + " font-mono"}
+                        autoComplete="off"
+                      />
+                    </Field>
+                  </div>
+                </details>
+
+                {paymentMsg && <Message tone="success">{paymentMsg}</Message>}
+                <div className="flex justify-end pt-1">
+                  <Button type="submit" variant="accent" busy={paymentSaving}>
+                    {paymentSaving ? (t("saving") || "Saving…") : (t("save") || "Save")}
+                  </Button>
+                </div>
+              </form>
+            </Card>
+
+            <Card className="mt-4">
+              <Card.Header
+                title={t("accountantContact") || "Accountant contact"}
+                subtitle={
+                  t("accountantContactDesc") ||
+                  "Pre-fills the Send button on Daily Close range exports. Optional."
+                }
+                icon={<Icon name="Mail" size={18} />}
+              />
+              <form onSubmit={saveAccountant} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field
+                    label={t("accountantNameLabel") || "Accountant name (optional)"}
+                    hint={t("accountantNameHint") || 'Used in the email greeting ("Hej Anna,").'}
+                  >
+                    <input
+                      type="text"
+                      value={accountantForm.accountant_name}
+                      onChange={(e) => setAccountantForm((f) => ({ ...f, accountant_name: e.target.value }))}
+                      placeholder="Anna Hansen"
+                      maxLength={150}
+                      className={INPUT_CLASS}
+                      autoComplete="off"
+                    />
+                  </Field>
+                  <Field label={t("accountantEmailLabel") || "Accountant email"}>
+                    <input
+                      type="email"
+                      value={accountantForm.accountant_email}
+                      onChange={(e) => setAccountantForm((f) => ({ ...f, accountant_email: e.target.value }))}
+                      placeholder="anna@revisor.dk"
+                      maxLength={254}
+                      className={INPUT_CLASS}
+                      autoComplete="off"
+                    />
+                  </Field>
+                </div>
+                {accountantMsg && <Message tone="success">{accountantMsg}</Message>}
+                <div className="flex justify-end pt-1">
+                  <Button type="submit" variant="primary" busy={accountantSaving}>
+                    {accountantSaving ? (t("saving") || "Saving…") : (t("save") || "Save")}
+                  </Button>
+                </div>
+              </form>
+            </Card>
+          </SectionAnchor>
+
+          {/* ─── Brand & appearance ───────────────────────────────── */}
+          <SectionAnchor id="brand">
+            <Card>
+              <Card.Header
+                title={t("profileBrandCardTitle")}
+                subtitle={
+                  t("brandDesc") ||
+                  "Customize how your faktura looks. Logo + one accent color from our Copenhagen palette."
+                }
+                icon={<Icon name="Image" size={18} />}
+              />
+              <div className="space-y-5">
+                <div>
+                  <label className={LABEL_CLASS}>{t("brandLogoLabel") || "Logo"}</label>
+                  <div className="flex items-center gap-4">
+                    {brand.logo_url ? (
+                      <img
+                        src={brand.logo_url}
+                        alt="Current logo"
+                        className="w-20 h-20 object-contain border border-stone-200 dark:border-stone-700 rounded-lg bg-white p-2"
+                      />
+                    ) : (
+                      <div className="w-20 h-20 border border-dashed border-stone-300 dark:border-stone-700 rounded-lg flex items-center justify-center text-stone-400 dark:text-stone-600">
+                        <Icon name="Image" size={24} />
+                      </div>
+                    )}
+                    <div className="flex flex-col gap-2">
+                      <label className="cursor-pointer">
+                        <span className="inline-flex items-center gap-2 px-3.5 py-2 h-9 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-100 text-sm font-medium rounded-lg transition">
+                          {logoUploading
+                            ? (t("uploading") || "Uploading…")
+                            : (brand.logo_url ? (t("brandReplaceLogo") || "Replace") : (t("brandUploadLogo") || "Upload logo"))}
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg"
+                          onChange={(e) => uploadLogo(e.target.files?.[0])}
+                          disabled={logoUploading}
+                          className="hidden"
+                        />
+                      </label>
+                      {brand.logo_url && (
+                        <Button variant="ghost" size="sm" onClick={deleteLogo} className="text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40">
+                          {t("brandRemoveLogo") || "Remove"}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                  <p className={HINT_CLASS}>
+                    {t("brandLogoHint") || "PNG or JPEG, max 1 MB. Auto-resized + EXIF stripped for privacy."}
+                  </p>
+                </div>
+
+                <div>
+                  <label className={LABEL_CLASS}>{t("brandPositionLabel") || "Logo position"}</label>
+                  <div className="flex gap-2">
+                    {[
+                      { value: "left", label: t("brandPositionLeft") || "Left (default)" },
+                      { value: "center", label: t("brandPositionCenter") || "Center" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => saveBrand({ logo_position: opt.value })}
+                        className={
+                          "px-3.5 py-2 h-9 rounded-lg text-sm font-medium border transition " +
+                          (brand.logo_position === opt.value
+                            ? "bg-stone-900 dark:bg-stone-100 border-stone-900 dark:border-stone-100 text-white dark:text-stone-900"
+                            : "bg-white dark:bg-stone-900 border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:bg-stone-50 dark:hover:bg-stone-800")
+                        }
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className={LABEL_CLASS}>{t("brandColorLabel") || "Accent color"}</label>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => saveBrand({ accent_color: null })}
+                      className={
+                        "w-10 h-10 rounded-lg border-2 transition inline-flex items-center justify-center " +
+                        (!brand.accent_color
+                          ? "border-stone-900 dark:border-stone-100"
+                          : "border-stone-200 dark:border-stone-700")
+                      }
+                      title="Default (no color)"
+                    >
+                      <span className="text-stone-400 text-xs">×</span>
+                    </button>
+                    {Object.entries(brand.accent_palette || {}).map(([name, hex]) => (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() => saveBrand({ accent_color: name })}
+                        className={
+                          "w-10 h-10 rounded-lg border-2 transition " +
+                          ((brand.accent_color || "").toUpperCase() === hex.toUpperCase()
+                            ? "border-stone-900 dark:border-stone-100 scale-105"
+                            : "border-stone-200 dark:border-stone-700")
+                        }
+                        style={{ backgroundColor: hex }}
+                        title={name}
+                      />
+                    ))}
+                  </div>
+                  <p className={HINT_CLASS}>
+                    {t("brandColorHint") || "Locked to 6 presets — keeps fakturaer professional."}
+                  </p>
+                </div>
+
+                {brandMsg && <Message tone="success">{brandMsg}</Message>}
               </div>
-            )}
-          </div>
-        </div>
+            </Card>
+
+            <Card variant="subtle" className="mt-4">
+              <Card.Header
+                title={t("profileThemeCardTitle")}
+                subtitle={t("profileThemeCardDesc")}
+                icon={<Icon name="Palette" size={18} />}
+              />
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {THEMES.map((th) => {
+                  const active = theme === th.id;
+                  return (
+                    <button
+                      key={th.id}
+                      onClick={() => setTheme(th.id)}
+                      aria-pressed={active}
+                      className={
+                        "flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition " +
+                        (active
+                          ? "bg-white dark:bg-stone-900 border-2 border-stone-900 dark:border-stone-100 text-stone-900 dark:text-stone-100"
+                          : "bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300 hover:border-stone-400 dark:hover:border-stone-600")
+                      }
+                    >
+                      <span
+                        className="w-4 h-4 rounded-full shrink-0 ring-1 ring-black/10 dark:ring-white/10"
+                        style={{ backgroundColor: th.swatch }}
+                      />
+                      <span>{th.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </Card>
+          </SectionAnchor>
+
+          {/* ─── Notifications ────────────────────────────────────── */}
+          <SectionAnchor id="notifications">
+            <Card>
+              <Card.Header
+                title={t("emailNotifications")}
+                subtitle={t("dailyDigestDesc")}
+                icon={<Icon name="Bell" size={18} />}
+              />
+              <div className="divide-y divide-stone-200 dark:divide-stone-800 -mx-1">
+                <ToggleRow
+                  label={t("dailyDigestLabel")}
+                  desc={t("dailyDigestDesc")}
+                  checked={emailPrefs.daily_digest_enabled}
+                  onChange={() => toggleEmailPref("daily_digest_enabled")}
+                />
+                <ToggleRow
+                  label={t("expenseAlertsLabel")}
+                  desc={t("expenseAlertsDesc")}
+                  checked={emailPrefs.expense_alerts_enabled}
+                  onChange={() => toggleEmailPref("expense_alerts_enabled")}
+                />
+                {pushSupported && (
+                  <div className="flex items-center justify-between py-4 px-1">
+                    <div className="flex-1 pr-4">
+                      <p className="text-sm font-medium text-stone-800 dark:text-stone-100">
+                        {t("pushNotificationsLabel")}
+                      </p>
+                      <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+                        {t("pushNotificationsDesc")}
+                      </p>
+                    </div>
+                    {pushPerm === "granted" ? (
+                      <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-full inline-flex items-center gap-1">
+                        <Icon name="CheckCircle2" size={12} />
+                        Enabled
+                      </span>
+                    ) : pushPerm === "denied" ? (
+                      <span className="text-xs text-stone-500">{t("blockedInBrowser")}</span>
+                    ) : (
+                      <Button size="sm" variant="primary" onClick={requestPush}>
+                        Enable
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="pt-4 mt-2 border-t border-stone-200 dark:border-stone-800 flex items-center gap-3 flex-wrap">
+                <Button variant="secondary" size="sm" busy={sendingTest} onClick={sendTestDigest}>
+                  {sendingTest ? t("sending") : t("sendTestDigest")}
+                </Button>
+                {emailMsg && <span className="text-sm text-emerald-700 dark:text-emerald-400">{emailMsg}</span>}
+              </div>
+            </Card>
+
+            <Card className="mt-4">
+              <Card.Header
+                title={t("whatsappBot")}
+                subtitle={t("whatsappBotDesc")}
+                icon={<Icon name="MessageCircle" size={18} />}
+              />
+              <WhatsAppBlock
+                t={t}
+                waStatus={waStatus}
+                waPhone={waPhone}
+                setWaPhone={setWaPhone}
+                waCode={waCode}
+                waMsg={waMsg}
+                waLinking={waLinking}
+                onLink={linkWhatsApp}
+                onUnlink={unlinkWhatsApp}
+              />
+            </Card>
+          </SectionAnchor>
+
+          {/* ─── Privacy & data ───────────────────────────────────── */}
+          <SectionAnchor id="privacy">
+            <Card>
+              <Card.Header
+                title={t("privacyDataSection")}
+                subtitle={t("privacyDataDesc")}
+                icon={<Icon name="Shield" size={18} />}
+              />
+              <div className="space-y-4">
+                <ToggleRow
+                  label={t("pauseAnalytics")}
+                  desc="When ON, BonBox stops recording your clicks, page views and AI questions. Your business data (sales, expenses, inventory) is unaffected. You can resume any time. Existing analytics older than 180 days are auto-deleted."
+                  checked={analyticsOptOut}
+                  onChange={toggleAnalyticsOptOut}
+                />
+                {privacyMsg && <Message tone="info">{privacyMsg}</Message>}
+                <p className="text-[11px] text-stone-500 dark:text-stone-400 pt-3 border-t border-stone-200 dark:border-stone-800">
+                  GDPR: BonBox processes analytics under legitimate-interest basis. Your right to opt
+                  out is respected here. To delete all your data, see the Danger Zone below.
+                </p>
+              </div>
+            </Card>
+
+            <Card variant="subtle" className="mt-4">
+              <Card.Header
+                title={t("exportAllData") || "Export All Data"}
+                subtitle={t("exportAllDataDesc") || "Download everything BonBox stores about you as a CSV file"}
+                icon={<Icon name="Download" size={18} />}
+                action={
+                  <Button
+                    variant="primary"
+                    size="md"
+                    busy={exporting}
+                    onClick={async () => {
+                      setExporting(true);
+                      try {
+                        const res = await api.get("/auth/export-data", { responseType: "blob" });
+                        const url = window.URL.createObjectURL(new Blob([res.data]));
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = `bonbox_export_${localIso()}.csv`;
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                      } catch { /* ignore */ }
+                      setExporting(false);
+                    }}
+                  >
+                    {exporting ? t("exporting") || "Exporting..." : t("downloadCsv") || "Download CSV"}
+                  </Button>
+                }
+              />
+            </Card>
+
+            <Card
+              variant="subtle"
+              className="mt-4 hover:shadow-sm transition-shadow"
+              to="/tax"
+            >
+              <div className="flex items-center gap-3">
+                <Icon name="Calculator" size={18} className="text-stone-500 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
+                    {t("profileTaxLinkTitle")}
+                  </p>
+                  <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+                    {t("profileTaxLinkBody")}
+                  </p>
+                </div>
+                <span className="text-sm text-stone-400 shrink-0">→</span>
+              </div>
+            </Card>
+
+            <Card variant="subtle" className="mt-4">
+              <Card.Header
+                title={t("profileTipsCardTitle")}
+                subtitle={t("profileTipsCardDesc")}
+                icon={<Icon name="Sparkles" size={18} />}
+                action={
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      resetAllTips();
+                      window.location.reload();
+                    }}
+                  >
+                    {t("profileTipsResetBtn")}
+                  </Button>
+                }
+              />
+            </Card>
+
+            <Card variant="subtle" className="mt-4">
+              <Card.Header
+                title={t("profileAccountDetailsTitle")}
+                icon={<Icon name="UserCog" size={18} />}
+              />
+              <dl className="text-sm space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-stone-500 dark:text-stone-400">
+                    {t("profileAccountIdLabel")}
+                  </dt>
+                  <dd className="font-mono text-xs text-stone-700 dark:text-stone-300 truncate">
+                    {user.id}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-stone-500 dark:text-stone-400">
+                    {t("profileDailyGoalLabel")}
+                  </dt>
+                  <dd className="text-stone-700 dark:text-stone-300">
+                    {user.daily_goal > 0
+                      ? `${Number(user.daily_goal).toLocaleString()} ${form.currency}`
+                      : t("notSetLabel")}
+                  </dd>
+                </div>
+              </dl>
+            </Card>
+          </SectionAnchor>
+
+          {/* ─── Danger zone ──────────────────────────────────────── */}
+          <SectionAnchor id="danger">
+            <div
+              className="rounded-xl p-5 sm:p-6 border border-red-200 dark:border-red-900/60 bg-red-50/40 dark:bg-red-950/20"
+            >
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <Icon name="AlertTriangle" size={18} className="text-red-600 dark:text-red-400 shrink-0" />
+                    <h3 className="text-base font-semibold text-red-700 dark:text-red-300">
+                      {t("deleteAccount") || "Delete Account"}
+                    </h3>
+                  </div>
+                  <p className="text-xs text-red-600/80 dark:text-red-400/80 mt-1">
+                    {t("deleteAccountDesc") ||
+                      "Permanently delete your account and all data. This cannot be undone."}
+                  </p>
+                </div>
+                {!deleteConfirm && (
+                  <Button variant="danger" size="md" onClick={() => setDeleteConfirm(true)}>
+                    {t("deleteMyAccount") || "Delete My Account"}
+                  </Button>
+                )}
+              </div>
+
+              {deleteConfirm && (
+                <div className="pt-4 mt-2 border-t border-red-200/70 dark:border-red-900/50 space-y-3">
+                  <p className="text-sm text-red-700 dark:text-red-300 font-medium">
+                    {t("deleteConfirmWarning") ||
+                      "This will permanently delete ALL your data: sales, expenses, inventory, reports, everything. Enter your password to confirm."}
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="password"
+                      value={deletePassword}
+                      onChange={(e) => {
+                        setDeletePassword(e.target.value);
+                        setDeleteError("");
+                      }}
+                      placeholder={t("enterPassword") || "Enter your password"}
+                      className={
+                        "flex-1 px-3 py-2 rounded-lg border border-red-300 dark:border-red-800 " +
+                        "bg-white dark:bg-stone-900 text-sm text-stone-800 dark:text-stone-100 " +
+                        "focus:outline-none focus:ring-2 focus:ring-red-500"
+                      }
+                      autoComplete="current-password"
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        variant="danger"
+                        busy={deleting}
+                        onClick={async () => {
+                          if (!deletePassword) return;
+                          setDeleting(true);
+                          setDeleteError("");
+                          try {
+                            await api.delete("/auth/delete-account", { data: { password: deletePassword } });
+                            localStorage.clear();
+                            window.location.href = "/login";
+                          } catch (err) {
+                            setDeleteError(err.response?.data?.detail || t("deleteFailed") || "Failed to delete account");
+                          }
+                          setDeleting(false);
+                        }}
+                        disabled={!deletePassword}
+                      >
+                        {deleting ? t("deleting") || "Deleting..." : t("confirmDelete") || "Confirm Delete"}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          setDeleteConfirm(false);
+                          setDeletePassword("");
+                          setDeleteError("");
+                        }}
+                      >
+                        {t("cancel") || "Cancel"}
+                      </Button>
+                    </div>
+                  </div>
+                  {deleteError && <Message tone="error">{deleteError}</Message>}
+                </div>
+              )}
+            </div>
+          </SectionAnchor>
+        </main>
       </div>
     </div>
   );
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   Page-local presentational helpers
+   ═══════════════════════════════════════════════════════════════ */
+
+/** Wraps each Card group so the matching TOC entry can scroll-to with
+ *  scroll-margin-top compensating for the sticky app header. */
+function SectionAnchor({ id, children }) {
+  return (
+    <section id={id} className="scroll-mt-24">
+      {children}
+    </section>
+  );
+}
+
+/** Sticky left-rail nav. Hidden below md; renders one link per SECTION
+ *  entry, smooth-scrolls to the anchor. Marks the active section via
+ *  the scroll position so the user always knows where they are. */
+function TableOfContents({ t }) {
+  const [active, setActive] = useState("account");
+
+  useEffect(() => {
+    // IntersectionObserver beats scroll handlers here — fires only when
+    // a section enters/leaves the top-third of the viewport, so the
+    // active state stays stable mid-scroll.
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) setActive(entry.target.id);
+        });
+      },
+      { rootMargin: "-30% 0% -60% 0%", threshold: 0 },
+    );
+    SECTIONS.forEach((s) => {
+      const el = document.getElementById(s.id);
+      if (el) observer.observe(el);
+    });
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <aside className="hidden md:block">
+      <nav className="sticky top-20" aria-label={t("profileNavOnThisPage")}>
+        <p className="text-xs font-medium text-stone-500 dark:text-stone-400 uppercase tracking-wide mb-3">
+          {t("profileNavOnThisPage")}
+        </p>
+        <ul className="space-y-0.5">
+          {SECTIONS.map((s) => {
+            const isActive = active === s.id;
+            return (
+              <li key={s.id}>
+                <a
+                  href={`#${s.id}`}
+                  className={
+                    "flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm transition " +
+                    (isActive
+                      ? "bg-stone-100 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-medium"
+                      : "text-stone-600 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-800/60 hover:text-stone-900 dark:hover:text-stone-100")
+                  }
+                >
+                  <Icon name={s.icon} size={15} className="shrink-0" />
+                  <span className="truncate">{t(s.titleKey)}</span>
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+    </aside>
+  );
+}
+
+/** Identity strip at the top of the Account card — name + email +
+ *  verified badge. Compact, no avatar circle (the page header already
+ *  tells you whose settings you're looking at). */
+function ProfileIdentity({ user, t }) {
+  return (
+    <div className="flex items-center gap-3 mb-4 pb-4 border-b border-stone-200 dark:border-stone-800">
+      <div className="w-10 h-10 rounded-full bg-stone-100 dark:bg-stone-800 flex items-center justify-center text-base font-semibold text-stone-700 dark:text-stone-200">
+        {user.business_name?.charAt(0)?.toUpperCase() || "B"}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-stone-900 dark:text-stone-100 truncate">
+          {user.business_name}
+        </p>
+        <p className="text-xs text-stone-500 dark:text-stone-400 flex items-center gap-1.5 truncate">
+          <span className="truncate">{user.email}</span>
+          {user.email_verified ? (
+            <span
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 rounded-full text-[10px] font-medium shrink-0"
+              title="Email verified"
+            >
+              <Icon name="CheckCircle2" size={10} />
+              {t("profileVerified")}
+            </span>
+          ) : (
+            <a
+              href="/verify-email"
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 rounded-full text-[10px] font-medium hover:bg-amber-100 dark:hover:bg-amber-950/60 transition shrink-0"
+              title="Click to verify your email"
+            >
+              <Icon name="AlertTriangle" size={10} />
+              {t("profileUnverified")}
+            </a>
+          )}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** Generic field wrapper — label, optional hint, child input. Keeps
+ *  every form section visually identical. */
+function Field({ label, hint, children }) {
+  return (
+    <div>
+      {label && <label className={LABEL_CLASS}>{label}</label>}
+      {children}
+      {hint && <p className={HINT_CLASS}>{hint}</p>}
+    </div>
+  );
+}
+
+/** Inline message under a form — success / error / info. */
+function Message({ tone = "info", children }) {
+  const TONE = {
+    success: "text-emerald-700 dark:text-emerald-400",
+    error: "text-red-600 dark:text-red-400",
+    info: "text-stone-600 dark:text-stone-300",
+  };
+  return <p className={"text-sm " + (TONE[tone] || TONE.info)}>{children}</p>;
+}
+
+/** Settings toggle row used across notifications + privacy. */
+function ToggleRow({ label, desc, checked, onChange }) {
+  return (
+    <div className="flex items-start justify-between gap-4 py-4 px-1">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-stone-800 dark:text-stone-100">{label}</p>
+        {desc && <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">{desc}</p>}
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={onChange}
+        className={
+          "shrink-0 mt-0.5 relative w-11 h-6 rounded-full transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
+          (checked ? "bg-emerald-600" : "bg-stone-300 dark:bg-stone-700")
+        }
+      >
+        <span
+          className={
+            "absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform " +
+            (checked ? "translate-x-5" : "")
+          }
+        />
+      </button>
+    </div>
+  );
+}
+
+/** Three-state WhatsApp linking block. Extracted because the inline
+ *  version was too long and obscured the rest of the notifications
+ *  card. Logic is unchanged. */
+function WhatsAppBlock({ t, waStatus, waPhone, setWaPhone, waCode, waMsg, waLinking, onLink, onUnlink }) {
+  if (waStatus?.verified) {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 px-3 py-2.5 bg-emerald-50 dark:bg-emerald-950/30 rounded-lg border border-emerald-200/70 dark:border-emerald-900/50">
+          <span className="w-2 h-2 bg-emerald-500 rounded-full" />
+          <span className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
+            {t("connectedLabel")}: {waStatus.phone}
+          </span>
+        </div>
+        <div className="bg-stone-50 dark:bg-stone-800/50 rounded-lg p-3 border border-stone-200/70 dark:border-stone-700/50">
+          <p className="text-xs font-medium text-stone-500 dark:text-stone-400 mb-2">
+            {t("quickCommandsLabel")}:
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 text-xs text-stone-600 dark:text-stone-300">
+            <span><code className="bg-stone-200 dark:bg-stone-700 px-1 rounded">14500</code> Log revenue</span>
+            <span><code className="bg-stone-200 dark:bg-stone-700 px-1 rounded">expense 2500 food</code> Log expense</span>
+            <span><code className="bg-stone-200 dark:bg-stone-700 px-1 rounded">summary</code> Today's stats</span>
+            <span><code className="bg-stone-200 dark:bg-stone-700 px-1 rounded">profit</code> Monthly profit</span>
+            <span><code className="bg-stone-200 dark:bg-stone-700 px-1 rounded">inventory</code> Stock alerts</span>
+            <span><code className="bg-stone-200 dark:bg-stone-700 px-1 rounded">help</code> All commands</span>
+          </div>
+        </div>
+        <button onClick={onUnlink} className="text-xs text-red-600 dark:text-red-400 hover:underline">
+          {t("unlinkWhatsapp")}
+        </button>
+      </div>
+    );
+  }
+  if (waStatus?.linked) {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 px-3 py-2.5 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200/70 dark:border-amber-900/50">
+          <span className="w-2 h-2 bg-amber-500 rounded-full" />
+          <span className="text-sm text-amber-800 dark:text-amber-300">
+            {t("verificationPendingFor")} {waStatus.phone}
+          </span>
+        </div>
+        {waCode && (
+          <div className="bg-stone-50 dark:bg-stone-800/50 rounded-lg p-4 text-center border border-stone-200/70 dark:border-stone-700/50">
+            <p className="text-xs text-stone-500 dark:text-stone-400 mb-1">
+              {t("yourVerificationCode")}:
+            </p>
+            <p className="text-2xl font-bold tracking-widest text-stone-900 dark:text-stone-100">
+              {waCode}
+            </p>
+            <p className="text-xs text-stone-500 dark:text-stone-400 mt-2">{t("sendCodeToBonbox")}</p>
+          </div>
+        )}
+        {!waCode && <p className="text-xs text-stone-500">{t("sendCodeToBonbox")}</p>}
+        <button onClick={onUnlink} className="text-xs text-red-600 dark:text-red-400 hover:underline">
+          {t("unlinkWhatsapp")}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-stone-600 dark:text-stone-300">{t("linkPhoneDesc")}</p>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <input
+          type="tel"
+          value={waPhone}
+          onChange={(e) => setWaPhone(e.target.value)}
+          placeholder="+45 91 67 59 74"
+          className={INPUT_CLASS + " flex-1"}
+        />
+        <Button variant="accent" busy={waLinking} onClick={onLink} disabled={!waPhone.trim()}>
+          {waLinking ? t("sending") : t("link")}
+        </Button>
+      </div>
+      {waMsg && <Message tone="success">{waMsg}</Message>}
+    </div>
+  );
+}
 
 /**
  * Verified-business banner — shows the freshness + provenance of the
@@ -1420,14 +1618,10 @@ export default function ProfilePage() {
  *
  * Three visual states:
  *   1. cvr_verified_at set + recent  → green "Verified · 2 days ago"
- *   2. cvr_verified_at set + stale   → amber "Last checked 4 months
- *                                       ago — Re-verify?"
- *   3. cvr_verified_at NULL          → grey "Manual entry · not
- *                                       verified — Verify with CVR"
+ *   2. cvr_verified_at set + stale   → amber "Last checked 4 months ago"
+ *   3. cvr_verified_at NULL          → grey "Manual entry · not verified"
  *
- * Stale threshold: 90 days. Picks up name changes / address moves /
- * MOMS-registration changes / konkurs status without the owner
- * having to remember to refresh.
+ * Stale threshold: 90 days.
  */
 function VerifiedBusinessBanner({ profile, reverifying, reverifyMsg, onReverify }) {
   if (!profile) return null;
@@ -1438,48 +1632,50 @@ function VerifiedBusinessBanner({ profile, reverifying, reverifyMsg, onReverify 
   const isStale = ageDays !== null && ageDays > 90;
   const isVerified = !!verifiedAt && !isStale;
 
-  // Status flag chips — pipe-delimited string
   const flags = (profile.status_flags || "").split("|").filter(Boolean);
 
-  // Pretty-print the age for the freshness label
-  const ageLabel = ageDays === null
-    ? "Not yet verified"
-    : ageDays === 0  ? "Just now"
-    : ageDays === 1  ? "Yesterday"
-    : ageDays < 7    ? `${ageDays} days ago`
-    : ageDays < 30   ? `${Math.floor(ageDays / 7)} weeks ago`
-    : ageDays < 365  ? `${Math.floor(ageDays / 30)} months ago`
-    :                  `${Math.floor(ageDays / 365)} years ago`;
+  const ageLabel =
+    ageDays === null ? "Not yet verified"
+    : ageDays === 0 ? "Just now"
+    : ageDays === 1 ? "Yesterday"
+    : ageDays < 7 ? `${ageDays} days ago`
+    : ageDays < 30 ? `${Math.floor(ageDays / 7)} weeks ago`
+    : ageDays < 365 ? `${Math.floor(ageDays / 30)} months ago`
+    : `${Math.floor(ageDays / 365)} years ago`;
 
-  // Color theme by state
-  const themeClass = isVerified
-    ? "bg-green-50 dark:bg-green-900/20 border-green-100 dark:border-green-800/50"
+  const surfaceClass = isVerified
+    ? "bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-200/70 dark:border-emerald-900/50"
     : isStale
-      ? "bg-amber-50 dark:bg-amber-900/20 border-amber-100 dark:border-amber-800/50"
-      : "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700";
+      ? "bg-amber-50/60 dark:bg-amber-950/20 border-amber-200/70 dark:border-amber-900/50"
+      : "bg-stone-50 dark:bg-stone-800/50 border-stone-200 dark:border-stone-700";
+
   const titleColor = isVerified
-    ? "text-green-700 dark:text-green-400"
+    ? "text-emerald-800 dark:text-emerald-300"
     : isStale
-      ? "text-amber-700 dark:text-amber-400"
-      : "text-gray-700 dark:text-gray-300";
+      ? "text-amber-800 dark:text-amber-300"
+      : "text-stone-700 dark:text-stone-200";
+
+  const StatusIcon = isVerified ? (
+    <Icon name="CheckCircle2" size={16} className="text-emerald-600 dark:text-emerald-400" />
+  ) : isStale ? (
+    <Icon name="AlertTriangle" size={16} className="text-amber-600 dark:text-amber-400" />
+  ) : (
+    <Icon name="Building" size={16} className="text-stone-500" />
+  );
 
   return (
-    <div className={`mb-4 px-4 py-3 rounded-xl border ${themeClass}`}>
+    <div className={`mb-4 px-4 py-3 rounded-lg border ${surfaceClass}`}>
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="flex items-start gap-2 flex-1 min-w-0">
-          <span className="text-lg leading-none">
-            {isVerified ? "✓" : isStale ? "🔄" : "ℹ️"}
-          </span>
+          <span className="mt-0.5">{StatusIcon}</span>
           <div className="flex-1 min-w-0">
             <p className={`text-sm font-semibold ${titleColor} truncate`}>
               {profile.company_name}
               {profile.org_number && (
-                <span className="font-normal opacity-70 ml-2">
-                  ({profile.org_number})
-                </span>
+                <span className="font-normal opacity-70 ml-2">({profile.org_number})</span>
               )}
             </p>
-            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+            <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-0.5">
               {isVerified
                 ? `Verified · ${profile.cvr_verified_source || "register"} · ${ageLabel}`
                 : isStale
@@ -1487,49 +1683,52 @@ function VerifiedBusinessBanner({ profile, reverifying, reverifyMsg, onReverify 
                   : "Manual entry — not verified against any register"}
             </p>
             {profile.dawa_address_id && (
-              <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
-                ✓ Address cross-checked with DAWA postal register
+              <p className="text-[10px] text-stone-500 dark:text-stone-500 mt-0.5">
+                Address cross-checked with DAWA postal register
               </p>
             )}
           </div>
         </div>
 
-        {/* Re-verify button — surfaces only when an org_number is set */}
         {profile.org_number && (
-          <button
+          <Button
+            variant={isStale ? "accent" : "secondary"}
+            size="sm"
+            busy={reverifying}
             onClick={onReverify}
-            disabled={reverifying}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition disabled:opacity-50 ${
-              isStale
-                ? "bg-amber-600 hover:bg-amber-700 text-white"
-                : "bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:border-blue-400"
-            }`}
           >
-            {reverifying ? "⏳ Checking…" : "🔄 Re-verify"}
-          </button>
+            {reverifying ? "Checking…" : "Re-verify"}
+          </Button>
         )}
       </div>
 
-      {/* Status flags — only shows if any are set */}
       {flags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700/50">
+        <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-stone-200/70 dark:border-stone-700/50">
           {flags.includes("konkurs") && (
-            <span className="text-[10px] px-2 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 font-semibold">⚠️ Under konkurs</span>
+            <span className="text-[10px] px-2 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300 font-semibold">
+              Under konkurs
+            </span>
           )}
           {flags.includes("ophoert") && (
-            <span className="text-[10px] px-2 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 font-semibold">⚠️ Ophørt</span>
+            <span className="text-[10px] px-2 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300 font-semibold">
+              Ophørt
+            </span>
           )}
           {flags.includes("protected") && (
-            <span className="text-[10px] px-2 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 font-semibold">🔒 Beskyttet navn</span>
+            <span className="text-[10px] px-2 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 font-semibold">
+              Beskyttet navn
+            </span>
           )}
           {flags.includes("no_vat") && (
-            <span className="text-[10px] px-2 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 font-semibold">Ikke MOMS-registreret</span>
+            <span className="text-[10px] px-2 py-0.5 rounded bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300 font-semibold">
+              Ikke MOMS-registreret
+            </span>
           )}
         </div>
       )}
 
       {reverifyMsg && (
-        <p className="text-[11px] text-gray-600 dark:text-gray-300 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700/50">
+        <p className="text-[11px] text-stone-600 dark:text-stone-300 mt-2 pt-2 border-t border-stone-200/70 dark:border-stone-700/50">
           {reverifyMsg}
         </p>
       )}

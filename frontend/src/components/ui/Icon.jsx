@@ -47,6 +47,8 @@ import {
   Sparkles,
   // Personal mode
   User, Banknote, TrendingDown,
+  // Profile / settings
+  Lock, Bell, Shield, Palette, Download, Image, CheckCircle2, AlertTriangle,
   // Misc / fallback
   Circle, ChevronDown,
 } from "lucide-react";
@@ -77,6 +79,8 @@ const ICONS = {
   Sparkles,
   // Personal mode
   User, Banknote, TrendingDown,
+  // Profile / settings
+  Lock, Bell, Shield, Palette, Download, Image, CheckCircle2, AlertTriangle,
   // Utility
   ChevronDown,
 };
