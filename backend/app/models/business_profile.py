@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, ForeignKey, Text, Integer, Boolean
+from sqlalchemy import String, DateTime, ForeignKey, Text, Integer, Boolean, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
@@ -138,6 +138,19 @@ class BusinessProfile(Base):
     # forecast falls back to inferring peak from sales history when
     # unset. Capped at 1000 chars.
     peak_windows_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # ── Schedule Autopilot operating cost target (Task #50) ──
+    # The percentage of forecasted revenue the owner wants to spend on
+    # labor for next week. Industry baseline for Copenhagen restaurants
+    # is ~30%; tighter operations target 25% and full-service kitchens
+    # may run up to 35%. Stored as a fraction (0.30 = 30%) so we can do
+    # arithmetic without unit conversion. Bounded [0.10, 0.50] at the
+    # service layer — clamping protects against owners typing "30" (i.e.
+    # 3000%) which would over-staff the schedule into the ground.
+    # Default 0.30 keeps existing tenants on the documented baseline.
+    target_labor_pct: Mapped[float] = mapped_column(
+        Numeric(4, 3), default=0.30, nullable=False,
+    )
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)

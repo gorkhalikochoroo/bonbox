@@ -2,15 +2,18 @@ import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { useEntitlements } from "../hooks/useEntitlements";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
+import { UpgradeNudge } from "../components/ui";
 
 function fmt(n) { return n != null ? Math.round(n).toLocaleString() : "—"; }
 
 export default function TaxAutopilotPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
+  const { hasFeature } = useEntitlements();
   const currency = displayCurrency(user?.currency);
 
   const [data, setData] = useState(null);
@@ -18,6 +21,9 @@ export default function TaxAutopilotPage() {
   const [error, setError] = useState("");
   // Bilagsnummer compliance audit (DK only) — fetched in parallel
   const [audit, setAudit] = useState(null);
+  // BusinessProfile — needed to pre-fill accountant_email on the
+  // filing PDF send button. Fetched in parallel.
+  const [businessProfile, setBusinessProfile] = useState(null);
   // Tax preferences (filing frequency / Moms inclusion / has employees) —
   // these directly drive the deadlines + estimates on this page, so the panel
   // belongs here rather than buried in More → Profile.
@@ -26,6 +32,14 @@ export default function TaxAutopilotPage() {
   const [taxSaving, setTaxSaving] = useState(false);
 
   useEffect(() => { fetchData(); }, []);
+
+  // Pull BusinessProfile (independent of the heavy /tax/overview call) so
+  // the filing-PDF send-to-accountant card can pre-fill the recipient.
+  useEffect(() => {
+    api.get("/business").then((r) => {
+      setBusinessProfile(r.data || null);
+    }).catch(() => { /* keep null */ });
+  }, []);
 
   // Pre-fill the preferences card from /auth/me (independent of /tax/overview
   // so a slow overview call doesn't block the form).
@@ -176,6 +190,17 @@ export default function TaxAutopilotPage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* ─── FILING-READY PDF (Task #51 — Pro tier) ─── */}
+      {nextDeadline && (
+        <FilingPdfCard
+          deadline={nextDeadline}
+          taxName={tax_name}
+          currency={currency}
+          businessProfile={businessProfile}
+          unlocked={hasFeature("tax_filing_pdf")}
+        />
       )}
 
       {/* ─── ALERTS ─── */}
