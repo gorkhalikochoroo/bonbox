@@ -1,6 +1,6 @@
 import uuid
 import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 
 class InventoryItemCreate(BaseModel):
@@ -22,7 +22,12 @@ class InventoryItemCreate(BaseModel):
     sell_price_per_pour: float | None = None
     # Task #63 — Inventory Ordering Autopilot supplier fields
     supplier_name: str | None = Field(None, max_length=120)
-    supplier_email: str | None = Field(None, max_length=255)
+    # Audit P3 (Task #81): EmailStr blocks the spam-relay vector where
+    # a hostile owner sets supplier_email="victim@anywhere.com" and
+    # uses BonBox's Resend trust score to send arbitrary inboxes.
+    # `None` stays valid — items without a supplier just skip the
+    # send step in the autopilot flow.
+    supplier_email: EmailStr | None = Field(None, max_length=255)
     supplier_lead_time_days: int | None = Field(None, ge=0, le=60)
     pack_size: float | None = Field(None, gt=0, le=10_000)
 
@@ -46,7 +51,8 @@ class InventoryItemUpdate(BaseModel):
     sell_price_per_pour: float | None = None
     # Task #63 — Inventory Ordering Autopilot supplier fields
     supplier_name: str | None = Field(None, max_length=120)
-    supplier_email: str | None = Field(None, max_length=255)
+    # Audit P3 (Task #81): EmailStr — see InventoryItemCreate.
+    supplier_email: EmailStr | None = Field(None, max_length=255)
     supplier_lead_time_days: int | None = Field(None, ge=0, le=60)
     pack_size: float | None = Field(None, gt=0, le=10_000)
 

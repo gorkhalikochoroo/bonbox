@@ -100,12 +100,21 @@ def _callback_url() -> str:
     registered in the Aiia portal. For the BonBox dev/sandbox path we
     use the backend's own /api/bank-connect/callback so the flow
     completes without going through the SPA — the callback redirects
-    onward to the frontend at the end."""
-    # Prefer an explicit AIIA_REDIRECT_URI env var so deployment-specific
-    # values (api.bonbox.dk vs localhost) can be set in Render. Fall back
-    # to FRONTEND_URL-derived value (less reliable in prod) only for dev.
-    explicit = (settings.FRONTEND_URL or "").rstrip("/")
-    return f"{explicit}/api/bank-connect/callback"
+    onward to the frontend at the end.
+
+    Audit P3 (Task #83): prefer the explicit AIIA_REDIRECT_URI env
+    var.  In prod the API lives at api.bonbox.dk while the SPA is at
+    app.bonbox.dk (= FRONTEND_URL), so deriving the callback from
+    FRONTEND_URL hands Aiia a non-routable URL.  Operator sets
+    AIIA_REDIRECT_URI=https://api.bonbox.dk/api/bank-connect/callback
+    in Render and we use that verbatim.  Falls back to the
+    FRONTEND_URL-derived value (dev/local only) when unset.
+    """
+    explicit = (getattr(settings, "AIIA_REDIRECT_URI", "") or "").strip()
+    if explicit:
+        return explicit
+    base = (settings.FRONTEND_URL or "").rstrip("/")
+    return f"{base}/api/bank-connect/callback"
 
 
 def _to_response(conn: BankConnection) -> BankConnectionResponse:

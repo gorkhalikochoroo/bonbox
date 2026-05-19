@@ -1280,6 +1280,65 @@ def inventory_autopilot_apply(
     """
     _enforce_inventory_autopilot_tier(user)
 
+    # Audit P3 (Task #81): per-user daily cap on distinct supplier
+    # recipients.  Stops a hostile owner from using BonBox's Resend
+    # trust score as a spam relay (4/min × 60 minutes × supplier_count
+    # = thousands of inboxes/hour reachable from one account).
+    # Genuine cafés have at most ~10 unique suppliers; 50/day leaves
+    # a 5x safety margin for restaurants with deeper supply chains
+    # while shutting down the abuse vector decisively.
+    _MAX_RECIPIENTS_PER_DAY = 50
+    from datetime import datetime, timedelta
+    from sqlalchemy import and_
+    from app.models.audit_log import AuditLog
+    since = datetime.utcnow() - timedelta(hours=24)
+    rows = (
+        db.query(AuditLog)
+        .filter(
+            and_(
+                AuditLog.user_id == user.id,
+                AuditLog.action == "inventory.autopilot_applied",
+                AuditLog.created_at >= since,
+            )
+        )
+        .all()
+    )
+    # AuditLog.after_state is JSON text — count unique supplier_email values
+    import json as _json
+    recipients_today: set[str] = set()
+    for r in rows:
+        try:
+            data = _json.loads(r.after_state or "{}")
+            se = (data.get("supplier_email") or "").strip().lower()
+            if se:
+                recipients_today.add(se)
+        except Exception:  # noqa: BLE001
+            # Defensive: a malformed audit row should never bring down
+            # the apply path.  Treat as "no recipient recorded".
+            continue
+    # Also count the unique recipients in THIS request so a single
+    # giant batch can't bypass the cap.
+    incoming_recipients = {
+        (line.supplier_email or "").strip().lower()
+        for line in body.items
+        if (getattr(line, "supplier_email", None) or "").strip()
+    }
+    projected = len(recipients_today | incoming_recipients)
+    if projected > _MAX_RECIPIENTS_PER_DAY:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "daily_recipient_cap",
+                "message": (
+                    f"Daily cap of {_MAX_RECIPIENTS_PER_DAY} unique supplier "
+                    "recipients reached. Try again tomorrow or contact "
+                    "support if you legitimately need a higher limit."
+                ),
+                "recipients_today": len(recipients_today),
+                "projected": projected,
+            },
+        )
+
     from app.services import inventory_autopilot
 
     payload_items = [line.model_dump() for line in body.items]

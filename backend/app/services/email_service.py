@@ -12,18 +12,37 @@ FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "BonBox <noreply@bonbox.dk>")
 logger = logging.getLogger("bonbox.email")
 
 
-def send_email(to: str, subject: str, html: str) -> bool:
-    """Send an email via Resend. Returns True on success."""
+def send_email(
+    to: str,
+    subject: str,
+    html: str,
+    *,
+    reply_to: str | None = None,
+) -> bool:
+    """Send an email via Resend. Returns True on success.
+
+    `reply_to` (Audit P3 — Task #80): when set, recipients who hit
+    Reply land in the owner's inbox instead of `noreply@bonbox.dk`.
+    Used by the inventory-autopilot supplier-order flow so a real
+    supplier can reply to the real owner.  Without this, supplier
+    replies bounced off a dead noreply mailbox AND a recipient had
+    no way to verify the email was legitimate — both of which made
+    the autopilot send pattern look more like a spam relay than a
+    business tool.
+    """
     if not resend.api_key:
         print("RESEND_API_KEY not set, skipping email")
         return False
     try:
-        resend.Emails.send({
+        payload = {
             "from": FROM_EMAIL,
             "to": [to],
             "subject": subject,
             "html": html,
-        })
+        }
+        if reply_to:
+            payload["reply_to"] = reply_to
+        resend.Emails.send(payload)
         return True
     except Exception as e:
         print(f"Email send error: {e}")

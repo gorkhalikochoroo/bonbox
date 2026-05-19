@@ -919,7 +919,11 @@ def apply_reorder(
         from app.services.email_service import send_email as _send_email
 
         def _default_sender(to, subject, html, *, reply_to=None):
-            return _send_email(to, subject, html), None
+            # Audit P3 (Task #80): pass reply_to through to Resend so
+            # the supplier's Reply lands in the owner's inbox, not in
+            # noreply@bonbox.dk.  Previously this kwarg was silently
+            # dropped — see send_email signature.
+            return _send_email(to, subject, html, reply_to=reply_to), None
 
         send_email_fn = _default_sender
 

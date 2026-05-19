@@ -104,6 +104,15 @@ class Settings(BaseSettings):
     MOBILEPAY_CLIENT_ID: str = ""        # OAuth client_id from MobilePay portal
     MOBILEPAY_CLIENT_SECRET: str = ""    # OAuth client_secret (server-side ONLY)
 
+    # ── Aiia (Mastercard Open Banking) redirect URI — Task #83 ──────────
+    # The redirect_uri Aiia bounces the owner back to after SCA.  Must
+    # exactly match what's registered in the Aiia portal AND must be a
+    # URL routable to the API process (e.g. https://api.bonbox.dk).
+    # When unset we fall back to FRONTEND_URL + /api/bank-connect/callback
+    # which is fine for `localhost:5173` dev but wrong in prod where the
+    # API lives at api.bonbox.dk while the SPA is at app.bonbox.dk.
+    AIIA_REDIRECT_URI: str = ""
+
     # ── Web Push (VAPID) — Task #72 ─────────────────────────────────────
     # VAPID identifies BonBox to the push providers (FCM / Apple Push /
     # Mozilla autopush). Without these the /api/push endpoints 503 and

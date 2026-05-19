@@ -2130,8 +2130,22 @@ if is_prod:
 # than failing at boot. Dev mode generates an ephemeral per-process
 # key inside the crypto module so local + test runs work without setup.
 try:
-    from app.utils.crypto import assert_key_configured, CryptoConfigError
+    from app.utils.crypto import (
+        assert_key_configured,
+        assert_can_decrypt_existing_tokens,
+        CryptoConfigError,
+    )
     assert_key_configured()
+    # Audit P3 (Task #82): also probe a few existing encrypted rows
+    # to catch silent key-rotation losses.  If the primary key has
+    # rotated AND APP_SECRET_KEY_PREVIOUS is not set, every previously-
+    # encrypted token would be undecryptable from this boot onward;
+    # we'd rather refuse to start than serve broken /sync calls.
+    # Production only — dev/test always uses an ephemeral key by design.
+    if is_prod:
+        from app.database import SessionLocal as _SessionLocal
+        with _SessionLocal() as _probe_db:
+            assert_can_decrypt_existing_tokens(_probe_db)
 except CryptoConfigError as _crypto_err:
     if is_prod:
         # Don't crash the entire app — the rest of BonBox still works

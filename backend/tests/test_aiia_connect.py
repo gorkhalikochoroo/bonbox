@@ -581,3 +581,37 @@ def test_bank_connection_unique_per_user_account(db):
     with pytest.raises(Exception):
         db.commit()
     db.rollback()
+
+
+# ─── Audit P3 (Task #83) — _callback_url honors AIIA_REDIRECT_URI ─────
+
+
+def test_callback_url_prefers_explicit_aiia_redirect_uri(monkeypatch):
+    """Audit P3 (Task #83): in prod the API is at api.bonbox.dk while
+    the SPA is at app.bonbox.dk (FRONTEND_URL).  _callback_url must
+    use AIIA_REDIRECT_URI verbatim when set so Aiia can actually
+    reach our callback handler."""
+    from app.config import settings
+    from app.routers.bank_connect import _callback_url
+    monkeypatch.setattr(
+        settings, "AIIA_REDIRECT_URI",
+        "https://api.bonbox.dk/api/bank-connect/callback",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        settings, "FRONTEND_URL", "https://app.bonbox.dk",
+        raising=False,
+    )
+    assert _callback_url() == "https://api.bonbox.dk/api/bank-connect/callback"
+
+
+def test_callback_url_falls_back_to_frontend_url_in_dev(monkeypatch):
+    """Local dev: AIIA_REDIRECT_URI unset, derive from FRONTEND_URL."""
+    from app.config import settings
+    from app.routers.bank_connect import _callback_url
+    monkeypatch.setattr(settings, "AIIA_REDIRECT_URI", "", raising=False)
+    monkeypatch.setattr(
+        settings, "FRONTEND_URL", "http://localhost:5173",
+        raising=False,
+    )
+    assert _callback_url() == "http://localhost:5173/api/bank-connect/callback"

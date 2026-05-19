@@ -136,3 +136,76 @@ def assert_key_configured() -> None:
     Triggers the lru_cache validation without ever logging the key.
     """
     _get_fernet()
+
+
+def assert_can_decrypt_existing_tokens(db) -> None:
+    """Audit P3 (Task #82) — defense against silent key-rotation loss.
+
+    If an operator rotates `APP_SECRET_KEY` without also setting
+    `APP_SECRET_KEY_PREVIOUS`, every previously-stored Fernet token
+    (BankConnection.refresh_token_enc, MobilePayConnection.access_/
+    refresh_token_enc, …) becomes undecryptable.  The app would boot
+    fine and only error on the first /sync — at which point the bank
+    consent has effectively been lost.
+
+    This helper probes the newest few rows that carry an encrypted
+    secret and tries to decrypt them.  If ANY fail AND we have no
+    previous-key set, we raise CryptoConfigError so the process
+    refuses to start with an "operator intervention required" message.
+
+    Best-effort: a missing table (fresh DB), zero rows, or a single
+    decrypt that succeeds means we pass.  Only "rows exist + decrypt
+    fails + no previous key" trips the assertion.
+    """
+    # Lazy import to avoid circulars at module load.
+    try:
+        from app.models.bank_connection import BankConnection
+    except Exception:  # noqa: BLE001
+        return  # Models not loaded yet — nothing to verify.
+
+    has_previous = bool((os.environ.get("APP_SECRET_KEY_PREVIOUS") or "").strip())
+
+    try:
+        rows = (
+            db.query(BankConnection)
+            .filter(BankConnection.refresh_token_enc.isnot(None))
+            .order_by(BankConnection.updated_at.desc())
+            .limit(3)
+            .all()
+        )
+    except Exception as e:  # noqa: BLE001
+        # Table not migrated yet, or DB unreachable.  Don't block boot.
+        logger.warning(
+            "crypto.assert_can_decrypt_existing_tokens: query failed: %s", e,
+        )
+        return
+
+    if not rows:
+        return  # Nothing to verify.
+
+    failures = 0
+    for row in rows:
+        try:
+            _ = decrypt(row.refresh_token_enc)
+        except InvalidToken:
+            failures += 1
+
+    if failures and not has_previous:
+        raise CryptoConfigError(
+            f"APP_SECRET_KEY appears to have rotated: {failures} of "
+            f"{len(rows)} recent BankConnection refresh tokens failed "
+            "to decrypt and APP_SECRET_KEY_PREVIOUS is not set.  "
+            "Set APP_SECRET_KEY_PREVIOUS to the prior key (grace-"
+            "period decrypt) and re-deploy, OR drop the affected rows "
+            "and have owners re-consent."
+        )
+    if failures and has_previous:
+        # Operator knows about the rotation — keep going but warn so
+        # the next deploy still surfaces the issue.
+        logger.warning(
+            "crypto: %d of %d sampled tokens failed to decrypt with "
+            "primary key but APP_SECRET_KEY_PREVIOUS is set — grace "
+            "period in effect.  Re-encrypt these rows before "
+            "removing the previous key.",
+            failures, len(rows),
+        )
