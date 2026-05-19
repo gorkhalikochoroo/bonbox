@@ -637,13 +637,15 @@ def _audit_query(
     raises — audit failures must not block the user's request, but
     they're logged for inspection."""
     try:
-        # Keep the detail short — readable in the admin SecurityEvent
-        # view, but no PII (canonicalised name is from a fixed-size
-        # vocabulary, postal is a 4-digit code, cuisine is free-text
-        # the user typed and is non-personal).
+        # Audit P2 (Task #73 follow-up): persist only the canonicalised
+        # name + postal + cuisine.  The raw search term used to land
+        # here too, but raw inputs can carry sensitive context (search
+        # for "halal" or "alkoholfri" or "skin lightening · halal" is
+        # not data we should retain).  Canonical is from a fixed
+        # vocabulary, postal is a 4-digit code, cuisine is non-personal.
         detail = (
             f"canonical={canonical or '?'} postal={postal or '?'} "
-            f"cuisine={(cuisine or '?')[:40]} raw={(raw_name or '?')[:80]}"
+            f"cuisine={(cuisine or '?')[:40]}"
         )
         evt = SecurityEvent(
             user_id=user.id,

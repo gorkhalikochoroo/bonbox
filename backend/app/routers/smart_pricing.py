@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -33,6 +35,13 @@ from app.services.smart_pricing import (
 router = APIRouter()
 logger = logging.getLogger("bonbox.smart_pricing.router")
 
+# Audit P2 (Task #73 follow-up): scraping defense.  A loop over every
+# canonical name × postal cohort harvests neighborhood medians cheaply.
+# 30/min on /item is fine for a curious owner browsing their menu;
+# 6/min on /all is fine for opening PricingPage every few seconds.
+# Above that, the rate limit catches abuse.
+limiter = Limiter(key_func=get_remote_address)
+
 
 # Cache headers we set on every successful response.
 # `private` — never store in a shared cache (CDN, ISP proxy).
@@ -41,7 +50,9 @@ _CACHE_HEADERS = {"Cache-Control": "private, max-age=300"}
 
 
 @router.get("/item")
+@limiter.limit("30/minute")
 def market_comparison_for_item(
+    request: Request,
     response: Response,
     name: str = Query(..., min_length=1, max_length=120, description="Raw item name (will be normalised)"),
     db: Session = Depends(get_db),
@@ -69,7 +80,9 @@ def market_comparison_for_item(
 
 
 @router.get("/all")
+@limiter.limit("6/minute")
 def market_comparison_for_all(
+    request: Request,
     response: Response,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
