@@ -24,7 +24,7 @@
  * Mobile-first. Stone palette. Each card is a self-contained widget
  * so owners can scan vertically and tap whatever is most relevant.
  */
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -234,10 +234,32 @@ export default function ConnectionsPage() {
   // with state + code as additional query params. We POST those to
   // /api/mobilepay/callback to complete the activation, then strip the
   // params so a refresh doesn't re-trigger.
+  //
+  // IDEMPOTENCY (Task #101 follow-up): the effect's dep array includes
+  // `t` from useLanguage, which changes reference when the i18n
+  // dictionary loads async after first paint.  That second `t` change
+  // re-fired the effect with the SAME state token still in the
+  // closure of the FIRST render — backend then returned 400
+  // "state already consumed" because mock + real-world callback
+  // exchanges are one-shot.  Track which (state) values we've already
+  // POSTed in this mount via a ref so the second fire bails out.
+  const mpSubmittedStates = useRef(new Set());
   useEffect(() => {
     if (searchParams.get("mobilepay_returning") !== "1") return;
     const state = searchParams.get("state");
     const code = searchParams.get("code");
+    // De-dupe: same state already submitted in this mount → no-op.
+    // Still clear the params so the URL doesn't keep them around.
+    if (state && mpSubmittedStates.current.has(state)) {
+      const next = new URLSearchParams(searchParams);
+      next.delete("mobilepay_returning");
+      next.delete("state");
+      next.delete("code");
+      setSearchParams(next, { replace: true });
+      return;
+    }
+    if (state) mpSubmittedStates.current.add(state);
+
     const next = new URLSearchParams(searchParams);
     next.delete("mobilepay_returning");
     next.delete("state");
