@@ -95,7 +95,7 @@ def _client_ip(request: Request | None) -> str | None:
         return None
 
 
-def _callback_url() -> str:
+def _callback_url(request: Request | None = None) -> str:
     """The redirect_uri we hand to Aiia. Must exactly match what's
     registered in the Aiia portal. For the BonBox dev/sandbox path we
     use the backend's own /api/bank-connect/callback so the flow
@@ -105,14 +105,38 @@ def _callback_url() -> str:
     Audit P3 (Task #83): prefer the explicit AIIA_REDIRECT_URI env
     var.  In prod the API lives at api.bonbox.dk while the SPA is at
     app.bonbox.dk (= FRONTEND_URL), so deriving the callback from
-    FRONTEND_URL hands Aiia a non-routable URL.  Operator sets
-    AIIA_REDIRECT_URI=https://api.bonbox.dk/api/bank-connect/callback
-    in Render and we use that verbatim.  Falls back to the
-    FRONTEND_URL-derived value (dev/local only) when unset.
+    FRONTEND_URL hands Aiia a non-routable URL — visiting it lands on
+    Vercel's SPA shell which has no such route, yielding a blank page.
+
+    Resolution order:
+      1. Explicit AIIA_REDIRECT_URI env (operator-set in Render).
+      2. Derive from the incoming Request — its host IS the backend
+         host (api.bonbox.dk in prod, localhost:8000 in dev). This
+         removes the env-var-or-broken cliff for prod.
+      3. Last-ditch fallback to FRONTEND_URL (only safe for local dev
+         where SPA + API share a host).
     """
     explicit = (getattr(settings, "AIIA_REDIRECT_URI", "") or "").strip()
     if explicit:
         return explicit
+
+    if request is not None:
+        # request.base_url already includes scheme + host + trailing
+        # slash. Honor X-Forwarded-Proto if set (Render terminates TLS
+        # at the LB, so request.url.scheme can be 'http' inside the
+        # container).
+        try:
+            forwarded_proto = request.headers.get("x-forwarded-proto")
+            scheme = (forwarded_proto or request.url.scheme).split(",")[0].strip()
+            host = request.url.netloc
+            if scheme and host:
+                return f"{scheme}://{host}/api/bank-connect/callback"
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "bank_connect._callback_url: could not derive from request, "
+                "falling back to FRONTEND_URL", exc_info=True,
+            )
+
     base = (settings.FRONTEND_URL or "").rstrip("/")
     return f"{base}/api/bank-connect/callback"
 
@@ -201,7 +225,7 @@ def init_bank_connection(
     try:
         client = get_aiia_client()
         consent_url = client.init_consent(
-            redirect_uri=_callback_url(),
+            redirect_uri=_callback_url(request),
             state=state,
             bank_slug=body.bank_slug,
         )

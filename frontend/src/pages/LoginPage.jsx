@@ -380,8 +380,8 @@ export default function LoginPage() {
                 </svg>
                 <span>
                   {retryStatus.coldStart
-                    ? (t("loginWarmingUp") || "Server is waking up — this usually takes 20-30 seconds the first time.")
-                    : (t("loginRetrying") || "Network hiccup — retrying.")}
+                    ? t("loginWarmingUp", "Server is waking up — this usually takes 20-30 seconds the first time.")
+                    : t("loginRetrying", "Network hiccup — retrying.")}
                   {" "}
                   <span className="text-amber-700/80 ml-1">
                     {t("loginAttemptOf", "Attempt {n} of {max}")

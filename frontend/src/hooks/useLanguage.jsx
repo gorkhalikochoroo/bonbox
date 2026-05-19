@@ -1749,6 +1749,12 @@ const translations = {
     signingIn: "Signing in…",
     hidePassword: "Hide password",
     showPassword: "Show password",
+    // Task #97 — cold-start retry banner (added 2026-05-19)
+    loginWarmingUp: "Server is waking up — this usually takes 20-30 seconds the first time.",
+    loginRetrying: "Network hiccup — retrying.",
+    loginAttemptOf: "Attempt {n} of {max}",
+    loginPasswordStuckTryMagic: "Password sign-in is having trouble. Try the one-click email link instead — it works even when the API is slow.",
+    loginUseMagicLink: "Send me a sign-in link",
     googleSigninFailed: "Google sign-in failed",
     newToBonBox: "New to BonBox?",
     // Task #61 — magic-link passwordless login
@@ -4204,6 +4210,12 @@ const translations = {
     signingIn: "Logger ind…",
     hidePassword: "Skjul adgangskode",
     showPassword: "Vis adgangskode",
+    // Task #97 — cold-start retry banner (added 2026-05-19)
+    loginWarmingUp: "Serveren vågner — det tager normalt 20-30 sekunder første gang.",
+    loginRetrying: "Netværksfejl — prøver igen.",
+    loginAttemptOf: "Forsøg {n} af {max}",
+    loginPasswordStuckTryMagic: "Adgangskode-login har problemer. Prøv et-klik email-link i stedet — det virker, selv når API'et er langsomt.",
+    loginUseMagicLink: "Send mig et login-link",
     googleSigninFailed: "Google-login mislykkedes",
     newToBonBox: "Ny til BonBox?",
     // Task #61 — magic-link passwordless login
