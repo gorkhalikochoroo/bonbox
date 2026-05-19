@@ -241,6 +241,15 @@ def bank_callback(
       3. Exchange code at Aiia → refresh_token + account_id.
       4. AES-encrypt refresh_token; stamp aiia_account_id, status='active'.
       5. Audit + redirect to /connections?bank_connected=1.
+
+    OPS NOTE (Audit P2 — Task #79): Aiia mandates query-string
+    callback so `code` + `state` land in the proxy access log by
+    default.  The proxy MUST strip both query params before logging.
+    See `docs/aiia-integration-spec.md` §7 ("Callback URL query
+    string") for the Render/nginx configuration.  The `state` token
+    has a 10-min TTL (consent_state_expires_at) and `code` is
+    one-shot, so a leaked log row is bounded — but redaction is the
+    right hygiene.
     """
     conn = (
         db.query(BankConnection)
@@ -398,18 +407,44 @@ def revoke_bank_connection(
 
     before = {"status": conn.status, "aiia_account_id": conn.aiia_account_id}
 
-    # Best-effort revoke at Aiia. If it fails we still mark our row
-    # revoked — owner intent is clear, and we'd rather be conservative
-    # locally than leave a "looks active" row after an Aiia hiccup.
+    # Audit P2 (Task #77): PSD2 requires that owner-initiated consent
+    # withdrawal actually takes effect at the data provider.  If we
+    # silently kept the local "revoked" status when Aiia errored, the
+    # consent at Aiia would stay live for up to 90 days while the
+    # owner believes they revoked it.  Surface upstream failure as a
+    # 502 to the owner and DO NOT clear refresh_token_enc — a retry
+    # path needs the token to attempt revoke again.  A scheduled
+    # sweep can pick up status='revoke_pending' rows in v0.2.
     if conn.aiia_account_id:
         try:
             client = get_aiia_client()
             client.revoke(conn.aiia_account_id)
         except AiiaClientError as e:
             logger.warning(
-                "bank_connect.revoke: Aiia revoke failed for conn=%s — continuing locally. %s",
+                "bank_connect.revoke: Aiia revoke failed for conn=%s — surfacing 502. %s",
                 conn.id, e,
             )
+            audit_service.record(
+                db, user, "bank_connect.revoke_failed",
+                entity_type="bank_connection", entity_id=conn.id,
+                before=before,
+                after={"reason": "aiia_revoke_failed", "error": str(e)[:200]},
+                ip_address=_client_ip(request),
+            )
+            db.commit()
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "code": "aiia_revoke_failed",
+                    "message": (
+                        "Could not revoke the consent at Aiia — your "
+                        "bank connection is still live there. Please try "
+                        "again in a moment. If this persists, the "
+                        "consent will expire automatically at the SCA "
+                        "window (max 90 days)."
+                    ),
+                },
+            ) from e
 
     conn.status = "revoked"
     conn.refresh_token_enc = None

@@ -85,12 +85,19 @@ def _mk_user(db, *, email: str, postal: str | None = "2200",
     db.add(u)
     db.commit()
     db.refresh(u)
+    # Audit P2 (Task #76): smart_pricing requires the postal to come
+    # from a DAWA-verified + CVR-verified profile, otherwise the
+    # cohort uses None as effective postal.  Every test that needs a
+    # comparison must therefore set both — emulate a verified owner.
     profile = BusinessProfile(
         user_id=u.id,
         company_name=f"biz-{email}",
         country="DK",
         zipcode=postal,
         cuisine=cuisine,
+        dawa_address_id=f"dawa-{email}",
+        cvr_verified_at=datetime.utcnow(),
+        cvr_verified_source="cvrapi.dk",
     )
     db.add(profile)
     db.commit()
@@ -682,3 +689,43 @@ def test_currency_present_in_available_payload(db):
     result = get_market_comparison(db, requester, item_name="Cappuccino")
     assert result["available"] is True
     assert result.get("currency") == "DKK"
+
+
+# ─── Audit P2 (Task #76) — postal_code spoofing defense ─────────────
+
+
+def test_unverified_profile_yields_no_comparison(db):
+    """A user whose BusinessProfile has zipcode set but has NOT done
+    DAWA + CVR verification must NOT pull a cohort.  Even if the
+    cohort exists for that postal, smart_pricing returns
+    needs_setup so the attacker can't leech aggregates.
+
+    Mitigates the postal-spoofing attack: PUT /business lets owners
+    type any zipcode; without verification, that input is untrusted.
+    """
+    # Build the cohort first (verified neighbours so cohort is real)
+    users = _seed_cohort(db, n=MIN_COHORT_SIZE + 1, name="Cappuccino")
+    # All cohort users are verified by _seed_cohort.  Now add an
+    # attacker whose profile has the same postal/cuisine but NO
+    # DAWA + CVR verification.
+    attacker = _mk_user(db, email="attacker@x.test", postal="9999", cuisine="cafe")
+    # Strip verification from attacker's profile (the helper sets it,
+    # so we deliberately undo for this test):
+    from app.models.business_profile import BusinessProfile
+    profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == attacker.id)
+        .first()
+    )
+    profile.dawa_address_id = None
+    profile.cvr_verified_at = None
+    profile.cvr_verified_source = None
+    profile.zipcode = users[0].business_profile.zipcode if hasattr(users[0], "business_profile") else "2200"
+    db.commit()
+
+    result = get_market_comparison(db, attacker, item_name="Cappuccino")
+    # Attacker gets no usable cohort data
+    assert result["available"] is False
+    # And the reason is the gate, not "not enough data" (which would
+    # leak the fact that the cohort exists).
+    assert result["reason"] == "needs_setup"

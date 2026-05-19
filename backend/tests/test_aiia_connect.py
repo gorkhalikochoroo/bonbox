@@ -325,6 +325,40 @@ def test_delete_revokes_connection_and_burns_token(client, db):
     assert res2.status_code == 204
 
 
+def test_delete_502s_when_aiia_revoke_fails_and_preserves_token(client, db, monkeypatch):
+    """Audit P2 (Task #77): if Aiia rejects the revoke call, surface
+    502 to the owner and KEEP the refresh_token_enc + status='active'
+    so a retry can be made.  Silently flipping local status='revoked'
+    while the consent stays live at Aiia is a PSD2 compliance hazard
+    — the owner thinks they've revoked but the consent is still alive
+    for up to 90 days.
+    """
+    from app.services.aiia_client import AiiaClientError
+    user = _user(db, plan="starter")
+    conn = _activate_connection(client, db, user)
+    _override_user(user)
+
+    # Confirm we have a token to preserve
+    assert conn.refresh_token_enc is not None
+    original_token = conn.refresh_token_enc
+
+    def _boom(self, account_id):
+        raise AiiaClientError("aiia returned 503", status=503)
+
+    monkeypatch.setattr(MockAiiaClient, "revoke", _boom)
+
+    res = client.delete(f"/api/bank-connections/{conn.id}")
+    assert res.status_code == 502
+    detail = res.json().get("detail") or {}
+    assert detail.get("code") == "aiia_revoke_failed"
+
+    db.expire_all()
+    row = db.query(BankConnection).filter(BankConnection.id == conn.id).first()
+    # Status NOT flipped, token NOT burned — owner can retry
+    assert row.status == "active"
+    assert row.refresh_token_enc == original_token
+
+
 def test_delete_cross_tenant_returns_404(client, db):
     user_a = _user(db, plan="starter", email_suffix="-a")
     user_b = _user(db, plan="starter", email_suffix="-b")

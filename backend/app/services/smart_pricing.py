@@ -282,7 +282,23 @@ def get_market_comparison(
         .filter(BusinessProfile.user_id == user.id)
         .first()
     )
-    eff_postal = _normalize_postal(postal_code or (profile.zipcode if profile else None))
+    # Audit P2 (Task #76): only trust profile.zipcode when the owner
+    # has verified the address against DAWA AND a real CVR lookup
+    # confirms the company.  Without both, an attacker can flip
+    # postal codes via PUT /business to leech a richer cohort OR
+    # probe sparse cohorts to de-anonymize neighbours.  The explicit
+    # ?postal_code= override stays — that's a caller-supplied hint
+    # only, never persisted, and only consulted when the trusted
+    # profile postal is also present (we don't let untrusted callers
+    # bypass the gate entirely).
+    profile_postal_trusted = bool(
+        profile
+        and profile.dawa_address_id
+        and profile.cvr_verified_at
+        and profile.zipcode
+    )
+    trusted_zip = profile.zipcode if profile_postal_trusted else None
+    eff_postal = _normalize_postal(postal_code or trusted_zip)
     eff_cuisine = _normalize_cuisine(cuisine or (profile.cuisine if profile else None))
     canonical = normalize_item_name(item_name)
 
@@ -536,7 +552,17 @@ def get_all_market_comparisons(db: Session, user: User) -> dict:
         .filter(BusinessProfile.user_id == user.id)
         .first()
     )
-    eff_postal = _normalize_postal(profile.zipcode if profile else None)
+    # Audit P2 (Task #76): same DAWA + CVR gate as get_market_comparison.
+    # Untrusted postal codes never feed the cohort query.
+    profile_postal_trusted = bool(
+        profile
+        and profile.dawa_address_id
+        and profile.cvr_verified_at
+        and profile.zipcode
+    )
+    eff_postal = _normalize_postal(
+        profile.zipcode if profile_postal_trusted else None
+    )
     eff_cuisine = _normalize_cuisine(profile.cuisine if profile else None)
 
     # Single audit row covering the batch — detail records the postal +

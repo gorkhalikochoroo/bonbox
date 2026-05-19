@@ -173,6 +173,7 @@ Per connection:
 | Webhook signature | Validate `X-Aiia-Signature` HMAC against `AIIA_WEBHOOK_SECRET`. Reject on mismatch. |
 | Tenant isolation | All routes filter by `user_id`. Callback validates signed `state` JWT bound to the initiating user. |
 | Tier gating | `enforce_feature(user, "bank_auto_reconcile")` on every route except the public callback. |
+| Callback URL query string | Aiia mandates GET callback with `?code=…&state=…`. The short-lived `code` lands in nginx/Render access logs by default and would sit there for the log-retention window (7+ days). **Operational mitigation (REQUIRED at deploy):** configure the reverse proxy to strip `code` and `state` from logged query strings. For Render, set the env var `RENDER_LOG_QUERY_REDACT=code,state` (or use Render's [log filtering rules](https://render.com/docs/logging#filtering)). For nginx, replace `$query_string` with a sanitised variable in the access log format. The `consent_state` itself has a 10-min TTL (Audit P1, Task #75), and `code` is one-shot, so a leaked log line gives at most ~10 min of replay window — but eliminating the leak is cheap and right. |
 
 ---
 

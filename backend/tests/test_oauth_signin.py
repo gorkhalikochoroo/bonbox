@@ -533,14 +533,16 @@ def test_cross_tenant_isolation_apple_sub_per_user(db_session, client):
 # ─── Rate limiting ───────────────────────────────────────────────────
 
 
-def test_apple_rate_limit_30_per_hour(db_session, client):
-    """31st request from the same IP in an hour → 429.
+def test_apple_rate_limit_combined_per_hour(db_session, client):
+    """Audit P2 (Task #78): rate limit is now 20/hour COMBINED across
+    /oauth/apple + /oauth/google, not 30/hour per-endpoint.  The 21st
+    request from the same IP in an hour → 429.
 
     Each request rotates the sub so we don't hit any DB-level UNIQUE
     or find-or-create short-circuit — the rate limit MUST fire from
     slowapi alone."""
     last_status = None
-    for i in range(31):
+    for i in range(25):
         with _patch_apple(_apple_claims(f"sub-{i}", email=f"rl{i}@bonbox.test")):
             r = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
         last_status = r.status_code
@@ -549,15 +551,31 @@ def test_apple_rate_limit_30_per_hour(db_session, client):
     assert last_status == 429
 
 
-def test_google_rate_limit_30_per_hour(db_session, client):
+def test_google_rate_limit_combined_per_hour(db_session, client):
     last_status = None
-    for i in range(31):
+    for i in range(25):
         with _patch_google(_google_claims(f"g-sub-{i}", email=f"grl{i}@bonbox.test")):
             r = client.post("/api/auth/oauth/google", json={"id_token": "stub"})
         last_status = r.status_code
         if r.status_code == 429:
             break
     assert last_status == 429
+
+
+def test_oauth_rate_limit_is_shared_across_providers(db_session, client):
+    """Audit P2 (Task #78): an attacker must NOT be able to get 20/h
+    on Apple AND a separate 20/h on Google.  After 20 successful
+    Apple calls, the 1st Google call should already hit 429."""
+    # Burn the bucket via Apple
+    for i in range(20):
+        with _patch_apple(_apple_claims(f"shared-a-{i}", email=f"sh{i}@bonbox.test")):
+            r = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+        if r.status_code == 429:
+            break
+    # The very next Google call from the same IP must be rate-limited
+    with _patch_google(_google_claims("shared-g-0", email="sh-g@bonbox.test")):
+        r = client.post("/api/auth/oauth/google", json={"id_token": "stub"})
+    assert r.status_code == 429
 
 
 # ─── oauth_provider stamp ────────────────────────────────────────────

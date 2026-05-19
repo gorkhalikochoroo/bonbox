@@ -67,6 +67,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
 
+# Audit P2 (Task #78): combine /oauth/apple + /oauth/google under one
+# shared bucket so an attacker can't get 30/h on Apple AND a separate
+# 30/h on Google (= 60/h combined).  shared_limit groups multiple
+# routes under the same scope, so a request to either route counts
+# toward the same per-IP budget.  Dropped to 20/hour combined — still
+# generous for a real owner who fat-fingers between providers.
+_oauth_signin_limit = limiter.shared_limit(
+    "20/hour", scope="oauth_signin_combined",
+)
+
 
 # ── Request schemas ──────────────────────────────────────────────────
 
@@ -134,7 +144,7 @@ def _audit(
 
 
 @router.post("/oauth/apple", response_model=Token)
-@limiter.limit("30/hour")
+@_oauth_signin_limit
 def oauth_apple(
     request: Request,
     response: Response,
@@ -311,7 +321,7 @@ def oauth_apple(
 
 
 @router.post("/oauth/google", response_model=Token)
-@limiter.limit("30/hour")
+@_oauth_signin_limit
 def oauth_google(
     request: Request,
     response: Response,
