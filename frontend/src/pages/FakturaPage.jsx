@@ -333,11 +333,21 @@ export default function FakturaPage() {
       {loading ? (
         <div className="text-center py-12 text-gray-500">{t("loading") || "Loading…"}</div>
       ) : invoices.length === 0 ? (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-12 text-center border border-gray-100 dark:border-gray-700">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl p-10 sm:p-12 text-center border border-gray-100 dark:border-gray-700">
           <p className="text-4xl mb-3">🧾</p>
-          <p className="text-gray-600 dark:text-gray-300 font-medium">
+          <p className="text-stone-800 dark:text-stone-100 font-semibold text-base mb-1.5">
             {t("noInvoicesYet") || "No invoices yet"}
           </p>
+          <p className="text-stone-500 dark:text-stone-400 text-sm max-w-md mx-auto leading-relaxed mb-5">
+            {t("noInvoicesYetHint") ||
+              "Tap + New invoice above to create your first. Customers can be auto-filled from CVR — no manual typing of address or company name."}
+          </p>
+          <Link
+            to="/connections"
+            className="inline-flex items-center gap-1 text-[12.5px] font-medium text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 transition"
+          >
+            {t("noInvoicesConnHint") || "Or finish your setup first"} <span aria-hidden="true">→</span>
+          </Link>
         </div>
       ) : (
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
