@@ -367,7 +367,7 @@ export default function BankImportPage() {
                   Connect bank automatically
                 </h2>
                 <p className="text-sm text-gray-600 dark:text-gray-300">
-                  One-time NemID login at your bank — no more CSV uploads. BonBox auto-pulls transactions nightly and matches them to your fakturaer.
+                  One-time MitID login at your bank — no more CSV uploads. BonBox auto-pulls transactions nightly and matches them to your fakturaer.
                 </p>
               </div>
               {!canAutoReconcile && (

@@ -167,15 +167,20 @@ class MockMobilePayClient:
 
     def init_connection(self, redirect_uri: str, state: str) -> str:
         # Stash so complete_callback can replay.
+        code = "mock_mp_code_" + secrets.token_hex(8)
         self._consents[state] = {
             "redirect_uri": redirect_uri,
             "used": False,
-            "code": "mock_mp_code_" + secrets.token_hex(8),
+            "code": code,
             "merchant_id": f"mock_mp_merchant_{secrets.token_hex(4)}",
         }
-        # The mock "redirect URL" is a deterministic local-ish URL the
-        # frontend can recognise. Tests intercept this anyway.
-        return f"{self.base_url}/consent?state={state}"
+        # Mock redirect URL must be navigable so the owner's click in
+        # MOBILEPAY_ENV=mock actually completes the round-trip.  See
+        # the matching comment in aiia_client.MockAiiaClient.init_consent.
+        # Bounces the browser straight to our /callback with state +
+        # code pre-filled — the demo connect completes in one click.
+        sep = "&" if "?" in redirect_uri else "?"
+        return f"{redirect_uri}{sep}state={state}&code={code}"
 
     def complete_callback(self, code: str, state: str) -> dict:
         data = self._consents.get(state)

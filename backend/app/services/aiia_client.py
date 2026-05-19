@@ -152,15 +152,24 @@ class MockAiiaClient:
 
     def init_consent(self, redirect_uri: str, state: str, *, bank_slug: str | None = None) -> str:
         # Stash so exchange_code can replay.
+        code = "mock_code_" + secrets.token_hex(8)
         self._consents[state] = {
             "redirect_uri": redirect_uri,
             "bank_slug": bank_slug,
             "used": False,
-            "code": "mock_code_" + secrets.token_hex(8),
+            "code": code,
         }
-        # The mock "consent URL" is a deterministic local-ish URL the
-        # frontend can recognize. Tests intercept this anyway.
-        return f"{self.base_url}/consent?state={state}&bank={bank_slug or 'unknown'}"
+        # Mock consent URL must be navigable so the owner's click in
+        # AIIA_ENV=mock actually completes the round-trip.  Previously
+        # returned `mock://aiia/...` which the browser can't load — the
+        # button silently hung.  Now we return our OWN /callback URL
+        # pre-filled with state + code, so the redirect completes the
+        # connection in one shot (state validated, refresh_token_enc
+        # written, status='active', then bounced to /connections
+        # ?bank_connected=1).  Tests don't depend on the literal scheme;
+        # they look up `_consents[state]["code"]` directly.
+        sep = "&" if "?" in redirect_uri else "?"
+        return f"{redirect_uri}{sep}state={state}&code={code}"
 
     def exchange_code(self, code: str) -> dict:
         # Find the matching state by stored code. Allows the test

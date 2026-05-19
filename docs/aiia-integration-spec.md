@@ -35,7 +35,7 @@ sequenceDiagram
     Frontend->>Backend: POST /bank-connect/init
     Backend->>Aiia: Create user, get Connect URL
     Backend-->>Frontend: connect_url + signed state
-    Frontend->>Aiia: Redirect (SCA / NemID at bank)
+    Frontend->>Aiia: Redirect (SCA / MitID at bank)
     Aiia-->>Backend: GET /callback?code=…&state=…
     Backend->>Aiia: Exchange code → access+refresh tokens
     Backend->>DB: Insert bank_connections (refresh_token_enc)
