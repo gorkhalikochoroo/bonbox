@@ -42,10 +42,23 @@ api.interceptors.response.use(null, async (err) => {
   // (e.g. CVR lookup — 503 means upstream quota is gone, retrying for
   // 26 seconds is just stuck-UI theater) pass `_noRetry: true`.
   if (config._noRetry) return Promise.reject(err);
-  const isRetryable = !err.response || err.code === "ECONNABORTED" || err.response?.status >= 500;
+  const status = err.response?.status;
+  const isRetryable = !err.response || err.code === "ECONNABORTED" || status >= 500;
   if (!isRetryable) return Promise.reject(err);
-  // Only retry login/register POSTs on network errors (not on 4xx)
-  if (config.method === "post" && err.response) return Promise.reject(err);
+  // POSTs:
+  //   • Network error (no response) → retry, because the request
+  //     never reached the server so re-sending is safe.
+  //   • 503 Service Unavailable → retry, because that's the standard
+  //     "server temporarily unavailable, please try again" status.
+  //     This is the Render cold-start case for /auth/login,
+  //     /auth/magic-link/request, /auth/oauth/*, /demo/seed etc.
+  //     503 is documented as "the server has NOT processed the
+  //     request" so re-sending creates no duplicate side effects.
+  //   • 500/502/504 → don't retry, because those could mean the
+  //     handler ran half-way and left state behind.
+  if (config.method === "post" && err.response && status !== 503) {
+    return Promise.reject(err);
+  }
   const attempt = config._retryCount || 0;
   const backoffMs = [2000, 4000, 8000, 12000][attempt] || 12000;
   config._retryCount = attempt + 1;
