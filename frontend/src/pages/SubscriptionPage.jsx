@@ -75,15 +75,19 @@ const buildTiers = (t) => [
     highlight: false,
     variant: "default",
     features: [
+      // Refreshed May 2026 — reflect the real Free-tier value:
+      // the morning brief, MOMS countdown, receipt OCR with a
+      // monthly cap, single-location operator. Removed the cuisine
+      // market scan (0 production usage — see SubscriptionPage
+      // notes; replaced by features owners actually open).
+      { text: t("featFreeBrief2", "AI Daily Brief with tap-to-action insights") || "AI Daily Brief with tap-to-action insights" },
+      { text: t("featFreeMomsCountdown", "MOMS countdown — see when SKAT is due + estimated amount") || "MOMS countdown — see when SKAT is due + estimated amount" },
+      { text: t("featFreeReceiptOCR30", "Receipt OCR — snap a photo, we fill the expense (30 / month)") || "Receipt OCR — snap a photo, we fill the expense (30 / month)" },
       { text: t("featFreeClose", "30-second daily close") || "30-second daily close" },
-      { text: t("featFreeHistory7", "7 days of history") || "7 days of history" },
       { text: t("featFreeSalesExp", "Sales & expenses logging") || "Sales & expenses logging" },
-      { text: t("featFreeOCR5", "5 receipt scans / day") || "5 receipt scans / day" },
-      { text: t("featFreeMarketScan", "Cuisine market scan — see who's nearby") || "Cuisine market scan — see who's nearby" },
+      { text: t("featFreeHistory7", "7 days of export history") || "7 days of export history" },
       { text: t("featFreeExportManual", "Download Excel / PDF / CSV manually") || "Download Excel / PDF / CSV manually" },
       { text: t("featFreeSingle", "1 user, 1 branch") || "1 user, 1 branch" },
-      { text: t("featFreeBrief1", "AI brief — 1 refresh / day") || "AI brief — 1 refresh / day" },
-      { text: t("featFreeChat10", "AI chat — 10 messages / day") || "AI chat — 10 messages / day" },
     ],
   },
   {
@@ -111,14 +115,22 @@ const buildTiers = (t) => [
     variant: "default",
     addsHeader: t("featStarterAdds", "Everything in Free, plus:") || "Everything in Free, plus:",
     features: [
+      // Refreshed May 2026 — Starter is the "real bookkeeping" tier.
+      // The killers are accountant read-only login (the stickiness
+      // moat) + bank reconciliation auto-match + recurring expenses.
+      // These ship today; before they shipped, Starter was thin.
+      { text: t("featStarterAccountantLogin", "Your revisor logs in for free — read-only, audit-logged, GDPR-safe") || "Your revisor logs in for free — read-only, audit-logged, GDPR-safe" },
+      { text: t("featStarterBankRec", "Bank reconciliation — upload netbank CSV, auto-match payments to fakturaer") || "Bank reconciliation — upload netbank CSV, auto-match payments to fakturaer" },
+      { text: t("featStarterRecurring", "Recurring expenses — rent, internet, subscriptions auto-post on schedule") || "Recurring expenses — rent, internet, subscriptions auto-post on schedule" },
+      { text: t("featStarterReceiptUnlimited", "Receipt OCR — unlimited (no monthly cap)") || "Receipt OCR — unlimited (no monthly cap)" },
       { text: t("featStarterEmailRevisor", "Email kasserapport to your bogholder in one tap") || "Email kasserapport to your bogholder in one tap" },
-      { text: t("featStarterHistory31", "31 days of history + Dinero / Billy / e-conomic CSV templates") || "31 days of history + Dinero / Billy / e-conomic CSV templates" },
       { text: t("featStarterFaktura30", "Faktura — up to 30 / month, emailed direct to customer") || "Faktura — up to 30 / month, emailed direct to customer" },
+      { text: t("featStarterKreditnota", "Proper kreditnota flow — Bogføringsloven §7 compliant") || "Proper kreditnota flow — Bogføringsloven §7 compliant" },
+      { text: t("featStarterHistory31", "31 days of history + Dinero / Billy / e-conomic CSV templates") || "31 days of history + Dinero / Billy / e-conomic CSV templates" },
       { text: t("featStarterTeam3", "Up to 3 team members with role permissions") || "Up to 3 team members with role permissions" },
       { text: t("featStarterAnomaly", "AI anomaly detection — flags a misread amount before close") || "AI anomaly detection — flags a misread amount before close" },
-      { text: t("featStarterBrief3", "AI brief — 3 refreshes / day") || "AI brief — 3 refreshes / day" },
-      { text: t("featStarterChat50", "AI chat — 50 messages / day") || "AI chat — 50 messages / day" },
       { text: t("featStarterKhata", "Khata — unlimited") || "Khata — unlimited" },
+      { text: t("featStarterBrief3", "AI brief — 3 refreshes / day, more chat capacity") || "AI brief — 3 refreshes / day, more chat capacity" },
     ],
   },
   {
