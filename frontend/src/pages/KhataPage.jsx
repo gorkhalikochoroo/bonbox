@@ -3,7 +3,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { displayCurrency } from "../utils/currency";
 import { useLanguage } from "../hooks/useLanguage";
-import { formatDate, formatDateShort } from "../utils/dateFormat";
+import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 
 export default function KhataPage() {
@@ -19,7 +19,7 @@ export default function KhataPage() {
   const [showAddCustomer, setShowAddCustomer] = useState(false);
   const [custForm, setCustForm] = useState({ name: "", phone: "", address: "" });
   const [editCust, setEditCust] = useState(null);
-  const [txnForm, setTxnForm] = useState({ date: new Date().toISOString().slice(0, 10), purchase_amount: "", paid_amount: "", notes: "" });
+  const [txnForm, setTxnForm] = useState({ date: localIso(), purchase_amount: "", paid_amount: "", notes: "" });
   const [editTxn, setEditTxn] = useState(null);
   const [error, setError] = useState("");
   const [showPayForm, setShowPayForm] = useState(false);
@@ -96,7 +96,7 @@ export default function KhataPage() {
         }
         await api.post("/khata/transactions", payload);
       }
-      setTxnForm({ date: new Date().toISOString().slice(0, 10), purchase_amount: "", paid_amount: "", notes: "" });
+      setTxnForm({ date: localIso(), purchase_amount: "", paid_amount: "", notes: "" });
       setSelectedItems([]);
       setEditTxn(null);
       fetchTransactions(selectedCustomer.id);
@@ -124,7 +124,7 @@ export default function KhataPage() {
     try {
       await api.post("/khata/transactions", {
         customer_id: selectedCustomer.id,
-        date: new Date().toISOString().slice(0, 10),
+        date: localIso(),
         purchase_amount: 0,
         paid_amount: val,
         notes: t("paymentReceived"),
@@ -345,7 +345,7 @@ export default function KhataPage() {
                       {editTxn ? t("update") : t("add")}
                     </button>
                     {editTxn && (
-                      <button type="button" onClick={() => { setEditTxn(null); setTxnForm({ date: new Date().toISOString().slice(0, 10), purchase_amount: "", paid_amount: "", notes: "" }); }}
+                      <button type="button" onClick={() => { setEditTxn(null); setTxnForm({ date: localIso(), purchase_amount: "", paid_amount: "", notes: "" }); }}
                         className="text-sm text-gray-500 hover:text-gray-700">{t("cancel")}</button>
                     )}
                   </div>

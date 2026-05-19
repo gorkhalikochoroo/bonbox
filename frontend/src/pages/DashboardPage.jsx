@@ -42,7 +42,7 @@ import {
   BarChart, Bar, Cell, ReferenceLine,
 } from "recharts";
 import { displayCurrency } from "../utils/currency";
-import { formatDateShort } from "../utils/dateFormat";
+import { formatDateShort, localIso } from "../utils/dateFormat";
 
 /* ═══════════════════════════════════════════════════════════
    CONSTANTS
@@ -52,7 +52,7 @@ const PERIODS = ["today", "thisWeek", "thisMonth", "last30"];
 
 function getDateRange(period) {
   const now = new Date();
-  const fmt = (d) => d.toISOString().split("T")[0];
+  const fmt = (d) => localIso(d);
   const today = fmt(now);
   switch (period) {
     case "today": return { from: today, to: today };
@@ -1408,7 +1408,7 @@ export default function DashboardPage() {
   // ── Quick actions ──
   const handleQuickSale = async (amount) => {
     try {
-      await api.post("/sales", { amount, date: new Date().toISOString().split("T")[0], payment_method: "cash", description: t("quickSaleDesc") });
+      await api.post("/sales", { amount, date: localIso(), payment_method: "cash", description: t("quickSaleDesc") });
       trackEvent("sale_logged", "dashboard", `quick_sale ${amount} ${currency}`);
       showToast(`${t("saleLogged")} ${amount.toLocaleString()} ${currency}`, "success");
       fetchAll();
@@ -1441,13 +1441,13 @@ export default function DashboardPage() {
 
   // ── Yesterday's revenue for daily summary ──
   const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayKey = yesterday.toISOString().split("T")[0];
+  const yesterdayKey = localIso(yesterday);
   const yesterdayData = dailyRevData.find((d) => d.date === yesterdayKey);
   const yesterdayRev = yesterdayData ? yesterdayData.amount : 0;
 
   // ── Week avg ──
   const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - (weekStart.getDay() === 0 ? 6 : weekStart.getDay() - 1));
-  const weekDays = dailyRevData.filter((d) => d.date >= weekStart.toISOString().split("T")[0]);
+  const weekDays = dailyRevData.filter((d) => d.date >= localIso(weekStart));
   const weekAvg = weekDays.length > 0 ? Math.round(weekDays.reduce((s, d) => s + d.amount, 0) / weekDays.length) : 0;
 
   // ── Best day ──

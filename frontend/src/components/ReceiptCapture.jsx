@@ -5,6 +5,7 @@ import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { resizeImageIfLarge } from "../utils/resizeImage";
+import { localIso } from "../utils/dateFormat";
 
 /**
  * ReceiptCapture — supports both sale and expense mode.
@@ -92,7 +93,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
 
   const confirmExpense = async () => {
     if (!amount) return;
-    const today = new Date().toISOString().split("T")[0];
+    const today = localIso();
     await api.post("/expenses", {
       amount: parseFloat(amount),
       description: desc || "Receipt scan",
@@ -375,7 +376,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
         imageUrl={preview}
         amount={amount ? parseFloat(amount) : result?.suggested_amount}
         currency="DKK"
-        date={new Date().toISOString().split("T")[0]}
+        date={localIso()}
         paymentMethod={method}
         description={desc}
         ocrText={result?.raw_text}

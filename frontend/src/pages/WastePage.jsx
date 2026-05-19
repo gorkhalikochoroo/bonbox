@@ -6,7 +6,7 @@ import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { displayCurrency } from "../utils/currency";
-import { formatDate, formatDateShort } from "../utils/dateFormat";
+import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 
 const REASONS = ["expired", "overcooked", "damaged", "other"];
@@ -24,7 +24,7 @@ export default function WastePage() {
   const [unit, setUnit] = useState("kg");
   const [cost, setCost] = useState("");
   const [reason, setReason] = useState("expired");
-  const [wasteDate, setWasteDate] = useState(new Date().toISOString().split("T")[0]);
+  const [wasteDate, setWasteDate] = useState(localIso());
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
   const [filterFrom, setFilterFrom] = useState("");
@@ -65,7 +65,7 @@ export default function WastePage() {
         date: wasteDate,
       });
       setItem(""); setQty(""); setCost("");
-      setWasteDate(new Date().toISOString().split("T")[0]);
+      setWasteDate(localIso());
       trackEvent("waste_logged", "waste", `${item} - ${c || 0} ${currency}`);
       setSuccess(t("wasteLogged"));
       fetchData(filterFrom, filterTo);
@@ -227,11 +227,11 @@ export default function WastePage() {
           <input
             type="date"
             value={wasteDate}
-            max={new Date().toISOString().split("T")[0]}
+            max={localIso()}
             onChange={(e) => setWasteDate(e.target.value)}
             className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
-          {wasteDate !== new Date().toISOString().split("T")[0] && (
+          {wasteDate !== localIso() && (
             <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">{t("backdatedEntry")}</span>
           )}
         </div>

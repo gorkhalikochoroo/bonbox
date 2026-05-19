@@ -11,6 +11,7 @@ import {
   formatDanishDateLabel,
   shareCloseSummary,
 } from "../utils/shareClose";
+import { localIso } from "../utils/dateFormat";
 
 /**
  * Multi-terminal daily close — Mirabelle-format flow.
@@ -271,7 +272,7 @@ export default function MultiTerminalClosePage() {
     );
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localIso();
 
   return (
     <div className="px-4 sm:px-6 py-6 max-w-3xl mx-auto">

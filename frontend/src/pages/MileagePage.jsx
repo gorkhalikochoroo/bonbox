@@ -3,6 +3,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
 import HowItWorksCard from "../components/HowItWorksCard";
+import { localIso } from "../utils/dateFormat";
 
 /**
  * MileagePage — kørselsgodtgørelse log.
@@ -281,7 +282,7 @@ function MileageFormModal({ entryId, entries, onClose, onSaved, t }) {
   const isEdit = !!entryId;
   const existing = entries.find((e) => e.id === entryId);
   const [form, setForm] = useState({
-    trip_date: existing?.trip_date || new Date().toISOString().slice(0, 10),
+    trip_date: existing?.trip_date || localIso(),
     from_address: existing?.from_address || "",
     to_address: existing?.to_address || "",
     km: existing?.km || "",

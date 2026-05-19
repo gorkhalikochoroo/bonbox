@@ -8,6 +8,7 @@ import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit
 import DismissibleTip from "../components/DismissibleTip";
 import SmartImportModal from "../components/SmartImportModal";
 import InventoryConsumptionModal from "../components/InventoryConsumptionModal";
+import { localIso } from "../utils/dateFormat";
 
 const TEMPLATES = [
   // Food & Drink
@@ -180,7 +181,7 @@ export default function InventoryPage() {
     const qty = parseFloat(change);
     if (!qty) return;
     try {
-      await api.post("/inventory/logs", { item_id: itemId, change_qty: qty, date: new Date().toISOString().split("T")[0] });
+      await api.post("/inventory/logs", { item_id: itemId, change_qty: qty, date: localIso() });
       setAdjustId(null);
       setAdjustQty("");
       fetchData();
@@ -240,7 +241,7 @@ export default function InventoryPage() {
         item_id: restockItem.id,
         change_qty: addMl,
         reason: `restock:${restockBottles} bottle(s)`,
-        date: new Date().toISOString().split("T")[0],
+        date: localIso(),
       });
       setSuccess(`${t("restocked")} ${restockItem.name} — ${restockBottles} ${t("bottles")} (${addMl} ${restockItem.pour_unit || "ml"})`);
       setRestockItem(null);
@@ -259,7 +260,7 @@ export default function InventoryPage() {
       const res = await api.post("/inventory/pour", {
         item_id: pourModal.id,
         pours: pourCount,
-        date: new Date().toISOString().split("T")[0],
+        date: localIso(),
       });
       const saleMsg = res.data.sale_recorded ? ` · ${t("sale")}: ${res.data.revenue} ${currency}` : "";
       setSuccess(`${t("poured")} ${pourCount}x ${pourModal.name} — ${res.data.remaining_pours} ${t("poursLeft")}${saleMsg}`);
@@ -380,7 +381,7 @@ export default function InventoryPage() {
                 const url = URL.createObjectURL(res.data);
                 const a = document.createElement("a");
                 a.href = url;
-                a.download = `stock-list-${new Date().toISOString().slice(0, 10)}.pdf`;
+                a.download = `stock-list-${localIso()}.pdf`;
                 document.body.appendChild(a);
                 a.click();
                 a.remove();
@@ -402,7 +403,7 @@ export default function InventoryPage() {
                 const url = URL.createObjectURL(res.data);
                 const a = document.createElement("a");
                 a.href = url;
-                a.download = `stock-list-${new Date().toISOString().slice(0, 10)}.csv`;
+                a.download = `stock-list-${localIso()}.csv`;
                 document.body.appendChild(a);
                 a.click();
                 a.remove();

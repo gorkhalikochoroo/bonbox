@@ -4,6 +4,7 @@ import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { FadeIn } from "../components/AnimationKit";
+import { localIso } from "../utils/dateFormat";
 
 /**
  * Consolidated close — multi-branch daily-close roll-up. Pro+ only.
@@ -34,7 +35,7 @@ export default function ConsolidatedClosePage() {
   // of truth (Pro/trial/business have it, Free/Starter don't). Old
   // hard-coded plan-string check ["pro","trial","business"] removed.
   const ent = useEntitlements();
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => localIso());
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -163,7 +164,7 @@ export default function ConsolidatedClosePage() {
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              max={new Date().toISOString().slice(0, 10)}
+              max={localIso()}
               className="px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-green-300 dark:focus:ring-green-700"
             />
           </div>

@@ -9,6 +9,7 @@ import BusinessLookup, { countryFromCurrency } from "../components/BusinessLooku
 import OperatingProfileSection from "../components/OperatingProfileSection";
 import SmartStaffingCard from "../components/SmartStaffingCard";
 import { resetAllTips } from "../components/DismissibleTip";
+import { localIso } from "../utils/dateFormat";
 
 export default function ProfilePage() {
   const [dark] = useDarkMode();
@@ -1265,7 +1266,7 @@ export default function ProfilePage() {
                   const url = window.URL.createObjectURL(new Blob([res.data]));
                   const a = document.createElement("a");
                   a.href = url;
-                  a.download = `bonbox_export_${new Date().toISOString().slice(0, 10)}.csv`;
+                  a.download = `bonbox_export_${localIso()}.csv`;
                   a.click();
                   window.URL.revokeObjectURL(url);
                 } catch { /* ignore */ }

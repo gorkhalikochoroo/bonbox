@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
+import { localIso } from "../utils/dateFormat";
 
 // Use labelKey here so we can translate at render time — module scope
 // has no access to the useLanguage hook.
@@ -113,7 +114,7 @@ export default function WineListPage() {
       const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
       const a = document.createElement("a");
       a.href = url;
-      a.download = `wine_menu_${new Date().toISOString().split("T")[0]}.pdf`;
+      a.download = `wine_menu_${localIso()}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } catch {
@@ -502,7 +503,7 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
       const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
       const a = document.createElement("a");
       a.href = url;
-      a.download = `wine_menu_${new Date().toISOString().split("T")[0]}.pdf`;
+      a.download = `wine_menu_${localIso()}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
       setPdfSuccess(true);

@@ -3,7 +3,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
-import { formatDate, formatDateShort } from "../utils/dateFormat";
+import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 
 const PERSONAL_CATEGORIES = [
   "Salary", "Freelance", "Side Income", "Gift Received",
@@ -28,13 +28,13 @@ export default function PersonalPage() {
   const [customCat, setCustomCat] = useState("");
   const [amount, setAmount] = useState("");
   const [desc, setDesc] = useState("");
-  const [entryDate, setEntryDate] = useState(new Date().toISOString().split("T")[0]);
+  const [entryDate, setEntryDate] = useState(localIso());
   const [method, setMethod] = useState("cash");
   const [notes, setNotes] = useState("");
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
   const [tab, setTab] = useState("all"); // "all", "income", "spent"
-  const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [filterMonth, setFilterMonth] = useState(localIso().slice(0, 7));
   const [loanSummary, setLoanSummary] = useState({ total_borrowed: 0, total_lent: 0, net_balance: 0, persons: [] });
   const [showBudgetEditor, setShowBudgetEditor] = useState(false);
   const [budgets, setBudgets] = useState({});

@@ -25,8 +25,12 @@ function fmtPeriod(from, to) {
   return `${fmtDate(from)} \u2013 ${fmtDate(to)}`;
 }
 
+// Local-TZ ISO date — using toISOString here would split the day at UTC
+// midnight, so a Danish owner logging hours at 01:00 local time would
+// see "yesterday" as today. Match the rest of the app via dateFormat.localIso.
 function isoDate(d) {
-  return d.toISOString().split("T")[0];
+  const offsetMs = d.getTimezoneOffset() * 60_000;
+  return new Date(d.getTime() - offsetMs).toISOString().split("T")[0];
 }
 
 function addDays(iso, n) {

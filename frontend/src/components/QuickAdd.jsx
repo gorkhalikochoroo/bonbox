@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import Modal from "./Modal";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { localIso } from "../utils/dateFormat";
 
 const INCOME_CATS = ["Salary", "Freelance", "Side Income", "Gift Received", "Borrowed"];
 const PERSONAL_CATEGORIES = [
@@ -24,18 +25,18 @@ export default function QuickAdd() {
 
   const [saleAmount, setSaleAmount] = useState("");
   const [saleMethod, setSaleMethod] = useState("mixed");
-  const [saleDate, setSaleDate] = useState(new Date().toISOString().split("T")[0]);
+  const [saleDate, setSaleDate] = useState(localIso());
 
   const [expAmount, setExpAmount] = useState("");
   const [expCatId, setExpCatId] = useState("");
   const [expDesc, setExpDesc] = useState("");
-  const [expDate, setExpDate] = useState(new Date().toISOString().split("T")[0]);
+  const [expDate, setExpDate] = useState(localIso());
 
   // Personal mode
   const [pAmount, setPAmount] = useState("");
   const [pCatId, setPCatId] = useState("");
   const [pNotes, setPNotes] = useState("");
-  const [pDate, setPDate] = useState(new Date().toISOString().split("T")[0]);
+  const [pDate, setPDate] = useState(localIso());
 
   const salePresets = [500, 1000, 2500, 5000, 10000];
   const expPresets = [100, 500, 1000, 2500];
@@ -82,7 +83,7 @@ export default function QuickAdd() {
         payment_method: saleMethod,
       });
       setSaleAmount("");
-      setSaleDate(new Date().toISOString().split("T")[0]);
+      setSaleDate(localIso());
       showSuccess(t("saleLogged"));
       window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
@@ -103,7 +104,7 @@ export default function QuickAdd() {
       setExpAmount("");
       setExpDesc("");
       setExpCatId("");
-      setExpDate(new Date().toISOString().split("T")[0]);
+      setExpDate(localIso());
       showSuccess(t("expenseAdded"));
       window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
@@ -128,7 +129,7 @@ export default function QuickAdd() {
       setPAmount("");
       setPCatId("");
       setPNotes("");
-      setPDate(new Date().toISOString().split("T")[0]);
+      setPDate(localIso());
       showSuccess(INCOME_CATS.includes(cat?.name) ? t("incomeLogged") : t("expenseLogged"));
       window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
@@ -249,7 +250,7 @@ export default function QuickAdd() {
               <input
                 type="date"
                 value={saleDate}
-                max={new Date().toISOString().split("T")[0]}
+                max={localIso()}
                 onChange={(e) => setSaleDate(e.target.value)}
                 className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
@@ -329,7 +330,7 @@ export default function QuickAdd() {
               <input
                 type="date"
                 value={expDate}
-                max={new Date().toISOString().split("T")[0]}
+                max={localIso()}
                 onChange={(e) => setExpDate(e.target.value)}
                 className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
@@ -410,7 +411,7 @@ export default function QuickAdd() {
               <input
                 type="date"
                 value={pDate}
-                max={new Date().toISOString().split("T")[0]}
+                max={localIso()}
                 onChange={(e) => setPDate(e.target.value)}
                 className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
               />
@@ -491,7 +492,7 @@ export default function QuickAdd() {
               <input
                 type="date"
                 value={pDate}
-                max={new Date().toISOString().split("T")[0]}
+                max={localIso()}
                 onChange={(e) => setPDate(e.target.value)}
                 className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
               />

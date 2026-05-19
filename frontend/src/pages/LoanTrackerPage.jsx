@@ -3,7 +3,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { displayCurrency } from "../utils/currency";
 import { useLanguage } from "../hooks/useLanguage";
-import { formatDate, formatDateShort } from "../utils/dateFormat";
+import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 
 export default function LoanTrackerPage() {
@@ -19,7 +19,7 @@ export default function LoanTrackerPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [personForm, setPersonForm] = useState({ name: "", phone: "", notes: "" });
   const [editPerson, setEditPerson] = useState(null);
-  const [txnForm, setTxnForm] = useState({ date: new Date().toISOString().slice(0, 10), type: "lent", amount: "", is_repayment: false, notes: "" });
+  const [txnForm, setTxnForm] = useState({ date: localIso(), type: "lent", amount: "", is_repayment: false, notes: "" });
   const [editTxn, setEditTxn] = useState(null);
   const [error, setError] = useState("");
 
@@ -83,7 +83,7 @@ export default function LoanTrackerPage() {
       } else {
         await api.post("/loans/transactions", payload);
       }
-      setTxnForm({ date: new Date().toISOString().slice(0, 10), type: "lent", amount: "", is_repayment: false, notes: "" });
+      setTxnForm({ date: localIso(), type: "lent", amount: "", is_repayment: false, notes: "" });
       setEditTxn(null);
       fetchTxns(selected.id);
       fetchPersons();
@@ -265,7 +265,7 @@ export default function LoanTrackerPage() {
                       {editTxn ? t("update") : t("add")}
                     </button>
                     {editTxn && (
-                      <button type="button" onClick={() => { setEditTxn(null); setTxnForm({ date: new Date().toISOString().slice(0, 10), type: "lent", amount: "", is_repayment: false, notes: "" }); }}
+                      <button type="button" onClick={() => { setEditTxn(null); setTxnForm({ date: localIso(), type: "lent", amount: "", is_repayment: false, notes: "" }); }}
                         className="text-sm text-gray-500 hover:text-gray-700">{t("cancel")}</button>
                     )}
                   </div>

@@ -5,7 +5,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { displayCurrency, getTaxConfig } from "../utils/currency";
-import { formatDate, formatDateShort } from "../utils/dateFormat";
+import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import TaxBreakdown from "../components/TaxBreakdown";
 import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
 import ReceiptCapture from "../components/ReceiptCapture";
@@ -34,7 +34,7 @@ export default function ExpensesPage() {
   const [catId, setCatId] = useState("");
   const [amount, setAmount] = useState("");
   const [desc, setDesc] = useState("");
-  const [expDate, setExpDate] = useState(new Date().toISOString().split("T")[0]);
+  const [expDate, setExpDate] = useState(localIso());
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
   const [showSetup, setShowSetup] = useState(false);
@@ -172,7 +172,7 @@ export default function ExpensesPage() {
   const [quickAmount, setQuickAmount] = useState("");
   const [quickMethod, setQuickMethod] = useState("card");
   const [quickNotes, setQuickNotes] = useState("");
-  const [quickDate, setQuickDate] = useState(new Date().toISOString().split("T")[0]);
+  const [quickDate, setQuickDate] = useState(localIso());
 
   const submitQuick = async (amt) => {
     const value = amt || parseFloat(quickAmount);
@@ -196,11 +196,11 @@ export default function ExpensesPage() {
         notes: quickNotes || null,
         is_personal: false,
       });
-      const isBackdated = quickDate !== new Date().toISOString().split("T")[0];
+      const isBackdated = quickDate !== localIso();
       setQuickAmount("");
       setQuickNotes("");
       setQuickMethod("card");
-      setQuickDate(new Date().toISOString().split("T")[0]);
+      setQuickDate(localIso());
       trackEvent("quick_expense_logged", "expenses", `${value} ${currency}`);
       setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${quickDate})` : ""}!`);
       fetchData(filterFrom, filterTo);
@@ -242,7 +242,7 @@ export default function ExpensesPage() {
         is_personal: isPersonal,
         is_tax_exempt: isTaxExempt,
       });
-      const isBackdated = expDate !== new Date().toISOString().split("T")[0];
+      const isBackdated = expDate !== localIso();
       setAmount("");
       setDesc("");
       setMethod("card");
@@ -250,7 +250,7 @@ export default function ExpensesPage() {
       setCustomCat("");
       setIsPersonal(false);
       setIsTaxExempt(false);
-      setExpDate(new Date().toISOString().split("T")[0]);
+      setExpDate(localIso());
       trackEvent("expense_logged", "expenses", `${value} ${currency}`);
       setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${formatDate(expDate)})` : ""}!`);
       fetchData(filterFrom, filterTo);
@@ -421,12 +421,12 @@ export default function ExpensesPage() {
               <input
                 type="date"
                 value={quickDate}
-                max={new Date().toISOString().split("T")[0]}
+                max={localIso()}
                 onChange={(e) => setQuickDate(e.target.value)}
                 className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
               />
             </div>
-            {quickDate !== new Date().toISOString().split("T")[0] && (
+            {quickDate !== localIso() && (
               <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 font-medium">{t("backdated")}</p>
             )}
           </div>
@@ -577,12 +577,12 @@ export default function ExpensesPage() {
           <input
             type="date"
             value={expDate}
-            max={new Date().toISOString().split("T")[0]}
+            max={localIso()}
             onChange={(e) => setExpDate(e.target.value)}
             className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
         </div>
-        {expDate !== new Date().toISOString().split("T")[0] && (
+        {expDate !== localIso() && (
           <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 font-medium">{t("backdatedEntry")}</p>
         )}
 
@@ -616,11 +616,11 @@ export default function ExpensesPage() {
         const refDate = hasFilter && expenses.length > 0
           ? new Date(expenses.reduce((latest, e) => e.date > latest ? e.date : latest, expenses[0].date) + "T12:00:00")
           : now;
-        const monthPrefix = refDate.toISOString().slice(0, 7);
+        const monthPrefix = localIso(refDate).slice(0, 7);
         const monthName = refDate.toLocaleString("default", { month: "long" });
         const monthExpenses = hasFilter ? expenses : expenses.filter(e => e.date?.startsWith(monthPrefix));
         const totalExp = monthExpenses.reduce((s, x) => s + parseFloat(x.amount), 0);
-        const todayStr = now.toISOString().split("T")[0];
+        const todayStr = localIso(now);
         const latestDate = hasFilter && expenses.length > 0
           ? expenses.reduce((latest, e) => e.date > latest ? e.date : latest, expenses[0].date)
           : todayStr;

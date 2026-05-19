@@ -5,6 +5,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
 import HowItWorksCard from "../components/HowItWorksCard";
 import { UpgradeNudge } from "../components/ui";
+import { localIso } from "../utils/dateFormat";
 
 /**
  * FakturaPage — list + create + send.
@@ -247,23 +248,23 @@ export default function FakturaPage() {
               { label: t("allTime") || "All time", from: "", to: "" },
               {
                 label: t("thisMonth") || "This month",
-                from: (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10); })(),
-                to: new Date().toISOString().slice(0, 10),
+                from: (() => { const d = new Date(); return localIso(new Date(d.getFullYear(), d.getMonth(), 1)); })(),
+                to: localIso(),
               },
               {
                 label: t("lastMonth") || "Last month",
-                from: (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth() - 1, 1).toISOString().slice(0, 10); })(),
-                to: (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 0).toISOString().slice(0, 10); })(),
+                from: (() => { const d = new Date(); return localIso(new Date(d.getFullYear(), d.getMonth() - 1, 1)); })(),
+                to: (() => { const d = new Date(); return localIso(new Date(d.getFullYear(), d.getMonth(), 0)); })(),
               },
               {
                 label: t("thisQuarter") || "This quarter",
-                from: (() => { const d = new Date(); const q = Math.floor(d.getMonth() / 3); return new Date(d.getFullYear(), q * 3, 1).toISOString().slice(0, 10); })(),
-                to: new Date().toISOString().slice(0, 10),
+                from: (() => { const d = new Date(); const q = Math.floor(d.getMonth() / 3); return localIso(new Date(d.getFullYear(), q * 3, 1)); })(),
+                to: localIso(),
               },
               {
                 label: t("yearToDate") || "Year to date",
                 from: `${new Date().getFullYear()}-01-01`,
-                to: new Date().toISOString().slice(0, 10),
+                to: localIso(),
               },
             ].map((p) => {
               const active = fromDate === p.from && toDate === p.to;
@@ -624,7 +625,10 @@ function InvoiceRow({ invoice, customer, onChanged, t }) {
 
 function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, t }) {
   const [customerId, setCustomerId] = useState(customers[0]?.id || "");
-  const [issueDate, setIssueDate] = useState(new Date().toISOString().slice(0, 10));
+  // localIso() respects the user's timezone — fixes the off-by-one where
+  // a Danish owner at 01:14 CEST saw Issued=yesterday because toISOString
+  // returns UTC. See utils/dateFormat.js for full rationale.
+  const [issueDate, setIssueDate] = useState(localIso());
   // Optional leveringsdato — only rendered on the PDF when it differs
   // from issueDate (Momsbekendtgørelsen §57 stk. 1 nr. 6). Default to
   // empty so same-day work doesn't pollute the PDF with redundant info.

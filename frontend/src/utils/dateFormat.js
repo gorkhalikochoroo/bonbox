@@ -83,3 +83,36 @@ export function formatDateClearFull(dateStr) {
   const months = MONTHS_BY_LOCALE[detectLocale()] || MONTHS_BY_LOCALE.en;
   return `${parseInt(d, 10)} ${months[monthIdx]} ${y}`;
 }
+
+/**
+ * ISO date (YYYY-MM-DD) in the user's LOCAL timezone — never UTC.
+ *
+ * Why this exists: `new Date().toISOString().slice(0, 10)` returns the UTC
+ * date, which makes a Danish owner closing at 01:14 local time (CEST=UTC+2 →
+ * UTC 23:14 the day before) see "yesterday" everywhere we default a date
+ * input. Cascading bugs: faktura "Issued" off by 1, "Last 7 days" range
+ * starts 8 days ago and excludes today's close, etc.
+ *
+ * Pass an optional `Date` to convert a specific moment; defaults to now.
+ *
+ * @param {Date} [d=new Date()] - Date to convert
+ * @returns {string} YYYY-MM-DD in the local timezone
+ */
+export function localIso(d = new Date()) {
+  const offsetMs = d.getTimezoneOffset() * 60_000;
+  return new Date(d.getTime() - offsetMs).toISOString().slice(0, 10);
+}
+
+/**
+ * ISO date for N days before today, in local timezone.
+ * `localDaysAgo(7)` returns the day 7 days ago. For "Last 7 days INCLUSIVE
+ * of today" use `localDaysAgo(6)` and pair with `localIso()` as the end.
+ *
+ * @param {number} n - Days to subtract
+ * @returns {string} YYYY-MM-DD
+ */
+export function localDaysAgo(n) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return localIso(d);
+}

@@ -5,6 +5,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
+import { localIso } from "../utils/dateFormat";
 
 /**
  * Bar Pour — dedicated page for pour-cost-tracked items (spirits, beer,
@@ -85,7 +86,7 @@ export default function BarPage() {
       const res = await api.post("/inventory/pour", {
         item_id: pourModal.id,
         pours: pourCount,
-        date: new Date().toISOString().split("T")[0],
+        date: localIso(),
       });
       const saleMsg = res.data.sale_recorded ? ` · ${t("sale") || "Sale"}: ${res.data.revenue} ${currency}` : "";
       setSuccess(`${t("poured") || "Poured"} ${pourCount}x ${pourModal.name} — ${res.data.remaining_pours} ${t("poursLeft") || "pours left"}${saleMsg}`);
@@ -107,7 +108,7 @@ export default function BarPage() {
         item_id: restockItem.id,
         change_qty: addMl,
         reason: `restock:${restockBottles} bottle(s)`,
-        date: new Date().toISOString().split("T")[0],
+        date: localIso(),
       });
       setSuccess(`${t("restocked") || "Restocked"} ${restockItem.name} — ${restockBottles} ${t("bottles") || "bottles"} (${addMl} ${restockItem.pour_unit || "ml"})`);
       setRestockItem(null);

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import api from "../services/api";
 import Modal from "./Modal";
 import { useLanguage } from "../hooks/useLanguage";
+import { localIso } from "../utils/dateFormat";
 
 /**
  * Smart Sale Entry — type natural language, AI parses to structured items,
@@ -102,7 +103,7 @@ export default function SmartSaleInput({ open, onClose, onSaved }) {
   const onConfirm = async () => {
     if (!parsed || !parsed.lines || parsed.lines.length === 0 || saving) return;
     // Validate every line client-side too — never trust the parse output blindly
-    const today = new Date().toISOString().split("T")[0];
+    const today = localIso();
     const validLines = parsed.lines.filter((l) => {
       const q = parseFloat(l.qty);
       const p = parseFloat(l.unit_price);

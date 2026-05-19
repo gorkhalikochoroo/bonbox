@@ -7,7 +7,7 @@ import ReceiptViewer from "../components/ReceiptViewer";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { displayCurrency, getTaxConfig } from "../utils/currency";
-import { formatDate, formatDateShort, formatDateClear } from "../utils/dateFormat";
+import { formatDate, formatDateShort, formatDateClear, localIso } from "../utils/dateFormat";
 import { getVatTerms } from "../utils/currency";
 import TaxBreakdown from "../components/TaxBreakdown";
 import { FadeIn, StaggerGrid, StaggerGridItem, AnimatedList, AnimatedListItem, TabContent, motion, AnimatePresence } from "../components/AnimationKit";
@@ -25,7 +25,7 @@ export default function SalesPage() {
   // even on refetch — the previous numbers stay visible while the new ones load.
   const [salesLoading, setSalesLoading] = useState(true);
   const [amount, setAmount] = useState("");
-  const [saleDate, setSaleDate] = useState(new Date().toISOString().split("T")[0]);
+  const [saleDate, setSaleDate] = useState(localIso());
   const [method, setMethod] = useState("mixed");
   const [notes, setNotes] = useState("");
   const [success, setSuccess] = useState("");
@@ -194,11 +194,11 @@ export default function SalesPage() {
         notes: notes || null,
         is_tax_exempt: isTaxExempt,
       });
-      const isBackdated = saleDate !== new Date().toISOString().split("T")[0];
+      const isBackdated = saleDate !== localIso();
       setAmount("");
       setNotes("");
       setIsTaxExempt(false);
-      setSaleDate(new Date().toISOString().split("T")[0]);
+      setSaleDate(localIso());
       trackEvent("sale_logged", "sales", `${value} ${currency} via ${method}`);
       setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${formatDate(saleDate)})` : ""}!`);
       fetchSales(filterFrom, filterTo);
@@ -376,12 +376,12 @@ export default function SalesPage() {
             <input
               type="date"
               value={saleDate}
-              max={new Date().toISOString().split("T")[0]}
+              max={localIso()}
               onChange={(e) => setSaleDate(e.target.value)}
               className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
           </div>
-          {saleDate !== new Date().toISOString().split("T")[0] && (
+          {saleDate !== localIso() && (
             <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 font-medium">{t("backdatedEntry")}</p>
           )}
           </div>
@@ -396,12 +396,12 @@ export default function SalesPage() {
           const refDate = hasFilter && sales.length > 0
             ? new Date(sales.reduce((latest, s) => s.date > latest ? s.date : latest, sales[0].date) + "T12:00:00")
             : now;
-          const monthPrefix = refDate.toISOString().slice(0, 7);
+          const monthPrefix = localIso(refDate).slice(0, 7);
           const monthName = refDate.toLocaleString("default", { month: "long" });
           // When filtered, show all sales as "month sales" (they're already filtered by the API)
           const monthSales = hasFilter ? sales : sales.filter(s => s.date?.startsWith(monthPrefix));
           const totalRev = monthSales.reduce((s, x) => s + parseFloat(x.amount), 0);
-          const todayStr = now.toISOString().split("T")[0];
+          const todayStr = localIso(now);
           // When filtered to past dates, show the latest day in the data as "today" card
           const latestDate = hasFilter && sales.length > 0
             ? sales.reduce((latest, s) => s.date > latest ? s.date : latest, sales[0].date)
@@ -1056,7 +1056,7 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
   const handleSubmit = () => {
     if (!selectedItem || !qtyNum || !priceNum) return;
     onSale({
-      date: new Date().toISOString().split("T")[0],
+      date: localIso(),
       inventory_item_id: selectedItem.id,
       quantity_sold: qtyNum,
       unit_price: priceNum,

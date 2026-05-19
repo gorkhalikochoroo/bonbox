@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import api from "../services/api";
 import { trackEvent } from "../hooks/useEventLog";
 import { sendBundleToAccountant } from "../utils/shareDailyCloseRange";
+import { localIso } from "../utils/dateFormat";
 
 /**
  * Bookkeeping Export — push BonBox data into the user's existing
@@ -23,9 +24,9 @@ export default function BookkeepingExportPage() {
     const firstOfThisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
     const lastMonthEnd = new Date(firstOfThisMonth.getTime() - 86400000);
     const lastMonthStart = new Date(lastMonthEnd.getFullYear(), lastMonthEnd.getMonth(), 1);
-    return lastMonthStart.toISOString().slice(0, 10);
+    return localIso(lastMonthStart);
   });
-  const [end, setEnd] = useState(() => new Date().toISOString().slice(0, 10));
+  const [end, setEnd] = useState(() => localIso());
   const [downloading, setDownloading] = useState(false);
   const [sending, setSending] = useState(false);
   const [msg, setMsg] = useState("");
@@ -290,8 +291,8 @@ export default function BookkeepingExportPage() {
                   s = new Date(today.getTime() - r.days * 86400000);
                   e = today;
                 }
-                setStart(s.toISOString().slice(0, 10));
-                setEnd(e.toISOString().slice(0, 10));
+                setStart(localIso(s));
+                setEnd(localIso(e));
                 // Clear stale error/success when user picks a new range so the
                 // previous "Could not generate export" doesn't linger.
                 setErr("");

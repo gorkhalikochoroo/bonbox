@@ -5,7 +5,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { displayCurrency } from "../utils/currency";
-import { formatDate, formatDateShort } from "../utils/dateFormat";
+import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 
 const IN_CATEGORIES = ["Sales", "Tips", "Loan", "Other"];
@@ -23,7 +23,7 @@ export default function CashBookPage() {
   const [amount, setAmount] = useState("");
   const [desc, setDesc] = useState("");
   const [category, setCategory] = useState("");
-  const [txnDate, setTxnDate] = useState(new Date().toISOString().split("T")[0]);
+  const [txnDate, setTxnDate] = useState(localIso());
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
   const [filterFrom, setFilterFrom] = useState("");
@@ -58,7 +58,7 @@ export default function CashBookPage() {
       setAmount("");
       setDesc("");
       setCategory("");
-      setTxnDate(new Date().toISOString().split("T")[0]);
+      setTxnDate(localIso());
       trackEvent("cash_transaction", "cashbook", `${tab} ${value} ${currency}`);
       setSuccess(`${tab === "cash_in" ? "+" : "-"}${value.toLocaleString()} ${currency}`);
       fetchData(filterFrom, filterTo);
@@ -237,11 +237,11 @@ export default function CashBookPage() {
           <input
             type="date"
             value={txnDate}
-            max={new Date().toISOString().split("T")[0]}
+            max={localIso()}
             onChange={(e) => setTxnDate(e.target.value)}
             className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
-          {txnDate !== new Date().toISOString().split("T")[0] && (
+          {txnDate !== localIso() && (
             <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">{t("backdatedEntry")}</span>
           )}
         </div>

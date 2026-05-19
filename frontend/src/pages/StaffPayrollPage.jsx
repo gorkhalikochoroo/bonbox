@@ -3,7 +3,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
-import { formatDate } from "../utils/dateFormat";
+import { formatDate, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
 import { UpgradeNudge } from "../components/ui";
@@ -29,7 +29,7 @@ function periodLabel(start, end) {
 function addDays(dateStr, days) {
   const d = new Date(dateStr + "T12:00:00");
   d.setDate(d.getDate() + days);
-  return d.toISOString().split("T")[0];
+  return localIso(d);
 }
 
 const REASON_OPTIONS = [
@@ -65,7 +65,7 @@ export default function StaffPayrollPage() {
   const [sickStats, setSickStats] = useState(null);
   const [sickForm, setSickForm] = useState({
     staff_name: "",
-    date: new Date().toISOString().split("T")[0],
+    date: localIso(),
     reason: "",
     notes: "",
   });
@@ -108,7 +108,7 @@ export default function StaffPayrollPage() {
       })
       .catch(() => {
         // Fallback: bi-weekly period ending today
-        const today = new Date().toISOString().split("T")[0];
+        const today = localIso();
         const start = addDays(today, -13);
         setPeriod({ period_start: start, period_end: today });
         setPeriodLoading(false);
@@ -345,7 +345,7 @@ export default function StaffPayrollPage() {
         weather_condition: sickForm.reason === "weather" ? "weather" : sickForm.reason || null,
         notes: sickForm.notes || null,
       });
-      setSickForm({ staff_name: "", date: new Date().toISOString().split("T")[0], reason: "", notes: "" });
+      setSickForm({ staff_name: "", date: localIso(), reason: "", notes: "" });
       setSickSuccess(t("sickCallLogged") || "Sick call logged");
       setTimeout(() => setSickSuccess(""), 2500);
       const [res, statsRes] = await Promise.all([

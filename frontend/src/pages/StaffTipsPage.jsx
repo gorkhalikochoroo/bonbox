@@ -3,7 +3,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
-import { formatDate } from "../utils/dateFormat";
+import { formatDate, localIso, localDaysAgo } from "../utils/dateFormat";
 import { FadeIn, AnimatedCard, StaggerContainer, StaggerItem } from "../components/AnimationKit";
 
 /* ═══════════════════════════════════════════════════════════
@@ -32,7 +32,7 @@ function getRoleShare(role) {
 }
 
 function today() {
-  return new Date().toISOString().split("T")[0];
+  return localIso();
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -51,7 +51,7 @@ export default function StaffTipsPage() {
   const fetchHistory = useCallback(() => {
     const from = new Date();
     from.setDate(from.getDate() - 90);
-    api.get("/staff/tips", { params: { from: from.toISOString().split("T")[0], to: today() } })
+    api.get("/staff/tips", { params: { from: localIso(from), to: today() } })
       .then(r => setTipHistory(r.data))
       .catch(() => {});
   }, []);
@@ -65,7 +65,7 @@ export default function StaffTipsPage() {
   useEffect(() => {
     setLoading(true);
     Promise.allSettled([
-      api.get("/staff/tips", { params: { from: new Date(Date.now() - 90 * 86400000).toISOString().split("T")[0], to: today() } }),
+      api.get("/staff/tips", { params: { from: localDaysAgo(90), to: today() } }),
       api.get("/staff/members"),
     ]).then(([histRes, staffRes]) => {
       if (histRes.status === "fulfilled") setTipHistory(histRes.value.data);

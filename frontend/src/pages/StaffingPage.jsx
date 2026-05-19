@@ -7,7 +7,7 @@ import {
   LineChart, Line, Legend, ComposedChart,
 } from "recharts";
 import { displayCurrency } from "../utils/currency";
-import { formatDate, formatDateShort } from "../utils/dateFormat";
+import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 
 const LEVEL_COLORS = {
@@ -50,7 +50,7 @@ export default function StaffingPage() {
 
   // Staff log form
   const [logForm, setLogForm] = useState({
-    date: new Date().toISOString().split("T")[0],
+    date: localIso(),
     staff_count: "",
     total_hours: "",
     labor_cost: "",
