@@ -53,7 +53,7 @@ export default function ConnectionsProgressCard() {
     Promise.all([
       api.get("/business").then(r => r.data).catch(() => null),
       api.get("/accountants/grants").then(r => r.data || []).catch(() => []),
-      api.get("/email-settings/preferences").then(r => r.data).catch(() => null),
+      api.get("/email/preferences").then(r => r.data).catch(() => null),
     ]).then(([p, g, e]) => {
       if (!alive) return;
       setProfile(p);

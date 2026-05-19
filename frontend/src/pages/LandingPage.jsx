@@ -35,6 +35,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
+import FounderRatePill from "../components/FounderRatePill";
 
 // tx(t, key, fallback) — wrapper around the i18n t() helper that
 // falls back to the supplied default when the key isn't present in
@@ -454,6 +455,11 @@ export default function LandingPage() {
 
         <div className="grid lg:grid-cols-[1.1fr_1fr] gap-12 lg:gap-20 items-center">
           <div>
+            {/* Task #85 — live founder-rate pill.  Sits above the
+                "Built for Danish hospitality" badge so the urgency
+                hits before the brand promise. */}
+            <FounderRatePill />
+
             <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-emerald-200/80 rounded-full text-[12px] font-medium text-emerald-700 mb-7">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
               {tx_("landingBadge", "Built for Danish hospitality")}

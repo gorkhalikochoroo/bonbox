@@ -54,6 +54,9 @@ from app.routers import auth_magic_link as auth_magic_link_router
 # their own account with sample rows so the dashboard / brief light up
 # instantly, and clear them with one tap.
 from app.routers import demo as demo_router
+# Task #85 — public founder-rate status (landing page urgency pill).
+# Single unauthenticated endpoint, rate-limited, aggregate-only.
+from app.routers import founder_rate as founder_rate_router
 # Task #65 — unified OAuth (Apple + Google). Separate router so the
 # new find-or-create / link semantics + token-verification multi-layer
 # stays cleanly isolated from the legacy /auth/apple + /auth/google
@@ -2250,6 +2253,15 @@ app.include_router(
     demo_router.router,
     prefix="/api/demo",
     tags=["Demo Data"],
+)
+# Task #85 — public founder-rate status. PREFIX `/api/public` is
+# intentional: any route under this prefix is unauthenticated by
+# convention (mirrors the same pattern used by other public surfaces
+# like /api/staff/portal).  Only aggregate data — no PII.
+app.include_router(
+    founder_rate_router.router,
+    prefix="/api/public",
+    tags=["Public Marketing"],
 )
 # Task #49 — accountant read-only login. The router exposes /invite,
 # /grants, /signup (public), /switch-client, /clients. The write-blocking

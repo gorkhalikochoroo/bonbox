@@ -600,9 +600,21 @@ def _fmt_money(amount: float, currency: str) -> str:
     return f"{int(round(amount)):,} {currency}"
 
 
-def generate_candidates(p: Precompute) -> list[Candidate]:
+def generate_candidates(
+    p: Precompute,
+    *,
+    has_customer_outreach: bool = True,
+) -> list[Candidate]:
     """Apply hand-tuned rules to the precompute. Each rule fires only when
-    its data is present and meaningful — no generic filler."""
+    its data is present and meaningful — no generic filler.
+
+    `has_customer_outreach` (Task #88) gates the "Text these regulars"
+    insight to Pro+ tiers.  Free / Starter callers still see the at-
+    risk count in the Khata page summary (informational), but the
+    brief-level call-to-action ("text these N regulars now") is the
+    Pro killer feature.  Without this gate the marketing positioning
+    of Pro Customer Outreach would be a lie.
+    """
     out: list[Candidate] = []
     cur = p.currency
 
@@ -866,7 +878,10 @@ def generate_candidates(p: Precompute) -> list[Candidate]:
     # there are 2+ at-risk regulars — a single one is noise, two+ is a
     # pattern the owner should act on. Top 3 names included by default;
     # for 4-5 we show "+N more" so the line stays scannable.
-    if len(p.top_regulars_at_risk) >= 2:
+    # Pro+ gate (Task #88): the Free / Starter brief still tells the
+    # owner WHAT's happening via other surfaces, but the "Text these
+    # regulars now" CTA is the Pro Customer Outreach killer feature.
+    if has_customer_outreach and len(p.top_regulars_at_risk) >= 2:
         # Compact name list — first 3, then "+N more"
         first_names = [
             (r["name"].split()[0] if r.get("name") else "Customer")
@@ -1272,7 +1287,13 @@ def get_or_create_brief(
 
     # Generate fresh
     p = compute_precompute(user, db)
-    candidates = generate_candidates(p)
+    # Task #88 — pass the Pro Customer Outreach entitlement so the
+    # "Text these regulars" insight only fires for Pro/Trial users.
+    from app.services.billing import has_feature as _has_feature
+    candidates = generate_candidates(
+        p,
+        has_customer_outreach=bool(_has_feature(user, "customer_outreach")),
+    )
     polished, in_tok, out_tok, model = _try_llm_polish(p, candidates, user, db)
     payload = polished if polished else fallback_brief(p, candidates, user=user)
     payload["from_cache"] = False

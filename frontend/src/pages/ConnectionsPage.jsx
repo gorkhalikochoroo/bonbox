@@ -196,7 +196,7 @@ export default function ConnectionsPage() {
     Promise.all([
       api.get("/business").then(r => r.data).catch(() => null),
       api.get("/accountants/grants").then(r => r.data || []).catch(() => []),
-      api.get("/email-settings/preferences").then(r => r.data).catch(() => null),
+      api.get("/email/preferences").then(r => r.data).catch(() => null),
       api.get("/bank-connections").then(r => r.data || []).catch(() => []),
     ]).then(([p, g, e, bc]) => {
       if (!alive) return;

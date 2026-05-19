@@ -1520,13 +1520,16 @@ const translations = {
     dailySummary: "Daily Summary", yesterday: "Yesterday", weekAvg: "Week Avg",
     loggedSalesToday: "You've logged sales today", hitDailyGoal: "You've hit your daily goal!",
     profitableThisMonth: "You're profitable this month",
-    // Landing page
-    landingSignIn: "Sign In", landingStartFree: "Get Started",
-    landingBadge: "For multi-terminal hospitality",
-    landingHeroLine1: "The 90 seconds between", landingHeroLine2: "last guest and lights out.",
-    landingHeroSub: "Front-of-house snaps each kasserapport. AI merges them in 6 seconds. Owner gets the consolidated PDF before close-up is even done. Built for the closer. Owned by the owner. Not bookkeeping. Not POS.",
-    landingCtaPrimary: "Get Started Now", landingMobileApp: "Mobile App",
-    landingCheck1: "Multi-terminal aggregation", landingCheck2: "AI reads in 6 seconds", landingCheck3: "EU-hosted · GDPR-first",
+    // Landing page (Task #87 refresh — keys aligned with the new
+    // "Danish café owner" + AI-brief pitch.  Stale multi-terminal
+    // kasserapport copy was overriding the better fallbacks at the
+    // call sites; updated so the visitor sees a coherent story.)
+    landingSignIn: "Sign In", landingStartFree: "Get started — free",
+    landingBadge: "Built for Danish hospitality",
+    landingHeroLine1: "The AI manager for", landingHeroLine2: "Danish café owners.",
+    landingHeroSub: "Connect your bank. We tell you who to schedule. We file your MOMS. We tell you when your regulars are slipping. A 9am brief that actually helps. 129 DKK/mo founding rate.",
+    landingCtaPrimary: "Get started — free", landingMobileApp: "Mobile App",
+    landingCheck1: "Free 14-day trial", landingCheck2: "No card required", landingCheck3: "Cancel anytime",
     landingDemoCaption: "Interactive dashboard preview — click the tabs",
     landingDemoTabDashboard: "Dashboard", landingDemoTabSales: "Sales", landingDemoTabInventory: "Inventory",
     landingDemoWelcome: "Welcome back, Your Shop", landingDemoLowStock: "low stock",
@@ -3945,12 +3948,14 @@ const translations = {
     dailySummary: "Daglig oversigt", yesterday: "I går", weekAvg: "Uge gns.",
     loggedSalesToday: "Du har registreret salg i dag", hitDailyGoal: "Du har nået dit daglige mål!",
     profitableThisMonth: "Du er profitabel denne måned",
-    landingSignIn: "Log ind", landingStartFree: "Kom i gang",
-    landingBadge: "Til restauranter med flere terminaler",
-    landingHeroLine1: "De 90 sekunder mellem", landingHeroLine2: "sidste gæst og lys ud.",
-    landingHeroSub: "Tjeneren snapper hver kasserapport. AI'en samler dem på 6 sekunder. Ejeren får den samlede PDF inden lukketid er færdig. Bygget til den der lukker. Ejet af ejeren. Ikke bogføring. Ikke POS.",
-    landingCtaPrimary: "Kom i gang nu", landingMobileApp: "Mobilapp",
-    landingCheck1: "Konsolidering på tværs af terminaler", landingCheck2: "AI læser på 6 sekunder", landingCheck3: "EU-hostet · GDPR-først",
+    // Task #87 — landing keys aligned with the new "Danish café
+    // owner" pitch.  Old multi-terminal kasserapport copy is gone.
+    landingSignIn: "Log ind", landingStartFree: "Kom i gang — gratis",
+    landingBadge: "Bygget til dansk gastronomi",
+    landingHeroLine1: "Din AI-driftsleder til", landingHeroLine2: "danske cafeéjere.",
+    landingHeroSub: "Forbind din bank. Vi siger hvem du skal sætte på vagt. Vi indberetter din MOMS. Vi advarer når dine stamgæster forsvinder. Et morgenbrief kl. 9 der faktisk hjælper. 129 kr./md. som grundpris.",
+    landingCtaPrimary: "Kom i gang — gratis", landingMobileApp: "Mobilapp",
+    landingCheck1: "Gratis 14-dages prøveperiode", landingCheck2: "Ingen kreditkort", landingCheck3: "Opsig når som helst",
     landingDemoCaption: "Interaktiv dashboard-demo — klik på fanerne",
     landingDemoTabDashboard: "Oversigt", landingDemoTabSales: "Salg", landingDemoTabInventory: "Lager",
     landingDemoWelcome: "Velkommen tilbage, Din Butik", landingDemoLowStock: "lav beholdning",

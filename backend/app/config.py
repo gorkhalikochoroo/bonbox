@@ -104,6 +104,15 @@ class Settings(BaseSettings):
     MOBILEPAY_CLIENT_ID: str = ""        # OAuth client_id from MobilePay portal
     MOBILEPAY_CLIENT_SECRET: str = ""    # OAuth client_secret (server-side ONLY)
 
+    # ── Founder rate cap — Task #85 ─────────────────────────────────────
+    # First N paying customers get the locked founder pricing
+    # (Starter 129/199 DKK, Pro 249/349 DKK).  Once the count exceeds
+    # FOUNDER_MAX_SLOTS, new signups see standard pricing.  The
+    # current count is public via /api/public/founder-rate-status so
+    # the landing page can show a live "X of 100 founder seats taken"
+    # urgency pill.
+    FOUNDER_MAX_SLOTS: int = 100
+
     # ── Aiia (Mastercard Open Banking) redirect URI — Task #83 ──────────
     # The redirect_uri Aiia bounces the owner back to after SCA.  Must
     # exactly match what's registered in the Aiia portal AND must be a

@@ -318,6 +318,13 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # not the billing layer — so the gate can never be bypassed by
         # tier change.
         "smart_pricing": True,
+        # 2026-05-19 — Customer outreach (Task #69 — Pro killer feature).
+        # The brief surfaces "regulars at risk", and Pro owners can
+        # launch a pre-filled SMS to those regulars in one tap.  Free
+        # tier sees the at-risk signal in Khata (informational) but the
+        # outreach launcher + brief CTA are Pro-only — the action is
+        # what makes loyalty real.
+        "customer_outreach": False,
     },
     "starter": {
         "ai_anomaly_detection": True,
@@ -339,6 +346,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "daily_brief_email": True,         # Task #54 — same as Free, retention
         "inventory_autopilot": False,      # Pro-only — Task #63 Pro killer
         "smart_pricing": True,             # Task #64 — same on all tiers, retention
+        "customer_outreach": False,        # Pro-only — Task #69 Pro killer
     },
     "trial": {  # = full Pro
         "ai_anomaly_detection": True,
@@ -360,6 +368,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "daily_brief_email": True,
         "inventory_autopilot": True,
         "smart_pricing": True,
+        "customer_outreach": True,
     },
     "pro": {
         "ai_anomaly_detection": True,

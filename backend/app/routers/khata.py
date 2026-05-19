@@ -13,6 +13,7 @@ from app.schemas.khata import (
     KhataTransactionCreate, KhataTransactionUpdate, KhataTransactionResponse,
 )
 from app.services.auth import get_current_user
+from app.services.billing import enforce_feature
 from app.services.khata_sync import (
     sync_sale_for_khata_purchase,
     sync_cashbook_for_khata_payment,
@@ -255,6 +256,12 @@ def get_at_risk_regulars(
 ):
     """List regular customers who haven't been back recently.
 
+    Gated to Pro+ (Task #88).  The Free tier sees the at-risk
+    signal in summary form on the Khata page but the action-ready
+    list (visit counts, days_silent ranks, raw IDs for the SMS
+    launcher) is the Pro Customer Outreach payload.  Drop this
+    gate and we mismarket the Pro tier on the landing page.
+
     Mirrors the precompute logic used by the Daily Brief loyalty signal
     so the Brief's CTA can deep-link here and the Khata page can show
     the same "regulars at risk" list.
@@ -271,6 +278,11 @@ def get_at_risk_regulars(
     Defensive: bounds checks on inputs so an over-eager caller can't
     request a 10-year lookback or 1000-row page.
     """
+    # Task #88 — Pro tier gate.  Returns 402 with the canonical upgrade
+    # payload (handled by enforce_feature).  Free/Starter callers see
+    # the gate; Pro/Trial proceed.
+    enforce_feature(user, "customer_outreach")
+
     from datetime import date, timedelta
 
     # Input bounds — same kind of multi-layer guard the rest of the
@@ -352,6 +364,10 @@ def log_outreach(
     Returns 200 on validation failure too (best-effort logging
     shouldn't block the owner's actual goal: opening their SMS app).
     """
+    # Task #88 — Pro tier gate.  Free callers can't even reach
+    # the audit-log surface; mirror the /at-risk endpoint's gate.
+    enforce_feature(user, "customer_outreach")
+
     try:
         from app.services import audit_service
         customer_ids = payload.get("customer_ids", [])
