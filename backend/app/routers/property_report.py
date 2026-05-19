@@ -26,26 +26,34 @@ from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.order_channel_config import OrderChannelConfig
 from app.models.sale import Sale
 from app.models.user import User
 from app.routers.auth import get_current_user
+from app.services.channel_defaults import channel_label_map
 
 router = APIRouter()
 log = logging.getLogger("bonbox.property_report")
 
 
-# Channel labels match Danish POS conventions (Aloha "Order Type" wording)
-CHANNEL_LABELS = {
-    "dine_in": "Restaurant",
-    "takeaway": "Take-Away Pickup",
-    "wolt": "Wolt",
-    "wolt_del": "Wolt Delivery",
-    "just_eat": "Just Eat",
-    "web": "Web Pre-Paid",
-    "phone": "Phone Order",
-    "catering": "Catering",
-    "other": "Other",
-}
+def _resolve_channel_labels(db: Session, user_id) -> dict[str, str]:
+    """Build the slug → label map for THIS user.
+
+    Reads the user's OrderChannelConfig rows and merges them on top of
+    SYSTEM_CHANNELS. Falls back to a SYSTEM_CHANNELS-only view if the
+    query fails so a momentary DB hiccup doesn't break label rendering.
+    """
+    try:
+        user_rows = (
+            db.query(OrderChannelConfig)
+            .filter(OrderChannelConfig.user_id == user_id)
+            .all()
+        )
+    except Exception as e:  # noqa: BLE001 — defensive; non-fatal
+        log.warning("property_report: channel-label query failed for user=%s: %s", user_id, e)
+        user_rows = []
+    return channel_label_map(user_rows)
+
 
 # Payment method labels — exactly match what's printed on the receipt
 TENDER_LABELS = {
@@ -58,9 +66,11 @@ TENDER_LABELS = {
     "cash": "Cash",
     "kontant": "Kontant",
     "wolt": "Wolt",
+    "uber_eats": "Uber Eats",
+    "foodora": "Foodora",
     "web_prepaid": "Web Close Order",
     "gift_card": "Gift Card",
-    "just_eat": "Just Eat",
+    "just_eat": "Just Eat (closed)",  # legacy DK channel
     "online": "Online",
     "card": "Card",
     "mixed": "Mixed",
@@ -161,6 +171,12 @@ def property_financial_report(
     by_channel: dict[str, dict] = {}
     by_tender: dict[str, dict] = {}
 
+    # Resolve user-customised channel labels. Falls through to
+    # SYSTEM_CHANNELS labels if the user hasn't added/overridden anything;
+    # falls through again to title-cased slug if a sale references a
+    # never-configured channel (e.g. legacy import).
+    channel_labels = _resolve_channel_labels(db, user.id)
+
     for s in rows:
         try:
             amt = float(s.amount or 0)
@@ -192,7 +208,7 @@ def property_financial_report(
             if ch not in by_channel:
                 by_channel[ch] = {
                     "channel": ch,
-                    "label": CHANNEL_LABELS.get(ch, ch.title()),
+                    "label": channel_labels.get(ch) or ch.replace("_", " ").title(),
                     "guests": 0,
                     "checks": 0,
                     "amount": 0.0,
@@ -236,11 +252,22 @@ def property_financial_report(
         vat_rate = 0.25  # safe DK fallback
     prices_incl_moms = bool(getattr(user, "prices_include_moms", True))
 
-    if vat_rate <= 0 or taxable_sales <= 0:
+    # Distinguish "0% rate" (genuine tax-free jurisdiction) from "no sales
+    # yet" — collapsing both into moms_mode="none" produced misleading copy
+    # like "rate is 0% in your jurisdiction" for 25% MOMS users who simply
+    # hadn't logged a sale on the chosen date.
+    if taxable_sales <= 0:
         tax_collected = 0.0
         all_sales_net = round(taxable_sales, 2)
         gross_sales = round(taxable_sales, 2)
-        moms_mode = "none"  # no VAT applied (rate=0 or no sales)
+        # Preserve the user's intent (incl/excl) so the empty state can hint
+        # at the right VAT mode once data arrives.
+        moms_mode = "no_sales"
+    elif vat_rate <= 0:
+        tax_collected = 0.0
+        all_sales_net = round(taxable_sales, 2)
+        gross_sales = round(taxable_sales, 2)
+        moms_mode = "none"  # truly 0% jurisdiction
     elif prices_incl_moms:
         # B2C (default): VAT extracted from gross
         # taxable_sales here is the gross amount the customer paid

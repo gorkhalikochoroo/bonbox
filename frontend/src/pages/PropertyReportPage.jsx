@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { useAuth } from "../hooks/useAuth";
+import { localIso } from "../utils/dateFormat";
 
 /**
  * Property Financial Report — the daily close every Danish chain restaurant
@@ -22,9 +23,9 @@ export default function PropertyReportPage() {
   const { user } = useAuth();
   const currency = user?.currency || "DKK";
 
-  // Default to TODAY in user's local time
-  const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
+  // Default to TODAY in user's local time — localIso (not toISOString)
+  // so a Danish owner closing at 01:14 CEST doesn't see yesterday.
+  const todayStr = localIso();
   const [reportDate, setReportDate] = useState(todayStr);
   const [cutoffHour, setCutoffHour] = useState(6); // Danish restaurant 6am-6am
   const [report, setReport] = useState(null);
@@ -170,10 +171,12 @@ export default function PropertyReportPage() {
       "",
     ];
     if (momsMode === "incl") {
+      // Danish revisor convention: show MOMS as positive owed amount, not
+      // as a negative extraction. Matches the property_report_pdf rewrite.
       lines.push(
         `${t("grossSalesInclMoms") || "Gross sales (incl. Moms)"}: ${fmt(totals.gross_sales || totals.taxable_sales)} ${currency}`,
-        `${t("momsExtracted") || `Moms extracted (${ratePct}%)`}: −${fmt(totals.tax_collected)} ${currency}`,
-        `${t("netSalesKept") || "Net sales (what you keep)"}: ${fmt(totals.all_sales_net)} ${currency}`,
+        `${t("netSalesKept") || "Net sales (excl. Moms)"}: ${fmt(totals.all_sales_net)} ${currency}`,
+        `${t("momsOwed") || `Moms ${ratePct}% (owed to SKAT)`}: ${fmt(totals.tax_collected)} ${currency}`,
       );
     } else if (momsMode === "excl") {
       lines.push(
@@ -191,17 +194,17 @@ export default function PropertyReportPage() {
     window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
-  // Channel-color palette — friendly + restaurant-y
-  const CHANNEL_COLOR = {
-    dine_in:  { bg: "bg-emerald-500", chip: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300", emoji: "🍽" },
-    takeaway: { bg: "bg-orange-500",  chip: "bg-orange-50 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300", emoji: "🥡" },
-    wolt:     { bg: "bg-cyan-500",    chip: "bg-cyan-50 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300", emoji: "🛵" },
-    just_eat: { bg: "bg-red-500",     chip: "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300", emoji: "🛵" },
-    web:      { bg: "bg-violet-500",  chip: "bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300", emoji: "💻" },
-    phone:    { bg: "bg-blue-500",    chip: "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300", emoji: "📞" },
-    catering: { bg: "bg-amber-500",   chip: "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300", emoji: "🎉" },
-    other:    { bg: "bg-gray-500",    chip: "bg-gray-50 text-gray-700 dark:bg-gray-700 dark:text-gray-300", emoji: "•" },
-  };
+  // Channel-color palette — DYNAMIC. Built from /order-channels at mount
+  // time so owner-customised colors + new aggregator channels (Foodpanda,
+  // Hungry.dk, etc.) render correctly without a frontend deploy.
+  //
+  // Fallback: if the /order-channels call fails we use FALLBACK_PALETTE
+  // (frozen snapshot of the SYSTEM_CHANNELS defaults), so the report
+  // still renders sensibly even with a backend outage.
+  //
+  // Tailwind v4 JIT note: every class string used here must appear
+  // literally in source — see CHANNEL_PALETTE_BY_COLOR below.
+  const CHANNEL_COLOR = useDynamicChannelPalette();
   const channelMaxAmount = Math.max(1, ...channels.map((c) => c.amount));
 
   return (
@@ -210,7 +213,7 @@ export default function PropertyReportPage() {
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
-            {t("dailyClose") || "Daily Close"}
+            {t("todaysFloor") || "Today's Floor"}
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
             {friendlyDate} · {cutoffHour === 6 ? (t("sixAmToSixAm") || "06:00 to 06:00 next day") : `${cutoffHour}:00 to ${cutoffHour}:00`}
@@ -453,6 +456,22 @@ export default function PropertyReportPage() {
                     </p>
                   </div>
                 )}
+                {momsMode === "no_sales" && (
+                  <div className="space-y-2.5">
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-sm text-gray-600 dark:text-gray-300">
+                        {t("totalSales") || "Total sales"}
+                      </span>
+                      <span className="text-base font-bold text-gray-900 dark:text-white">
+                        {fmt(totals.all_sales_net)} {currency}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-400">
+                      {t("noSalesForDateHint") ||
+                        "No sales recorded for this date — no Moms to report. Once sales arrive, Moms will calculate automatically."}
+                    </p>
+                  </div>
+                )}
                 {momsMode === "none" && (
                   <div className="space-y-2.5">
                     <div className="flex justify-between items-baseline">
@@ -465,7 +484,7 @@ export default function PropertyReportPage() {
                     </div>
                     <p className="text-[11px] text-gray-400">
                       {t("noVatHint") ||
-                        "No VAT applied — either rate is 0% in your jurisdiction or all sales were tax-exempt."}
+                        "No VAT applied — your jurisdiction has 0% rate, or all sales on this date were tax-exempt."}
                     </p>
                   </div>
                 )}
@@ -544,4 +563,92 @@ function Stat({ label, value, amount, currency }) {
       )}
     </div>
   );
+}
+
+
+/* ─── Dynamic channel palette ────────────────────────────────────────
+ *
+ * The channels list (and their colors / emojis) used to be hardcoded in
+ * this file. As of May 2026, owners can add/edit channels via
+ * /channel-settings — we fetch their catalogue at mount and build the
+ * palette from it.
+ *
+ * Tailwind v4 detail: every class string used here MUST appear literally
+ * somewhere in source files. The CHANNEL_PALETTE_BY_COLOR map below is
+ * how we keep this contract — server returns a fragment like "stone-900"
+ * and we look up the full triple of classnames we want to apply.
+ */
+
+const CHANNEL_PALETTE_BY_COLOR = {
+  "emerald-500": { bg: "bg-emerald-500", chip: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" },
+  "orange-500":  { bg: "bg-orange-500",  chip: "bg-orange-50 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300" },
+  "cyan-500":    { bg: "bg-cyan-500",    chip: "bg-cyan-50 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300" },
+  "stone-900":   { bg: "bg-stone-900",   chip: "bg-stone-100 text-stone-900 dark:bg-stone-800 dark:text-stone-100" },
+  "stone-400":   { bg: "bg-stone-400",   chip: "bg-stone-100 text-stone-600 dark:bg-stone-800/60 dark:text-stone-400" },
+  "pink-500":    { bg: "bg-pink-500",    chip: "bg-pink-50 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300" },
+  "blue-500":    { bg: "bg-blue-500",    chip: "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" },
+  "violet-500":  { bg: "bg-violet-500",  chip: "bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300" },
+  "amber-500":   { bg: "bg-amber-500",   chip: "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" },
+  "rose-500":    { bg: "bg-rose-500",    chip: "bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300" },
+  "teal-500":    { bg: "bg-teal-500",    chip: "bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300" },
+  "indigo-500":  { bg: "bg-indigo-500",  chip: "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300" },
+  "lime-500":    { bg: "bg-lime-500",    chip: "bg-lime-50 text-lime-700 dark:bg-lime-900/30 dark:text-lime-300" },
+  "slate-500":   { bg: "bg-slate-500",   chip: "bg-slate-50 text-slate-700 dark:bg-slate-900/30 dark:text-slate-300" },
+  "gray-500":    { bg: "bg-gray-500",    chip: "bg-gray-50 text-gray-700 dark:bg-gray-700 dark:text-gray-300" },
+};
+
+function paletteFor(color) {
+  return CHANNEL_PALETTE_BY_COLOR[color] || CHANNEL_PALETTE_BY_COLOR["gray-500"];
+}
+
+// Frozen fallback used when /order-channels can't be fetched. Matches the
+// backend services/channel_defaults.SYSTEM_CHANNELS dataset so the visual
+// output is the same as before this refactor.
+const FALLBACK_PALETTE = {
+  dine_in:   { ...paletteFor("emerald-500"), emoji: "🍽" },
+  takeaway:  { ...paletteFor("orange-500"),  emoji: "🥡" },
+  wolt:      { ...paletteFor("cyan-500"),    emoji: "🛵" },
+  uber_eats: { ...paletteFor("stone-900"),   emoji: "🛵" },
+  foodora:   { ...paletteFor("pink-500"),    emoji: "🛵" },
+  just_eat:  { ...paletteFor("stone-400"),   emoji: "🛵" },
+  web:       { ...paletteFor("violet-500"),  emoji: "💻" },
+  phone:     { ...paletteFor("blue-500"),    emoji: "📞" },
+  catering:  { ...paletteFor("amber-500"),   emoji: "🎉" },
+  other:     { ...paletteFor("gray-500"),    emoji: "•" },
+};
+
+function useDynamicChannelPalette() {
+  const [palette, setPalette] = useState(FALLBACK_PALETTE);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get("/order-channels")
+      .then((res) => {
+        if (cancelled) return;
+        const rows = Array.isArray(res.data) ? res.data : [];
+        if (rows.length === 0) {
+          setPalette(FALLBACK_PALETTE);
+          return;
+        }
+        const next = { ...FALLBACK_PALETTE };
+        for (const r of rows) {
+          if (!r?.slug) continue;
+          const p = paletteFor(r.color);
+          next[r.slug] = {
+            ...p,
+            emoji: r.emoji || FALLBACK_PALETTE[r.slug]?.emoji || "•",
+          };
+        }
+        next.other = next.other || paletteFor("gray-500");
+        setPalette(next);
+      })
+      .catch(() => {
+        // Backend down or user unauthenticated — fallback is fine
+        if (!cancelled) setPalette(FALLBACK_PALETTE);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return palette;
 }

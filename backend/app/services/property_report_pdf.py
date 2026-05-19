@@ -90,6 +90,24 @@ def build_property_report_pdf(
     currency = report.get("currency") or "DKK"
     report_date = report.get("report_date") or ""
 
+    # Localize the title — matches the language we use for the date below.
+    # Currency=DKK is the strongest signal we're in Denmark; pick "DAGSRAPPORT".
+    # Currency=EUR_X / NOK / GBP etc. → keep English "DAILY REPORT".
+    # Mixing "DAILY REPORT" + "Torsdag, 7. maj 2026" reads as half-translated.
+    is_danish = (currency or "").upper() == "DKK"
+    title_text = "DAGSRAPPORT" if is_danish else "DAILY REPORT"
+
+    # Bilagsnummer — Bogføringsloven §5 expects a unique voucher number on
+    # every accounting record. Format: DR-YYYYMMDD (one report per date).
+    # Operational reports don't strictly require it (kasserapport_pdf already
+    # has one) but accountants drop the file straight into their system,
+    # so a stable reference number prevents "which report was that?" later.
+    try:
+        _d_for_bilag = datetime.strptime(report_date, "%Y-%m-%d").date() if isinstance(report_date, str) else report_date
+        bilagsnummer = f"DR-{_d_for_bilag.strftime('%Y%m%d')}"
+    except Exception:  # noqa: BLE001
+        bilagsnummer = None
+
     # Copenhagen-clean palette (matches kasserapport_pdf.py)
     INK = colors.HexColor("#171717")
     MUTED = colors.HexColor("#6b7280")
@@ -126,9 +144,15 @@ def build_property_report_pdf(
 
     story = []
 
-    # ─── Header: title + date ─────────────────────────────────────
+    # ─── Header: title + date + bilagsnummer ──────────────────────
+    # Right column stacks date + bilagsnummer so the accountant has both
+    # the human-readable Danish date AND a stable reference id at the top.
+    date_block_parts = [_format_dk_date(report_date)]
+    if bilagsnummer:
+        date_block_parts.append(f"<font size='8'>Bilagsnr {bilagsnummer}</font>")
+    date_block = "<br/>".join(date_block_parts)
     head_table = Table(
-        [[Paragraph("DAILY REPORT", h1), Paragraph(_format_dk_date(report_date), sub)]],
+        [[Paragraph(title_text, h1), Paragraph(date_block, sub)]],
         colWidths=[100 * mm, 66 * mm],
     )
     head_table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
@@ -184,7 +208,11 @@ def build_property_report_pdf(
         for ch in channels:
             label = ch.get("label") or ch.get("channel") or "Channel"
             amount = ch.get("amount") or 0
-            count = ch.get("count") or 0
+            # property_report.py emits 'checks' (per-receipt count) — keep
+            # 'count' as a fallback for any external caller that pre-aggregates
+            # differently. Bug pre-fix: only read 'count' → always rendered "0 orders"
+            # even when checks > 0, making PDF misleading vs the UI.
+            count = ch.get("checks") or ch.get("count") or 0
             rows.append([
                 Paragraph(label, val),
                 Paragraph(f"{count} orders", ParagraphStyle("ct", parent=val, textColor=MUTED)),
@@ -233,16 +261,20 @@ def build_property_report_pdf(
     if moms_mode != "none":
         story.append(Paragraph(f"TAX BREAKDOWN (MOMS {rate_pct}%)", section_title))
         if moms_mode == "incl":
-            # B2C — extract Moms from gross
+            # B2C — extract Moms from gross. Danish revisor convention: show
+            # Moms as a POSITIVE column (it's the amount owed to SKAT), not as
+            # a negative "extraction" from gross. Showing "−7.112,20 DKK" in
+            # red reads as a loss to the owner and confuses accountants who
+            # expect MOMS on the credit side of the ledger.
             tax_rows = [
                 [Paragraph("Gross sales (incl. Moms)", val),
                  Paragraph(_money(gross, currency), val_r)],
-                [Paragraph(f"Moms extracted ({rate_pct}%)", val),
-                 Paragraph(f"−{_money(moms, currency)}",
-                           ParagraphStyle("neg", parent=val_r, textColor=DANGER))],
-                [Paragraph("Net sales (what you keep)", val_b),
-                 Paragraph(_money(net, currency),
-                           ParagraphStyle("ok", parent=val_br, textColor=OK))],
+                [Paragraph("Net sales (excl. Moms)", val),
+                 Paragraph(_money(net, currency), val_r)],
+                [Paragraph(f"Moms 25% (owed to SKAT)", val_b),
+                 Paragraph(_money(moms, currency),
+                           ParagraphStyle("moms", parent=val_br,
+                                          textColor=colors.HexColor("#4338ca")))],
             ]
         else:  # excl — B2B
             tax_rows = [
