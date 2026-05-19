@@ -718,6 +718,206 @@ export default function StaffSchedulePage() {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   AUTOPILOT REVIEW PANEL (Task #50 — Pro killer feature)
+
+   Renders the AutopilotSuggestion the backend returned:
+     • Header: week + predicted revenue, suggested cost, savings vs last week
+     • Per-day card: weather chip, predicted revenue, suggested shifts table
+     • Compliance warnings as amber chips
+     • Apply (materializes draft Schedule rows) / Discard
+   ═══════════════════════════════════════════════════════════ */
+function weatherChip(weather) {
+  if (!weather) return "";
+  const t = weather.temp_c;
+  const p = weather.precipitation_mm;
+  let icon = "🌤️";
+  if (weather.summary === "rainy") icon = "🌧️";
+  else if (weather.summary === "sunny") icon = "☀️";
+  else if (weather.summary === "cold") icon = "❄️";
+  else if (weather.summary === "cloudy") icon = "☁️";
+  const parts = [icon];
+  if (t !== null && t !== undefined) parts.push(`${Math.round(t)}°C`);
+  if (p && p >= 0.5) parts.push(`${p.toFixed(1)}mm`);
+  return parts.join(" ");
+}
+
+function formatDayShort(iso) {
+  const d = new Date(iso + "T00:00:00");
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  return `${days[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}`;
+}
+
+function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t }) {
+  const totalRevenue = suggestion.days.reduce(
+    (sum, d) => sum + (d.predicted_revenue || 0),
+    0
+  );
+  const compared = suggestion.compared_to_last_week || {};
+  return (
+    <div className="bg-gradient-to-br from-violet-50/60 to-emerald-50/60 dark:from-violet-900/10 dark:to-emerald-900/10 border border-violet-200 dark:border-violet-800 rounded-2xl p-5 sm:p-6 space-y-4">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold tracking-wider uppercase text-violet-700 dark:text-violet-400">
+            ✨ {t("autopilotHeading", "Autopilot Suggestion")} ·{" "}
+            {suggestion.confidence === "high"
+              ? t("autopilotConfidenceHigh", "High confidence")
+              : suggestion.confidence === "medium"
+              ? t("autopilotConfidenceMedium", "Medium confidence")
+              : t("autopilotConfidenceLow", "Low confidence — limited data")}
+          </p>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mt-0.5">
+            {t("autopilotWeekOf", "Week of")} {formatDayShort(suggestion.week_start)}
+          </h3>
+          <div className="text-xs text-gray-600 dark:text-gray-400 mt-1.5 space-x-3">
+            <span>
+              {t("autopilotPredicted", "Predicted")}:{" "}
+              <strong className="text-gray-900 dark:text-white">
+                {totalRevenue.toLocaleString()} {currency}
+              </strong>
+            </span>
+            <span>
+              {t("autopilotLabor", "Suggested labor")}:{" "}
+              <strong className="text-gray-900 dark:text-white">
+                {Math.round(suggestion.week_total_cost).toLocaleString()} {currency}
+              </strong>{" "}
+              <span className="text-gray-500">
+                · {suggestion.week_total_hours.toFixed(1)}h
+              </span>
+            </span>
+            {compared.savings_label && (
+              <span
+                className={
+                  compared.delta_pct < 0
+                    ? "text-emerald-700 dark:text-emerald-400 font-medium"
+                    : "text-amber-700 dark:text-amber-400"
+                }
+              >
+                {compared.savings_label}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={onDiscard}
+            disabled={applying}
+            className="px-3 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition disabled:opacity-50"
+          >
+            {t("autopilotDiscard", "Discard")}
+          </button>
+          <button
+            type="button"
+            onClick={onApply}
+            disabled={applying}
+            className="px-4 py-2 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition disabled:opacity-50"
+          >
+            {applying
+              ? t("autopilotApplying", "Applying…")
+              : "✓ " + t("autopilotApply", "Apply schedule")}
+          </button>
+        </div>
+      </div>
+
+      {/* Compliance warnings */}
+      {suggestion.compliance_warnings && suggestion.compliance_warnings.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {suggestion.compliance_warnings.map((w, i) => (
+            <span
+              key={i}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs"
+            >
+              ⚠️ {w}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Per-day cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {suggestion.days.map((day) => (
+          <div
+            key={day.date}
+            className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 space-y-2"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-gray-900 dark:text-white">
+                  {day.weekday}
+                </div>
+                <div className="text-[11px] text-gray-500">
+                  {formatDayShort(day.date)}
+                </div>
+              </div>
+              <div className="text-xs text-gray-700 dark:text-gray-300 text-right whitespace-nowrap">
+                {weatherChip(day.weather)}
+              </div>
+            </div>
+            <div className="text-[11px] text-gray-500 dark:text-gray-400 space-y-0.5">
+              <div>
+                {t("autopilotRevenue", "Revenue")}:{" "}
+                <span className="text-gray-800 dark:text-gray-200 font-medium">
+                  {Math.round(day.predicted_revenue || 0).toLocaleString()} {currency}
+                </span>
+              </div>
+              <div>
+                {t("autopilotDemand", "Demand")}:{" "}
+                <span className="text-gray-800 dark:text-gray-200 font-medium">
+                  {day.predicted_demand_hours.toFixed(1)}h
+                </span>
+              </div>
+            </div>
+            {day.shifts && day.shifts.length > 0 ? (
+              <ul className="space-y-1">
+                {day.shifts.map((s, i) => (
+                  <li
+                    key={i}
+                    className="flex items-center justify-between text-xs gap-2 bg-gray-50 dark:bg-gray-900/40 px-2 py-1.5 rounded-md"
+                  >
+                    <span className="truncate">
+                      <span className="font-medium text-gray-900 dark:text-gray-100">
+                        {s.staff_name}
+                      </span>
+                      <span className="text-gray-500 dark:text-gray-400">
+                        {" "}
+                        · {s.start}-{s.end}
+                      </span>
+                      {s.break_minutes > 0 && (
+                        <span className="text-gray-400">
+                          {" "}
+                          · {s.break_minutes}m brk
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-gray-600 dark:text-gray-400 shrink-0">
+                      {Math.round(s.cost)} {currency}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="text-[11px] italic text-gray-400 px-2 py-1.5">
+                {t("autopilotNoShifts", "No shifts proposed")}
+              </div>
+            )}
+            <div className="text-[11px] font-medium text-gray-700 dark:text-gray-300 border-t border-gray-100 dark:border-gray-700 pt-1.5">
+              {t("autopilotTotal", "Total")}:{" "}
+              {Math.round(day.total_cost).toLocaleString()} {currency}
+              <span className="text-gray-400 font-normal">
+                {" "}
+                · {day.total_hours.toFixed(1)}h
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+/* ═══════════════════════════════════════════════════════════
    STAFF MANAGEMENT PANEL
    ═══════════════════════════════════════════════════════════ */
 function StaffPanel({ staff, currency, onRefresh, branchId }) {

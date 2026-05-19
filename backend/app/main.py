@@ -46,6 +46,10 @@ from app.routers import payment_suggestions as payment_suggestions_router
 from app.routers import recurring_expenses as recurring_expenses_router
 # Task #49 — accountant read-only login (many-to-many revisor grants)
 from app.routers import accountants as accountants_router
+# Task #61 — magic-link passwordless login. Separate router so the
+# enumeration-safe + rate-limited request/verify endpoints aren't
+# tangled with the password-based /login + /register surface in auth.py.
+from app.routers import auth_magic_link as auth_magic_link_router
 from app.database import engine, Base, get_db
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -947,6 +951,37 @@ _migrations = [
     # with NULL (column default) and are walked through the flow.
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed_at TIMESTAMP",
     "UPDATE users SET onboarding_completed_at = NOW() WHERE onboarding_completed_at IS NULL AND created_at < NOW() - INTERVAL '1 day'",
+
+    # ── Migration 043: magic_link_tokens (Task #61) ──────────────────────
+    # Single-use, sha256-hashed sign-in tokens for passwordless login.
+    # user_id is NULLABLE on purpose: the request flow stamps the row
+    # BEFORE we know whether the email maps to a real user, so the
+    # response shape stays identical for unknown/known emails (the
+    # whole enumeration-safe contract hinges on this). On verify we
+    # resolve-or-create the user and back-patch user_id.
+    #
+    # VARCHAR(36) matches the GUID() pattern (same lesson learned in
+    # earlier migrations — native UUID silently breaks FK joins inside
+    # SAVEPOINT wrappers). token_hash is sha256 hex (64 chars) and
+    # UNIQUE to enable single-row verify lookups + prevent dupe inserts.
+    #
+    # Indexes:
+    #   • (email, created_at)  — rate-limit lookup (3 unused / 10 min)
+    #   • (token_hash)         — UNIQUE column already serves verify
+    """CREATE TABLE IF NOT EXISTS magic_link_tokens (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) REFERENCES users(id),
+        email VARCHAR(255) NOT NULL,
+        token_hash VARCHAR(64) NOT NULL UNIQUE,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP NOT NULL,
+        used_at TIMESTAMP,
+        request_ip VARCHAR(45),
+        used_ip VARCHAR(45)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_magic_link_email_created ON magic_link_tokens (email, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_magic_link_token_hash ON magic_link_tokens (token_hash)",
+    "CREATE INDEX IF NOT EXISTS ix_magic_link_user_id ON magic_link_tokens (user_id)",
 ]
 
 
@@ -1638,6 +1673,12 @@ _CSRF_EXEMPT_PATHS = frozenset({
     "/api/auth/google",
     "/api/auth/forgot-password",
     "/api/auth/reset-password",
+    # Task #61 — magic-link is a public, unauthenticated auth flow. Both
+    # endpoints have their own multi-layer rate limit (IP + email) and
+    # the token itself is single-use + sha256-hashed + 15-min TTL — CSRF
+    # is the wrong layer of defence here, just like /login + /register.
+    "/api/auth/magic-link/request",
+    "/api/auth/magic-link/verify",
     # Stripe webhook is signed; CSRF would just block legitimate Stripe POSTs.
     # The handler verifies Stripe-Signature inside, no cookie is involved.
     "/api/billing/stripe/webhook",
@@ -2002,6 +2043,16 @@ app.include_router(
     accountants_router.router,
     prefix="/api/accountants",
     tags=["Accountants"],
+)
+# Task #61 — magic-link passwordless login. Mounted under /api/auth so
+# the endpoints land at /api/auth/magic-link/request and
+# /api/auth/magic-link/verify. Both are PUBLIC (no auth required — they
+# ARE the auth). Enumeration-safe response shape + multi-layer rate
+# limiting; see the router docstring for the full defence stack.
+app.include_router(
+    auth_magic_link_router.router,
+    prefix="/api/auth",
+    tags=["Auth"],
 )
 
 

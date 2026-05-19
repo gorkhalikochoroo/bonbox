@@ -5,7 +5,7 @@ as retention/branches. Wrap so a single bad row doesn't 503 the whole tab.
 """
 
 import logging
-from datetime import date, timedelta
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response

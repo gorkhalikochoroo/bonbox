@@ -128,6 +128,7 @@ function lazyRetry(importFn) {
 // bundle (LandingPage alone is heavy with marketing animations).
 const LandingPage = lazyRetry(() => import("./pages/LandingPage"));
 const LoginPage = lazyRetry(() => import("./pages/LoginPage"));
+const LoginMagicPage = lazyRetry(() => import("./pages/LoginMagicPage"));
 const RegisterPage = lazyRetry(() => import("./pages/RegisterPage"));
 const ContactPage = lazyRetry(() => import("./pages/ContactPage"));
 const TermsPage = lazyRetry(() => import("./pages/TermsPage"));
@@ -286,6 +287,10 @@ function AppRoutes() {
       <Routes>
         <Route path="/" element={<PublicOrDashboard />} />
         <Route path="/login" element={<LoginPage />} />
+        {/* Task #61 — magic-link landing. Token in ?token=… is the only
+            credential; the page POSTs to /auth/magic-link/verify on
+            mount and redirects to /dashboard on success. */}
+        <Route path="/login/magic" element={<LoginMagicPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/verify-email" element={<VerifyEmailRoute />} />

@@ -28,7 +28,7 @@ The PDF is side-effect free. Audit logging happens in the router.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from io import BytesIO
 from typing import Any
 
@@ -100,10 +100,21 @@ def _format_period_dk(start: date, end: date) -> str:
 
 
 def _format_period_en(start: date, end: date) -> str:
-    """Format a period range in English: 'Jan 1 – Jun 30, 2026'."""
+    """Format a period range in English: 'Jan 1 – Jun 30, 2026'.
+
+    Uses explicit integer formatting (start.day) rather than %-d because
+    %-d is POSIX-only — Windows strftime crashes on it. Same A4 layout
+    on every platform that runs the backend.
+    """
     if start.year == end.year:
-        return f"{start.strftime('%b %-d')} – {end.strftime('%b %-d, %Y')}"
-    return f"{start.strftime('%b %-d, %Y')} – {end.strftime('%b %-d, %Y')}"
+        return (
+            f"{start.strftime('%b')} {start.day} – "
+            f"{end.strftime('%b')} {end.day}, {end.year}"
+        )
+    return (
+        f"{start.strftime('%b')} {start.day}, {start.year} – "
+        f"{end.strftime('%b')} {end.day}, {end.year}"
+    )
 
 
 def _count_period_transactions(
