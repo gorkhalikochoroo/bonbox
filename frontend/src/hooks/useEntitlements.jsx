@@ -61,8 +61,12 @@ export function EntitlementsProvider({ children }) {
     // multiple simultaneous callers (e.g. <TrialChip> + <Layout>) share
     // the network round-trip.
     if (inflight.current) return inflight.current;
+    // Bootstrap probe — must NOT retry on 503 (Render cold-start).
+    // Same reasoning as the /auth/me bootstrap in useAuth.jsx: a 503
+    // here would block the landing page for ~26s while axios backs
+    // off.  Fail-closed to Free tier on any 5xx/network error.
     const p = api
-      .get("/billing/entitlements")
+      .get("/billing/entitlements", { _noRetry: true })
       .then((res) => {
         setData(res.data);
         setError(null);

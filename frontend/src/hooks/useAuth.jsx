@@ -48,8 +48,15 @@ export function AuthProvider({ children }) {
       setLoading(false);
       return;
     }
+    // Bootstrap auth probe — must NOT block the landing page when the
+    // backend is cold (Render free dyno spin-up).  Without `_noRetry`
+    // the axios retry interceptor would backoff for 26s on 503, leaving
+    // every first-of-day visitor staring at "Loading..." while the
+    // marketing copy stays hidden behind a spinner.  Treat 503 the
+    // same as 401: "we don't know who you are yet — show the landing
+    // and let the user act".
     api
-      .get("/auth/me")
+      .get("/auth/me", { _noRetry: true })
       .then((res) => {
         setUser(res.data);
         // One-time migration: once cookie auth is confirmed working on web,
@@ -59,8 +66,9 @@ export function AuthProvider({ children }) {
         }
       })
       .catch(() => {
-        // Token (if any) is invalid or session expired — wipe it so we
-        // don't keep retrying with stale credentials.
+        // 401 / 503 / network error — all mean "render the landing now".
+        // Stale localStorage token (if any) gets cleared so we don't
+        // keep retrying with bad credentials on the next route.
         try { localStorage.removeItem("token"); } catch {}
       })
       .finally(() => setLoading(false));

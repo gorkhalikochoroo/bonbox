@@ -122,6 +122,27 @@ def verify_google_token(id_token: str) -> dict:
         header = jwt.get_unverified_header(id_token)
     except Exception as exc:
         raise ValueError(f"Google token header malformed: {exc}") from exc
+
+    # Pre-flight audience peek (logs only — the real cryptographic
+    # verification happens at jwt.decode below).  The audience-mismatch
+    # case has been the #1 prod misconfig because env vars on Render
+    # (backend) and Vercel (frontend) live in two different places;
+    # surfacing the actual aud here makes the log line trivially
+    # diagnosable instead of "Google token claims invalid" with no detail.
+    try:
+        unverified = jwt.get_unverified_claims(id_token)
+        token_aud = unverified.get("aud")
+        if token_aud and token_aud != audience:
+            logger.error(
+                "oauth_google: AUDIENCE MISMATCH — token aud=%r but "
+                "settings.GOOGLE_CLIENT_ID=%r. The frontend's "
+                "VITE_GOOGLE_CLIENT_ID must match the backend's "
+                "GOOGLE_CLIENT_ID exactly. See docs/DEPLOYMENT.md §1.",
+                token_aud, audience,
+            )
+    except Exception:  # noqa: BLE001
+        # Don't let diagnostic logging short-circuit real validation.
+        pass
     alg = header.get("alg")
     kid = header.get("kid")
     if alg != "RS256":

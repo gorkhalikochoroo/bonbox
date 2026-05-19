@@ -475,7 +475,7 @@ export default function LandingPage() {
 
             <h1 className="text-[40px] sm:text-[52px] lg:text-[60px] leading-[1.04] tracking-tight font-semibold">
               {tx_("landingHeroLine1", "The AI manager for")}{" "}
-              <span className="text-emerald-600">{tx_("landingHeroLine2", "Danish café owners.")}</span>
+              <span className="text-emerald-600">{tx_("landingHeroLine2", "Danish small businesses.")}</span>
             </h1>
 
             <p className="mt-6 text-[17px] sm:text-[18px] text-stone-600 leading-relaxed max-w-[520px]">
@@ -711,7 +711,7 @@ export default function LandingPage() {
               },
               {
                 title: tx_("landingTrustDk", "Built in DK"),
-                body: tx_("landingTrustDkBody", "Made for Copenhagen cafés, by people who've sat with a revisor at month-end. MOMS, lønseddel, CVR-aware."),
+                body: tx_("landingTrustDkBody", "Made for Danish small businesses, by people who've sat with a revisor at month-end. MOMS, lønseddel, CVR-aware. Cafés, restaurants, retail, freelancers — all welcome."),
               },
             ].map((badge) => (
               <div key={badge.title} className="text-left">

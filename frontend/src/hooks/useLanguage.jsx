@@ -1529,9 +1529,9 @@ const translations = {
     // kasserapport copy was overriding the better fallbacks at the
     // call sites; updated so the visitor sees a coherent story.)
     landingSignIn: "Sign In", landingStartFree: "Get started — free",
-    landingBadge: "Built for Danish hospitality",
-    landingHeroLine1: "The AI manager for", landingHeroLine2: "Danish café owners.",
-    landingHeroSub: "Connect your bank. We tell you who to schedule. We file your MOMS. We tell you when your regulars are slipping. A 9am brief that actually helps. 129 DKK/mo founding rate.",
+    landingBadge: "Built for Danish small businesses",
+    landingHeroLine1: "The AI manager for", landingHeroLine2: "Danish small businesses.",
+    landingHeroSub: "Cafés, restaurants, bars, retail, freelancers, konsulenter. Connect your bank, we file your MOMS, we surface what needs attention. A 9am brief that actually helps. 129 DKK/mo founding rate.",
     landingCtaPrimary: "Get started — free", landingMobileApp: "Mobile App",
     landingCheck1: "Free 14-day trial", landingCheck2: "No card required", landingCheck3: "Cancel anytime",
     landingDemoCaption: "Interactive dashboard preview — click the tabs",
@@ -2447,7 +2447,7 @@ const translations = {
     onbTaxSaveFailed: "Couldn't save tax preferences. Try again.",
     // Step 4 — revisor
     onbStep4Title: "Share with your revisor",
-    onbStep4Subtitle: "Most Danish café owners share their books with a revisor. Invite them now — they'll get read-only access to your reports.",
+    onbStep4Subtitle: "Most Danish small businesses share their books with a revisor. Invite yours now — they'll get read-only access to your reports.",
     onbStep4EmailLabel: "Revisor's email",
     onbStep4NameLabel: "Revisor's name (optional)",
     onbStep4NamePlaceholder: "Anna Hansen",
@@ -3961,9 +3961,9 @@ const translations = {
     // Task #87 — landing keys aligned with the new "Danish café
     // owner" pitch.  Old multi-terminal kasserapport copy is gone.
     landingSignIn: "Log ind", landingStartFree: "Kom i gang — gratis",
-    landingBadge: "Bygget til dansk gastronomi",
-    landingHeroLine1: "Din AI-driftsleder til", landingHeroLine2: "danske cafeéjere.",
-    landingHeroSub: "Forbind din bank. Vi siger hvem du skal sætte på vagt. Vi indberetter din MOMS. Vi advarer når dine stamgæster forsvinder. Et morgenbrief kl. 9 der faktisk hjælper. 129 kr./md. som grundpris.",
+    landingBadge: "Bygget til danske små virksomheder",
+    landingHeroLine1: "Din AI-driftsleder til", landingHeroLine2: "danske små virksomheder.",
+    landingHeroSub: "Cafeer, restauranter, barer, butikker, freelancere, konsulenter. Forbind din bank. Vi indberetter din MOMS. Vi viser hvad der kræver opmærksomhed. Et morgenbrief kl. 9 der faktisk hjælper. 129 kr./md. som grundpris.",
     landingCtaPrimary: "Kom i gang — gratis", landingMobileApp: "Mobilapp",
     landingCheck1: "Gratis 14-dages prøveperiode", landingCheck2: "Ingen kreditkort", landingCheck3: "Opsig når som helst",
     landingDemoCaption: "Interaktiv dashboard-demo — klik på fanerne",

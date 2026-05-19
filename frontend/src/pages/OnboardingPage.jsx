@@ -774,7 +774,7 @@ export default function OnboardingPage() {
               </h2>
               <p className="text-sm text-stone-500 dark:text-stone-400 mt-1">
                 {t("onbStep4Subtitle") ||
-                  "Most Danish café owners share their books with a revisor. Invite them now — they'll get read-only access to your reports."}
+                  "Most Danish small businesses share their books with a revisor. Invite yours now — they'll get read-only access to your reports."}
               </p>
             </div>
 
