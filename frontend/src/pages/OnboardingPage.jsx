@@ -734,6 +734,16 @@ export default function OnboardingPage() {
                 {t("onbStep3AccountantHint") ||
                   "Used as the To: address when you tap 'Email kasserapport'. We never email anyone without your action."}
               </p>
+              {/* Task #89 P3-8 — disambiguation note: Step 3 asks for
+                  the "send-to" address used by the Email kasserapport
+                  button, Step 4 invites a revisor to log in directly.
+                  Same accountant 95% of the time, but two different
+                  channels — explicit copy here saves a support ticket
+                  ("Why does it ask for the same email twice?"). */}
+              <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-1.5 italic">
+                {t("onbStep3AccountantDisambig") ||
+                  "Different from the read-only revisor login in the next step — that one's for accountants who want to log in and see your books directly."}
+              </p>
             </div>
 
             {stepError && (

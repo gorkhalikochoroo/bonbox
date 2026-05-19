@@ -32,3 +32,9 @@ stripe>=11.0.0
 # Task #72 — Web Push (VAPID). pywebpush pulls py-vapid and http-ece
 # transitively, so we don't pin those here.
 pywebpush==2.0.1
+
+# Sentry SDK — error reporting on Render.  The init block in
+# app/main.py was previously dead code because this package wasn't
+# pinned (Task #91 deploy audit caught it).  The FastAPI integration
+# auto-captures unhandled exceptions per-request.
+sentry-sdk[fastapi]==2.18.0

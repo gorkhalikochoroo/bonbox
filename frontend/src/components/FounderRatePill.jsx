@@ -17,26 +17,14 @@
  * Defensive: fetch failures collapse to the invisible state.  The
  * landing page must never look broken because of a counter side-show.
  */
-import { useEffect, useState } from "react";
-import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import useFounderRateStatus from "../hooks/useFounderRateStatus";
 
 export default function FounderRatePill() {
   const { t } = useLanguage();
-  const [status, setStatus] = useState(null);
+  const { status, valid } = useFounderRateStatus();
 
-  useEffect(() => {
-    let alive = true;
-    api
-      .get("/public/founder-rate-status")
-      .then((r) => alive && setStatus(r?.data || null))
-      .catch(() => alive && setStatus(null));
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  if (!status || typeof status.claimed !== "number") return null;
+  if (!valid) return null;
 
   const { claimed, max_slots, available, locked } = status;
 

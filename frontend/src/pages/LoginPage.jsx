@@ -69,11 +69,14 @@ function HeroIllustration() {
 }
 
 export default function LoginPage() {
-  // appleLogin stays in useAuth for the day @capacitor-community/apple-sign-in
-  // ships a Capacitor-8-compatible release. Right now it pins capacitor-swift-pm
-  // ^7 which conflicts with @capacitor/*@8.x — bricks the iOS build. The
-  // backend /auth/apple endpoint stays wired up; only the native button is
-  // hidden until the plugin catches up.
+  // Task #90 — Apple Sign-In on iOS native now goes through our in-project
+  // Capacitor plugin (ios/App/App/AppleSignInPlugin.swift), which wraps the
+  // system AuthenticationServices framework. We rolled our own instead of
+  // pulling @capacitor-community/apple-sign-in because that plugin still
+  // pins capacitor-swift-pm ^7 (incompatible with our @capacitor/*@8.x).
+  // The native flow returns an identityToken in the SAME shape as Apple's
+  // web JS SDK, so it hits POST /api/auth/oauth/apple unchanged — no
+  // backend changes needed.
   const { login, googleLogin, googleOauthLogin, appleOauthLogin, needsEmailVerification } = useAuth();
   const { lang, setLang, LANGUAGES, t } = useLanguage();
   const navigate = useNavigate();
@@ -91,21 +94,27 @@ export default function LoginPage() {
   const [magicSent, setMagicSent] = useState(false);
   const [magicSending, setMagicSending] = useState(false);
   // Sign-in surface differs per platform:
-  //   • Web: Google (via @react-oauth/google JS SDK)
-  //   • iOS: Apple via Capacitor SIWA plugin (covers Apple 4.8 since
-  //     it's offered) — Google on iOS would need a SEPARATE native
-  //     Capacitor plugin since the web @react-oauth/google flow
-  //     doesn't work reliably inside the Capacitor WebView. v1.x
-  //     follow-up.
+  //   • Web: Google (via @react-oauth/google JS SDK) + Apple JS SDK
+  //   • iOS: Apple via our in-project Capacitor plugin (Task #90 —
+  //     ios/App/App/AppleSignInPlugin.swift), which covers Apple
+  //     guideline 4.8 by offering an OAuth provider on iOS. Google on
+  //     iOS would need a SEPARATE native Capacitor plugin since the
+  //     web @react-oauth/google flow doesn't work reliably inside the
+  //     Capacitor WebView. v1.x follow-up.
   const isNative = typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
   const hasGoogle = !!import.meta.env.VITE_GOOGLE_CLIENT_ID && !isNative;
-  // Apple-Sign-In on iOS is disabled until the @capacitor-community plugin
-  // ships a Capacitor-8-compatible release. See note above on the import.
-  const hasAppleNative = false; // was: isNative
+  // Task #90 — true on iOS native when our custom AppleSignInPlugin is
+  // registered. We feature-detect via window.Capacitor.Plugins.AppleSignIn
+  // so a stale TestFlight build that predates the plugin gracefully
+  // falls back to email/password instead of crashing on a missing bridge.
+  const hasAppleNative =
+    isNative &&
+    !!(typeof window !== "undefined" && window.Capacitor?.Plugins?.AppleSignIn?.signIn);
+  const [appleNativeBusy, setAppleNativeBusy] = useState(false);
   // Web Apple Sign-In (Task #65) — Apple Service ID (e.g. dk.bonbox.web).
   // Hidden inside Capacitor's WebView for the same reason as Google: the
   // popup-based flow doesn't pair well with WKWebView. Native iOS uses
-  // the Capacitor plugin path (currently disabled, see above).
+  // the Capacitor plugin path (hasAppleNative above).
   const APPLE_CLIENT_ID_WEB = import.meta.env.VITE_APPLE_CLIENT_ID || "";
   const hasAppleWeb = !!APPLE_CLIENT_ID_WEB && !isNative;
 
@@ -156,6 +165,62 @@ export default function LoginPage() {
       setError(msg);
     } finally {
       setLoading(false);
+    }
+  };
+
+  /**
+   * Task #90 — Native iOS Apple Sign-In. Calls our custom Capacitor plugin
+   * (AppleSignInPlugin.swift) which presents the system SIWA sheet and
+   * returns { identityToken, nonce, givenName?, familyName?, email? }.
+   * The identityToken goes to the SAME /auth/oauth/apple endpoint as the
+   * web SDK; the backend doesn't know or care which surface produced it.
+   */
+  const handleAppleNativeSignIn = async () => {
+    if (appleNativeBusy) return;
+    setError("");
+    setAppleNativeBusy(true);
+    try {
+      const plugin = window.Capacitor?.Plugins?.AppleSignIn;
+      if (!plugin?.signIn) {
+        // Defensive — hasAppleNative should already guard this branch.
+        setError(t("appleSigninFailed") || "Apple sign-in failed");
+        return;
+      }
+      const res = await plugin.signIn();
+      const idToken = res?.identityToken;
+      if (!idToken) {
+        setError(t("appleSigninFailed") || "Apple sign-in failed");
+        return;
+      }
+      // Apple sends fullName only on FIRST sign-in — flatten to a single
+      // string for the backend's business_name first-touch logic.
+      const name =
+        [res.givenName, res.familyName].filter(Boolean).join(" ").trim() || null;
+      const data = await appleOauthLogin(idToken, name);
+      if (
+        data.user &&
+        !data.user.email_verified &&
+        data.user.created_at &&
+        new Date(data.user.created_at) >= new Date("2026-04-13T00:00:00")
+      ) {
+        navigate("/verify-email");
+      } else {
+        navigate("/dashboard");
+      }
+    } catch (err) {
+      // The plugin rejects user-cancellation with code "user_cancelled" —
+      // swallow silently (parity with the web button's popup_closed_by_user).
+      const code = err?.code || err?.errorMessage || "";
+      if (code === "user_cancelled" || String(err?.message || "").includes("user_cancelled")) {
+        return;
+      }
+      setError(
+        err?.response?.data?.detail ||
+        t("appleSigninFailed") ||
+        "Apple sign-in failed"
+      );
+    } finally {
+      setAppleNativeBusy(false);
     }
   };
 
@@ -279,8 +344,32 @@ export default function LoginPage() {
                 Both buttons render only when their respective client
                 IDs are configured AND we're not inside Capacitor's
                 WebView (which has its own native sign-in surface). */}
-            {!magicMode && (hasAppleWeb || hasGoogle) && (
+            {!magicMode && (hasAppleWeb || hasAppleNative || hasGoogle) && (
               <div className="mt-7 space-y-2.5">
+                {hasAppleNative && (
+                  // Task #90 — native iOS SIWA button. Visual parity with
+                  // AppleSignInButton (web): black bg, Apple glyph, 44px tap
+                  // target. On tap we call our Capacitor plugin which
+                  // presents the system sheet.
+                  <button
+                    type="button"
+                    onClick={handleAppleNativeSignIn}
+                    disabled={appleNativeBusy}
+                    aria-label={t("signInWithApple") || "Sign in with Apple"}
+                    className="w-full flex items-center justify-center gap-2 bg-black text-white rounded-lg
+                      h-[44px] px-4 text-[15px] font-medium hover:bg-gray-900 transition
+                      disabled:opacity-60 disabled:cursor-not-allowed
+                      focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black"
+                  >
+                    <svg width="16" height="18" viewBox="0 0 16 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                      <path
+                        d="M13.2 13.7c-.3.7-.7 1.4-1.2 2-.7.9-1.5 1.5-2.4 1.5-.4 0-.9-.1-1.5-.4-.6-.3-1.1-.4-1.6-.4-.5 0-1 .1-1.7.4-.6.2-1.1.4-1.5.4-.9 0-1.7-.7-2.5-1.6C.4 14.1 0 12.4 0 10.5c0-1.7.4-3.1 1.3-4.2.7-.9 1.6-1.4 2.7-1.4.4 0 1 .1 1.7.4.7.3 1.2.4 1.4.4.2 0 .7-.1 1.6-.4.8-.3 1.5-.4 2.1-.3 1.5.1 2.7.7 3.4 1.8-1.3.8-2 1.9-2 3.3 0 1.1.4 2 1.2 2.7.4.3.7.6 1.2.7-.1.3-.2.6-.3 1zM11.5 0c.1.7-.2 1.5-.7 2.2-.6.8-1.4 1.3-2.3 1.2-.1-.7.2-1.5.7-2.1.3-.4.7-.7 1.1-.9.4-.2.9-.3 1.2-.4z"
+                        fill="currentColor"
+                      />
+                    </svg>
+                    <span>{appleNativeBusy ? "…" : (t("signInWithApple") || "Sign in with Apple")}</span>
+                  </button>
+                )}
                 {hasAppleWeb && (
                   <AppleSignInButton
                     clientId={APPLE_CLIENT_ID_WEB}
@@ -482,15 +571,12 @@ export default function LoginPage() {
               </form>
             )}
 
-            {/* Sign in with Apple — temporarily removed.
-                @capacitor-community/apple-sign-in@7.1.0 (latest) pins
-                capacitor-swift-pm ^7.0.0, which conflicts with the rest
-                of our @capacitor/*@8.x packages (capacitor-swift-pm ^8).
-                Until the community plugin ships a Cap-8 release, this
-                whole block stays hidden. The /auth/apple backend
-                endpoint is still live, and the appleLogin() function
-                still exists in useAuth — flip hasAppleNative back to
-                isNative when the plugin catches up. */}
+            {/* Task #90 — native Apple Sign-In moved into the OAuth row
+                above (rendered conditionally on hasAppleNative). We
+                replaced the @capacitor-community/apple-sign-in plugin
+                (which pinned capacitor-swift-pm ^7) with a thin in-project
+                Swift wrapper around AuthenticationServices — see
+                ios/App/App/AppleSignInPlugin.swift. */}
 
             {/* iOS-only hint for users who signed up via Google on web.
                 Even with Apple SIWA available, we still hide Google on

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
+import useFounderRateStatus from "../hooks/useFounderRateStatus";
 import api from "../services/api";
 import { safeExternalUrl } from "../utils/safeUrl";
 import { Button, Card } from "../components/ui";
@@ -36,11 +37,13 @@ const isNative =
  *   Pro:     249 kr/mo founding (regular 349)    — ~12 hrs/month saved
  */
 
-// Founding-member counter. Hard-coded for now — wire to a backend
-// `/api/billing/founding-stats` endpoint when you have it. Manoj's
-// principle: be honest. "62/100 pladser tilbage" beats "First 1,000".
+// Founding-member counter. Wired to the public, rate-limited
+// /api/public/founder-rate-status endpoint (Task #89 P2-2) — same
+// source the landing-page FounderRatePill uses, so the count on the
+// pricing page and the count on the marketing site can never drift.
+// FOUNDING_LIMIT is the visual fallback when the endpoint hasn't
+// loaded yet; the real `max_slots` arrives from the backend.
 const FOUNDING_LIMIT = 100;
-const FOUNDING_USED = 38; // bumped manually as customers lock in
 
 /**
  * Build the pricing tiers from the i18n dictionary so every visible string
@@ -194,6 +197,12 @@ export default function SubscriptionPage() {
   const [joined, setJoined] = useState(new Set());
   const [pending, setPending] = useState(null);
   const [msg, setMsg] = useState("");
+  // Founder-rate live status (Task #89 P2-2). Same endpoint the
+  // FounderRatePill uses on the landing page — factored into the
+  // shared useFounderRateStatus hook. `valid === false` means we
+  // haven't heard back yet OR the fetch failed; in either case we
+  // hide the "X spots left" chip instead of showing a stale count.
+  const { status: founderStatus, valid: founderStatusValid } = useFounderRateStatus();
 
   // Tiers re-build on every render so language changes pick up immediately.
   const TIERS = buildTiers(t);
@@ -338,7 +347,14 @@ export default function SubscriptionPage() {
   // True iff the user has a real Stripe subscription (post lock-in).
   const hasStripeSub = ["active", "trialing", "past_due"].includes(billing?.subscription_status);
 
-  const foundingRemaining = Math.max(FOUNDING_LIMIT - FOUNDING_USED, 0);
+  // Founder counts derived from the live endpoint (Task #89 P2-2).
+  // We only render the "X spots left" chip when we got a coherent
+  // response back — otherwise hiding the pill is better than lying
+  // about a number we don't actually have.
+  const foundingLimit = founderStatusValid ? founderStatus.max_slots : FOUNDING_LIMIT;
+  const foundingRemaining = founderStatusValid
+    ? Math.max(founderStatus.available, 0)
+    : null;
 
   return (
     <div className="px-4 sm:px-6 py-6 sm:py-10 pb-32 sm:pb-16 max-w-6xl mx-auto">
@@ -470,12 +486,19 @@ export default function SubscriptionPage() {
             ) ||
               "Pick the plan that matches how much manual work you want to skip. Every signup starts with 14 days of full Pro — no card, no surprises."}
           </p>
-          <div className="mt-5 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-stone-100 dark:bg-stone-800 text-[11px] font-medium text-stone-700 dark:text-stone-300">
-            {(t("pricingFoundingChipNew", "First {limit} customers — founding price locked for life · {remaining} spots left") ||
-              "First {limit} customers — founding price locked for life · {remaining} spots left")
-              .replace("{remaining}", foundingRemaining)
-              .replace("{limit}", FOUNDING_LIMIT)}
-          </div>
+          {/* Hide the chip entirely on fetch failure so we never
+              show a stale count. Defensive: if foundingRemaining
+              somehow comes back as 0 the chip still renders ("0 spots
+              left") which IS the truth and pairs nicely with the
+              sold-out state. */}
+          {foundingRemaining != null && (
+            <div className="mt-5 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-stone-100 dark:bg-stone-800 text-[11px] font-medium text-stone-700 dark:text-stone-300">
+              {(t("pricingFoundingChipNew", "First {limit} customers — founding price locked for life · {remaining} spots left") ||
+                "First {limit} customers — founding price locked for life · {remaining} spots left")
+                .replace("{remaining}", foundingRemaining)
+                .replace("{limit}", foundingLimit)}
+            </div>
+          )}
         </div>
       )}
 

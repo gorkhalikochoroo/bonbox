@@ -7,7 +7,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // Task #90 — register the in-project AppleSignIn plugin. Capacitor 8
+        // auto-registers @objc plugins compiled into linked frameworks, but
+        // plugins living inside the host app target (like ours) must be
+        // registered explicitly so Capacitor.Plugins.AppleSignIn becomes
+        // available to the JS bridge.
+        CAPBridge.registerPluginInstance(AppleSignInPlugin())
         return true
     }
 

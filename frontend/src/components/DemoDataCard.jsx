@@ -115,20 +115,24 @@ export default function DemoDataCard() {
     setHidden(true);
   };
 
+  // Task #89 P3-6 — unified palette with DemoActiveBanner (which is
+  // already amber). Violet read as "fun feature" and conflicted with
+  // the banner's "this is not real data" cue. Amber across both
+  // surfaces means owners get one mental model: amber = sample data.
   return (
     <div
-      className="bg-gradient-to-br from-violet-50 to-indigo-50
-                 dark:from-violet-900/15 dark:to-indigo-900/15
-                 rounded-2xl p-5 sm:p-6 border border-violet-200/60
-                 dark:border-violet-800/40 shadow-sm"
+      className="bg-gradient-to-br from-amber-50 to-amber-100/60
+                 dark:from-amber-900/15 dark:to-amber-900/20
+                 rounded-2xl p-5 sm:p-6 border border-amber-200/70
+                 dark:border-amber-800/40 shadow-sm"
       role="region"
       aria-label={t("demoCardAria", "Try BonBox with sample data")}
     >
       <div className="flex items-start gap-3">
-        <div className="shrink-0 p-2 rounded-xl bg-violet-100 dark:bg-violet-900/30">
+        <div className="shrink-0 p-2 rounded-xl bg-amber-100 dark:bg-amber-900/30">
           <Icon
             name="Sparkles"
-            className="w-5 h-5 text-violet-600 dark:text-violet-400"
+            className="w-5 h-5 text-amber-600 dark:text-amber-400"
           />
         </div>
         <div className="flex-1 min-w-0">
@@ -157,10 +161,10 @@ export default function DemoDataCard() {
               onClick={onSeed}
               disabled={loading}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-xl
-                         bg-violet-600 hover:bg-violet-700 active:bg-violet-800
+                         bg-amber-600 hover:bg-amber-700 active:bg-amber-800
                          disabled:opacity-60 disabled:cursor-wait
                          text-white text-sm font-medium shadow-sm
-                         focus:outline-none focus:ring-2 focus:ring-violet-500
+                         focus:outline-none focus:ring-2 focus:ring-amber-500
                          focus:ring-offset-2 dark:focus:ring-offset-gray-900"
             >
               {loading ? (
@@ -182,7 +186,7 @@ export default function DemoDataCard() {
               className="px-3 py-2 rounded-xl text-sm text-gray-600
                          dark:text-gray-300 hover:bg-white/60
                          dark:hover:bg-gray-800/60 focus:outline-none
-                         focus:ring-2 focus:ring-violet-500"
+                         focus:ring-2 focus:ring-amber-500"
             >
               {t("demoCardSkip", "No thanks")}
             </button>

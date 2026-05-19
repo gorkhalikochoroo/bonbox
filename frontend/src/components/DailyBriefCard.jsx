@@ -179,11 +179,68 @@ export default function DailyBriefCard() {
   // Forward via email — opens the user's mail client with the brief
   // pre-filled. Subject is "Today at BonBox — Tuesday 19 May 2026"
   // style. Body is plain text (no HTML — survives every mail client).
-  const onForward = () => {
+  //
+  // Task #89 P2-4: on native (Capacitor / iOS WebView) a bare
+  // `window.location.href = "mailto:..."` can leave the user on a
+  // blank screen if no mail app is registered to handle the scheme.
+  // Defensive fallback chain:
+  //   1. Native + @capacitor/share available → use the share sheet,
+  //      which lets the user pick Mail, Messages, or anything else
+  //      registered for plain text.
+  //   2. Otherwise: window.open(mailto, "_blank"). On browsers that
+  //      block the navigation we get a `null` return value and surface
+  //      a friendly toast instead of stranding the user.
+  //   3. Web fallthrough: classic window.location.href, unchanged
+  //      from the previous behaviour.
+  const onForward = async () => {
     const text = _buildShareText(brief);
     const subject = `Today at BonBox — ${brief?.date_label || ""}`.trim();
-    const url = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
-    window.location.href = url;
+    const mailtoUrl = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
+
+    const isNative =
+      typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
+
+    if (isNative) {
+      // Try the Capacitor Share plugin first if installed.
+      const sharePlugin = window.Capacitor?.Plugins?.Share;
+      if (sharePlugin?.share) {
+        try {
+          await sharePlugin.share({
+            title: subject || "Today at BonBox",
+            text,
+            dialogTitle: subject || "Share brief",
+          });
+          return;
+        } catch {
+          // User cancelled or share failed — fall through to the
+          // mailto path. Cancelling shouldn't show an error.
+        }
+      }
+      // No share plugin — try opening the mailto in a new context so
+      // a missing mail handler doesn't replace the dashboard with a
+      // blank WebView page.
+      try {
+        const win = window.open(mailtoUrl, "_blank");
+        if (!win) {
+          setShareToast("No mail app — long-press to copy instead.");
+          setTimeout(() => setShareToast(""), 3500);
+        }
+        return;
+      } catch {
+        setShareToast("Couldn't open email — long-press to copy.");
+        setTimeout(() => setShareToast(""), 3500);
+        return;
+      }
+    }
+
+    // Web path: keep the original navigation. Browsers that block
+    // mailto: still show the blocked-popup chip — same as today.
+    try {
+      window.location.href = mailtoUrl;
+    } catch {
+      setShareToast("Couldn't open email — long-press to copy.");
+      setTimeout(() => setShareToast(""), 3500);
+    }
   };
 
   if (hidden) return null;

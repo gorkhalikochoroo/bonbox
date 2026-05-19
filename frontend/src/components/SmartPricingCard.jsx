@@ -192,13 +192,21 @@ export default function SmartPricingCard({ comparison, currencyCode }) {
         <span>{t("smartPricingMax")} {fmt(max)}</span>
       </div>
 
+      {/* Polarity (Task #89 P2-1): for a small café owner, pricing
+          ABOVE the neighborhood median is at best neutral and at worst
+          a churn risk (the regulars walked past two cheaper places to
+          get here). Pricing BELOW the median is a margin opportunity
+          ("you can probably raise this 4 kr and nobody'll blink").
+          Hence: deviation_pct < 0 → emerald (good), > 0 → amber
+          (caution). Both tones are tuned to remain legible on the
+          dark-mode card background. */}
       {interpretation && (
         <p className={`text-sm font-medium mb-1 ${
           deviation_pct == null || deviation_pct === 0
             ? "text-gray-700 dark:text-gray-300"
             : deviation_pct < 0
-              ? "text-amber-600 dark:text-amber-400"
-              : "text-emerald-600 dark:text-emerald-400"
+              ? "text-emerald-600 dark:text-emerald-400"
+              : "text-amber-600 dark:text-amber-400"
         }`}>
           {interpretation}
         </p>

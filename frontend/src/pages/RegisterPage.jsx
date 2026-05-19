@@ -59,19 +59,66 @@ const selectCls = "w-full px-4 py-3 border border-gray-200 dark:border-gray-600 
 export default function RegisterPage() {
   const { register, googleLogin, googleOauthLogin, appleOauthLogin } = useAuth();
   // Sign-in surface differs per platform:
-  //   • Web: Google (via @react-oauth/google JS SDK)
-  //   • iOS: third-party login OFF until the Capacitor-community apple-sign-in
-  //     plugin ships a Cap-8-compatible release. The plugin currently pins
-  //     capacitor-swift-pm ^7 which conflicts with our @capacitor/*@8.x.
-  //     Apple guideline 4.8 doesn't apply when no third-party login is
-  //     offered, so this is safe for review. Email + password works on iOS.
+  //   • Web:    Google (via @react-oauth/google JS SDK) + Apple JS SDK
+  //   • iOS:    Apple via our in-project Capacitor plugin (Task #90 —
+  //             ios/App/App/AppleSignInPlugin.swift). Google on iOS still
+  //             needs a separate native Capacitor plugin since the web
+  //             @react-oauth/google flow doesn't work inside WKWebView;
+  //             that's a follow-up.
   const isNative = typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
   const hasGoogle = !!import.meta.env.VITE_GOOGLE_CLIENT_ID && !isNative;
-  const hasAppleNative = false; // was: isNative — see note above
+  // Feature-detect the native plugin so older TestFlight builds (which
+  // shipped without the bridge) gracefully fall back to email/password.
+  const hasAppleNative =
+    isNative &&
+    !!(typeof window !== "undefined" && window.Capacitor?.Plugins?.AppleSignIn?.signIn);
+  const [appleNativeBusy, setAppleNativeBusy] = useState(false);
   // Task #65 — web Apple Sign-Up via Apple's JS SDK. Hidden on native
-  // (Capacitor handles that path) and when no Service ID configured.
+  // (the Capacitor plugin handles that path) and when no Service ID
+  // is configured.
   const APPLE_CLIENT_ID_WEB = import.meta.env.VITE_APPLE_CLIENT_ID || "";
   const hasAppleWeb = !!APPLE_CLIENT_ID_WEB && !isNative;
+
+  /**
+   * Task #90 — Native iOS Apple Sign-Up. Same flow as the LoginPage handler
+   * (POST /auth/oauth/apple), but lands on /dashboard rather than checking
+   * the email-verified gate — Apple-verified emails skip our verify step.
+   */
+  const handleAppleNativeSignUp = async () => {
+    if (appleNativeBusy) return;
+    setError("");
+    setAppleNativeBusy(true);
+    try {
+      const plugin = window.Capacitor?.Plugins?.AppleSignIn;
+      if (!plugin?.signIn) {
+        setError(t("appleSignupFailed") || t("appleSigninFailed") || "Apple sign-up failed");
+        return;
+      }
+      const res = await plugin.signIn();
+      const idToken = res?.identityToken;
+      if (!idToken) {
+        setError(t("appleSignupFailed") || "Apple sign-up failed");
+        return;
+      }
+      const name =
+        [res.givenName, res.familyName].filter(Boolean).join(" ").trim() || null;
+      await appleOauthLogin(idToken, name);
+      navigate("/dashboard");
+    } catch (err) {
+      const code = err?.code || err?.errorMessage || "";
+      if (code === "user_cancelled" || String(err?.message || "").includes("user_cancelled")) {
+        return;
+      }
+      setError(
+        err?.response?.data?.detail ||
+        t("appleSignupFailed") ||
+        t("appleSigninFailed") ||
+        "Apple sign-up failed"
+      );
+    } finally {
+      setAppleNativeBusy(false);
+    }
+  };
 
   const googleWrap = useRef(null);
   const [googleWidth, setGoogleWidth] = useState(320);
@@ -341,8 +388,30 @@ export default function RegisterPage() {
                 Placed above the form so third-party sign-up is the
                 dominant choice (mirrors the LoginPage layout). Each
                 button no-ops cleanly when its env var is unset. */}
-            {(hasAppleWeb || hasGoogle) && (
+            {(hasAppleWeb || hasAppleNative || hasGoogle) && (
               <div className="mb-5 space-y-2.5">
+                {hasAppleNative && (
+                  // Task #90 — native iOS SIWA. Same visual treatment as
+                  // the web button so the OAuth row reads consistently.
+                  <button
+                    type="button"
+                    onClick={handleAppleNativeSignUp}
+                    disabled={appleNativeBusy}
+                    aria-label={t("signUpWithApple") || "Sign up with Apple"}
+                    className="w-full flex items-center justify-center gap-2 bg-black text-white rounded-lg
+                      h-[44px] px-4 text-[15px] font-medium hover:bg-gray-900 transition
+                      disabled:opacity-60 disabled:cursor-not-allowed
+                      focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black"
+                  >
+                    <svg width="16" height="18" viewBox="0 0 16 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                      <path
+                        d="M13.2 13.7c-.3.7-.7 1.4-1.2 2-.7.9-1.5 1.5-2.4 1.5-.4 0-.9-.1-1.5-.4-.6-.3-1.1-.4-1.6-.4-.5 0-1 .1-1.7.4-.6.2-1.1.4-1.5.4-.9 0-1.7-.7-2.5-1.6C.4 14.1 0 12.4 0 10.5c0-1.7.4-3.1 1.3-4.2.7-.9 1.6-1.4 2.7-1.4.4 0 1 .1 1.7.4.7.3 1.2.4 1.4.4.2 0 .7-.1 1.6-.4.8-.3 1.5-.4 2.1-.3 1.5.1 2.7.7 3.4 1.8-1.3.8-2 1.9-2 3.3 0 1.1.4 2 1.2 2.7.4.3.7.6 1.2.7-.1.3-.2.6-.3 1zM11.5 0c.1.7-.2 1.5-.7 2.2-.6.8-1.4 1.3-2.3 1.2-.1-.7.2-1.5.7-2.1.3-.4.7-.7 1.1-.9.4-.2.9-.3 1.2-.4z"
+                        fill="currentColor"
+                      />
+                    </svg>
+                    <span>{appleNativeBusy ? "…" : (t("signUpWithApple") || "Sign up with Apple")}</span>
+                  </button>
+                )}
                 {hasAppleWeb && (
                   <AppleSignInButton
                     clientId={APPLE_CLIENT_ID_WEB}

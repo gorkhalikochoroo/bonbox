@@ -36,6 +36,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 import FounderRatePill from "../components/FounderRatePill";
+import useFounderRateStatus from "../hooks/useFounderRateStatus";
 
 // tx(t, key, fallback) — wrapper around the i18n t() helper that
 // falls back to the supplied default when the key isn't present in
@@ -272,6 +273,13 @@ export default function LandingPage() {
   const { t, lang, setLang, LANGUAGES } = useLanguage();
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  // Founder-rate live count, surfaced under the "Founding rate · first
+  // 100 customers" stripe on each paid tier (Task #89 P3-9). Shared
+  // with the FounderRatePill in the hero so the page reads consistent
+  // ("29 / 100 seats taken" stripe pairs with "Founder rate · 29/100
+  // seats taken · 129 DKK locked forever" pill). On fetch failure the
+  // stripe falls back to the static "first 100 customers" copy.
+  const { status: founderStatus, valid: founderStatusValid } = useFounderRateStatus();
 
   // Bind the module-level tx() helper to this component's t() so call
   // sites can write `tx_("key", "fallback")` without threading t/
@@ -1282,7 +1290,20 @@ export default function LandingPage() {
               </div>
               {p.regularPrice && (
                 <p className="mt-1.5 text-[11px] font-medium uppercase tracking-wider text-emerald-700">
-                  {tx_("landingFoundingRate", "Founding rate · first 100 customers")}
+                  {/* Live count from /api/public/founder-rate-status
+                      (Task #89 P3-9) — replaces the static "first 100
+                      customers" line. We only echo the count when the
+                      backend gave us a coherent response AND the rate
+                      is still locked; if sold out we say so honestly,
+                      and on fetch failure we fall back to the original
+                      static copy so the layout never looks broken. */}
+                  {founderStatusValid
+                    ? founderStatus.locked
+                      ? tx_("landingFoundingRateLive",
+                          `Founding rate · ${founderStatus.claimed} / ${founderStatus.max_slots} seats taken`)
+                      : tx_("landingFoundingRateSoldOut",
+                          `Founding rate sold out · ${founderStatus.max_slots} cafés joined`)
+                    : tx_("landingFoundingRate", "Founding rate · first 100 customers")}
                 </p>
               )}
               <Link

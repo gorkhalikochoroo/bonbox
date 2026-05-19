@@ -381,6 +381,14 @@ export default function FakturaPage() {
       {showForm && (
         <CreateInvoiceModal
           customers={customers}
+          // Task #89 P2-3: the inline "+ New private customer" flow
+          // needs to inject the freshly-created Customer into the
+          // local list AND auto-select it. We pass an updater so the
+          // modal can reach back without a full /customers refetch
+          // (which would flash an old selection mid-create).
+          onCustomerCreated={(c) => {
+            setCustomers((prev) => [...prev, c]);
+          }}
           onClose={() => setShowForm(false)}
           onCreated={() => {
             setShowForm(false);
@@ -728,12 +736,28 @@ function InvoiceRow({ invoice, customer, onChanged, t }) {
 
 // ─── Create modal ──────────────────────────────────────────────────
 
-function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, t }) {
+function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustomerCreated, t }) {
   const [customerId, setCustomerId] = useState(customers[0]?.id || "");
   // localIso() respects the user's timezone — fixes the off-by-one where
   // a Danish owner at 01:14 CEST saw Issued=yesterday because toISOString
   // returns UTC. See utils/dateFormat.js for full rationale.
   const [issueDate, setIssueDate] = useState(localIso());
+  // Task #89 P2-3 — inline "+ New private customer" affordance. Opens
+  // a lightweight sub-form (name + email + DK address) right inside
+  // the invoice modal so an owner adding a private faktura
+  // (Privatperson, no CVR) doesn't have to leave the page and lose
+  // their half-typed lines. POSTs `is_company=false` and hands the
+  // new customer back to the parent so the select stays in sync.
+  const [showNewPrivate, setShowNewPrivate] = useState(false);
+  const [newCustomer, setNewCustomer] = useState({
+    name: "",
+    email: "",
+    address: "",
+    zipcode: "",
+    city: "",
+  });
+  const [creatingCustomer, setCreatingCustomer] = useState(false);
+  const [newCustomerError, setNewCustomerError] = useState("");
   // Optional leveringsdato — only rendered on the PDF when it differs
   // from issueDate (Momsbekendtgørelsen §57 stk. 1 nr. 6). Default to
   // empty so same-day work doesn't pollute the PDF with redundant info.
@@ -755,6 +779,60 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, t }) {
   ]);
 
   const removeLine = (i) => setLines((arr) => arr.filter((_, idx) => idx !== i));
+
+  // Task #89 P2-3 — create an `is_company=false` Customer from the
+  // inline sub-form, then auto-select it on the main form. Mirrors
+  // the validation shape used on CustomersPage (the dedicated full
+  // form): name is required, and at least one reach signal — here we
+  // require email since faktura sends need a destination address.
+  const createPrivateCustomer = async () => {
+    setNewCustomerError("");
+    const name = newCustomer.name.trim();
+    const email = newCustomer.email.trim().toLowerCase();
+    if (!name) {
+      setNewCustomerError(t("fakturaPrivateNameRequired") || "Name required");
+      return;
+    }
+    if (!email || !email.includes("@")) {
+      setNewCustomerError(t("fakturaPrivateEmailRequired") || "Valid email required");
+      return;
+    }
+    setCreatingCustomer(true);
+    try {
+      const payload = {
+        name,
+        email,
+        is_company: false,
+        country: "DK",
+        ...(newCustomer.address.trim() ? { address: newCustomer.address.trim() } : {}),
+        ...(newCustomer.zipcode.trim() ? { zipcode: newCustomer.zipcode.trim() } : {}),
+        ...(newCustomer.city.trim() ? { city: newCustomer.city.trim() } : {}),
+      };
+      const res = await api.post("/customers", payload);
+      const created = res?.data;
+      if (created?.id) {
+        // Hand the new customer back to the parent so the dropdown
+        // gets a fresh option and we can auto-select it below.
+        if (onCustomerCreated) onCustomerCreated(created);
+        setCustomerId(created.id);
+        // Collapse the sub-form + clear it so it's ready next time.
+        setShowNewPrivate(false);
+        setNewCustomer({ name: "", email: "", address: "", zipcode: "", city: "" });
+      } else {
+        setNewCustomerError(t("fakturaPrivateCreateFailed") || "Could not create customer. Try again.");
+      }
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      setNewCustomerError(
+        (typeof detail === "string" && detail) ||
+        detail?.message ||
+        t("fakturaPrivateCreateFailed") ||
+        "Could not create customer. Try again.",
+      );
+    } finally {
+      setCreatingCustomer(false);
+    }
+  };
 
   // Live totals
   const totals = lines.reduce(
@@ -845,6 +923,23 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, t }) {
                   </option>
                 ))}
               </select>
+              {/* Task #89 P2-3 — inline shortcut for Privatperson
+                  invoices. The Customer-creation surface lives on
+                  /customers (full form, CVR auto-lookup, etc.), but
+                  owners often realise mid-create that they're invoicing
+                  a private client (one-off, no CVR). Forcing them to
+                  bail to /customers + lose their lines is a real friction
+                  point — this inline form opens directly under the
+                  customer select. */}
+              {!showNewPrivate ? (
+                <button
+                  type="button"
+                  onClick={() => setShowNewPrivate(true)}
+                  className="mt-1.5 text-xs text-blue-600 hover:underline"
+                >
+                  + {t("fakturaAddPrivateCustomer") || "New private customer (Privatperson)"}
+                </button>
+              ) : null}
             </div>
             <div>
               <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
@@ -858,6 +953,119 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, t }) {
               />
             </div>
           </div>
+
+          {/* Task #89 P2-3 — inline new-private-customer sub-form.
+              Lightweight: name + email + DK address. Creates with
+              is_company=false so it shows up as Privatperson on the
+              faktura PDF (no CVR line, "Privat" label on the address
+              block). Owners can still go to /customers for the full
+              CVR + B2B form — this is the fast path. */}
+          {showNewPrivate && (
+            <div className="rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/40 dark:bg-blue-900/10 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-blue-900 dark:text-blue-200">
+                  {t("fakturaNewPrivateTitle") || "New private customer (Privatperson)"}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowNewPrivate(false);
+                    setNewCustomerError("");
+                  }}
+                  className="text-xs text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-200"
+                >
+                  {t("cancel") || "Cancel"}
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1 block">
+                    {t("name") || "Name"} *
+                  </label>
+                  <input
+                    type="text"
+                    value={newCustomer.name}
+                    onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })}
+                    autoComplete="off"
+                    placeholder="Anna Hansen"
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1 block">
+                    {t("email") || "Email"} *
+                  </label>
+                  <input
+                    type="email"
+                    value={newCustomer.email}
+                    onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })}
+                    autoComplete="off"
+                    placeholder="anna@example.dk"
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1 block">
+                  {t("address") || "Address"}
+                </label>
+                <input
+                  type="text"
+                  value={newCustomer.address}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, address: e.target.value })}
+                  autoComplete="off"
+                  placeholder="Vestergade 12, 2. tv"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm"
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1 block">
+                    {t("zipcode") || "Postal code"}
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={newCustomer.zipcode}
+                    onChange={(e) => setNewCustomer({ ...newCustomer, zipcode: e.target.value })}
+                    autoComplete="off"
+                    placeholder="2200"
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1 block">
+                    {t("city") || "City"}
+                  </label>
+                  <input
+                    type="text"
+                    value={newCustomer.city}
+                    onChange={(e) => setNewCustomer({ ...newCustomer, city: e.target.value })}
+                    autoComplete="off"
+                    placeholder="København N"
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm"
+                  />
+                </div>
+              </div>
+              {newCustomerError && (
+                <div className="bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 px-3 py-2 rounded-lg text-xs">
+                  {newCustomerError}
+                </div>
+              )}
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={createPrivateCustomer}
+                  disabled={creatingCustomer}
+                  className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {creatingCustomer
+                    ? (t("creating") || "Creating…")
+                    : (t("fakturaCreatePrivateCustomer") || "Create & select")}
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Leveringsdato — collapsible, only fill when work was
               delivered on a different day than the invoice date. Required

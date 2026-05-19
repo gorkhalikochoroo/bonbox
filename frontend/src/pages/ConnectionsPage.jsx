@@ -583,6 +583,20 @@ export default function ConnectionsPage() {
             <div className="flex-1 min-w-0">
               <div className="text-sm font-semibold text-stone-900 dark:text-stone-100 truncate">
                 {mpConnection?.merchant_name || t("mpDefaultMerchant") || "MobilePay Erhverv"}
+                {/* Task #89 P3-5 — sandbox badge parity with the bank
+                    rows above. The MobilePay backend client switches to
+                    the live Vipps endpoint only in production builds
+                    (MOBILEPAY_ENV defaults to "mock"); any non-prod
+                    Vite build is therefore inherently sandbox/mock.
+                    Using import.meta.env.MODE keeps this entirely
+                    frontend-side per the Task #89 "no backend touches"
+                    constraint, and mirrors the visual treatment of the
+                    Aiia bank sandbox pill (same colours, same shape). */}
+                {import.meta.env.MODE !== "production" && (
+                  <span className="ml-2 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+                    Sandbox
+                  </span>
+                )}
               </div>
               <div className="text-xs text-stone-500 dark:text-stone-400 truncate">
                 {(t("mpLastSynced") || "Last sync") + ": "}

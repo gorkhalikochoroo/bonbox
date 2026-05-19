@@ -779,6 +779,10 @@ const translations = {
     failedToAddTransaction: "Failed to add transaction", autoTag: "auto",
     // Khata page
     khataTitle: "Khata — Customer Ledger", khataSubtitle: "Track credit purchases and payments for your wholesale customers",
+    // Task #89 P3-7 — header CTA that opens CustomerOutreachModal
+    // pre-filled with at-risk regulars. Kept short so the button
+    // fits next to the page title on mobile.
+    khataReachOut: "Reach out to regulars",
     totalReceivable: "Total Receivable", customers: "Customers", topDebtors: "Top Debtors",
     noPendingBalances: "No pending balances", searchCustomers: "Search customers...",
     noCustomersYet: "No customers yet", selectCustomer: "Select a customer",
@@ -2435,6 +2439,10 @@ const translations = {
     onbStep3VatToggleHint: "On for B2C (cafés, retail). Off for B2B businesses that price net.",
     onbStep3AccountantLabel: "Accountant's email (optional)",
     onbStep3AccountantHint: "Used as the To: address when you tap 'Email kasserapport'. We never email anyone without your action.",
+    // Task #89 P3-8 — disambiguates Step 3 (send-to address) from
+    // Step 4 (revisor login invite). Same accountant most of the
+    // time, two different channels.
+    onbStep3AccountantDisambig: "Different from the read-only revisor login in the next step — that one's for accountants who want to log in and see your books directly.",
     onbAccountantEmailInvalid: "Enter a valid accountant email.",
     onbTaxSaveFailed: "Couldn't save tax preferences. Try again.",
     // Step 4 — revisor
@@ -3222,6 +3230,8 @@ const translations = {
     failedToAddTransaction: "Kunne ikke tilføje transaktion", autoTag: "auto",
     // Khata page
     khataTitle: "Khata — Kundekladde", khataSubtitle: "Hold styr på kreditkøb og betalinger for dine engros-kunder",
+    // Task #89 P3-7 — DA translation for the header CTA.
+    khataReachOut: "Skriv til faste gæster",
     totalReceivable: "Samlet tilgodehavende", customers: "Kunder", topDebtors: "Top skyldnere",
     noPendingBalances: "Ingen udestående beløb", searchCustomers: "Søg kunder...",
     noCustomersYet: "Ingen kunder endnu", selectCustomer: "Vælg en kunde",
@@ -4795,6 +4805,10 @@ const translations = {
     onbStep3VatToggleHint: "Til for B2C (cafeer, butikker). Fra for B2B-virksomheder, der priser eksklusive MOMS.",
     onbStep3AccountantLabel: "Revisors e-mail (valgfri)",
     onbStep3AccountantHint: "Bruges som modtager, når du trykker 'Send kasserapport'. Vi sender aldrig noget uden du beder om det.",
+    // Task #89 P3-8 — disambiguering: trin 3 er modtageradressen til
+    // kasserapport-mails, trin 4 inviterer en revisor til at logge ind
+    // direkte. Som regel samme revisor, men to forskellige kanaler.
+    onbStep3AccountantDisambig: "Ikke det samme som læseadgangen i næste trin — den er til revisorer, der selv vil logge ind og se dine bøger.",
     onbAccountantEmailInvalid: "Indtast en gyldig revisor-e-mail.",
     onbTaxSaveFailed: "Kunne ikke gemme skat-præferencer. Prøv igen.",
     onbStep4Title: "Del med din revisor",

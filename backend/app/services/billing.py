@@ -390,6 +390,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "daily_brief_email": True,
         "inventory_autopilot": True,
         "smart_pricing": True,
+        "customer_outreach": True,        # Pro killer — Task #69
     },
 }
 
