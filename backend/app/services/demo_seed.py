@@ -2,7 +2,7 @@
 
 Goal: a salesperson, investor, or curious owner who logs into
 demo@bonbox.dk sees a fully-populated, believable Danish restaurant
-("Mirabelle ApS, Vesterbro Copenhagen") instead of an empty app.
+("Mirabelle ApS, Vesterbro, København") instead of an empty app.
 
 What gets seeded:
   • BusinessProfile — fully verified (CVR + accountant + DAWA stamp)
@@ -251,7 +251,7 @@ def _seed_business_profile(db: Session, user: User, *, mark_demo: bool = False) 
         and existing.cvr_verified_at is not None
         and not (existing.cvr_verified_source or "").endswith(" · demo")
     ):
-        # Defence-in-depth: callers (seed_for_user) already gate on
+        # Defense-in-depth: callers (seed_for_user) already gate on
         # _count_non_demo_rows but if anyone bypasses that, this stops
         # the overwrite cold.  Real CVR-verified profile → don't touch.
         return
