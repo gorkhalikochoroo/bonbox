@@ -935,6 +935,18 @@ _migrations = [
     # NUMERIC(4,3) holds 0.000 - 9.999 with millipoint precision — plenty
     # for a fraction we clamp to 0.10 - 0.50.
     "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS target_labor_pct NUMERIC(4,3) NOT NULL DEFAULT 0.30",
+
+    # ── Migration 042: first-run onboarding wizard completion (Task #55) ──
+    # NULL = user has never finished the welcome wizard → AuthProvider
+    # auto-redirects them to /onboarding. Non-null timestamp = they've
+    # been through it once (or explicitly skipped) and we leave them on
+    # /dashboard. Users can re-trigger the wizard from Profile, which
+    # nulls this back out.
+    # Backfill: existing users get NOW() so they don't suddenly get
+    # forced through onboarding after this deploy. New signups land
+    # with NULL (column default) and are walked through the flow.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed_at TIMESTAMP",
+    "UPDATE users SET onboarding_completed_at = NOW() WHERE onboarding_completed_at IS NULL AND created_at < NOW() - INTERVAL '1 day'",
 ]
 
 
@@ -1151,6 +1163,8 @@ def _run_migrations():
                 "business_profiles", "target_labor_pct",
                 "NUMERIC(4,3) NOT NULL DEFAULT 0.30",
             )
+            # Migration 042 mirror — onboarding wizard completion (Task #55)
+            ok += _add("users", "onboarding_completed_at", "TIMESTAMP")
             # Migration 033 — Faktura Danish-compliance fields
             ok += _add("business_profiles", "bank_reg_number", "VARCHAR(8)")
             ok += _add("business_profiles", "bank_account_number", "VARCHAR(20)")
@@ -2105,6 +2119,7 @@ try:
     )
     from app.jobs.demo_refresh_job import refresh_demo_account
     from app.jobs.recurring_expenses_job import materialize_due_recurring_expenses
+    from app.jobs.daily_brief_email_job import send_daily_brief_emails
 
     _scheduler = BackgroundScheduler()
     _scheduler.add_job(
@@ -2164,10 +2179,23 @@ try:
         name="Materialize due recurring expenses",
         replace_existing=True,
     )
+    # Task #54 — Daily Brief email at 06:30 UTC ≈ 07:30 (CET winter) /
+    # 08:30 (CEST summer) Copenhagen. Same brief as the in-app card,
+    # delivered to inbox so BonBox arrives without the owner having to
+    # open the app. Per-user errors are isolated; one bad email never
+    # poisons the batch. Idempotent — last_brief_emailed_at stamps
+    # short-circuit any same-day re-send.
+    _scheduler.add_job(
+        send_daily_brief_emails,
+        trigger=CronTrigger(hour=6, minute=30),
+        id="daily_brief_email",
+        name="Daily Brief morning email",
+        replace_existing=True,
+    )
     _scheduler.start()
     print("Schedulers started: payment auto-sync (6h), nightly maintenance (02:30), "
           "kasserapport drift (03:00), demo refresh (03:15), kasserapport patterns (Sun 03:30), "
-          "recurring expenses (04:00)")
+          "recurring expenses (04:00), daily brief email (06:30)")
 
     # Scheduler shutdown migrated to the `lifespan` context manager
     # near the FastAPI() constructor. It checks globals() for the

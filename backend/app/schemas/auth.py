@@ -51,6 +51,11 @@ class UserResponse(BaseModel):
     tax_filing_frequency: str | None = None
     prices_include_moms: bool = True
     has_employees: bool = False
+    # First-run onboarding (Task #55). NULL = the user has never finished
+    # the welcome wizard → AuthProvider auto-redirects to /onboarding on
+    # the next dashboard load. Non-null timestamp = wizard done (or
+    # explicitly skipped); leave them on /dashboard.
+    onboarding_completed_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 

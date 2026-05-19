@@ -107,6 +107,14 @@ export default function FirstRunWizard() {
     if (typeof localStorage !== "undefined" && localStorage.getItem(STORAGE_KEY) === "1") {
       return;
     }
+    // Task #55: the full OnboardingPage stamps user.onboarding_completed_at
+    // on completion. Users who came through that flow already answered
+    // these (more comprehensive) questions, so the legacy wizard should
+    // stay silent — no point in popping a second modal that asks for hours
+    // the brand-new owner doesn't know yet anyway.
+    if (user.onboarding_completed_at) {
+      return;
+    }
     // Server check: does the owner already have an operating profile +
     // any sales? If yes, they're not first-run. Uses /dashboard/summary
     // which returns `sale_count` for the current month — close enough

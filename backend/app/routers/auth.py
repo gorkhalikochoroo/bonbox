@@ -1090,6 +1090,137 @@ def reset_password(request: Request, data: ResetPasswordRequest, db: Session = D
     return {"message": "Password reset successfully. You can now log in."}
 
 
+# ============================================================
+# First-run onboarding wizard (Task #55)
+# ============================================================
+#
+# New users land on /dashboard after signup and see an empty interface
+# with no idea what to do. The 4-step OnboardingPage walks them through
+# business profile (CVR auto-lookup) → tax preferences → optional
+# revisor invite → and stamps `onboarding_completed_at` so we never
+# auto-redirect them again.
+#
+# Design notes:
+#   • Idempotent — calling complete twice doesn't re-stamp (we keep the
+#     earliest completion time so analytics can see "time to value").
+#   • Audited — every completion + reset writes an audit row so an
+#     operator can investigate "user X says they never finished
+#     onboarding but the dashboard says they did".
+#   • Reset is owner-only — accountants and team members don't see
+#     the wizard (they're invited into an existing business, not new
+#     signups), so we 403 them. Multi-layer: even if the frontend
+#     showed the button, the API refuses.
+#   • Reset is rate-limited — defending against an attacker who
+#     somehow exfiltrates a session token from rapidly flipping the
+#     field to wipe analytics signal. Real users hit this once.
+class OnboardingCompleteResponse(BaseModel):
+    completed_at: datetime
+    already_completed: bool = False
+
+
+@router.post("/onboarding/complete", response_model=OnboardingCompleteResponse)
+@limiter.limit("10/minute")
+def complete_onboarding(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Stamp the current user's onboarding_completed_at timestamp.
+
+    Idempotent — if the user has already completed onboarding we
+    return the existing timestamp without overwriting it (preserves
+    the original time-to-value signal in analytics). Always returns
+    200 with the resolved timestamp.
+
+    Audit row written either way so an operator can see when the
+    flow was first finished and when it was re-triggered.
+    """
+    from app.services import audit_service
+
+    # Re-resolve the user against the handler's session — get_current_user
+    # may hand us a detached instance under test-client dependency overrides,
+    # which would make db.refresh() raise. Loading by primary key inside
+    # `db` guarantees a session-attached row to mutate.
+    db_user = db.query(User).filter(User.id == current_user.id).first()
+    if db_user is None:
+        # Should never happen in practice (the auth dependency already
+        # validated the user exists), but fail clearly rather than 500.
+        raise HTTPException(status_code=404, detail="User no longer exists")
+
+    already = db_user.onboarding_completed_at is not None
+    if not already:
+        db_user.onboarding_completed_at = utc_now()
+        db.commit()
+        db.refresh(db_user)
+        # Audit: who finished, when. Tenant-scoped via user.id; the
+        # service swallows write failures so audit never blocks the
+        # 200 response.
+        try:
+            audit_service.record(
+                db, db_user, "user.onboarding_completed",
+                entity_type="user", entity_id=db_user.id,
+                before={"onboarding_completed_at": None},
+                after={"onboarding_completed_at": str(db_user.onboarding_completed_at)},
+                ip_address=getattr(request.client, "host", None),
+            )
+            db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+    return OnboardingCompleteResponse(
+        completed_at=db_user.onboarding_completed_at,
+        already_completed=already,
+    )
+
+
+@router.post("/onboarding/reset")
+@limiter.limit("5/minute")
+def reset_onboarding(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Re-trigger the onboarding wizard for the current user.
+
+    Owner-only: team members (cashier/manager/viewer) and accountants
+    didn't sign up cold — they were invited into an existing business
+    — so the welcome wizard has no value for them. Refuse with 403
+    rather than no-op so the frontend knows to hide the button.
+
+    Tenant-scoped: only ever touches `current_user.onboarding_completed_at`.
+    A caller can never reset another user's flag — there's no `user_id`
+    parameter on the endpoint. Audit row written for forensics.
+    """
+    from app.services import audit_service
+
+    role = (current_user.role or "owner").lower()
+    if role not in ("owner",):
+        raise HTTPException(
+            status_code=403,
+            detail="Only the business owner can re-run the welcome wizard.",
+        )
+
+    # Re-attach to the handler's session — same rationale as in /complete.
+    db_user = db.query(User).filter(User.id == current_user.id).first()
+    if db_user is None:
+        raise HTTPException(status_code=404, detail="User no longer exists")
+
+    previous = db_user.onboarding_completed_at
+    db_user.onboarding_completed_at = None
+    db.commit()
+    try:
+        audit_service.record(
+            db, db_user, "user.onboarding_reset",
+            entity_type="user", entity_id=db_user.id,
+            before={"onboarding_completed_at": str(previous) if previous else None},
+            after={"onboarding_completed_at": None},
+            ip_address=getattr(request.client, "host", None),
+        )
+        db.commit()
+    except Exception:  # noqa: BLE001
+        db.rollback()
+    return {"status": "ok", "onboarding_completed_at": None}
+
+
 @router.patch("/daily-goal", response_model=UserResponse)
 def set_daily_goal(
     goal: float,

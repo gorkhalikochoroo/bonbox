@@ -142,6 +142,23 @@ export function AuthProvider({ children }) {
   };
 
   /**
+   * Re-pull /auth/me into local state. Used after mutations that change
+   * user shape on the server (onboarding completion, business_type
+   * change, etc.) so the React tree sees the new value without forcing
+   * a full reload. Best-effort — silent failure leaves stale state, which
+   * the next natural /auth/me on next navigation will correct.
+   */
+  const refreshUser = async () => {
+    try {
+      const res = await api.get("/auth/me");
+      setUser(res.data);
+      return res.data;
+    } catch {
+      return null;
+    }
+  };
+
+  /**
    * Whether this user needs email verification.
    * Returns false for legacy users created before the grace date,
    * and false for already-verified users.
@@ -162,7 +179,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, googleLogin, appleLogin, logout, setEmailVerified, needsEmailVerification }}>
+    <AuthContext.Provider value={{ user, loading, login, register, googleLogin, appleLogin, logout, setEmailVerified, needsEmailVerification, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

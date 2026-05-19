@@ -21,6 +21,19 @@ class User(Base):
     monthly_goal: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     daily_digest_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     expense_alerts_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Daily Brief — actionable morning AI summary delivered to inbox at
+    # 08:00 Copenhagen (06:30 UTC). Default True at signup (opt-out
+    # retention play); user can flip in Profile → Notifications. This is
+    # the same payload that appears on /dashboard — no drift between
+    # screen and email. Free tier included intentionally: it's a daily-
+    # active-retention lever, NOT an upsell. See PLAN_FEATURES.
+    daily_brief_email_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Idempotency stamp for the cron job. The Brief is sent once per
+    # calendar day per user; we read this to skip already-sent rows even
+    # if the cron is re-fired (process restart, manual re-run, retry).
+    # NULL = never sent. Stored as DateTime (not Date) so we can also
+    # debug exact send time across timezones.
+    last_brief_emailed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # GDPR — owner can opt out of product analytics (event_log writes).
     # Default OFF (analytics ON) under legitimate-interest basis; user can flip
     # at any time via Profile → Privacy. When True, no events are persisted.
@@ -89,6 +102,15 @@ class User(Base):
     is_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     locked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     locked_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # First-run onboarding wizard completion (Task #55).
+    # NULL = the user has never finished (or skipped past) the welcome
+    # wizard; non-null timestamp = they've been through it once and we
+    # never auto-redirect again. "Skip" still stamps this so we don't
+    # nag returning users. Users can re-open the wizard from the
+    # Profile page — that nulls this field then sends them to /onboarding.
+    # Stored on User (not BusinessProfile) because new signups have no
+    # BusinessProfile row yet — the wizard is the thing that CREATES one.
+    onboarding_completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, onupdate=utc_now

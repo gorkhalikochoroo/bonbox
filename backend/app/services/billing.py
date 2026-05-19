@@ -282,6 +282,14 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # Free + Starter see the upsell with the same numbers but a
         # locked download button.
         "tax_filing_pdf": False,
+        # 2026-05-19 — Daily Brief 8am email digest (Task #54). The
+        # same /dashboard brief lands in the owner's inbox each morning
+        # — same insights, same CTA buttons, same shareable footer.
+        # Turns BonBox from "an app you open" into "an advisor that
+        # arrives". Intentionally ENABLED on Free: it's a daily-active
+        # retention lever, not an upsell. has_feature() exists so we
+        # can flip Free later without code churn.
+        "daily_brief_email": True,
     },
     "starter": {
         "ai_anomaly_detection": True,
@@ -299,6 +307,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "accountant_login": True,          # Task #49 — stickiness moat
         "schedule_autopilot": False,       # Pro-only — Task #50 Pro killer
         "tax_filing_pdf": False,           # Pro-only — Task #51 Pro killer
+        "daily_brief_email": True,         # Task #54 — same as Free, retention
     },
     "trial": {  # = full Pro
         "ai_anomaly_detection": True,
@@ -316,6 +325,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "accountant_login": True,
         "schedule_autopilot": True,
         "tax_filing_pdf": True,
+        "daily_brief_email": True,
     },
     "pro": {
         "ai_anomaly_detection": True,
@@ -333,6 +343,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "accountant_login": True,
         "schedule_autopilot": True,
         "tax_filing_pdf": True,
+        "daily_brief_email": True,
     },
 }
 

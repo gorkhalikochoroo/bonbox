@@ -187,6 +187,8 @@ const StaffPayrollPage = lazyRetry(() => import("./pages/StaffPayrollPage"));
 const MorePage = lazyRetry(() => import("./pages/MorePage"));
 const StaffPortalPage = lazyRetry(() => import("./pages/StaffPortalPage"));
 const VerifyEmailPage = lazyRetry(() => import("./pages/VerifyEmailPage"));
+// Task #55 — First-run welcome wizard. Full-screen, no Layout chrome.
+const OnboardingPage = lazyRetry(() => import("./pages/OnboardingPage"));
 const AdminPage = lazyRetry(() => import("./pages/AdminPage"));
 const AdminTrainingPage = lazyRetry(() => import("./pages/AdminTrainingPage"));
 const SubscriptionPage = lazyRetry(() => import("./pages/SubscriptionPage"));
@@ -207,7 +209,38 @@ function ProtectedRoute({ children }) {
   // Allow skipping email verification (native apps or user chose "skip for now")
   const skipped = sessionStorage.getItem("skip_email_verify");
   if (needsEmailVerification() && !skipped) return <Navigate to="/verify-email" />;
+  // Task #55 — first-run wizard. After signup, send the user to /onboarding
+  // until they finish (or explicitly skip past) the welcome flow. We only
+  // gate on the OWNER role here — team members and accountants don't see
+  // the wizard (it's a brand-new-business flow). The wizard itself stamps
+  // onboarding_completed_at then drops them on /dashboard.
+  const role = (user.role || "owner").toLowerCase();
+  if (
+    role === "owner" &&
+    user.onboarding_completed_at === null
+  ) {
+    return <Navigate to="/onboarding" replace />;
+  }
   return children;
+}
+
+/**
+ * OnboardingRoute — wraps the welcome wizard. Auth-required, owner-only.
+ * If the user has already finished, we kick them to /dashboard so the
+ * wizard can't be re-entered casually (they can re-trigger from Profile).
+ */
+function OnboardingRoute() {
+  const { user, loading, needsEmailVerification } = useAuth();
+  if (loading) return <PageLoader />;
+  if (!user) return <Navigate to="/login" replace />;
+  const skipped = sessionStorage.getItem("skip_email_verify");
+  if (needsEmailVerification() && !skipped) {
+    return <Navigate to="/verify-email" replace />;
+  }
+  const role = (user.role || "owner").toLowerCase();
+  if (role !== "owner") return <Navigate to="/dashboard" replace />;
+  if (user.onboarding_completed_at) return <Navigate to="/dashboard" replace />;
+  return <OnboardingPage />;
 }
 
 /**
@@ -254,6 +287,11 @@ function AppRoutes() {
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/verify-email" element={<VerifyEmailRoute />} />
+        {/* Task #55 — First-run welcome wizard. Sits OUTSIDE the
+            ProtectedRoute layout because the wizard is full-screen
+            (no sidebar / mobile nav chrome). OnboardingRoute does its
+            own auth + owner-only + onboarding-pending guards. */}
+        <Route path="/onboarding" element={<OnboardingRoute />} />
         <Route path="/contact" element={<ContactPage />} />
         <Route path="/privacy" element={<PrivacyPolicyPage />} />
         <Route path="/terms" element={<TermsPage />} />

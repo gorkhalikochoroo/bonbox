@@ -15,6 +15,11 @@ router = APIRouter()
 class EmailPreferences(BaseModel):
     daily_digest_enabled: bool
     expense_alerts_enabled: bool
+    # Task #54 — opt-out toggle for the 8am Daily Brief email. Default
+    # True at signup (retention play). Marked Optional on the inbound
+    # PATCH so older clients that don't know about this field don't
+    # accidentally flip it OFF when they PATCH the other two toggles.
+    daily_brief_email_enabled: bool = True
 
 
 @router.get("/preferences", response_model=EmailPreferences)
@@ -22,6 +27,11 @@ def get_preferences(user: User = Depends(get_current_user)):
     return EmailPreferences(
         daily_digest_enabled=user.daily_digest_enabled or False,
         expense_alerts_enabled=user.expense_alerts_enabled if user.expense_alerts_enabled is not None else True,
+        daily_brief_email_enabled=(
+            user.daily_brief_email_enabled
+            if getattr(user, "daily_brief_email_enabled", None) is not None
+            else True
+        ),
     )
 
 
@@ -33,11 +43,20 @@ def update_preferences(
 ):
     user.daily_digest_enabled = data.daily_digest_enabled
     user.expense_alerts_enabled = data.expense_alerts_enabled
+    # Defensive — only update if the field came in. Pydantic always
+    # supplies it because we set a default=True, but a missing key in
+    # the payload would still arrive as True via the default — which
+    # could re-enable an opted-out user. We accept that trade-off
+    # because (a) the frontend always sends the full triple, and
+    # (b) default=True matches the "opt-out, not opt-in" retention
+    # posture explicitly chosen for this feature.
+    user.daily_brief_email_enabled = data.daily_brief_email_enabled
     db.commit()
     db.refresh(user)
     return EmailPreferences(
         daily_digest_enabled=user.daily_digest_enabled,
         expense_alerts_enabled=user.expense_alerts_enabled,
+        daily_brief_email_enabled=user.daily_brief_email_enabled,
     )
 
 

@@ -81,6 +81,28 @@ const SECTIONS = [
 export default function ProfilePage() {
   const [theme, setTheme] = useTheme();
   const { t } = useLanguage();
+  // Task #55 — "Run onboarding again" link. Resets the user's
+  // onboarding_completed_at to null then navigates to /onboarding.
+  // Quiet error fallback — failures just leave the button enabled.
+  const [reRunOnbBusy, setReRunOnbBusy] = useState(false);
+  const [reRunOnbError, setReRunOnbError] = useState("");
+  const reRunOnboarding = async () => {
+    setReRunOnbBusy(true);
+    setReRunOnbError("");
+    try {
+      await api.post("/auth/onboarding/reset");
+      // Use hard navigation so AuthProvider re-fetches /auth/me
+      // with the new (null) onboarding_completed_at — otherwise the
+      // OnboardingRoute redirect would kick us straight back.
+      window.location.href = "/onboarding";
+    } catch (err) {
+      setReRunOnbError(
+        err?.response?.data?.detail ||
+          (t("onbReRunFailed") || "Couldn't reset onboarding. Try again."),
+      );
+      setReRunOnbBusy(false);
+    }
+  };
   const [user, setUser] = useState(null);
   const [form, setForm] = useState({ business_name: "", business_type: "", currency: "", email: "" });
   const [passwords, setPasswords] = useState({ current_password: "", new_password: "", confirm_password: "" });
@@ -90,8 +112,18 @@ export default function ProfilePage() {
   const [pwError, setPwError] = useState("");
   const [saving, setSaving] = useState(false);
   const [changingPw, setChangingPw] = useState(false);
-  const [emailPrefs, setEmailPrefs] = useState({ daily_digest_enabled: false, expense_alerts_enabled: true });
+  const [emailPrefs, setEmailPrefs] = useState({
+    daily_digest_enabled: false,
+    expense_alerts_enabled: true,
+    // Task #54 — Daily Brief 8am email. Default true matches the
+    // server's opt-out posture. Server-confirmed value overwrites this
+    // on /email/preferences load.
+    daily_brief_email_enabled: true,
+  });
   const [emailMsg, setEmailMsg] = useState("");
+  // Send-test-brief flow — separate from sendTestDigest below.
+  const [sendingBriefTest, setSendingBriefTest] = useState(false);
+  const [briefTestMsg, setBriefTestMsg] = useState("");
   // GDPR: per-user analytics opt-out. Synced from /auth/me. When ON,
   // backend silently drops every event_log write for this user.
   const [analyticsOptOut, setAnalyticsOptOut] = useState(false);
@@ -482,6 +514,27 @@ export default function ProfilePage() {
     } catch { setEmailMsg(t("failedToSendTest")); }
     setSendingTest(false);
     setTimeout(() => setEmailMsg(""), 4000);
+  };
+
+  // Task #54 — Send today's Daily Brief to the caller's inbox right now.
+  // The endpoint enforces force=true so this works even after the cron
+  // has already sent today's brief — owners can re-verify how the
+  // template renders without waiting until tomorrow morning.
+  const sendTestBrief = async () => {
+    setSendingBriefTest(true);
+    setBriefTestMsg("");
+    try {
+      const res = await api.post("/dashboard/daily-brief/send-now");
+      if (res.data?.ok) {
+        setBriefTestMsg(t("briefSentToast"));
+      } else {
+        setBriefTestMsg(t("briefSendFailedToast"));
+      }
+    } catch {
+      setBriefTestMsg(t("briefSendFailedToast"));
+    }
+    setSendingBriefTest(false);
+    setTimeout(() => setBriefTestMsg(""), 4000);
   };
 
   const linkWhatsApp = async () => {
@@ -1317,6 +1370,33 @@ export default function ProfilePage() {
                 icon={<Icon name="Bell" size={18} />}
               />
               <div className="divide-y divide-stone-200 dark:divide-stone-800 -mx-1">
+                {/* Task #54 — Daily Brief 8am email. Sits at the TOP of the
+                    notifications list because it's the headline product
+                    experience: owners get the same /dashboard brief in their
+                    inbox each morning. */}
+                <ToggleRow
+                  label={t("dailyBriefEmail")}
+                  desc={t("dailyBriefEmailDesc")}
+                  checked={emailPrefs.daily_brief_email_enabled}
+                  onChange={() => toggleEmailPref("daily_brief_email_enabled")}
+                  rightSlot={
+                    emailPrefs.daily_brief_email_enabled ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        busy={sendingBriefTest}
+                        onClick={sendTestBrief}
+                      >
+                        {sendingBriefTest ? t("sending") : t("sendTestNow")}
+                      </Button>
+                    ) : null
+                  }
+                />
+                {briefTestMsg && (
+                  <div className="py-1.5 px-1 text-xs text-emerald-700 dark:text-emerald-400">
+                    {briefTestMsg}
+                  </div>
+                )}
                 <ToggleRow
                   label={t("dailyDigestLabel")}
                   desc={t("dailyDigestDesc")}
@@ -1473,6 +1553,36 @@ export default function ProfilePage() {
                 }
               />
             </Card>
+
+            {/* Task #55 — Re-run the welcome wizard. Owners only (the
+                /auth/onboarding/reset endpoint 403s non-owners anyway). */}
+            {(user.role || "owner").toLowerCase() === "owner" && (
+              <Card variant="subtle" className="mt-4">
+                <Card.Header
+                  title={t("onbReRunTitle") || "Run the welcome wizard again"}
+                  subtitle={
+                    t("onbReRunDesc") ||
+                    "Revisit the 4-step setup — useful if you skipped it, changed verticals, or want to invite a new revisor."
+                  }
+                  icon={<Icon name="RotateCw" size={18} />}
+                  action={
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={reRunOnboarding}
+                      busy={reRunOnbBusy}
+                    >
+                      {t("onbReRunBtn") || "Open onboarding"}
+                    </Button>
+                  }
+                />
+                {reRunOnbError && (
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-2">
+                    {reRunOnbError}
+                  </p>
+                )}
+              </Card>
+            )}
 
             <Card variant="subtle" className="mt-4">
               <Card.Header
@@ -1725,14 +1835,18 @@ function Message({ tone = "info", children }) {
   return <p className={"text-sm " + (TONE[tone] || TONE.info)}>{children}</p>;
 }
 
-/** Settings toggle row used across notifications + privacy. */
-function ToggleRow({ label, desc, checked, onChange }) {
+/** Settings toggle row used across notifications + privacy.
+ *  `rightSlot` (optional) renders an action chip BETWEEN the desc text and
+ *  the toggle switch — used by the Daily Brief row to surface a "Send a
+ *  test now" button next to the toggle. */
+function ToggleRow({ label, desc, checked, onChange, rightSlot = null }) {
   return (
     <div className="flex items-start justify-between gap-4 py-4 px-1">
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-stone-800 dark:text-stone-100">{label}</p>
         {desc && <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">{desc}</p>}
       </div>
+      {rightSlot ? <div className="shrink-0 self-center">{rightSlot}</div> : null}
       <button
         type="button"
         role="switch"

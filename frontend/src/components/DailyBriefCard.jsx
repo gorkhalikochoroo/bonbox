@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
 import { Icon } from "./ui";
+import { useLanguage } from "../hooks/useLanguage";
 
 /**
  * Daily AI Brief — Copenhagen-style card at the top of the dashboard.
@@ -64,11 +65,19 @@ function _buildShareText(brief) {
 }
 
 export default function DailyBriefCard() {
+  const { t } = useLanguage();
   const [brief, setBrief] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [shareToast, setShareToast] = useState("");
+  // Task #54 — quiet "Get this by email" affordance at the bottom of
+  // the card. If the user has the toggle ON, we show a passive line
+  // ("Arrives in your inbox at 8 am"). If OFF, we show a one-tap
+  // enable link. The pref is fetched once on mount; the optimistic
+  // toggle below mutates locally + PATCHes.
+  const [briefEmailEnabled, setBriefEmailEnabled] = useState(null);
+  const [briefPrefBusy, setBriefPrefBusy] = useState(false);
 
   // Respect the user's choice to dismiss for the day before we even fetch
   // — saves an API round trip if they've already dismissed today.
@@ -87,8 +96,40 @@ export default function DailyBriefCard() {
       .then((res) => { if (mounted) setBrief(res.data); })
       .catch(() => { if (mounted) setHidden(true); })
       .finally(() => { if (mounted) setLoading(false); });
+    // Task #54 — Daily Brief email pref. Soft-fetch — if it 401s or
+    // 5xxs we just don't render the footer affordance.
+    api
+      .get("/email/preferences")
+      .then((res) => {
+        if (mounted && res?.data) {
+          setBriefEmailEnabled(res.data.daily_brief_email_enabled ?? true);
+        }
+      })
+      .catch(() => { /* silent — footer line just won't render */ });
     return () => { mounted = false; };
   }, []);
+
+  // Task #54 — quietly opt the user IN to the morning email. Optimistic
+  // update + rollback on error. We PATCH the full pref triple to avoid
+  // server-side ambiguity (the backend treats the payload as the new
+  // source of truth for all three flags).
+  const enableBriefEmail = async () => {
+    if (briefPrefBusy) return;
+    setBriefPrefBusy(true);
+    setBriefEmailEnabled(true);
+    try {
+      // Fetch current to avoid clobbering the other prefs.
+      const current = await api.get("/email/preferences");
+      await api.patch("/email/preferences", {
+        ...current.data,
+        daily_brief_email_enabled: true,
+      });
+    } catch {
+      setBriefEmailEnabled(false); // rollback
+    } finally {
+      setBriefPrefBusy(false);
+    }
+  };
 
   const onDismiss = () => {
     try { localStorage.setItem(_dismissKey(), "1"); } catch { /* fine, it'll just show again next refresh */ }
@@ -294,6 +335,27 @@ export default function DailyBriefCard() {
           </button>
         </div>
       </div>
+
+      {/* Task #54 — quiet "Get this by email" line. Single visual row,
+          no redesign. Renders only when we successfully fetched the
+          pref; silent on auth/network errors so the card still works. */}
+      {briefEmailEnabled !== null && (
+        <div className="mt-2 text-[11.5px] text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
+          <Icon name="Mail" size={12} strokeWidth={1.75} />
+          {briefEmailEnabled ? (
+            <span>{t("arrivesAt8amInbox")}</span>
+          ) : (
+            <button
+              type="button"
+              onClick={enableBriefEmail}
+              disabled={briefPrefBusy}
+              className="text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 transition disabled:opacity-50"
+            >
+              {t("getThisByEmail")} →
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

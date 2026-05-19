@@ -20,6 +20,7 @@ from app.schemas.dashboard import DashboardSummary, BenchmarkResponse, Benchmark
 from app.services.auth import get_current_user
 from app.services.prediction import get_staffing_recommendations
 from app.services.daily_brief import get_or_create_brief
+from app.services.daily_brief_email import send_brief_to_user
 from app.services.anomaly_detector import run_daily_scan, serialize_alert, dismiss_alert
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -1030,6 +1031,37 @@ def daily_brief(
         fails, or the API key is missing — user always sees something useful.
     """
     return get_or_create_brief(user, db, force_refresh=refresh)
+
+
+@router.post("/daily-brief/send-now")
+@_ai_limiter.limit("4/minute")
+def send_daily_brief_now(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Send today's brief to the caller's inbox immediately.
+
+    Used by the Profile → Notifications "Send a test now" button so
+    owners can verify the email looks right before tomorrow morning's
+    automated send. Also useful for manual debug.
+
+    Multi-tenant safety:
+      • Only sends to the caller's own email — tenant scope is
+        enforced by sourcing the User from get_current_user (the JWT).
+        There is no path to send to another user's inbox.
+      • Rate-limited 4/min/IP to prevent abuse (Resend quota burn).
+      • force=True bypasses the same-day idempotency stamp so the
+        "test now" path always works (otherwise it would silently
+        skip after the cron has already run).
+      • Returns structured result; never raises on internal errors —
+        send_brief_to_user already wraps in try/except.
+    """
+    result = send_brief_to_user(db, user, force=True)
+    # 200 either way; UI inspects `ok`. Reason is one of:
+    #   'feature_not_entitled' | 'user_opted_out' | 'invalid_email'
+    #   | 'already_sent_today' (only on force=False; not reachable here)
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────
