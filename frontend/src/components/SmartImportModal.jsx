@@ -573,7 +573,7 @@ function ReviewStep({
 
       {/* Review table */}
       <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-        <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-900 text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 font-medium">
+        <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-900 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 font-medium">
           <div className="col-span-5">Name</div>
           <div className="col-span-2">Qty</div>
           <div className="col-span-2">Unit</div>

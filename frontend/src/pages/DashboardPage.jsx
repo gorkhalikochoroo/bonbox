@@ -112,7 +112,7 @@ function KpiCard({ title, numericValue, value, currency: cur, change, changeLabe
         } shadow-sm`}
     >
       <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">{title}</p>
+        <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">{title}</p>
         <svg className="w-4 h-4 text-gray-300 dark:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
         </svg>

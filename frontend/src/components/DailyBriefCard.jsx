@@ -360,7 +360,7 @@ export default function DailyBriefCard() {
       )}
 
       <div className="mt-5 pt-3.5 border-t border-gray-100 dark:border-gray-700/60 flex items-center justify-between gap-3">
-        <span className="text-[10.5px] uppercase tracking-[0.08em] text-gray-400 dark:text-gray-500">
+        <span className="text-[11px] uppercase tracking-[0.08em] text-gray-400 dark:text-gray-500">
           {brief.ai_polished ? "AI Insight · BonBox" : "BonBox Insight"}
         </span>
         <div className="flex items-center gap-2">

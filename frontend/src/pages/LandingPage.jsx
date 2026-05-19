@@ -662,7 +662,7 @@ export default function LandingPage() {
             </ul>
 
             <div className="mt-5 pt-3.5 border-t border-stone-100 flex items-center justify-between gap-3">
-              <span className="text-[10.5px] uppercase tracking-[0.08em] text-stone-400">
+              <span className="text-[11px] uppercase tracking-[0.08em] text-stone-400">
                 {tx_("landingBriefPreviewFooter", "AI Insight · BonBox")}
               </span>
               <div className="flex items-center gap-2 text-stone-400">
@@ -688,7 +688,7 @@ export default function LandingPage() {
           (kreditnota, audit_logs, accountant login, MOMS PDF). */}
       <section className="py-10 bg-white border-y border-stone-200/70">
         <div className="max-w-5xl mx-auto px-5 sm:px-6 lg:px-8">
-          <p className="text-center text-[12px] uppercase tracking-[0.12em] text-stone-400 mb-7">
+          <p className="text-center text-[11px] uppercase tracking-[0.12em] text-stone-400 mb-7">
             {tx_("landingTrustHeader", "Built for the Danish compliance reality")}
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-5 sm:gap-7">
@@ -1036,7 +1036,7 @@ export default function LandingPage() {
             },
           ].map((cat) => (
             <div key={cat.titleKey}>
-              <h3 className="text-[13px] font-semibold text-emerald-700 uppercase tracking-[0.1em] mb-4">
+              <h3 className="text-[11px] font-semibold text-emerald-700 uppercase tracking-[0.1em] mb-4">
                 {tx_(cat.titleKey, cat.titleFallback)}
               </h3>
               <ul className="space-y-2.5">

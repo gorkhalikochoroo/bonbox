@@ -702,7 +702,7 @@ export default function Layout() {
                   <div key={group.id}>
                     <button
                       onClick={() => toggleGroup(group.id)}
-                      className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition ${
+                      className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-semibold uppercase tracking-wider transition ${
                         hasActiveChild
                           ? "text-green-600 dark:text-green-400"
                           : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"

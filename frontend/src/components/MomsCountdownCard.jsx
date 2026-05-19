@@ -119,7 +119,7 @@ export default function MomsCountdownCard() {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 mb-1.5">
             <Icon name="Calculator" size={16} className={toneText} />
-            <span className={`text-xs font-semibold uppercase tracking-wider ${toneText}`}>
+            <span className={`text-[11px] font-semibold uppercase tracking-wider ${toneText}`}>
               {t("nextMomsFiling", "Next Moms filing")}
             </span>
           </div>

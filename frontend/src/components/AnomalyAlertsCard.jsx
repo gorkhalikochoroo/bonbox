@@ -101,7 +101,7 @@ export default function AnomalyAlertsCard() {
             {alerts.length === 1 ? "1 thing to review" : `${alerts.length} things to review`}
           </h3>
         </div>
-        <span className="text-[10.5px] uppercase tracking-[0.08em] text-gray-400 dark:text-gray-500 shrink-0">
+        <span className="text-[11px] uppercase tracking-[0.08em] text-gray-400 dark:text-gray-500 shrink-0">
           {alerts.some((a) => a.polished_by_ai) ? "AI watchdog" : "BonBox watchdog"}
         </span>
       </div>
