@@ -51,7 +51,7 @@ const translations = {
     // tooltips / button copy without colliding with sidebar pressure for
     // short labels).
     navHome: "Home", navTodaysFloor: "Today's Floor", navReportsTax: "Reports & Tax",
-    navEndOfDayClose: "End-of-Day",
+    navEndOfDayClose: "End-of-Day", navConnections: "Connections",
     todaysFloor: "Today's Floor", todaysBooks: "Today's Books",
     taxBundle: "Tax Bundle", endOfDayCloseTitle: "End-of-Day Close",
     // MOMS countdown widget — Free-tier dashboard hook
@@ -2373,7 +2373,7 @@ const translations = {
     dashboard: "Oversigt", sales: "Salg", expenses: "Udgifter", inventory: "Lager",
     // Sidebar job-to-be-done labels — see EN block for rationale.
     navHome: "Forsiden", navTodaysFloor: "Dagens drift", navReportsTax: "Rapporter & Skat",
-    navEndOfDayClose: "Dagsafslutning",
+    navEndOfDayClose: "Dagsafslutning", navConnections: "Forbindelser",
     todaysFloor: "Dagens drift", todaysBooks: "Dagens regnskab",
     taxBundle: "Skattepakke", endOfDayCloseTitle: "Dagsafslutning",
     // MOMS countdown widget

@@ -162,6 +162,9 @@ const navGroups = [
     icon: "Settings",
     visibleFor: null,
     items: [
+      // Connections hub leads the Manage group — owners reach it
+      // most often (new bank, new revisor, new sales channel).
+      { to: "/connections", icon: "Link2", labelKey: "navConnections" },
       { to: "/branches", icon: "Building2", labelKey: "branches" },
       { to: "/terminals", icon: "Monitor", labelKey: "terminals" },
       { to: "/channel-settings", icon: "Bike", labelKey: "orderChannels" },

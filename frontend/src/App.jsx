@@ -198,6 +198,8 @@ const InsightsPage = lazyRetry(() => import("./pages/InsightsPage"));
 const PropertyReportPage = lazyRetry(() => import("./pages/PropertyReportPage"));
 // Order Channel Settings — user-editable catalogue of order channels
 const ChannelSettingsPage = lazyRetry(() => import("./pages/ChannelSettingsPage"));
+// Connections hub — single page showing all integrations + their status
+const ConnectionsPage = lazyRetry(() => import("./pages/ConnectionsPage"));
 // Task #49 — Accountant read-only login (stickiness moat)
 const AcceptInvitePage = lazyRetry(() => import("./pages/AcceptInvitePage"));
 const AccountantClientsPage = lazyRetry(() => import("./pages/AccountantClientsPage"));
@@ -362,6 +364,7 @@ function AppRoutes() {
           <Route path="/insights" element={<InsightsPage />} />
           <Route path="/daily-report" element={<PropertyReportPage />} />
           <Route path="/channel-settings" element={<ChannelSettingsPage />} />
+          <Route path="/connections" element={<ConnectionsPage />} />
           {/* Task #49 — Accountant client picker. Renders for accountants
               with 2+ active grants. Bypasses the standard Layout because
               the picker is its own minimal full-screen experience. */}

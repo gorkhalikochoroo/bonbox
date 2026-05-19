@@ -42,7 +42,7 @@ import {
   Wrench,
   // Manage
   Settings, Building2, Monitor, Bike, LayoutGrid, Mail, Network,
-  Building, UserCog, Trash, MessageCircle,
+  Building, UserCog, Trash, MessageCircle, Link2,
   // Account
   Sparkles,
   // Personal mode
