@@ -461,6 +461,196 @@ def extract_amount_from_image(image_path: str) -> dict:
     }
 
 
+# ─── Expense receipt parser ──────────────────────────────────────────
+#
+# Different from parse_z_report (kasserapport / Z-report from a POS) and
+# from extract_amount_from_image (raw-amount-only fallback). This one is
+# tuned for ad-hoc supplier receipts owners snap at the counter — a
+# Nemlig.com bag, a Wolt invoice email, a Nordic Choice hotel receipt.
+#
+# We try to extract four fields the expense create form needs:
+#   • vendor (string — top-of-receipt brand name)
+#   • total amount (float — usually marked "Total" / "I alt" / "At betale")
+#   • date (ISO YYYY-MM-DD)
+#   • currency (defaults to DKK; flag others if OCR sees them)
+#
+# Each field returns None when uncertain — the frontend keeps the form
+# editable so the owner sees what we parsed and can override.
+
+# Heuristic stopwords that mean "not the vendor name" — these appear on
+# every Danish receipt and would mislead the vendor picker.
+_VENDOR_STOPWORDS = {
+    "kvittering", "receipt", "faktura", "invoice", "bon", "tak",
+    "thanks", "thank", "moms", "vat", "subtotal", "total", "i alt",
+    "ialt", "at betale", "kontant", "dankort", "mobilepay", "card",
+    "cash", "kvit", "ref", "ordre", "order", "kassebon", "kassenote",
+    "salg", "sale", "betalt", "paid", "approved", "godkendt", "godkendt.",
+    "kunde", "customer", "tid", "time", "dato", "date", "cvr", "cvr.",
+    "tlf", "phone", "telephone", "email", "e-mail", "www", "http",
+    "https", "merchant", "terminal", "auth", "approval", "exp",
+    "valuta", "currency", "dkk", "eur", "usd", "kr", "krs", "kr.",
+    "byttepenge", "change", "byt", "afrunding", "rounding",
+}
+
+
+def _extract_date(text: str) -> str | None:
+    """Find the receipt date in OCR text. Returns ISO YYYY-MM-DD or None.
+
+    Danish receipts use DD-MM-YYYY or DD/MM/YYYY or DD.MM.YYYY. International
+    POS sometimes prints MM/DD/YYYY. We pick the FIRST plausible match
+    (most receipts print the date once, near the top).
+    """
+    if not text:
+        return None
+    # DD-MM-YYYY / DD.MM.YYYY / DD/MM/YYYY  — most common in DK
+    m = re.search(r"\b(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b", text)
+    if m:
+        d, mo, y = m.group(1), m.group(2), m.group(3)
+        try:
+            day = int(d); month = int(mo); year = int(y)
+            if year < 100:
+                year += 2000
+            # Guard against MM/DD/YYYY mis-parse — if first number is > 12 and
+            # second is <= 12, we're already in DD/MM, perfect. If both are
+            # ≤ 12 we can't tell — assume DD/MM since this is a Danish app.
+            if day > 31 or month > 12 or day < 1 or month < 1:
+                return None
+            from datetime import date as _date
+            d_obj = _date(year, month, day)
+            # Don't allow obviously bad dates (>5 years in past, >1 day future)
+            from datetime import timedelta
+            today = _date.today()
+            if d_obj > today + timedelta(days=1):
+                return None
+            if (today - d_obj).days > 365 * 5:
+                return None
+            return d_obj.isoformat()
+        except (ValueError, TypeError):
+            return None
+    # ISO YYYY-MM-DD format
+    m = re.search(r"\b(\d{4})[-/](\d{1,2})[-/](\d{1,2})\b", text)
+    if m:
+        try:
+            from datetime import date as _date
+            return _date(int(m.group(1)), int(m.group(2)), int(m.group(3))).isoformat()
+        except ValueError:
+            return None
+    return None
+
+
+def _extract_vendor(text: str) -> str | None:
+    """Guess the vendor name from a receipt's OCR text.
+
+    Strategy: walk the first ~10 lines, pick the first one that looks
+    like a brand name — at least 3 chars, mostly letters, not in the
+    stopword set, not a date/amount/email/url.
+
+    Tradeoff: this is a best-effort guess. Frontend shows the result
+    as a pre-filled field the owner can edit before saving.
+    """
+    if not text:
+        return None
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    for line in lines[:10]:
+        # Skip lines that are mostly digits/punctuation (dates, amounts, IDs)
+        letter_count = sum(c.isalpha() for c in line)
+        if letter_count < 3:
+            continue
+        if letter_count / max(len(line), 1) < 0.5:
+            continue
+        lower = line.lower()
+        # Skip clear non-vendor lines
+        if any(sw in lower for sw in _VENDOR_STOPWORDS):
+            continue
+        # Skip URLs / emails / very long lines
+        if "@" in line or "http" in lower or len(line) > 60:
+            continue
+        # Skip lines that are purely number-amount-currency
+        if re.fullmatch(r"[\s\d.,kr\-]+", lower):
+            continue
+        # Clean up — strip trailing punctuation and trim to reasonable length
+        clean = re.sub(r"\s+", " ", line).strip(" .,-:;|")
+        if 3 <= len(clean) <= 50:
+            return clean
+    return None
+
+
+def parse_expense_receipt(image_path: str) -> dict:
+    """Parse a supplier/expense receipt photo into structured fields.
+
+    Returns a dict with: vendor, amount, date (ISO), currency, raw_text,
+    confidence ("high" | "medium" | "low" | "none"), ocr_available.
+
+    All fields except `raw_text` may be None when OCR fails or the
+    detector isn't confident — the frontend keeps the form editable so
+    the owner sees what we found and corrects it before saving.
+
+    Tradeoff vs parse_z_report: Z-reports have predictable headers
+    (food / drinks / takeaway / payment-method totals) so we look for
+    specific keywords. Supplier receipts are wild — different layouts
+    per vendor, mixed languages, sometimes hand-stamped totals. We
+    settle for "amount + date + best-guess vendor" and let the owner
+    confirm.
+    """
+    raw_text = _ocrspace_ocr(image_path)
+    if not raw_text:
+        raw_text = _google_vision_ocr(image_path)
+
+    if not raw_text:
+        return {
+            "vendor": None,
+            "amount": None,
+            "date": None,
+            "currency": "DKK",
+            "raw_text": "",
+            "ocr_available": False,
+            "confidence": "none",
+        }
+
+    # Use the existing amount extractor — it's already tuned for Danish
+    # receipts (comma decimal, kr suffix, etc.) and picks the LARGEST
+    # number that looks like a total.
+    amounts_block = _extract_amounts_from_text(raw_text)
+    amount = amounts_block.get("suggested_amount")
+
+    vendor = _extract_vendor(raw_text)
+    date_iso = _extract_date(raw_text)
+
+    # Crude currency detection — if "EUR" or "€" appears on the receipt
+    # we flag it so the frontend can warn before submitting a non-DKK
+    # expense. Otherwise default DKK (covers 99% of Danish café receipts).
+    upper = raw_text.upper()
+    if "EUR" in upper or "€" in raw_text:
+        currency = "EUR"
+    elif "USD" in upper or "$" in raw_text:
+        currency = "USD"
+    elif "GBP" in upper or "£" in raw_text:
+        currency = "GBP"
+    else:
+        currency = "DKK"
+
+    # Confidence — how many of the 3 critical fields did we find?
+    found = sum(1 for v in (vendor, amount, date_iso) if v is not None)
+    if found >= 3:
+        confidence = "high"
+    elif found == 2:
+        confidence = "medium"
+    elif found == 1:
+        confidence = "low"
+    else:
+        confidence = "none"
+
+    return {
+        "vendor": vendor,
+        "amount": amount,
+        "date": date_iso,
+        "currency": currency,
+        "raw_text": raw_text[:1000],
+        "ocr_available": True,
+        "confidence": confidence,
+    }
+
+
 def _upload_to_supabase(
     file_bytes: bytes,
     safe_name: str,

@@ -1,6 +1,9 @@
 import re
 import uuid
+import tempfile
+import logging
 from datetime import date, datetime
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
@@ -16,7 +19,11 @@ from app.schemas.expense import (
 )
 from app.services.auth import get_current_user
 from app.services.cash_sync import sync_cash_out_for_expense, delete_cash_entry_by_ref, update_cash_entry_for_ref
+from app.services.receipt_ocr import parse_expense_receipt
+from app.services.billing import get_cap, effective_plan
 from app.utils.time import utc_now
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -307,6 +314,137 @@ def permanent_delete_expense(
     db.commit()
 
 
+# Multi-layer defense for the OCR endpoint:
+#   L1 auth (get_current_user)
+#   L2 input-size cap (8MB) — receipts are tiny, anything larger is abuse
+#   L3 monthly tier cap — Free=30/mo, Starter+=unlimited
+#   L4 best-effort OCR — never raises, returns confidence="none" if it fails
+#   L5 tenant-scoped usage counter (Expense.receipt_photo set this month)
+_RECEIPT_OCR_MAX_BYTES = 8 * 1024 * 1024  # 8MB
+
+
+def _count_receipt_scans_this_month(db: Session, user_id) -> int:
+    """Estimate this-month OCR usage by counting expenses whose
+    receipt_photo was set this calendar month. Cheap proxy that doesn't
+    need a separate usage table — every successful scan creates an
+    expense row, so the count is roughly correct (we under-count by the
+    number of scans the owner abandoned before saving, which is a
+    user-friendly direction)."""
+    first_of_month = date.today().replace(day=1)
+    return (
+        db.query(func.count(Expense.id))
+        .filter(
+            Expense.user_id == user_id,
+            Expense.date >= first_of_month,
+            Expense.receipt_photo.isnot(None),
+            Expense.is_deleted.isnot(True),
+        )
+        .scalar()
+        or 0
+    )
+
+
+@router.post("/parse-receipt", status_code=200)
+async def parse_receipt(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Parse an uploaded expense receipt photo and return suggested
+    vendor / amount / date / category.
+
+    No DB write — pure parsing. The frontend pre-fills the expense
+    create form with the result and the owner confirms before saving.
+    The actual receipt_photo upload happens at /expenses POST when the
+    owner submits, so failed/abandoned scans don't pollute storage.
+    """
+    # Tier cap
+    cap = get_cap(user, "expense_receipt_scans_per_month")
+    if cap >= 0:  # -1 means unlimited
+        used = _count_receipt_scans_this_month(db, user.id)
+        if used >= cap:
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "code": "plan_required",
+                    "feature": "expense_receipt_scans",
+                    "required_plan": "starter",
+                    "current_plan": effective_plan(user),
+                    "used_this_month": used,
+                    "monthly_cap": cap,
+                    "message": (
+                        f"You've used your {cap} receipt scans this month. "
+                        "Upgrade to Starter for unlimited."
+                    ),
+                },
+            )
+
+    # Read + size-cap the upload before touching disk
+    body = await file.read()
+    if len(body) > _RECEIPT_OCR_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="Receipt photo too large (max 8MB).",
+        )
+    if not body:
+        raise HTTPException(status_code=400, detail="Empty upload.")
+
+    # Write to a temp file so OCR services that need a file path work.
+    # NamedTemporaryFile auto-deletes on close in the finally block.
+    suffix = Path(file.filename or "").suffix.lower() or ".jpg"
+    if suffix not in {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"}:
+        suffix = ".jpg"
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(body)
+            tmp_path = tmp.name
+        result = parse_expense_receipt(tmp_path)
+    except Exception as e:  # noqa: BLE001 — OCR must never crash the API
+        logger.warning("parse-receipt failed for user=%s: %s", user.id, e)
+        result = {
+            "vendor": None, "amount": None, "date": None, "currency": "DKK",
+            "raw_text": "", "ocr_available": False, "confidence": "none",
+        }
+    finally:
+        if tmp_path:
+            try:
+                Path(tmp_path).unlink(missing_ok=True)
+            except Exception:  # noqa: BLE001
+                pass
+
+    # Best-effort category suggestion based on parsed vendor name
+    suggested_category = None
+    if result.get("vendor"):
+        cat_hit = suggest_category_for(result["vendor"], user.id, db)
+        if cat_hit:
+            cat = (
+                db.query(ExpenseCategory)
+                .filter(
+                    ExpenseCategory.user_id == user.id,
+                    ExpenseCategory.name == cat_hit["category_name"],
+                )
+                .first()
+            )
+            if cat:
+                suggested_category = {
+                    "category_id": str(cat.id),
+                    "category_name": cat_hit["category_name"],
+                    "confidence": cat_hit["confidence"],
+                }
+
+    return {
+        **result,
+        "suggested_category": suggested_category,
+        "usage": {
+            "used_this_month": _count_receipt_scans_this_month(db, user.id),
+            "monthly_cap": cap,
+            "unlimited": cap == -1,
+        },
+    }
+
+
 @router.post("", response_model=ExpenseResponse, status_code=201)
 def create_expense(
     data: ExpenseCreate,
@@ -386,20 +524,25 @@ def delete_expense(
 @router.post("/upload-receipt")
 async def upload_expense_receipt(
     file: UploadFile = File(...),
+    db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """
-    Upload a receipt image and OCR-extract the amount for expense creation.
-
-    Was previously broken — imported `process_receipt` which doesn't exist.
-    Reconstructed using save_receipt_photo + extract_amount_from_image
-    (same pipeline as /sales/upload-receipt).
+    Upload a receipt image and OCR-extract vendor + amount + date + category
+    for expense creation.
 
     Defense layers:
       1. content_type must be image/*
       2. body capped at 5 MB
       3. PIL.verify() inside save_receipt_photo rejects non-images
          (raises ValueError → 400 here)
+      4. Monthly tier cap — Free=30/mo, Starter+=unlimited
+
+    May 2026 — was previously amount-only via extract_amount_from_image.
+    Now also runs parse_expense_receipt to extract vendor name, date, and
+    suggest a category, so the create-expense form can pre-fill three more
+    fields. The owner still confirms before saving — OCR errors don't
+    silently corrupt the books.
     """
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(400, "Please upload an image file")
@@ -407,7 +550,28 @@ async def upload_expense_receipt(
     if len(raw) > 5 * 1024 * 1024:
         raise HTTPException(400, "Image too large (max 5 MB)")
 
-    from app.services.receipt_ocr import save_receipt_photo, extract_amount_from_image
+    # Tier cap — same monthly meter as /parse-receipt below
+    cap = get_cap(user, "expense_receipt_scans_per_month")
+    if cap >= 0:
+        used = _count_receipt_scans_this_month(db, user.id)
+        if used >= cap:
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "code": "plan_required",
+                    "feature": "expense_receipt_scans",
+                    "required_plan": "starter",
+                    "current_plan": effective_plan(user),
+                    "used_this_month": used,
+                    "monthly_cap": cap,
+                    "message": (
+                        f"You've used your {cap} receipt scans this month. "
+                        "Upgrade to Starter for unlimited."
+                    ),
+                },
+            )
+
+    from app.services.receipt_ocr import save_receipt_photo, extract_amount_from_image, parse_expense_receipt
     try:
         stored_path = save_receipt_photo(raw, file.filename, str(user.id), kind="expense")
     except ValueError as e:
@@ -422,17 +586,62 @@ async def upload_expense_receipt(
     )
     local_path = local_files[0] if local_files else stored_path
 
+    # Try the richer parse first (vendor + amount + date), fall back to
+    # amount-only on any failure. Both wrap their internal exceptions —
+    # OCR must NEVER crash the upload (owner already has the photo
+    # saved; we just lose the auto-fill assist).
+    parsed = {"vendor": None, "amount": None, "date": None, "currency": "DKK", "confidence": "none", "raw_text": ""}
     try:
-        result = extract_amount_from_image(local_path)
-    except Exception as e:
-        raise HTTPException(500, f"OCR failed: {e}")
+        parsed = parse_expense_receipt(local_path)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("upload-receipt: parse_expense_receipt failed user=%s: %s", user.id, e)
+
+    # Fallback amount detection if parse_expense_receipt didn't get one
+    try:
+        amount_block = extract_amount_from_image(local_path)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("upload-receipt: extract_amount_from_image failed user=%s: %s", user.id, e)
+        amount_block = {"suggested_amount": None, "all_amounts_found": [], "ocr_available": False, "raw_text": ""}
+
+    # Best amount = parse result if confident, else fall back to amount-only
+    amount = parsed.get("amount") or amount_block.get("suggested_amount")
+
+    # Best-effort category suggestion from the parsed vendor
+    suggested_category = None
+    if parsed.get("vendor"):
+        cat_hit = suggest_category_for(parsed["vendor"], user.id, db)
+        if cat_hit:
+            cat = (
+                db.query(ExpenseCategory)
+                .filter(
+                    ExpenseCategory.user_id == user.id,
+                    ExpenseCategory.name == cat_hit["category_name"],
+                )
+                .first()
+            )
+            if cat:
+                suggested_category = {
+                    "category_id": str(cat.id),
+                    "category_name": cat_hit["category_name"],
+                    "confidence": cat_hit["confidence"],
+                }
 
     return {
         "filepath": stored_path,
-        "suggested_amount": result.get("suggested_amount"),
-        "all_amounts_found": result.get("all_amounts_found", []),
-        "ocr_available": result.get("ocr_available", False),
-        "raw_text": result.get("raw_text", ""),
+        "suggested_amount": amount,
+        "suggested_vendor": parsed.get("vendor"),
+        "suggested_date": parsed.get("date"),
+        "suggested_currency": parsed.get("currency") or "DKK",
+        "suggested_category": suggested_category,
+        "all_amounts_found": amount_block.get("all_amounts_found", []),
+        "ocr_available": parsed.get("ocr_available") or amount_block.get("ocr_available", False),
+        "confidence": parsed.get("confidence", "low"),
+        "raw_text": parsed.get("raw_text") or amount_block.get("raw_text", ""),
+        "usage": {
+            "used_this_month": _count_receipt_scans_this_month(db, user.id),
+            "monthly_cap": cap,
+            "unlimited": cap == -1,
+        },
     }
 
 

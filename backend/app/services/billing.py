@@ -130,6 +130,10 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # Faktura is Starter+ entirely (via require_invoicing_plan)
         # so Free is hard-blocked, not metered. 0 = no quota at all.
         "invoices_per_month": 0,
+        # Expense-receipt OCR — 30/month is plenty for a solo owner
+        # who actually scans regularly (~1/day). Hit the cap = strong
+        # signal "I rely on this" → upgrade to Starter for unlimited.
+        "expense_receipt_scans_per_month": 30,
     },
     "starter": {
         "branches": 1,
@@ -147,6 +151,9 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # bite normal users — but B2B-heavy or busier tenants will
         # bump into it and have a clear "I need Pro" moment.
         "invoices_per_month": 30,
+        # Unlimited expense receipt OCR — Starter promise is "stop
+        # typing receipts" so capping here would be self-defeating.
+        "expense_receipt_scans_per_month": -1,
     },
     "trial": {  # = full Pro for 14 days
         "branches": 3,
@@ -160,6 +167,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "ai_brief_refreshes_per_day": 5,
         "ai_chat_messages_per_day": 200,
         "invoices_per_month": -1,  # unlimited
+        "expense_receipt_scans_per_month": -1,
     },
     "pro": {
         "branches": 3,
@@ -173,6 +181,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "ai_brief_refreshes_per_day": 5,
         "ai_chat_messages_per_day": 200,
         "invoices_per_month": -1,  # unlimited
+        "expense_receipt_scans_per_month": -1,
     },
 }
 

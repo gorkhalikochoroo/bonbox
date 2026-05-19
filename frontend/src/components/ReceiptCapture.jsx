@@ -27,6 +27,13 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
   const [preview, setPreview] = useState(null);
   const [success, setSuccess] = useState("");
   const [desc, setDesc] = useState("");
+  // Pre-filled by OCR vendor + date in expense mode. Owner can override
+  // before saving — we never silently book OCR guesses.
+  const [parsedDate, setParsedDate] = useState("");
+  const [parsedCategoryId, setParsedCategoryId] = useState("");
+  // Tier-cap error surfaced from /upload-receipt 402 response. When set,
+  // we hide the file picker and show an UpgradeNudge-style block.
+  const [capError, setCapError] = useState(null);
   // "with-moms" (gross — typical Danish receipt) | "without-moms" (net).
   // Default to gross because most printed receipts include MOMS in the
   // total. The flag is passed through to the OCR endpoint so server-
@@ -70,9 +77,36 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
       } else {
         trackEvent("receipt_scan_failed", mode, res.data.ocr_available ? "no amount found" : "ocr unavailable");
       }
+      // Expense-mode richer fields (May 2026): vendor → description,
+      // date → parsed date, suggested_category → category id pre-fill.
+      if (isExpense) {
+        if (res.data.suggested_vendor && !desc) {
+          setDesc(res.data.suggested_vendor);
+        }
+        if (res.data.suggested_date) {
+          setParsedDate(res.data.suggested_date);
+        }
+        if (res.data.suggested_category?.category_id) {
+          setParsedCategoryId(res.data.suggested_category.category_id);
+        }
+      }
     } catch (err) {
-      setResult({ suggested_amount: null, all_amounts_found: [], ocr_available: false });
-      trackEvent("receipt_scan_error", mode, err.message);
+      // Tier-cap 402 returns structured detail — surface it to the user
+      // as an UpgradeNudge instead of a generic "OCR failed" toast.
+      const detail = err?.response?.data?.detail;
+      if (err?.response?.status === 402 && detail?.code === "plan_required") {
+        setCapError({
+          used: detail.used_this_month,
+          cap: detail.monthly_cap,
+          plan: detail.required_plan,
+          message: detail.message,
+        });
+        setPreview(null);
+        trackEvent("receipt_scan_cap_hit", mode, `${detail.used_this_month}/${detail.monthly_cap}`);
+      } else {
+        setResult({ suggested_amount: null, all_amounts_found: [], ocr_available: false });
+        trackEvent("receipt_scan_error", mode, err.message);
+      }
     }
     setUploading(false);
   };
@@ -93,18 +127,24 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
 
   const confirmExpense = async () => {
     if (!amount) return;
-    const today = localIso();
-    await api.post("/expenses", {
+    // Use OCR-parsed date when available, else today. Owner sees the
+    // date field rendered below before confirming so they can override.
+    const expenseDate = parsedDate || localIso();
+    const payload = {
       amount: parseFloat(amount),
       description: desc || "Receipt scan",
-      date: today,
+      date: expenseDate,
       payment_method: method,
       // Pass the OCR-saved photo path so the saved Expense row carries
       // it. Schema-level cap (500 chars) is enforced server-side. This
       // is what enables the post-save "View receipt" affordance from
       // the Expenses list.
       receipt_photo: result?.filepath || null,
-    });
+    };
+    if (parsedCategoryId) {
+      payload.category_id = parsedCategoryId;
+    }
+    await api.post("/expenses", payload);
     setSuccess("Expense added from receipt");
     onSaved?.();
     setTimeout(() => { setSuccess(""); closeModal(); }, 2000);
@@ -116,6 +156,9 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
     setPreview(null);
     setAmount("");
     setDesc("");
+    setParsedDate("");
+    setParsedCategoryId("");
+    setCapError(null);
     onClose?.();
   };
 
@@ -146,7 +189,28 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                 Currently informational at the per-sale level — MOMS is
                 computed at daily-close — but sent to backend for future
                 per-receipt VAT awareness. */}
-            {!preview && (
+            {/* Tier-cap reached — show upgrade prompt instead of file
+                picker. Cleared when user closes modal so they can retry
+                next month or upgrade and reopen immediately. */}
+            {capError && (
+              <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 p-4 text-sm text-amber-800 dark:text-amber-200 space-y-2">
+                <div className="font-semibold flex items-center gap-2">
+                  <span className="text-base">📸</span>
+                  Receipt scans this month: {capError.used} / {capError.cap}
+                </div>
+                <p className="text-xs leading-relaxed">
+                  {capError.message || "Upgrade to Starter for unlimited receipt scans."}
+                </p>
+                <a
+                  href="/subscription"
+                  className="inline-block px-3 py-1.5 bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 rounded-lg text-xs font-medium hover:bg-stone-700 dark:hover:bg-stone-200 transition"
+                >
+                  See plans →
+                </a>
+              </div>
+            )}
+
+            {!preview && !capError && (
               <div className="flex items-center justify-center gap-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg px-3 py-2">
                 <span className="text-xs text-gray-500 dark:text-gray-400">
                   Receipt amounts are:
@@ -172,7 +236,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
               </div>
             )}
 
-            {!preview && (
+            {!preview && !capError && (
               <>
                 {/* Two buttons on iOS: 'Take Photo' opens the rear
                     camera directly (capture="environment"); 'Choose
@@ -326,15 +390,75 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                   autoFocus
                 />
 
-                {/* Description field for expense mode */}
+                {/* Description (pre-filled with OCR vendor) — expense mode */}
                 {isExpense && (
                   <input
                     type="text"
                     value={desc}
                     onChange={(e) => setDesc(e.target.value)}
-                    placeholder="Description (optional)"
+                    placeholder={
+                      result?.suggested_vendor
+                        ? `Vendor (we found: ${result.suggested_vendor})`
+                        : "Description / vendor (optional)"
+                    }
                     className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 mb-3"
                   />
+                )}
+
+                {/* Date row — pre-filled by OCR-parsed receipt date,
+                    fallback to today. Owner sees what we read so they
+                    catch back-dated mistakes before saving. */}
+                {isExpense && (
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">
+                      Date
+                    </span>
+                    <input
+                      type="date"
+                      value={parsedDate || ""}
+                      onChange={(e) => setParsedDate(e.target.value)}
+                      className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                    {result?.suggested_date && (
+                      <span className="text-[11px] text-emerald-600 dark:text-emerald-400 shrink-0">
+                        ✓ from receipt
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Suggested-category chip — shown only when OCR
+                    matched a vendor and the user already has that
+                    category. Tap to confirm (sets the id), tap × to
+                    skip and pick manually after save. */}
+                {isExpense && result?.suggested_category && (
+                  <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 rounded-lg">
+                    <span className="text-xs text-emerald-700 dark:text-emerald-300">
+                      Category guess:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setParsedCategoryId(result.suggested_category.category_id)}
+                      className={`px-2 py-0.5 rounded-md text-xs font-medium transition ${
+                        parsedCategoryId === result.suggested_category.category_id
+                          ? "bg-emerald-600 text-white"
+                          : "bg-white dark:bg-stone-800 border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50"
+                      }`}
+                    >
+                      {parsedCategoryId === result.suggested_category.category_id ? "✓ " : ""}
+                      {result.suggested_category.category_name}
+                    </button>
+                    {parsedCategoryId === result.suggested_category.category_id && (
+                      <button
+                        type="button"
+                        onClick={() => setParsedCategoryId("")}
+                        className="ml-auto text-xs text-stone-500 hover:text-stone-700"
+                        aria-label="Clear category"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
                 )}
 
                 <div className="flex flex-wrap gap-1.5 mb-4">
