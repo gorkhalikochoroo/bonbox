@@ -1,10 +1,13 @@
 import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { displayCurrency } from "../utils/currency";
 import { useLanguage } from "../hooks/useLanguage";
 import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
+import CustomerOutreachModal from "../components/CustomerOutreachModal";
+import { Icon } from "../components/ui";
 
 export default function KhataPage() {
   const { user } = useAuth();
@@ -162,10 +165,46 @@ export default function KhataPage() {
   });
   const displayTxns = [...txnsWithBalance].reverse();
 
+  // Outreach modal — opens via the "Reach out" button at top, OR
+  // auto-opens when the Brief CTA deep-links us here with
+  // ?outreach=at-risk. Keeps the modal completely page-local.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [outreachOpen, setOutreachOpen] = useState(false);
+  useEffect(() => {
+    if (searchParams.get("outreach") === "at-risk") {
+      setOutreachOpen(true);
+      // Strip the param so refreshes don't re-open
+      const next = new URLSearchParams(searchParams);
+      next.delete("outreach");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("khataTitle")}</h1></FadeIn>
-      <p className="text-sm text-gray-500 dark:text-gray-400">{t("khataSubtitle")}</p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("khataTitle")}</h1></FadeIn>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t("khataSubtitle")}</p>
+        </div>
+        {/* Reach-out CTA — opens the outreach modal with at-risk
+            regulars pre-loaded. Subtle (not primary) so it doesn't
+            distract from the page's main CRUD job. */}
+        <button
+          type="button"
+          onClick={() => setOutreachOpen(true)}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border border-emerald-200 dark:border-emerald-800/40 bg-emerald-50/50 dark:bg-emerald-900/15 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100/60 dark:hover:bg-emerald-900/25 transition"
+        >
+          <Icon name="Heart" size={14} />
+          {t("khataReachOut") || "Reach out to regulars"}
+        </button>
+      </div>
+
+      <CustomerOutreachModal
+        open={outreachOpen}
+        onClose={() => setOutreachOpen(false)}
+        businessName={user?.business_name || "BonBox"}
+      />
 
       {error && <p className="bg-red-50 text-red-600 p-3 rounded-lg text-sm">{error}</p>}
 

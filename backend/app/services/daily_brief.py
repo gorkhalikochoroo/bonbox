@@ -887,8 +887,11 @@ def generate_candidates(p: Precompute) -> list[Candidate]:
                 str(median_days),
                 *first_names,
             ],
-            cta_label="Open Khata",
-            cta_url="/khata",
+            # Deep-link to Khata + auto-open the outreach modal. Owner
+            # goes from brief → SMS draft in 2 taps. Closes the loyalty
+            # loop instead of leaving the insight as a passive nudge.
+            cta_label="Text these regulars",
+            cta_url="/khata?outreach=at-risk",
         ))
 
     # Sort by weight descending so the LLM (or the fallback) picks

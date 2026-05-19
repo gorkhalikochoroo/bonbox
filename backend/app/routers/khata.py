@@ -242,3 +242,146 @@ def get_summary(
         "customer_count": len(customers),
         "top_debtors": top_debtors,
     }
+
+
+@router.get("/at-risk")
+def get_at_risk_regulars(
+    min_visits: int = 3,
+    days_silent: int = 14,
+    lookback_days: int = 90,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """List regular customers who haven't been back recently.
+
+    Mirrors the precompute logic used by the Daily Brief loyalty signal
+    so the Brief's CTA can deep-link here and the Khata page can show
+    the same "regulars at risk" list.
+
+    Definition:
+      - Regular = customer with ≥ `min_visits` transactions in the
+        last `lookback_days` days (default ≥3 visits in 90d).
+      - At-risk = last visit was ≥ `days_silent` days ago (default 14).
+
+    Returns a list ranked by visit_count desc, then days_since desc so
+    the most-loyal-but-silent customers float to the top. Capped at
+    `limit` rows to keep the response small.
+
+    Defensive: bounds checks on inputs so an over-eager caller can't
+    request a 10-year lookback or 1000-row page.
+    """
+    from datetime import date, timedelta
+
+    # Input bounds — same kind of multi-layer guard the rest of the
+    # router uses. A hostile/curious caller can't poke around outside
+    # these.
+    min_visits = max(2, min(min_visits, 20))
+    days_silent = max(1, min(days_silent, 365))
+    lookback_days = max(7, min(lookback_days, 366))
+    limit = max(1, min(limit, 100))
+
+    today = date.today()
+    window_start = today - timedelta(days=lookback_days)
+    silent_cutoff = today - timedelta(days=days_silent)
+
+    # Per-customer (visit_count, last_visit) within the lookback window.
+    # One SQL roundtrip — no N+1. Mirrors compute_precompute() in the
+    # daily_brief service.
+    rows = (
+        db.query(
+            KhataCustomer.id.label("cid"),
+            KhataCustomer.name.label("name"),
+            KhataCustomer.phone.label("phone"),
+            func.count(KhataTransaction.id).label("visits"),
+            func.max(KhataTransaction.date).label("last_visit"),
+        )
+        .join(KhataTransaction, KhataTransaction.customer_id == KhataCustomer.id)
+        .filter(
+            KhataCustomer.user_id == user.id,
+            KhataCustomer.is_deleted.isnot(True),
+            KhataTransaction.user_id == user.id,
+            KhataTransaction.date >= window_start,
+        )
+        .group_by(KhataCustomer.id, KhataCustomer.name, KhataCustomer.phone)
+        .having(func.count(KhataTransaction.id) >= min_visits)
+        .all()
+    )
+
+    at_risk = []
+    for r in rows:
+        if r.last_visit is None or r.last_visit > silent_cutoff:
+            continue
+        days_since = (today - r.last_visit).days
+        at_risk.append({
+            "id": str(r.cid),
+            "name": str(r.name or "Customer"),
+            "phone": (r.phone or "").strip() or None,
+            "visits": int(r.visits or 0),
+            "last_visit": r.last_visit.isoformat(),
+            "days_since_last": days_since,
+        })
+
+    # Rank: visit_count desc, then days_since desc as tiebreaker.
+    at_risk.sort(key=lambda c: (-c["visits"], -c["days_since_last"]))
+    return {
+        "regulars_at_risk": at_risk[:limit],
+        "total_regulars": len(rows),
+        "window": {
+            "min_visits": min_visits,
+            "days_silent": days_silent,
+            "lookback_days": lookback_days,
+        },
+    }
+
+
+@router.post("/outreach-log")
+def log_outreach(
+    payload: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Best-effort audit trail when an owner opens an SMS via the
+    Customer Outreach modal.
+
+    Records: which template was used + how many recipients +
+    customer_ids touched. NEVER records the message body itself —
+    the SMS goes through the owner's own phone, BonBox doesn't see
+    the content (and shouldn't, even if asked).
+
+    Returns 200 on validation failure too (best-effort logging
+    shouldn't block the owner's actual goal: opening their SMS app).
+    """
+    try:
+        from app.services import audit_service
+        customer_ids = payload.get("customer_ids", [])
+        if not isinstance(customer_ids, list):
+            customer_ids = []
+        # Cap to prevent abuse
+        customer_ids = [str(c)[:64] for c in customer_ids[:100]]
+        template = str(payload.get("template", ""))[:32]
+        recipient_count = int(payload.get("recipient_count") or 0)
+
+        audit_service.record(
+            db, user=user,
+            action="khata.outreach_initiated",
+            entity_type="khata_customer_group",
+            entity_id=None,
+            before=None,
+            after={
+                "template": template,
+                "recipient_count": recipient_count,
+                "customer_ids_count": len(customer_ids),
+                # We deliberately DON'T store the raw ids — just the
+                # count, so adoption tracking works without persistent
+                # customer-level outreach history (privacy posture).
+            },
+        )
+        db.commit()
+    except Exception:  # noqa: BLE001
+        # Audit failure must NEVER block the SMS flow. Silent log only.
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+    return {"ok": True}
