@@ -156,6 +156,14 @@ class Precompute:
     last_close_variance_pct: float | None = None  # signed; positive = close > sales
     last_close_date: str | None = None
 
+    # Customer loyalty signals (May 2026 — Brief 2.0 follow-up).
+    # Top regular customers (≥3 visits in last 90 days) who haven't
+    # transacted in ≥14 days. The brief turns these into "text your
+    # regulars" prompts — the highest-leverage customer outreach the
+    # owner can do without a CRM.
+    top_regulars_at_risk: list[dict] = field(default_factory=list)  # [{name, days_since_last}]
+    regular_customer_count: int = 0  # total customers w/ ≥3 visits in 90d
+
     def to_dict(self) -> dict:
         return {k: v for k, v in self.__dict__.items()}
 
@@ -302,6 +310,62 @@ def compute_precompute(user: User, db: Session) -> Precompute:
         if outstanding > 0:
             khata_total += outstanding
             khata_count += 1
+
+    # ── Customer loyalty signals — Brief 2.0 (May 2026) ─────────────
+    # Find regulars who haven't been back. Definition:
+    #   • Regular = ≥3 KhataTransaction rows in the last 90 days
+    #   • At-risk = last visit ≥ 14 days ago
+    # Output is the TOP 5 regulars at risk, ranked by visit_count desc
+    # (so a 12-visit champion who's been silent for 20 days ranks above
+    # a 3-visit casual who's been silent for 30). This is exactly the
+    # subset an owner can text without it feeling like spam.
+    #
+    # Wrapped defensively: a brand-new account or a corrupted khata
+    # table never crashes the brief. Returns empty list on any error.
+    top_regulars_at_risk: list[dict] = []
+    regular_customer_count = 0
+    try:
+        ninety_days_ago = today - timedelta(days=90)
+        fourteen_days_ago = today - timedelta(days=14)
+        # Per-customer (visit_count, last_visit_date) within the 90-day window.
+        # One SQL roundtrip — no N+1.
+        regulars_rows = (
+            db.query(
+                KhataCustomer.id.label("cid"),
+                KhataCustomer.name.label("name"),
+                sa_func.count(KhataTransaction.id).label("visits"),
+                sa_func.max(KhataTransaction.date).label("last_visit"),
+            )
+            .join(KhataTransaction, KhataTransaction.customer_id == KhataCustomer.id)
+            .filter(
+                KhataCustomer.user_id == user.id,
+                KhataCustomer.is_deleted.isnot(True),
+                KhataTransaction.user_id == user.id,
+                KhataTransaction.date >= ninety_days_ago,
+            )
+            .group_by(KhataCustomer.id, KhataCustomer.name)
+            .having(sa_func.count(KhataTransaction.id) >= 3)
+            .all()
+        )
+        regular_customer_count = len(regulars_rows)
+        at_risk = []
+        for r in regulars_rows:
+            last_visit = r.last_visit
+            if last_visit is None:
+                continue
+            if last_visit > fourteen_days_ago:
+                continue  # came in recently — not at risk
+            days_since = (today - last_visit).days
+            at_risk.append({
+                "name": str(r.name or "Customer"),
+                "visits": int(r.visits or 0),
+                "days_since_last": days_since,
+            })
+        # Rank by visit_count desc, then days_since desc as tiebreaker
+        at_risk.sort(key=lambda r: (-r["visits"], -r["days_since_last"]))
+        top_regulars_at_risk = at_risk[:5]
+    except Exception as e:  # noqa: BLE001
+        logger.debug("daily_brief: customer-loyalty signal unavailable: %s", e)
 
     # ── Faktura intel — Day 9 ───────────────────────────────────────
     # Catch both rows already flipped to 'overdue' by the nightly
@@ -502,6 +566,8 @@ def compute_precompute(user: User, db: Session) -> Precompute:
         recurring_due_soon_total=round(recurring_due_soon_total, 2),
         last_close_variance_pct=last_close_variance_pct,
         last_close_date=last_close_date,
+        top_regulars_at_risk=top_regulars_at_risk,
+        regular_customer_count=regular_customer_count,
     )
 
 
@@ -793,6 +859,36 @@ def generate_candidates(p: Precompute) -> list[Candidate]:
             ],
             cta_label="Open Daily Close",
             cta_url="/daily-close",
+        ))
+
+    # ── Brief 2.0: customer loyalty — regulars at risk ──────────────
+    # The brief becomes a customer outreach prompter. We only fire when
+    # there are 2+ at-risk regulars — a single one is noise, two+ is a
+    # pattern the owner should act on. Top 3 names included by default;
+    # for 4-5 we show "+N more" so the line stays scannable.
+    if len(p.top_regulars_at_risk) >= 2:
+        # Compact name list — first 3, then "+N more"
+        first_names = [
+            (r["name"].split()[0] if r.get("name") else "Customer")
+            for r in p.top_regulars_at_risk[:3]
+        ]
+        extra = max(0, len(p.top_regulars_at_risk) - 3)
+        names_text = ", ".join(first_names) + (f" +{extra} more" if extra else "")
+        # Use the median days_since for a representative number — picking
+        # max would over-dramatize, picking min would under-sell.
+        days_values = sorted(r.get("days_since_last", 14) for r in p.top_regulars_at_risk)
+        median_days = days_values[len(days_values) // 2]
+        out.append(Candidate(
+            type="action",
+            text=f"{len(p.top_regulars_at_risk)} regulars haven't been back in ~{median_days} days ({names_text}) — a quick hello could bring them in this week.",
+            weight=0.68,
+            facts=[
+                str(len(p.top_regulars_at_risk)),
+                str(median_days),
+                *first_names,
+            ],
+            cta_label="Open Khata",
+            cta_url="/khata",
         ))
 
     # Sort by weight descending so the LLM (or the fallback) picks
