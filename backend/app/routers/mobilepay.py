@@ -435,12 +435,33 @@ def mobilepay_callback(
     """
     enforce_feature(user, "mobilepay_autosync")
 
+    # Diagnostic logging (truncated state for readability) — helps debug
+    # production "Invalid state" / "state already consumed" failures
+    # without leaking the full token to logs.
+    incoming = (body.state or "")[:8] + "…" if body.state else "<empty>"
     conn = _get_owned_connection(db, user)
-    if not conn or conn.consent_state != body.state:
+    if not conn:
+        logger.warning(
+            "mobilepay.callback: no connection row for user_id=%s state=%s",
+            user.id, incoming,
+        )
+        raise HTTPException(status_code=400, detail="Invalid state")
+    stored = (conn.consent_state or "")[:8] + "…" if conn.consent_state else "<cleared>"
+    if conn.consent_state != body.state:
+        logger.warning(
+            "mobilepay.callback: state mismatch user_id=%s status=%s "
+            "incoming=%s stored=%s",
+            user.id, conn.status, incoming, stored,
+        )
         # Don't leak whether the state is unknown vs unowned vs wrong-
         # user. One generic 400 covers all three.
         raise HTTPException(status_code=400, detail="Invalid state")
     if conn.status != "pending":
+        logger.warning(
+            "mobilepay.callback: connection not in pending state "
+            "user_id=%s status=%s",
+            user.id, conn.status,
+        )
         raise HTTPException(
             status_code=400,
             detail=f"Connection in {conn.status} state — cannot complete consent",
@@ -450,7 +471,11 @@ def mobilepay_callback(
         client = get_mobilepay_client()
         result = client.complete_callback(body.code, body.state)
     except MobilePayClientError as e:
-        logger.exception("mobilepay.callback: complete_callback failed")
+        logger.exception(
+            "mobilepay.callback: complete_callback failed user_id=%s "
+            "state=%s status=%s kind=%s",
+            user.id, incoming, getattr(e, "status", "?"), getattr(e, "kind", "?"),
+        )
         audit_service.record(
             db, user, "mobilepay.connect",
             entity_type="mobilepay_connection", entity_id=conn.id,

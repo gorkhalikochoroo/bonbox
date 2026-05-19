@@ -172,31 +172,72 @@ class MockAiiaClient:
         return f"{redirect_uri}{sep}state={state}&code={code}"
 
     def exchange_code(self, code: str) -> dict:
+        # Mock is forgiving by design — see the matching comment in
+        # MockMobilePayClient.complete_callback for the full rationale.
+        # The real Aiia sandbox/live still rejects bad codes; only the
+        # mock is permissive (it's for demos + local dev).
+        #
         # Find the matching state by stored code. Allows the test
         # client to call /callback?code=...&state=... and we'll match
-        # them up. If no state is found (mock client used in a
-        # different way), still return a deterministic response.
+        # them up.
         matching_state = None
         for st, data in self._consents.items():
             if data.get("code") == code:
                 matching_state = st
-                data["used"] = True
                 break
+
         if matching_state is None:
-            # Test may have called callback with a known-bad code —
-            # raise to mirror real-Aiia behavior.
-            raise AiiaClientError(
-                "exchange_code: no matching consent for this code",
-                status=400, kind="invalid_grant",
+            # Dyno may have restarted between /init and /callback,
+            # wiping the class-level dict. Generate a fresh response so
+            # the demo flow still completes. The backend router already
+            # validated `conn.consent_state == body.state`, so the state
+            # was minted by us at some earlier point.
+            logger.warning(
+                "mock_aiia.exchange_code: no matching state for code %s "
+                "— treating as fresh (dyno likely restarted between "
+                "init and callback)",
+                (code[:8] + "…") if len(code) > 8 else code,
             )
-        bank_slug = self._consents[matching_state].get("bank_slug") or "danske_bank"
-        return {
+            # Mint a deterministic response and cache it under a
+            # synthetic state so a replay returns the same response.
+            synthetic_state = f"recovered_{secrets.token_hex(8)}"
+            response = {
+                "account_id": f"mock_acct_recovered_{secrets.token_hex(4)}",
+                "account_label": "Erhverv driftskonto",
+                "refresh_token": f"mock_refresh_{secrets.token_hex(16)}",
+                "access_token": f"mock_access_{secrets.token_hex(8)}",
+                "expires_in": 7776000,  # 90 days, matches DK SCA
+            }
+            self._consents[synthetic_state] = {
+                "redirect_uri": "",
+                "bank_slug": None,
+                "used": True,
+                "code": code,
+                "cached_response": response,
+            }
+            return dict(response)
+
+        data = self._consents[matching_state]
+        # Idempotent replay: same code already exchanged → return cache.
+        if data.get("used") and data.get("cached_response"):
+            logger.info(
+                "mock_aiia.exchange_code: replay for code %s — returning "
+                "cached response (idempotent demo)",
+                (code[:8] + "…") if len(code) > 8 else code,
+            )
+            return dict(data["cached_response"])
+
+        bank_slug = data.get("bank_slug") or "danske_bank"
+        response = {
             "account_id": f"mock_acct_{bank_slug}_{secrets.token_hex(4)}",
             "account_label": "Erhverv driftskonto",
             "refresh_token": f"mock_refresh_{secrets.token_hex(16)}",
             "access_token": f"mock_access_{secrets.token_hex(8)}",
             "expires_in": 7776000,  # 90 days, matches DK SCA
         }
+        data["used"] = True
+        data["cached_response"] = response
+        return dict(response)
 
     def list_transactions(
         self, account_id: str, since: datetime | None,

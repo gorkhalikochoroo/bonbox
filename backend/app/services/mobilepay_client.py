@@ -183,25 +183,61 @@ class MockMobilePayClient:
         return f"{redirect_uri}{sep}state={state}&code={code}"
 
     def complete_callback(self, code: str, state: str) -> dict:
+        # Mock is forgiving by design. Real (sandbox/live) clients still
+        # enforce strict OAuth replay rules upstream — the strictness
+        # belongs to MobilePay, not the in-process mock. For the mock we
+        # make the demo flow robust against:
+        #   - Render free-tier dyno restart wiping `_consents` between
+        #     /init and /callback (state would look "unknown" otherwise).
+        #   - React useEffect double-fire from translation-ref changes
+        #     (we now ref-guard the client side, but defense in depth).
+        #   - Owners clicking Connect twice in rapid succession.
+        # We log at WARNING so the unusual paths show up in production
+        # logs without breaking the user flow.
         data = self._consents.get(state)
-        if not data:
-            raise MobilePayClientError(
-                "complete_callback: unknown state",
-                status=400, kind="invalid_state",
+
+        if data is None:
+            # State unknown — most likely the dyno restarted between
+            # /init and /callback, wiping the class-level dict. Treat
+            # this as a fresh consent and proceed. The backend router
+            # already validated `conn.consent_state == body.state`, so
+            # we know the state was minted by *this* deployment at some
+            # point — we're not letting a random attacker in.
+            logger.warning(
+                "mock_mobilepay.complete_callback: unknown state %s — "
+                "treating as fresh (dyno likely restarted between init "
+                "and callback)",
+                (state[:8] + "…") if len(state) > 8 else state,
             )
-        if data.get("code") != code:
-            raise MobilePayClientError(
-                "complete_callback: code does not match state",
-                status=400, kind="invalid_grant",
+            data = {
+                "redirect_uri": "",
+                "used": False,
+                "code": code,
+                "merchant_id": f"mock_mp_merchant_{secrets.token_hex(4)}",
+            }
+            self._consents[state] = data
+
+        # Idempotent replay: if the same state was already consumed and
+        # we cached the response, return it verbatim. The cached_response
+        # path also covers React effect double-fire that slipped through
+        # the frontend ref-guard.
+        if data.get("used") and data.get("cached_response"):
+            logger.info(
+                "mock_mobilepay.complete_callback: replay of consumed "
+                "state %s — returning cached response (idempotent demo)",
+                (state[:8] + "…") if len(state) > 8 else state,
             )
-        if data.get("used"):
-            raise MobilePayClientError(
-                "complete_callback: state already consumed",
-                status=400, kind="replay",
-            )
-        data["used"] = True
-        merchant_id = data["merchant_id"]
-        return {
+            return dict(data["cached_response"])
+
+        # Note: we intentionally DO NOT verify code-vs-state matching in
+        # the mock. The real MobilePay sandbox does. The mock is for
+        # demos, and the navigable redirect URL we return from
+        # init_connection embeds the code we minted — they always match
+        # in practice. If they ever drift (e.g. an old browser tab with
+        # stale code) we still succeed rather than confuse the demo.
+
+        merchant_id = data.get("merchant_id") or f"mock_mp_merchant_{secrets.token_hex(4)}"
+        response = {
             "mp_merchant_id": merchant_id,
             "merchant_name": "Bon Bakery Erhverv (sandbox)",
             "access_token": f"mock_mp_access_{secrets.token_hex(8)}",
@@ -210,6 +246,9 @@ class MockMobilePayClient:
             "expires_in": 3600,         # 1h access token
             "consent_expires_in": 7776000,  # 90 days, matches DK SCA pattern
         }
+        data["used"] = True
+        data["cached_response"] = response
+        return dict(response)
 
     def list_payments(
         self, mp_merchant_id: str, access_token: str, since: datetime | None,
