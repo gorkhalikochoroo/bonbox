@@ -27,6 +27,9 @@ const AccountantViewBanner = lazy(() => import("./AccountantViewBanner"));
 // Soft-error banner is part of the multi-layer defense — listens for graceful
 // backend errors so a single failing endpoint never blanks the whole page.
 const SoftErrorBanner = lazy(() => import("./SoftErrorBanner"));
+// PWA install prompt — self-hides if already installed / dismissed /
+// running natively. Surfaces 25 sec after the page mounts.
+const InstallAppPrompt = lazy(() => import("./InstallAppPrompt"));
 
 /* ─── Grouped sidebar navigation ───
    visibleFor: array of business_types that see this group.
@@ -813,6 +816,11 @@ export default function Layout() {
           {/* SupportChip — bottom-left "?" so the founder hears
               from owners before they churn. */}
           <SupportChip />
+          {/* InstallAppPrompt — encourages adding BonBox to the home
+              screen. Self-hides when already standalone / dismissed /
+              running in a Capacitor shell, so it never shows up where
+              it would be redundant. */}
+          <InstallAppPrompt />
         </Suspense>
       )}
 
