@@ -1146,6 +1146,22 @@ _migrations = [
     # replayed days later to bind another bank to the victim's row.
     # Stamp now+10min at /init; refuse exchange after that.
     "ALTER TABLE bank_connections ADD COLUMN IF NOT EXISTS consent_state_expires_at TIMESTAMP",
+
+    # ── Migration 050: Daily Brief email opt-in columns (Task #98) ──────
+    # Critical hotfix — these two columns were added to the User SQLA
+    # model when Task #54 shipped the 8am Brief email digest, but the
+    # ALTER TABLE migration was never added to this list.  Prod DB
+    # didn't have the columns → every SELECT on `users` (e.g. /auth/login,
+    # /auth/me) crashed with "no such column: users.daily_brief_email_enabled".
+    # Login was 500-ing for every owner.  Adding the migration now.
+    #
+    # daily_brief_email_enabled — owner-controlled toggle on the brief
+    #   email (Profile → Notifications).  Default TRUE so the brief
+    #   actually arrives without an opt-in step.
+    # last_brief_emailed_at    — idempotency stamp the morning cron
+    #   uses to skip a second send if the job runs twice in one day.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_brief_email_enabled BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_brief_emailed_at TIMESTAMP",
 ]
 
 
