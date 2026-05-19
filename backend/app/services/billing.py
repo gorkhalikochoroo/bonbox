@@ -230,6 +230,13 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # a multi-staff feature so it belongs with the other multi-*
         # entitlements.
         "bulk_staff_email": False,
+        # 2026-05-19 — Bank reconciliation auto-match. Free still
+        # imports CSV (the existing flow), but the value-add layer
+        # that surfaces ranked match suggestions + bulk-confirms them
+        # against open fakturaer + expenses is Starter+. Saves the
+        # owner the 1-2 hours/month of manual reconciliation that
+        # was the original "I need to do my books" pain.
+        "bank_auto_reconcile": False,
     },
     "starter": {
         "ai_anomaly_detection": True,
@@ -242,6 +249,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "direct_accountant_email": True,   # THE Starter killer feature
         "ai_menu_scan": False,
         "bulk_staff_email": False,
+        "bank_auto_reconcile": True,       # Starter killer feature
     },
     "trial": {  # = full Pro
         "ai_anomaly_detection": True,
@@ -254,6 +262,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "direct_accountant_email": True,
         "ai_menu_scan": True,
         "bulk_staff_email": True,
+        "bank_auto_reconcile": True,
     },
     "pro": {
         "ai_anomaly_detection": True,
@@ -266,6 +275,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "direct_accountant_email": True,
         "ai_menu_scan": True,
         "bulk_staff_email": True,
+        "bank_auto_reconcile": True,
     },
 }
 

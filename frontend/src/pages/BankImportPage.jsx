@@ -2,8 +2,11 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { useEntitlements } from "../hooks/useEntitlements";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
+import { Button, Card, Icon, UpgradeNudge } from "../components/ui";
+import { useToast } from "../components/BonBoxPolishKit";
 
 const BANK_LABELS = {
   danske_bank: { label: "Danske Bank", icon: "🏦" },
@@ -17,9 +20,14 @@ export default function BankImportPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
+  const { hasFeature } = useEntitlements();
+  const canAutoReconcile = hasFeature("bank_auto_reconcile");
+  const { showToast, ToastContainer } = useToast();
 
-  // States: upload → preview → done
-  const [step, setStep] = useState("upload"); // upload | preview | done
+  // States: upload → preview → done → reconcile
+  // Reconcile is reachable from either preview (after manual import)
+  // or directly from done (Match against open invoices button).
+  const [step, setStep] = useState("upload"); // upload | preview | done | reconcile
   const [file, setFile] = useState(null);
   const [bankOverride, setBankOverride] = useState("");
   const [loading, setLoading] = useState(false);
@@ -33,6 +41,17 @@ export default function BankImportPage() {
 
   // Result
   const [result, setResult] = useState(null);
+
+  // Reconciliation data
+  // suggestions: server response { transactions: [...], counts: {...} }
+  // chosen: txn_id → suggestion (the one selected for this row, default
+  //         = the top suggestion if any). Owner can flip between the
+  //         top-3 via the row's dropdown.
+  // skipped: Set<txn_id> for rows the owner explicitly skipped this pass.
+  const [suggestions, setSuggestions] = useState(null);
+  const [chosen, setChosen] = useState({});
+  const [skipped, setSkipped] = useState(new Set());
+  const [reconcileResult, setReconcileResult] = useState(null);
 
   const fileRef = useRef(null);
   const dropRef = useRef(null);
@@ -137,6 +156,122 @@ export default function BankImportPage() {
       setStep("done");
     } catch (err) {
       setError(err.response?.data?.detail || "Import failed");
+    }
+    setLoading(false);
+  };
+
+  // ── Reconciliation ──
+  // Fetch suggestions for the bank import we just confirmed (or the
+  // latest). Gated server-side, but we also short-circuit on Free for
+  // a snappier UX (the UpgradeNudge handles the gate visually).
+  const loadSuggestions = async (importId = "latest") => {
+    if (!canAutoReconcile) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await api.get(
+        `/bank-import/${encodeURIComponent(importId)}/suggestions`,
+      );
+      setSuggestions(res.data);
+      // Default-chosen = top suggestion per txn (if any)
+      const defaults = {};
+      (res.data.transactions || []).forEach((t) => {
+        if (t.suggestions && t.suggestions.length > 0) {
+          defaults[t.txn_id] = t.suggestions[0];
+        }
+      });
+      setChosen(defaults);
+      setSkipped(new Set());
+      setStep("reconcile");
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      if (err.response?.status === 402) {
+        // Defensive — should be caught by canAutoReconcile, but
+        // if entitlements cache is stale, the server tells us the truth.
+        setError("Auto-reconcile is a Starter+ feature.");
+      } else {
+        setError(detail?.message || detail || "Could not load suggestions");
+      }
+    }
+    setLoading(false);
+  };
+
+  const toggleChosen = (txnId, suggestion) => {
+    setChosen((prev) => ({ ...prev, [txnId]: suggestion }));
+    // Choosing a candidate implicitly un-skips the row
+    setSkipped((prev) => {
+      if (!prev.has(txnId)) return prev;
+      const next = new Set(prev);
+      next.delete(txnId);
+      return next;
+    });
+  };
+
+  const toggleSkipped = (txnId) => {
+    setSkipped((prev) => {
+      const next = new Set(prev);
+      next.has(txnId) ? next.delete(txnId) : next.add(txnId);
+      return next;
+    });
+  };
+
+  // Bulk-confirm all rows whose currently-chosen candidate is HIGH
+  // confidence and not skipped. Most owners will accept this in one tap.
+  const confirmAllHighConfidence = () => {
+    if (!suggestions) return;
+    const next = { ...chosen };
+    let count = 0;
+    suggestions.transactions.forEach((t) => {
+      if (skipped.has(t.txn_id)) return;
+      const top = t.suggestions?.[0];
+      if (top && top.confidence === "high") {
+        next[t.txn_id] = top;
+        count += 1;
+      }
+    });
+    setChosen(next);
+    return count;
+  };
+
+  // Submit all currently-chosen (and not-skipped) suggestions.
+  const confirmReconcile = async () => {
+    if (!suggestions) return;
+    const matches = [];
+    suggestions.transactions.forEach((t) => {
+      if (skipped.has(t.txn_id)) return;
+      const c = chosen[t.txn_id];
+      if (!c) return;
+      matches.push({
+        txn_id: t.txn_id,
+        target_type: c.target_type,
+        target_id: c.target_id,
+        action: c.target_type === "invoice" ? "mark_paid" : "link",
+      });
+    });
+    if (matches.length === 0) {
+      setError("Nothing selected. Choose at least one match or skip the row.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      const importId = suggestions.import_id || "latest";
+      const res = await api.post(
+        `/bank-import/${encodeURIComponent(importId)}/confirm-matches`,
+        { matches },
+      );
+      setReconcileResult(res.data);
+      const inv = matches.filter((m) => m.target_type === "invoice").length;
+      const exp = matches.filter((m) => m.target_type === "expense").length;
+      showToast(
+        `${res.data.confirmed} confirmed (${inv} invoices marked paid, ${exp} expenses linked)`,
+        res.data.errors?.length ? "warning" : "success",
+        4000,
+      );
+      // Refresh suggestions — confirmed rows drop out of the list.
+      await loadSuggestions(importId);
+    } catch (err) {
+      setError(err.response?.data?.detail?.message || err.response?.data?.detail || "Confirm failed");
     }
     setLoading(false);
   };
@@ -427,6 +562,34 @@ export default function BankImportPage() {
             {result.errors.length > 0 && (
               <p className="text-sm text-red-500">{result.errors.length} errors</p>
             )}
+
+            {/* Starter killer feature: match against open invoices.
+                Free users see the UpgradeNudge inline. Paid users get
+                an accent button that loads ranked match candidates. */}
+            <div className="pt-2">
+              {canAutoReconcile ? (
+                <Button
+                  variant="accent"
+                  size="lg"
+                  onClick={() => loadSuggestions(preview?.bank || "latest")}
+                  busy={loading}
+                  iconLeft={<Icon name="Wallet" size={16} className="text-white" />}
+                >
+                  Match against open invoices
+                </Button>
+              ) : (
+                <div className="flex justify-center">
+                  <UpgradeNudge
+                    intent="card"
+                    tier="starter"
+                    benefit="Auto-match bank lines to open fakturaer + expenses, then bulk-confirm in one tap."
+                    icon={<Icon name="Wallet" size={20} />}
+                    ctaLabel="See Starter"
+                  />
+                </div>
+              )}
+            </div>
+
             <div className="flex flex-wrap justify-center gap-3 pt-4">
               <a href="/expenses" className="px-5 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition">
                 View Expenses
@@ -447,6 +610,168 @@ export default function BankImportPage() {
           </div>
         </FadeIn>
       )}
+
+      {/* ═══════════════════════════════════════════
+         STEP 4: RECONCILE
+         Mobile-first table — owner reviewing matches on phone at 22:00.
+         ═══════════════════════════════════════════ */}
+      {step === "reconcile" && suggestions && (
+        <FadeIn>
+          <Card variant="default" className="space-y-4">
+            <Card.Header
+              icon={<Icon name="Wallet" size={18} />}
+              title="Reconcile bank lines"
+              subtitle={`${suggestions.transactions.length} transactions · ${suggestions.counts.high} high · ${suggestions.counts.medium} medium · ${suggestions.counts.low} low · ${suggestions.counts.none} unmatched`}
+              action={
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => { setStep("done"); setSuggestions(null); }}
+                >
+                  Back
+                </Button>
+              }
+            />
+
+            {/* Bulk action: confirm all high-confidence in one tap */}
+            <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  const n = confirmAllHighConfidence();
+                  showToast(`${n || 0} high-confidence matches selected`, "info", 2000);
+                }}
+                iconLeft={<Icon name="Sparkles" size={14} className="text-white dark:text-stone-900" />}
+              >
+                Select all high-confidence
+              </Button>
+              <Button
+                variant="accent"
+                size="md"
+                onClick={confirmReconcile}
+                busy={loading}
+                iconLeft={<Icon name="Send" size={14} className="text-white" />}
+              >
+                Confirm {Object.keys(chosen).filter((id) => !skipped.has(id) && chosen[id]).length} matches
+              </Button>
+            </div>
+
+            {/* Mobile-friendly table — collapses to a card list under sm: */}
+            <div className="space-y-2">
+              {suggestions.transactions.length === 0 && (
+                <div className="text-center text-sm text-stone-500 dark:text-stone-400 py-10">
+                  Nothing to reconcile — all bank lines are already matched or no candidates were found.
+                </div>
+              )}
+              {suggestions.transactions.map((t) => {
+                const c = chosen[t.txn_id];
+                const isSkipped = skipped.has(t.txn_id);
+                const isIncome = t.txn_type === "income";
+                return (
+                  <div
+                    key={t.txn_id}
+                    className={
+                      "rounded-lg border p-3 sm:p-4 transition-colors " +
+                      (isSkipped
+                        ? "border-stone-200 dark:border-stone-800 bg-stone-50/60 dark:bg-stone-900/40 opacity-60"
+                        : c
+                        ? "border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/40 dark:bg-emerald-900/10"
+                        : "border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900")
+                    }
+                  >
+                    {/* Row header */}
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 text-xs text-stone-500 dark:text-stone-400">
+                          <span>{t.date}</span>
+                          <span className={
+                            "px-1.5 py-0.5 rounded text-[10px] font-medium " +
+                            (isIncome
+                              ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300"
+                              : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400")
+                          }>
+                            {isIncome ? "income" : "expense"}
+                          </span>
+                        </div>
+                        <p className="text-sm text-stone-800 dark:text-stone-100 mt-1 truncate" title={t.description}>
+                          {t.description || <span className="text-stone-400">No description</span>}
+                        </p>
+                      </div>
+                      <div className={
+                        "text-right font-semibold whitespace-nowrap shrink-0 " +
+                        (isIncome ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400")
+                      }>
+                        {isIncome ? "+" : ""}{Number(t.amount).toLocaleString()} {currency}
+                      </div>
+                    </div>
+
+                    {/* Suggestions + action */}
+                    {t.suggestions.length === 0 ? (
+                      <div className="text-xs text-stone-500 dark:text-stone-400 italic">
+                        No matching invoice/expense found within ±2 DKK / ±7 days.
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <select
+                          value={c?.target_id || ""}
+                          onChange={(e) => {
+                            const sel = t.suggestions.find((s) => s.target_id === e.target.value);
+                            if (sel) toggleChosen(t.txn_id, sel);
+                          }}
+                          disabled={isSkipped}
+                          className="flex-1 min-w-0 px-2.5 py-1.5 text-xs sm:text-sm rounded-md border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-800 dark:text-stone-200 disabled:opacity-50"
+                        >
+                          {t.suggestions.map((s) => (
+                            <option key={s.target_id} value={s.target_id}>
+                              {s.target_label} · {s.confidence}
+                            </option>
+                          ))}
+                        </select>
+                        {c && (
+                          <span
+                            className={
+                              "text-[10px] font-medium px-2 py-1 rounded-full uppercase tracking-wide " +
+                              (c.confidence === "high"
+                                ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300"
+                                : c.confidence === "medium"
+                                ? "bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300"
+                                : "bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300")
+                            }
+                            title={c.reason}
+                          >
+                            {c.confidence}
+                          </span>
+                        )}
+                        <Button
+                          variant={isSkipped ? "secondary" : "ghost"}
+                          size="sm"
+                          onClick={() => toggleSkipped(t.txn_id)}
+                        >
+                          {isSkipped ? "Undo skip" : "Skip"}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {reconcileResult && reconcileResult.errors?.length > 0 && (
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/60 rounded-lg px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+                <strong>{reconcileResult.errors.length}</strong> issues:
+                <ul className="list-disc list-inside mt-1">
+                  {reconcileResult.errors.slice(0, 5).map((e, i) => (
+                    <li key={i}>{e}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </Card>
+        </FadeIn>
+      )}
+
+      <ToastContainer />
     </div>
   );
 }

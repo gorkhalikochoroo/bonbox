@@ -1,8 +1,9 @@
 """Bank CSV Import — upload, preview, and confirm bank transactions."""
+import re
 import uuid
 from datetime import date as date_type, datetime
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -12,16 +13,28 @@ from app.models.expense import Expense, ExpenseCategory
 from app.services.auth import get_current_user
 from app.services.bank_csv_parser import parse_bank_csv, get_supported_banks
 from app.services.cash_sync import sync_cash_in_for_sale, sync_cash_out_for_expense
+from app.services import bank_reconciliation
+from app.services.billing import enforce_feature
 from app.schemas.bank_import import (
     BankImportPreviewResponse,
     BankImportConfirmRequest,
     BankImportConfirmResponse,
+    BankReconcileSuggestionsResponse,
+    BankReconcileConfirmRequest,
+    BankReconcileConfirmResponse,
+    MatchSuggestion as MatchSuggestionSchema,
+    TransactionWithSuggestions,
 )
 
 # Reuse categorization from expenses router
 from app.routers.expenses import suggest_category_for, learn_category
 
 router = APIRouter()
+
+# Whitelist of acceptable characters in `import_id` path segments. The
+# value is forwarded into a SQL LIKE prefix, so even though SQLAlchemy
+# bind-params would prevent injection on its own, we belt-and-brace.
+_IMPORT_ID_PATTERN = re.compile(r"^[a-z0-9_-]{1,32}$")
 
 
 # ── Supported banks ──────────────────────────────────────
@@ -198,4 +211,142 @@ def confirm_import(
         imported=imported,
         skipped=skipped,
         errors=errors,
+    )
+
+
+# ─── Reconciliation: list match suggestions ──────────────────────────
+#
+# After a CSV import populates Sale + Expense rows, Starter+ users get
+# a value-add review screen: ranked candidates per bank transaction so
+# they can mark fakturaer paid + link expenses in one bulk action.
+# Free users get 402 plan_required and the UI shows UpgradeNudge.
+#
+# The `import_id` path segment is a flexible cursor:
+#   • "latest" — surface all unmatched bank-imported rows in the
+#                lookback window. Most common path from the UI.
+#   • a bank id ("danske_bank", "nordea", ...) — scope to that bank
+#                only. Useful when the owner imports from multiple
+#                banks (Lunar for cards + Danske for the main account).
+
+def _validate_import_id(import_id: str) -> str:
+    """Reject anything that wouldn't fit the bank-id format. Defense
+    layer 4 (input bounds) of the multi-layer model — even though the
+    service layer also whitelists chars, we fail loud here so a bad
+    client sees a clean 400 instead of an empty result."""
+    if import_id == "latest":
+        return import_id
+    if not _IMPORT_ID_PATTERN.match(import_id):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "invalid_import_id",
+                "message": "import_id must be 'latest' or a-z0-9_-",
+            },
+        )
+    return import_id
+
+
+@router.get("/{import_id}/suggestions", response_model=BankReconcileSuggestionsResponse)
+def list_match_suggestions(
+    import_id: str,
+    lookback_days: int = Query(90, ge=7, le=366),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Surface ranked match suggestions for all unmatched bank-imported
+    rows. Starter+. Returns suggestions but never mutates state.
+
+    Tenant scope: every query inside match_transactions filters by
+    user.id; the user is resolved server-side via auth. A client can
+    pass any import_id (including one for another tenant's bank) and
+    they will still see only their own rows.
+    """
+    # Layer 2 (tier) — Free users get 402 plan_required.
+    enforce_feature(user, "bank_auto_reconcile")
+    # Layer 4 (input bounds)
+    import_id = _validate_import_id(import_id)
+
+    rows = bank_reconciliation.match_transactions(
+        db, user.id, import_id=import_id, lookback_days=lookback_days,
+    )
+
+    counts = {"high": 0, "medium": 0, "low": 0, "none": 0}
+    txns_out: list[TransactionWithSuggestions] = []
+    for r in rows:
+        if not r.suggestions:
+            counts["none"] += 1
+        else:
+            counts[r.suggestions[0].confidence] += 1
+        txns_out.append(TransactionWithSuggestions(
+            txn_id=r.txn_id,
+            txn_type=r.txn_type,
+            date=r.txn_date.isoformat(),
+            amount=r.amount,
+            description=r.description,
+            already_matched=r.already_matched,
+            suggestions=[
+                MatchSuggestionSchema(
+                    txn_id=s.txn_id,
+                    txn_type=s.txn_type,
+                    target_type=s.target_type,
+                    target_id=s.target_id,
+                    target_label=s.target_label,
+                    confidence=s.confidence,
+                    amount_diff=s.amount_diff,
+                    days_diff=s.days_diff,
+                    reason=s.reason,
+                )
+                for s in r.suggestions
+            ],
+        ))
+
+    return BankReconcileSuggestionsResponse(
+        import_id=import_id,
+        transactions=txns_out,
+        counts=counts,
+    )
+
+
+# ─── Reconciliation: bulk confirm matches ─────────────────────────────
+#
+# The owner reviews the suggestions and accepts any subset (often all
+# high-confidence ones via the bulk button). Each confirmation flips an
+# invoice to 'paid' or links a bank expense to a pre-recorded expense,
+# and writes an audit_logs row.
+
+
+@router.post("/{import_id}/confirm-matches", response_model=BankReconcileConfirmResponse)
+def confirm_match_batch(
+    import_id: str,
+    body: BankReconcileConfirmRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Apply a batch of owner-confirmed matches.
+
+    Defensive layers:
+      1. auth      — get_current_user
+      2. tier      — enforce_feature("bank_auto_reconcile") → 402
+      3. tenant    — every txn/target re-fetched with user.id filter
+      4. bounds    — body capped at 500 items via the Pydantic schema
+      5. integrity — InvoiceService.mark_paid runs the state-machine
+                     validation (status must be sent/overdue); idempotent
+                     re-marking is a no-op
+    """
+    enforce_feature(user, "bank_auto_reconcile")
+    _validate_import_id(import_id)
+
+    ip = request.client.host if request.client else None
+    result = bank_reconciliation.confirm_matches(
+        db, user,
+        matches=[m.model_dump() for m in body.matches],
+        ip_address=ip,
+    )
+    db.commit()
+
+    return BankReconcileConfirmResponse(
+        confirmed=result["confirmed"],
+        skipped=result["skipped"],
+        errors=result["errors"],
     )
