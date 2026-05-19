@@ -11,6 +11,7 @@ import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit
 import ReceiptCapture from "../components/ReceiptCapture";
 import ReceiptViewer from "../components/ReceiptViewer";
 import DismissibleTip from "../components/DismissibleTip";
+import RecurringExpensesPanel from "../components/RecurringExpensesPanel";
 
 const QUICK_AMOUNTS = [100, 250, 500, 1000, 2500, 5000];
 const DEFAULT_CATEGORIES = ["Ingredients", "Rent", "Wages", "Utilities", "Supplies", "Other"];
@@ -55,6 +56,11 @@ export default function ExpensesPage() {
   const [customCat, setCustomCat] = useState("");
   const customCatRef = useRef(null);
   const [listening, setListening] = useState(false);
+  // Top-level tab strip — One-time (existing flow) vs Recurring
+  // (Task #47, Starter+ feature). Lifted above the existing
+  // Detailed/Quick toggle so owners see the high-level distinction
+  // first. Backend enforces the tier on every recurring mutation.
+  const [expensesTab, setExpensesTab] = useState("one_time"); // "one_time" | "recurring"
   const [isPersonal, setIsPersonal] = useState(false);
   const [receiptOpen, setReceiptOpen] = useState(false);
   const [isTaxExempt, setIsTaxExempt] = useState(false);
@@ -349,6 +355,35 @@ export default function ExpensesPage() {
         </div>
       )}
 
+      {/* One-time / Recurring tab strip — lifted ABOVE the Detailed/Quick
+          toggle so the high-level distinction is the first decision the
+          owner makes. Recurring tab content is server-gated to Starter+. */}
+      <div className="inline-flex gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
+        <button
+          type="button"
+          onClick={() => setExpensesTab("one_time")}
+          className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${expensesTab === "one_time" ? "bg-white dark:bg-gray-600 text-gray-800 dark:text-white shadow-sm" : "text-gray-500 dark:text-gray-400"}`}
+        >
+          {t("oneTimeTab", "One-time")}
+        </button>
+        <button
+          type="button"
+          onClick={() => setExpensesTab("recurring")}
+          className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${expensesTab === "recurring" ? "bg-white dark:bg-gray-600 text-gray-800 dark:text-white shadow-sm" : "text-gray-500 dark:text-gray-400"}`}
+        >
+          {t("recurringTab", "Recurring")}
+        </button>
+      </div>
+
+      {expensesTab === "recurring" && (
+        <RecurringExpensesPanel
+          categories={categories}
+          currency={currency}
+        />
+      )}
+
+      {expensesTab === "one_time" && (
+      <>
       {/* Form + Stats side by side */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
       <div className="lg:col-span-3 bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
@@ -1062,6 +1097,8 @@ export default function ExpensesPage() {
           </div>
         );
       })()}
+      </>
+      )}
 
       {/* Receipt capture modal for expenses */}
       {receiptOpen && (

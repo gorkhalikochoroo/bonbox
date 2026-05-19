@@ -49,6 +49,8 @@ import {
   User, Banknote, TrendingDown,
   // Profile / settings
   Lock, Bell, Shield, Palette, Download, Image, CheckCircle2, AlertTriangle,
+  // Recurring expenses (Task #47)
+  Pause, Play, RotateCw, Plus,
   // Misc / fallback
   Circle, ChevronDown,
 } from "lucide-react";
@@ -81,6 +83,8 @@ const ICONS = {
   User, Banknote, TrendingDown,
   // Profile / settings
   Lock, Bell, Shield, Palette, Download, Image, CheckCircle2, AlertTriangle,
+  // Recurring expenses (Task #47)
+  Pause, Play, RotateCw, Plus,
   // Utility
   ChevronDown,
 };

@@ -246,6 +246,13 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # owner the 1-2 hours/month of manual reconciliation that
         # was the original "I need to do my books" pain.
         "bank_auto_reconcile": False,
+        # 2026-05-19 — Recurring expenses (Task #47). Owners enter the
+        # same 5-10 expenses every month (rent, internet, Microsoft
+        # 365, Spotify, Wolt commission). Set it up once and the
+        # nightly cron materializes the Expense row on schedule. Free
+        # still types each expense manually; Starter+ unlocks the
+        # auto-post + the "Recurring" tab in ExpensesPage.
+        "recurring_expenses": False,
     },
     "starter": {
         "ai_anomaly_detection": True,
@@ -259,6 +266,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "ai_menu_scan": False,
         "bulk_staff_email": False,
         "bank_auto_reconcile": True,       # Starter killer feature
+        "recurring_expenses": True,        # Task #47 — auto-post monthly
     },
     "trial": {  # = full Pro
         "ai_anomaly_detection": True,
@@ -272,6 +280,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "ai_menu_scan": True,
         "bulk_staff_email": True,
         "bank_auto_reconcile": True,
+        "recurring_expenses": True,
     },
     "pro": {
         "ai_anomaly_detection": True,
@@ -285,6 +294,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "ai_menu_scan": True,
         "bulk_staff_email": True,
         "bank_auto_reconcile": True,
+        "recurring_expenses": True,
     },
 }
 

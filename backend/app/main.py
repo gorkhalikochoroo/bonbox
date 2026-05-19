@@ -43,6 +43,7 @@ from app.routers import auth, sales, expenses, inventory, reports, dashboard, st
 # Invoicing — Customer/Invoice/Mileage. Gated to Starter+ at the route level.
 from app.routers import customers as customers_router, invoices as invoices_router, mileage as mileage_router
 from app.routers import payment_suggestions as payment_suggestions_router
+from app.routers import recurring_expenses as recurring_expenses_router
 from app.database import engine, Base, get_db
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -849,6 +850,40 @@ _migrations = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_order_channel_user_id ON order_channel_configs (user_id)",
     "CREATE INDEX IF NOT EXISTS ix_order_channel_user_slug ON order_channel_configs (user_id, slug)",
+
+    # ── Migration 039: recurring_expenses (Task #47) ────────────────────
+    # Starter+ feature — owner-configured monthly expense templates that
+    # the nightly cron materializes into Expense rows on schedule. Rent,
+    # internet, Microsoft 365, Spotify Business, Wolt commission etc.
+    # Materialized expenses are real accounting entries with sequential
+    # bilagsnummer — the RecurringExpense template itself is just the
+    # saved schedule. Soft-archive via is_active=False to preserve audit
+    # trail of past materializations.
+    #
+    # VARCHAR(36) for ids matches the GUID() type — same lesson as the
+    # invoice.id FK fiasco (see Migration 034 comment): native UUID type
+    # mismatch silently fails inside the SAVEPOINT wrapper.
+    """CREATE TABLE IF NOT EXISTS recurring_expenses (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        branch_id VARCHAR(36) REFERENCES branches(id) ON DELETE SET NULL,
+        category_id VARCHAR(36) REFERENCES expense_categories(id),
+        name VARCHAR(100) NOT NULL,
+        description VARCHAR(200),
+        amount NUMERIC(12,2) NOT NULL,
+        payment_method VARCHAR(20) NOT NULL DEFAULT 'card',
+        frequency VARCHAR(20) NOT NULL DEFAULT 'monthly',
+        day_of_month INTEGER NOT NULL DEFAULT 1,
+        next_run_date DATE NOT NULL,
+        last_run_date DATE,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        is_personal BOOLEAN NOT NULL DEFAULT FALSE,
+        notes TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_recurring_expense_user_name UNIQUE (user_id, name)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_recurring_expenses_user_next_run ON recurring_expenses (user_id, next_run_date, is_active)",
 ]
 
 
@@ -1757,6 +1792,14 @@ app.include_router(customers_router.router, prefix="/api/customers", tags=["Cust
 app.include_router(invoices_router.router, prefix="/api/invoices", tags=["Invoices"])
 app.include_router(payment_suggestions_router.router, prefix="/api/payment-suggestions", tags=["Payment match"])
 app.include_router(mileage_router.router, prefix="/api/mileage", tags=["Mileage"])
+# Task #47 — Recurring expenses (Starter+ feature). Tier-gated server-
+# side via has_feature(user, "recurring_expenses"). Frontend renders an
+# UpgradeNudge for Free users; backend enforces every mutation.
+app.include_router(
+    recurring_expenses_router.router,
+    prefix="/api/recurring-expenses",
+    tags=["RecurringExpenses"],
+)
 
 
 # --- Protected Uploads — owner can only access own receipts ---
@@ -1872,6 +1915,7 @@ try:
         weekly_pattern_sweep,
     )
     from app.jobs.demo_refresh_job import refresh_demo_account
+    from app.jobs.recurring_expenses_job import materialize_due_recurring_expenses
 
     _scheduler = BackgroundScheduler()
     _scheduler.add_job(
@@ -1920,9 +1964,21 @@ try:
         name="Demo account trial refresh",
         replace_existing=True,
     )
+    # Task #47 — Materialize due recurring expenses. 04:00 UTC = ~05:00-
+    # 06:00 Copenhagen — before owners check the app for the day. Per-
+    # rule SAVEPOINT-style commits so one bad row doesn't poison the
+    # whole sweep. Idempotent (skips today's already-posted rules).
+    _scheduler.add_job(
+        materialize_due_recurring_expenses,
+        trigger=CronTrigger(hour=4, minute=0),
+        id="recurring_expenses",
+        name="Materialize due recurring expenses",
+        replace_existing=True,
+    )
     _scheduler.start()
     print("Schedulers started: payment auto-sync (6h), nightly maintenance (02:30), "
-          "kasserapport drift (03:00), demo refresh (03:15), kasserapport patterns (Sun 03:30)")
+          "kasserapport drift (03:00), demo refresh (03:15), kasserapport patterns (Sun 03:30), "
+          "recurring expenses (04:00)")
 
     # Scheduler shutdown migrated to the `lifespan` context manager
     # near the FastAPI() constructor. It checks globals() for the
