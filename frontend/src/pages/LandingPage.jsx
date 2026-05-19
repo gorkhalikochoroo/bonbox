@@ -665,6 +665,57 @@ export default function LandingPage() {
         </div>
       </Section>
 
+      {/* ── TRUST + COMPLIANCE STRIP ────────────────────────────
+          Danish small-biz owners are nervous about two things:
+            1. Compliance (Bogføringsloven + SKAT inspections)
+            2. Where their financial data lives (GDPR + retention)
+          This strip answers both without a sales pitch. Five short
+          badges, all backed by the work we shipped this week
+          (kreditnota, audit_logs, accountant login, MOMS PDF). */}
+      <section className="py-10 bg-white border-y border-stone-200/70">
+        <div className="max-w-5xl mx-auto px-5 sm:px-6 lg:px-8">
+          <p className="text-center text-[12px] uppercase tracking-[0.12em] text-stone-400 mb-7">
+            {tx_("landingTrustHeader", "Built for the Danish compliance reality")}
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-5 sm:gap-7">
+            {[
+              {
+                title: tx_("landingTrustBogf7", "Bogføringsloven §7"),
+                body: tx_("landingTrustBogf7Body", "Gap-less fakturanummer, kreditnota with the next number, locked records."),
+              },
+              {
+                title: tx_("landingTrustBogf10", "Bogføringsloven §10"),
+                body: tx_("landingTrustBogf10Body", "5-year retention. Immutable audit log on every financial mutation."),
+              },
+              {
+                title: tx_("landingTrustGdpr", "GDPR-compliant"),
+                body: tx_("landingTrustGdprBody", "EU-hosted infra. Owner-controlled data export + delete. Revisor logs in without a password share."),
+              },
+              {
+                title: tx_("landingTrustAudit", "Audit-logged"),
+                body: tx_("landingTrustAuditBody", "Every send, void, unlock, schedule-apply leaves an append-only trail you can hand to SKAT."),
+              },
+              {
+                title: tx_("landingTrustDk", "Built in DK"),
+                body: tx_("landingTrustDkBody", "Made for Copenhagen cafés, by people who've sat with a revisor at month-end. MOMS, lønseddel, CVR-aware."),
+              },
+            ].map((badge) => (
+              <div key={badge.title} className="text-left">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="inline-flex w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" aria-hidden="true" />
+                  <h3 className="text-[13px] font-semibold text-stone-900 tracking-tight">
+                    {badge.title}
+                  </h3>
+                </div>
+                <p className="text-[12.5px] text-stone-600 leading-relaxed">
+                  {badge.body}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* ── PROOF NUMBERS + INDUSTRIES STRIP ────────────────────── */}
       {/* Three big numbers that earn the strip + a "built for" line
           that quietly signals BonBox knows its segment. The strip

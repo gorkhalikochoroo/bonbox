@@ -780,6 +780,9 @@ export default function SubscriptionPage() {
           <FaqItem q={t("faqQ1") || "What happens when my 14-day trial ends?"} a={t("faqA1") || ""} />
           <FaqItem q={t("faqQ2") || "Why does Free have every feature, just with caps?"} a={t("faqA2") || ""} />
           <FaqItem q={t("faqQ3") || "How does the founding-member price work?"} a={t("faqA3") || ""} />
+          <FaqItem q={t("faqQ10") || "Does my revisor need their own login?"} a={t("faqA10") || ""} />
+          <FaqItem q={t("faqQ11") || "How does the staff schedule autopilot work?"} a={t("faqA11") || ""} />
+          <FaqItem q={t("faqQ12") || "Will BonBox connect to my bank automatically?"} a={t("faqA12") || ""} />
           <FaqItem q={t("faqQ4") || "I run a chain with multiple branches — what fits?"} a={t("faqA4") || ""} />
           <FaqItem q={t("faqQ5") || "Do I have to switch from Dinero / Billy / e-conomic?"} a={t("faqA5") || ""} />
           <FaqItem q={t("faqQ9") || "Is BonBox a registered digital bookkeeping system?"} a={t("faqA9") || ""} />
