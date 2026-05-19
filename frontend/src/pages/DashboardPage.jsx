@@ -25,6 +25,7 @@ import AnomalyAlertsCard from "../components/AnomalyAlertsCard";
 import DismissibleTip from "../components/DismissibleTip";
 import CloserPromptCard from "../components/CloserPromptCard";
 import TrialFinalStretchTip from "../components/TrialFinalStretchTip";
+import MomsCountdownCard from "../components/MomsCountdownCard";
 import {
   AnimatedCounter,
   SkeletonCard,
@@ -1607,6 +1608,12 @@ export default function DashboardPage() {
             because closing the books is the most time-sensitive recurring
             action — losing track of it costs real revisor fees. ── */}
         <MonthEndBundleBanner />
+
+        {/* ── MOMS COUNTDOWN — the single most anxiety-reducing widget for
+            a DK owner. Shows days until next filing + estimated amount.
+            Self-hides on accounts with no tax preferences saved. Tap to
+            open Tax Autopilot for the full breakdown. ── */}
+        <MomsCountdownCard />
 
         {/* ── AI DAILY BRIEF — actionable morning brief, top of fold ── */}
         <DailyBriefCard />

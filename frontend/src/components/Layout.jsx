@@ -105,7 +105,11 @@ const navGroups = [
       { to: "/daily-report", icon: "Utensils", labelKey: "navTodaysFloor" },
       { to: "/reports", icon: "ClipboardList", labelKey: "navReportsTax" },
       { to: "/daily-close", icon: "Moon", labelKey: "navEndOfDayClose" },
-      { to: "/daily-close/multi", icon: "Store", labelKey: "multiClose" },
+      // Multi-terminal close — only relevant when the owner has >1 POS
+      // terminal configured. Most single-location cafés have one, so we
+      // hide this entry behind the `multi_terminal` module flag to avoid
+      // sidebar bloat. Owners enable it via /modules when needed.
+      { to: "/daily-close/multi", icon: "Store", labelKey: "multiClose", requiresModule: "multi_terminal" },
       { to: "/tax", icon: "Calculator", labelKey: "taxAutopilot" },
       { to: "/bookkeeping-export", icon: "Send", labelKey: "sendToAccountant" },
     ],

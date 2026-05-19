@@ -221,10 +221,10 @@ export default function FakturaPage() {
                 "Click Send: the invoice locks, the PDF goes straight to the customer's inbox via BonBox, and you're CC'd on every send. Reply-to is your email so the customer replies to you, not to noreply."),
           },
           {
-            title: t("fakturaStep4Title") || "4. Get paid — auto-matched",
+            title: t("fakturaStep4Title") || "4. Get paid — two ways",
             body:
               t("fakturaStep4Body") ||
-              "Export your bank's CSV (2 clicks in netbank), upload it under Bank Import. BonBox auto-matches the payment to the open invoice within ±2 kr tolerance and flips status to Paid — no manual reconciliation.",
+              "Auto: export your bank's CSV (2 clicks in netbank), upload it under Bank Import — BonBox matches payments to open invoices within ±2 kr tolerance and flips status to Paid. Manual: when the money lands and you spot it yourself, tap Mark paid on the invoice row. Either way, status updates everywhere and the customer never sees a 'still open' invoice.",
           },
         ]}
         footer={

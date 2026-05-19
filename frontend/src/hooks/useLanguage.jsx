@@ -54,6 +54,11 @@ const translations = {
     navEndOfDayClose: "End-of-Day",
     todaysFloor: "Today's Floor", todaysBooks: "Today's Books",
     taxBundle: "Tax Bundle", endOfDayCloseTitle: "End-of-Day Close",
+    // MOMS countdown widget — Free-tier dashboard hook
+    nextMomsFiling: "Next Moms filing", momsDueToday: "Due today",
+    momsDueTomorrow: "Due tomorrow", momsDueInDays: "{n} days",
+    momsOverdueBy: "Overdue by {n} days", momsEstimatedOwed: "Estimated",
+    momsCountdownAria: "Open Tax Autopilot", output: "Output", input: "Input",
     navMoney: "Money", navStock: "Stock", navStaff: "Staff", navReports: "Reports",
     navIntel: "Intelligence", navWorkshop: "Workshop", navManage: "Manage", navAccount: "Account", navPlatform: "Platform",
     recommendedHeadcount: "Recommended headcount", staffShort: "Staff", peopleAbbrev: "ppl", precip: "Precip",
@@ -2193,6 +2198,11 @@ const translations = {
     navEndOfDayClose: "Dagsafslutning",
     todaysFloor: "Dagens drift", todaysBooks: "Dagens regnskab",
     taxBundle: "Skattepakke", endOfDayCloseTitle: "Dagsafslutning",
+    // MOMS countdown widget
+    nextMomsFiling: "Næste Moms-frist", momsDueToday: "Frist i dag",
+    momsDueTomorrow: "Frist i morgen", momsDueInDays: "{n} dage",
+    momsOverdueBy: "Overskredet med {n} dage", momsEstimatedOwed: "Estimeret",
+    momsCountdownAria: "Åbn Skattecockpit", output: "Output", input: "Input",
     navMoney: "Penge", navStock: "Lager", navStaff: "Personale", navReports: "Rapporter",
     navIntel: "Intelligens", navWorkshop: "Værksted", navManage: "Administrer", navAccount: "Konto", navPlatform: "Platform",
     recommendedHeadcount: "Anbefalet bemanding", staffShort: "Personale", peopleAbbrev: "pers.", precip: "Nedbør",
