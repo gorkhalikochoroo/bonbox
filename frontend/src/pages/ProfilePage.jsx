@@ -137,7 +137,20 @@ export default function ProfilePage() {
   const [demoStatus, setDemoStatus] = useState(null);
   const [demoClearBusy, setDemoClearBusy] = useState(false);
   const [demoClearMsg, setDemoClearMsg] = useState("");
-  const { permission: pushPerm, supported: pushSupported, requestPermission: requestPush } = usePushNotifications();
+  // Push notifications — legacy (local-only) + Web Push (Task #72).
+  // The hook exposes both surfaces; subscribed/subscribe/unsubscribe/
+  // sendTest are the new VAPID pipeline that fires the 8am brief.
+  const {
+    permission: pushPerm,
+    supported: pushSupported,
+    subscribed: pushSubscribed,
+    busy: pushBusy,
+    subscribe: pushSubscribe,
+    unsubscribe: pushUnsubscribe,
+    sendTest: pushSendTest,
+  } = usePushNotifications();
+  const [pushMsg, setPushMsg] = useState("");
+  const [pushTestBusy, setPushTestBusy] = useState(false);
   const [businessProfile, setBusinessProfile] = useState(null);
   // Accountant contact — pre-fills the Daily Close "Send to accountant"
   // export button. Stored on BusinessProfile.
@@ -1462,26 +1475,86 @@ export default function ProfilePage() {
                   onChange={() => toggleEmailPref("expense_alerts_enabled")}
                 />
                 {pushSupported && (
-                  <div className="flex items-center justify-between py-4 px-1">
-                    <div className="flex-1 pr-4">
-                      <p className="text-sm font-medium text-stone-800 dark:text-stone-100">
-                        {t("pushNotificationsLabel")}
-                      </p>
-                      <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-                        {t("pushNotificationsDesc")}
-                      </p>
+                  <div className="py-4 px-1">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex-1 pr-2">
+                        <p className="text-sm font-medium text-stone-800 dark:text-stone-100">
+                          {t("pushPhoneTitle") || t("pushNotificationsLabel")}
+                        </p>
+                        <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+                          {t("pushPhoneDesc") || t("pushNotificationsDesc")}
+                        </p>
+                      </div>
+                      {pushPerm === "denied" ? (
+                        <span className="text-xs text-stone-500">{t("pushDenied") || t("blockedInBrowser")}</span>
+                      ) : pushSubscribed ? (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          busy={pushBusy}
+                          onClick={async () => {
+                            setPushMsg("");
+                            const res = await pushUnsubscribe();
+                            if (res?.ok) setPushMsg(t("pushDisabledMsg") || "Push turned off on this device.");
+                          }}
+                        >
+                          {t("pushDisable") || "Turn off"}
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          busy={pushBusy}
+                          onClick={async () => {
+                            setPushMsg("");
+                            const res = await pushSubscribe();
+                            if (res?.ok) {
+                              setPushMsg(t("pushEnabledMsg") || "Push is on. Try the test below.");
+                            } else if (res?.error === "denied") {
+                              setPushMsg(t("pushDenied") || "Push is blocked in your browser settings.");
+                            } else if (res?.error === "push_disabled") {
+                              setPushMsg(t("pushUnavailable") || "Push is temporarily unavailable.");
+                            } else if (res?.error) {
+                              setPushMsg(t("pushGenericError") || "Couldn't enable push. Try again later.");
+                            }
+                          }}
+                        >
+                          {t("pushEnable") || "Enable"}
+                        </Button>
+                      )}
                     </div>
-                    {pushPerm === "granted" ? (
-                      <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-full inline-flex items-center gap-1">
-                        <Icon name="CheckCircle2" size={12} />
-                        Enabled
-                      </span>
-                    ) : pushPerm === "denied" ? (
-                      <span className="text-xs text-stone-500">{t("blockedInBrowser")}</span>
-                    ) : (
-                      <Button size="sm" variant="primary" onClick={requestPush}>
-                        Enable
-                      </Button>
+                    {pushSubscribed && (
+                      <div className="mt-3 flex items-center gap-3 flex-wrap">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          busy={pushTestBusy}
+                          onClick={async () => {
+                            setPushTestBusy(true);
+                            setPushMsg("");
+                            try {
+                              const res = await pushSendTest();
+                              if (res?.ok) {
+                                setPushMsg(t("pushTestSent") || "Test sent — check your lock screen.");
+                              } else if (res?.error === "rate_limited") {
+                                setPushMsg(t("pushTestRateLimited") || "Slow down — limit reached. Try again later.");
+                              } else {
+                                setPushMsg(t("pushGenericError") || "Couldn't send test. Try again later.");
+                              }
+                            } finally {
+                              setPushTestBusy(false);
+                            }
+                          }}
+                        >
+                          {pushTestBusy ? (t("sending") || "Sending...") : (t("pushTest") || "Send test push")}
+                        </Button>
+                        {pushMsg && (
+                          <span className="text-xs text-emerald-700 dark:text-emerald-400">{pushMsg}</span>
+                        )}
+                      </div>
+                    )}
+                    {!pushSubscribed && pushMsg && (
+                      <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-400">{pushMsg}</p>
                     )}
                   </div>
                 )}

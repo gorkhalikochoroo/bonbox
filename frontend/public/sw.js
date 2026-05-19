@@ -98,18 +98,39 @@ self.addEventListener("message", (event) => {
   }
 });
 
-// Push: show native notification when backend sends a push event
+// Push: show native notification when backend sends a push event.
+//
+// Payload shape (Task #72 — see push_sender._compose_brief_payload):
+//   { title: "BonBox · Daily brief",
+//     body:  "<one-line summary>",
+//     tag:   "bonbox-daily-brief",     // dedupes same-brief duplicates
+//     data:  { url: "/?brief=open" } } // landing path on tap
+//
+// Privacy invariant: payloads NEVER carry amounts / customer names —
+// the body is the brief headline only. We trust the server composer.
 self.addEventListener("push", (event) => {
-  let data = { title: "BonBox", body: "You have a new notification", icon: "/icon-192.png" };
+  let data = { title: "BonBox", body: "You have a new notification" };
   try {
     if (event.data) data = { ...data, ...event.data.json() };
-  } catch {}
+  } catch {
+    // Malformed payload — fall back to the generic defaults. Better to
+    // show "BonBox: You have a new notification" than to crash + log
+    // an error the user can't see.
+  }
+  // data.data is the OBJECT we forward to the click handler. Old code
+  // stored a bare URL string here; we keep back-compat with that path
+  // in notificationclick below.
+  const clickData = data.data || { url: data.url || "/" };
   event.waitUntil(
     self.registration.showNotification(data.title, {
       body: data.body,
       icon: data.icon || "/icon-192.png",
       badge: "/icon-192.png",
-      data: data.url || "/dashboard",
+      data: clickData,
+      tag: data.tag || undefined,            // dedupe same-brief pushes
+      // renotify only if a tag was passed — without it the spec says
+      // showNotification ignores the field.
+      renotify: data.tag ? true : false,
       vibrate: [100, 50, 100],
     })
   );
@@ -118,14 +139,37 @@ self.addEventListener("push", (event) => {
 // Notification click: focus or open the app
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const url = event.notification.data || "/dashboard";
+  // Back-compat: older payloads stuffed the URL directly in data as a
+  // string. New payloads use {url: "/path"}. Accept both.
+  const raw = event.notification.data;
+  let url = "/";
+  if (raw && typeof raw === "object" && raw.url) url = raw.url;
+  else if (typeof raw === "string" && raw) url = raw;
+
   event.waitUntil(
-    self.clients.matchAll({ type: "window" }).then((clients) => {
-      for (const client of clients) {
-        if (client.url.includes(self.location.origin) && "focus" in client) return client.focus();
-      }
-      return self.clients.openWindow(url);
-    })
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(
+      (clients) => {
+        // Try to focus an existing window first — owners typically
+        // already have BonBox open in another tab.
+        for (const client of clients) {
+          if (
+            client.url.includes(self.location.origin) &&
+            "focus" in client
+          ) {
+            // Navigate the existing tab to the target URL (matters for
+            // /?brief=open which auto-opens the brief modal).
+            try {
+              if ("navigate" in client) client.navigate(url);
+            } catch {
+              // Some browsers refuse navigate() on cross-origin URLs;
+              // fall through to focus + hope the URL is already right.
+            }
+            return client.focus();
+          }
+        }
+        return self.clients.openWindow(url);
+      },
+    ),
   );
 });
 

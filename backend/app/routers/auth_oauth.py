@@ -171,6 +171,15 @@ def oauth_apple(
     if not sub:
         raise HTTPException(status_code=401, detail="Apple token missing sub")
 
+    # Audit P1 (Task #75) — replay protection: the same id_token must
+    # not be POSTable twice within its TTL.  See services/oauth_jti_cache.
+    from app.services.oauth_jti_cache import claim_jti
+    if not claim_jti(claims.get("jti"), claims.get("exp")):
+        raise HTTPException(
+            status_code=401,
+            detail="Apple token already used (replay)",
+        )
+
     # Privacy-relay emails MUST NOT bridge to an existing real-email
     # account — that's an identity-merge hazard. We still treat them as
     # the user's email for storage; we just never look up an existing
@@ -194,7 +203,32 @@ def oauth_apple(
     if not user and email and not is_relay_email:
         user = db.query(User).filter(User.email == email).first()
         if user:
-            # Existing email-based account — link the Apple identity.
+            # Audit P1 (Task #75): refuse to silently link Apple to a
+            # password-or-magic-link account.  The OAuth provider proves
+            # email control but NOT knowledge of any password the owner
+            # set, so we'd be one email-compromise away from full
+            # account takeover.  Only silent-link when the existing
+            # account already authenticates via OAuth — those owners
+            # have already proven email control to us once.
+            already_oauth = (user.oauth_provider or "") in {"apple", "google"}
+            if not already_oauth:
+                _audit(
+                    db, user, "auth.oauth_link_refused", ip, "apple",
+                    is_new=False, was_linked=False,
+                )
+                db.commit()
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "account_exists_login_first",
+                        "message": (
+                            "An account with this email already exists. "
+                            "Sign in with your existing method, then link "
+                            "Apple in Profile settings."
+                        ),
+                    },
+                )
+            # Existing OAuth-only account — link the Apple identity.
             user.apple_sub = sub
             # Also stamp the legacy column so /auth/apple keeps finding
             # them. Cheap insurance against double-account creation.
@@ -301,6 +335,14 @@ def oauth_google(
     if not email:
         raise HTTPException(status_code=401, detail="Google token missing email")
 
+    # Audit P1 (Task #75) — replay protection.  See oauth_apple above.
+    from app.services.oauth_jti_cache import claim_jti
+    if not claim_jti(claims.get("jti"), claims.get("exp")):
+        raise HTTPException(
+            status_code=401,
+            detail="Google token already used (replay)",
+        )
+
     was_linked = False
     is_new = False
 
@@ -311,6 +353,27 @@ def oauth_google(
     if not user:
         user = db.query(User).filter(User.email == email).first()
         if user:
+            # Audit P1 (Task #75): refuse to silently link Google to a
+            # password-or-magic-link account.  See the matching block in
+            # oauth_apple above for the full reasoning.
+            already_oauth = (user.oauth_provider or "") in {"apple", "google"}
+            if not already_oauth:
+                _audit(
+                    db, user, "auth.oauth_link_refused", ip, "google",
+                    is_new=False, was_linked=False,
+                )
+                db.commit()
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "account_exists_login_first",
+                        "message": (
+                            "An account with this email already exists. "
+                            "Sign in with your existing method, then link "
+                            "Google in Profile settings."
+                        ),
+                    },
+                )
             user.google_sub = sub
             was_linked = True
 

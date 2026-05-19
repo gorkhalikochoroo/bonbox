@@ -42,6 +42,7 @@ from app.models.business_profile import BusinessProfile
 from app.models.daily_close import DailyClose, encode_breakdown
 from app.models.expense import Expense, ExpenseCategory
 from app.models.inventory import InventoryItem
+from app.models.sale import Sale
 from app.models.user import User
 from app.utils.time import utc_now
 
@@ -225,9 +226,35 @@ _EXPENSE_SAMPLES = [
 ]
 
 
-def _seed_business_profile(db: Session, user: User) -> None:
-    """Set up the BusinessProfile to look fully verified."""
+def _seed_business_profile(db: Session, user: User, *, mark_demo: bool = False) -> None:
+    """Set up the BusinessProfile to look fully verified.
+
+    Safety rules (Audit P1 — Task #74):
+      • If the user already has a CVR-verified BusinessProfile whose
+        verification source does NOT carry the " · demo" sentinel,
+        refuse to touch it.  A real Mirabelle ApS-replacement
+        represents the owner's actual verified Danish company and
+        must NEVER be silently overwritten with the demo
+        CVR/VAT/accountant fields.
+      • If there's an existing row that is NOT CVR-verified (typical
+        for an empty signup), we update it in place — safe, since
+        nothing has been verified against Erhvervsstyrelsen yet.
+      • Otherwise we insert a fresh row.
+      • When `mark_demo` is True (per-user demo path), the
+        cvr_verified_source is tagged with " · demo" so the row
+        is later distinguishable from a real verified profile —
+        both by `_count_non_demo_rows` and by the clear path.
+    """
     existing = db.query(BusinessProfile).filter_by(user_id=user.id).first()
+    if (
+        existing
+        and existing.cvr_verified_at is not None
+        and not (existing.cvr_verified_source or "").endswith(" · demo")
+    ):
+        # Defence-in-depth: callers (seed_for_user) already gate on
+        # _count_non_demo_rows but if anyone bypasses that, this stops
+        # the overwrite cold.  Real CVR-verified profile → don't touch.
+        return
     if existing:
         # Update in place — don't dup the row
         profile = existing
@@ -254,7 +281,11 @@ def _seed_business_profile(db: Session, user: User) -> None:
     profile.founded = "2018-03-12"
     # Verification stamps — make the green "Verified" banner appear
     profile.cvr_verified_at = utc_now() - timedelta(days=2)
-    profile.cvr_verified_source = "cvrapi.dk"
+    # When mark_demo is True the source carries the " · demo" sentinel
+    # so the row is recognisably-fake to `_count_non_demo_rows` and
+    # any other auditor.  When False (shared demo@bonbox.dk account)
+    # we keep the clean "cvrapi.dk" source for screen-recording realism.
+    profile.cvr_verified_source = "cvrapi.dk · demo" if mark_demo else "cvrapi.dk"
     profile.dawa_address_id = "0a3f50ad-2b4f-32b8-e044-0003ba298018"
     profile.vat_registered = True
     profile.status_flags = None  # no warnings
@@ -497,6 +528,16 @@ def _count_non_demo_rows(db: Session, user_id) -> int:
 
     Used as a safety gate for both seeding (don't pollute a working
     account) and clearing (don't accidentally nuke real work).
+
+    Counts (Audit P1 — Task #74):
+      • Expense rows whose description does NOT end with " · demo"
+      • DailyClose rows whose notes does NOT end with " · demo"
+      • InventoryItem rows whose name does NOT end with " · demo"
+      • All Sale rows (no demo marker exists for sales — any sale
+        is presumed real)
+      • BusinessProfile rows with cvr_verified_at IS NOT NULL — a
+        verified Danish CVR signals the owner has done real
+        Erhvervsstyrelsen setup; we MUST NOT touch that account.
     """
     from sqlalchemy import or_
     # Expense.description doesn't have an "ends with" Pythonic shortcut;
@@ -516,7 +557,34 @@ def _count_non_demo_rows(db: Session, user_id) -> int:
                     ~DailyClose.notes.like("% · demo")))
         .count()
     )
-    return int(real_expense + real_close)
+    # Inventory uses the name for the marker
+    real_inventory = (
+        db.query(InventoryItem)
+        .filter(InventoryItem.user_id == user_id)
+        .filter(~InventoryItem.name.like("% · demo"))
+        .count()
+    )
+    # Sales have no demo marker — every sale row counts as real
+    real_sales = (
+        db.query(Sale)
+        .filter(Sale.user_id == user_id, Sale.is_deleted.isnot(True))
+        .count()
+    )
+    # A verified BusinessProfile is the most sensitive signal — the
+    # owner has done a real CVR/Erhvervsstyrelsen lookup.  Skip rows
+    # whose cvr_verified_source carries the " · demo" sentinel since
+    # those are seeded.
+    verified_profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == user_id,
+                BusinessProfile.cvr_verified_at.isnot(None))
+        .filter(or_(BusinessProfile.cvr_verified_source.is_(None),
+                    ~BusinessProfile.cvr_verified_source.like("% · demo")))
+        .count()
+    )
+    return int(
+        real_expense + real_close + real_inventory + real_sales + verified_profile
+    )
 
 
 def seed_for_user(db: Session, user: User) -> dict:
@@ -556,7 +624,7 @@ def seed_for_user(db: Session, user: User) -> dict:
             "demo_row_count": int(existing_demo),
         }
 
-    _seed_business_profile(db, user)
+    _seed_business_profile(db, user, mark_demo=True)
     branch = _seed_branch(db, user)
     branch_id = branch.id if branch else None
     closes = _seed_daily_closes(db, user, branch_id, mark_demo=True)
@@ -586,7 +654,13 @@ def clear_for_user(db: Session, user: User) -> dict:
     if user is None:
         return {"ok": False, "reason": "no user"}
 
-    deleted = {"expenses": 0, "closes": 0, "inventory": 0, "expense_cats": 0}
+    deleted = {
+        "expenses": 0,
+        "closes": 0,
+        "inventory": 0,
+        "expense_cats": 0,
+        "business_profile_reset": 0,
+    }
 
     # Expenses
     demo_expenses = (
@@ -623,6 +697,21 @@ def clear_for_user(db: Session, user: User) -> dict:
     for i in demo_inv:
         db.delete(i)
         deleted["inventory"] += 1
+
+    # Demo BusinessProfile — delete the CVR-tagged-demo profile so
+    # the owner gets a clean slate to enter their real CVR.  Identified
+    # by the " · demo" sentinel on cvr_verified_source set during the
+    # seed.  BusinessProfile has no FK references back, so a delete is
+    # safe (Branch keys on user_id, not business_profile_id).
+    demo_profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == user.id,
+                BusinessProfile.cvr_verified_source.like("% · demo"))
+        .first()
+    )
+    if demo_profile is not None:
+        db.delete(demo_profile)
+        deleted["business_profile_reset"] = 1
 
     # Demo-named expense categories — only remove if no expenses
     # reference them. Safer than blanket cascade.

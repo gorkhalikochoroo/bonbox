@@ -63,6 +63,15 @@ from app.routers import auth_oauth as auth_oauth_router
 # the CSV-upload-hassle pain on /bank-import with a real PSD2 feed.
 # Sandbox-mode default so we ship without real Aiia creds.
 from app.routers import bank_connect as bank_connect_router
+# Task #71 — MobilePay Erhverv (Vipps MobilePay Business) connect +
+# sync. Sibling of Aiia for the OTHER half of the payment story:
+# per-settlement granularity that Aiia's aggregate payout line hides.
+# Mock-mode default until the partner agreement closes for prod creds.
+from app.routers import mobilepay as mobilepay_router
+# Task #72 — Web Push (VAPID) subscribe / unsubscribe / public-key /
+# test endpoints. Mounted under /api/push. The 8am morning brief
+# delivery cron lives in app.jobs.daily_brief_push_job.
+from app.routers import push as push_router
 from app.database import engine, Base, get_db
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -1072,6 +1081,68 @@ _migrations = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_bank_connections_user_status ON bank_connections (user_id, status)",
     "CREATE INDEX IF NOT EXISTS ix_bank_connections_status_synced ON bank_connections (status, last_synced_at)",
+
+    # ── Migration 047: MobilePay Erhverv connections (Task #71) ─────────
+    # MobilePay's merchant API gives per-settlement granularity that
+    # Aiia's aggregate payout line hides. Same Fernet-encrypted token
+    # storage as bank_connections, same audit verbs, same Starter+ gate.
+    #
+    # UNIQUE(user_id) means one MobilePay merchant per BonBox user for
+    # v1 — re-connecting flips the existing row rather than inserting a
+    # duplicate. v2 may relax this for chains with multiple merchant
+    # agreements per outlet.
+    """CREATE TABLE IF NOT EXISTS mobilepay_connections (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        mp_merchant_id VARCHAR(100),
+        merchant_name VARCHAR(160),
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        consent_state VARCHAR(64),
+        scopes VARCHAR(255),
+        access_token_enc BYTEA,
+        refresh_token_enc BYTEA,
+        token_expires_at TIMESTAMP,
+        consent_expires_at TIMESTAMP,
+        last_synced_at TIMESTAMP,
+        connected_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_mobilepay_connection_user UNIQUE (user_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_mobilepay_connections_status_synced ON mobilepay_connections (status, last_synced_at)",
+
+    # ── Migration 048: Web Push subscriptions (Task #72) ─────────────────
+    # One row per (user, device endpoint). The morning push cron at
+    # 06:00 UTC iterates the active rows and fans the brief out to each.
+    # fail_count tracks consecutive 5xx/timeout responses; rows hitting
+    # >= 3 OR returning 410 Gone (subscription expired client-side) get
+    # hard-deleted by the cron so we never burn budget on dead devices.
+    #
+    # Privacy: endpoint URLs are PII (~ email addresses for devices) —
+    # never log them at INFO; audit rows record counts only, never
+    # endpoints. UNIQUE(user_id, endpoint) so re-subscribing the same
+    # device on the same user is an idempotent upsert.
+    """CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        endpoint TEXT NOT NULL UNIQUE,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        user_agent VARCHAR(500),
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_used_at TIMESTAMP,
+        last_failed_at TIMESTAMP,
+        fail_count INTEGER NOT NULL DEFAULT 0,
+        CONSTRAINT uq_push_subscription_user_endpoint UNIQUE (user_id, endpoint)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_push_subscriptions_user_id ON push_subscriptions (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_push_subscriptions_fail_count ON push_subscriptions (fail_count)",
+
+    # ── Migration 049: Aiia consent_state TTL (Audit P1 — Task #75) ─────
+    # The Aiia /init flow mints a 32-byte CSRF state token and stores
+    # it on the row.  Without a TTL, a phished state value can be
+    # replayed days later to bind another bank to the victim's row.
+    # Stamp now+10min at /init; refuse exchange after that.
+    "ALTER TABLE bank_connections ADD COLUMN IF NOT EXISTS consent_state_expires_at TIMESTAMP",
 ]
 
 
@@ -2211,6 +2282,22 @@ app.include_router(
     prefix="/api/bank-connections",
     tags=["Bank Connect (Aiia)"],
 )
+# Task #71 — MobilePay Erhverv connect + payments sync. Auth-gated,
+# Starter+ via mobilepay_autosync feature flag. Mock-mode default —
+# set MOBILEPAY_ENV=sandbox/live to switch on real HTTP calls.
+app.include_router(
+    mobilepay_router.router,
+    prefix="/api/mobilepay",
+    tags=["MobilePay (Erhverv)"],
+)
+# Task #72 — Web Push (VAPID) subscribe / unsubscribe / public-key /
+# test. The /vapid-public-key sub-route is public; the rest are auth-
+# gated. Endpoints return 503 cleanly when VAPID env vars are unset.
+app.include_router(
+    push_router.router,
+    prefix="/api/push",
+    tags=["Push Notifications"],
+)
 
 
 # --- Protected Uploads — owner can only access own receipts ---
@@ -2333,6 +2420,17 @@ try:
     # writes them as Sale/Expense rows, runs them through reconciliation,
     # auto-confirms HIGH+exact matches.
     from app.jobs.aiia_sync_job import run_aiia_sync_tick
+    # Task #71 — MobilePay nightly sync. 03:45 UTC = ~04:45/05:45
+    # Copenhagen — 15 minutes after Aiia so bank-side payout rows
+    # already exist and the matcher can dedupe MobilePay settlements
+    # against the Aiia-imported aggregate payout.
+    from app.jobs.mobilepay_sync_job import run_mobilepay_sync_tick
+    # Task #72 — Native push fan-out at 06:00 UTC ≈ 07:00/08:00 Copenhagen
+    # — slightly before the email cron at 06:30 UTC because push provider
+    # fan-out can take 15-30 s when there's a backlog. Per-user errors
+    # isolated; the brief cache means the second-fired (email) cron hits
+    # the same DailyBrief row and adds no extra LLM cost.
+    from app.jobs.daily_brief_push_job import send_daily_brief_pushes
 
     _scheduler = BackgroundScheduler()
     _scheduler.add_job(
@@ -2416,10 +2514,33 @@ try:
         name="Aiia nightly bank sync",
         replace_existing=True,
     )
+    # Task #71 — MobilePay nightly sync. 03:45 UTC — 15 min after
+    # Aiia. Skips connections synced in the last 12h so manual syncs
+    # from the UI earlier in the day don't get double-pulled.
+    _scheduler.add_job(
+        run_mobilepay_sync_tick,
+        trigger=CronTrigger(hour=3, minute=45),
+        id="mobilepay_sync",
+        name="MobilePay nightly payments sync",
+        replace_existing=True,
+    )
+    # Task #72 — Daily Brief native push at 06:00 UTC ≈ 07:00/08:00
+    # Copenhagen. Slightly ahead of the email cron (06:30 UTC) because
+    # push fan-out is slower (many small per-device HTTPS calls vs one
+    # Resend call). Both surfaces deliver the SAME brief (get_or_create_brief
+    # caches per day). Failed devices auto-pruned (410 Gone or fail_count>=3).
+    _scheduler.add_job(
+        send_daily_brief_pushes,
+        trigger=CronTrigger(hour=6, minute=0),
+        id="daily_brief_push",
+        name="Daily Brief morning push",
+        replace_existing=True,
+    )
     _scheduler.start()
     print("Schedulers started: payment auto-sync (6h), nightly maintenance (02:30), "
           "kasserapport drift (03:00), demo refresh (03:15), kasserapport patterns (Sun 03:30), "
-          "recurring expenses (04:00), daily brief email (06:30), aiia sync (03:30)")
+          "recurring expenses (04:00), daily brief push (06:00), daily brief email (06:30), "
+          "aiia sync (03:30), mobilepay sync (03:45)")
 
     # Scheduler shutdown migrated to the `lifespan` context manager
     # near the FastAPI() constructor. It checks globals() for the

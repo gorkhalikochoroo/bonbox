@@ -26,10 +26,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
+from app.models.business_profile import BusinessProfile
 from app.models.daily_close import DailyClose, encode_breakdown
 from app.models.expense import Expense, ExpenseCategory
 from app.models.inventory import InventoryItem
+from app.models.sale import Sale
 from app.models.user import User
+from app.utils.time import utc_now
 from app.services.demo_seed import (
     _count_non_demo_rows,
     clear_for_user,
@@ -265,3 +268,97 @@ def test_count_non_demo_rows_ignores_marker(db, owner):
     seed_for_user(db, owner)
     # All seeded rows carry the marker → real count should be 0
     assert _count_non_demo_rows(db, owner.id) == 0
+
+
+# ─── Audit P1 (Task #74) — protect verified BusinessProfile + Sales ───
+
+def test_seed_refuses_with_verified_business_profile(db, owner):
+    """Audit P1 #2: a user who has done real CVR lookup must never
+    have their Mirabelle ApS-replacement overwritten."""
+    import uuid as _uuid
+    bp = BusinessProfile(
+        id=_uuid.uuid4(),
+        user_id=owner.id,
+        company_name="Real Café ApS",
+        org_number="12345678",
+        vat_number="DK12345678",
+        cvr_verified_at=utc_now(),
+        cvr_verified_source="cvrapi.dk",
+    )
+    db.add(bp)
+    db.commit()
+
+    result = seed_for_user(db, owner)
+    assert result["ok"] is False
+    assert result["reason"] == "user has real data"
+
+    # And the profile is untouched
+    db.refresh(bp)
+    assert bp.company_name == "Real Café ApS"
+    assert bp.org_number == "12345678"
+
+
+def test_seed_refuses_with_real_sales(db, owner):
+    """Audit P1 #2: a user with sales but no closes/expenses must
+    not pass the gate (sales are real data even without a tag)."""
+    from decimal import Decimal as _Decimal
+    import uuid as _uuid
+    s = Sale(
+        id=_uuid.uuid4(),
+        user_id=owner.id,
+        date=date.today(),
+        item_name="Coffee",
+        amount=_Decimal("35"),
+        payment_method="card",
+        is_deleted=False,
+    )
+    db.add(s)
+    db.commit()
+
+    result = seed_for_user(db, owner)
+    assert result["ok"] is False
+    assert result["reason"] == "user has real data"
+
+
+def test_seed_business_profile_defense_in_depth(db, owner):
+    """Even if the gate is bypassed somehow, _seed_business_profile
+    must refuse to touch a CVR-verified row."""
+    import uuid as _uuid
+    bp = BusinessProfile(
+        id=_uuid.uuid4(),
+        user_id=owner.id,
+        company_name="Real Café ApS",
+        org_number="12345678",
+        cvr_verified_at=utc_now(),
+    )
+    db.add(bp)
+    db.commit()
+
+    # Call the internal helper directly — simulating a gate bypass
+    from app.services.demo_seed import _seed_business_profile
+    _seed_business_profile(db, owner)
+    db.commit()
+    db.refresh(bp)
+    # Untouched
+    assert bp.company_name == "Real Café ApS"
+    assert bp.org_number == "12345678"
+
+
+def test_seed_real_inventory_blocks(db, owner):
+    """Audit P1 #2: real inventory (no demo tag) should block seed."""
+    import uuid as _uuid
+    from decimal import Decimal as _Decimal
+    item = InventoryItem(
+        id=_uuid.uuid4(),
+        user_id=owner.id,
+        name="Owner's coffee beans",  # no demo marker
+        quantity=5,
+        unit="kg",
+        cost_per_unit=_Decimal("200"),
+    )
+    db.add(item)
+    db.commit()
+
+    result = seed_for_user(db, owner)
+    assert result["ok"] is False
+    assert result["reason"] == "user has real data"

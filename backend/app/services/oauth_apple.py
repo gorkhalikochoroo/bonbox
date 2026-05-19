@@ -210,4 +210,10 @@ def verify_apple_token(id_token: str) -> dict:
         "sub": claims.get("sub"),
         "email": claims.get("email"),
         "email_verified": email_verified,
+        # Audit P1 (Task #75) — replay protection.  jti is unique per
+        # token; exp lets the cache prune at the right moment.  Some
+        # Apple tokens omit jti — the router treats absence as
+        # non-blockable (still rate-limited via slowapi).
+        "jti": claims.get("jti"),
+        "exp": claims.get("exp"),
     }

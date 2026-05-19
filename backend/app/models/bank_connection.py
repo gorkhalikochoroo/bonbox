@@ -111,6 +111,15 @@ class BankConnection(Base):
     # CSRF defense for the Aiia → us hop. Cleared once activated.
     consent_state: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    # Audit P1 (Task #75): the consent_state is short-lived to prevent
+    # an attacker from replaying a phished state value days later.
+    # Stamped at /init for now + 10 minutes; refused at /callback when
+    # past expiry.  Distinct from `consent_expires_at` which is the
+    # downstream 90-day Aiia SCA window.
+    consent_state_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True,
+    )
+
     # SCA / 90-day consent expiry (DK PSD2). NULL until callback comes
     # back; we copy expires_in into a real datetime so cron can warn
     # the owner ahead of time.

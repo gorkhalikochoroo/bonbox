@@ -109,6 +109,15 @@ def reset_rate_limiter():
         pass
 
 
+@pytest.fixture(autouse=True)
+def reset_jti_cache():
+    """Wipe the jti replay cache between tests (Audit P1, Task #75).
+    Otherwise tests reusing the same stub jti would trip the replay
+    block on the second run."""
+    from app.services.oauth_jti_cache import _reset_for_tests
+    _reset_for_tests()
+
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
@@ -127,8 +136,24 @@ def _patch_google(claims=None, side_effect=None):
     return patch("app.routers.auth_oauth.verify_google_token", return_value=claims)
 
 
-def _apple_claims(sub: str, email: str = "user@example.com", email_verified: bool = True) -> dict:
-    return {"sub": sub, "email": email, "email_verified": email_verified}
+def _apple_claims(
+    sub: str,
+    email: str = "user@example.com",
+    email_verified: bool = True,
+    jti: str | None = None,
+) -> dict:
+    # Audit P1 (Task #75): every test claim carries a unique jti by
+    # default — derived from sub so re-running the same sub re-uses
+    # the same jti and triggers the replay defense (which is exactly
+    # what the test wants when re-checking re-sign-in by sub).  For
+    # tests that need a truly distinct jti, pass `jti=...` explicitly.
+    return {
+        "sub": sub,
+        "email": email,
+        "email_verified": email_verified,
+        "jti": jti if jti is not None else f"jti-{sub}",
+        "exp": None,
+    }
 
 
 def _google_claims(
@@ -137,6 +162,7 @@ def _google_claims(
     email_verified: bool = True,
     name: str = "",
     picture: str = "",
+    jti: str | None = None,
 ) -> dict:
     return {
         "sub": sub,
@@ -144,6 +170,8 @@ def _google_claims(
         "email_verified": email_verified,
         "name": name,
         "picture": picture,
+        "jti": jti if jti is not None else f"jti-{sub}",
+        "exp": None,
     }
 
 
@@ -174,11 +202,13 @@ def test_apple_new_user_created_with_sub(db_session, client):
 
 
 def test_apple_returning_user_found_by_sub(db_session, client):
-    """Same sub on second call → finds existing row, doesn't duplicate."""
+    """Same sub on second call → finds existing row, doesn't duplicate.
+    Each call uses a distinct jti because real Apple sign-ins issue a
+    fresh token per session (Audit P1 — Task #75 replay defense)."""
     sub = "001234.apple.return.0001"
-    with _patch_apple(_apple_claims(sub, email="ret@bonbox.test")):
+    with _patch_apple(_apple_claims(sub, email="ret@bonbox.test", jti="jti-ret-1")):
         client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
-    with _patch_apple(_apple_claims(sub, email="ret@bonbox.test")):
+    with _patch_apple(_apple_claims(sub, email="ret@bonbox.test", jti="jti-ret-2")):
         r = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
     assert r.status_code == 200
     n = db_session.query(User).filter(User.apple_sub == sub).count()
@@ -188,9 +218,11 @@ def test_apple_returning_user_found_by_sub(db_session, client):
 # ─── Apple — linking flow ────────────────────────────────────────────
 
 
-def test_apple_existing_email_password_user_linked(db_session, client):
-    """User with an email+password account signs in with Apple →
-    apple_sub gets linked to the existing row. No duplicate User."""
+def test_apple_existing_password_account_refuses_silent_link(db_session, client):
+    """Audit P1 (Task #75): a user with an email+password account who
+    has NOT yet signed in via OAuth must NOT be silently linked when
+    a same-email Apple token shows up.  Returns 409 with a structured
+    error so the frontend can route them to the password login first."""
     existing = User(
         email="caro@bonbox.test",
         password_hash=hash_password("Password123"),
@@ -206,11 +238,14 @@ def test_apple_existing_email_password_user_linked(db_session, client):
     sub = "001234.apple.link.0001"
     with _patch_apple(_apple_claims(sub, email="caro@bonbox.test")):
         r = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
-    assert r.status_code == 200
+    assert r.status_code == 409
+    detail = r.json().get("detail") or {}
+    assert detail.get("code") == "account_exists_login_first"
 
     db_session.refresh(existing)
-    assert existing.apple_sub == sub
-    assert existing.oauth_provider == "apple"
+    # apple_sub MUST remain unset — link was refused
+    assert existing.apple_sub is None
+    # And no duplicate User created
     n = db_session.query(User).filter(User.email == "caro@bonbox.test").count()
     assert n == 1
 
@@ -229,9 +264,10 @@ def test_apple_audit_log_signin_recorded(db_session, client):
     assert "apple" in (entries[0].after_state or "")
 
 
-def test_apple_audit_log_linked_recorded(db_session, client):
-    """When an existing email-password user is linked via Apple sign-in,
-    BOTH auth.oauth_linked and auth.oauth_signin are written."""
+def test_apple_audit_log_link_refused_recorded(db_session, client):
+    """Audit P1 (Task #75): when we refuse the silent link, we leave
+    an `auth.oauth_link_refused` row so security can spot brute-force
+    attempts.  No oauth_signin row for the would-be attacker."""
     existing = User(
         email="link-audit@bonbox.test",
         password_hash=hash_password("Password123"),
@@ -244,16 +280,19 @@ def test_apple_audit_log_linked_recorded(db_session, client):
 
     sub = "001234.apple.link.audit"
     with _patch_apple(_apple_claims(sub, email="link-audit@bonbox.test")):
-        client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+        r = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+    assert r.status_code == 409
 
-    linked = db_session.query(AuditLog).filter(
-        AuditLog.action == "auth.oauth_linked",
+    refused = db_session.query(AuditLog).filter(
+        AuditLog.action == "auth.oauth_link_refused",
     ).count()
+    assert refused >= 1
+    # No oauth_signin should have been recorded — we never let them in
     signin = db_session.query(AuditLog).filter(
         AuditLog.action == "auth.oauth_signin",
+        AuditLog.user_id == existing.id,
     ).count()
-    assert linked >= 1
-    assert signin >= 1
+    assert signin == 0
 
 
 # ─── Apple — privacy-relay email ─────────────────────────────────────
@@ -293,12 +332,13 @@ def test_apple_private_relay_email_creates_new_user(db_session, client):
 
 def test_apple_private_relay_returning_user_found_by_sub(db_session, client):
     """Same relay-email user signing in twice → finds them via
-    apple_sub (which is stable), not via the relay address."""
+    apple_sub (which is stable), not via the relay address.  Distinct
+    jti per call (Audit P1 — Task #75)."""
     sub = "001234.apple.relay.return"
     relay = "abc@privaterelay.appleid.com"
-    with _patch_apple(_apple_claims(sub, email=relay)):
+    with _patch_apple(_apple_claims(sub, email=relay, jti="jti-relay-1")):
         client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
-    with _patch_apple(_apple_claims(sub, email=relay)):
+    with _patch_apple(_apple_claims(sub, email=relay, jti="jti-relay-2")):
         r = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
     assert r.status_code == 200
     n = db_session.query(User).filter(User.apple_sub == sub).count()
@@ -372,10 +412,12 @@ def test_google_new_user_created_with_sub(db_session, client):
 
 
 def test_google_returning_user_found_by_sub(db_session, client):
+    """Same sub on second call → existing row found.  Distinct jti
+    per call so the replay defense (Audit P1 — Task #75) doesn't fire."""
     sub = "google-sub-return"
-    with _patch_google(_google_claims(sub, email="gret@bonbox.test")):
+    with _patch_google(_google_claims(sub, email="gret@bonbox.test", jti="jti-gret-1")):
         client.post("/api/auth/oauth/google", json={"id_token": "stub"})
-    with _patch_google(_google_claims(sub, email="gret@bonbox.test")):
+    with _patch_google(_google_claims(sub, email="gret@bonbox.test", jti="jti-gret-2")):
         r = client.post("/api/auth/oauth/google", json={"id_token": "stub"})
     assert r.status_code == 200
     n = db_session.query(User).filter(User.google_sub == sub).count()
@@ -385,7 +427,9 @@ def test_google_returning_user_found_by_sub(db_session, client):
 # ─── Google — linking flow ───────────────────────────────────────────
 
 
-def test_google_existing_email_password_user_linked(db_session, client):
+def test_google_existing_password_account_refuses_silent_link(db_session, client):
+    """Audit P1 (Task #75): mirror of the Apple test — silent linking
+    of Google to a password account is refused with 409."""
     existing = User(
         email="glink@bonbox.test",
         password_hash=hash_password("Password123"),
@@ -401,11 +445,12 @@ def test_google_existing_email_password_user_linked(db_session, client):
     sub = "google-sub-link"
     with _patch_google(_google_claims(sub, email="glink@bonbox.test")):
         r = client.post("/api/auth/oauth/google", json={"id_token": "stub"})
-    assert r.status_code == 200
+    assert r.status_code == 409
+    detail = r.json().get("detail") or {}
+    assert detail.get("code") == "account_exists_login_first"
 
     db_session.refresh(existing)
-    assert existing.google_sub == sub
-    assert existing.oauth_provider == "google"
+    assert existing.google_sub is None
     n = db_session.query(User).filter(User.email == "glink@bonbox.test").count()
     assert n == 1
 
@@ -479,8 +524,8 @@ def test_cross_tenant_isolation_apple_sub_per_user(db_session, client):
     uid_b = r_b.json()["user"]["id"]
     assert uid_a != uid_b
 
-    # Re-sign in with A's sub → returns A only
-    with _patch_apple(_apple_claims(sub_a, email="a@bonbox.test")):
+    # Re-sign in with A's sub but a fresh jti → returns A only
+    with _patch_apple(_apple_claims(sub_a, email="a@bonbox.test", jti="cross-a-2")):
         r = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
     assert r.json()["user"]["id"] == uid_a
 
@@ -538,8 +583,8 @@ def test_oauth_provider_stamp_updates_on_each_signin(db_session, client):
     assert u.google_sub == sub_google
     assert u.oauth_provider == "google"  # last used
 
-    # 3) Apple again → flips back to apple
-    with _patch_apple(_apple_claims(sub_apple, email="stamp@bonbox.test")):
+    # 3) Apple again → flips back to apple (distinct jti, Audit P1 #75)
+    with _patch_apple(_apple_claims(sub_apple, email="stamp@bonbox.test", jti="stamp-apple-2")):
         client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
     db_session.expire_all()
     u = db_session.query(User).filter(User.email == "stamp@bonbox.test").first()
@@ -569,3 +614,44 @@ def test_apple_locked_account_refused(db_session, client):
         r = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
     assert r.status_code == 401
     assert "locked" in r.json()["detail"].lower()
+
+
+# ─── Audit P1 (Task #75) — replay protection ────────────────────────
+
+
+def test_apple_same_jti_replay_blocked(db_session, client):
+    """Audit P1 (Task #75): the same id_token (same jti) must not be
+    POSTable twice within its TTL.  Mitigates token theft + replay."""
+    sub = "001234.apple.replay.0001"
+    claims = _apple_claims(sub, email="replay@bonbox.test", jti="static-jti-replay-apple")
+    # First POST — succeeds, creates the user
+    with _patch_apple(claims):
+        r1 = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+    assert r1.status_code == 200
+    # Second POST with the SAME jti — refused as replay
+    with _patch_apple(claims):
+        r2 = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+    assert r2.status_code == 401
+    assert "replay" in r2.json()["detail"].lower()
+
+
+def test_google_same_jti_replay_blocked(db_session, client):
+    """Same as Apple — replay defense applies to Google equally."""
+    sub = "google-sub-replay-0001"
+    claims = _google_claims(sub, email="replay@bonbox.test", jti="static-jti-replay-google")
+    with _patch_google(claims):
+        r1 = client.post("/api/auth/oauth/google", json={"id_token": "stub"})
+    assert r1.status_code == 200
+    with _patch_google(claims):
+        r2 = client.post("/api/auth/oauth/google", json={"id_token": "stub"})
+    assert r2.status_code == 401
+    assert "replay" in r2.json()["detail"].lower()
+
+
+def test_jti_cache_missing_jti_does_not_block():
+    """Audit P1 (Task #75): providers that omit jti must not lock out
+    legitimate sign-ins.  claim_jti returns True (allow) on None input."""
+    from app.services.oauth_jti_cache import claim_jti, _reset_for_tests
+    _reset_for_tests()
+    assert claim_jti(None) is True
+    assert claim_jti("") is True

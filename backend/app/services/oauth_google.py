@@ -187,4 +187,8 @@ def verify_google_token(id_token: str) -> dict:
         "email_verified": email_verified,
         "name": claims.get("name") or "",
         "picture": claims.get("picture") or "",
+        # Audit P1 (Task #75) — replay protection.  Google always
+        # includes jti+exp on id_tokens.
+        "jti": claims.get("jti"),
+        "exp": claims.get("exp"),
     }

@@ -171,12 +171,17 @@ def init_bank_connection(
     # tokens when the callback resolves. Status stays 'pending' until
     # then. If the owner never completes consent, a sweeper can purge
     # pending rows older than 1 hour (out of scope for v0.1).
+    # Audit P1 (Task #75): consent_state TTL — refuse exchange on
+    # callback if the state was minted more than 10 minutes ago.
+    # Prevents replay of phished state values days/weeks later.
+    state_expires = utc_now() + timedelta(minutes=10)
     conn = BankConnection(
         id=uuid.uuid4(),
         user_id=user.id,
         provider="aiia",
         bank_slug=body.bank_slug,
         consent_state=state,
+        consent_state_expires_at=state_expires,
         status="pending",
         sandbox_mode=sandbox,
     )
@@ -250,6 +255,28 @@ def bank_callback(
             status_code=400,
             detail=f"Connection in {conn.status} state — cannot complete consent",
         )
+    # Audit P1 (Task #75): consent_state TTL.  A phished state token
+    # replayed days later must not succeed.  Mint-time + 10 minutes is
+    # generous for a real owner finishing SCA; anything older we treat
+    # as malicious and burn the row.
+    if (
+        conn.consent_state_expires_at is not None
+        and conn.consent_state_expires_at < utc_now()
+    ):
+        conn.status = "revoked"
+        conn.consent_state = None
+        conn.consent_state_expires_at = None
+        audit_service.record(
+            db, conn.user_id, "bank_connect.consent_state.expired",
+            entity_type="bank_connection", entity_id=conn.id,
+            after={"reason": "consent_state expired"},
+            ip_address=_client_ip(request),
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=400,
+            detail="Consent expired — please start a new connection",
+        )
 
     # Re-fetch the user so the audit trail has a real User object.
     user = db.query(User).filter(User.id == conn.user_id).first()
@@ -267,6 +294,7 @@ def bank_callback(
         # again". State token is still consumed below to prevent replay.
         conn.status = "revoked"
         conn.consent_state = None
+        conn.consent_state_expires_at = None
         audit_service.record(
             db, user, "bank_connect.callback_failed",
             entity_type="bank_connection", entity_id=conn.id,
@@ -293,6 +321,7 @@ def bank_callback(
     conn.status = "active"
     # Clear the state so a stolen URL can't be replayed.
     conn.consent_state = None
+    conn.consent_state_expires_at = None
     expires_in = int(result.get("expires_in") or 7776000)  # 90d default
     conn.consent_expires_at = utc_now() + timedelta(seconds=expires_in)
 
@@ -385,6 +414,7 @@ def revoke_bank_connection(
     conn.status = "revoked"
     conn.refresh_token_enc = None
     conn.consent_state = None
+    conn.consent_state_expires_at = None
 
     audit_service.record(
         db, user, "bank_connect.revoked",

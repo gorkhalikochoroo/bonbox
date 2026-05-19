@@ -27,7 +27,9 @@ import CloserPromptCard from "../components/CloserPromptCard";
 import TrialFinalStretchTip from "../components/TrialFinalStretchTip";
 import MomsCountdownCard from "../components/MomsCountdownCard";
 import ConnectionsProgressCard from "../components/ConnectionsProgressCard";
+import PushOptInPrompt from "../components/PushOptInPrompt";
 import DemoDataCard from "../components/DemoDataCard";
+import DemoActiveBanner from "../components/DemoActiveBanner";
 import {
   AnimatedCounter,
   SkeletonCard,
@@ -1617,6 +1619,11 @@ export default function DashboardPage() {
             action — losing track of it costs real revisor fees. ── */}
         <MonthEndBundleBanner />
 
+        {/* ── DEMO ACTIVE BANNER — when the owner has loaded sample
+            data, surface a subtle reminder so they never confuse
+            demo numbers with real ones. Self-hides once cleared. ── */}
+        <DemoActiveBanner />
+
         {/* ── MOMS COUNTDOWN — the single most anxiety-reducing widget for
             a DK owner. Shows days until next filing + estimated amount.
             Self-hides on accounts with no tax preferences saved. Tap to
@@ -1628,6 +1635,14 @@ export default function DashboardPage() {
             /connections. Self-hides when everything is connected or
             after 30-day dismissal. ── */}
         <ConnectionsProgressCard />
+
+        {/* ── PUSH OPT-IN — Task #72. After day 1 in BonBox, nudges the
+            owner to enable native push notifications for the 8am
+            morning brief. Self-hides when not supported, already
+            subscribed, declined, or dismissed for 30 days. iOS Safari
+            without standalone gets a "Add to Home Screen first" hint
+            instead of a subscribe button. ── */}
+        <PushOptInPrompt />
 
         {/* ── DEMO DATA — empty-state CTA for new owners. Self-hides
             once the user has any real data or has already seeded

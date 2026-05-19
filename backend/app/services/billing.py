@@ -255,6 +255,14 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # owner the 1-2 hours/month of manual reconciliation that
         # was the original "I need to do my books" pain.
         "bank_auto_reconcile": False,
+        # 2026-05-19 — MobilePay Erhverv auto-sync (Task #71). Direct
+        # per-settlement feed from MobilePay's merchant API, paired
+        # with Aiia for the OTHER half of the payment story. Free
+        # owners still see MobilePay totals via the daily-close OCR
+        # path; granular per-payment auto-match + invoice reconciliation
+        # is the Starter+ value-add. 30-50% of café revenue flows
+        # through MobilePay in DK so this is a high-leverage feature.
+        "mobilepay_autosync": False,
         # 2026-05-19 — Recurring expenses (Task #47). Owners enter the
         # same 5-10 expenses every month (rent, internet, Microsoft
         # 365, Spotify, Wolt commission). Set it up once and the
@@ -323,6 +331,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "ai_menu_scan": False,
         "bulk_staff_email": False,
         "bank_auto_reconcile": True,       # Starter killer feature
+        "mobilepay_autosync": True,        # Task #71 — pairs with bank_auto_reconcile
         "recurring_expenses": True,        # Task #47 — auto-post monthly
         "accountant_login": True,          # Task #49 — stickiness moat
         "schedule_autopilot": False,       # Pro-only — Task #50 Pro killer
@@ -343,6 +352,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "ai_menu_scan": True,
         "bulk_staff_email": True,
         "bank_auto_reconcile": True,
+        "mobilepay_autosync": True,
         "recurring_expenses": True,
         "accountant_login": True,
         "schedule_autopilot": True,
@@ -363,6 +373,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "ai_menu_scan": True,
         "bulk_staff_email": True,
         "bank_auto_reconcile": True,
+        "mobilepay_autosync": True,
         "recurring_expenses": True,
         "accountant_login": True,
         "schedule_autopilot": True,

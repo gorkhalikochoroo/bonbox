@@ -93,6 +93,44 @@ class Settings(BaseSettings):
     # URL Stripe sends user back to after checkout. We use the frontend URL.
     STRIPE_SUCCESS_URL: str = ""  # default = FRONTEND_URL + /subscription?success=1
     STRIPE_CANCEL_URL: str = ""   # default = FRONTEND_URL + /subscription?canceled=1
+    # ── MobilePay Erhverv (Vipps MobilePay Business) — Task #71 ──────
+    # v0.1 ships against the mock client by default. Set MOBILEPAY_ENV
+    # to 'sandbox' or 'live' to switch on real HTTP calls (sandbox/live
+    # currently raise 501 until v0.2 wires the actual REST shapes).
+    # Production credentials require a signed partner agreement with
+    # MobilePay — the API itself is locked behind sales approval.
+    MOBILEPAY_ENV: str = "mock"          # 'mock' | 'sandbox' | 'live'
+    MOBILEPAY_BASE_URL: str = ""         # e.g. https://api.sandbox.vippsmobilepay.com
+    MOBILEPAY_CLIENT_ID: str = ""        # OAuth client_id from MobilePay portal
+    MOBILEPAY_CLIENT_SECRET: str = ""    # OAuth client_secret (server-side ONLY)
+
+    # ── Web Push (VAPID) — Task #72 ─────────────────────────────────────
+    # VAPID identifies BonBox to the push providers (FCM / Apple Push /
+    # Mozilla autopush). Without these the /api/push endpoints 503 and
+    # the morning push cron silently no-ops — the app still boots and
+    # the email + in-app brief still ship.
+    #
+    # Generate ONCE in prod (private key never rotates lightly — every
+    # device subscribed with the old key has to re-subscribe on
+    # rotation):
+    #     from py_vapid import Vapid01
+    #     v = Vapid01(); v.generate_keys()
+    #     # public key, raw uncompressed-point base64url:
+    #     from cryptography.hazmat.primitives import serialization
+    #     import base64
+    #     pub = v.public_key.public_bytes(
+    #         encoding=serialization.Encoding.X962,
+    #         format=serialization.PublicFormat.UncompressedPoint,
+    #     )
+    #     print(base64.urlsafe_b64encode(pub).decode().rstrip('='))
+    #     # private key, PEM (single line, escape newlines in env var):
+    #     print(v.private_pem().decode())
+    VAPID_PUBLIC_KEY: str = ""
+    VAPID_PRIVATE_KEY: str = ""
+    # Per RFC 8292 the VAPID `sub` claim MUST be a mailto: or https:// URI
+    # — push providers reject anything else. Defaults to the public hello@
+    # inbox so we never silently mint claims with the wrong shape.
+    VAPID_SUBJECT: str = "mailto:hello@bonbox.dk"
 
 
 settings = Settings()

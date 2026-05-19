@@ -146,6 +146,10 @@ export default function ConnectionsPage() {
   const [grants, setGrants] = useState([]);
   const [emailPrefs, setEmailPrefs] = useState(null);
   const [bankConnections, setBankConnections] = useState([]);
+  // Task #71 — MobilePay Erhverv connection (single row per user in v1).
+  // null = not loaded yet; {} or row object = loaded.
+  const [mpConnection, setMpConnection] = useState(null);
+  const [mpBusy, setMpBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);   // { kind: 'success'|'error', msg }
   const [busyConn, setBusyConn] = useState(null);
@@ -158,6 +162,32 @@ export default function ConnectionsPage() {
     } catch {
       // Endpoint is auth-required; non-auth shouldn't hit this page anyway.
       setBankConnections([]);
+    }
+  }, []);
+
+  // Reload MobilePay connection. There's at most one per user in v1 so
+  // we fetch payments-list as a proxy for "is there an active row?" —
+  // GET /payments returns 404 when no connection exists, which we treat
+  // as the "Not connected" state.
+  const reloadMobilePayConnection = useCallback(async () => {
+    try {
+      const r = await api.get("/mobilepay/payments");
+      // We don't use the payments list here, only the side effect of
+      // updating last_synced_at. The connection state itself is
+      // tracked via mpConnection — set by the callback flow.
+      setMpConnection((prev) => ({
+        ...(prev || {}),
+        status: "active",
+        last_synced_at: r.data?.last_synced_at || null,
+      }));
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status === 404) {
+        setMpConnection(null);
+      } else if (status === 400 || status === 409) {
+        // Connection exists but isn't active (pending / expired)
+        setMpConnection({ status: status === 409 ? "expired" : "pending" });
+      }
     }
   }, []);
 
@@ -176,8 +206,11 @@ export default function ConnectionsPage() {
       setBankConnections(bc);
       setLoading(false);
     });
+    // MobilePay is a side request — failure is silent (no connection yet)
+    // and shouldn't block the initial render of the rest of the page.
+    reloadMobilePayConnection();
     return () => { alive = false; };
-  }, []);
+  }, [reloadMobilePayConnection]);
 
   // Surface the "🎉 Bank connected" toast when the OAuth callback
   // bounces us back to /connections?bank_connected=1 (Task #67).
@@ -195,6 +228,48 @@ export default function ConnectionsPage() {
       setSearchParams(next, { replace: true });
     }
   }, [searchParams, setSearchParams]);
+
+  // Task #71 — MobilePay returning from MitID Business consent.
+  // MobilePay redirects us back to /connections?mobilepay_returning=1
+  // with state + code as additional query params. We POST those to
+  // /api/mobilepay/callback to complete the activation, then strip the
+  // params so a refresh doesn't re-trigger.
+  useEffect(() => {
+    if (searchParams.get("mobilepay_returning") !== "1") return;
+    const state = searchParams.get("state");
+    const code = searchParams.get("code");
+    const next = new URLSearchParams(searchParams);
+    next.delete("mobilepay_returning");
+    next.delete("state");
+    next.delete("code");
+    setSearchParams(next, { replace: true });
+
+    if (!state || !code) {
+      setToast({
+        kind: "error",
+        msg: t("mpCallbackCancelled") || "MobilePay connection cancelled",
+      });
+      return;
+    }
+    setMpBusy(true);
+    api.post("/mobilepay/callback", { state, code })
+      .then(() => {
+        setToast({
+          kind: "success",
+          msg: t("mpConnectedToast") || "🎉 MobilePay connected",
+        });
+        return reloadMobilePayConnection();
+      })
+      .catch((err) => {
+        setToast({
+          kind: "error",
+          msg: err?.response?.data?.detail ||
+               t("mpCallbackError") ||
+               "Could not finish MobilePay connection",
+        });
+      })
+      .finally(() => setMpBusy(false));
+  }, [searchParams, setSearchParams, reloadMobilePayConnection, t]);
 
   // Auto-clear toast after 4s.
   useEffect(() => {
@@ -237,6 +312,91 @@ export default function ConnectionsPage() {
       });
     }
     setBusyConn(null);
+  };
+
+  // Task #71 — MobilePay init: POST /api/mobilepay/init, then redirect
+  // the owner to the returned consent URL. MobilePay handles MitID
+  // Business + scope review, then bounces them back to /connections
+  // with ?mobilepay_returning=1&state=...&code=... which the effect
+  // above POSTs to /callback.
+  const connectMobilePay = async () => {
+    setMpBusy(true);
+    try {
+      const res = await api.post("/mobilepay/init", {});
+      const { redirect_url } = res.data || {};
+      if (redirect_url) {
+        window.location.assign(redirect_url);
+      } else {
+        setToast({
+          kind: "error",
+          msg: t("mpInitError") || "Could not start MobilePay connection",
+        });
+      }
+    } catch (err) {
+      const status = err?.response?.status;
+      // 402 = feature locked (Free user) -> bounce to subscription
+      if (status === 402) {
+        setToast({
+          kind: "error",
+          msg: t("mpFreeGate") ||
+               "MobilePay auto-sync is a Starter+ feature.",
+        });
+      } else {
+        setToast({
+          kind: "error",
+          msg: err?.response?.data?.detail ||
+               t("mpInitError") ||
+               "Could not start MobilePay connection",
+        });
+      }
+    } finally {
+      setMpBusy(false);
+    }
+  };
+
+  const syncMobilePay = async () => {
+    setMpBusy(true);
+    try {
+      const res = await api.get("/mobilepay/payments");
+      const { new_payments, auto_matched } = res.data || {};
+      setToast({
+        kind: "success",
+        msg: `${t("mpSyncedToast") || "MobilePay synced"}: ${new_payments || 0} new, ${auto_matched || 0} auto-matched`,
+      });
+      await reloadMobilePayConnection();
+    } catch (err) {
+      setToast({
+        kind: "error",
+        msg: err?.response?.data?.detail ||
+             t("mpSyncError") || "Could not sync MobilePay",
+      });
+    } finally {
+      setMpBusy(false);
+    }
+  };
+
+  const disconnectMobilePay = async () => {
+    if (!window.confirm(
+      t("mpDisconnectConfirm") ||
+      "Disconnect MobilePay? Daily sync will stop.",
+    )) return;
+    setMpBusy(true);
+    try {
+      await api.delete("/mobilepay/connection");
+      setToast({
+        kind: "success",
+        msg: t("mpDisconnectedToast") || "MobilePay disconnected",
+      });
+      setMpConnection(null);
+    } catch (err) {
+      setToast({
+        kind: "error",
+        msg: err?.response?.data?.detail ||
+             t("mpDisconnectError") || "Could not disconnect MobilePay",
+      });
+    } finally {
+      setMpBusy(false);
+    }
   };
 
   const activeBankConnections = bankConnections.filter(
@@ -402,6 +562,76 @@ export default function ConnectionsPage() {
         </div>
       )}
 
+      {/* MobilePay Erhverv panel (Task #71) — mirrors the bank
+          connections panel above. Shown when the user has an active
+          (or expired) MobilePay connection, so the most actionable
+          state is surfaced before the integration grid. */}
+      {mpConnection?.status === "active" && (
+        <div className="mb-7 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-2xl p-5">
+          <div className="flex items-start justify-between mb-3 flex-wrap gap-2">
+            <div>
+              <h2 className="text-base font-semibold text-stone-900 dark:text-stone-100">
+                {t("mpPanelTitle") || "MobilePay Erhverv"}
+              </h2>
+              <p className="text-xs text-stone-600 dark:text-stone-400 mt-0.5">
+                {t("mpPanelSubtitle") ||
+                  "Per-payment feed via Vipps MobilePay. Auto-syncs nightly."}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 p-3 bg-white dark:bg-stone-900 rounded-lg border border-stone-100 dark:border-stone-800">
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold text-stone-900 dark:text-stone-100 truncate">
+                {mpConnection?.merchant_name || t("mpDefaultMerchant") || "MobilePay Erhverv"}
+              </div>
+              <div className="text-xs text-stone-500 dark:text-stone-400 truncate">
+                {(t("mpLastSynced") || "Last sync") + ": "}
+                {mpConnection?.last_synced_at
+                  ? new Date(mpConnection.last_synced_at).toLocaleString()
+                  : (t("mpNeverSynced") || "Never synced")}
+              </div>
+            </div>
+            <button
+              onClick={syncMobilePay}
+              disabled={mpBusy}
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 hover:bg-stone-700 dark:hover:bg-stone-200 disabled:opacity-50"
+            >
+              {mpBusy
+                ? (t("mpSyncing") || "Syncing…")
+                : (t("mpSyncNow") || "Sync now")}
+            </button>
+            <button
+              onClick={disconnectMobilePay}
+              disabled={mpBusy}
+              className="text-xs text-stone-600 hover:text-red-600 dark:text-stone-400 dark:hover:text-red-400 disabled:opacity-50"
+            >
+              {t("mpDisconnect") || "Disconnect"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {mpConnection?.status === "expired" && (
+        <div className="mb-7 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl p-4 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <div className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+              {t("mpExpiredTitle") || "MobilePay needs re-consent"}
+            </div>
+            <div className="text-xs text-amber-800 dark:text-amber-300 mt-0.5">
+              {t("mpExpiredBody") ||
+                "Your MobilePay connection lapsed — sign in again to keep auto-sync running."}
+            </div>
+          </div>
+          <button
+            onClick={connectMobilePay}
+            disabled={mpBusy}
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+          >
+            {t("mpReconnect") || "Re-connect"}
+          </button>
+        </div>
+      )}
+
       {/* Grid of integration cards */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {/* Bank */}
@@ -435,28 +665,47 @@ export default function ConnectionsPage() {
           }
         />
 
-        {/* MobilePay — coming soon */}
+        {/* MobilePay Erhverv (Task #71) — live OAuth flow.
+            Shows a different CTA depending on connection state:
+              * no connection      → "Connect MobilePay Erhverv"
+              * active connection  → "Sync now" + "Disconnect"
+              * expired connection → "Re-connect"
+            Card-only — the active connection detail (last sync timestamp,
+            disconnect button) lives in the dedicated panel above the
+            grid when status === 'active'. */}
         <ConnectionCard
           icon="CreditCard"
-          title={t("connMobilePayTitle") || "MobilePay business"}
+          title={t("mpConnectTitle") || "MobilePay Erhverv"}
           description={
             t("connMobilePayDesc") ||
             "Direct settlement import — 30-50% of café revenue, auto-matched daily. No more typing MobilePay totals into your daily close."
           }
-          status="soon"
-          comingSoonNote={
-            t("connMobilePaySoon") ||
-            "Vipps MobilePay partner application in progress. Save your MobilePay number under Profile for now."
+          status={
+            mpConnection?.status === "active"
+              ? "connected"
+              : mpConnection?.status === "expired"
+              ? "pending"
+              : "disconnected"
           }
+          statusLabel={
+            mpConnection?.status === "active"
+              ? (t("mpStatusActive") || "Connected · auto-syncs nightly")
+              : mpConnection?.status === "expired"
+              ? (t("mpStatusExpired") || "Connection expired")
+              : (t("mpStatusNotConnected") || "Not connected")
+          }
+          badge={t("connStarterBadge") || "Starter+"}
           primaryAction={{
-            label: t("connSetNumber") || "Set MobilePay number",
-            to: "/profile#billing",
+            label: mpBusy
+              ? (t("connecting") || "Connecting…")
+              : mpConnection?.status === "active"
+              ? (t("mpManage") || "Manage")
+              : mpConnection?.status === "expired"
+              ? (t("mpReconnect") || "Re-connect")
+              : (t("mpConnectCta") || "Connect MobilePay Erhverv"),
+            onClick: mpConnection?.status === "active" ? undefined : connectMobilePay,
+            disabled: mpBusy,
           }}
-          secondaryAction={
-            derived.mobilepay.status === "connected"
-              ? { label: t("connEdit") || "Edit", to: "/profile#billing" }
-              : null
-          }
         />
 
         {/* Revisor (accountant login) */}
