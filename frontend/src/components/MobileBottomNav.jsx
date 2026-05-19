@@ -1,30 +1,33 @@
 import { NavLink, useLocation } from "react-router-dom";
 import { useBranch } from "./BranchSelector";
 import { useLanguage } from "../hooks/useLanguage";
+import { Icon } from "./ui";
+import { Plus, Menu } from "lucide-react";
 
 /**
  * Returns 5 bottom nav tabs based on the active branch's business type.
- * Common: Dashboard, Sales, Quick Add (center FAB), [type-specific], More
+ * Common: Home, Sales, Quick Add (center FAB), [type-specific], More.
+ * Icons are Lucide names (see ui/Icon.jsx for the map).
  */
 function getTabsForType(branchType) {
   const typeTab = {
-    restaurant: { to: "/daily-close", icon: "🔒", labelKey: "dailyClose" },
-    bar:        { to: "/wine-list",   icon: "🍷", labelKey: "wineList" },
-    cafe:       { to: "/daily-close", icon: "🔒", labelKey: "dailyClose" },
-    retail:     { to: "/inventory",   icon: "📦", labelKey: "inventory" },
-    workshop:   { to: "/workshop",    icon: "🔧", labelKey: "workshop" },
-    salon:      { to: "/staff/schedule", icon: "👥", labelKey: "staffSchedule" },
-    hotel:      { to: "/daily-close", icon: "🔒", labelKey: "dailyClose" },
-    freelance:  { to: "/cashflow",    icon: "📈", labelKey: "cashFlow" },
-    general:    { to: "/daily-close", icon: "🔒", labelKey: "dailyClose" },
+    restaurant: { to: "/daily-close", icon: "Moon", labelKey: "navEndOfDayClose" },
+    bar:        { to: "/wine-list",   icon: "Wine", labelKey: "wineList" },
+    cafe:       { to: "/daily-close", icon: "Moon", labelKey: "navEndOfDayClose" },
+    retail:     { to: "/inventory",   icon: "Package", labelKey: "inventory" },
+    workshop:   { to: "/workshop",    icon: "Wrench", labelKey: "workshop" },
+    salon:      { to: "/staff/schedule", icon: "Calendar", labelKey: "staffSchedule" },
+    hotel:      { to: "/daily-close", icon: "Moon", labelKey: "navEndOfDayClose" },
+    freelance:  { to: "/cashflow",    icon: "LineChart", labelKey: "cashFlow" },
+    general:    { to: "/daily-close", icon: "Moon", labelKey: "navEndOfDayClose" },
   };
 
   return [
-    { to: "/dashboard", icon: "📊", labelKey: "dashboard" },
-    { to: "/sales",     icon: "💰", labelKey: "sales" },
-    { to: "/expenses",  icon: "➕", labelKey: "add", isCenter: true },
+    { to: "/dashboard", icon: "Home", labelKey: "navHome" },
+    { to: "/sales",     icon: "ShoppingBag", labelKey: "sales" },
+    { to: "/expenses",  icon: "Plus", labelKey: "add", isCenter: true },
     typeTab[branchType] || typeTab.general,
-    { to: "/more",      icon: "☰",  labelKey: "more" },
+    { to: "/more",      icon: "Menu", labelKey: "more" },
   ];
 }
 
@@ -46,16 +49,18 @@ export default function MobileBottomNav() {
             (tab.to !== "/" && location.pathname.startsWith(tab.to));
 
           if (tab.isCenter) {
+            // Center FAB uses Plus directly — larger size + white stroke
+            // to contrast against the emerald background.
             return (
               <NavLink
                 key={`center-${i}`}
                 to={tab.to}
                 className="relative -top-3 flex items-center justify-center
-                  w-12 h-12 bg-green-600 dark:bg-green-500 rounded-full
-                  text-white text-xl shadow-lg active:scale-95 transition-transform"
+                  w-12 h-12 bg-emerald-600 dark:bg-emerald-500 rounded-full
+                  text-white shadow-lg active:scale-95 transition-transform"
                 aria-label={t(tab.labelKey) || tab.labelKey}
               >
-                {tab.icon}
+                <Plus size={22} strokeWidth={2.25} />
               </NavLink>
             );
           }
@@ -67,10 +72,12 @@ export default function MobileBottomNav() {
               end={tab.to === "/dashboard"}
               className={`flex flex-col items-center justify-center w-16 h-14 transition
                 ${isActive
-                  ? "text-green-600 dark:text-green-400"
-                  : "text-gray-400 dark:text-gray-500"}`}
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-stone-400 dark:text-stone-500"}`}
             >
-              <span className="text-lg leading-none">{tab.icon}</span>
+              {tab.icon === "Menu"
+                ? <Menu size={20} strokeWidth={1.75} />
+                : <Icon name={tab.icon} size={20} strokeWidth={1.75} />}
               <span className="text-[10px] mt-0.5 font-medium">
                 {t(tab.labelKey) || tab.labelKey}
               </span>

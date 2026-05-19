@@ -7,6 +7,7 @@ import { getVatTerms } from "../utils/currency";
 import { usePageTracking } from "../hooks/useEventLog";
 import NotificationCenter from "./NotificationCenter";
 import TrialChip from "./TrialChip";
+import { Icon } from "./ui";
 // Lazy-load the search modal — only fetched when the user actually
 // opens it (⌘K or button), keeping main bundle lean.
 const GlobalSearchModal = lazy(() => import("./GlobalSearchModal"));
@@ -34,51 +35,60 @@ const navGroups = [
     id: "core",
     visibleFor: null, // always
     items: [
-      { to: "/dashboard", icon: "📊", labelKey: "dashboard" },
-      { to: "/sales", icon: "💰", labelKey: "sales" },
-      { to: "/expenses", icon: "🧾", labelKey: "expenses" },
+      // Sidebar labels follow the job-to-be-done renaming (Option A,
+      // May 2026): Dashboard → Home, Daily Report → Today's Floor,
+      // Reports → Reports & Tax, Daily Close → End-of-Day. The original
+      // `dashboard`/`dailyReport`/`dailyClose` translation keys still
+      // exist for tooltip / button copy elsewhere — only the SIDEBAR
+      // uses the shorter job-to-be-done labels.
+      //
+      // Icons are Lucide names (see components/ui/Icon.jsx for the map).
+      // Each item gets a UNIQUE icon — no duplicates across categories.
+      { to: "/dashboard", icon: "Home", labelKey: "navHome" },
+      { to: "/sales", icon: "ShoppingBag", labelKey: "sales" },
+      { to: "/expenses", icon: "Receipt", labelKey: "expenses" },
     ],
   },
   {
     id: "money",
     labelKey: "navMoney",
-    icon: "💳",
+    icon: "Wallet",
     visibleFor: null,
     items: [
-      { to: "/cashbook", icon: "📒", labelKey: "cashBook" },
-      { to: "/cashflow", icon: "📈", labelKey: "cashFlow" },
-      { to: "/budgets", icon: "🎯", labelKey: "budgetOverview" },
-      { to: "/bank-import", icon: "🏦", labelKey: "bankImport" },
-      { to: "/payment-imports", icon: "💳", labelKey: "paymentImports" },
+      { to: "/cashbook", icon: "BookOpen", labelKey: "cashBook" },
+      { to: "/cashflow", icon: "LineChart", labelKey: "cashFlow" },
+      { to: "/budgets", icon: "Target", labelKey: "budgetOverview" },
+      { to: "/bank-import", icon: "Landmark", labelKey: "bankImport" },
+      { to: "/payment-imports", icon: "CreditCard", labelKey: "paymentImports" },
       // Khata = customer credit ledger. Lives in Money (it IS money
       // owed to/by the business), not Manage. Moved here May 2026.
-      { to: "/khata", icon: "📖", labelKey: "khata" },
+      { to: "/khata", icon: "BookText", labelKey: "khata" },
       // Invoicing — Starter-tier feature. Pages render their own upgrade
       // prompt for Free-tier users, so we keep these in nav for visibility
       // (the conversion signal we want).
-      { to: "/faktura", icon: "🧾", labelKey: "faktura" },
-      { to: "/customers", icon: "👥", labelKey: "customers" },
-      { to: "/mileage", icon: "🚗", labelKey: "mileage" },
+      { to: "/faktura", icon: "FileText", labelKey: "faktura" },
+      { to: "/customers", icon: "Users", labelKey: "customers" },
+      { to: "/mileage", icon: "Car", labelKey: "mileage" },
     ],
   },
   {
     id: "stock",
     labelKey: "navStock",
-    icon: "📦",
+    icon: "Boxes",
     visibleFor: null,
     items: [
       // Inventory always visible — it's the general kitchen / shop / pantry stock.
-      { to: "/inventory", icon: "📦", labelKey: "inventory" },
+      { to: "/inventory", icon: "Package", labelKey: "inventory" },
       // Bar Pour — extracted from inventory in this commit. Gated on the
       // bar_pour vertical module so non-bar businesses (takeaways, retail,
       // workshops) never see it cluttering their nav.
-      { to: "/bar", icon: "🍸", labelKey: "bar", requiresModule: "bar_pour" },
+      { to: "/bar", icon: "Martini", labelKey: "bar", requiresModule: "bar_pour" },
       // Wine list — gated on wine_sommelier module instead of business_type
       // so a Pro restaurant that doesn't sell wine can hide it, and a wine
       // bar (technically business_type=restaurant) gets it without fuss.
-      { to: "/wine-list", icon: "🍷", labelKey: "wineList", requiresModule: "wine_sommelier" },
-      { to: "/expiry", icon: "⏰", labelKey: "expiryForecasting", visibleFor: ["restaurant", "retail", "general"] },
-      { to: "/waste", icon: "🗑️", labelKey: "wasteTracker", visibleFor: ["restaurant", "retail", "general"] },
+      { to: "/wine-list", icon: "Wine", labelKey: "wineList", requiresModule: "wine_sommelier" },
+      { to: "/expiry", icon: "AlarmClock", labelKey: "expiryForecasting", visibleFor: ["restaurant", "retail", "general"] },
+      { to: "/waste", icon: "Trash2", labelKey: "wasteTracker", visibleFor: ["restaurant", "retail", "general"] },
     ],
   },
   // Reports placed BEFORE Staff in the sidebar — matches the owner's
@@ -89,46 +99,46 @@ const navGroups = [
   {
     id: "reports",
     labelKey: "navReports",
-    icon: "📋",
+    icon: "BarChart3",
     visibleFor: null,
     items: [
-      { to: "/daily-report", icon: "🌙", labelKey: "dailyReport" },
-      { to: "/reports", icon: "📋", labelKey: "reports" },
-      { to: "/daily-close", icon: "🧾", labelKey: "dailyClose" },
-      { to: "/daily-close/multi", icon: "🌙", labelKey: "multiClose" },
-      { to: "/tax", icon: "💰", labelKey: "taxAutopilot" },
-      { to: "/bookkeeping-export", icon: "📤", labelKey: "sendToAccountant" },
+      { to: "/daily-report", icon: "Utensils", labelKey: "navTodaysFloor" },
+      { to: "/reports", icon: "ClipboardList", labelKey: "navReportsTax" },
+      { to: "/daily-close", icon: "Moon", labelKey: "navEndOfDayClose" },
+      { to: "/daily-close/multi", icon: "Store", labelKey: "multiClose" },
+      { to: "/tax", icon: "Calculator", labelKey: "taxAutopilot" },
+      { to: "/bookkeeping-export", icon: "Send", labelKey: "sendToAccountant" },
     ],
   },
   {
     id: "staff",
     labelKey: "navStaff",
-    icon: "👥",
+    icon: "UsersRound",
     visibleFor: null,
     items: [
-      { to: "/staff/schedule", icon: "📅", labelKey: "staffSchedule" },
-      { to: "/staff/hours", icon: "⏱", labelKey: "staffHours" },
-      { to: "/staff/tips", icon: "💰", labelKey: "staffTips" },
-      { to: "/staff/payroll", icon: "📄", labelKey: "staffPayroll" },
+      { to: "/staff/schedule", icon: "Calendar", labelKey: "staffSchedule" },
+      { to: "/staff/hours", icon: "Timer", labelKey: "staffHours" },
+      { to: "/staff/tips", icon: "Coins", labelKey: "staffTips" },
+      { to: "/staff/payroll", icon: "FileSpreadsheet", labelKey: "staffPayroll" },
     ],
   },
   {
     id: "intel",
     labelKey: "navIntel",
-    icon: "🧠",
+    icon: "Brain",
     visibleFor: ["restaurant", "retail", "service", "general"],
     items: [
-      { to: "/weather", icon: "🌦️", labelKey: "weatherSmart" },
-      { to: "/staffing", icon: "👥", labelKey: "staffingForecast" },
-      { to: "/pricing", icon: "💲", labelKey: "priceOptimization" },
-      { to: "/retention", icon: "🤝", labelKey: "customerRetention" },
-      { to: "/competitors", icon: "🔍", labelKey: "competitorScan" },
+      { to: "/weather", icon: "CloudSun", labelKey: "weatherSmart" },
+      { to: "/staffing", icon: "CalendarClock", labelKey: "staffingForecast" },
+      { to: "/pricing", icon: "BadgePercent", labelKey: "priceOptimization" },
+      { to: "/retention", icon: "Heart", labelKey: "customerRetention" },
+      { to: "/competitors", icon: "Telescope", labelKey: "competitorScan" },
     ],
   },
   {
     id: "workshop",
     labelKey: "navWorkshop",
-    icon: "🔧",
+    icon: "Wrench",
     // Show the group when EITHER the branch is workshop-typed OR the
     // owner has explicitly enabled the workshop module via /modules.
     // The latter lets a multi-business owner with one workshop branch
@@ -136,37 +146,38 @@ const navGroups = [
     visibleFor: ["workshop"],
     requiresAnyModule: ["workshop"],
     items: [
-      { to: "/workshop", icon: "🔧", labelKey: "workshop", requiresModule: "workshop" },
+      { to: "/workshop", icon: "Wrench", labelKey: "workshop", requiresModule: "workshop" },
     ],
   },
   {
     id: "manage",
     labelKey: "navManage",
-    icon: "⚙️",
+    icon: "Settings",
     visibleFor: null,
     items: [
-      { to: "/branches", icon: "🏢", labelKey: "branches" },
-      { to: "/terminals", icon: "💳", labelKey: "terminals" },
-      { to: "/modules", icon: "🧩", labelKey: "modules" },
-      { to: "/share-recipients", icon: "📨", labelKey: "shareRecipients" },
-      { to: "/outlets", icon: "🏪", labelKey: "crossOutlet" },
-      { to: "/consolidated-close", icon: "🏢", labelKey: "consolidatedClose" },
-      { to: "/team", icon: "👤", labelKey: "team" },
+      { to: "/branches", icon: "Building2", labelKey: "branches" },
+      { to: "/terminals", icon: "Monitor", labelKey: "terminals" },
+      { to: "/channel-settings", icon: "Bike", labelKey: "orderChannels" },
+      { to: "/modules", icon: "LayoutGrid", labelKey: "modules" },
+      { to: "/share-recipients", icon: "Mail", labelKey: "shareRecipients" },
+      { to: "/outlets", icon: "Network", labelKey: "crossOutlet" },
+      { to: "/consolidated-close", icon: "Building", labelKey: "consolidatedClose" },
+      { to: "/team", icon: "UserCog", labelKey: "team" },
       // Khata moved to Money group below — it's customer credit, not a Manage concern.
       // Feedback page retired — replaced by the in-app SupportChip (bottom-left "?")
       // which routes to /api/support/tickets and is consistently visible across pages.
       // /feedback route still exists as a backstop URL but isn't surfaced in primary nav.
-      { to: "/recently-deleted", icon: "🗂️", labelKey: "recentlyDeleted" },
-      { to: "/contact", icon: "✉️", labelKey: "contact" },
+      { to: "/recently-deleted", icon: "Trash", labelKey: "recentlyDeleted" },
+      { to: "/contact", icon: "MessageCircle", labelKey: "contact" },
     ],
   },
   {
     id: "account",
     labelKey: "navAccount",
-    icon: "💎",
+    icon: "Sparkles",
     visibleFor: null,
     items: [
-      { to: "/subscription", icon: "💎", labelKey: "planBilling" },
+      { to: "/subscription", icon: "Sparkles", labelKey: "planBilling" },
     ],
   },
 ];
@@ -222,9 +233,9 @@ function filterNavGroups(groups, branchType, businessTypes, enabledModules) {
 }
 
 const personalNav = [
-  { to: "/personal", icon: "📊", labelKey: "dashboard" },
-  { to: "/loans", icon: "💸", labelKey: "loanTracker" },
-  { to: "/contact", icon: "✉️", labelKey: "contact" },
+  { to: "/personal", icon: "User", labelKey: "dashboard" },
+  { to: "/loans", icon: "Banknote", labelKey: "loanTracker" },
+  { to: "/contact", icon: "MessageCircle", labelKey: "contact" },
 ];
 
 function findGroupForPath(path) {
@@ -552,7 +563,7 @@ export default function Layout() {
                     `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition ${isActive ? activeClass : inactiveClass}`
                   }
                 >
-                  <span className="text-sm w-5 text-center">{item.icon}</span>
+                  <Icon name={item.icon} size={18} className="shrink-0" />
                   {item.labelKey ? t(item.labelKey) : item.label}
                 </NavLink>
               ))}
@@ -578,7 +589,7 @@ export default function Layout() {
                             `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition ${isActive ? activeClass : inactiveClass}`
                           }
                         >
-                          <span className="text-sm w-5 text-center">{item.icon}</span>
+                          <Icon name={item.icon} size={18} className="shrink-0" />
                           {item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)}
                         </NavLink>
                       ))}
@@ -598,7 +609,7 @@ export default function Layout() {
                           : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
                       }`}
                     >
-                      <span className="text-xs">{group.icon}</span>
+                      <Icon name={group.icon} size={14} className="shrink-0 opacity-70" />
                       <span>{t(group.labelKey)}</span>
                       {hasActiveChild && !isOpen && (
                         <span className="w-1.5 h-1.5 rounded-full bg-green-500 ml-0.5" />
@@ -621,7 +632,7 @@ export default function Layout() {
                               `flex items-center gap-2.5 pl-5 pr-3 py-1.5 rounded-lg text-[13px] font-medium transition ${isActive ? activeClass : inactiveClass}`
                             }
                           >
-                            <span className="text-xs w-4 text-center">{item.icon}</span>
+                            <Icon name={item.icon} size={16} className="shrink-0" />
                             {item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)}
                           </NavLink>
                         ))}

@@ -4,7 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { getVatTerms } from "../utils/currency";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
-import { formatDate } from "../utils/dateFormat";
+import { formatDate, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 
 const currentDate = new Date();
@@ -95,13 +95,16 @@ export default function ReportsPage() {
     <div className="p-4 sm:p-6 space-y-6 max-w-4xl mx-auto">
       {/* Tab Switcher */}
       <div className="flex gap-2">
+        {/* Option A rename — tabs map to job-to-be-done: "Today's Books"
+            is the accountant-style daily snapshot; "Tax Bundle" is the
+            multi-section monthly PDF the user hands to their revisor. */}
         <button onClick={() => setTab("daily")}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition ${tab === "daily" ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"}`}>
-          {t("dailyReport")}
+          📒 {t("todaysBooks") || "Today's Books"}
         </button>
         <button onClick={() => setTab("monthly")}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition ${tab === "monthly" ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"}`}>
-          {t("monthlyReport")}
+          📦 {t("taxBundle") || "Tax Bundle"}
         </button>
       </div>
 
@@ -257,7 +260,7 @@ function DailyKasserapport() {
   const { t } = useLanguage();
   const currency = displayCurrency(user?.currency);
   const vat = getVatTerms(user?.currency);
-  const [reportDate, setReportDate] = useState(new Date().toISOString().split("T")[0]);
+  const [reportDate, setReportDate] = useState(localIso());
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
 

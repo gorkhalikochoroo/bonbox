@@ -65,13 +65,17 @@ export default function GlobalSearchModal({ open, onClose }) {
   // a label key (translated), an icon, and a route. Filtering is just
   // a substring match on the LABEL — fast and good enough for nav.
   const PAGES = useMemo(() => [
-    { key: "dashboard", label: t("dashboard") || "Dashboard",        icon: "📊", to: "/dashboard" },
-    { key: "sales",     label: t("sales") || "Sales",                icon: "💰", to: "/sales" },
-    { key: "expenses",  label: t("expenses") || "Expenses",          icon: "💸", to: "/expenses" },
-    { key: "inventory", label: t("inventory") || "Inventory",        icon: "📦", to: "/inventory" },
-    { key: "dailyClose",label: t("dailyClose") || "Daily Close",     icon: "📋", to: "/daily-close" },
-    { key: "dailyReport",label: t("dailyReport") || "Daily Report",  icon: "📄", to: "/daily-report" },
-    { key: "reports",   label: t("reports") || "Reports",            icon: "📈", to: "/reports" },
+    // Search palette labels track the sidebar Option-A rename — owners
+    // typing "close" or "floor" find the same page they see in the nav.
+    // Keep the legacy keys (dashboard / dailyClose / dailyReport) as
+    // secondary aliases so existing muscle memory still works.
+    { key: "dashboard", label: t("navHome") || "Home",                icon: "📊", to: "/dashboard", aliases: ["dashboard", "home", "overview"] },
+    { key: "sales",     label: t("sales") || "Sales",                 icon: "💰", to: "/sales" },
+    { key: "expenses",  label: t("expenses") || "Expenses",           icon: "💸", to: "/expenses" },
+    { key: "inventory", label: t("inventory") || "Inventory",         icon: "📦", to: "/inventory" },
+    { key: "dailyClose",label: t("endOfDayCloseTitle") || "End-of-Day Close", icon: "🌙", to: "/daily-close", aliases: ["daily close", "close", "end of day"] },
+    { key: "dailyReport",label: t("todaysFloor") || "Today's Floor",  icon: "🍽", to: "/daily-report", aliases: ["daily report", "floor", "ops"] },
+    { key: "reports",   label: t("navReportsTax") || "Reports & Tax", icon: "📋", to: "/reports", aliases: ["reports", "tax", "books"] },
     { key: "cashbook",  label: t("cashBook") || "Cash Book",         icon: "📒", to: "/cashbook" },
     { key: "cashflow",  label: t("cashFlow") || "Cash Flow",         icon: "📈", to: "/cashflow" },
     { key: "vat",       label: t("vatReport") || "VAT Report",       icon: "🧾", to: "/vat-report" },

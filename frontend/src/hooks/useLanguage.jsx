@@ -46,6 +46,14 @@ const LAZY_LOADERS = {
 const translations = {
   en: {
     dashboard: "Dashboard", sales: "Sales", expenses: "Expenses", inventory: "Inventory",
+    // Job-to-be-done sidebar labels (Option A rename — own keys so the
+    // longer "Daily Close" / "Daily Report" strings can live on as
+    // tooltips / button copy without colliding with sidebar pressure for
+    // short labels).
+    navHome: "Home", navTodaysFloor: "Today's Floor", navReportsTax: "Reports & Tax",
+    navEndOfDayClose: "End-of-Day",
+    todaysFloor: "Today's Floor", todaysBooks: "Today's Books",
+    taxBundle: "Tax Bundle", endOfDayCloseTitle: "End-of-Day Close",
     navMoney: "Money", navStock: "Stock", navStaff: "Staff", navReports: "Reports",
     navIntel: "Intelligence", navWorkshop: "Workshop", navManage: "Manage", navAccount: "Account", navPlatform: "Platform",
     recommendedHeadcount: "Recommended headcount", staffShort: "Staff", peopleAbbrev: "ppl", precip: "Precip",
@@ -369,6 +377,8 @@ const translations = {
     auto: "Auto (hovedkort)",
     rateOverridePct: "Override % (optional)",
     trækkortHint: "From employee's eSkattekort",
+    // Order-channel settings (user-editable catalogue)
+    orderChannels: "Order Channels",
     // Terminals settings
     terminals: "Terminals",
     terminalsPageTitle: "POS Terminals",
@@ -2178,6 +2188,11 @@ const translations = {
   },
   da: {
     dashboard: "Oversigt", sales: "Salg", expenses: "Udgifter", inventory: "Lager",
+    // Sidebar job-to-be-done labels — see EN block for rationale.
+    navHome: "Forsiden", navTodaysFloor: "Dagens drift", navReportsTax: "Rapporter & Skat",
+    navEndOfDayClose: "Dagsafslutning",
+    todaysFloor: "Dagens drift", todaysBooks: "Dagens regnskab",
+    taxBundle: "Skattepakke", endOfDayCloseTitle: "Dagsafslutning",
     navMoney: "Penge", navStock: "Lager", navStaff: "Personale", navReports: "Rapporter",
     navIntel: "Intelligens", navWorkshop: "Værksted", navManage: "Administrer", navAccount: "Konto", navPlatform: "Platform",
     recommendedHeadcount: "Anbefalet bemanding", staffShort: "Personale", peopleAbbrev: "pers.", precip: "Nedbør",
