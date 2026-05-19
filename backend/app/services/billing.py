@@ -225,6 +225,15 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "custom_export_templates": False,
         "advanced_benchmarks": False,
         "multi_branch_dashboard": False,
+        # 2026-05-19 — Staff Schedule Autopilot (Task #50). The Pro killer
+        # feature: rules-based ML reads 8 weeks of revenue history + 7-day
+        # weather forecast + each staff member's hourly cost, and proposes
+        # next week's schedule that meets demand at minimum labor cost
+        # while respecting DK labor law (45-min break for 6+ hr shifts,
+        # 48-hr weekly cap, 11-hr daily rest). Starter does NOT get this
+        # — it's specifically the Pro upsell. Free + Starter still hand-
+        # build schedules via the existing CRUD + Copy-Last-Week path.
+        "schedule_autopilot": False,
         # Polish Pass 2026-05-17 tier reshuffle (founding rates):
         # `direct_accountant_email` — Starter+ killer feature.
         # Free still downloads Excel/PDF/CSV; the new gate is the
@@ -263,6 +272,16 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # to Free — the gate is on the INVITE endpoint, never on the
         # accountant's session itself.
         "accountant_login": False,
+        # 2026-05-19 — MOMS-angivelse filing-ready PDF (Task #51).
+        # Pro-only differentiator that CLOSES THE LOOP on Tax Autopilot:
+        # owners currently see the MOMS countdown + estimated amount,
+        # but still have to manually re-enter the numbers on SKAT.dk.
+        # The filing PDF is a pre-filled angivelse the owner downloads,
+        # signs, and either uploads to SKAT.dk or forwards to revisor.
+        # Saves 30+ minutes per filing — premium enough to anchor Pro.
+        # Free + Starter see the upsell with the same numbers but a
+        # locked download button.
+        "tax_filing_pdf": False,
     },
     "starter": {
         "ai_anomaly_detection": True,
@@ -278,6 +297,8 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "bank_auto_reconcile": True,       # Starter killer feature
         "recurring_expenses": True,        # Task #47 — auto-post monthly
         "accountant_login": True,          # Task #49 — stickiness moat
+        "schedule_autopilot": False,       # Pro-only — Task #50 Pro killer
+        "tax_filing_pdf": False,           # Pro-only — Task #51 Pro killer
     },
     "trial": {  # = full Pro
         "ai_anomaly_detection": True,
@@ -293,6 +314,8 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "bank_auto_reconcile": True,
         "recurring_expenses": True,
         "accountant_login": True,
+        "schedule_autopilot": True,
+        "tax_filing_pdf": True,
     },
     "pro": {
         "ai_anomaly_detection": True,
@@ -308,6 +331,8 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "bank_auto_reconcile": True,
         "recurring_expenses": True,
         "accountant_login": True,
+        "schedule_autopilot": True,
+        "tax_filing_pdf": True,
     },
 }
 

@@ -926,6 +926,15 @@ _migrations = [
     "CREATE INDEX IF NOT EXISTS ix_accountant_grant_accountant_status ON accountant_grants (accountant_user_id, status)",
     "CREATE INDEX IF NOT EXISTS ix_accountant_grant_owner_status ON accountant_grants (owner_user_id, status)",
     "CREATE INDEX IF NOT EXISTS ix_accountant_grant_invite_token ON accountant_grants (invite_token)",
+
+    # ── Migration 041: target_labor_pct on business_profiles (Task #50) ──
+    # The Pro-only Staff Schedule Autopilot uses this to size next week's
+    # labor demand: predicted_revenue × target_labor_pct = how many DKK
+    # of staff cost we can spend. Bounded [0.10, 0.50] at the service
+    # layer; default 0.30 matches the Copenhagen restaurant baseline.
+    # NUMERIC(4,3) holds 0.000 - 9.999 with millipoint precision — plenty
+    # for a fraction we clamp to 0.10 - 0.50.
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS target_labor_pct NUMERIC(4,3) NOT NULL DEFAULT 0.30",
 ]
 
 
@@ -1137,6 +1146,11 @@ def _run_migrations():
             ok += _add("business_profiles", "dawa_address_id", "VARCHAR(50)")
             ok += _add("business_profiles", "vat_registered", "BOOLEAN")
             ok += _add("business_profiles", "status_flags", "TEXT")
+            # Migration 041 mirror — target_labor_pct for Schedule Autopilot
+            ok += _add(
+                "business_profiles", "target_labor_pct",
+                "NUMERIC(4,3) NOT NULL DEFAULT 0.30",
+            )
             # Migration 033 — Faktura Danish-compliance fields
             ok += _add("business_profiles", "bank_reg_number", "VARCHAR(8)")
             ok += _add("business_profiles", "bank_account_number", "VARCHAR(20)")

@@ -383,6 +383,230 @@ function MetricCard({ label, value, sub, color, currency }) {
   );
 }
 
+/* ──────────────────────────────────────────────────────────────
+   FilingPdfCard — Task #51 / Pro-tier closing-the-loop artifact.
+
+   Closes the gap between "MOMS Autopilot shows you owe X" and the
+   actual SKAT.dk filing. Owner taps Download → pre-filled MOMS-
+   angivelse PDF lands in their downloads → review/sign/upload.
+
+   Two buttons:
+     • Download PDF (per-tier gating: emerald CTA on Pro, locked
+       gray button + UpgradeNudge on Free/Starter)
+     • Email to my revisor (uses businessProfile.accountant_email
+       — same pattern as the daily-close range PDF)
+
+   For locked tiers the numbers ARE shown so the user can FEEL the
+   gap — "I owe 35.561 kr, and the PDF that would save me time is
+   one tap away if I upgrade".
+   ────────────────────────────────────────────────────────────── */
+function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked }) {
+  const { t } = useLanguage();
+  const [downloading, setDownloading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+  const [show402, setShow402] = useState(false);
+
+  const periodStart = deadline?.period_start;
+  const periodEnd = deadline?.period_end;
+  const periodLabel = deadline?.period_label || "—";
+  const accountantEmail = (businessProfile?.accountant_email || "").trim();
+
+  const downloadPdf = async () => {
+    setDownloading(true);
+    setStatus("");
+    setError("");
+    try {
+      const url = `/tax/filing-pdf?period_start=${periodStart}&period_end=${periodEnd}`;
+      const res = await api.get(url, { responseType: "blob" });
+      const blob = new Blob([res.data], { type: "application/pdf" });
+      const objectUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = `MA-${periodStart?.replace(/-/g, "")}-${periodEnd?.replace(/-/g, "")}.pdf`;
+      a.click();
+      window.URL.revokeObjectURL(objectUrl);
+      setStatus(t("filingPdfDownloaded") || "PDF downloaded.");
+      setTimeout(() => setStatus(""), 5000);
+    } catch (e) {
+      if (e?.response?.status === 402) {
+        setShow402(true);
+      } else {
+        setError(
+          e?.response?.data?.detail?.message ||
+          (t("filingPdfDownloadFailed") || "Couldn't generate the PDF — try again."),
+        );
+        setTimeout(() => setError(""), 6000);
+      }
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const sendToAccountant = async () => {
+    if (!accountantEmail) {
+      setError(t("filingPdfNeedsAccountantEmail") || "Set your accountant's email on Profile first.");
+      setTimeout(() => setError(""), 6000);
+      return;
+    }
+    setSending(true);
+    setStatus("");
+    setError("");
+    try {
+      const url = `/tax/filing-pdf/send-to-accountant?period_start=${periodStart}&period_end=${periodEnd}`;
+      const r = await api.post(url, { cc_self: true });
+      if (r.data?.ok) {
+        setStatus(`✓ ${t("filingPdfSent") || "Sent to"} ${r.data.sent_to}`);
+        setTimeout(() => setStatus(""), 6000);
+      }
+    } catch (e) {
+      if (e?.response?.status === 402) {
+        setShow402(true);
+      } else if (e?.response?.status === 400 && e?.response?.data?.detail?.code === "no_accountant_email") {
+        setError(t("filingPdfNeedsAccountantEmail") || "Set your accountant's email on Profile first.");
+        setTimeout(() => setError(""), 6000);
+      } else {
+        setError(
+          e?.response?.data?.detail?.message ||
+          (t("filingPdfSendFailed") || "Couldn't send the email — try again."),
+        );
+        setTimeout(() => setError(""), 6000);
+      }
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const fmtNum = (n) => (n != null ? Math.round(n).toLocaleString() : "—");
+  const output = deadline?.output_vat || 0;
+  const input = deadline?.input_vat || 0;
+  const net = deadline?.estimated_amount || 0;
+
+  return (
+    <>
+      <div className={`relative rounded-2xl p-5 sm:p-6 shadow-sm border ${
+        unlocked
+          ? "bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-900/20 dark:to-stone-900 border-emerald-200/70 dark:border-emerald-800/60"
+          : "bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-700"
+      }`}>
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] font-semibold tracking-wider uppercase text-emerald-700 dark:text-emerald-400">
+              {unlocked ? "Pro" : "Pro · Låst"} · {t("filingPdfPro") || "Filing-ready PDF"}
+            </p>
+            <h3 className="text-base sm:text-lg font-semibold text-stone-900 dark:text-stone-100 mt-1">
+              {t("filingPdfReady") || "Klar til at indberette?"} · {periodLabel}
+            </h3>
+            <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+              {t("filingPdfSubtitle") || "Pre-filled MOMS-angivelse — download, sign, upload to SKAT.dk."}
+            </p>
+          </div>
+          <div className="text-2xl shrink-0" aria-hidden="true">📑</div>
+        </div>
+
+        {/* The three numbers (always visible — even on Free, so they feel the gap) */}
+        <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
+          <div className="rounded-lg bg-white/70 dark:bg-stone-800/50 px-3 py-2.5 border border-stone-100 dark:border-stone-700/50">
+            <p className="text-[10px] uppercase tracking-wide text-stone-500 dark:text-stone-400">
+              Output {taxName}
+            </p>
+            <p className="text-sm sm:text-base font-bold text-orange-600 mt-0.5">
+              {fmtNum(output)} <span className="text-[10px] font-normal text-stone-400">{currency}</span>
+            </p>
+          </div>
+          <div className="rounded-lg bg-white/70 dark:bg-stone-800/50 px-3 py-2.5 border border-stone-100 dark:border-stone-700/50">
+            <p className="text-[10px] uppercase tracking-wide text-stone-500 dark:text-stone-400">
+              Input {taxName}
+            </p>
+            <p className="text-sm sm:text-base font-bold text-blue-600 mt-0.5">
+              {fmtNum(input)} <span className="text-[10px] font-normal text-stone-400">{currency}</span>
+            </p>
+          </div>
+          <div className="rounded-lg bg-white/70 dark:bg-stone-800/50 px-3 py-2.5 border border-stone-100 dark:border-stone-700/50">
+            <p className="text-[10px] uppercase tracking-wide text-stone-500 dark:text-stone-400">
+              {t("filingPdfNet") || "Net til SKAT"}
+            </p>
+            <p className={`text-sm sm:text-base font-bold mt-0.5 ${net >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-stone-600 dark:text-stone-300"}`}>
+              {fmtNum(net)} <span className="text-[10px] font-normal text-stone-400">{currency}</span>
+            </p>
+          </div>
+        </div>
+
+        {/* Status / error banners */}
+        {status && (
+          <div className="mb-3 text-xs px-3 py-2 rounded-md bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200/70 dark:border-emerald-800/60">
+            {status}
+          </div>
+        )}
+        {error && (
+          <div className="mb-3 text-xs px-3 py-2 rounded-md bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-200/70 dark:border-red-800/60">
+            {error}
+          </div>
+        )}
+
+        {/* Buttons */}
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+          <button
+            type="button"
+            disabled={downloading || !unlocked}
+            onClick={unlocked ? downloadPdf : () => setShow402(true)}
+            className={
+              unlocked
+                ? "inline-flex items-center justify-center gap-2 px-4 h-10 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium transition-colors disabled:opacity-60"
+                : "inline-flex items-center justify-center gap-2 px-4 h-10 rounded-lg bg-stone-200 dark:bg-stone-700 text-stone-500 dark:text-stone-400 text-sm font-medium cursor-not-allowed"
+            }
+            aria-label={t("filingPdfDownload") || "Download filing PDF"}
+          >
+            <span aria-hidden="true">{unlocked ? "⬇️" : "🔒"}</span>
+            {downloading ? (t("filingPdfDownloading") || "Generating…") : (t("filingPdfDownload") || "Download PDF")}
+          </button>
+
+          <button
+            type="button"
+            disabled={sending || !unlocked}
+            onClick={unlocked ? sendToAccountant : () => setShow402(true)}
+            className={
+              unlocked
+                ? "inline-flex items-center justify-center gap-2 px-4 h-10 rounded-lg bg-white dark:bg-stone-800 hover:bg-stone-50 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-200 text-sm font-medium border border-stone-200 dark:border-stone-700 transition-colors disabled:opacity-60"
+                : "inline-flex items-center justify-center gap-2 px-4 h-10 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-400 dark:text-stone-500 text-sm font-medium border border-stone-200 dark:border-stone-700 cursor-not-allowed"
+            }
+            aria-label={t("filingPdfEmailRevisor") || "Email to my revisor"}
+          >
+            <span aria-hidden="true">{unlocked ? "✉️" : "🔒"}</span>
+            {sending
+              ? (t("filingPdfSending") || "Sending…")
+              : accountantEmail
+                ? (t("filingPdfEmailRevisor") || "Email to my revisor")
+                : (t("filingPdfSetRevisorEmail") || "Add revisor's email")
+            }
+          </button>
+        </div>
+
+        {!unlocked && (
+          <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-3 leading-relaxed">
+            {t("filingPdfUpsell") ||
+              "Download a pre-filled MOMS-angivelse — saves ~30 min per filing. Sign, then upload to SKAT.dk or forward to your revisor."}
+          </p>
+        )}
+      </div>
+
+      {/* 402 upsell dialog */}
+      {show402 && (
+        <UpgradeNudge
+          intent="dialog"
+          tier="pro"
+          icon="📑"
+          benefit={t("filingPdfUpgradeBenefit") || "Pre-filled MOMS-angivelse — file in 90 seconds, not 30 minutes."}
+          ctaLabel={t("seePlans") || "See plans"}
+          onTry={() => setShow402(false)}
+        />
+      )}
+    </>
+  );
+}
+
 
 /* ──────────────────────────────────────────────────────────────
    TaxPrefsCard — moved here from More → Profile so the settings

@@ -247,6 +247,89 @@ export default function StaffSchedulePage() {
   // users still get the PDF download for printing/WhatsApp share.
   const [upgradeNudge, setUpgradeNudge] = useState(null);
 
+  // Autopilot (Task #50 — Pro killer feature) — read 8 weeks of revenue
+  // patterns + 7-day weather forecast + each staff's hourly cost, and
+  // propose next week's schedule at minimum labor cost while respecting
+  // DK labor law. Owner reviews → Apply materializes the draft shifts.
+  const [autopilotLoading, setAutopilotLoading] = useState(false);
+  const [autopilotApplying, setAutopilotApplying] = useState(false);
+  const [autopilotSuggestion, setAutopilotSuggestion] = useState(null);
+  const [autopilotToast, setAutopilotToast] = useState("");
+
+  const handleRunAutopilot = async () => {
+    setAutopilotLoading(true);
+    setError("");
+    setAutopilotToast("");
+    try {
+      const res = await api.post("/staff/schedules/autopilot", {
+        week_start: toISO(weekStart),
+        branch_id: branchId || undefined,
+      });
+      setAutopilotSuggestion(res.data);
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      if (err?.response?.status === 402 && detail?.code === "plan_required") {
+        setUpgradeNudge({
+          tier: detail.upgrade_to || "pro",
+          benefit: t(
+            "nudgeAutopilot",
+            "Let BonBox propose next week's schedule from your sales history + weather"
+          ),
+          icon: "✨",
+        });
+      } else {
+        setError(
+          detail?.message ||
+            (typeof detail === "string" ? detail : null) ||
+            t("autopilotFailed", "Couldn't run autopilot.")
+        );
+      }
+    } finally {
+      setAutopilotLoading(false);
+    }
+  };
+
+  const handleApplyAutopilot = async () => {
+    if (!autopilotSuggestion) return;
+    setAutopilotApplying(true);
+    setError("");
+    try {
+      const shifts = autopilotSuggestion.days.flatMap((day) =>
+        (day.shifts || []).map((s) => ({
+          date: day.date,
+          staff_id: s.staff_id,
+          start: s.start,
+          end: s.end,
+          break_minutes: s.break_minutes,
+          role: s.role,
+        }))
+      );
+      const res = await api.post("/staff/schedules/autopilot/apply", {
+        week_start: autopilotSuggestion.week_start,
+        branch_id: branchId || undefined,
+        shifts,
+      });
+      const n = res.data?.applied ?? shifts.length;
+      setAutopilotToast(
+        `✨ ${t("autopilotApplied", "Schedule applied")} — ${n} ${t(
+          "autopilotShifts",
+          "shifts scheduled"
+        )}`
+      );
+      setTimeout(() => setAutopilotToast(""), 7000);
+      setAutopilotSuggestion(null);
+      await fetchShifts();
+    } catch (err) {
+      setError(
+        err?.response?.data?.detail?.message ||
+          err?.response?.data?.detail ||
+          t("autopilotApplyFailed", "Couldn't apply the autopilot schedule.")
+      );
+    } finally {
+      setAutopilotApplying(false);
+    }
+  };
+
   /** Email this week's schedule directly to every active staff
    *  member with an email on file. Reply-to is set server-side to
    *  the owner's address so staff replies come back to the owner.
@@ -415,6 +498,23 @@ export default function StaffSchedulePage() {
               >
                 {copying ? "Copying..." : "Copy Last Week"}
               </button>
+              {/* Autopilot (Pro+ killer feature) — proposes next week's
+                  schedule from 8 weeks of sales + the 7-day forecast +
+                  staff hourly cost. Tier-gated: Starter/Free see an
+                  UpgradeNudge dialog on click; Pro/Trial run it. */}
+              <button
+                onClick={handleRunAutopilot}
+                disabled={autopilotLoading}
+                title={t(
+                  "autopilotTitle",
+                  "Let BonBox propose next week's schedule from your data"
+                )}
+                className="px-3 py-2 rounded-lg text-sm font-medium bg-gradient-to-r from-violet-600 to-emerald-600 text-white hover:from-violet-700 hover:to-emerald-700 transition disabled:opacity-50"
+              >
+                {autopilotLoading
+                  ? t("autopilotRunning", "Thinking…")
+                  : "✨ " + t("autopilotButton", "Autopilot")}
+              </button>
               <button
                 onClick={handlePublish}
                 disabled={publishing}
@@ -467,6 +567,32 @@ export default function StaffSchedulePage() {
           <button onClick={() => setEmailToast("")} className="ml-2 text-emerald-500 hover:text-emerald-700 font-bold">{"\u00D7"}</button>
         </div>
       )}
+      {/* Autopilot-success toast (auto-dismisses after 7s) */}
+      {autopilotToast && (
+        <div className="bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800 rounded-xl p-3 text-violet-700 dark:text-violet-300 text-sm flex items-center justify-between">
+          <span>{autopilotToast}</span>
+          <button onClick={() => setAutopilotToast("")} className="ml-2 text-violet-500 hover:text-violet-700 font-bold">{"\u00D7"}</button>
+        </div>
+      )}
+
+      {/* Autopilot suggestion review panel \u2014 Pro killer feature (Task #50).
+          Renders ONLY when a suggestion is loaded. Owner reviews per-day
+          predictions + suggested shifts then taps Apply (materializes draft
+          rows) or Discard. */}
+      {autopilotSuggestion && (
+        <FadeIn delay={0.02}>
+          <AutopilotPanel
+            suggestion={autopilotSuggestion}
+            currency={currency}
+            staff={staff}
+            applying={autopilotApplying}
+            onApply={handleApplyAutopilot}
+            onDiscard={() => setAutopilotSuggestion(null)}
+            t={t}
+          />
+        </FadeIn>
+      )}
+
 
       {/* Manage Staff collapsible */}
       <FadeIn delay={0.1}>

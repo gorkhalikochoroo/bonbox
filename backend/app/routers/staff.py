@@ -797,6 +797,203 @@ def publish_week(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+#  SCHEDULE AUTOPILOT — Pro-tier killer feature (Task #50)
+#
+#  Reads 8 weeks of revenue history + 7-day weather forecast + each staff
+#  member's hourly cost, then proposes next week's schedule that meets
+#  demand at minimum labor cost while respecting DK labor law. Owner can
+#  edit per-shift before applying. Tier-gated on Pro only — NOT Starter.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class AutopilotSuggestBody(BaseModel):
+    week_start: date
+    branch_id: Optional[uuid.UUID] = None
+
+
+class AutopilotShiftBody(BaseModel):
+    date: date
+    staff_id: uuid.UUID
+    start: str
+    end: str
+    break_minutes: int | None = None
+    role: str | None = None
+    notes: str | None = None
+
+
+class AutopilotApplyBody(BaseModel):
+    week_start: date
+    shifts: list[AutopilotShiftBody]
+    branch_id: Optional[uuid.UUID] = None
+
+
+def _enforce_autopilot_tier(user: User) -> None:
+    """402 plan_required if the user doesn't have Pro. Same shape as the
+    rest of the codebase (code/feature/upgrade_to/current_plan/message)
+    so the frontend renders the UpgradeNudge from one error contract.
+    """
+    from app.services.billing import effective_plan, has_feature
+
+    if not has_feature(user, "schedule_autopilot"):
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "code": "plan_required",
+                "error": "feature_locked",
+                "feature": "schedule_autopilot",
+                "required_plan": "pro",
+                "upgrade_to": "pro",
+                "current_plan": effective_plan(user),
+                "plan": effective_plan(user),
+                "message": (
+                    "Schedule Autopilot is on Pro. You can still build "
+                    "the schedule manually or copy last week's shifts."
+                ),
+            },
+        )
+
+
+@router.post("/schedules/autopilot")
+def schedule_autopilot_suggest(
+    body: AutopilotSuggestBody,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Generate a one-week schedule suggestion. Read-only — never writes
+    Schedule rows. The owner reviews + edits before calling
+    /schedules/autopilot/apply.
+
+    Tier-gated: Pro+ only (Starter is intentionally excluded — this is
+    the Pro killer feature).
+    """
+    _enforce_autopilot_tier(user)
+
+    # Input bounds: only allow suggestions for weeks within ±60 days
+    # of today. The autopilot has no business writing into 2027 from a
+    # 2026 console — that's a typo defense not a security one.
+    today = date.today()
+    if body.week_start < today - timedelta(days=60):
+        raise HTTPException(
+            status_code=422,
+            detail="week_start is more than 60 days in the past",
+        )
+    if body.week_start > today + timedelta(days=365):
+        raise HTTPException(
+            status_code=422,
+            detail="week_start is more than a year in the future",
+        )
+
+    from app.services import schedule_autopilot
+
+    suggestion = schedule_autopilot.suggest_week_schedule(
+        db,
+        user=user,
+        week_start=body.week_start,
+        branch_id=body.branch_id,
+    )
+    payload = suggestion.to_dict()
+
+    # Audit — record every suggestion so the owner can later answer
+    # "what did autopilot tell me on Tuesday?" if a Skattestyrelsen
+    # dispute traces back to a labor-law issue.
+    audit_service.record(
+        db,
+        user=user,
+        action="schedule.autopilot_suggested",
+        entity_type="schedule",
+        entity_id=None,
+        after={
+            "week_start": payload["week_start"],
+            "branch_id": payload["branch_id"],
+            "confidence": payload["confidence"],
+            "basis": payload["basis"],
+            "week_total_cost": payload["week_total_cost"],
+            "week_total_hours": payload["week_total_hours"],
+            "compliance_warnings": payload["compliance_warnings"],
+        },
+        ip_address=getattr(request.client, "host", None) if request and request.client else None,
+    )
+    db.commit()
+    return payload
+
+
+@router.post("/schedules/autopilot/apply")
+def schedule_autopilot_apply(
+    body: AutopilotApplyBody,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Materialize the (possibly owner-edited) suggestion into draft
+    Schedule rows. The owner still has to hit Publish to notify staff.
+    Tier-gated: Pro+ only.
+    """
+    _enforce_autopilot_tier(user)
+
+    today = date.today()
+    if body.week_start < today - timedelta(days=60):
+        raise HTTPException(
+            status_code=422,
+            detail="week_start is more than 60 days in the past",
+        )
+    if body.week_start > today + timedelta(days=365):
+        raise HTTPException(
+            status_code=422,
+            detail="week_start is more than a year in the future",
+        )
+
+    from app.services import schedule_autopilot
+
+    payload_shifts = [
+        {
+            "date": s.date.isoformat(),
+            "staff_id": str(s.staff_id),
+            "start": s.start,
+            "end": s.end,
+            "break_minutes": s.break_minutes,
+            "role": s.role,
+            "notes": s.notes,
+        }
+        for s in body.shifts
+    ]
+
+    try:
+        result = schedule_autopilot.apply_suggestion(
+            db,
+            user=user,
+            week_start=body.week_start,
+            shifts=payload_shifts,
+        )
+    except ValueError as e:
+        # ValueError from apply_suggestion = tenant-boundary violation
+        # (foreign staff_id). Return 400 — defensive, the frontend
+        # never sends foreign IDs in normal flow.
+        raise HTTPException(status_code=400, detail=str(e))
+
+    audit_service.record(
+        db,
+        user=user,
+        action="schedule.autopilot_applied",
+        entity_type="schedule",
+        entity_id=None,
+        after={
+            "week_start": body.week_start.isoformat(),
+            "branch_id": str(body.branch_id) if body.branch_id else None,
+            "applied": result["applied"],
+            "deleted_existing": result["deleted_existing"],
+        },
+        ip_address=getattr(request.client, "host", None) if request and request.client else None,
+    )
+    db.commit()
+    return {
+        "applied": result["applied"],
+        "deleted_existing": result["deleted_existing"],
+        "week_start": body.week_start.isoformat(),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 #  Schedule-confirmation summary — calm awareness signal for the owner
 #
 #  "Have my staff seen this week's schedule?" without nagging anyone.
