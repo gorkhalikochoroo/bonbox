@@ -42,6 +42,11 @@ class BusinessProfileCreate(BaseModel):
     # Free text capped at 60 chars; users can type whatever fits their
     # niche (e.g. workshop owners might use "BMW + Audi specialist").
     cuisine: str | None = None
+    # Schedule autopilot target — fraction of revenue allocated to labor
+    # cost. Stored as 0.30 = 30%. Service layer clamps to [0.10, 0.50]
+    # so an owner who types "30" (i.e. 3000%) doesn't get a schedule
+    # that over-staffs to the moon.
+    target_labor_pct: float | None = None
 
 
 class BusinessProfileResponse(BaseModel):
@@ -78,6 +83,8 @@ class BusinessProfileResponse(BaseModel):
     bic: str | None = None
     # Cuisine / specialization — surfaced on the Competitor Scan page
     cuisine: str | None = None
+    # Schedule autopilot tuning — see Create schema for the contract.
+    target_labor_pct: float | None = None
 
     model_config = {"from_attributes": True}
 

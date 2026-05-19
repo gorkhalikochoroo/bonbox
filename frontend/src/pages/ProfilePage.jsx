@@ -843,6 +843,11 @@ export default function ProfilePage() {
                   }, 50);
                 }}
               />
+              {/* Labor-cost target — tunes the Pro Schedule Autopilot.
+                  Stored on BusinessProfile.target_labor_pct, default 30%.
+                  Backend clamps to [0.10, 0.50] regardless of input. */}
+              <LaborTargetStepper />
+
               {editorExpanded ? (
                 <div id="operating-profile-editor">
                   <div className="flex items-center justify-between mb-2 px-1">
@@ -1746,6 +1751,100 @@ function ToggleRow({ label, desc, checked, onChange }) {
         />
       </button>
     </div>
+  );
+}
+
+/** Labor-cost target stepper — tunes the Schedule Autopilot.
+ *  Self-contained: fetches /business GET on mount, displays the
+ *  current target_labor_pct (default 30%), lets the owner adjust
+ *  with a number input + range slider, persists via PUT /business.
+ *
+ *  Backend clamps to [0.10, 0.50] regardless of input so this UI
+ *  doesn't need to guard against weird values.
+ */
+function LaborTargetStepper() {
+  const { t } = useLanguage();
+  const [pct, setPct] = useState(30);  // displayed as integer %
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    api.get("/business")
+      .then((r) => {
+        if (!alive) return;
+        const raw = r.data?.target_labor_pct;
+        if (raw != null) {
+          const v = Math.round(Number(raw) * 100);
+          if (!Number.isNaN(v) && v >= 10 && v <= 50) setPct(v);
+        }
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+    return () => { alive = false; };
+  }, []);
+
+  const onSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    setToast("");
+    try {
+      await api.put("/business", { target_labor_pct: pct / 100 });
+      setToast(t("laborTargetSaved") || "Saved");
+      setTimeout(() => setToast(""), 2000);
+    } catch {
+      setToast(t("laborTargetFailed") || "Couldn't save — try again.");
+      setTimeout(() => setToast(""), 3000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!loaded) return null;
+
+  return (
+    <Card variant="subtle">
+      <Card.Header
+        title={t("laborTargetTitle") || "Labor cost target"}
+        subtitle={
+          t("laborTargetSubtitle") ||
+          "What share of revenue should go to wages? The schedule autopilot uses this when suggesting next week's shifts."
+        }
+        icon={<Icon name="Target" size={16} className="text-stone-500" />}
+      />
+      <div className="flex items-center gap-4 py-2">
+        <input
+          type="range"
+          min={10}
+          max={50}
+          step={1}
+          value={pct}
+          onChange={(e) => setPct(parseInt(e.target.value, 10))}
+          className="flex-1 accent-emerald-600"
+          aria-label="Labor target percentage"
+        />
+        <span className="text-xl font-semibold text-stone-900 dark:text-stone-100 w-14 text-right">
+          {pct}%
+        </span>
+      </div>
+      <div className="flex items-center justify-between gap-3 pt-2">
+        <p className="text-[11px] text-stone-500 dark:text-stone-400">
+          {t("laborTargetHint") ||
+            "Most Danish cafés target 25–35%. Tighter operations run lower."}
+        </p>
+        <div className="flex items-center gap-3 shrink-0">
+          {toast && (
+            <span className="text-xs text-emerald-700 dark:text-emerald-400">
+              {toast}
+            </span>
+          )}
+          <Button onClick={onSave} disabled={saving} size="sm">
+            {saving ? (t("saving") || "Saving…") : (t("save") || "Save")}
+          </Button>
+        </div>
+      </div>
+    </Card>
   );
 }
 

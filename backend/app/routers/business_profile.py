@@ -389,6 +389,20 @@ def save_profile(
         BusinessProfile.user_id == user.id,
     ).first()
 
+    # target_labor_pct — clamp to [0.10, 0.50] so the schedule autopilot
+    # never proposes an over- or under-staffed week from a typo. Stored
+    # as a fraction. Default 0.30 is the documented baseline.
+    if data.target_labor_pct is not None:
+        try:
+            v = float(data.target_labor_pct)
+            if v < 0.10:
+                v = 0.10
+            elif v > 0.50:
+                v = 0.50
+            data.target_labor_pct = round(v, 3)
+        except (TypeError, ValueError):
+            data.target_labor_pct = None
+
     if profile:
         for field, value in data.model_dump(exclude_unset=True).items():
             setattr(profile, field, value)
