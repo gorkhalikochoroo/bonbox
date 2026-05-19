@@ -1,0 +1,571 @@
+"""
+Unified OAuth sign-in — tests for /api/auth/oauth/apple + /oauth/google
+(Task #65).
+
+We can't mint a real Apple- or Google-signed JWT in tests, so we patch
+the verifier services (`oauth_apple.verify_apple_token` /
+`oauth_google.verify_google_token`) and exercise the router's
+find-or-create / link / audit / rate-limit logic end-to-end.
+
+Coverage:
+  • Valid Apple token → creates User row with apple_sub on first sign-in
+  • Valid Google token → creates User row with google_sub on first sign-in
+  • Invalid signature → 401
+  • Expired token → 401
+  • Wrong audience → 401
+  • Missing audience config (Apple) → 503
+  • Missing GOOGLE_CLIENT_ID → 503
+  • Existing email-password user signs in with Apple → apple_sub linked,
+    no duplicate row
+  • Existing email-password user signs in with Google → google_sub linked,
+    no duplicate row
+  • Apple private-relay email (`@privaterelay.appleid.com`) → treated as
+    real email for storage but NEVER bridges into existing real-email user
+  • Audit log entries written for signin + linked actions
+  • Cross-tenant isolation — Apple sub for user A never returns user B
+  • Rate limit — 31st request in 1 hour → 429
+  • oauth_provider stamp updates on each sign-in
+  • Locked accounts can't bypass OAuth
+
+Run: cd backend && pytest tests/test_oauth_signin.py -v
+"""
+from __future__ import annotations
+
+import uuid
+from unittest.mock import patch
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.database import Base, get_db
+# Force-load every model so create_all wires up FKs (Sale, Expense, etc.)
+from app import models as _all_models  # noqa: F401
+from app.main import app, _db_ready
+from app.models.audit_log import AuditLog
+from app.models.user import User
+from app.services.auth import hash_password
+
+_db_ready.set()
+
+
+# ── Fixtures ─────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def db_session():
+    """Per-test in-memory SQLite. StaticPool keeps the single connection
+    alive so SessionLocal() lands on the same DB our test uses."""
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    s = SessionLocal()
+
+    def _override_get_db():
+        try:
+            yield s
+        finally:
+            pass
+
+    app.dependency_overrides[get_db] = _override_get_db
+    try:
+        yield s
+    finally:
+        s.close()
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.fixture
+def client():
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def configure_oauth_env(monkeypatch):
+    """All tests run with both providers configured. Individual tests
+    can override (e.g. to test the 503 path)."""
+    from app.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "APPLE_CLIENT_ID", "dk.bonbox.web", raising=False)
+    monkeypatch.setattr(_settings, "APPLE_ALLOWED_AUDIENCES", "dk.bonbox.app", raising=False)
+    monkeypatch.setattr(_settings, "GOOGLE_CLIENT_ID", "google-test-client.apps.googleusercontent.com", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    """Reset slowapi between tests — the module-level limiter bucket
+    leaks across tests otherwise and the 30/hour cap fires spuriously."""
+    try:
+        from app.routers.auth_oauth import limiter as _ol
+        _ol.reset()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+# ── Helpers ──────────────────────────────────────────────────────────
+
+
+def _patch_apple(claims=None, side_effect=None):
+    """Replace verify_apple_token with a stub returning `claims` or
+    raising `side_effect`. Patches the import site (not the service
+    module) so the router's own import binding is replaced."""
+    if side_effect is not None:
+        return patch("app.routers.auth_oauth.verify_apple_token", side_effect=side_effect)
+    return patch("app.routers.auth_oauth.verify_apple_token", return_value=claims)
+
+
+def _patch_google(claims=None, side_effect=None):
+    if side_effect is not None:
+        return patch("app.routers.auth_oauth.verify_google_token", side_effect=side_effect)
+    return patch("app.routers.auth_oauth.verify_google_token", return_value=claims)
+
+
+def _apple_claims(sub: str, email: str = "user@example.com", email_verified: bool = True) -> dict:
+    return {"sub": sub, "email": email, "email_verified": email_verified}
+
+
+def _google_claims(
+    sub: str,
+    email: str = "user@example.com",
+    email_verified: bool = True,
+    name: str = "",
+    picture: str = "",
+) -> dict:
+    return {
+        "sub": sub,
+        "email": email,
+        "email_verified": email_verified,
+        "name": name,
+        "picture": picture,
+    }
+
+
+# ─── Apple — new user creation ───────────────────────────────────────
+
+
+def test_apple_new_user_created_with_sub(db_session, client):
+    sub = "001234.apple.new.0001"
+    with _patch_apple(_apple_claims(sub, email="new@bonbox.test")):
+        r = client.post(
+            "/api/auth/oauth/apple",
+            json={"id_token": "stub", "name": "Jonas Møller"},
+        )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "access_token" in body
+    assert body["user"]["email"] == "new@bonbox.test"
+
+    u = db_session.query(User).filter(User.email == "new@bonbox.test").first()
+    assert u is not None
+    assert u.apple_sub == sub
+    # Legacy column also populated so /auth/apple keeps finding them.
+    assert u.apple_user_id == sub
+    assert u.oauth_provider == "apple"
+    assert u.email_verified is True
+    assert u.role == "owner"
+    assert u.business_name == "Jonas Møller"
+
+
+def test_apple_returning_user_found_by_sub(db_session, client):
+    """Same sub on second call → finds existing row, doesn't duplicate."""
+    sub = "001234.apple.return.0001"
+    with _patch_apple(_apple_claims(sub, email="ret@bonbox.test")):
+        client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+    with _patch_apple(_apple_claims(sub, email="ret@bonbox.test")):
+        r = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+    assert r.status_code == 200
+    n = db_session.query(User).filter(User.apple_sub == sub).count()
+    assert n == 1
+
+
+# ─── Apple — linking flow ────────────────────────────────────────────
+
+
+def test_apple_existing_email_password_user_linked(db_session, client):
+    """User with an email+password account signs in with Apple →
+    apple_sub gets linked to the existing row. No duplicate User."""
+    existing = User(
+        email="caro@bonbox.test",
+        password_hash=hash_password("Password123"),
+        business_name="Caro Cafe",
+        business_type="cafe",
+        currency="DKK",
+        oauth_provider="password",
+    )
+    db_session.add(existing)
+    db_session.commit()
+    db_session.refresh(existing)
+
+    sub = "001234.apple.link.0001"
+    with _patch_apple(_apple_claims(sub, email="caro@bonbox.test")):
+        r = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+    assert r.status_code == 200
+
+    db_session.refresh(existing)
+    assert existing.apple_sub == sub
+    assert existing.oauth_provider == "apple"
+    n = db_session.query(User).filter(User.email == "caro@bonbox.test").count()
+    assert n == 1
+
+
+def test_apple_audit_log_signin_recorded(db_session, client):
+    sub = "001234.apple.audit.0001"
+    with _patch_apple(_apple_claims(sub, email="aud@bonbox.test")):
+        client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+
+    entries = db_session.query(AuditLog).filter(
+        AuditLog.action == "auth.oauth_signin",
+    ).all()
+    assert len(entries) >= 1
+    assert entries[0].entity_type == "user"
+    # after_state JSON should include provider=apple
+    assert "apple" in (entries[0].after_state or "")
+
+
+def test_apple_audit_log_linked_recorded(db_session, client):
+    """When an existing email-password user is linked via Apple sign-in,
+    BOTH auth.oauth_linked and auth.oauth_signin are written."""
+    existing = User(
+        email="link-audit@bonbox.test",
+        password_hash=hash_password("Password123"),
+        business_name="Link",
+        business_type="cafe",
+        currency="DKK",
+    )
+    db_session.add(existing)
+    db_session.commit()
+
+    sub = "001234.apple.link.audit"
+    with _patch_apple(_apple_claims(sub, email="link-audit@bonbox.test")):
+        client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+
+    linked = db_session.query(AuditLog).filter(
+        AuditLog.action == "auth.oauth_linked",
+    ).count()
+    signin = db_session.query(AuditLog).filter(
+        AuditLog.action == "auth.oauth_signin",
+    ).count()
+    assert linked >= 1
+    assert signin >= 1
+
+
+# ─── Apple — privacy-relay email ─────────────────────────────────────
+
+
+def test_apple_private_relay_email_creates_new_user(db_session, client):
+    """A relay address (@privaterelay.appleid.com) → store it as the
+    user's email, but NEVER bridge into an existing real-email account.
+    Pre-create a real-email user and verify it stays untouched."""
+    real_user = User(
+        email="real@bonbox.test",
+        password_hash=hash_password("Password123"),
+        business_name="Real",
+        business_type="cafe",
+        currency="DKK",
+    )
+    db_session.add(real_user)
+    db_session.commit()
+    db_session.refresh(real_user)
+
+    sub = "001234.apple.relay.0001"
+    relay = "xy9876@privaterelay.appleid.com"
+    with _patch_apple(_apple_claims(sub, email=relay)):
+        r = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+    assert r.status_code == 200
+
+    db_session.refresh(real_user)
+    assert real_user.apple_sub is None  # untouched
+
+    # A new row exists with the relay email + apple_sub
+    new_row = db_session.query(User).filter(User.email == relay).first()
+    assert new_row is not None
+    assert new_row.apple_sub == sub
+    # Two distinct rows now exist
+    assert db_session.query(User).count() == 2
+
+
+def test_apple_private_relay_returning_user_found_by_sub(db_session, client):
+    """Same relay-email user signing in twice → finds them via
+    apple_sub (which is stable), not via the relay address."""
+    sub = "001234.apple.relay.return"
+    relay = "abc@privaterelay.appleid.com"
+    with _patch_apple(_apple_claims(sub, email=relay)):
+        client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+    with _patch_apple(_apple_claims(sub, email=relay)):
+        r = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+    assert r.status_code == 200
+    n = db_session.query(User).filter(User.apple_sub == sub).count()
+    assert n == 1
+
+
+# ─── Apple — failure modes ───────────────────────────────────────────
+
+
+def test_apple_missing_audience_returns_503(db_session, client, monkeypatch):
+    from app.config import settings as _s
+    monkeypatch.setattr(_s, "APPLE_CLIENT_ID", "", raising=False)
+    monkeypatch.setattr(_s, "APPLE_ALLOWED_AUDIENCES", "", raising=False)
+    # Don't patch verify_apple_token — let the real one run and raise
+    # RuntimeError on missing config.
+    r = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+    assert r.status_code == 503
+
+
+def test_apple_invalid_signature_returns_401(db_session, client):
+    with _patch_apple(side_effect=ValueError("Apple token signature invalid")):
+        r = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+    assert r.status_code == 401
+    assert "Invalid Apple token" in r.json()["detail"]
+
+
+def test_apple_expired_token_returns_401(db_session, client):
+    with _patch_apple(side_effect=ValueError("Apple token claims invalid: Signature has expired.")):
+        r = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+    assert r.status_code == 401
+
+
+def test_apple_wrong_audience_returns_401(db_session, client):
+    with _patch_apple(side_effect=ValueError("Apple token claims invalid: Invalid audience")):
+        r = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+    assert r.status_code == 401
+
+
+def test_apple_token_missing_sub_returns_401(db_session, client):
+    with _patch_apple({"email": "noid@bonbox.test", "email_verified": True}):
+        r = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+    assert r.status_code == 401
+    assert "sub" in r.json()["detail"]
+
+
+def test_apple_no_email_no_existing_user_returns_401(db_session, client):
+    """If Apple gives us no email AND no row matches the sub, we can't
+    create a new row (email column is NOT NULL) → 401."""
+    with _patch_apple({"sub": "abc.123", "email": None, "email_verified": False}):
+        r = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+    assert r.status_code == 401
+
+
+# ─── Google — new user creation ──────────────────────────────────────
+
+
+def test_google_new_user_created_with_sub(db_session, client):
+    sub = "google-sub-001"
+    with _patch_google(_google_claims(sub, email="gnew@bonbox.test", name="Anna G")):
+        r = client.post("/api/auth/oauth/google", json={"id_token": "stub"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["user"]["email"] == "gnew@bonbox.test"
+
+    u = db_session.query(User).filter(User.email == "gnew@bonbox.test").first()
+    assert u is not None
+    assert u.google_sub == sub
+    assert u.oauth_provider == "google"
+    assert u.email_verified is True
+    assert u.business_name == "Anna G"
+
+
+def test_google_returning_user_found_by_sub(db_session, client):
+    sub = "google-sub-return"
+    with _patch_google(_google_claims(sub, email="gret@bonbox.test")):
+        client.post("/api/auth/oauth/google", json={"id_token": "stub"})
+    with _patch_google(_google_claims(sub, email="gret@bonbox.test")):
+        r = client.post("/api/auth/oauth/google", json={"id_token": "stub"})
+    assert r.status_code == 200
+    n = db_session.query(User).filter(User.google_sub == sub).count()
+    assert n == 1
+
+
+# ─── Google — linking flow ───────────────────────────────────────────
+
+
+def test_google_existing_email_password_user_linked(db_session, client):
+    existing = User(
+        email="glink@bonbox.test",
+        password_hash=hash_password("Password123"),
+        business_name="GLink",
+        business_type="cafe",
+        currency="DKK",
+        oauth_provider="password",
+    )
+    db_session.add(existing)
+    db_session.commit()
+    db_session.refresh(existing)
+
+    sub = "google-sub-link"
+    with _patch_google(_google_claims(sub, email="glink@bonbox.test")):
+        r = client.post("/api/auth/oauth/google", json={"id_token": "stub"})
+    assert r.status_code == 200
+
+    db_session.refresh(existing)
+    assert existing.google_sub == sub
+    assert existing.oauth_provider == "google"
+    n = db_session.query(User).filter(User.email == "glink@bonbox.test").count()
+    assert n == 1
+
+
+def test_google_audit_log_signin_recorded(db_session, client):
+    sub = "google-sub-audit"
+    with _patch_google(_google_claims(sub, email="gaud@bonbox.test")):
+        client.post("/api/auth/oauth/google", json={"id_token": "stub"})
+    entries = db_session.query(AuditLog).filter(
+        AuditLog.action == "auth.oauth_signin",
+    ).all()
+    assert len(entries) >= 1
+    assert "google" in (entries[0].after_state or "")
+
+
+# ─── Google — failure modes ──────────────────────────────────────────
+
+
+def test_google_missing_client_id_returns_503(db_session, client, monkeypatch):
+    from app.config import settings as _s
+    monkeypatch.setattr(_s, "GOOGLE_CLIENT_ID", "", raising=False)
+    r = client.post("/api/auth/oauth/google", json={"id_token": "stub"})
+    assert r.status_code == 503
+
+
+def test_google_invalid_signature_returns_401(db_session, client):
+    with _patch_google(side_effect=ValueError("Google token signature invalid")):
+        r = client.post("/api/auth/oauth/google", json={"id_token": "stub"})
+    assert r.status_code == 401
+
+
+def test_google_expired_token_returns_401(db_session, client):
+    with _patch_google(side_effect=ValueError("Google token claims invalid: Signature has expired.")):
+        r = client.post("/api/auth/oauth/google", json={"id_token": "stub"})
+    assert r.status_code == 401
+
+
+def test_google_wrong_audience_returns_401(db_session, client):
+    with _patch_google(side_effect=ValueError("Google token claims invalid: Invalid audience")):
+        r = client.post("/api/auth/oauth/google", json={"id_token": "stub"})
+    assert r.status_code == 401
+
+
+def test_google_token_missing_sub_returns_401(db_session, client):
+    with _patch_google({"email": "noid@bonbox.test", "email_verified": True, "name": "", "picture": ""}):
+        r = client.post("/api/auth/oauth/google", json={"id_token": "stub"})
+    assert r.status_code == 401
+
+
+def test_google_token_missing_email_returns_401(db_session, client):
+    with _patch_google({"sub": "abc-no-email", "email": "", "email_verified": False, "name": "", "picture": ""}):
+        r = client.post("/api/auth/oauth/google", json={"id_token": "stub"})
+    assert r.status_code == 401
+
+
+# ─── Cross-tenant isolation ──────────────────────────────────────────
+
+
+def test_cross_tenant_isolation_apple_sub_per_user(db_session, client):
+    """User A's apple_sub cannot return user B. Two distinct subs → two
+    distinct rows, accessible only by their own sub."""
+    sub_a = "001234.cross.A"
+    sub_b = "001234.cross.B"
+    with _patch_apple(_apple_claims(sub_a, email="a@bonbox.test")):
+        r_a = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+    with _patch_apple(_apple_claims(sub_b, email="b@bonbox.test")):
+        r_b = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+    assert r_a.status_code == 200
+    assert r_b.status_code == 200
+    uid_a = r_a.json()["user"]["id"]
+    uid_b = r_b.json()["user"]["id"]
+    assert uid_a != uid_b
+
+    # Re-sign in with A's sub → returns A only
+    with _patch_apple(_apple_claims(sub_a, email="a@bonbox.test")):
+        r = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+    assert r.json()["user"]["id"] == uid_a
+
+
+# ─── Rate limiting ───────────────────────────────────────────────────
+
+
+def test_apple_rate_limit_30_per_hour(db_session, client):
+    """31st request from the same IP in an hour → 429.
+
+    Each request rotates the sub so we don't hit any DB-level UNIQUE
+    or find-or-create short-circuit — the rate limit MUST fire from
+    slowapi alone."""
+    last_status = None
+    for i in range(31):
+        with _patch_apple(_apple_claims(f"sub-{i}", email=f"rl{i}@bonbox.test")):
+            r = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+        last_status = r.status_code
+        if r.status_code == 429:
+            break
+    assert last_status == 429
+
+
+def test_google_rate_limit_30_per_hour(db_session, client):
+    last_status = None
+    for i in range(31):
+        with _patch_google(_google_claims(f"g-sub-{i}", email=f"grl{i}@bonbox.test")):
+            r = client.post("/api/auth/oauth/google", json={"id_token": "stub"})
+        last_status = r.status_code
+        if r.status_code == 429:
+            break
+    assert last_status == 429
+
+
+# ─── oauth_provider stamp ────────────────────────────────────────────
+
+
+def test_oauth_provider_stamp_updates_on_each_signin(db_session, client):
+    """Same user signing in via Apple → Google → Apple updates
+    oauth_provider on every call (it tracks the LAST method used)."""
+    sub_apple = "001234.stamp.apple"
+    sub_google = "google-stamp"
+
+    # 1) Apple — creates user, provider=apple
+    with _patch_apple(_apple_claims(sub_apple, email="stamp@bonbox.test")):
+        client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+
+    # 2) Same email signs in via Google → links google_sub, provider=google
+    with _patch_google(_google_claims(sub_google, email="stamp@bonbox.test")):
+        client.post("/api/auth/oauth/google", json={"id_token": "stub"})
+
+    u = db_session.query(User).filter(User.email == "stamp@bonbox.test").first()
+    assert u is not None
+    assert u.apple_sub == sub_apple
+    assert u.google_sub == sub_google
+    assert u.oauth_provider == "google"  # last used
+
+    # 3) Apple again → flips back to apple
+    with _patch_apple(_apple_claims(sub_apple, email="stamp@bonbox.test")):
+        client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+    db_session.expire_all()
+    u = db_session.query(User).filter(User.email == "stamp@bonbox.test").first()
+    assert u.oauth_provider == "apple"
+
+
+# ─── Locked-account refusal ──────────────────────────────────────────
+
+
+def test_apple_locked_account_refused(db_session, client):
+    """A user with is_locked=True can't bypass the lock via OAuth."""
+    sub = "001234.locked.apple"
+    locked = User(
+        email="locked@bonbox.test",
+        password_hash=hash_password("Password123"),
+        business_name="Locked",
+        business_type="cafe",
+        currency="DKK",
+        apple_sub=sub,
+        apple_user_id=sub,
+        is_locked=True,
+    )
+    db_session.add(locked)
+    db_session.commit()
+
+    with _patch_apple(_apple_claims(sub, email="locked@bonbox.test")):
+        r = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
+    assert r.status_code == 401
+    assert "locked" in r.json()["detail"].lower()

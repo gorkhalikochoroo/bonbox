@@ -505,6 +505,16 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-gray-900">
+      {/* Skip-to-content link — invisible until focused, lets keyboard
+          users jump past the sidebar nav straight to the main content.
+          WCAG 2.4.1 (Bypass Blocks). Uses sr-only + focus styles to
+          appear only when tabbed to. */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-4 focus:py-2 focus:bg-emerald-600 focus:text-white focus:rounded-lg focus:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+      >
+        Skip to main content
+      </a>
       {/* Task #49 — Sticky banner for accountant sessions. Renders its own
           markup only when user.role === "accountant"; otherwise null. */}
       {isAccountant && (
@@ -514,8 +524,14 @@ export default function Layout() {
       )}
       {/* Mobile top bar */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-30 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between gap-3" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
-        <button onClick={() => setSidebarOpen(true)} className="text-gray-600 dark:text-gray-300">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <button
+          onClick={() => setSidebarOpen(true)}
+          aria-label={t("openMenu") || "Open menu"}
+          aria-expanded={sidebarOpen}
+          aria-controls="primary-navigation"
+          className="text-gray-600 dark:text-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800 rounded-md p-1"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
@@ -536,7 +552,7 @@ export default function Layout() {
 
       {/* Overlay */}
       {sidebarOpen && (
-        <div className="md:hidden fixed inset-0 z-40 bg-black/40" onClick={closeSidebar} />
+        <div className="md:hidden fixed inset-0 z-40 bg-black/40" onClick={closeSidebar} aria-hidden="true" />
       )}
 
       {/* Sidebar.
@@ -545,9 +561,12 @@ export default function Layout() {
           button in the header. When collapsed, the floating "show
           sidebar" button below renders at the left edge for one-tap
           re-open. State persists in localStorage. */}
-      <aside className={`fixed top-0 left-0 h-full w-56 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col z-50 transition-transform duration-200 ${
-        sidebarOpen ? "translate-x-0" : "-translate-x-full"
-      } ${desktopSidebarHidden ? "md:-translate-x-full" : "md:translate-x-0"}`}
+      <aside
+        id="primary-navigation"
+        aria-label={t("primaryNavigation") || "Primary navigation"}
+        className={`fixed top-0 left-0 h-full w-56 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col z-50 transition-transform duration-200 ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        } ${desktopSidebarHidden ? "md:-translate-x-full" : "md:translate-x-0"}`}
         style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         {/* Header */}
         <div className="px-4 pt-4 pb-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between gap-2">
@@ -572,7 +591,13 @@ export default function Layout() {
               </svg>
             </button>
             {/* Mobile close */}
-            <button onClick={closeSidebar} className="md:hidden text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+            <button
+              onClick={closeSidebar}
+              aria-label={t("closeMenu") || "Close menu"}
+              className="md:hidden text-gray-400 hover:text-gray-600 text-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800 rounded-md w-8 h-8 flex items-center justify-center"
+            >
+              <span aria-hidden="true">&times;</span>
+            </button>
           </div>
         </div>
 
@@ -788,9 +813,13 @@ export default function Layout() {
           giving the user the full viewport width for the report /
           dashboard / tables they're looking at. Mobile bottom-nav
           padding unchanged. */}
-      <main className={`pt-14 md:pt-0 pb-24 md:pb-4 transition-[margin] duration-200 ${
-        desktopSidebarHidden ? "md:ml-0" : "md:ml-56"
-      }`}>
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className={`pt-14 md:pt-0 pb-24 md:pb-4 transition-[margin] duration-200 focus:outline-none ${
+          desktopSidebarHidden ? "md:ml-0" : "md:ml-56"
+        }`}
+      >
         {/* Trial countdown — thin inline strip at the top of the
             page content. Persistent across all routes (lives in
             Layout). Renders nothing for paid users / no trial /

@@ -237,8 +237,8 @@ export default function DailyBriefCard() {
               type="button"
               onClick={onRefresh}
               disabled={refreshing}
-              aria-label="Refresh brief"
-              className="text-[12px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-50 transition"
+              aria-label={t("refreshBrief") || "Refresh brief"}
+              className="text-[12px] text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 disabled:opacity-50 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded px-1"
             >
               {refreshing ? "Refreshing…" : "Refresh"}
             </button>
@@ -246,11 +246,11 @@ export default function DailyBriefCard() {
           <button
             type="button"
             onClick={onDismiss}
-            aria-label="Dismiss brief for today"
-            title="Dismiss for today"
-            className="w-7 h-7 -mr-1 -mt-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700/60 dark:hover:text-gray-200 transition flex items-center justify-center"
+            aria-label={t("dismissBriefToday") || "Dismiss brief for today"}
+            title={t("dismissBriefToday") || "Dismiss for today"}
+            className="w-7 h-7 -mr-1 -mt-1 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/60 dark:hover:text-gray-200 transition flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
           </button>
@@ -308,7 +308,7 @@ export default function DailyBriefCard() {
         </span>
         <div className="flex items-center gap-2">
           {shareToast && (
-            <span className="text-[11px] text-emerald-700 dark:text-emerald-400">
+            <span className="text-[11px] text-emerald-700 dark:text-emerald-400" role="status" aria-live="polite">
               {shareToast}
             </span>
           )}
@@ -318,18 +318,18 @@ export default function DailyBriefCard() {
           <button
             type="button"
             onClick={onCopy}
-            aria-label="Copy brief to clipboard"
-            title="Copy"
-            className="w-7 h-7 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700/60 dark:hover:text-gray-200 transition flex items-center justify-center"
+            aria-label={t("copyBriefClipboard") || "Copy brief to clipboard"}
+            title={t("copy") || "Copy"}
+            className="w-7 h-7 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/60 dark:hover:text-gray-200 transition flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
           >
             <Icon name="ClipboardList" size={14} strokeWidth={1.75} />
           </button>
           <button
             type="button"
             onClick={onForward}
-            aria-label="Forward brief by email"
-            title="Forward"
-            className="w-7 h-7 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700/60 dark:hover:text-gray-200 transition flex items-center justify-center"
+            aria-label={t("forwardBriefEmail") || "Forward brief by email"}
+            title={t("forward") || "Forward"}
+            className="w-7 h-7 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/60 dark:hover:text-gray-200 transition flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
           >
             <Icon name="Send" size={14} strokeWidth={1.75} />
           </button>

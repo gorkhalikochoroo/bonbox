@@ -74,6 +74,25 @@ class InventoryItem(Base):
     # schema layer. Stored as text rather than a join table because the
     # vocabulary is owner-private + small (≤20 keywords typical).
     usage_keywords: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # ── Supplier metadata for Inventory Ordering Autopilot (May 2026, Task #63) ──
+    # Per-item supplier so the Pro autopilot can group recommendations by
+    # supplier_email and send one consolidated email per merchant. Owners
+    # who don't fill these in still get the suggestion list — the email-
+    # send step just skips items missing a supplier_email and shows them
+    # in a "Add supplier email to send" bucket in the UI.
+    #
+    # supplier_lead_time_days drives the "today" urgency tier — if a
+    # gin bottle's projected stockout date < lead_time, the autopilot
+    # marks it as already-late ("should have ordered yesterday"). Default
+    # 1 keeps small-merchant defaults conservative (same-day local delivery).
+    #
+    # pack_size lets the autopilot round suggested_qty up to whole packs
+    # (e.g. tomatoes sold by 5kg box → pack_size=5 means a 6.2kg demand
+    # rounds to a 2-box, 10kg order). Default 1 leaves items unaffected.
+    supplier_name: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    supplier_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    supplier_lead_time_days: Mapped[int] = mapped_column(default=1)
+    pack_size: Mapped[Optional[float]] = mapped_column(Numeric(10, 3), nullable=True, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, onupdate=utc_now

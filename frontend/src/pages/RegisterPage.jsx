@@ -3,6 +3,9 @@ import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { GoogleLogin } from "@react-oauth/google";
+// Task #65 — Apple Sign-In button (web). Self-renders nothing when
+// VITE_APPLE_CLIENT_ID is unset, so dev builds stay quiet.
+import AppleSignInButton from "../components/AppleSignInButton";
 
 /* Inline SVG — growth / rocket scene for registration */
 function RegisterIllustration() {
@@ -54,7 +57,7 @@ const inputCls = "w-full pl-11 pr-4 py-3 border border-gray-200 dark:border-gray
 const selectCls = "w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent text-base text-gray-800 dark:text-gray-200 transition appearance-none";
 
 export default function RegisterPage() {
-  const { register, googleLogin } = useAuth();
+  const { register, googleLogin, googleOauthLogin, appleOauthLogin } = useAuth();
   // Sign-in surface differs per platform:
   //   • Web: Google (via @react-oauth/google JS SDK)
   //   • iOS: third-party login OFF until the Capacitor-community apple-sign-in
@@ -65,6 +68,10 @@ export default function RegisterPage() {
   const isNative = typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
   const hasGoogle = !!import.meta.env.VITE_GOOGLE_CLIENT_ID && !isNative;
   const hasAppleNative = false; // was: isNative — see note above
+  // Task #65 — web Apple Sign-Up via Apple's JS SDK. Hidden on native
+  // (Capacitor handles that path) and when no Service ID configured.
+  const APPLE_CLIENT_ID_WEB = import.meta.env.VITE_APPLE_CLIENT_ID || "";
+  const hasAppleWeb = !!APPLE_CLIENT_ID_WEB && !isNative;
 
   const googleWrap = useRef(null);
   const [googleWidth, setGoogleWidth] = useState(320);
@@ -330,6 +337,65 @@ export default function RegisterPage() {
               </div>
             )}
 
+            {/* ── Task #65 — OAuth row (Apple + Google) ─────────────
+                Placed above the form so third-party sign-up is the
+                dominant choice (mirrors the LoginPage layout). Each
+                button no-ops cleanly when its env var is unset. */}
+            {(hasAppleWeb || hasGoogle) && (
+              <div className="mb-5 space-y-2.5">
+                {hasAppleWeb && (
+                  <AppleSignInButton
+                    clientId={APPLE_CLIENT_ID_WEB}
+                    label={t("signUpWithApple") || "Sign up with Apple"}
+                    mode="signup"
+                    onSuccess={async ({ idToken, name }) => {
+                      setError("");
+                      try {
+                        await appleOauthLogin(idToken, name);
+                        navigate("/dashboard");
+                      } catch (err) {
+                        setError(
+                          err.response?.data?.detail ||
+                          t("appleSignupFailed") ||
+                          t("appleSigninFailed") ||
+                          "Apple sign-up failed"
+                        );
+                      }
+                    }}
+                    onError={(msg) =>
+                      setError(msg || t("appleSignupFailed") || "Apple sign-up failed")
+                    }
+                  />
+                )}
+                {hasGoogle && (
+                  <div ref={googleWrap} className="flex justify-center [&>div]:w-full overflow-hidden">
+                    <GoogleLogin
+                      onSuccess={(res) => {
+                        setError("");
+                        const fn = googleOauthLogin || googleLogin;
+                        fn(res.credential)
+                          .then(() => navigate("/dashboard"))
+                          .catch((err) => setError(err.response?.data?.detail || t("googleSignupFailed")));
+                      }}
+                      onError={() => setError(t("googleSignupFailed"))}
+                      shape="rectangular"
+                      size="large"
+                      width={String(googleWidth)}
+                      text="signup_with"
+                      theme={typeof window !== "undefined" && document.documentElement.classList.contains("dark") ? "filled_black" : "outline"}
+                    />
+                  </div>
+                )}
+                <div className="flex items-center gap-3 pt-2">
+                  <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                  <span className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                    {t("orUseEmail") || "or use email"}
+                  </span>
+                  <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                </div>
+              </div>
+            )}
+
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* Honeypot — visually hidden + aria-hidden + tabindex=-1.
                   Real users never see, focus, or fill this. Bots that
@@ -547,36 +613,11 @@ export default function RegisterPage() {
               </button>
             </form>
 
-            {/* Apple Sign-Up — temporarily disabled. See note at top of
-                this file. Will re-enable when @capacitor-community/
-                apple-sign-in ships a Cap-8-compatible release. */}
-
-            {/* Google Sign-Up */}
-            {hasGoogle && (
-              <>
-                <div className="flex items-center gap-3 my-5">
-                  <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
-                  <span className="text-xs text-gray-400 dark:text-gray-500 font-medium">or</span>
-                  <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
-                </div>
-                <div ref={googleWrap} className="flex justify-center [&>div]:w-full overflow-hidden">
-                  <GoogleLogin
-                    onSuccess={(res) => {
-                      setError("");
-                      googleLogin(res.credential)
-                        .then(() => navigate("/dashboard"))
-                        .catch((err) => setError(err.response?.data?.detail || t("googleSignupFailed")));
-                    }}
-                    onError={() => setError(t("googleSignupFailed"))}
-                    shape="rectangular"
-                    size="large"
-                    width={String(googleWidth)}
-                    text="signup_with"
-                    theme={typeof window !== "undefined" && document.documentElement.classList.contains("dark") ? "filled_black" : "outline"}
-                  />
-                </div>
-              </>
-            )}
+            {/* OAuth providers (Apple + Google) live ABOVE the form
+                now — see the OAuth row injected before <form> above.
+                The legacy /auth/apple iOS Capacitor button is still
+                wired through `appleLogin()` in useAuth for when the
+                plugin ships a Cap-8 release. */}
 
             <p className="mt-5 text-center text-sm text-gray-500 dark:text-gray-400">
               {t("alreadyHaveAccount")}{" "}

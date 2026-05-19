@@ -51,6 +51,8 @@ import {
   Lock, Bell, Shield, Palette, Download, Image, CheckCircle2, AlertTriangle,
   // Recurring expenses (Task #47)
   Pause, Play, RotateCw, Plus,
+  // Demo data (Task #68)
+  Eraser, Loader2,
   // Misc / fallback
   Circle, ChevronDown,
 } from "lucide-react";
@@ -85,6 +87,9 @@ const ICONS = {
   Lock, Bell, Shield, Palette, Download, Image, CheckCircle2, AlertTriangle,
   // Recurring expenses (Task #47)
   Pause, Play, RotateCw, Plus,
+  // Demo data (Task #68)
+  Eraser,
+  Loader: Loader2,
   // Utility
   ChevronDown,
 };

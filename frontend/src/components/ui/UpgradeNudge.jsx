@@ -32,7 +32,7 @@
  * discount. Once the founding window closes (first 100 customers)
  * we'll flip the default.
  */
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 // ─── Tier prices (founding rates leading) ─────────────────────────
@@ -168,25 +168,65 @@ export default function UpgradeNudge({
   }
 
   // intent === "dialog"
+  return <UpgradeNudgeDialog
+    icon={icon}
+    benefit={benefit}
+    ctaLabel={ctaLabel}
+    cta={cta}
+    handleClick={handleClick}
+    tier={tier}
+    tierMeta={tierMeta}
+    className={className}
+    navigate={navigate}
+  />;
+}
+
+/** Modal dialog variant — split out so we can wire up Escape + focus
+ *  restoration via hooks without touching the simpler chip/card paths. */
+function UpgradeNudgeDialog({ icon, benefit, ctaLabel, cta, handleClick, tier, tierMeta, className, navigate }) {
+  const dialogRef = useRef(null);
+  const previousActiveElementRef = useRef(null);
+
+  useEffect(() => {
+    previousActiveElementRef.current = document.activeElement;
+    const focusTimer = setTimeout(() => dialogRef.current?.focus(), 0);
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        navigate(-1);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      clearTimeout(focusTimer);
+      try { previousActiveElementRef.current?.focus?.(); } catch { /* gone */ }
+    };
+  }, [navigate]);
+
   return (
     <div
       className={
         "fixed inset-0 z-[100] flex items-center justify-center p-4 " +
         "bg-stone-900/50 backdrop-blur-sm " + className
       }
-      role="dialog"
-      aria-modal="true"
       onClick={() => navigate(-1)}
+      aria-hidden="true"
     >
       <div
+        ref={dialogRef}
         onClick={(e) => e.stopPropagation()}
-        className="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-2xl shadow-xl max-w-sm w-full p-6 text-center"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="upgrade-nudge-title"
+        tabIndex={-1}
+        className="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-2xl shadow-xl max-w-sm w-full p-6 text-center focus:outline-none"
       >
         {icon && <div className="text-4xl mb-3" aria-hidden="true">{icon}</div>}
         <p className="text-[10px] font-semibold tracking-wider uppercase text-emerald-700 dark:text-emerald-400">
           {tierMeta.name} · {tierMeta.badge}
         </p>
-        <h4 className="text-lg font-semibold text-stone-900 dark:text-stone-100 mt-1 mb-2">
+        <h4 id="upgrade-nudge-title" className="text-lg font-semibold text-stone-900 dark:text-stone-100 mt-1 mb-2">
           {benefit}
         </h4>
         <div className="mb-5">
@@ -195,14 +235,14 @@ export default function UpgradeNudge({
         <Link
           to={cta}
           onClick={handleClick}
-          className="block w-full px-4 h-11 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium transition-colors leading-[2.75rem]"
+          className="block w-full px-4 h-11 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium transition-colors leading-[2.75rem] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900"
         >
           {ctaLabel}
         </Link>
         <button
           type="button"
           onClick={() => navigate(-1)}
-          className="mt-3 text-xs text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-200"
+          className="mt-3 text-xs text-stone-600 dark:text-stone-300 hover:text-stone-800 dark:hover:text-stone-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded px-1"
         >
           Maybe later
         </button>

@@ -125,6 +125,36 @@ export function AuthProvider({ children }) {
     return res.data;
   };
 
+  /**
+   * Task #65 — unified OAuth endpoints. These hit the new
+   * /auth/oauth/apple + /auth/oauth/google routes that share the same
+   * find-or-create + link semantics and stamp users.oauth_provider.
+   *
+   * The legacy googleLogin / appleLogin helpers above stay in place so
+   * the iOS Capacitor flow (which targets /auth/apple specifically) and
+   * any in-the-wild magic links keep working during the cut-over.
+   */
+  const googleOauthLogin = async (idToken) => {
+    const res = await api.post("/auth/oauth/google", { id_token: idToken });
+    persistTokenIfNeeded(res.data.access_token);
+    setUser(res.data.user);
+    syncTimezoneIfChanged(res.data.user?.timezone);
+    try { trackEvent("login_success", "login", "google_oauth"); } catch {}
+    return res.data;
+  };
+
+  const appleOauthLogin = async (idToken, name) => {
+    const res = await api.post("/auth/oauth/apple", {
+      id_token: idToken,
+      name: name || null,
+    });
+    persistTokenIfNeeded(res.data.access_token);
+    setUser(res.data.user);
+    syncTimezoneIfChanged(res.data.user?.timezone);
+    try { trackEvent("login_success", "login", "apple_oauth"); } catch {}
+    return res.data;
+  };
+
   const logout = async () => {
     // Track BEFORE clearing token (otherwise the API call has no auth header)
     try { trackEvent("logout", "logout", null); } catch {}
@@ -179,7 +209,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, googleLogin, appleLogin, logout, setEmailVerified, needsEmailVerification, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, login, register, googleLogin, appleLogin, googleOauthLogin, appleOauthLogin, logout, setEmailVerified, needsEmailVerification, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

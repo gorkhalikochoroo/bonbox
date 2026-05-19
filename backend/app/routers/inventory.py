@@ -1,8 +1,10 @@
+import uuid
 from datetime import date, timedelta
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy import func, case
@@ -17,7 +19,9 @@ from app.schemas.inventory import (
     InventoryLogCreate, InventoryLogResponse,
     TemplateResponse, TemplateLoadRequest, PourRequest,
 )
+from app.services import audit_service
 from app.services.auth import get_current_user
+from app.services.billing import effective_plan, has_feature
 from app.services.inventory_export import (
     build_stock_list_pdf, items_to_csv_bytes,
 )
@@ -1138,3 +1142,179 @@ def get_inventory_usage_suggestion(
         raise HTTPException(status_code=404, detail="Inventory item not found")
     from app.services.inventory_inference import infer_inventory_consumption
     return infer_inventory_consumption(db, user=user, item=item)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Inventory Ordering Autopilot — Task #63 (Pro tier killer feature)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Two endpoints:
+#   POST /inventory/autopilot/suggest  — produce reorder plan (read-only)
+#   POST /inventory/autopilot/apply    — group by supplier + send order emails
+#
+# Multi-layer defense:
+#   L1 — Auth gate (Depends(get_current_user))
+#   L2 — Pro tier gate (_enforce_inventory_autopilot_tier)
+#   L3 — Tenant scope (service enforces user_id on every query)
+#   L4 — Input bounds (Pydantic Field bounds + service-level clamps)
+#   L5 — Rate limit (suggestion is cheap-ish but forecast call hits the
+#        external network; apply sends real emails so we cap aggressively)
+#   L6 — Audit log entry for every suggest + every apply
+#
+# Returning 402 (Payment Required) on tier-locked aligns with the same
+# structured detail shape used by schedule_autopilot, tax_filing_pdf,
+# etc. so the frontend renders ONE UpgradeNudge from ONE error contract.
+
+
+def _enforce_inventory_autopilot_tier(user: User) -> None:
+    """402 plan_required if the user doesn't have Pro entitlements.
+    Same payload shape as schedule_autopilot's gate so the frontend
+    renders the upgrade prompt from one contract."""
+    if not has_feature(user, "inventory_autopilot"):
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "code": "plan_required",
+                "error": "feature_locked",
+                "feature": "inventory_autopilot",
+                "required_plan": "pro",
+                "upgrade_to": "pro",
+                "current_plan": effective_plan(user),
+                "plan": effective_plan(user),
+                "message": (
+                    "Order Autopilot is on Pro. You can still review the "
+                    "low-stock list and place orders manually."
+                ),
+            },
+        )
+
+
+class _AutopilotSuggestBody(BaseModel):
+    days_ahead: int = Field(7, ge=1, le=30)
+    branch_id: Optional[uuid.UUID] = None
+
+
+class _AutopilotApplyLine(BaseModel):
+    # Tight bounds — defense-in-depth. The service ALSO clamps these.
+    item_id: uuid.UUID
+    qty: float = Field(..., gt=0, le=10_000)
+    supplier_name: Optional[str] = Field(None, max_length=120)
+    supplier_email: Optional[str] = Field(None, max_length=255)
+    unit: Optional[str] = Field(None, max_length=20)
+    name: Optional[str] = Field(None, max_length=255)
+    cost_per_unit: Optional[float] = Field(None, ge=0, le=1_000_000)
+
+
+class _AutopilotApplyBody(BaseModel):
+    # Cap items per apply call — bulk-send guardrail. 500 is far above
+    # any plausible single-order list (Mirabelle has ~80 SKUs total).
+    items: list[_AutopilotApplyLine] = Field(..., min_length=1, max_length=500)
+
+
+@router.post("/autopilot/suggest")
+@_limiter.limit("12/minute")
+def inventory_autopilot_suggest(
+    request: Request,
+    body: _AutopilotSuggestBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Produce a structured reorder plan grouped by supplier.
+
+    Read-only — never writes Schedule, InventoryLog, or Item rows. The
+    owner reviews + edits qty before calling /autopilot/apply to send.
+
+    Tier-gated: Pro+ only.
+    """
+    _enforce_inventory_autopilot_tier(user)
+
+    from app.services import inventory_autopilot
+
+    suggestion = inventory_autopilot.suggest_reorder_plan(
+        db,
+        user=user,
+        days_ahead=body.days_ahead,
+        branch_id=body.branch_id,
+    )
+    payload = suggestion.to_dict()
+
+    # Audit — never let an audit-log failure block the suggestion
+    # (audit_service.record already wraps in try/except).
+    audit_service.record(
+        db,
+        user=user,
+        action="inventory.autopilot_suggested",
+        entity_type="inventory",
+        entity_id=None,
+        after={
+            "branch_id": payload["branch_id"],
+            "days_ahead": payload["days_ahead"],
+            "confidence": payload["confidence"],
+            "items_suggested": len(payload["items"]),
+            "supplier_groups": len(payload["suppliers"]),
+            "total_cost": payload["total_cost"],
+            "compliance_warning_count": len(payload["compliance_warnings"]),
+        },
+        ip_address=getattr(request.client, "host", None) if request and request.client else None,
+    )
+    db.commit()
+    return payload
+
+
+@router.post("/autopilot/apply")
+@_limiter.limit("4/minute")
+def inventory_autopilot_apply(
+    request: Request,
+    body: _AutopilotApplyBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Group items by supplier_email and send one consolidated order
+    email per supplier. Items without a supplier_email are returned in
+    the skipped bucket so the UI can prompt the owner to add one.
+
+    The user's own email is used as Reply-To so the supplier can hit
+    Reply and reach the owner directly (not noreply@bonbox.dk).
+
+    Tier-gated: Pro+ only.
+    """
+    _enforce_inventory_autopilot_tier(user)
+
+    from app.services import inventory_autopilot
+
+    payload_items = [line.model_dump() for line in body.items]
+
+    try:
+        result = inventory_autopilot.apply_reorder(
+            db,
+            user=user,
+            items=payload_items,
+        )
+    except ValueError as e:
+        # ValueError from the service = tenant-boundary violation
+        # (foreign item_id) or invalid uuid format. Return 400.
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Per-supplier audit row so any future "who emailed whom" investigation
+    # can reconstruct the activity from the audit_logs table.
+    for entry in result.get("audit", []):
+        audit_service.record(
+            db,
+            user=user,
+            action="inventory.autopilot_applied",
+            entity_type="inventory_order",
+            entity_id=None,
+            after={
+                "supplier_email": entry.get("supplier_email"),
+                "item_count": entry.get("item_count"),
+                "total_cost": entry.get("total_cost"),
+            },
+            ip_address=getattr(request.client, "host", None) if request and request.client else None,
+        )
+    db.commit()
+    return {
+        "sent": result["sent"],
+        "skipped_no_supplier": result["skipped_no_supplier"],
+        "failures": result["failures"],
+        "groups": result["groups"],
+    }

@@ -277,9 +277,14 @@ def _seed_branch(db: Session, user: User) -> Branch | None:
     return b
 
 
-def _seed_daily_closes(db: Session, user: User, branch_id) -> int:
+def _seed_daily_closes(db: Session, user: User, branch_id, *, mark_demo: bool = False) -> int:
     """30 days of closes back from yesterday. Today is intentionally
-    left empty so the closer can demo "creating today's close"."""
+    left empty so the closer can demo "creating today's close".
+
+    When ``mark_demo`` is True, every close gets a ``notes`` value
+    ending in " · demo" so the per-user clear can safely target only
+    seeded rows (Task #68).
+    """
     today = date.today()
     inserted = 0
     # 30 days back; the "yesterday" entry is left as a draft so the
@@ -297,22 +302,31 @@ def _seed_daily_closes(db: Session, user: User, branch_id) -> int:
             branch_id=branch_id,
             **payload,
         )
+        if mark_demo:
+            # Tag for the clear path. Owner won't usually see notes; if
+            # they edit the close, they can clear the suffix freely.
+            dc.notes = "sample · demo"
         db.add(dc)
         inserted += 1
     return inserted
 
 
-def _seed_inventory(db: Session, user: User, branch_id) -> int:
+def _seed_inventory(db: Session, user: User, branch_id, *, mark_demo: bool = False) -> int:
     """24 items across Beer / Wine / Spirits / Soft Drinks / Coffee /
-    Dairy / Seafood / Meat / Bakery / Produce."""
+    Dairy / Seafood / Meat / Bakery / Produce.
+
+    When ``mark_demo`` is True every item's name ends in " · demo" so
+    per-user clear can target only seeded rows (Task #68).
+    """
     today = date.today()
     inserted = 0
     for name, cat, qty, unit, cost, sell, is_perish, expiry_off in _INVENTORY_SEED:
+        display_name = f"{name} · demo" if mark_demo else name
         item = InventoryItem(
             id=uuid.uuid4(),
             user_id=user.id,
             branch_id=branch_id,
-            name=name,
+            name=display_name,
             category=cat,
             quantity=qty,
             unit=unit,
@@ -326,15 +340,21 @@ def _seed_inventory(db: Session, user: User, branch_id) -> int:
     return inserted
 
 
-def _seed_expenses(db: Session, user: User, branch_id) -> int:
-    """Categories + 11 expenses spread across last ~14 days."""
+def _seed_expenses(db: Session, user: User, branch_id, *, mark_demo: bool = False) -> int:
+    """Categories + 11 expenses spread across last ~14 days.
+
+    When ``mark_demo`` is True every expense description AND category
+    name ends with the " · demo" marker so the per-user clear path
+    cleans up after itself (Task #68).
+    """
     # Build categories first, capture by name
     cats_by_name: dict[str, ExpenseCategory] = {}
     for name, color in _EXPENSE_CATEGORIES:
+        cat_name = f"{name} · demo" if mark_demo else name
         cat = ExpenseCategory(
             id=uuid.uuid4(),
             user_id=user.id,
-            name=name,
+            name=cat_name,
             color=color,
         )
         db.add(cat)
@@ -345,6 +365,7 @@ def _seed_expenses(db: Session, user: User, branch_id) -> int:
     inserted = 0
     cat_list = [cats_by_name[name] for name, _ in _EXPENSE_CATEGORIES]
     for cat_idx, days_ago, amount, desc in _EXPENSE_SAMPLES:
+        display_desc = f"{desc} · demo" if mark_demo else desc
         e = Expense(
             id=uuid.uuid4(),
             user_id=user.id,
@@ -352,7 +373,7 @@ def _seed_expenses(db: Session, user: User, branch_id) -> int:
             branch_id=branch_id,
             date=today - timedelta(days=days_ago),
             amount=Decimal(str(amount)),
-            description=desc,
+            description=display_desc,
             payment_method="card",
             is_personal=False,
         )
@@ -456,3 +477,182 @@ def reset_demo_account(db: Session) -> dict:
 
     seed_result = seed_demo_account(db)
     return {"reset": True, "deleted": deleted, "seeded": seed_result}
+
+
+# ─── Per-user demo seed (Task #68) ──────────────────────────────────
+# The functions above target the shared demo@bonbox.dk account. New
+# owners need their OWN sample data on their OWN account — "Try BonBox
+# with sample data" on the empty Dashboard. We reuse the same helpers
+# (_seed_business_profile, _seed_daily_closes, _seed_inventory,
+# _seed_expenses) since they already accept `user` as an arg.
+#
+# Marker contract: every demo-created row carries " · demo" in its
+# description (the existing _seed_* helpers already do this). Clear
+# uses that marker so we never wipe a real entry the owner has typed
+# in by hand. Multi-layer safety: clear only runs when the user has
+# AT MOST a small number of non-demo rows — better to be paranoid.
+
+def _count_non_demo_rows(db: Session, user_id) -> int:
+    """How many rows of real (non-demo) data does the user have?
+
+    Used as a safety gate for both seeding (don't pollute a working
+    account) and clearing (don't accidentally nuke real work).
+    """
+    from sqlalchemy import or_
+    # Expense.description doesn't have an "ends with" Pythonic shortcut;
+    # use LIKE '% · demo' which is universally portable.
+    real_expense = (
+        db.query(Expense)
+        .filter(Expense.user_id == user_id, Expense.is_deleted.isnot(True))
+        .filter(or_(Expense.description.is_(None),
+                    ~Expense.description.like("% · demo")))
+        .count()
+    )
+    # Daily closes use notes for the marker
+    real_close = (
+        db.query(DailyClose)
+        .filter(DailyClose.user_id == user_id, DailyClose.is_deleted.isnot(True))
+        .filter(or_(DailyClose.notes.is_(None),
+                    ~DailyClose.notes.like("% · demo")))
+        .count()
+    )
+    return int(real_expense + real_close)
+
+
+def seed_for_user(db: Session, user: User) -> dict:
+    """Materialize sample data on the CURRENT user's account.
+
+    Safety rules:
+      1. Refuse if the user already has ANY real (non-demo) rows —
+         we never overwrite a working account.
+      2. Refuse if the user has already-seeded demo rows — they
+         should clear first.
+      3. Tenant-scoped end-to-end — only writes for this user_id.
+    """
+    if user is None:
+        return {"ok": False, "reason": "no user"}
+
+    # Block when there's any real data
+    real_count = _count_non_demo_rows(db, user.id)
+    if real_count > 0:
+        return {
+            "ok": False,
+            "reason": "user has real data",
+            "real_row_count": real_count,
+        }
+
+    # Block when demo data is already present
+    existing_demo = (
+        db.query(Expense)
+        .filter(Expense.user_id == user.id,
+                Expense.description.like("% · demo"),
+                Expense.is_deleted.isnot(True))
+        .count()
+    )
+    if existing_demo > 0:
+        return {
+            "ok": False,
+            "reason": "demo data already seeded",
+            "demo_row_count": int(existing_demo),
+        }
+
+    _seed_business_profile(db, user)
+    branch = _seed_branch(db, user)
+    branch_id = branch.id if branch else None
+    closes = _seed_daily_closes(db, user, branch_id, mark_demo=True)
+    inventory = _seed_inventory(db, user, branch_id, mark_demo=True)
+    expenses = _seed_expenses(db, user, branch_id, mark_demo=True)
+    db.commit()
+
+    return {
+        "ok": True,
+        "closes": closes,
+        "inventory": inventory,
+        "expenses": expenses,
+    }
+
+
+def clear_for_user(db: Session, user: User) -> dict:
+    """Remove demo rows from the current user's account.
+
+    Only rows tagged with " · demo" are removed. Anything the owner
+    has typed by hand stays put. Safe to call repeatedly — idempotent
+    once the rows are gone.
+
+    We also remove demo expense categories that have no remaining
+    expenses, and demo-tagged inventory items. Closes are matched on
+    notes ending " · demo".
+    """
+    if user is None:
+        return {"ok": False, "reason": "no user"}
+
+    deleted = {"expenses": 0, "closes": 0, "inventory": 0, "expense_cats": 0}
+
+    # Expenses
+    demo_expenses = (
+        db.query(Expense)
+        .filter(Expense.user_id == user.id,
+                Expense.description.like("% · demo"))
+        .all()
+    )
+    for e in demo_expenses:
+        db.delete(e)
+        deleted["expenses"] += 1
+
+    # Closes (notes-based marker)
+    demo_closes = (
+        db.query(DailyClose)
+        .filter(DailyClose.user_id == user.id,
+                DailyClose.notes.like("% · demo"))
+        .all()
+    )
+    for c in demo_closes:
+        db.delete(c)
+        deleted["closes"] += 1
+
+    # Inventory: per-user seed appends " · demo" to every item name
+    # (see _seed_inventory with mark_demo=True). We rely on that
+    # marker — anything the owner has typed by hand keeps their
+    # chosen name and is untouched here.
+    demo_inv = (
+        db.query(InventoryItem)
+        .filter(InventoryItem.user_id == user.id,
+                InventoryItem.name.like("% · demo"))
+        .all()
+    )
+    for i in demo_inv:
+        db.delete(i)
+        deleted["inventory"] += 1
+
+    # Demo-named expense categories — only remove if no expenses
+    # reference them. Safer than blanket cascade.
+    demo_cats = (
+        db.query(ExpenseCategory)
+        .filter(ExpenseCategory.user_id == user.id,
+                ExpenseCategory.name.like("% · demo"))
+        .all()
+    )
+    for c in demo_cats:
+        ref_count = db.query(Expense).filter_by(category_id=c.id).count()
+        if ref_count == 0:
+            db.delete(c)
+            deleted["expense_cats"] += 1
+
+    db.commit()
+    return {"ok": True, "deleted": deleted}
+
+
+def status_for_user(db: Session, user: User) -> dict:
+    """Lightweight status read — frontend asks 'should I show the
+    Seed button or the Clear button?'"""
+    if user is None:
+        return {"has_demo": False, "has_real": False}
+    has_demo = (
+        db.query(Expense)
+        .filter(Expense.user_id == user.id,
+                Expense.description.like("% · demo"),
+                Expense.is_deleted.isnot(True))
+        .count()
+    ) > 0
+    has_real = _count_non_demo_rows(db, user.id) > 0
+    return {"has_demo": bool(has_demo), "has_real": bool(has_real)}

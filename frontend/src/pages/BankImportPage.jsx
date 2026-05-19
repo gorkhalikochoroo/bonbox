@@ -16,6 +16,18 @@ const BANK_LABELS = {
   revolut: { label: "Revolut", icon: "💳" },
 };
 
+// Banks that support direct Aiia connection (Task #67). Matches the
+// SUPPORTED_BANKS allowlist on the backend Pydantic schema.
+const AIIA_BANKS = [
+  { slug: "danske_bank", label: "Danske Bank" },
+  { slug: "nordea", label: "Nordea" },
+  { slug: "jyske_bank", label: "Jyske Bank" },
+  { slug: "spar_nord", label: "Spar Nord" },
+  { slug: "lunar", label: "Lunar" },
+  { slug: "sydbank", label: "Sydbank" },
+  { slug: "arbejdernes_landsbank", label: "Arbejdernes Landsbank" },
+];
+
 export default function BankImportPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
@@ -41,6 +53,34 @@ export default function BankImportPage() {
 
   // Result
   const [result, setResult] = useState(null);
+
+  // Aiia direct connect (Task #67). Stays at the top of the page —
+  // primary CTA — so owners discover it before scrolling to CSV upload.
+  const [aiiaBank, setAiiaBank] = useState("danske_bank");
+  const [aiiaLoading, setAiiaLoading] = useState(false);
+
+  const startAiiaConnect = async () => {
+    if (!canAutoReconcile) return;
+    setAiiaLoading(true);
+    setError("");
+    try {
+      const res = await api.post("/bank-connect/init", { bank_slug: aiiaBank });
+      const consentUrl = res?.data?.consent_url;
+      if (!consentUrl) throw new Error("Backend did not return a consent_url");
+      // Full redirect — the bank's SCA page expects a top-level navigation,
+      // not an XHR follow. The bank then bounces back to our /api/bank-
+      // connect/callback which redirects to /connections?bank_connected=1.
+      window.location.assign(consentUrl);
+    } catch (err) {
+      setError(
+        err?.response?.data?.detail?.message ||
+          err?.response?.data?.detail ||
+          err?.message ||
+          "Couldn't start bank connection — try again",
+      );
+      setAiiaLoading(false);
+    }
+  };
 
   // Reconciliation data
   // suggestions: server response { transactions: [...], counts: {...} }
@@ -315,11 +355,75 @@ export default function BankImportPage() {
       )}
 
       {/* ═══════════════════════════════════════════
-         STEP 1: UPLOAD
+         AIIA DIRECT CONNECT (Task #67) — primary path
+         ═══════════════════════════════════════════ */}
+      {step === "upload" && (
+        <FadeIn>
+          <div className="bg-gradient-to-br from-emerald-50 to-blue-50 dark:from-emerald-900/20 dark:to-blue-900/20 rounded-2xl p-6 border border-emerald-200 dark:border-emerald-800 shadow-sm space-y-4 mb-6">
+            <div className="flex items-start gap-3">
+              <div className="text-3xl">🔗</div>
+              <div className="flex-1">
+                <h2 className="text-lg font-bold text-gray-800 dark:text-white mb-1">
+                  Connect bank automatically
+                </h2>
+                <p className="text-sm text-gray-600 dark:text-gray-300">
+                  One-time NemID login at your bank — no more CSV uploads. BonBox auto-pulls transactions nightly and matches them to your fakturaer.
+                </p>
+              </div>
+              {!canAutoReconcile && (
+                <span className="px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300">
+                  Starter+
+                </span>
+              )}
+            </div>
+
+            {canAutoReconcile ? (
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="flex-1 min-w-[180px]">
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Choose your bank</label>
+                  <select
+                    value={aiiaBank}
+                    onChange={(e) => setAiiaBank(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-200"
+                  >
+                    {AIIA_BANKS.map((b) => (
+                      <option key={b.slug} value={b.slug}>{b.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  onClick={startAiiaConnect}
+                  disabled={aiiaLoading}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {aiiaLoading ? "Opening bank…" : "Connect bank"}
+                </button>
+              </div>
+            ) : (
+              <UpgradeNudge
+                feature="bank_auto_reconcile"
+                title="Auto-connect your bank with Starter"
+                description="Skip CSV upload — direct PSD2 connection to Danish banks. Nightly auto-sync + reconciliation."
+              />
+            )}
+
+            <p className="text-xs text-gray-400 dark:text-gray-500 italic">
+              Read-only access via Mastercard Open Banking (Aiia). Renews every 90 days under DK SCA rules.
+            </p>
+          </div>
+        </FadeIn>
+      )}
+
+      {/* ═══════════════════════════════════════════
+         STEP 1: UPLOAD (CSV fallback)
          ═══════════════════════════════════════════ */}
       {step === "upload" && (
         <FadeIn>
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-gray-100 dark:border-gray-700 shadow-sm space-y-5">
+            <div className="flex items-baseline justify-between">
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Or upload CSV manually</h3>
+              <span className="text-xs text-gray-400">Free tier &amp; unsupported banks</span>
+            </div>
             {/* Drop zone */}
             <div
               ref={dropRef}

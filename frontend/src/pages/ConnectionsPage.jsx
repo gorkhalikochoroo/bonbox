@@ -24,8 +24,8 @@
  * Mobile-first. Stone palette. Each card is a self-contained widget
  * so owners can scan vertically and tap whatever is most relevant.
  */
-import { useState, useEffect, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -97,7 +97,7 @@ function ConnectionCard({
           primaryAction.to ? (
             <Link
               to={primaryAction.to}
-              className={`inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+              className={`inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 ${
                 status === "connected"
                   ? "bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-200 hover:bg-stone-200 dark:hover:bg-stone-700"
                   : "bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 hover:bg-stone-700 dark:hover:bg-stone-200"
@@ -119,7 +119,7 @@ function ConnectionCard({
           secondaryAction.to ? (
             <Link
               to={secondaryAction.to}
-              className="text-[12px] text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100 transition"
+              className="text-[12px] text-stone-600 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded px-1"
             >
               {secondaryAction.label}
             </Link>
@@ -127,7 +127,7 @@ function ConnectionCard({
             <button
               type="button"
               onClick={secondaryAction.onClick}
-              className="text-[12px] text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100 transition"
+              className="text-[12px] text-stone-600 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded px-1"
             >
               {secondaryAction.label}
             </button>
@@ -141,10 +141,25 @@ function ConnectionCard({
 export default function ConnectionsPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [profile, setProfile] = useState(null);
   const [grants, setGrants] = useState([]);
   const [emailPrefs, setEmailPrefs] = useState(null);
+  const [bankConnections, setBankConnections] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState(null);   // { kind: 'success'|'error', msg }
+  const [busyConn, setBusyConn] = useState(null);
+
+  // Reload bank_connections — used after Sync / Disconnect to refresh state.
+  const reloadBankConnections = useCallback(async () => {
+    try {
+      const r = await api.get("/bank-connections");
+      setBankConnections(r.data || []);
+    } catch {
+      // Endpoint is auth-required; non-auth shouldn't hit this page anyway.
+      setBankConnections([]);
+    }
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -152,15 +167,81 @@ export default function ConnectionsPage() {
       api.get("/business").then(r => r.data).catch(() => null),
       api.get("/accountants/grants").then(r => r.data || []).catch(() => []),
       api.get("/email-settings/preferences").then(r => r.data).catch(() => null),
-    ]).then(([p, g, e]) => {
+      api.get("/bank-connections").then(r => r.data || []).catch(() => []),
+    ]).then(([p, g, e, bc]) => {
       if (!alive) return;
       setProfile(p);
       setGrants(g);
       setEmailPrefs(e);
+      setBankConnections(bc);
       setLoading(false);
     });
     return () => { alive = false; };
   }, []);
+
+  // Surface the "🎉 Bank connected" toast when the OAuth callback
+  // bounces us back to /connections?bank_connected=1 (Task #67).
+  useEffect(() => {
+    if (searchParams.get("bank_connected") === "1") {
+      setToast({ kind: "success", msg: "🎉 Bank connected — first sync running now" });
+      // Strip the query param so a refresh doesn't re-trigger the toast.
+      const next = new URLSearchParams(searchParams);
+      next.delete("bank_connected");
+      setSearchParams(next, { replace: true });
+    } else if (searchParams.get("bank_error") === "1") {
+      setToast({ kind: "error", msg: "Bank connection cancelled — try again" });
+      const next = new URLSearchParams(searchParams);
+      next.delete("bank_error");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
+  // Auto-clear toast after 4s.
+  useEffect(() => {
+    if (!toast) return;
+    const id = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(id);
+  }, [toast]);
+
+  const syncBankConnection = async (connId) => {
+    setBusyConn(connId);
+    try {
+      const res = await api.post(`/bank-connections/${connId}/sync`);
+      const { new_sales, new_expenses, suggestions, auto_confirmed } = res.data;
+      setToast({
+        kind: "success",
+        msg: `Synced: ${new_sales + new_expenses} new, ${suggestions} suggestions, ${auto_confirmed} auto-matched`,
+      });
+      await reloadBankConnections();
+    } catch (err) {
+      setToast({
+        kind: "error",
+        msg: err?.response?.data?.detail?.message ||
+             err?.response?.data?.detail || "Sync failed",
+      });
+    }
+    setBusyConn(null);
+  };
+
+  const disconnectBankConnection = async (connId) => {
+    if (!window.confirm("Disconnect this bank? Daily sync will stop.")) return;
+    setBusyConn(connId);
+    try {
+      await api.delete(`/bank-connections/${connId}`);
+      setToast({ kind: "success", msg: "Bank disconnected" });
+      await reloadBankConnections();
+    } catch (err) {
+      setToast({
+        kind: "error",
+        msg: err?.response?.data?.detail || "Could not disconnect",
+      });
+    }
+    setBusyConn(null);
+  };
+
+  const activeBankConnections = bankConnections.filter(
+    (c) => c.status === "active",
+  );
 
   // Derive status for each integration from the data we just fetched.
   // Pure derivation — no extra requests. If a derivation needs more
@@ -228,6 +309,20 @@ export default function ConnectionsPage() {
 
   return (
     <div className="max-w-5xl mx-auto p-5 sm:p-6 pb-32 md:pb-12">
+      {/* Toast (Task #67 — "🎉 Bank connected" / errors) */}
+      {toast && (
+        <div
+          className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-xl shadow-lg text-sm font-medium ${
+            toast.kind === "success"
+              ? "bg-emerald-600 text-white"
+              : "bg-red-600 text-white"
+          }`}
+          role="status"
+        >
+          {toast.msg}
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-7">
         <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-stone-900 dark:text-stone-100">
@@ -239,6 +334,74 @@ export default function ConnectionsPage() {
         </p>
       </div>
 
+      {/* Aiia bank connections panel (Task #67) — shown ABOVE the grid
+          when the owner has 1+ active connections, so the most-relevant
+          actionable state is the first thing they see. */}
+      {activeBankConnections.length > 0 && (
+        <div className="mb-7 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-2xl p-5">
+          <div className="flex items-start justify-between mb-3 flex-wrap gap-2">
+            <div>
+              <h2 className="text-base font-semibold text-stone-900 dark:text-stone-100">
+                Bank connections
+              </h2>
+              <p className="text-xs text-stone-600 dark:text-stone-400 mt-0.5">
+                Direct PSD2 feed via Aiia. Auto-syncs nightly.
+              </p>
+            </div>
+            <Link
+              to="/bank-import"
+              className="text-xs text-emerald-700 hover:text-emerald-900 dark:text-emerald-300 dark:hover:text-emerald-100 underline"
+            >
+              + Connect another
+            </Link>
+          </div>
+          <div className="space-y-2">
+            {activeBankConnections.map((conn) => {
+              const lastSyncedHuman = conn.last_synced_at
+                ? new Date(conn.last_synced_at).toLocaleString()
+                : "Never synced";
+              const bankLabel = (conn.bank_slug || "bank")
+                .replace(/_/g, " ")
+                .replace(/\b\w/g, (c) => c.toUpperCase());
+              return (
+                <div
+                  key={conn.id}
+                  className="flex flex-wrap items-center gap-2 p-3 bg-white dark:bg-stone-900 rounded-lg border border-stone-100 dark:border-stone-800"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-stone-900 dark:text-stone-100 truncate">
+                      {bankLabel}
+                      {conn.sandbox_mode && (
+                        <span className="ml-2 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+                          Sandbox
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-stone-500 dark:text-stone-400 truncate">
+                      {conn.account_label || "Bank account"} · Last sync: {lastSyncedHuman}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => syncBankConnection(conn.id)}
+                    disabled={busyConn === conn.id}
+                    className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 hover:bg-stone-700 dark:hover:bg-stone-200 disabled:opacity-50"
+                  >
+                    {busyConn === conn.id ? "Syncing…" : "Sync now"}
+                  </button>
+                  <button
+                    onClick={() => disconnectBankConnection(conn.id)}
+                    disabled={busyConn === conn.id}
+                    className="text-xs text-stone-600 hover:text-red-600 dark:text-stone-400 dark:hover:text-red-400 disabled:opacity-50"
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Grid of integration cards */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {/* Bank */}
@@ -249,17 +412,26 @@ export default function ConnectionsPage() {
             t("connBankDesc") ||
             "Upload your netbank CSV (Danske, Nordea, Jyske, Spar Nord, Lunar) — BonBox auto-matches payments to your fakturaer within ±2 kr."
           }
-          status={derived.bank.status}
-          statusLabel={derived.bank.label}
+          status={
+            activeBankConnections.length > 0
+              ? "connected"
+              : derived.bank.status
+          }
+          statusLabel={
+            activeBankConnections.length > 0
+              ? `Connected · ${activeBankConnections.length} account${activeBankConnections.length > 1 ? "s" : ""}`
+              : derived.bank.label
+          }
           primaryAction={{
-            label: derived.bank.status === "connected"
-              ? (t("connOpen") || "Open")
-              : (t("connConnect") || "Connect"),
+            label: activeBankConnections.length > 0
+              ? (t("connManage") || "Manage")
+              : (t("connConnect") || "Connect bank"),
             to: "/bank-import",
           }}
           comingSoonNote={
-            t("connBankAiiaSoon") ||
-            "Aiia direct connection (no CSV) coming in the next release."
+            activeBankConnections.length === 0
+              ? (t("connBankAiia") || "Aiia direct connection available on /bank-import.")
+              : undefined
           }
         />
 

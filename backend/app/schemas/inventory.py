@@ -20,6 +20,11 @@ class InventoryItemCreate(BaseModel):
     pour_size: float | None = None
     pour_unit: str | None = None
     sell_price_per_pour: float | None = None
+    # Task #63 — Inventory Ordering Autopilot supplier fields
+    supplier_name: str | None = Field(None, max_length=120)
+    supplier_email: str | None = Field(None, max_length=255)
+    supplier_lead_time_days: int | None = Field(None, ge=0, le=60)
+    pack_size: float | None = Field(None, gt=0, le=10_000)
 
 
 class InventoryItemUpdate(BaseModel):
@@ -39,6 +44,11 @@ class InventoryItemUpdate(BaseModel):
     pour_size: float | None = None
     pour_unit: str | None = None
     sell_price_per_pour: float | None = None
+    # Task #63 — Inventory Ordering Autopilot supplier fields
+    supplier_name: str | None = Field(None, max_length=120)
+    supplier_email: str | None = Field(None, max_length=255)
+    supplier_lead_time_days: int | None = Field(None, ge=0, le=60)
+    pack_size: float | None = Field(None, gt=0, le=10_000)
 
 
 class InventoryItemResponse(BaseModel):
@@ -59,6 +69,11 @@ class InventoryItemResponse(BaseModel):
     pour_size: float | None = None
     pour_unit: str | None = None
     sell_price_per_pour: float | None = None
+    # Task #63 — Inventory Ordering Autopilot supplier fields
+    supplier_name: str | None = None
+    supplier_email: str | None = None
+    supplier_lead_time_days: int | None = None
+    pack_size: float | None = None
     created_at: datetime.datetime | None = None
 
     model_config = {"from_attributes": True}

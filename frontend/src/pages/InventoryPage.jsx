@@ -3,11 +3,14 @@ import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { useEntitlements } from "../hooks/useEntitlements";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
 import SmartImportModal from "../components/SmartImportModal";
 import InventoryConsumptionModal from "../components/InventoryConsumptionModal";
+import InventoryAutopilotPanel from "../components/InventoryAutopilotPanel";
+import SmartPricingModal from "../components/SmartPricingModal";
 import { localIso } from "../utils/dateFormat";
 
 const TEMPLATES = [
@@ -58,6 +61,12 @@ export default function InventoryPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
+  // Order Autopilot — Pro-tier reorder + supplier email flow (Task #63).
+  // Free / Starter see an UpgradeNudge inside the panel; the button is
+  // always visible so the upsell remains discoverable. Tier is also
+  // re-checked server-side by every /autopilot/* endpoint.
+  const { hasFeature: _hasFeatureAutopilot } = useEntitlements();
+  const [showAutopilot, setShowAutopilot] = useState(false);
   const [items, setItems] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -75,6 +84,10 @@ export default function InventoryPage() {
   // configured. One shared modal across all rows; opening it for a
   // different item rebuilds its internal state via the `itemId` key.
   const [consumptionModalItem, setConsumptionModalItem] = useState(null);
+  // Smart Pricing per-item modal — set to the item the owner clicked
+  // "Compare price" on. The modal fetches /api/smart-pricing/item?name=...
+  // and renders a single SmartPricingCard.
+  const [smartPricingItem, setSmartPricingItem] = useState(null);
   const [adjustId, setAdjustId] = useState(null);
   const [adjustQty, setAdjustQty] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -357,6 +370,19 @@ export default function InventoryPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("inventoryMonitor")}</h1></FadeIn>
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Order autopilot — Pro tier killer feature (Task #63). Visible
+              to everyone so the upsell remains discoverable. The panel
+              itself renders an UpgradeNudge for Free / Starter. */}
+          <button
+            onClick={() => setShowAutopilot((v) => !v)}
+            className="px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 transition font-medium flex items-center gap-1.5"
+            title={t(
+              "inventoryAutopilotButtonTitle",
+              "Group reorder suggestions by supplier and email them in one tap.",
+            )}
+          >
+            {t("inventoryAutopilotButton", "Order autopilot")}
+          </button>
           <button
             onClick={() => setShowSmartImport(true)}
             className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition font-medium flex items-center gap-1.5"
@@ -429,6 +455,12 @@ export default function InventoryPage() {
           fetchData();
         }}
       />
+
+      {/* Order Autopilot — Pro tier panel. The panel itself renders an
+          UpgradeNudge for Free / Starter users (no need to gate here). */}
+      {showAutopilot && (
+        <InventoryAutopilotPanel onClose={() => setShowAutopilot(false)} />
+      )}
 
       {success && <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
       {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-300 px-4 py-3 rounded-xl text-sm">{error}</div>}
@@ -1099,6 +1131,20 @@ export default function InventoryPage() {
                             >
                               🧪
                             </button>
+                            {/* Compare price — opens SmartPricingModal which
+                                fetches /api/smart-pricing/item for this item.
+                                Only useful when the item has a sell_price
+                                set, so we only render the button then. */}
+                            {item.sell_price > 0 && (
+                              <button
+                                onClick={() => setSmartPricingItem(item)}
+                                title={t("smartPricingCompareBtn") || "Compare price"}
+                                aria-label={t("smartPricingCompareBtn") || "Compare price"}
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-800/40 text-indigo-700 dark:text-indigo-300 text-base transition"
+                              >
+                                🌍
+                              </button>
+                            )}
                             <button onClick={() => startEdit(item)} className="bg-blue-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-blue-600 min-w-[48px] min-h-[32px]">{t("edit")}</button>
                             {deleteConfirm === item.id ? (
                               <span className="inline-flex items-center gap-1.5 bg-red-50 dark:bg-red-900/20 px-2 py-1.5 rounded-lg">
@@ -1285,6 +1331,14 @@ export default function InventoryPage() {
         onClose={() => setConsumptionModalItem(null)}
         itemId={consumptionModalItem?.id}
         itemName={consumptionModalItem?.name}
+      />
+      {/* Smart Pricing per-item market comparison modal (Task #64) */}
+      <SmartPricingModal
+        key={smartPricingItem?.id || "sp-none"}
+        open={!!smartPricingItem}
+        onClose={() => setSmartPricingItem(null)}
+        itemName={smartPricingItem?.name}
+        currencyCode={user?.currency}
       />
     </div>
   );

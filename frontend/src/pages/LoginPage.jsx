@@ -4,6 +4,10 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { GoogleLogin } from "@react-oauth/google";
 import api from "../services/api";
+// Task #65 — Apple Sign-In button (web). Renders nothing when the
+// VITE_APPLE_CLIENT_ID env var is empty, so non-prod builds stay
+// quiet without conditional imports.
+import AppleSignInButton from "../components/AppleSignInButton";
 
 /* Inline SVG illustration — a fun receipt-and-boxes scene */
 function HeroIllustration() {
@@ -70,7 +74,7 @@ export default function LoginPage() {
   // ^7 which conflicts with @capacitor/*@8.x — bricks the iOS build. The
   // backend /auth/apple endpoint stays wired up; only the native button is
   // hidden until the plugin catches up.
-  const { login, googleLogin, needsEmailVerification } = useAuth();
+  const { login, googleLogin, googleOauthLogin, appleOauthLogin, needsEmailVerification } = useAuth();
   const { lang, setLang, LANGUAGES, t } = useLanguage();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -98,6 +102,12 @@ export default function LoginPage() {
   // Apple-Sign-In on iOS is disabled until the @capacitor-community plugin
   // ships a Capacitor-8-compatible release. See note above on the import.
   const hasAppleNative = false; // was: isNative
+  // Web Apple Sign-In (Task #65) — Apple Service ID (e.g. dk.bonbox.web).
+  // Hidden inside Capacitor's WebView for the same reason as Google: the
+  // popup-based flow doesn't pair well with WKWebView. Native iOS uses
+  // the Capacitor plugin path (currently disabled, see above).
+  const APPLE_CLIENT_ID_WEB = import.meta.env.VITE_APPLE_CLIENT_ID || "";
+  const hasAppleWeb = !!APPLE_CLIENT_ID_WEB && !isNative;
 
   // Google button width is fixed-pixel — measure container so it fits any phone
   const googleWrap = useRef(null);
@@ -248,13 +258,97 @@ export default function LoginPage() {
             </p>
 
             {error && (
-              <div role="alert" className="mt-6 flex items-start gap-2.5 bg-red-50
-                border border-red-200 text-red-700 px-3.5 py-3 rounded-lg text-[13px]">
-                <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div
+                role="alert"
+                aria-live="assertive"
+                className="mt-6 flex items-start gap-2.5 bg-red-50
+                border border-red-200 text-red-700 px-3.5 py-3 rounded-lg text-[13px]"
+              >
+                <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                         d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"/>
                 </svg>
                 <span>{error}</span>
+              </div>
+            )}
+
+            {/* ── Task #65 — OAuth row (Apple + Google) ───────────────
+                Sits ABOVE the email/password form so the third-party
+                options are the dominant choice. Each provider verifies
+                its own token server-side via /auth/oauth/{provider}.
+                Both buttons render only when their respective client
+                IDs are configured AND we're not inside Capacitor's
+                WebView (which has its own native sign-in surface). */}
+            {!magicMode && (hasAppleWeb || hasGoogle) && (
+              <div className="mt-7 space-y-2.5">
+                {hasAppleWeb && (
+                  <AppleSignInButton
+                    clientId={APPLE_CLIENT_ID_WEB}
+                    label={t("signInWithApple") || "Sign in with Apple"}
+                    mode="signin"
+                    onSuccess={async ({ idToken, name }) => {
+                      setError("");
+                      try {
+                        const data = await appleOauthLogin(idToken, name);
+                        if (
+                          data.user &&
+                          !data.user.email_verified &&
+                          data.user.created_at &&
+                          new Date(data.user.created_at) >= new Date("2026-04-13T00:00:00")
+                        ) {
+                          navigate("/verify-email");
+                        } else {
+                          navigate("/dashboard");
+                        }
+                      } catch (err) {
+                        setError(
+                          err.response?.data?.detail ||
+                          t("appleSigninFailed") ||
+                          "Apple sign-in failed"
+                        );
+                      }
+                    }}
+                    onError={(msg) =>
+                      setError(msg || t("appleSigninFailed") || "Apple sign-in failed")
+                    }
+                  />
+                )}
+                {hasGoogle && (
+                  <div ref={googleWrap} className="flex justify-center [&>div]:w-full overflow-hidden">
+                    <GoogleLogin
+                      onSuccess={(res) => {
+                        setError("");
+                        // Prefer the new unified endpoint when wired up;
+                        // fall back to the legacy /auth/google helper if
+                        // anything goes wrong (e.g. brand-new install
+                        // hitting an old backend during a deploy).
+                        const fn = googleOauthLogin || googleLogin;
+                        fn(res.credential)
+                          .then((data) => {
+                            if (data.user && !data.user.email_verified && data.user.created_at && new Date(data.user.created_at) >= new Date("2026-04-13T00:00:00")) {
+                              navigate("/verify-email");
+                            } else {
+                              navigate("/dashboard");
+                            }
+                          })
+                          .catch((err) => setError(err.response?.data?.detail || t("googleSigninFailed")));
+                      }}
+                      onError={() => setError(t("googleSigninFailed"))}
+                      shape="rectangular"
+                      size="large"
+                      width={String(googleWidth)}
+                      text="signin_with"
+                      theme="outline"
+                    />
+                  </div>
+                )}
+                <div className="flex items-center gap-3 pt-3">
+                  <div className="flex-1 h-px bg-gray-200" />
+                  <span className="text-[11px] uppercase tracking-wider text-gray-400">
+                    {t("orUseEmail") || (t("or") + " " + (t("emailLabel") || "email")).toLowerCase()}
+                  </span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
               </div>
             )}
 
@@ -337,13 +431,14 @@ export default function LoginPage() {
                       <button
                         type="button"
                         onClick={() => setShowPass(!showPass)}
-                        aria-label={showPass ? t("hidePassword") : t("showPassword")}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-gray-700"
+                        aria-label={showPass ? (t("hidePassword") || "Hide password") : (t("showPassword") || "Show password")}
+                        aria-pressed={showPass}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-800 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
                       >
                         {showPass ? (
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L6.59 6.59m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L6.59 6.59m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>
                         ) : (
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
                         )}
                       </button>
                     </div>
@@ -407,38 +502,6 @@ export default function LoginPage() {
                 {t("loginGoogleHintNative") ||
                   "Signed up with Google on the web? Tap “Forgot password” above to set an app password — takes 30 seconds."}
               </p>
-            )}
-
-            {hasGoogle && (
-              <>
-                <div className="flex items-center gap-3 my-5">
-                  <div className="flex-1 h-px bg-gray-200"/>
-                  <span className="text-[11px] uppercase tracking-wider text-gray-400">{t("or")}</span>
-                  <div className="flex-1 h-px bg-gray-200"/>
-                </div>
-                <div ref={googleWrap} className="flex justify-center [&>div]:w-full overflow-hidden">
-                  <GoogleLogin
-                    onSuccess={(res) => {
-                      setError("");
-                      googleLogin(res.credential)
-                        .then((data) => {
-                          if (data.user && !data.user.email_verified && data.user.created_at && new Date(data.user.created_at) >= new Date("2026-04-13T00:00:00")) {
-                            navigate("/verify-email");
-                          } else {
-                            navigate("/dashboard");
-                          }
-                        })
-                        .catch((err) => setError(err.response?.data?.detail || t("googleSigninFailed")));
-                    }}
-                    onError={() => setError(t("googleSigninFailed"))}
-                    shape="rectangular"
-                    size="large"
-                    width={String(googleWidth)}
-                    text="signin_with"
-                    theme="outline"
-                  />
-                </div>
-              </>
             )}
 
             <p className="mt-7 text-center text-[13px] text-gray-500">

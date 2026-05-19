@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "backend",
-      "runtimeExecutable": "uvicorn",
-      "runtimeArgs": ["app.main:app", "--reload", "--port", "8000"],
+      "runtimeExecutable": "/bin/zsh",
+      "runtimeArgs": ["-c", "cd /Users/nova/Downloads/Project_CHL/smallbiz-dashboard/backend && source venv/bin/activate && uvicorn app.main:app --reload --port 8000"],
       "port": 8000
     },
     {

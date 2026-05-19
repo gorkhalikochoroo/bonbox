@@ -39,7 +39,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, order_channel_config, inventory_smart_import, smart_drift, support, search as search_router, modules as modules_router, ai as ai_router
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, order_channel_config, inventory_smart_import, smart_drift, support, search as search_router, modules as modules_router, ai as ai_router, smart_pricing as smart_pricing_router
 # Invoicing — Customer/Invoice/Mileage. Gated to Starter+ at the route level.
 from app.routers import customers as customers_router, invoices as invoices_router, mileage as mileage_router
 from app.routers import payment_suggestions as payment_suggestions_router
@@ -50,6 +50,19 @@ from app.routers import accountants as accountants_router
 # enumeration-safe + rate-limited request/verify endpoints aren't
 # tangled with the password-based /login + /register surface in auth.py.
 from app.routers import auth_magic_link as auth_magic_link_router
+# Task #68 — per-user demo data toggle. Lets new owners populate
+# their own account with sample rows so the dashboard / brief light up
+# instantly, and clear them with one tap.
+from app.routers import demo as demo_router
+# Task #65 — unified OAuth (Apple + Google). Separate router so the
+# new find-or-create / link semantics + token-verification multi-layer
+# stays cleanly isolated from the legacy /auth/apple + /auth/google
+# code paths in auth.py (which we keep for back-compat).
+from app.routers import auth_oauth as auth_oauth_router
+# Task #67 — Aiia (Mastercard Open Banking) connect + sync. Replaces
+# the CSV-upload-hassle pain on /bank-import with a real PSD2 feed.
+# Sandbox-mode default so we ship without real Aiia creds.
+from app.routers import bank_connect as bank_connect_router
 from app.database import engine, Base, get_db
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -982,6 +995,83 @@ _migrations = [
     "CREATE INDEX IF NOT EXISTS ix_magic_link_email_created ON magic_link_tokens (email, created_at)",
     "CREATE INDEX IF NOT EXISTS ix_magic_link_token_hash ON magic_link_tokens (token_hash)",
     "CREATE INDEX IF NOT EXISTS ix_magic_link_user_id ON magic_link_tokens (user_id)",
+
+    # ── Migration 044: Unified OAuth columns (Task #65) ──────────────────
+    # Apple Sign-In + Google Sign-In each carry a stable subject claim
+    # we use as the primary identity key (email can change; sub can't).
+    #
+    # apple_sub is intentionally separate from the legacy apple_user_id
+    # column. The old /auth/apple endpoint keeps writing apple_user_id;
+    # the new /auth/oauth/apple endpoint writes BOTH (so a User row
+    # created through either path can be looked up either way). Down the
+    # road we can drop apple_user_id once /auth/apple migrates fully.
+    #
+    # oauth_provider stamps the LAST sign-in method so the UI can prompt
+    # "you signed in with Google last time" on the next visit. Allowed
+    # values are enforced at the application layer (not via CHECK
+    # constraint) because the set evolves: apple | google | email |
+    # magic_link | password.
+    #
+    # Both *_sub columns are UNIQUE. Postgres ADD COLUMN IF NOT EXISTS
+    # with UNIQUE produces a deferred unique constraint, so we add the
+    # column then the index separately for back-compat.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS apple_sub VARCHAR(255)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub VARCHAR(255)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS oauth_provider VARCHAR(20)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_apple_sub ON users (apple_sub) WHERE apple_sub IS NOT NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_google_sub ON users (google_sub) WHERE google_sub IS NOT NULL",
+
+    # ── Migration 045: Inventory Ordering Autopilot (Task #63) ──────────
+    # Per-item supplier metadata so the Pro reorder autopilot can group
+    # recommendations by supplier_email and send one consolidated order
+    # email per merchant. Four additive columns on inventory_items —
+    # items without these set still show up in the suggestion list,
+    # they just skip the email-send step and surface in the "Add
+    # supplier email to send" bucket of the UI.
+    #
+    # supplier_lead_time_days drives the "today" urgency tier (stockout
+    # < lead_time means already-late). Default 1 = same-day local
+    # delivery, the conservative small-merchant default.
+    #
+    # pack_size rounds suggested_qty up to whole supplier-side packs
+    # (5kg tomato box → 10kg order, not 6.2kg). Default 1 leaves
+    # everything in stocking units.
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS supplier_name VARCHAR(120)",
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS supplier_email VARCHAR(255)",
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS supplier_lead_time_days INTEGER DEFAULT 1",
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS pack_size NUMERIC(10,3) DEFAULT 1",
+
+    # ── Migration 046: Aiia bank connections (Task #67) ─────────────────
+    # PSD2 / Mastercard Open Banking consent + 90-day refresh token per
+    # linked account. refresh_token_enc is Fernet-encrypted BYTEA so a
+    # DB dump alone never yields a usable bank token. consent_state is
+    # cleared once the OAuth callback resolves — single-use.
+    #
+    # UNIQUE(user_id, aiia_account_id) means re-connecting the same
+    # bank account flips the existing row rather than inserting a dupe.
+    # aiia_account_id is NULL during the pending state (we don't know
+    # the account id until callback), so the unique constraint is
+    # effectively (user_id, NULL) for pending — Postgres treats NULLs
+    # as distinct so multiple pending rows coexist fine.
+    """CREATE TABLE IF NOT EXISTS bank_connections (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        provider VARCHAR(20) NOT NULL DEFAULT 'aiia',
+        aiia_account_id VARCHAR(100),
+        bank_slug VARCHAR(60),
+        account_label VARCHAR(120),
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        consent_state VARCHAR(64),
+        consent_expires_at TIMESTAMP,
+        last_synced_at TIMESTAMP,
+        refresh_token_enc BYTEA,
+        sandbox_mode BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_bank_connection_user_account UNIQUE (user_id, aiia_account_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_bank_connections_user_status ON bank_connections (user_id, status)",
+    "CREATE INDEX IF NOT EXISTS ix_bank_connections_status_synced ON bank_connections (status, last_synced_at)",
 ]
 
 
@@ -1146,6 +1236,11 @@ def _run_migrations():
             # Sell-unit conversion
             ok += _add("inventory_items", "sell_unit", "VARCHAR(20)")
             ok += _add("inventory_items", "pieces_per_unit", "NUMERIC(10,2)")
+            # Task #63 — Inventory Ordering Autopilot supplier metadata
+            ok += _add("inventory_items", "supplier_name", "VARCHAR(120)")
+            ok += _add("inventory_items", "supplier_email", "VARCHAR(255)")
+            ok += _add("inventory_items", "supplier_lead_time_days", "INTEGER DEFAULT 1")
+            ok += _add("inventory_items", "pack_size", "NUMERIC(10,3) DEFAULT 1")
             # Daily Close — MOMS / VAT fields
             ok += _add("daily_closes", "moms_total", "NUMERIC(12,2)")
             ok += _add("daily_closes", "revenue_ex_moms", "NUMERIC(12,2)")
@@ -1200,6 +1295,14 @@ def _run_migrations():
             )
             # Migration 042 mirror — onboarding wizard completion (Task #55)
             ok += _add("users", "onboarding_completed_at", "TIMESTAMP")
+            # Migration 044 mirror — unified OAuth identity columns (Task #65).
+            # SQLite gets the columns added here (Postgres got them via the
+            # ALTER above). Unique constraints come from the ORM model
+            # (unique=True on apple_sub/google_sub) — SQLite will enforce
+            # them via SQLAlchemy on INSERT.
+            ok += _add("users", "apple_sub", "VARCHAR(255)")
+            ok += _add("users", "google_sub", "VARCHAR(255)")
+            ok += _add("users", "oauth_provider", "VARCHAR(20)")
             # Migration 033 — Faktura Danish-compliance fields
             ok += _add("business_profiles", "bank_reg_number", "VARCHAR(8)")
             ok += _add("business_profiles", "bank_account_number", "VARCHAR(20)")
@@ -1950,6 +2053,25 @@ if is_prod:
             f"Set a 64+ char SECRET_KEY env var on Render to harden token signing."
         )
 
+# --- Task #67: validate Fernet key for at-rest token encryption ---
+# In prod we fail loud if APP_SECRET_KEY is missing — otherwise the
+# bank-connect router will explode at first request, which is worse
+# than failing at boot. Dev mode generates an ephemeral per-process
+# key inside the crypto module so local + test runs work without setup.
+try:
+    from app.utils.crypto import assert_key_configured, CryptoConfigError
+    assert_key_configured()
+except CryptoConfigError as _crypto_err:
+    if is_prod:
+        # Don't crash the entire app — the rest of BonBox still works
+        # without bank-connect. Log loudly + let bank-connect endpoints
+        # fail naturally if anyone calls them. Operator gets to see this
+        # in Render logs immediately.
+        import warnings
+        warnings.warn(f"APP_SECRET_KEY misconfigured: {_crypto_err}")
+    # In dev, crypto.py already auto-generated an ephemeral key + logged
+    # a warning. Nothing to do here.
+
 
 # --- Routers ---
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
@@ -1978,6 +2100,7 @@ app.include_router(search_router.router, prefix="/api/search", tags=["Search"])
 app.include_router(cashflow.router, prefix="/api/cashflow", tags=["Cash Flow"])
 app.include_router(tax.router, prefix="/api/tax", tags=["Tax Autopilot"])
 app.include_router(pricing.router, prefix="/api/pricing", tags=["Price Optimization"])
+app.include_router(smart_pricing_router.router, prefix="/api/smart-pricing", tags=["Smart Pricing"])
 app.include_router(retention.router, prefix="/api/retention", tags=["Customer Retention"])
 app.include_router(expiry.router, prefix="/api/expiry", tags=["Expiry Forecasting"])
 app.include_router(outlet.router, prefix="/api/outlets", tags=["Cross-Outlet Intelligence"])
@@ -2034,6 +2157,15 @@ app.include_router(
     prefix="/api/recurring-expenses",
     tags=["RecurringExpenses"],
 )
+# Task #68 — per-user demo data toggle. Lets a new owner light up
+# their dashboard / brief / reports instantly with sample data, then
+# clear it with one tap. All endpoints are auth-gated + tenant-scoped
+# inside the seed_for_user / clear_for_user services.
+app.include_router(
+    demo_router.router,
+    prefix="/api/demo",
+    tags=["Demo Data"],
+)
 # Task #49 — accountant read-only login. The router exposes /invite,
 # /grants, /signup (public), /switch-client, /clients. The write-blocking
 # middleware in this module (see accountant_write_guard) refuses any
@@ -2053,6 +2185,31 @@ app.include_router(
     auth_magic_link_router.router,
     prefix="/api/auth",
     tags=["Auth"],
+)
+# Task #65 — unified Apple + Google OAuth endpoints at
+# /api/auth/oauth/apple and /api/auth/oauth/google. Both verify the
+# provider's signed identity token, find-or-create the User, link the
+# stable sub to existing email-based accounts, and return the same
+# Token shape as /auth/login. Rate-limited 30/hour per IP (slowapi).
+app.include_router(
+    auth_oauth_router.router,
+    prefix="/api/auth",
+    tags=["Auth"],
+)
+# Task #67 — Aiia (Mastercard Open Banking) v0.1. Two mount points:
+#   /api/bank-connect/{init,callback}   OAuth-flow endpoints
+#   /api/bank-connections/{...}         Connection CRUD + sync
+# Sandbox-mode default — runs end-to-end without real Aiia creds via
+# MockAiiaClient. Set AIIA_ENV=sandbox or =live to switch on real HTTP.
+app.include_router(
+    bank_connect_router.router,
+    prefix="/api/bank-connect",
+    tags=["Bank Connect (Aiia)"],
+)
+app.include_router(
+    bank_connect_router.connections_router,
+    prefix="/api/bank-connections",
+    tags=["Bank Connect (Aiia)"],
 )
 
 
@@ -2171,6 +2328,11 @@ try:
     from app.jobs.demo_refresh_job import refresh_demo_account
     from app.jobs.recurring_expenses_job import materialize_due_recurring_expenses
     from app.jobs.daily_brief_email_job import send_daily_brief_emails
+    # Task #67 — Aiia nightly sync. 03:30 UTC = ~04:30/05:30 Copenhagen.
+    # Iterates active BankConnections, pulls bank transactions via Aiia,
+    # writes them as Sale/Expense rows, runs them through reconciliation,
+    # auto-confirms HIGH+exact matches.
+    from app.jobs.aiia_sync_job import run_aiia_sync_tick
 
     _scheduler = BackgroundScheduler()
     _scheduler.add_job(
@@ -2243,10 +2405,21 @@ try:
         name="Daily Brief morning email",
         replace_existing=True,
     )
+    # Task #67 — Aiia bank sync. 03:30 UTC — after maintenance + drift
+    # sweeps, before owners check the app in the morning. Skips
+    # connections synced in the last 12h so manual syncs from the UI
+    # earlier in the day don't get double-pulled.
+    _scheduler.add_job(
+        run_aiia_sync_tick,
+        trigger=CronTrigger(hour=3, minute=30),
+        id="aiia_sync",
+        name="Aiia nightly bank sync",
+        replace_existing=True,
+    )
     _scheduler.start()
     print("Schedulers started: payment auto-sync (6h), nightly maintenance (02:30), "
           "kasserapport drift (03:00), demo refresh (03:15), kasserapport patterns (Sun 03:30), "
-          "recurring expenses (04:00), daily brief email (06:30)")
+          "recurring expenses (04:00), daily brief email (06:30), aiia sync (03:30)")
 
     # Scheduler shutdown migrated to the `lifespan` context manager
     # near the FastAPI() constructor. It checks globals() for the

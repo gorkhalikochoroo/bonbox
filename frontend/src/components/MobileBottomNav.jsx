@@ -39,6 +39,7 @@ export default function MobileBottomNav() {
 
   return (
     <nav
+      aria-label={t("bottomNav") || "Primary"}
       className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800
         border-t border-gray-200 dark:border-gray-700 z-50 md:hidden"
       style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
@@ -47,6 +48,7 @@ export default function MobileBottomNav() {
         {tabs.map((tab, i) => {
           const isActive = location.pathname === tab.to ||
             (tab.to !== "/" && location.pathname.startsWith(tab.to));
+          const label = t(tab.labelKey) || tab.labelKey;
 
           if (tab.isCenter) {
             // Center FAB uses Plus directly — larger size + white stroke
@@ -57,10 +59,13 @@ export default function MobileBottomNav() {
                 to={tab.to}
                 className="relative -top-3 flex items-center justify-center
                   w-12 h-12 bg-emerald-600 dark:bg-emerald-500 rounded-full
-                  text-white shadow-lg active:scale-95 transition-transform"
-                aria-label={t(tab.labelKey) || tab.labelKey}
+                  text-white shadow-lg active:scale-95 transition-transform
+                  focus-visible:outline-none focus-visible:ring-2
+                  focus-visible:ring-emerald-500 focus-visible:ring-offset-2
+                  focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800"
+                aria-label={label}
               >
-                <Plus size={22} strokeWidth={2.25} />
+                <Plus size={22} strokeWidth={2.25} aria-hidden="true" />
               </NavLink>
             );
           }
@@ -70,16 +75,20 @@ export default function MobileBottomNav() {
               key={tab.to}
               to={tab.to}
               end={tab.to === "/dashboard"}
+              aria-current={isActive ? "page" : undefined}
+              aria-label={label}
               className={`flex flex-col items-center justify-center w-16 h-14 transition
+                focus-visible:outline-none focus-visible:ring-2
+                focus-visible:ring-emerald-500 focus-visible:ring-inset
                 ${isActive
                   ? "text-emerald-600 dark:text-emerald-400"
-                  : "text-stone-400 dark:text-stone-500"}`}
+                  : "text-stone-500 dark:text-stone-400"}`}
             >
               {tab.icon === "Menu"
-                ? <Menu size={20} strokeWidth={1.75} />
+                ? <Menu size={20} strokeWidth={1.75} aria-hidden="true" />
                 : <Icon name={tab.icon} size={20} strokeWidth={1.75} />}
-              <span className="text-[10px] mt-0.5 font-medium">
-                {t(tab.labelKey) || tab.labelKey}
+              <span className="text-[10px] mt-0.5 font-medium" aria-hidden="true">
+                {label}
               </span>
             </NavLink>
           );

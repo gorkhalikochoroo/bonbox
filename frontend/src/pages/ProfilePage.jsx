@@ -131,6 +131,12 @@ export default function ProfilePage() {
   // OperatingProfileSection editor inline + scrolls into view.
   const [editorExpanded, setEditorExpanded] = useState(false);
   const [privacyMsg, setPrivacyMsg] = useState("");
+  // Task #68 — per-user demo-data status + clear control.  Renders
+  // the "Clear sample data" card only when the user actually has
+  // demo rows on their account, so the Privacy section stays clean.
+  const [demoStatus, setDemoStatus] = useState(null);
+  const [demoClearBusy, setDemoClearBusy] = useState(false);
+  const [demoClearMsg, setDemoClearMsg] = useState("");
   const { permission: pushPerm, supported: pushSupported, requestPermission: requestPush } = usePushNotifications();
   const [businessProfile, setBusinessProfile] = useState(null);
   // Accountant contact — pre-fills the Daily Close "Send to accountant"
@@ -236,7 +242,47 @@ export default function ProfilePage() {
     // Task #49 — Revisor grants for this owner. Fetch on mount AND
     // after every invite / revoke so the UI reflects the live state.
     refreshGrants();
+    // Task #68 — has the user seeded demo data on their own account?
+    // Best-effort; on failure we leave demoStatus null so the card
+    // simply doesn't render.
+    api
+      .get("/demo/status")
+      .then((res) => setDemoStatus(res.data || null))
+      .catch(() => setDemoStatus(null));
   }, []);
+
+  // Task #68 — clear demo data button handler (Profile → Privacy)
+  const onClearDemoData = async () => {
+    setDemoClearBusy(true);
+    setDemoClearMsg("");
+    try {
+      const res = await api.post("/demo/clear");
+      const d = res?.data?.deleted || {};
+      const total =
+        (d.expenses || 0) +
+        (d.closes || 0) +
+        (d.inventory || 0) +
+        (d.expense_cats || 0);
+      setDemoClearMsg(
+        t("demoClearDone", "Sample data cleared.") + ` (${total} rows)`,
+      );
+      // Reload status so the card hides
+      setDemoStatus({ has_demo: false, has_real: !!demoStatus?.has_real });
+      // Let Dashboard re-pull
+      try {
+        window.dispatchEvent(new CustomEvent("bonbox-data-changed"));
+      } catch {
+        /* no-op */
+      }
+    } catch {
+      setDemoClearMsg(
+        t("demoClearError", "Could not clear sample data. Please try again."),
+      );
+    } finally {
+      setDemoClearBusy(false);
+      setTimeout(() => setDemoClearMsg(""), 5000);
+    }
+  };
 
   const refreshGrants = () => {
     setGrantsLoading(true);
@@ -1288,28 +1334,34 @@ export default function ProfilePage() {
                 </div>
 
                 <div>
-                  <label className={LABEL_CLASS}>{t("brandColorLabel") || "Accent color"}</label>
-                  <div className="flex flex-wrap gap-2">
+                  <span className={LABEL_CLASS} id="brand-accent-label">{t("brandColorLabel") || "Accent color"}</span>
+                  <div className="flex flex-wrap gap-2" role="radiogroup" aria-labelledby="brand-accent-label">
                     <button
                       type="button"
+                      role="radio"
+                      aria-checked={!brand.accent_color}
+                      aria-label={t("brandColorDefault") || "Default (no accent color)"}
                       onClick={() => saveBrand({ accent_color: null })}
                       className={
-                        "w-10 h-10 rounded-lg border-2 transition inline-flex items-center justify-center " +
+                        "w-10 h-10 rounded-lg border-2 transition inline-flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
                         (!brand.accent_color
                           ? "border-stone-900 dark:border-stone-100"
                           : "border-stone-200 dark:border-stone-700")
                       }
                       title="Default (no color)"
                     >
-                      <span className="text-stone-400 text-xs">×</span>
+                      <span className="text-stone-500 text-xs" aria-hidden="true">×</span>
                     </button>
                     {Object.entries(brand.accent_palette || {}).map(([name, hex]) => (
                       <button
                         key={name}
                         type="button"
+                        role="radio"
+                        aria-checked={(brand.accent_color || "").toUpperCase() === hex.toUpperCase()}
+                        aria-label={name}
                         onClick={() => saveBrand({ accent_color: name })}
                         className={
-                          "w-10 h-10 rounded-lg border-2 transition " +
+                          "w-10 h-10 rounded-lg border-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
                           ((brand.accent_color || "").toUpperCase() === hex.toUpperCase()
                             ? "border-stone-900 dark:border-stone-100 scale-105"
                             : "border-stone-200 dark:border-stone-700")
@@ -1553,6 +1605,39 @@ export default function ProfilePage() {
                 }
               />
             </Card>
+
+            {/* Task #68 — Clear demo data. Only renders when the user
+                actually has " · demo"-tagged rows on their account.
+                Privacy posture: the clear only touches rows that
+                carry the demo marker, so the owner's real data is
+                never at risk. */}
+            {demoStatus?.has_demo && (
+              <Card variant="subtle" className="mt-4">
+                <Card.Header
+                  title={t("demoClearTitle") || "Clear sample data"}
+                  subtitle={
+                    t("demoClearDesc") ||
+                    "Remove the demo restaurant data you loaded from the dashboard. Only rows tagged as sample data are removed — anything you've added yourself stays put."
+                  }
+                  icon={<Icon name="Eraser" size={18} />}
+                  action={
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={onClearDemoData}
+                      busy={demoClearBusy}
+                    >
+                      {t("demoClearBtn") || "Clear sample data"}
+                    </Button>
+                  }
+                />
+                {demoClearMsg && (
+                  <p className="text-xs text-stone-600 dark:text-stone-300 mt-2">
+                    {demoClearMsg}
+                  </p>
+                )}
+              </Card>
+            )}
 
             {/* Task #55 — Re-run the welcome wizard. Owners only (the
                 /auth/onboarding/reset endpoint 403s non-owners anyway). */}
@@ -1825,14 +1910,23 @@ function Field({ label, hint, children }) {
   );
 }
 
-/** Inline message under a form — success / error / info. */
+/** Inline message under a form — success / error / info.
+ *  role="status" + aria-live="polite" ensure screen readers announce
+ *  these inline confirmations / errors as they appear (WCAG 4.1.3). */
 function Message({ tone = "info", children }) {
   const TONE = {
     success: "text-emerald-700 dark:text-emerald-400",
-    error: "text-red-600 dark:text-red-400",
-    info: "text-stone-600 dark:text-stone-300",
+    error: "text-red-700 dark:text-red-400",
+    info: "text-stone-700 dark:text-stone-300",
   };
-  return <p className={"text-sm " + (TONE[tone] || TONE.info)}>{children}</p>;
+  // Errors are assertive — interrupt the screen reader. Success/info are polite.
+  const live = tone === "error" ? "assertive" : "polite";
+  const role = tone === "error" ? "alert" : "status";
+  return (
+    <p className={"text-sm " + (TONE[tone] || TONE.info)} role={role} aria-live={live}>
+      {children}
+    </p>
+  );
 }
 
 /** Settings toggle row used across notifications + privacy.

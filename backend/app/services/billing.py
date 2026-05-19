@@ -290,6 +290,26 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # retention lever, not an upsell. has_feature() exists so we
         # can flip Free later without code churn.
         "daily_brief_email": True,
+        # 2026-05-19 — Inventory Ordering Autopilot (Task #63). Second
+        # Pro killer feature: reads 8 weeks of consumption per item,
+        # joins with 7-day weather forecast, projects per-day demand,
+        # groups suggestions by supplier email, and sends one order
+        # email per supplier on apply. Starter does NOT get this —
+        # paired with schedule_autopilot it anchors the Pro tier as
+        # "the AI that runs your operations". Free + Starter still see
+        # the low-stock list (existing /inventory/alerts).
+        "inventory_autopilot": False,
+        # 2026-05-19 — Smart Pricing Intelligence (Task #64). Day-1
+        # "wow" moment: even before the owner enters any sales, BonBox
+        # shows them "Cappuccino: you charge 45, neighborhood median 49
+        # across 8 cafés in 2200 København N". Network-effect retention
+        # hook — every new café strengthens the next signup's onboarding.
+        # Intentionally enabled on ALL tiers (Free + Starter + Pro + Trial):
+        # cheapest tier still needs a reason to come back tomorrow.
+        # Privacy is enforced at the service layer (k-anonymity, n>=5),
+        # not the billing layer — so the gate can never be bypassed by
+        # tier change.
+        "smart_pricing": True,
     },
     "starter": {
         "ai_anomaly_detection": True,
@@ -308,6 +328,8 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "schedule_autopilot": False,       # Pro-only — Task #50 Pro killer
         "tax_filing_pdf": False,           # Pro-only — Task #51 Pro killer
         "daily_brief_email": True,         # Task #54 — same as Free, retention
+        "inventory_autopilot": False,      # Pro-only — Task #63 Pro killer
+        "smart_pricing": True,             # Task #64 — same on all tiers, retention
     },
     "trial": {  # = full Pro
         "ai_anomaly_detection": True,
@@ -326,6 +348,8 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "schedule_autopilot": True,
         "tax_filing_pdf": True,
         "daily_brief_email": True,
+        "inventory_autopilot": True,
+        "smart_pricing": True,
     },
     "pro": {
         "ai_anomaly_detection": True,
@@ -344,6 +368,8 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "schedule_autopilot": True,
         "tax_filing_pdf": True,
         "daily_brief_email": True,
+        "inventory_autopilot": True,
+        "smart_pricing": True,
     },
 }
 

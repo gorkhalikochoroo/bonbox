@@ -96,6 +96,19 @@ class User(Base):
     # comes back as a private relay address (`<random>@privaterelay.
     # appleid.com`) which we deliberately don't try to match by email.
     apple_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # ── Task #65 — Unified OAuth columns (Apple + Google) ──
+    # apple_sub / google_sub are the verified `sub` claims from each
+    # provider's signed token. UNIQUE across the table — every Apple/
+    # Google identity maps to at most one User row. apple_sub is the
+    # forward-compatible spelling of `apple_user_id` (which we keep for
+    # back-compat with the older /auth/apple endpoint); both columns
+    # stay populated together for any new Apple sign-in via /oauth/apple.
+    # oauth_provider stamps the LAST method used so the UI can show a
+    # "you signed in with Google" hint on the next visit. Values:
+    # "apple" | "google" | "email" | "magic_link" | "password" | None.
+    apple_sub: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True, index=True)
+    google_sub: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True, index=True)
+    oauth_provider: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # Admin-imposed lock. When True, get_current_user rejects the JWT
     # immediately — effective session kill for hostile/probe accounts.
     # Set via /api/admin/users/{id}/lock; reversible via /unlock.

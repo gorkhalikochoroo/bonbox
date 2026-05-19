@@ -27,6 +27,7 @@ import CloserPromptCard from "../components/CloserPromptCard";
 import TrialFinalStretchTip from "../components/TrialFinalStretchTip";
 import MomsCountdownCard from "../components/MomsCountdownCard";
 import ConnectionsProgressCard from "../components/ConnectionsProgressCard";
+import DemoDataCard from "../components/DemoDataCard";
 import {
   AnimatedCounter,
   SkeletonCard,
@@ -100,6 +101,7 @@ function KpiCard({ title, numericValue, value, currency: cur, change, changeLabe
       onClick={onClick}
       className={`relative overflow-hidden rounded-2xl p-4 sm:p-5 text-left w-full transition-all duration-200 cursor-pointer group
         hover:scale-[1.02] hover:shadow-lg active:scale-[0.98]
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900
         ${highlight
           ? "bg-gradient-to-br from-green-500/10 to-emerald-500/5 dark:from-green-500/15 dark:to-emerald-500/5 border-2 border-green-400/30 dark:border-green-500/20"
           : alert
@@ -697,8 +699,13 @@ function AlertsPanel({ actionItems, summary, weekComparison, onNavigate }) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2 mb-0.5">
                   <span className="text-xs font-semibold text-gray-800 dark:text-gray-100">{a.title}</span>
-                  <button onClick={() => setDismissed(new Set([...dismissed, a.id]))}
-                    className="text-gray-400 hover:text-gray-600 text-sm leading-none flex-shrink-0">&times;</button>
+                  <button
+                    onClick={() => setDismissed(new Set([...dismissed, a.id]))}
+                    aria-label={t("dismissAlert", "Dismiss alert") + ": " + a.title}
+                    className="text-gray-500 hover:text-gray-700 text-sm leading-none flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded w-5 h-5 flex items-center justify-center"
+                  >
+                    <span aria-hidden="true">&times;</span>
+                  </button>
                 </div>
                 <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed mb-1.5">{a.desc}</p>
                 <button onClick={() => onNavigate(a.route)}
@@ -1554,7 +1561,7 @@ export default function DashboardPage() {
         </FadeIn>
 
         {quickMsg && (
-          <div className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-4 py-2.5 rounded-xl text-sm font-medium">{quickMsg}</div>
+          <div role="status" aria-live="polite" className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-4 py-2.5 rounded-xl text-sm font-medium">{quickMsg}</div>
         )}
 
         {/* Two-actor onboarding stake — auto-hides once a closer is set
@@ -1621,6 +1628,12 @@ export default function DashboardPage() {
             /connections. Self-hides when everything is connected or
             after 30-day dismissal. ── */}
         <ConnectionsProgressCard />
+
+        {/* ── DEMO DATA — empty-state CTA for new owners. Self-hides
+            once the user has any real data or has already seeded
+            demo data, so this disappears as soon as it stops being
+            useful. (Task #68) ── */}
+        <DemoDataCard />
 
         {/* ── AI DAILY BRIEF — actionable morning brief, top of fold ── */}
         <DailyBriefCard />
@@ -1876,8 +1889,22 @@ export default function DashboardPage() {
 
         {/* Lightbox */}
         {lightboxImg && (
-          <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => setLightboxImg(null)}>
-            <button onClick={() => setLightboxImg(null)} className="absolute top-4 right-4 text-white text-3xl font-bold hover:text-gray-300">&times;</button>
+          <div
+            className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+            onClick={() => setLightboxImg(null)}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Receipt preview"
+            onKeyDown={(e) => { if (e.key === "Escape") setLightboxImg(null); }}
+            tabIndex={-1}
+          >
+            <button
+              onClick={() => setLightboxImg(null)}
+              aria-label="Close preview"
+              className="absolute top-4 right-4 text-white text-3xl font-bold hover:text-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white rounded w-10 h-10 flex items-center justify-center"
+            >
+              <span aria-hidden="true">&times;</span>
+            </button>
             <img src={lightboxImg} alt="Receipt" className="max-w-full max-h-[90vh] rounded-xl shadow-2xl object-contain" onClick={(e) => e.stopPropagation()} />
           </div>
         )}

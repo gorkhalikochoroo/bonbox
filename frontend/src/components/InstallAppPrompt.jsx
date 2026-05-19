@@ -186,6 +186,9 @@ export default function InstallAppPrompt() {
   // iOS: instructional hint card. No system install — owner has to do
   // it manually via Share → Add to Home Screen. We describe the path
   // visually rather than relying on text-only directions.
+  // Note: this is a non-modal dialog (role="dialog" without aria-modal)
+  // because it sits in the corner and the rest of the app remains
+  // interactive while it's visible — owner can still use the dashboard.
   if (iosHint) {
     return (
       <div
@@ -211,10 +214,10 @@ export default function InstallAppPrompt() {
           <button
             type="button"
             onClick={onIosDismiss}
-            aria-label="Dismiss"
-            className="w-7 h-7 -mr-1 -mt-1 rounded-md text-stone-400 hover:text-stone-700 hover:bg-stone-100 dark:hover:bg-stone-700/60 dark:hover:text-stone-200 transition flex items-center justify-center shrink-0"
+            aria-label={t("dismiss") || "Dismiss"}
+            className="w-7 h-7 -mr-1 -mt-1 rounded-md text-stone-500 hover:text-stone-700 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-700/60 dark:hover:text-stone-200 transition flex items-center justify-center shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
           </button>
@@ -224,9 +227,9 @@ export default function InstallAppPrompt() {
             in the iOS share sheet. */}
         <div className="mt-2 space-y-1.5">
           <div className="flex items-center gap-2 text-[12.5px] text-stone-700 dark:text-stone-200">
-            <span className="text-stone-400 dark:text-stone-500">1.</span>
+            <span className="text-stone-500 dark:text-stone-400" aria-hidden="true">1.</span>
             <span>{t("installPromptIosStep1") || "Tap the"}</span>
-            <span className="inline-flex items-center justify-center w-5 h-5 rounded border border-stone-300 dark:border-stone-600 text-stone-600 dark:text-stone-300">
+            <span className="inline-flex items-center justify-center w-5 h-5 rounded border border-stone-300 dark:border-stone-600 text-stone-600 dark:text-stone-300" aria-hidden="true">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8" />
                 <polyline points="16 6 12 2 8 6" />
@@ -236,7 +239,7 @@ export default function InstallAppPrompt() {
             <span>{t("installPromptIosShareBtn") || "Share button"}</span>
           </div>
           <div className="flex items-center gap-2 text-[12.5px] text-stone-700 dark:text-stone-200">
-            <span className="text-stone-400 dark:text-stone-500">2.</span>
+            <span className="text-stone-500 dark:text-stone-400" aria-hidden="true">2.</span>
             <span>
               {t("installPromptIosStep2") || "Tap"}{" "}
               <span className="font-semibold">
@@ -274,10 +277,10 @@ export default function InstallAppPrompt() {
         <button
           type="button"
           onClick={onDismiss}
-          aria-label="Dismiss"
-          className="w-7 h-7 -mr-1 -mt-1 rounded-md text-stone-400 hover:text-stone-700 hover:bg-stone-100 dark:hover:bg-stone-700/60 dark:hover:text-stone-200 transition flex items-center justify-center shrink-0"
+          aria-label={t("dismiss") || "Dismiss"}
+          className="w-7 h-7 -mr-1 -mt-1 rounded-md text-stone-500 hover:text-stone-700 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-700/60 dark:hover:text-stone-200 transition flex items-center justify-center shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M18 6L6 18M6 6l12 12" />
           </svg>
         </button>
@@ -286,7 +289,7 @@ export default function InstallAppPrompt() {
         type="button"
         onClick={onInstallClick}
         disabled={installing}
-        className="w-full px-3 py-2 bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 rounded-lg text-[13px] font-semibold hover:bg-stone-700 dark:hover:bg-stone-200 transition disabled:opacity-60"
+        className="w-full px-3 py-2 bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 rounded-lg text-[13px] font-semibold hover:bg-stone-700 dark:hover:bg-stone-200 transition disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-800"
       >
         {installing
           ? (t("installPromptInstalling") || "Installing…")

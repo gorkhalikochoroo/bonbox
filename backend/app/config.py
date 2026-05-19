@@ -48,6 +48,15 @@ class Settings(BaseSettings):
     # ID. Comma-separated to support both. The token's `aud` claim must
     # match one of these or verification fails.
     APPLE_ALLOWED_AUDIENCES: str = "dk.bonbox.app"
+    # Task #65 — Apple Service ID / bundle ID used by the new unified
+    # /auth/oauth/apple endpoint. When empty we fall back to the first
+    # entry in APPLE_ALLOWED_AUDIENCES (back-compat with the original
+    # /auth/apple plumbing). APPLE_TEAM_ID is the 10-char Team ID from
+    # the Apple Developer portal — currently unused at verify-time but
+    # tracked here for future client-secret JWT generation (refresh
+    # tokens, server-to-server validation).
+    APPLE_CLIENT_ID: str = ""
+    APPLE_TEAM_ID: str = ""
     GOOGLE_PLACES_API_KEY: str = ""  # Google Places API (nearby competitor discovery)
     ADMIN_EMAIL: str = ""  # Get notified on new signups
     # SUPER_ADMIN_EMAILS — comma-separated allowlist of emails that may access /admin/*.

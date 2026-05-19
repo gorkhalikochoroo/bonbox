@@ -38,7 +38,9 @@ const SURFACE = {
 
 const INTERACTIVE_EXTRA =
   " transition-shadow hover:shadow-sm focus-visible:outline-none " +
-  "focus-visible:ring-2 focus-visible:ring-emerald-500 cursor-pointer";
+  "focus-visible:ring-2 focus-visible:ring-emerald-500 " +
+  "focus-visible:ring-offset-2 focus-visible:ring-offset-white " +
+  "dark:focus-visible:ring-offset-stone-900 cursor-pointer";
 
 function Card({
   variant = "default",

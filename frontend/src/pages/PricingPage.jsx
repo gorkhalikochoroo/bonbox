@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
+import SmartPricingCard from "../components/SmartPricingCard";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from "recharts";
@@ -29,17 +30,35 @@ export default function PricingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [sliderVal, setSliderVal] = useState(5);
+  // Smart Pricing — Day-1 wow moment. Loaded in parallel with /pricing/insights
+  // so an empty Pricing page (new tenant with no sales) still has something to
+  // show. See backend/app/services/smart_pricing.py for the privacy gate that
+  // governs which comparisons render.
+  const [marketData, setMarketData] = useState(null);
+  const [marketLoading, setMarketLoading] = useState(true);
 
-  useEffect(() => { fetchInsights(); }, []);
-
-  const fetchInsights = async () => {
+  const fetchInsights = useCallback(async () => {
     setLoading(true);
     try {
       const res = await api.get("/pricing/insights");
       setData(res.data);
     } catch { setError("Could not load pricing data"); }
     setLoading(false);
-  };
+  }, []);
+
+  const fetchMarket = useCallback(async () => {
+    setMarketLoading(true);
+    try {
+      const res = await api.get("/smart-pricing/all");
+      setMarketData(res.data);
+    } catch {
+      // Soft-fail — the Market Comparison section just hides.
+      setMarketData(null);
+    }
+    setMarketLoading(false);
+  }, []);
+
+  useEffect(() => { fetchInsights(); fetchMarket(); }, [fetchInsights, fetchMarket]);
 
   const runSimulation = useCallback(async (amount) => {
     try {
@@ -91,6 +110,15 @@ export default function PricingPage() {
           💰 {t("priceOptimization") || "Price Optimization"}
         </h1>
       </FadeIn>
+
+      {/* ─── MARKET COMPARISON (Smart Pricing, Task #64) ─── */}
+      {/* Lives at the top: Day-1 owners see this BEFORE any sales-derived
+          insights below. Soft-fail: if marketData is null we just hide. */}
+      <SmartPricingSection
+        data={marketData}
+        loading={marketLoading}
+        currencyCode={user?.currency}
+      />
 
       {/* ─── ALERTS ─── */}
       {alerts?.length > 0 && (
@@ -329,6 +357,80 @@ function MetricCard({ label, value, sub, color, currency }) {
         {value} {currency && <span className="text-sm font-normal opacity-60">{currency}</span>}
       </p>
       <p className="text-xs text-gray-400 mt-0.5">{sub}</p>
+    </div>
+  );
+}
+
+/**
+ * Market Comparison section — top of PricingPage.
+ *
+ * Renders an empty-state hint when:
+ *   • marketLoading=true → skeleton
+ *   • marketData=null or undefined → silently hide (soft-fail)
+ *   • needs_setup=true → owner hasn't set postal/cuisine yet
+ *   • no comparisons at all → hide (nothing priced yet)
+ *
+ * When there ARE comparisons, render a grid of SmartPricingCard plus a
+ * privacy footnote. The cards individually handle their own "not enough
+ * data" empty state — so the section is a thin layout shell.
+ */
+function SmartPricingSection({ data, loading, currencyCode }) {
+  const { t } = useLanguage();
+
+  if (loading) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-sm animate-pulse">
+        <div className="h-4 w-48 bg-gray-200 dark:bg-gray-700 rounded mb-3" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="h-32 bg-gray-100 dark:bg-gray-700/50 rounded-xl" />
+          <div className="h-32 bg-gray-100 dark:bg-gray-700/50 rounded-xl" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  if (data.needs_setup) {
+    return (
+      <div className="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 rounded-2xl p-5">
+        <h2 className="font-bold text-gray-800 dark:text-white mb-1">
+          🌍 {t("smartPricingTitle") || "Market comparison"}
+        </h2>
+        <p className="text-sm text-gray-700 dark:text-gray-300">
+          {t("smartPricingNeedsSetup") || "Set your postal code and cuisine in Profile to unlock neighborhood price comparisons."}
+        </p>
+      </div>
+    );
+  }
+
+  const comparisons = data.comparisons || [];
+  if (comparisons.length === 0) return null;
+
+  const privacyNote = (t("smartPricingPrivacyNote") ||
+    "All comparisons aggregate at least {n} businesses. We never show individual prices.")
+    .replace("{n}", comparisons[0]?.min_samples || 5);
+
+  return (
+    <div>
+      <div className="mb-3">
+        <h2 className="text-lg font-bold text-gray-800 dark:text-white">
+          🌍 {t("smartPricingTitle") || "Market comparison"}
+        </h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          {t("smartPricingSubtitle") || "How your prices compare to neighborhood businesses."}
+        </p>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {comparisons.map((cmp) => (
+          <SmartPricingCard
+            key={cmp.canonical_name}
+            comparison={cmp}
+            currencyCode={currencyCode}
+          />
+        ))}
+      </div>
+      <p className="text-xs text-gray-400 dark:text-gray-500 italic mt-2">{privacyNote}</p>
     </div>
   );
 }

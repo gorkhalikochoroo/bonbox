@@ -120,9 +120,9 @@ export default function ConnectionsProgressCard() {
           onClick={onDismiss}
           aria-label={t("connsProgDismiss", "Dismiss for 30 days")}
           title={t("connsProgDismiss", "Dismiss for 30 days")}
-          className="w-7 h-7 -mr-1 -mt-1 rounded-md text-stone-400 hover:text-stone-700 hover:bg-stone-100 dark:hover:bg-stone-700/60 dark:hover:text-stone-200 transition flex items-center justify-center"
+          className="w-7 h-7 -mr-1 -mt-1 rounded-md text-stone-500 hover:text-stone-700 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-700/60 dark:hover:text-stone-200 transition flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M18 6L6 18M6 6l12 12" />
           </svg>
         </button>
@@ -133,7 +133,14 @@ export default function ConnectionsProgressCard() {
         <span className="text-sm font-semibold text-stone-900 dark:text-stone-100 shrink-0">
           {doneCount}/{total}
         </span>
-        <div className="flex-1 h-2 bg-stone-100 dark:bg-stone-700 rounded-full overflow-hidden">
+        <div
+          className="flex-1 h-2 bg-stone-200 dark:bg-stone-700 rounded-full overflow-hidden"
+          role="progressbar"
+          aria-valuenow={pct}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={t("connsProgAriaLabel", "Setup progress")}
+        >
           <div
             className="h-full bg-emerald-500 transition-all"
             style={{ width: `${pct}%` }}
