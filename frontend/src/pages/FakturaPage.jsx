@@ -411,6 +411,13 @@ export default function FakturaPage() {
 // ─── Single row + status actions ──────────────────────────────────
 
 function InvoiceRow({ invoice, customer, onChanged, t }) {
+  // Kreditnota dialog state — Bogføringsloven §7: a sent invoice can't
+  // be deleted, only credited. The dialog explains this gravity so the
+  // owner understands the action before they confirm.
+  const [voidOpen, setVoidOpen] = useState(false);
+  const [voidReason, setVoidReason] = useState("");
+  const [voidSubmitting, setVoidSubmitting] = useState(false);
+  const [voidError, setVoidError] = useState("");
   const statusBadge = {
     draft: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300",
     sent: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
@@ -539,14 +546,32 @@ function InvoiceRow({ invoice, customer, onChanged, t }) {
     }
   };
 
-  const handleVoid = async () => {
-    const reason = prompt(t("voidReasonPrompt") || "Reason for voiding this invoice?");
-    if (!reason) return;
+  const openVoidDialog = () => {
+    setVoidReason("");
+    setVoidError("");
+    setVoidOpen(true);
+  };
+
+  const submitVoid = async () => {
+    const trimmed = voidReason.trim();
+    if (trimmed.length < 5) {
+      setVoidError(t("kreditnotaReasonTooShort") || "Reason must be at least 5 characters — your accountant will see this.");
+      return;
+    }
+    if (trimmed.length > 200) {
+      setVoidError(t("kreditnotaReasonTooLong") || "Reason is too long (max 200 characters).");
+      return;
+    }
+    setVoidSubmitting(true);
+    setVoidError("");
     try {
-      await api.post(`/invoices/${invoice.id}/void`, { reason });
+      await api.post(`/invoices/${invoice.id}/void`, { reason: trimmed });
+      setVoidOpen(false);
       onChanged();
     } catch (e) {
-      alert(e?.response?.data?.detail || "Void failed");
+      setVoidError(e?.response?.data?.detail || (t("voidFailed") || "Couldn't create kreditnota — please try again."));
+    } finally {
+      setVoidSubmitting(false);
     }
   };
 
@@ -560,6 +585,7 @@ function InvoiceRow({ invoice, customer, onChanged, t }) {
     (invoice.paid_via !== "auto_match" || invoice.auto_match_reversible === true);
 
   return (
+    <>
     <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
       <td className="px-5 py-3 font-mono text-sm text-gray-800 dark:text-white">
         {invoice.fakturanummer_formatted}
@@ -608,7 +634,7 @@ function InvoiceRow({ invoice, customer, onChanged, t }) {
             </button>
           )}
           {(invoice.status === "sent" || invoice.status === "overdue" || invoice.status === "paid") && !invoice.is_credit_note && (
-            <button onClick={handleVoid} className="text-red-600 hover:underline text-xs font-medium px-2">
+            <button onClick={openVoidDialog} className="text-red-600 hover:underline text-xs font-medium px-2">
               {t("voidInvoice") || "Void"}
             </button>
           )}
@@ -618,6 +644,75 @@ function InvoiceRow({ invoice, customer, onChanged, t }) {
         </div>
       </td>
     </tr>
+    {voidOpen && (
+      <tr>
+        <td colSpan={7} className="p-0">
+          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-stone-900 rounded-2xl shadow-xl max-w-md w-full overflow-hidden">
+              <div className="px-5 pt-5 pb-3 border-b border-stone-100 dark:border-stone-800">
+                <h3 className="text-base font-semibold text-stone-900 dark:text-stone-100 flex items-center gap-2">
+                  ↩ {t("kreditnotaTitle") || "Create kreditnota"}
+                </h3>
+                <p className="text-xs text-stone-500 dark:text-stone-400 mt-1.5 leading-relaxed">
+                  {(t("kreditnotaBody") ||
+                    "Sent fakturaer can't be deleted (Bogføringsloven §7). Voiding creates a kreditnota with the next number — the original keeps its number and stays in the ledger. Both records are locked and auditable.")}
+                </p>
+              </div>
+              <div className="px-5 py-4 space-y-3">
+                <div className="text-xs text-stone-500 dark:text-stone-400">
+                  <span className="text-stone-700 dark:text-stone-300 font-medium">
+                    {invoice.fakturanummer_formatted}
+                  </span>
+                  {" · "}
+                  {new Intl.NumberFormat("da-DK", { style: "currency", currency: invoice.currency }).format(invoice.total_gross)}
+                  {customer?.name ? ` · ${customer.name}` : ""}
+                </div>
+                <label className="block">
+                  <span className="block text-xs font-medium text-stone-700 dark:text-stone-300 mb-1.5">
+                    {t("kreditnotaReasonLabel") || "Reason (visible to your accountant)"}
+                  </span>
+                  <textarea
+                    value={voidReason}
+                    onChange={(e) => setVoidReason(e.target.value)}
+                    rows={3}
+                    maxLength={200}
+                    placeholder={t("kreditnotaReasonPlaceholder") ||
+                      "e.g. Customer canceled order — refunded via MobilePay 18/05"}
+                    className="w-full px-3 py-2 border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-800 dark:text-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    autoFocus
+                  />
+                  <span className="block text-[10.5px] text-stone-400 mt-1">
+                    {voidReason.length}/200
+                  </span>
+                </label>
+                {voidError && (
+                  <p className="text-xs text-red-600 dark:text-red-400">{voidError}</p>
+                )}
+              </div>
+              <div className="px-5 py-4 bg-stone-50 dark:bg-stone-800/40 flex items-center justify-end gap-2 border-t border-stone-100 dark:border-stone-800">
+                <button
+                  onClick={() => setVoidOpen(false)}
+                  disabled={voidSubmitting}
+                  className="px-3 py-1.5 text-sm text-stone-600 dark:text-stone-300 hover:text-stone-900 dark:hover:text-stone-100 disabled:opacity-50 transition"
+                >
+                  {t("cancel") || "Cancel"}
+                </button>
+                <button
+                  onClick={submitVoid}
+                  disabled={voidSubmitting || voidReason.trim().length < 5}
+                  className="px-4 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition"
+                >
+                  {voidSubmitting
+                    ? (t("kreditnotaSubmitting") || "Creating…")
+                    : (t("kreditnotaConfirm") || "Create kreditnota")}
+                </button>
+              </div>
+            </div>
+          </div>
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
 
