@@ -44,6 +44,8 @@ from app.routers import auth, sales, expenses, inventory, reports, dashboard, st
 from app.routers import customers as customers_router, invoices as invoices_router, mileage as mileage_router
 from app.routers import payment_suggestions as payment_suggestions_router
 from app.routers import recurring_expenses as recurring_expenses_router
+# Task #49 — accountant read-only login (many-to-many revisor grants)
+from app.routers import accountants as accountants_router
 from app.database import engine, Base, get_db
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -884,6 +886,46 @@ _migrations = [
         CONSTRAINT uq_recurring_expense_user_name UNIQUE (user_id, name)
     )""",
     "CREATE INDEX IF NOT EXISTS ix_recurring_expenses_user_next_run ON recurring_expenses (user_id, next_run_date, is_active)",
+
+    # ── Migration 040: accountant_grants (Task #49) ─────────────────────
+    # Many-to-many bridge between accountants (User.role='accountant',
+    # owner_id=NULL) and the business owners whose books they keep. A
+    # single revisor typically handles 20–100 client businesses so
+    # User.owner_id (single FK) won't model this; we need a separate
+    # grants table.
+    #
+    # Lifecycle: pending → active → revoked. Grants stay in the table
+    # forever (10y Skatteforvaltningsloven window via audit trail) so
+    # owners can later answer "who had access to my books on date X".
+    #
+    # VARCHAR(36) matches the existing GUID() pattern — same lesson
+    # learned in earlier migrations (native UUID type silently breaks
+    # FK joins inside SAVEPOINT wrappers). UNIQUE on (accountant, owner)
+    # prevents duplicate invites; re-inviting a revoked pair updates the
+    # existing row rather than inserting a dupe.
+    """CREATE TABLE IF NOT EXISTS accountant_grants (
+        id VARCHAR(36) PRIMARY KEY,
+        accountant_user_id VARCHAR(36) REFERENCES users(id),
+        accountant_email VARCHAR(255) NOT NULL,
+        accountant_name VARCHAR(255),
+        owner_user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        granted_by VARCHAR(36) NOT NULL REFERENCES users(id),
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        invite_token VARCHAR(128) UNIQUE,
+        invite_token_expires_at TIMESTAMP,
+        invited_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        activated_at TIMESTAMP,
+        revoked_at TIMESTAMP,
+        last_used_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_accountant_grant_pair UNIQUE (accountant_user_id, owner_user_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_accountant_grant_accountant ON accountant_grants (accountant_user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_accountant_grant_owner ON accountant_grants (owner_user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_accountant_grant_accountant_status ON accountant_grants (accountant_user_id, status)",
+    "CREATE INDEX IF NOT EXISTS ix_accountant_grant_owner_status ON accountant_grants (owner_user_id, status)",
+    "CREATE INDEX IF NOT EXISTS ix_accountant_grant_invite_token ON accountant_grants (invite_token)",
 ]
 
 
@@ -1645,6 +1687,129 @@ async def csrf_protect(request: Request, call_next):
     return await call_next(request)
 
 
+# --- Accountant read-only enforcement (Task #49) ---
+# Belt-and-braces alongside the get_current_user delegation:
+#   • Every POST/PUT/PATCH/DELETE that's NOT on the accountant allowlist
+#     is refused with 403 read_only when the requesting user has
+#     role='accountant'.
+#   • GET requests pass through unmodified — read-only semantics permit
+#     all queries; tenant scoping in get_current_user limits WHICH data
+#     they see.
+#
+# Why a middleware (rather than per-route deps): the codebase has 70+
+# router files. A middleware gives us a single chokepoint that's
+# impossible to forget when adding a new endpoint. The dep
+# require_write_access exists as a per-route option for clarity but
+# the middleware is the safety net.
+#
+# The middleware resolves the JWT itself (mirroring get_current_user)
+# rather than calling the dep, so it doesn't depend on FastAPI route
+# resolution. Read-only design: only inspects role + path + method.
+from app.services.auth import (
+    ACCOUNTANT_ALLOWED_WRITE_PATHS as _ACCT_ALLOWED,
+    AUTH_COOKIE_NAME as _AUTH_COOKIE,
+    _decode_token as _decode_jwt,
+)
+
+
+_ACCOUNTANT_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def _is_path_allowlisted_for_accountant_write(path: str) -> bool:
+    """True iff this path is allowed to be mutated by an accountant.
+    Exact match for short paths; prefix match for paths that contain a
+    dynamic segment (e.g. /api/accountants/switch-client/{owner_id}).
+    """
+    if path in _ACCT_ALLOWED:
+        return True
+    # Prefix-match anchors — these are the dynamic-segment write paths.
+    if path.startswith("/api/accountants/switch-client/"):
+        return True
+    # Revoke endpoint — accountant CAN revoke their own grants.
+    if path.startswith("/api/accountants/grants/"):
+        return True
+    return False
+
+
+@app.middleware("http")
+async def accountant_write_guard(request: Request, call_next):
+    """Refuse mutations from accountant sessions unless the path is on
+    the allowlist. Returns 403 with code='read_only' so the frontend
+    can surface a clear "Accountants can view but not modify" message.
+
+    Multi-layer defense — paired with get_current_user delegation,
+    which already returns the OWNER user (so tenant-scoped queries
+    are safe to run as a read). This middleware adds the second
+    layer: even if a router skipped the standard auth dep and called
+    its own logic, an accountant POST would still be blocked here.
+    """
+    method = request.method
+    if method not in _ACCOUNTANT_WRITE_METHODS:
+        return await call_next(request)
+
+    # Cheap pre-filter: anonymous requests can't be accountants. We
+    # don't have a session if no Authorization header AND no cookie.
+    bearer = request.headers.get("authorization", "")
+    has_bearer = bearer.lower().startswith("bearer ")
+    has_cookie = bool(request.cookies.get(_AUTH_COOKIE))
+    if not has_bearer and not has_cookie:
+        return await call_next(request)
+
+    # Resolve the JWT ourselves (don't call get_current_user — we
+    # don't want to trigger delegation here; we need the RAW user's
+    # role).
+    token = None
+    if has_bearer:
+        token = bearer.split(" ", 1)[1].strip()
+    if not token:
+        token = request.cookies.get(_AUTH_COOKIE)
+    if not token:
+        return await call_next(request)
+
+    try:
+        payload = _decode_jwt(token)
+        user_id = payload.get("sub")
+        if not user_id:
+            return await call_next(request)
+    except Exception:  # noqa: BLE001
+        return await call_next(request)
+
+    # Quick role lookup — DB-only, no relationship loading
+    from app.database import SessionLocal as _Session
+    from sqlalchemy import text as _text
+    db = _Session()
+    try:
+        row = db.execute(
+            _text("SELECT role FROM users WHERE id = :uid LIMIT 1"),
+            {"uid": user_id},
+        ).first()
+    except Exception:  # noqa: BLE001
+        row = None
+    finally:
+        db.close()
+
+    if not row:
+        return await call_next(request)
+
+    role = (row[0] or "").lower() if row[0] else ""
+    if role != "accountant":
+        return await call_next(request)
+
+    path = request.url.path or ""
+    if _is_path_allowlisted_for_accountant_write(path):
+        return await call_next(request)
+
+    return JSONResponse(
+        status_code=403,
+        content={
+            "detail": {
+                "code": "read_only",
+                "message": "Accountants can view but not modify.",
+            },
+        },
+    )
+
+
 # --- Security Headers Middleware ---
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
@@ -1799,6 +1964,16 @@ app.include_router(
     recurring_expenses_router.router,
     prefix="/api/recurring-expenses",
     tags=["RecurringExpenses"],
+)
+# Task #49 — accountant read-only login. The router exposes /invite,
+# /grants, /signup (public), /switch-client, /clients. The write-blocking
+# middleware in this module (see accountant_write_guard) refuses any
+# POST/PUT/PATCH/DELETE for accountant sessions outside an allowlist —
+# the router itself is one explicit allowlist entry.
+app.include_router(
+    accountants_router.router,
+    prefix="/api/accountants",
+    tags=["Accountants"],
 )
 
 

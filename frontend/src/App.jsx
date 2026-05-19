@@ -196,6 +196,9 @@ const InsightsPage = lazyRetry(() => import("./pages/InsightsPage"));
 const PropertyReportPage = lazyRetry(() => import("./pages/PropertyReportPage"));
 // Order Channel Settings — user-editable catalogue of order channels
 const ChannelSettingsPage = lazyRetry(() => import("./pages/ChannelSettingsPage"));
+// Task #49 — Accountant read-only login (stickiness moat)
+const AcceptInvitePage = lazyRetry(() => import("./pages/AcceptInvitePage"));
+const AccountantClientsPage = lazyRetry(() => import("./pages/AccountantClientsPage"));
 
 function ProtectedRoute({ children }) {
   const { user, loading, needsEmailVerification } = useAuth();
@@ -256,6 +259,10 @@ function AppRoutes() {
         <Route path="/terms" element={<TermsPage />} />
         <Route path="/cookies" element={<CookiePolicyPage />} />
         <Route path="/s/:token" element={<StaffPortalPage />} />
+        {/* Task #49 — Public magic-link landing for revisor invites.
+            Token in URL is the only credential; the page collects
+            password + name and POSTs to /accountants/signup. */}
+        <Route path="/accept-invite/:token" element={<AcceptInvitePage />} />
         <Route
           element={
             <ProtectedRoute>
@@ -317,6 +324,10 @@ function AppRoutes() {
           <Route path="/insights" element={<InsightsPage />} />
           <Route path="/daily-report" element={<PropertyReportPage />} />
           <Route path="/channel-settings" element={<ChannelSettingsPage />} />
+          {/* Task #49 — Accountant client picker. Renders for accountants
+              with 2+ active grants. Bypasses the standard Layout because
+              the picker is its own minimal full-screen experience. */}
+          <Route path="/accountant/clients" element={<AccountantClientsPage />} />
         </Route>
         {/* /admin — gated frontend, but real enforcement is server-side */}
         <Route

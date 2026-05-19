@@ -253,6 +253,16 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # still types each expense manually; Starter+ unlocks the
         # auto-post + the "Recurring" tab in ExpensesPage.
         "recurring_expenses": False,
+        # 2026-05-19 — Accountant read-only login (Task #49). Starter+
+        # killer-feature stickiness moat: the revisor gets their OWN
+        # credentials (no shared passwords / GDPR risk) and read-only
+        # access to the owner's books across many client businesses.
+        # Free owners can still email the revisor a static PDF; only
+        # the live-portal invite is gated. NOTE: existing accountant
+        # users always retain login access even if the owner downgrades
+        # to Free — the gate is on the INVITE endpoint, never on the
+        # accountant's session itself.
+        "accountant_login": False,
     },
     "starter": {
         "ai_anomaly_detection": True,
@@ -267,6 +277,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "bulk_staff_email": False,
         "bank_auto_reconcile": True,       # Starter killer feature
         "recurring_expenses": True,        # Task #47 — auto-post monthly
+        "accountant_login": True,          # Task #49 — stickiness moat
     },
     "trial": {  # = full Pro
         "ai_anomaly_detection": True,
@@ -281,6 +292,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "bulk_staff_email": True,
         "bank_auto_reconcile": True,
         "recurring_expenses": True,
+        "accountant_login": True,
     },
     "pro": {
         "ai_anomaly_detection": True,
@@ -295,6 +307,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "bulk_staff_email": True,
         "bank_auto_reconcile": True,
         "recurring_expenses": True,
+        "accountant_login": True,
     },
 }
 

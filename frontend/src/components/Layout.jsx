@@ -21,6 +21,9 @@ const QuickAdd = lazy(() => import("./QuickAdd"));
 const BonBoxAgent = lazy(() => import("./BonBoxAgent"));
 const SupportChip = lazy(() => import("./SupportChip"));
 const SmartLanguageToast = lazy(() => import("./SmartLanguageToast"));
+// Task #49 — Accountant read-only banner. Renders only for accountant
+// sessions; no-ops otherwise so the import cost is negligible.
+const AccountantViewBanner = lazy(() => import("./AccountantViewBanner"));
 // Soft-error banner is part of the multi-layer defense — listens for graceful
 // backend errors so a single failing endpoint never blanks the whole page.
 const SoftErrorBanner = lazy(() => import("./SoftErrorBanner"));
@@ -242,6 +245,53 @@ const personalNav = [
   { to: "/contact", icon: "MessageCircle", labelKey: "contact" },
 ];
 
+/* ─── Accountant-only sidebar (Task #49) ────────────────────────────
+   Revisor sessions get a slimmed-down read-only nav: the reports +
+   read-only operational pages. Everything that can mutate data (sales
+   edits, expense entry, settings, modules, channels, branches, team)
+   is HIDDEN.
+
+   The backend middleware in main.py refuses any POST/PUT/DELETE for
+   accountant sessions anyway — this trim is UX, not security. But a
+   clean nav also signals "you are in view-only mode" without needing
+   the banner to explain every link.
+*/
+const accountantNavGroups = [
+  {
+    id: "core",
+    visibleFor: null,
+    items: [
+      { to: "/dashboard", icon: "Home", labelKey: "navHome" },
+      { to: "/sales", icon: "ShoppingBag", labelKey: "sales" },
+      { to: "/expenses", icon: "Receipt", labelKey: "expenses" },
+    ],
+  },
+  {
+    id: "money",
+    labelKey: "navMoney",
+    icon: "Wallet",
+    visibleFor: null,
+    items: [
+      { to: "/cashbook", icon: "BookOpen", labelKey: "cashBook" },
+      { to: "/cashflow", icon: "LineChart", labelKey: "cashFlow" },
+      { to: "/khata", icon: "BookText", labelKey: "khata" },
+      { to: "/faktura", icon: "FileText", labelKey: "faktura" },
+    ],
+  },
+  {
+    id: "reports",
+    labelKey: "navReports",
+    icon: "BarChart3",
+    visibleFor: null,
+    items: [
+      { to: "/daily-report", icon: "Utensils", labelKey: "navTodaysFloor" },
+      { to: "/reports", icon: "ClipboardList", labelKey: "navReportsTax" },
+      { to: "/daily-close", icon: "Moon", labelKey: "navEndOfDayClose" },
+      { to: "/tax", icon: "Calculator", labelKey: "taxAutopilot" },
+    ],
+  },
+];
+
 function findGroupForPath(path) {
   for (const g of navGroups) {
     if (g.items.some((i) => path.startsWith(i.to))) return g.id;
@@ -364,13 +414,20 @@ export default function Layout() {
     return () => { cancelled = true; };
   }, [user]);
 
+  // Task #49 — Accountant sessions get the slim read-only nav.
+  // The backend middleware blocks mutations regardless; this filter is
+  // UX hygiene (no half-functional links to /modules / /branches).
+  const isAccountant = (user?.role || "").toLowerCase() === "accountant";
+
   // Filter sidebar groups by both business_type (branch) and enabled modules
-  const baseVisible = filterNavGroups(navGroups, branchType, businessTypes, enabledModules);
+  const baseVisible = isAccountant
+    ? accountantNavGroups
+    : filterNavGroups(navGroups, branchType, businessTypes, enabledModules);
   // For super_admin owners, show an extra "Platform" group with the admin
   // dashboard. Frontend gating is cosmetic — real enforcement is server-side
   // (services/admin_security.py). A non-admin clicking this link sees an empty
   // dashboard because every /api/admin/* call returns 404.
-  const visibleGroups = user?.role === "super_admin"
+  const visibleGroups = !isAccountant && user?.role === "super_admin"
     ? [
         ...baseVisible,
         {
@@ -442,6 +499,13 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-gray-900">
+      {/* Task #49 — Sticky banner for accountant sessions. Renders its own
+          markup only when user.role === "accountant"; otherwise null. */}
+      {isAccountant && (
+        <Suspense fallback={null}>
+          <AccountantViewBanner />
+        </Suspense>
+      )}
       {/* Mobile top bar */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-30 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between gap-3" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         <button onClick={() => setSidebarOpen(true)} className="text-gray-600 dark:text-gray-300">
