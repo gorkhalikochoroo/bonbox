@@ -85,6 +85,7 @@ from app.services.notification_service import (
     send_single_shift_notification,
     ShiftChange,
 )
+from app.services import audit_service
 from app.database import SessionLocal
 from app.utils.time import utc_now
 
@@ -1043,6 +1044,25 @@ def email_schedule_to_staff(
             sent += 1
         else:
             failed.append({"name": s.name, "email": addr, "reason": err or "unknown"})
+
+    # Bogføringsloven §10 — bulk staff-email distribution is sensitive (touches
+    # personal data + scheduling commitments). Capture WHO got the schedule
+    # and HOW MANY were sent so disputes / GDPR queries can be answered.
+    audit_service.record(
+        db, user=user,
+        action="staff_schedule.email_bulk",
+        entity_type="staff_schedule_week",
+        entity_id=None,
+        before=None,
+        after={
+            "week_start": body.week_start.isoformat(),
+            "lang": body.lang, "attempted": len(targets),
+            "sent": sent, "skipped_no_email": skipped, "failed_count": len(failed),
+            "staff_ids": [str(t.id) for t in targets],
+        },
+        ip_address=getattr(request.client, "host", None) if request.client else None,
+    )
+    db.commit()
 
     return {
         "ok": True,
@@ -2438,6 +2458,26 @@ def send_payroll_to_accountant(
                 "message": "Couldn't send right now. You can still download the PDF and email it manually.",
             },
         )
+
+    # Bogføringsloven §10 — record the payroll delivery for audit
+    # reconstruction. Payroll touches personal data (CPR if configured)
+    # so the WHO/WHEN/TO of every send must be traceable.
+    audit_service.record(
+        db, user=user,
+        action="payroll.send_to_accountant",
+        entity_type="payroll_range",
+        entity_id=None,
+        before=None,
+        after={
+            "recipient": recipient, "cc_self": bool(cc),
+            "filename": filename,
+            "period_start": body.period_start.isoformat(),
+            "period_end": body.period_end.isoformat(),
+            "staff_ids": [str(s) for s in (body.staff_ids or [])],
+        },
+        ip_address=getattr(request.client, "host", None) if request.client else None,
+    )
+    db.commit()
 
     return {
         "ok": True,

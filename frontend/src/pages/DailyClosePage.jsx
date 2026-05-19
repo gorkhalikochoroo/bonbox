@@ -254,7 +254,7 @@ export default function DailyClosePage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold dark:text-white flex items-center gap-2">
-              📋 {t("dailyClose") || "Daily Close"}
+              🌙 {t("endOfDayCloseTitle") || "End-of-Day Close"}
             </h1>
             <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
               {(CLOSE_CONFIG[branchType] || CLOSE_CONFIG.general).description}
@@ -1116,19 +1116,88 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {/* ─── STEP: Revenue ─── */}
         {currentStepId === "revenue" && (
           <div className="space-y-4">
-            {/* Hint: show sales total from system if multi-category */}
-            {prefill && prefill.sales.total > 0 && defaultRevCats.length > 1 && (
-              <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-3 text-sm text-green-700 dark:text-green-300">
-                Today's total sales: <strong>{prefill.sales.total.toLocaleString()} {currency}</strong> — distribute across categories below.
-                {Object.keys(prefill.sales.by_item).length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {Object.entries(prefill.sales.by_item).slice(0, 8).map(([name, val]) => (
-                      <span key={name} className="px-2 py-0.5 bg-green-100 dark:bg-green-900/40 rounded text-xs">{name}: {val.toLocaleString()}</span>
-                    ))}
+            {/* Sync-from-sales banner — one-tap distribute by item.
+                Goal: close numbers MUST reconcile with the POS sales register,
+                otherwise the bookkeeping is decorative. The banner does two things:
+                  1. Surfaces the sales total so the owner can sanity-check.
+                  2. Offers a "Use these" button that auto-fills the breakdown.
+                If the owner enters numbers manually and they diverge >10% from
+                sales, we flash a warning below the inputs. */}
+            {prefill && prefill.sales.total > 0 && (
+              <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/50 rounded-xl p-3 text-sm">
+                <div className="flex items-start gap-3 justify-between">
+                  <div className="text-emerald-700 dark:text-emerald-300">
+                    <div>POS sales register for this date:
+                      <strong className="ml-1">{prefill.sales.total.toLocaleString()} {currency}</strong>
+                      <span className="text-emerald-600/70 dark:text-emerald-400/70 ml-1">
+                        ({prefill.sales.count} sale{prefill.sales.count !== 1 ? "s" : ""})
+                      </span>
+                    </div>
+                    {Object.keys(prefill.sales.by_item).length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {Object.entries(prefill.sales.by_item).slice(0, 6).map(([name, val]) => (
+                          <span key={name} className="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/40 rounded text-xs">
+                            {name}: {val.toLocaleString()}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
+                  {defaultRevCats.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Auto-distribute by item name into existing categories
+                        // (best-effort match) or dump into first category if no
+                        // mapping. Owner can still edit each line after.
+                        const items = prefill.sales.by_item || {};
+                        const cats = defaultRevCats;
+                        const next = { ...revAmounts };
+                        const matched = new Set();
+                        for (const [item, amt] of Object.entries(items)) {
+                          const lc = item.toLowerCase();
+                          const hit = cats.find(c => lc.includes(c.key.toLowerCase()) || c.label.toLowerCase().includes(lc));
+                          if (hit) {
+                            next[hit.key] = String(Math.round((Number(next[hit.key] || 0) + amt) * 100) / 100);
+                            matched.add(item);
+                          }
+                        }
+                        // Unmatched amounts go to the first category as a fallback
+                        const unmatchedSum = Object.entries(items)
+                          .filter(([k]) => !matched.has(k))
+                          .reduce((s, [, v]) => s + v, 0);
+                        if (unmatchedSum > 0 && cats.length > 0) {
+                          const k = cats[0].key;
+                          next[k] = String(Math.round((Number(next[k] || 0) + unmatchedSum) * 100) / 100);
+                        }
+                        // If no items breakdown, just dump total in first category
+                        if (Object.keys(items).length === 0 && cats.length > 0) {
+                          next[cats[0].key] = String(prefill.sales.total);
+                        }
+                        setRevAmounts(next);
+                      }}
+                      className="shrink-0 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium rounded-lg transition-colors"
+                    >
+                      Use these numbers
+                    </button>
+                  )}
+                </div>
               </div>
             )}
+            {/* Variance warning — fire if user-entered total diverges from POS by >10% */}
+            {prefill && prefill.sales.total > 0 && revenueTotal > 0 && (() => {
+              const variance = revenueTotal - prefill.sales.total;
+              const pctOff = Math.abs(variance) / prefill.sales.total;
+              if (pctOff <= 0.10) return null;  // <=10% is normal (rounding, etc.)
+              return (
+                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl p-3 text-sm text-amber-700 dark:text-amber-300">
+                  <strong>⚠️ Variance from sales register: {variance > 0 ? "+" : ""}{variance.toLocaleString()} {currency}</strong>
+                  <p className="text-xs mt-1 text-amber-600/80 dark:text-amber-400/80">
+                    Your close ({revenueTotal.toLocaleString()}) differs by {Math.round(pctOff * 100)}% from your POS total ({prefill.sales.total.toLocaleString()}). Double-check before locking — this number will be on your accountant's report.
+                  </p>
+                </div>
+              );
+            })()}
             {revCats.map(cat => (
               <div key={cat.key}>
                 <label className={labelClass}>{cat.icon} {cat.label}</label>
@@ -1310,7 +1379,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 </div>
                 <div className="pt-2 border-t" style={{ borderColor: "rgba(99,102,241,0.15)" }}>
                   <p className="text-xs text-indigo-400">
-                    📊 This MOMS data feeds into <a href="/tax" className="font-bold underline hover:text-indigo-300">Tax Autopilot</a> &mdash; reconciled automatically with your sales records.
+                    📊 Daily Close is your cash-drawer reconciliation. Your Moms filing in <a href="/tax" className="font-bold underline hover:text-indigo-300">Tax Autopilot</a> reads from the POS sales register &mdash; this close adds a cross-check that flags variance.
                   </p>
                 </div>
               </div>
@@ -1460,11 +1529,21 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
   // custom), then download all closes in that range as one PDF or
   // one CSV. Default 7 days because that's what most owners want
   // for a weekly review with their bookkeeper.
-  const todayIso = () => new Date().toISOString().slice(0, 10);
+  //
+  // Date math must respect the user's LOCAL timezone — toISOString()
+  // returns UTC, which makes a Danish owner closing at 01:14 local
+  // (CEST +2 → UTC 23:14 the day before) see "yesterday" as their
+  // today. The off-by-one cascades: Last 7 days renders as days 8-1
+  // ago and excludes the close just locked.
+  const _localIso = (d) => {
+    const offsetMs = d.getTimezoneOffset() * 60_000;
+    return new Date(d.getTime() - offsetMs).toISOString().slice(0, 10);
+  };
+  const todayIso = () => _localIso(new Date());
   const isoDaysAgo = (n) => {
     const d = new Date();
     d.setDate(d.getDate() - n);
-    return d.toISOString().slice(0, 10);
+    return _localIso(d);
   };
   const [rangePreset, setRangePreset] = useState("7d"); // 7d | 14d | 1m | 3m | custom
   const [customFrom, setCustomFrom] = useState(isoDaysAgo(7));
@@ -1514,12 +1593,16 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
   }, []);
 
   // Compute the active (from, to) for whichever preset is selected.
+  // "Last N days" = today - (N-1) ... today inclusive. Off-by-one fix:
+  // previously `isoDaysAgo(7)` returned the day 7 ago, giving 8 calendar
+  // days in the range (and excluding today entirely when combined with
+  // the old UTC todayIso bug).
   const activeRange = useMemo(() => {
     const to = todayIso();
-    if (rangePreset === "7d") return { from: isoDaysAgo(7), to };
-    if (rangePreset === "14d") return { from: isoDaysAgo(14), to };
-    if (rangePreset === "1m") return { from: isoDaysAgo(30), to };
-    if (rangePreset === "3m") return { from: isoDaysAgo(90), to };
+    if (rangePreset === "7d") return { from: isoDaysAgo(6), to };
+    if (rangePreset === "14d") return { from: isoDaysAgo(13), to };
+    if (rangePreset === "1m") return { from: isoDaysAgo(29), to };
+    if (rangePreset === "3m") return { from: isoDaysAgo(89), to };
     // Custom: use whatever the user typed; basic guard against
     // inverted ranges so the API doesn't bounce a 422 visibly.
     const f = customFrom > customTo ? customTo : customFrom;

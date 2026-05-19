@@ -45,6 +45,7 @@ from app.services.daily_close_range_export import (
     closes_to_csv_bytes,
     build_daily_close_range_xlsx,
 )
+from app.services import audit_service
 from app.utils.time import utc_now
 
 router = APIRouter()
@@ -265,6 +266,22 @@ def create_daily_close(
             existing.unlock_reason = None
             existing.unlocked_by = None
             existing.unlocked_at = None
+        # Bogføringsloven §10 — append-only audit row for the financial mutation.
+        # Action depends on whether this is a confirm/lock or a draft save.
+        _audit_action = "daily_close.lock" if status == "confirmed" else "daily_close.update"
+        audit_service.record(
+            db, user=user,
+            action=_audit_action,
+            entity_type="daily_close",
+            entity_id=existing.id,
+            before={"status": existing_status, "revenue_total": float(existing.revenue_total or 0)},
+            after={
+                "status": status, "revenue_total": revenue_total,
+                "payment_total": payment_total, "moms_total": moms_total,
+                "cash_difference": cash_difference, "closed_by": data.closed_by,
+            },
+            ip_address=getattr(request.client, "host", None) if request.client else None,
+        )
         db.commit()
         db.refresh(existing)
         return _to_response(existing)
@@ -294,6 +311,22 @@ def create_daily_close(
         receipt_photo=data.receipt_photo,
     )
     db.add(dc)
+    db.flush()  # populate dc.id before the audit row references it
+    # Bogføringsloven §10 — append-only audit row for the new close.
+    audit_service.record(
+        db, user=user,
+        action="daily_close.lock" if status == "confirmed" else "daily_close.create",
+        entity_type="daily_close",
+        entity_id=dc.id,
+        before=None,
+        after={
+            "status": status, "date": data.date.isoformat() if data.date else None,
+            "revenue_total": revenue_total, "payment_total": payment_total,
+            "moms_total": moms_total, "cash_difference": cash_difference,
+            "closed_by": data.closed_by, "branch_id": data.branch_id,
+        },
+        ip_address=getattr(request.client, "host", None) if request.client else None,
+    )
     db.commit()
     db.refresh(dc)
     return _to_response(dc)
@@ -328,6 +361,20 @@ def unlock_daily_close(
     dc.unlock_reason = data.reason.strip()
     dc.unlocked_by = user.email or str(user.id)
     dc.unlocked_at = utc_now()
+    # Bogføringsloven §10 — unlock is a sensitive mutation; capture reason
+    # in the immutable audit trail alongside the per-row fields.
+    audit_service.record(
+        db, user=user,
+        action="daily_close.unlock",
+        entity_type="daily_close",
+        entity_id=dc.id,
+        before={"status": current_status, "date": dc.date.isoformat() if dc.date else None},
+        after={
+            "status": "draft", "unlock_reason": data.reason.strip(),
+            "unlocked_by": dc.unlocked_by, "unlocked_at": dc.unlocked_at.isoformat(),
+        },
+        ip_address=getattr(request.client, "host", None) if request.client else None,
+    )
     db.commit()
     db.refresh(dc)
     return _to_response(dc)
@@ -1370,6 +1417,26 @@ def send_to_accountant(
                 "message": "Couldn't send email right now. The file is still available to download or share.",
             },
         )
+
+    # Bogføringsloven §10 — record that the period bundle was delivered to a
+    # third party. The accountant relationship is auditable; capture WHO got
+    # WHAT (recipient, range, totals) so disputes / regulator queries can
+    # reconstruct delivery history later.
+    audit_service.record(
+        db, user=user,
+        action="daily_close.send_to_accountant",
+        entity_type="daily_close_range",
+        entity_id=None,  # range-level action, not single-row
+        before=None,
+        after={
+            "recipient": recipient, "cc_self": bool(cc), "format": fmt,
+            "filename": filename, "n_closes": n_conf,
+            "from_date": f.isoformat(), "to_date": t.isoformat(),
+            "total_revenue": total_revenue, "total_moms": total_moms,
+        },
+        ip_address=getattr(request.client, "host", None) if request.client else None,
+    )
+    db.commit()
 
     return {
         "ok": True,
