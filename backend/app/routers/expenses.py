@@ -33,8 +33,10 @@ DEFAULT_KEYWORDS = {
     "vegetables": "Ingredients", "flour": "Ingredients", "milk": "Ingredients",
     "ingredients": "Ingredients", "råvarer": "Ingredients",
     # Food & Dining
-    "wolt": "Food & Dining", "just eat": "Food & Dining", "too good to go": "Food & Dining",
-    "uber eats": "Food & Dining", "deliveroo": "Food & Dining",
+    "wolt": "Food & Dining", "uber eats": "Food & Dining", "ubereats": "Food & Dining",
+    "foodora": "Food & Dining", "too good to go": "Food & Dining",
+    "just eat": "Food & Dining",  # legacy — Just Eat closed DK 2024
+    "deliveroo": "Food & Dining",
     "restaurant": "Food & Dining", "café": "Food & Dining", "cafe": "Food & Dining",
     "pizza": "Food & Dining", "burger": "Food & Dining", "sushi": "Food & Dining",
     # Transport

@@ -32,6 +32,7 @@ from app.models.inventory_import import InventoryImport
 from app.models.inventory_import_example import InventoryImportExample
 from app.models.terminal import Terminal
 from app.models.output_channel import OutputChannel
+from app.models.order_channel_config import OrderChannelConfig
 from app.models.absence import StaffAbsence
 from app.models.shift_swap import ShiftSwapRequest
 from app.models.staff_role_target import StaffRoleTarget
@@ -47,4 +48,4 @@ from app.models.mileage import MileageEntry
 from app.models.payment_match_suggestion import PaymentMatchSuggestion
 from app.models.audit_log import AuditLog
 
-__all__ = ["User", "Sale", "ExpenseCategory", "Expense", "InventoryItem", "InventoryLog", "StaffingRule", "DailyStaffing", "WasteLog", "Feedback", "CashTransaction", "EventLog", "KhataCustomer", "KhataTransaction", "Budget", "LoanPerson", "LoanTransaction", "CategoryMapping", "WhatsAppUser", "WhatsAppMessage", "SickCall", "DailyWeather", "BusinessProfile", "PaymentConnection", "Branch", "Competitor", "CompetitorPrice", "DailyClose", "Vehicle", "JobCard", "JobCardPart", "JobCardLabor", "Wine", "WineSale", "StaffMember", "PayPeriodConfig", "Schedule", "HoursLogged", "Tip", "TipDistribution", "StaffLink", "NotificationLog", "SecurityEvent", "OwnerPattern", "WaitlistEntry", "DailyBrief", "AnomalyAlert", "TriageNote", "KasserapportExtraction", "KasserapportExample", "InventoryImport", "InventoryImportExample", "Terminal", "OutputChannel", "StaffAbsence", "ShiftSwapRequest", "StaffRoleTarget", "SmartDriftFinding", "SupportTicket", "Customer", "Invoice", "InvoiceLine", "MileageEntry", "PaymentMatchSuggestion", "AuditLog"]
+__all__ = ["User", "Sale", "ExpenseCategory", "Expense", "InventoryItem", "InventoryLog", "StaffingRule", "DailyStaffing", "WasteLog", "Feedback", "CashTransaction", "EventLog", "KhataCustomer", "KhataTransaction", "Budget", "LoanPerson", "LoanTransaction", "CategoryMapping", "WhatsAppUser", "WhatsAppMessage", "SickCall", "DailyWeather", "BusinessProfile", "PaymentConnection", "Branch", "Competitor", "CompetitorPrice", "DailyClose", "Vehicle", "JobCard", "JobCardPart", "JobCardLabor", "Wine", "WineSale", "StaffMember", "PayPeriodConfig", "Schedule", "HoursLogged", "Tip", "TipDistribution", "StaffLink", "NotificationLog", "SecurityEvent", "OwnerPattern", "WaitlistEntry", "DailyBrief", "AnomalyAlert", "TriageNote", "KasserapportExtraction", "KasserapportExample", "InventoryImport", "InventoryImportExample", "Terminal", "OutputChannel", "OrderChannelConfig", "StaffAbsence", "ShiftSwapRequest", "StaffRoleTarget", "SmartDriftFinding", "SupportTicket", "Customer", "Invoice", "InvoiceLine", "MileageEntry", "PaymentMatchSuggestion", "AuditLog"]

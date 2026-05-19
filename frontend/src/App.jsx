@@ -194,6 +194,8 @@ const BookkeepingExportPage = lazyRetry(() => import("./pages/BookkeepingExportP
 const InsightsPage = lazyRetry(() => import("./pages/InsightsPage"));
 // Property Financial Report — Danish-restaurant daily close mirror
 const PropertyReportPage = lazyRetry(() => import("./pages/PropertyReportPage"));
+// Order Channel Settings — user-editable catalogue of order channels
+const ChannelSettingsPage = lazyRetry(() => import("./pages/ChannelSettingsPage"));
 
 function ProtectedRoute({ children }) {
   const { user, loading, needsEmailVerification } = useAuth();
@@ -314,6 +316,7 @@ function AppRoutes() {
           <Route path="/bookkeeping-export" element={<BookkeepingExportPage />} />
           <Route path="/insights" element={<InsightsPage />} />
           <Route path="/daily-report" element={<PropertyReportPage />} />
+          <Route path="/channel-settings" element={<ChannelSettingsPage />} />
         </Route>
         {/* /admin — gated frontend, but real enforcement is server-side */}
         <Route

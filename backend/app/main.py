@@ -39,7 +39,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, inventory_smart_import, smart_drift, support, search as search_router, modules as modules_router, ai as ai_router
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, order_channel_config, inventory_smart_import, smart_drift, support, search as search_router, modules as modules_router, ai as ai_router
 # Invoicing — Customer/Invoice/Mileage. Gated to Starter+ at the route level.
 from app.routers import customers as customers_router, invoices as invoices_router, mileage as mileage_router
 from app.routers import payment_suggestions as payment_suggestions_router
@@ -823,6 +823,32 @@ _migrations = [
     "CREATE INDEX IF NOT EXISTS ix_khata_customers_user_id ON khata_customers (user_id)",
     "CREATE INDEX IF NOT EXISTS ix_khata_transactions_user_id ON khata_transactions (user_id)",
     "CREATE INDEX IF NOT EXISTS ix_khata_transactions_customer_id ON khata_transactions (customer_id)",
+
+    # ── Migration 038: order_channel_configs — user-editable channels ──
+    # Per-tenant catalogue of order channels (Wolt / Uber Eats / Foodora /
+    # plus custom additions like Foodpanda or Hungry.dk). System defaults
+    # live in services/channel_defaults.SYSTEM_CHANNELS and are merged in
+    # at read time — this table only stores custom + override rows.
+    #
+    # Tenant isolation: UNIQUE(user_id, slug) + every router query
+    # filters by user_id. Sales rows reference channel by slug string,
+    # not FK, so archiving a row here NEVER detaches historical data.
+    # Idempotent — re-running on a populated DB is a no-op.
+    """CREATE TABLE IF NOT EXISTS order_channel_configs (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        slug VARCHAR(50) NOT NULL,
+        label VARCHAR(100) NOT NULL,
+        emoji VARCHAR(8),
+        color VARCHAR(32) DEFAULT 'gray-500',
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        is_archived BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_order_channel_user_slug UNIQUE (user_id, slug)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_order_channel_user_id ON order_channel_configs (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_order_channel_user_slug ON order_channel_configs (user_id, slug)",
 ]
 
 
@@ -1707,6 +1733,7 @@ app.include_router(terminal.router, prefix="/api/terminals", tags=["Terminals"])
 app.include_router(smart_drift.router, prefix="/api/smart-drift", tags=["SmartDrift"])
 app.include_router(support.router, prefix="/api/support", tags=["Support"])
 app.include_router(output_channel.router, prefix="/api/output-channels", tags=["OutputChannels"])
+app.include_router(order_channel_config.router, prefix="/api/order-channels", tags=["OrderChannels"])
 app.include_router(modules_router.router, prefix="/api/modules", tags=["Modules"])
 # Smart inventory import — paste/CSV/Excel/photo → AI parse + categorize
 # → review draft → commit. Six-layer defense (auth, bounds, rate limit,

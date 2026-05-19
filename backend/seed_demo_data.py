@@ -260,7 +260,7 @@ danish_notes = [
     "Fødselsdagsbestilling", "Kontorlevering", None, None,
 ]
 payment_methods = ["cash", "card", "mobilepay", "mixed", "dankort"]
-order_channels = ["dine_in", "takeaway", "wolt", "just_eat", "phone"]
+order_channels = ["dine_in", "takeaway", "wolt", "uber_eats", "foodora", "phone"]
 
 # Calibrated for demo SPEED: 6-10 fewer/larger sales per day instead of
 # 30-70 small ones. The dashboard charts only need realistic *daily

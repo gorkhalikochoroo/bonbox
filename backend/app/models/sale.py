@@ -48,7 +48,8 @@ class Sale(Base):
     # restaurants split revenue across 4-6 channels and need per-channel
     # reporting for daily close + bookkeeping export.
     #
-    # Channels: dine_in | takeaway | wolt | just_eat | web | phone | catering | other
+    # Channels: dine_in | takeaway | wolt | uber_eats | foodora | web | phone | catering | other
+    # Legacy: just_eat (closed DK 2024) — historical rows preserved, not new-selectable.
     # Default 'dine_in' is safe for non-restaurant businesses (retail, etc.)
     # who never set this field — the dashboard treats it as plain revenue.
     order_channel: Mapped[str] = mapped_column(String(20), default="dine_in")

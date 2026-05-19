@@ -494,7 +494,9 @@ async def import_csv(
             allowed = (
                 "cash", "card", "mobilepay", "mixed", "dankort", "kontant", "online",
                 "dankort_offline", "mastercard_offline", "visa", "mastercard",
-                "wolt", "web_prepaid", "gift_card", "just_eat",
+                "wolt", "web_prepaid", "gift_card",
+                "uber_eats", "foodora",  # DK 2024+: replaced just_eat
+                "just_eat",  # legacy — Just Eat closed DK 2024, kept for historical imports
             )
             if normalized_method not in allowed:
                 normalized_method = "mixed"

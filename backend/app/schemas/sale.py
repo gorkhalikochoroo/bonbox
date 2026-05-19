@@ -4,6 +4,8 @@ from pydantic import BaseModel, field_validator
 
 
 # Channel synonym map — accept Aloha/Restwave/Pos+ wording from CSV imports etc.
+# DK 2026 note: Just Eat exited Denmark in 2024 → kept as legacy synonym for
+# historical data continuity; new entries should use uber_eats / wolt / foodora.
 _CHANNEL_SYNONYMS = {
     "restaurant": "dine_in",
     "in_house": "dine_in",
@@ -12,6 +14,13 @@ _CHANNEL_SYNONYMS = {
     "pickup": "takeaway",
     "wolt_del": "wolt",
     "wolt_delivery": "wolt",
+    # Uber Eats (entered DK 2024)
+    "ubereats": "uber_eats",
+    "uber": "uber_eats",
+    "uber_eats_dk": "uber_eats",
+    # Foodora (still active in DK)
+    "foodora_dk": "foodora",
+    # Legacy — Just Eat closed in DK; keep mapping so old rows still resolve.
     "justeat": "just_eat",
     "online": "web",
     "webcloseorder": "web",
@@ -39,7 +48,7 @@ class SaleCreate(BaseModel):
     unit_price: float | None = None
     # ── Danish restaurant ops (Property Financial Report fields) ──
     # All optional with safe defaults so non-restaurant flows are unaffected.
-    order_channel: str = "dine_in"  # dine_in|takeaway|wolt|just_eat|web|phone|catering|other
+    order_channel: str = "dine_in"  # dine_in|takeaway|wolt|uber_eats|foodora|web|phone|catering|other (just_eat=legacy, DK closed 2024)
     guest_count: int | None = None
     service_charge_amount: float | None = None
     discount_amount: float | None = None
