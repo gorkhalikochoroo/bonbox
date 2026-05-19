@@ -532,6 +532,139 @@ export default function LandingPage() {
         </div>
       </Section>
 
+      {/* ── BRIEF PREVIEW — "see the product" moment ─────────────
+          Like Stripe shows code on their homepage, we show the
+          actual Daily Brief card right here so a Copenhagen café
+          owner reading the landing page sees what they'd open at
+          9am tomorrow. Same warm-stone styling as the real card.
+          Numbers are illustrative — no API call, just static JSX. */}
+      <Section className="bg-[#fafaf7] border-y border-stone-200/70">
+        <div className="grid lg:grid-cols-[1fr_1.05fr] gap-12 lg:gap-16 items-center">
+          <div className="max-w-lg">
+            <Eyebrow>{tx_("landingBriefPreviewTag", "See it before you sign up")}</Eyebrow>
+            <Heading>
+              {tx_("landingBriefPreviewTitle", "This is your 9am brief.")}
+            </Heading>
+            <p className="mt-5 text-[16px] text-stone-600 leading-relaxed">
+              {tx_(
+                "landingBriefPreviewSub",
+                "Every morning at 8am Copenhagen, BonBox pulls together yesterday's revenue, this week's trend, your MOMS deadline, regulars who haven't been back, and bills due — into one card you can read in 30 seconds. Each insight is one tap to the action that matters.",
+              )}
+            </p>
+            <p className="mt-4 text-[14px] text-stone-500 leading-relaxed">
+              {tx_(
+                "landingBriefPreviewShare",
+                "Forward to your business partner with one tap. The shareable moment that turned BonBox from \"an app I open\" into \"the advisor that arrives.\"",
+              )}
+            </p>
+          </div>
+
+          {/* Static replica of the real DailyBriefCard render. Update
+              when DailyBriefCard.jsx structure changes (it usually
+              doesn't; the brief shape has been stable since 2.0). */}
+          <div className="bg-white rounded-2xl border border-stone-200/70 shadow-sm p-6 sm:p-7">
+            <div className="flex items-start justify-between gap-4 mb-3">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0 mt-0.5 text-emerald-600">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 3l1.9 5.8h6.1l-4.9 3.6 1.9 5.8L12 14.6l-4.9 3.6 1.9-5.8L4 8.8h6.1L12 3z" />
+                  </svg>
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-[17px] font-semibold text-stone-900 tracking-tight">
+                    {tx_("landingBriefPreviewGreeting", "God morgen, Manoj")}
+                  </h3>
+                  <p className="text-[12.5px] text-stone-500 mt-0.5">
+                    {tx_("landingBriefPreviewDate", "Tirsdag, 19. maj 2026")}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-[15.5px] leading-snug text-stone-900 mb-2">
+              {tx_(
+                "landingBriefPreviewHeadline",
+                "MOMS filing in 8 days — est. 96,405 DKK owed. Slightly ahead of pace this month.",
+              )}
+            </p>
+            <span className="inline-flex items-center gap-1 text-[12.5px] font-medium text-emerald-700 mb-3">
+              {tx_("landingBriefPreviewHeadCta", "Review filing")} <span aria-hidden="true">→</span>
+            </span>
+
+            <ul className="space-y-3 mt-2">
+              <li className="flex items-start gap-2.5">
+                <span className="w-1.5 h-1.5 rounded-full mt-[8px] shrink-0 bg-blue-500" aria-hidden="true" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[14px] leading-relaxed text-stone-700">
+                    {tx_(
+                      "landingBriefPreviewIns1",
+                      "Today is tracking +12% above your usual Tuesday — strong start.",
+                    )}
+                  </p>
+                </div>
+              </li>
+              <li className="flex items-start gap-2.5">
+                <span className="w-1.5 h-1.5 rounded-full mt-[8px] shrink-0 bg-amber-500" aria-hidden="true" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[14px] leading-relaxed text-stone-700">
+                    {tx_(
+                      "landingBriefPreviewIns2",
+                      "Recurring posts tomorrow: Husleje, Yousee, Spotify Business (19,547 DKK).",
+                    )}
+                  </p>
+                  <span className="inline-flex items-center gap-1 mt-1 text-[12px] font-medium text-emerald-700">
+                    {tx_("landingBriefPreviewIns2Cta", "Manage recurring")} <span aria-hidden="true">→</span>
+                  </span>
+                </div>
+              </li>
+              <li className="flex items-start gap-2.5">
+                <span className="w-1.5 h-1.5 rounded-full mt-[8px] shrink-0 bg-blue-500" aria-hidden="true" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[14px] leading-relaxed text-stone-700">
+                    {tx_(
+                      "landingBriefPreviewIns3",
+                      "3 regulars haven't been back in ~18 days (Marie, Andreas, Lukas) — a quick hello could bring them in this week.",
+                    )}
+                  </p>
+                  <span className="inline-flex items-center gap-1 mt-1 text-[12px] font-medium text-emerald-700">
+                    {tx_("landingBriefPreviewIns3Cta", "Open Khata")} <span aria-hidden="true">→</span>
+                  </span>
+                </div>
+              </li>
+              <li className="flex items-start gap-2.5">
+                <span className="w-1.5 h-1.5 rounded-full mt-[8px] shrink-0 bg-amber-500" aria-hidden="true" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[14px] leading-relaxed text-stone-700">
+                    {tx_(
+                      "landingBriefPreviewIns4",
+                      "Saturday forecast is sunny 19°C — terrace will fill. Schedule autopilot suggests 1 extra waiter.",
+                    )}
+                  </p>
+                  <span className="inline-flex items-center gap-1 mt-1 text-[12px] font-medium text-emerald-700">
+                    {tx_("landingBriefPreviewIns4Cta", "Review schedule")} <span aria-hidden="true">→</span>
+                  </span>
+                </div>
+              </li>
+            </ul>
+
+            <div className="mt-5 pt-3.5 border-t border-stone-100 flex items-center justify-between gap-3">
+              <span className="text-[10.5px] uppercase tracking-[0.08em] text-stone-400">
+                {tx_("landingBriefPreviewFooter", "AI Insight · BonBox")}
+              </span>
+              <div className="flex items-center gap-2 text-stone-400">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" />
+                  <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                </svg>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+                </svg>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Section>
+
       {/* ── PROOF NUMBERS + INDUSTRIES STRIP ────────────────────── */}
       {/* Three big numbers that earn the strip + a "built for" line
           that quietly signals BonBox knows its segment. The strip
