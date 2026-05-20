@@ -280,6 +280,11 @@ def bank_callback(
     code: str | None = Query(None, min_length=4, max_length=512),
     state: str | None = Query(None, min_length=8, max_length=128),
     ref: str | None = Query(None, min_length=8, max_length=128),
+    # Salt Edge appends connection_id + customer_id to our return_to.
+    # connection_id is the long-lived consent we need to resolve
+    # accounts on.
+    connection_id: str | None = Query(None, min_length=1, max_length=128),
+    customer_id: str | None = Query(None, min_length=1, max_length=128),  # noqa: ARG001
     db: Session = Depends(get_db),
 ):
     """Provider → us. PUBLIC endpoint — the owner is mid-SCA and has no
@@ -365,16 +370,18 @@ def bank_callback(
     )
     try:
         client = get_aiia_client()
-        # Feature-detect: GoCardless's exchange_code accepts a
-        # `requisition_id` keyword.  Aiia's doesn't.  Inspect the sig
-        # so the same router code drives both.  `code` may be None for
-        # GoCardless (it sends only `ref`); the GoCardless client
-        # ignores it and uses requisition_id instead.
+        # Feature-detect each provider's extra kwargs.  Aiia takes
+        # only `code`.  GoCardless takes `requisition_id` (stored at
+        # /init on the conn row).  Salt Edge takes `connection_id`
+        # (arrives in the callback URL — it's the long-lived consent
+        # ID minted AFTER successful SCA).
         import inspect
         exch_params = inspect.signature(client.exchange_code).parameters
         exch_kwargs: dict = {}
         if "requisition_id" in exch_params:
             exch_kwargs["requisition_id"] = conn.provider_requisition_id
+        if "connection_id" in exch_params:
+            exch_kwargs["connection_id"] = connection_id
         result = client.exchange_code(code or "", **exch_kwargs)
     except AiiaClientError as e:
         logger.exception(

@@ -438,6 +438,17 @@ def get_aiia_client() -> AiiaClient:
                 e,
             )
             return MockAiiaClient()
+    if provider == "saltedge":
+        try:
+            from app.services.saltedge_client import get_saltedge_client
+            return get_saltedge_client()
+        except AiiaClientError as e:
+            logger.warning(
+                "bank: BANK_PROVIDER=saltedge requested but config "
+                "invalid (%s) — falling back to mock",
+                e,
+            )
+            return MockAiiaClient()
 
     env = (os.environ.get("AIIA_ENV") or "mock").strip().lower()
     if env in ("sandbox", "live"):

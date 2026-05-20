@@ -136,6 +136,16 @@ class Settings(BaseSettings):
     # the SANDBOXFINANCE_SFIN0000 institution_id.
     GOCARDLESS_BASE_URL: str = "https://bankaccountdata.gocardless.com/api/v2"
 
+    # ── Salt Edge (alternate AISP, free Customer tier) ─────────────────
+    # Self-serve signup at https://www.saltedge.com/dashboard.  Cover EU+UK
+    # incl. DK (Danske, Nordea, Jyske, Lunar).  Set BANK_PROVIDER=saltedge
+    # to route through here.  Auth is App-id + Secret in HTTP headers
+    # (no token endpoint; their RSA-signed mode is optional and we don't
+    # use it for the free Customer plan).
+    SALTEDGE_APP_ID: str = ""
+    SALTEDGE_SECRET: str = ""
+    SALTEDGE_BASE_URL: str = "https://www.saltedge.com/api/v5"
+
     # ── Web Push (VAPID) — Task #72 ─────────────────────────────────────
     # VAPID identifies BonBox to the push providers (FCM / Apple Push /
     # Mozilla autopush). Without these the /api/push endpoints 503 and
