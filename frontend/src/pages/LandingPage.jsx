@@ -481,7 +481,7 @@ export default function LandingPage() {
             <p className="mt-6 text-[17px] sm:text-[18px] text-stone-600 leading-relaxed max-w-[520px]">
               {tx_(
                 "landingHeroSub",
-                "Connect your bank. We tell you who to schedule. We file your MOMS. We tell you when your regulars are slipping. A 9am brief that actually helps. 129 DKK/mo founding rate.",
+                "Close out the day in 30 seconds. We file your MOMS. We tell you when your regulars are slipping. A 9am brief that actually helps. 129 DKK/mo founding rate.",
               )}
             </p>
 
