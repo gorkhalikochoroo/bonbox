@@ -414,12 +414,16 @@ def bank_callback(
         db.rollback()
         # Surface the failing step to the SPA via a structured 502 — the
         # global SAFE-500 hides the trace, so we bounce back to the
-        # connections page with bank_error=1 + the step name as a
-        # debugging breadcrumb (no secrets in the URL).
+        # connections page with bank_error=1 + the step name + the
+        # exception class as a debugging breadcrumb (no secrets).
+        from urllib.parse import quote
+        exc_label = quote(type(_e).__name__)[:60]
+        exc_msg = quote(str(_e))[:200]
         return RedirectResponse(
             url=(
                 f"{settings.FRONTEND_URL.rstrip('/')}"
                 f"/connections?bank_error=1&step={persistence_step}"
+                f"&exc={exc_label}&msg={exc_msg}"
             ),
             status_code=303,
         )

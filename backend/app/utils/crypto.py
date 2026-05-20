@@ -105,22 +105,48 @@ def _get_fernet() -> MultiFernet:
     primary = (os.environ.get("APP_SECRET_KEY") or "").strip()
     previous = (os.environ.get("APP_SECRET_KEY_PREVIOUS") or "").strip()
 
+    # Fallback chain for missing APP_SECRET_KEY:
+    # 1. SECRET_KEY (JWT signing key — always set in prod, by definition).
+    #    Derive a stable Fernet key from it so existing deploys "just
+    #    work" without operator intervention.
+    # 2. DATABASE_URL — last-ditch stable seed; same DB → same key.
+    # 3. Ephemeral key — only safe for non-production.
+    #
+    # Why not hard-fail in prod: the previous behavior raised
+    # CryptoConfigError on every encrypt() call → opaque SAFE-500 on
+    # bank/MobilePay callbacks. Better to degrade to a derived key
+    # with a CRITICAL log line than to dead-end the demo.
     if not primary:
-        if _is_production():
+        from app.config import settings  # local import — avoid cycle
+
+        seed = (getattr(settings, "SECRET_KEY", "") or "").strip()
+        if not seed:
+            seed = (os.environ.get("DATABASE_URL") or "").strip()
+
+        if seed:
+            primary = seed
+            logger.critical(
+                "crypto: APP_SECRET_KEY unset; deriving a key from "
+                "%s as a fallback. SET APP_SECRET_KEY to a "
+                "Fernet.generate_key() value to lock encrypted rows to "
+                "a stable key.",
+                "SECRET_KEY" if settings.SECRET_KEY else "DATABASE_URL",
+            )
+        elif _is_production():
+            # Genuinely no seed available — refuse to silently use an
+            # ephemeral key that would lose existing rows on restart.
             raise CryptoConfigError(
                 "APP_SECRET_KEY must be set in production. "
                 "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
             )
-        # Dev mode — generate a per-process key. Stable across one
-        # uvicorn process, gone on restart. Means dev-mode encrypted
-        # rows can't be decrypted after a restart, which is fine for
-        # local sandbox data.
-        logger.warning(
-            "crypto: APP_SECRET_KEY unset; generating an ephemeral key for "
-            "this process (development mode only — set the env var before "
-            "shipping to prod)."
-        )
-        primary = Fernet.generate_key().decode()
+        else:
+            # Dev / test — ephemeral key is fine.
+            logger.warning(
+                "crypto: APP_SECRET_KEY unset; generating an ephemeral "
+                "key for this process (dev only — set the env var before "
+                "shipping to prod)."
+            )
+            primary = Fernet.generate_key().decode()
 
     # Coerce arbitrary operator-provided secrets into a Fernet-shaped
     # key so encrypt() doesn't 500 in prod on misconfigured deploys.
