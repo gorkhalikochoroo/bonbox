@@ -402,9 +402,12 @@ def bank_callback(
         persistence_step = "commit"
         db.commit()
     except Exception as _e:  # noqa: BLE001
-        # We've made it past the exchange — log everything so the demo
-        # doesn't dead-end with an unactionable 500. The user still sees
-        # the SAFE-wrapper toast, but the cause hits Render logs.
+        # We've made it past the exchange — log the full trace and
+        # bounce the owner back to /connections?bank_error=1 so the SPA
+        # can show a friendly "couldn't finish" toast.  Trace lands in
+        # Render logs (incl. failing step + conn_id) for ops to follow
+        # up, but no debug breadcrumbs in the URL — that exposure was
+        # only ever a one-off to surface the root cause.
         logger.exception(
             "bank_connect.callback: post-exchange persistence failed at step=%s "
             "conn_id=%s account_id=%s refresh_token_len=%d exc=%r",
@@ -412,19 +415,8 @@ def bank_callback(
             len(refresh_token), _e,
         )
         db.rollback()
-        # Surface the failing step to the SPA via a structured 502 — the
-        # global SAFE-500 hides the trace, so we bounce back to the
-        # connections page with bank_error=1 + the step name + the
-        # exception class as a debugging breadcrumb (no secrets).
-        from urllib.parse import quote
-        exc_label = quote(type(_e).__name__)[:60]
-        exc_msg = quote(str(_e))[:200]
         return RedirectResponse(
-            url=(
-                f"{settings.FRONTEND_URL.rstrip('/')}"
-                f"/connections?bank_error=1&step={persistence_step}"
-                f"&exc={exc_label}&msg={exc_msg}"
-            ),
+            url=f"{settings.FRONTEND_URL.rstrip('/')}/connections?bank_error=1",
             status_code=303,
         )
 
