@@ -372,9 +372,12 @@ def bank_callback(
             detail="Aiia exchange_code returned no refresh token",
         )
 
+    persistence_step = "init"
     try:
         # Encrypt-at-rest. Fernet token is bytes — stored in LargeBinary col.
+        persistence_step = "encrypt"
         conn.refresh_token_enc = encrypt(refresh_token)
+        persistence_step = "set_fields"
         conn.aiia_account_id = result.get("account_id") or ""
         conn.account_label = result.get("account_label") or None
         conn.status = "active"
@@ -384,6 +387,7 @@ def bank_callback(
         expires_in = int(result.get("expires_in") or 7776000)  # 90d default
         conn.consent_expires_at = utc_now() + timedelta(seconds=expires_in)
 
+        persistence_step = "audit"
         audit_service.record(
             db, user, "bank_connect.activated",
             entity_type="bank_connection", entity_id=conn.id,
@@ -395,18 +399,30 @@ def bank_callback(
             },
             ip_address=_client_ip(request),
         )
+        persistence_step = "commit"
         db.commit()
-    except Exception:  # noqa: BLE001
+    except Exception as _e:  # noqa: BLE001
         # We've made it past the exchange — log everything so the demo
         # doesn't dead-end with an unactionable 500. The user still sees
         # the SAFE-wrapper toast, but the cause hits Render logs.
         logger.exception(
-            "bank_connect.callback: post-exchange persistence failed conn_id=%s "
-            "account_id=%s refresh_token_len=%d",
-            conn.id, result.get("account_id"), len(refresh_token),
+            "bank_connect.callback: post-exchange persistence failed at step=%s "
+            "conn_id=%s account_id=%s refresh_token_len=%d exc=%r",
+            persistence_step, conn.id, result.get("account_id"),
+            len(refresh_token), _e,
         )
         db.rollback()
-        raise
+        # Surface the failing step to the SPA via a structured 502 — the
+        # global SAFE-500 hides the trace, so we bounce back to the
+        # connections page with bank_error=1 + the step name as a
+        # debugging breadcrumb (no secrets in the URL).
+        return RedirectResponse(
+            url=(
+                f"{settings.FRONTEND_URL.rstrip('/')}"
+                f"/connections?bank_error=1&step={persistence_step}"
+            ),
+            status_code=303,
+        )
 
     # Bounce back to the connections page so the owner sees a "🎉
     # Bank connected" toast.
