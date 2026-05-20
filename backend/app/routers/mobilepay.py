@@ -354,6 +354,22 @@ def init_mobilepay(
     """
     enforce_feature(user, "mobilepay_autosync")
 
+    # Task #106: production hard-gate. Don't claim "Connect MobilePay
+    # Erhverv" when only the in-process mock is wired in. Frontend
+    # hides the card via /api/config/features; this is the
+    # defence-in-depth so direct API hits get a meaningful 503.
+    from app.utils.features import is_mobilepay_enabled
+    if not is_mobilepay_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "MobilePay Erhverv auto-sync is not configured yet — "
+                "we're awaiting the Vipps partner agreement. Enter "
+                "MobilePay payments manually for now; we'll switch on "
+                "auto-match the moment the integration is live."
+            ),
+        )
+
     # CSRF token bound to this consent. 32 bytes -> 64 hex chars.
     state = secrets.token_hex(32)
 

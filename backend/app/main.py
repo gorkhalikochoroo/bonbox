@@ -1766,7 +1766,7 @@ def _init_db():
 async def db_readiness_gate(request: Request, call_next):
     path = request.url.path
     # Always allow health checks, root, docs, and CORS preflight through
-    if path in ("/", "/api/health", "/api/health/db", "/api/keepalive", "/docs", "/redoc", "/openapi.json") or request.method == "OPTIONS":
+    if path in ("/", "/api/health", "/api/health/db", "/api/keepalive", "/api/config/features", "/docs", "/redoc", "/openapi.json") or request.method == "OPTIONS":
         return await call_next(request)
     # Return 503 instantly if DB isn't ready yet (non-blocking — won't freeze event loop)
     if not _db_ready.is_set():
@@ -2640,6 +2640,20 @@ def keepalive():
     """
     from fastapi import Response
     return Response(status_code=204)
+
+
+@app.get("/api/config/features")
+def public_features():
+    """Public feature flags — Task #106.
+
+    Drives conditional UI render so we don't claim "Connect bank
+    automatically" when only the in-process mock is wired in.
+    Read once on app boot; the SPA caches the result for the
+    session.  Returns booleans only — no secrets, no env values,
+    just what each integration tile should render or hide.
+    """
+    from app.utils.features import feature_flags
+    return feature_flags()
 
 
 @app.get("/api/health/db")

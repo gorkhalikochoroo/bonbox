@@ -3,6 +3,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
+import { useFeatures } from "../hooks/useFeatures";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
 import { Button, Card, Icon, UpgradeNudge } from "../components/ui";
@@ -33,6 +34,11 @@ export default function BankImportPage() {
   const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
   const { hasFeature } = useEntitlements();
+  // Task #106 — hide the "Connect bank automatically" card in prod
+  // when no real PSD2 provider is configured. CSV upload remains the
+  // primary path. Backend /api/bank-connect/init also gates with 503
+  // so direct API hits get a meaningful message.
+  const { bank_connect_enabled: bankConnectEnabled } = useFeatures();
   const canAutoReconcile = hasFeature("bank_auto_reconcile");
   const { showToast, ToastContainer } = useToast();
 
@@ -356,8 +362,10 @@ export default function BankImportPage() {
 
       {/* ═══════════════════════════════════════════
          AIIA DIRECT CONNECT (Task #67) — primary path
+         Hidden in prod when no real PSD2 provider is configured
+         (Task #106).  CSV upload below still works.
          ═══════════════════════════════════════════ */}
-      {step === "upload" && (
+      {step === "upload" && bankConnectEnabled && (
         <FadeIn>
           <div className="bg-gradient-to-br from-emerald-50 to-blue-50 dark:from-emerald-900/20 dark:to-blue-900/20 rounded-2xl p-6 border border-emerald-200 dark:border-emerald-800 shadow-sm space-y-4 mb-6">
             <div className="flex items-start gap-3">

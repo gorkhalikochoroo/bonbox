@@ -196,6 +196,21 @@ def init_bank_connection(
     """
     enforce_feature(user, "bank_auto_reconcile")
 
+    # Task #106: in production, refuse if no real PSD2 provider is
+    # configured.  Prevents a curious user from bypassing the hidden
+    # UI by hitting the API directly + sets up a meaningful 503
+    # message that the SPA can surface as "Coming soon".
+    from app.utils.features import is_bank_connect_enabled
+    if not is_bank_connect_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Automatic bank connect is not configured yet — please "
+                "upload your bank CSV instead. We're partnering with "
+                "Aiia/Salt Edge to enable this; check back soon."
+            ),
+        )
+
     # CSRF token bound to this consent. 32 bytes → 64 hex chars.
     state = secrets.token_hex(32)
     sandbox = sandbox_mode_default()

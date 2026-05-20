@@ -2,6 +2,7 @@ import { Component, lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
 import { EntitlementsProvider } from "./hooks/useEntitlements";
+import { FeaturesProvider } from "./hooks/useFeatures";
 import { BranchProvider } from "./components/BranchSelector";
 import { LanguageProvider } from "./hooks/useLanguage";
 import { GoogleOAuthProvider } from "@react-oauth/google";
@@ -403,16 +404,22 @@ function AppInner() {
                 The hook fails closed (Free shape) if unauthenticated, so
                 pre-login pages still render fine. */}
             <EntitlementsProvider>
-              <BranchProvider>
-                <AppRoutes />
-                {/* Cookie consent renders on top of any route, including landing/
-                    login/register where pre-auth visitors must see it.
-                    Wrapped in its own boundary so a failure here NEVER breaks the
-                    rest of the app. */}
-                <CookieConsentBoundary>
-                  <CookieConsent />
-                </CookieConsentBoundary>
-              </BranchProvider>
+              {/* FeaturesProvider exposes public feature flags
+                  (bank_connect_enabled, mobilepay_enabled). Sits
+                  inside Auth so it can use the same axios instance,
+                  but the endpoint is public — works pre-login too. */}
+              <FeaturesProvider>
+                <BranchProvider>
+                  <AppRoutes />
+                  {/* Cookie consent renders on top of any route, including landing/
+                      login/register where pre-auth visitors must see it.
+                      Wrapped in its own boundary so a failure here NEVER breaks the
+                      rest of the app. */}
+                  <CookieConsentBoundary>
+                    <CookieConsent />
+                  </CookieConsentBoundary>
+                </BranchProvider>
+              </FeaturesProvider>
             </EntitlementsProvider>
           </AuthProvider>
         </LanguageProvider>

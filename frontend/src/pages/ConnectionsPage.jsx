@@ -29,6 +29,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { useFeatures } from "../hooks/useFeatures";
 import { Button, Card, Icon } from "../components/ui";
 
 /**
@@ -141,6 +142,13 @@ function ConnectionCard({
 export default function ConnectionsPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
+  // Task #106 — hide bank / MobilePay tiles in prod when no real
+  // provider is configured. Backend /init endpoints also 503 so a
+  // direct API hit still surfaces a "coming soon" message.
+  const {
+    bank_connect_enabled: bankConnectEnabled,
+    mobilepay_enabled: mobilepayEnabled,
+  } = useFeatures();
   const [searchParams, setSearchParams] = useSearchParams();
   const [profile, setProfile] = useState(null);
   const [grants, setGrants] = useState([]);
@@ -670,79 +678,85 @@ export default function ConnectionsPage() {
 
       {/* Grid of integration cards */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {/* Bank */}
-        <ConnectionCard
-          icon="Landmark"
-          title={t("connBankTitle") || "Bank reconciliation"}
-          description={
-            t("connBankDesc") ||
-            "Upload your netbank CSV (Danske, Nordea, Jyske, Spar Nord, Lunar) — BonBox auto-matches payments to your fakturaer within ±2 kr."
-          }
-          status={
-            activeBankConnections.length > 0
-              ? "connected"
-              : derived.bank.status
-          }
-          statusLabel={
-            activeBankConnections.length > 0
-              ? `Connected · ${activeBankConnections.length} account${activeBankConnections.length > 1 ? "s" : ""}`
-              : derived.bank.label
-          }
-          primaryAction={{
-            label: activeBankConnections.length > 0
-              ? (t("connManage") || "Manage")
-              : (t("connConnect") || "Connect bank"),
-            to: "/bank-import",
-          }}
-          comingSoonNote={
-            activeBankConnections.length === 0
-              ? (t("connBankAiia") || "Aiia direct connection available on /bank-import.")
-              : undefined
-          }
-        />
+        {/* Bank reconciliation tile — Task #106: hide in prod when
+            no real PSD2 provider configured. CSV import still works
+            via /bank-import (we always show that page; just no
+            "automatic connect" claim). Existing active connections
+            stay visible even when the feature flag is off, so users
+            who DID connect a real bank in the past still see it. */}
+        {(bankConnectEnabled || activeBankConnections.length > 0) && (
+          <ConnectionCard
+            icon="Landmark"
+            title={t("connBankTitle") || "Bank reconciliation"}
+            description={
+              t("connBankDesc") ||
+              "Upload your netbank CSV (Danske, Nordea, Jyske, Spar Nord, Lunar) — BonBox auto-matches payments to your fakturaer within ±2 kr."
+            }
+            status={
+              activeBankConnections.length > 0
+                ? "connected"
+                : derived.bank.status
+            }
+            statusLabel={
+              activeBankConnections.length > 0
+                ? `Connected · ${activeBankConnections.length} account${activeBankConnections.length > 1 ? "s" : ""}`
+                : derived.bank.label
+            }
+            primaryAction={{
+              label: activeBankConnections.length > 0
+                ? (t("connManage") || "Manage")
+                : (t("connConnect") || "Connect bank"),
+              to: "/bank-import",
+            }}
+            comingSoonNote={
+              activeBankConnections.length === 0
+                ? (t("connBankAiia") || "Aiia direct connection available on /bank-import.")
+                : undefined
+            }
+          />
+        )}
 
-        {/* MobilePay Erhverv (Task #71) — live OAuth flow.
-            Shows a different CTA depending on connection state:
-              * no connection      → "Connect MobilePay Erhverv"
-              * active connection  → "Sync now" + "Disconnect"
-              * expired connection → "Re-connect"
-            Card-only — the active connection detail (last sync timestamp,
-            disconnect button) lives in the dedicated panel above the
-            grid when status === 'active'. */}
-        <ConnectionCard
-          icon="CreditCard"
-          title={t("mpConnectTitle") || "MobilePay Erhverv"}
-          description={
-            t("connMobilePayDesc") ||
-            "Direct settlement import — 30-50% of café revenue, auto-matched daily. No more typing MobilePay totals into your daily close."
-          }
-          status={
-            mpConnection?.status === "active"
-              ? "connected"
-              : mpConnection?.status === "expired"
-              ? "pending"
-              : "disconnected"
-          }
-          statusLabel={
-            mpConnection?.status === "active"
-              ? (t("mpStatusActive") || "Connected · auto-syncs nightly")
-              : mpConnection?.status === "expired"
-              ? (t("mpStatusExpired") || "Connection expired")
-              : (t("mpStatusNotConnected") || "Not connected")
-          }
-          badge={t("connStarterBadge") || "Starter+"}
-          primaryAction={{
-            label: mpBusy
-              ? (t("connecting") || "Connecting…")
-              : mpConnection?.status === "active"
-              ? (t("mpManage") || "Manage")
-              : mpConnection?.status === "expired"
-              ? (t("mpReconnect") || "Re-connect")
-              : (t("mpConnectCta") || "Connect MobilePay Erhverv"),
-            onClick: mpConnection?.status === "active" ? undefined : connectMobilePay,
-            disabled: mpBusy,
-          }}
-        />
+        {/* MobilePay Erhverv tile — Task #106: hide in prod when no
+            real Vipps partnership is configured. Existing active
+            connections stay visible (defensive — if you ever flip
+            the feature back off, owners still see their already-
+            linked MobilePay) but no new connect CTA is shown. */}
+        {(mobilepayEnabled || mpConnection?.status === "active") && (
+          <ConnectionCard
+            icon="CreditCard"
+            title={t("mpConnectTitle") || "MobilePay Erhverv"}
+            description={
+              t("connMobilePayDesc") ||
+              "Direct settlement import — 30-50% of café revenue, auto-matched daily. No more typing MobilePay totals into your daily close."
+            }
+            status={
+              mpConnection?.status === "active"
+                ? "connected"
+                : mpConnection?.status === "expired"
+                ? "pending"
+                : "disconnected"
+            }
+            statusLabel={
+              mpConnection?.status === "active"
+                ? (t("mpStatusActive") || "Connected · auto-syncs nightly")
+                : mpConnection?.status === "expired"
+                ? (t("mpStatusExpired") || "Connection expired")
+                : (t("mpStatusNotConnected") || "Not connected")
+            }
+            badge={t("connStarterBadge") || "Starter+"}
+            primaryAction={{
+              label: mpBusy
+                ? (t("connecting") || "Connecting…")
+                : mpConnection?.status === "active"
+                ? (t("mpManage") || "Manage")
+                : mpConnection?.status === "expired"
+                ? (t("mpReconnect") || "Re-connect")
+                : (t("mpConnectCta") || "Connect MobilePay Erhverv"),
+              onClick: mpConnection?.status === "active" ? undefined : connectMobilePay,
+              disabled: mpBusy,
+            }}
+          />
+        )}
 
         {/* Revisor (accountant login) */}
         <ConnectionCard
