@@ -31,6 +31,8 @@ Key management:
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import logging
 import os
 from functools import lru_cache
@@ -47,6 +49,48 @@ class CryptoConfigError(RuntimeError):
 
 def _is_production() -> bool:
     return os.environ.get("ENVIRONMENT", "development").lower() == "production"
+
+
+def _coerce_to_fernet_key(secret: str) -> str:
+    """Take an arbitrary operator-provided secret and return a value
+    that ``Fernet`` will accept (32-byte url-safe base64).
+
+    Why this exists: operators routinely set APP_SECRET_KEY to a
+    random string (`openssl rand -hex 32`, `python -c 'secrets.token_hex(32)'`,
+    a JWT secret, etc.) without realizing Fernet wants a specific
+    base64 shape. The old behavior was to raise CryptoConfigError on
+    every encrypt() call — surfacing as opaque 500s on every
+    bank-connect callback in prod.
+
+    Strategy: if the secret is already a valid Fernet key, use it
+    verbatim. Otherwise derive a deterministic Fernet key from it via
+    SHA-256 → url-safe base64. The derivation is stable (same input
+    → same key) so rows encrypted under the derived key remain
+    decryptable across restarts.
+
+    Security note: we're not weakening the protection — operator-
+    chosen randomness is preserved as the SHA-256 preimage. We're
+    just normalizing the FORMAT.
+    """
+    candidate = secret.encode() if isinstance(secret, str) else secret
+    try:
+        # Already valid Fernet?  Honor it as-is.
+        Fernet(candidate)
+        return secret if isinstance(secret, str) else secret.decode()
+    except (ValueError, TypeError):
+        pass
+    # Derive 32 raw bytes via SHA-256, then url-safe base64 (which is
+    # what Fernet wants on the wire).
+    raw = hashlib.sha256(candidate).digest()  # 32 bytes
+    derived = base64.urlsafe_b64encode(raw).decode("ascii")
+    logger.warning(
+        "crypto: APP_SECRET_KEY is not a Fernet-formatted key — "
+        "deriving one via SHA-256 so encrypt/decrypt work. To migrate "
+        "to a native Fernet key, set APP_SECRET_KEY_PREVIOUS to the "
+        "current value and APP_SECRET_KEY to a new "
+        "Fernet.generate_key()."
+    )
+    return derived
 
 
 @lru_cache(maxsize=1)
@@ -78,19 +122,24 @@ def _get_fernet() -> MultiFernet:
         )
         primary = Fernet.generate_key().decode()
 
+    # Coerce arbitrary operator-provided secrets into a Fernet-shaped
+    # key so encrypt() doesn't 500 in prod on misconfigured deploys.
+    # See `_coerce_to_fernet_key` docstring.
+    primary_key = _coerce_to_fernet_key(primary)
+
     keys: list[Fernet] = []
     try:
-        keys.append(Fernet(primary.encode() if isinstance(primary, str) else primary))
+        keys.append(Fernet(primary_key.encode()))
     except (ValueError, TypeError) as e:
+        # Should be unreachable after _coerce_to_fernet_key but keep
+        # the explicit fail-loud for completeness.
         raise CryptoConfigError(
-            f"APP_SECRET_KEY is not a valid Fernet key (must be 32-byte "
-            f"url-safe base64). Generate one with "
-            f"Fernet.generate_key(). {e}"
+            f"APP_SECRET_KEY could not be coerced to a Fernet key. {e}"
         ) from e
 
     if previous:
         try:
-            keys.append(Fernet(previous.encode()))
+            keys.append(Fernet(_coerce_to_fernet_key(previous).encode()))
         except (ValueError, TypeError) as e:
             # Don't fail startup over a bad previous key — log + skip.
             # Primary still works.

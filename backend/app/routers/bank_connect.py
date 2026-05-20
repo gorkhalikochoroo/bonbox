@@ -326,11 +326,22 @@ def bank_callback(
         # Defensive — shouldn't happen; FK should prevent it. Bail safely.
         raise HTTPException(status_code=404, detail="Owner account missing")
 
+    # Truncated state for log readability — full state in audit row.
+    log_state = (state[:8] + "…") if len(state) > 8 else state
+    logger.info(
+        "bank_connect.callback: entered handler conn_id=%s user_id=%s "
+        "status=%s state=%s",
+        conn.id, conn.user_id, conn.status, log_state,
+    )
     try:
         client = get_aiia_client()
         result = client.exchange_code(code)
     except AiiaClientError as e:
-        logger.exception("bank_connect.callback: Aiia exchange_code failed")
+        logger.exception(
+            "bank_connect.callback: Aiia exchange_code failed conn_id=%s "
+            "kind=%s",
+            conn.id, getattr(e, "kind", "?"),
+        )
         # We don't 500 — friendlier to bounce the owner back with an
         # error flag so the UI can show "Bank connection failed, try
         # again". State token is still consumed below to prevent replay.
@@ -351,34 +362,51 @@ def bank_callback(
 
     refresh_token = result.get("refresh_token") or ""
     if not refresh_token:
+        logger.error(
+            "bank_connect.callback: exchange_code returned empty refresh_token "
+            "conn_id=%s result_keys=%s",
+            conn.id, list(result.keys()),
+        )
         raise HTTPException(
             status_code=502,
             detail="Aiia exchange_code returned no refresh token",
         )
 
-    # Encrypt-at-rest. Fernet token is bytes — stored in LargeBinary col.
-    conn.refresh_token_enc = encrypt(refresh_token)
-    conn.aiia_account_id = result.get("account_id") or ""
-    conn.account_label = result.get("account_label") or None
-    conn.status = "active"
-    # Clear the state so a stolen URL can't be replayed.
-    conn.consent_state = None
-    conn.consent_state_expires_at = None
-    expires_in = int(result.get("expires_in") or 7776000)  # 90d default
-    conn.consent_expires_at = utc_now() + timedelta(seconds=expires_in)
+    try:
+        # Encrypt-at-rest. Fernet token is bytes — stored in LargeBinary col.
+        conn.refresh_token_enc = encrypt(refresh_token)
+        conn.aiia_account_id = result.get("account_id") or ""
+        conn.account_label = result.get("account_label") or None
+        conn.status = "active"
+        # Clear the state so a stolen URL can't be replayed.
+        conn.consent_state = None
+        conn.consent_state_expires_at = None
+        expires_in = int(result.get("expires_in") or 7776000)  # 90d default
+        conn.consent_expires_at = utc_now() + timedelta(seconds=expires_in)
 
-    audit_service.record(
-        db, user, "bank_connect.activated",
-        entity_type="bank_connection", entity_id=conn.id,
-        after={
-            "bank_slug": conn.bank_slug,
-            "aiia_account_id": conn.aiia_account_id,
-            "consent_expires_at": conn.consent_expires_at.isoformat() if conn.consent_expires_at else None,
-            "sandbox_mode": conn.sandbox_mode,
-        },
-        ip_address=_client_ip(request),
-    )
-    db.commit()
+        audit_service.record(
+            db, user, "bank_connect.activated",
+            entity_type="bank_connection", entity_id=conn.id,
+            after={
+                "bank_slug": conn.bank_slug,
+                "aiia_account_id": conn.aiia_account_id,
+                "consent_expires_at": conn.consent_expires_at.isoformat() if conn.consent_expires_at else None,
+                "sandbox_mode": conn.sandbox_mode,
+            },
+            ip_address=_client_ip(request),
+        )
+        db.commit()
+    except Exception:  # noqa: BLE001
+        # We've made it past the exchange — log everything so the demo
+        # doesn't dead-end with an unactionable 500. The user still sees
+        # the SAFE-wrapper toast, but the cause hits Render logs.
+        logger.exception(
+            "bank_connect.callback: post-exchange persistence failed conn_id=%s "
+            "account_id=%s refresh_token_len=%d",
+            conn.id, result.get("account_id"), len(refresh_token),
+        )
+        db.rollback()
+        raise
 
     # Bounce back to the connections page so the owner sees a "🎉
     # Bank connected" toast.
