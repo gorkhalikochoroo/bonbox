@@ -147,6 +147,24 @@ class BankConnection(Base):
         Boolean, nullable=False, default=True,
     )
 
+    # GoCardless / multi-provider support — Task #104.
+    # The provider's own identifier for the long-lived consent.  For
+    # GoCardless: the requisition UUID (grants 90-day access to one or
+    # more accounts under a single SCA).  Threaded from /init to
+    # /callback so the callback handler can ask the provider which
+    # accounts the user just linked.  NULL for Aiia (uses the code-
+    # exchange OAuth flow instead).
+    provider_requisition_id: Mapped[str | None] = mapped_column(
+        String(100), nullable=True,
+    )
+    # The provider's identifier for the institution (bank).  GoCardless
+    # uses things like "DANSKEBANK_DABADKKK".  Distinct from `bank_slug`
+    # which is our internal short name — kept separately so we can
+    # display the provider's canonical bank label without round-trips.
+    provider_institution_id: Mapped[str | None] = mapped_column(
+        String(100), nullable=True,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, nullable=False,
     )

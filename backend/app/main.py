@@ -1162,6 +1162,19 @@ _migrations = [
     #   uses to skip a second send if the job runs twice in one day.
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_brief_email_enabled BOOLEAN NOT NULL DEFAULT TRUE",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_brief_emailed_at TIMESTAMP",
+
+    # ── Migration 051: GoCardless / multi-provider bank linking (Task #104) ─
+    # provider_requisition_id stores the GoCardless requisition UUID we
+    # mint at /init time.  At /callback we need to fetch the requisition
+    # to discover linked account IDs — GoCardless doesn't do an
+    # OAuth-style code exchange (a single requisition ID grants 90-day
+    # access).  Nullable because Aiia (the existing provider) doesn't
+    # use it.  100 chars is plenty for any provider's identifier.
+    "ALTER TABLE bank_connections ADD COLUMN IF NOT EXISTS provider_requisition_id VARCHAR(100)",
+    # institution_id stores the GoCardless bank identifier (e.g.
+    # "DANSKEBANK_DABADKKK"). Aiia uses bank_slug for the same purpose;
+    # we keep both so each provider's native id stays addressable.
+    "ALTER TABLE bank_connections ADD COLUMN IF NOT EXISTS provider_institution_id VARCHAR(100)",
 ]
 
 

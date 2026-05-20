@@ -90,22 +90,38 @@ class AiiaTransaction:
 
 
 class AiiaClient(Protocol):
-    """The interface every implementation must honour. Used by the
-    router + cron — both stay decoupled from which backend (mock /
-    sandbox / live) is wired in."""
+    """The interface every bank-data provider implementation honours.
+    Used by the router + cron so both stay decoupled from which
+    backend (mock / Aiia sandbox / Aiia live / GoCardless) is wired
+    in.  Providers may declare additional optional kwargs (see
+    `on_provider_ids` for GoCardless); the router feature-detects
+    via inspect.signature() before passing them.
+    """
 
-    def init_consent(self, redirect_uri: str, state: str, *, bank_slug: str | None = None) -> str:
+    def init_consent(
+        self,
+        redirect_uri: str,
+        state: str,
+        *,
+        bank_slug: str | None = None,
+        # Optional per-provider extension — GoCardless uses this to
+        # surface its requisition_id + institution_id back to the
+        # router for persistence on the BankConnection row.  Aiia
+        # implementations omit it.
+        # on_provider_ids: Callable[..., None] | None = None,
+    ) -> str:
         """Return the URL the owner must visit at their bank's SCA
         flow. `state` MUST round-trip back to our callback unchanged."""
         ...
 
     def exchange_code(self, code: str) -> dict:
-        """Trade an authorization code for tokens + account info.
-        Returns: {
+        """Trade an authorization code (Aiia) or resolve a
+        requisition (GoCardless via the requisition_id kwarg) for
+        tokens + account info.  Returns: {
           "account_id": str,
           "account_label": str | None,
-          "refresh_token": str,
-          "expires_in": int,        # seconds (consent TTL — ~90d / 7776000)
+          "refresh_token": str,    # for GoCardless: stores requisition_id
+          "expires_in": int,       # seconds (consent TTL — ~90d / 7776000)
         }"""
         ...
 
@@ -394,12 +410,35 @@ def get_aiia_client() -> AiiaClient:
     """Return the right client for the current env. Default = mock so
     contributors can run tests without setup.
 
-    Env vars:
-      AIIA_ENV       — 'mock' (default) | 'sandbox' | 'live'
-      AIIA_BASE_URL  — required for sandbox / live
-      AIIA_CLIENT_ID
-      AIIA_CLIENT_SECRET
+    Provider selection:
+      BANK_PROVIDER=gocardless  → real EU PSD2 via GoCardless Bank
+        Account Data (formerly Nordigen). Free tier, no commercial
+        agreement. Requires GOCARDLESS_SECRET_ID + GOCARDLESS_SECRET_KEY.
+        See app.services.gocardless_client.
+      (unset) → fall back to AIIA_ENV legacy behavior:
+        AIIA_ENV='mock' (default)  → MockAiiaClient
+        AIIA_ENV='sandbox'         → SandboxAiiaClient (501 placeholder)
+        AIIA_ENV='live'            → LiveAiiaClient   (501 placeholder)
+
+    Falling back to MockAiiaClient when the requested provider fails to
+    construct (e.g. missing creds) keeps the rest of the app alive —
+    bank-connect just becomes demo-only until config is fixed.
     """
+    provider = (os.environ.get("BANK_PROVIDER") or "").strip().lower()
+    if provider == "gocardless":
+        try:
+            # Local import — avoids forcing httpx import on test runs
+            # that don't touch GoCardless.
+            from app.services.gocardless_client import get_gocardless_client
+            return get_gocardless_client()
+        except AiiaClientError as e:
+            logger.warning(
+                "bank: BANK_PROVIDER=gocardless requested but config "
+                "invalid (%s) — falling back to mock",
+                e,
+            )
+            return MockAiiaClient()
+
     env = (os.environ.get("AIIA_ENV") or "mock").strip().lower()
     if env in ("sandbox", "live"):
         base = os.environ.get("AIIA_BASE_URL", "")

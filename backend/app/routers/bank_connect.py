@@ -221,17 +221,34 @@ def init_bank_connection(
     db.add(conn)
     db.flush()
 
-    # Ask Aiia for the consent URL. Errors → 502 so caller can retry.
+    # GoCardless threads `requisition_id` + `institution_id` back to
+    # us at /init time via this callback so we can persist them on the
+    # conn row.  At /callback we read them back to resolve the SCA
+    # round-trip (GoCardless doesn't do an OAuth code exchange).
+    # Aiia ignores `on_provider_ids` — its kwargs dict drops it.
+    def _persist_provider_ids(*, requisition_id: str, institution_id: str) -> None:
+        conn.provider_requisition_id = requisition_id
+        conn.provider_institution_id = institution_id
+
+    # Ask the provider for the consent URL. Errors → 502 so caller can retry.
     try:
         client = get_aiia_client()
-        consent_url = client.init_consent(
-            redirect_uri=_callback_url(request),
-            state=state,
-            bank_slug=body.bank_slug,
-        )
+        init_kwargs: dict = {
+            "redirect_uri": _callback_url(request),
+            "state": state,
+            "bank_slug": body.bank_slug,
+        }
+        # Only pass the callback to clients that accept it (GoCardless).
+        # Aiia's Protocol signature doesn't list it; we feature-detect
+        # to keep both code paths clean and avoid surprising the mock.
+        import inspect
+        sig_params = inspect.signature(client.init_consent).parameters
+        if "on_provider_ids" in sig_params:
+            init_kwargs["on_provider_ids"] = _persist_provider_ids
+        consent_url = client.init_consent(**init_kwargs)
     except AiiaClientError as e:
         db.rollback()
-        logger.exception("bank_connect.init: Aiia init_consent failed")
+        logger.exception("bank_connect.init: provider init_consent failed")
         raise HTTPException(status_code=502, detail=str(e)) from e
 
     audit_service.record(
@@ -260,30 +277,43 @@ def init_bank_connection(
 @router.get("/callback")
 def bank_callback(
     request: Request,
-    code: str = Query(..., min_length=4, max_length=512),
-    state: str = Query(..., min_length=8, max_length=128),
+    code: str | None = Query(None, min_length=4, max_length=512),
+    state: str | None = Query(None, min_length=8, max_length=128),
+    ref: str | None = Query(None, min_length=8, max_length=128),
     db: Session = Depends(get_db),
 ):
-    """Aiia → us. PUBLIC endpoint — the owner is mid-SCA and has no
-    BonBox session in this redirect. Authn = the `state` token, which
-    we minted at init time and bound to a specific BankConnection row.
+    """Provider → us. PUBLIC endpoint — the owner is mid-SCA and has no
+    BonBox session in this redirect. Authn = the `state` token (or
+    GoCardless's `ref`, which IS our state), bound to a specific
+    BankConnection row at /init time.
+
+    Multi-provider callback shapes:
+      * Aiia:        ?code=…&state=…
+      * GoCardless:  ?ref=…  (no code; we resolve via stored requisition_id)
 
     Flow:
-      1. Look up BankConnection by consent_state. 400 if unknown.
+      1. Look up BankConnection by consent_state == (state or ref).
+         400 if unknown.
       2. Refuse if status != 'pending' (replay defense).
-      3. Exchange code at Aiia → refresh_token + account_id.
-      4. AES-encrypt refresh_token; stamp aiia_account_id, status='active'.
+      3. Resolve the round-trip:
+         - Aiia:        exchange_code(code) → tokens + account_id
+         - GoCardless:  exchange_code(code, requisition_id=conn.provider_requisition_id)
+                        → account_id (requisition_id stored as the
+                        "refresh_token" slot — it's the long-lived grant)
+      4. Fernet-encrypt the token; stamp account_id; status='active'.
       5. Audit + redirect to /connections?bank_connected=1.
 
-    OPS NOTE (Audit P2 — Task #79): Aiia mandates query-string
-    callback so `code` + `state` land in the proxy access log by
-    default.  The proxy MUST strip both query params before logging.
-    See `docs/aiia-integration-spec.md` §7 ("Callback URL query
-    string") for the Render/nginx configuration.  The `state` token
-    has a 10-min TTL (consent_state_expires_at) and `code` is
-    one-shot, so a leaked log row is bounded — but redaction is the
-    right hygiene.
+    OPS NOTE (Audit P2 — Task #79): the callback lands in the proxy
+    access log by default.  The proxy MUST strip `code`, `state`, and
+    `ref` query params before logging.  Token TTL (consent_state_expires_at:
+    10 min) bounds leaked-log exposure.
     """
+    # GoCardless sends ?ref=<reference> only.  Reference == our state
+    # token by construction in init_consent, so map it back into state.
+    if ref and not state:
+        state = ref
+    if not state:
+        raise HTTPException(status_code=422, detail="state or ref required")
     conn = (
         db.query(BankConnection)
         .filter(BankConnection.consent_state == state)
@@ -335,10 +365,20 @@ def bank_callback(
     )
     try:
         client = get_aiia_client()
-        result = client.exchange_code(code)
+        # Feature-detect: GoCardless's exchange_code accepts a
+        # `requisition_id` keyword.  Aiia's doesn't.  Inspect the sig
+        # so the same router code drives both.  `code` may be None for
+        # GoCardless (it sends only `ref`); the GoCardless client
+        # ignores it and uses requisition_id instead.
+        import inspect
+        exch_params = inspect.signature(client.exchange_code).parameters
+        exch_kwargs: dict = {}
+        if "requisition_id" in exch_params:
+            exch_kwargs["requisition_id"] = conn.provider_requisition_id
+        result = client.exchange_code(code or "", **exch_kwargs)
     except AiiaClientError as e:
         logger.exception(
-            "bank_connect.callback: Aiia exchange_code failed conn_id=%s "
+            "bank_connect.callback: provider exchange_code failed conn_id=%s "
             "kind=%s",
             conn.id, getattr(e, "kind", "?"),
         )

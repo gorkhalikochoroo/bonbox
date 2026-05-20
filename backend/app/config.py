@@ -122,6 +122,20 @@ class Settings(BaseSettings):
     # API lives at api.bonbox.dk while the SPA is at app.bonbox.dk.
     AIIA_REDIRECT_URI: str = ""
 
+    # ── GoCardless Bank Account Data — Task #104 ────────────────────────
+    # Free-tier real PSD2 access (formerly Nordigen). Sign up at
+    # https://bankaccountdata.gocardless.com/ to get secret_id + secret_key.
+    # Set BANK_PROVIDER=gocardless to route the bank-connect flow through
+    # GoCardless instead of the in-process mock.  Covers Danske, Nordea,
+    # Jyske, Lunar, Revolut + 2400 other EU banks with real MitID/SCA.
+    BANK_PROVIDER: str = ""  # "" → fall back to AIIA_ENV; "gocardless" → real
+    GOCARDLESS_SECRET_ID: str = ""
+    GOCARDLESS_SECRET_KEY: str = ""
+    # Base URL — production is correct for both sandbox + real banks.
+    # GoCardless doesn't have a separate sandbox host; sandbox lives on
+    # the SANDBOXFINANCE_SFIN0000 institution_id.
+    GOCARDLESS_BASE_URL: str = "https://bankaccountdata.gocardless.com/api/v2"
+
     # ── Web Push (VAPID) — Task #72 ─────────────────────────────────────
     # VAPID identifies BonBox to the push providers (FCM / Apple Push /
     # Mozilla autopush). Without these the /api/push endpoints 503 and
