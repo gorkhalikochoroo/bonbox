@@ -270,9 +270,13 @@ function MomsCountdownSpotlight() {
           <p className="text-[12px] font-medium uppercase tracking-[0.1em] text-stone-500 mb-1">
             {tx(t, "landingMomsCountdownLabel", "Dage tilbage")}
           </p>
+          {/* Giant 13 — Inter Display weight 800 (heaviest), tightest
+              tracking we use anywhere.  Without the serif this could
+              read as bland; the weight + the emerald-700 + the
+              tabular-nums gives it product-grade gravity. */}
           <p
-            className="font-serif-display text-[120px] sm:text-[140px] leading-[0.9] tracking-tight text-emerald-700 tabular-nums"
-            style={{ fontWeight: 500 }}
+            className="text-[120px] sm:text-[140px] leading-[0.9] tracking-[-0.06em] text-emerald-700 tabular-nums"
+            style={{ fontWeight: 800 }}
           >
             13
           </p>
@@ -382,32 +386,28 @@ function Eyebrow({ children }) {
   );
 }
 
-// ─── Heading — Task #109: editorial restraint via two variants.
+// ─── Heading — Task #110 update: Inter throughout, no serif.
 //
-// `serif` is the warm editorial moment — used ONLY at the 3 big
-// emotional pulls of the page (hero H1, MOMS spotlight, "Built to
-// grow your business"). Mercury's secret: serif everywhere reads as
-// "designer portfolio," serif at three moments reads as confidence.
+// We tried serif first (Fraunces, then variant-restraint).  Manoj's
+// call: skews designer-portfolio for a finance SaaS audience.  Now
+// Inter weight 700 with tight tracking — the Linear / Vercel / Plain
+// default for section titles.  One family, one voice, varying
+// weight + scale + tracking does the work.
 //
-// `sans` (default) is Inter at weight 700 with tight tracking —
-// the Linear / Plain / Vercel default for section titles. Reads as
-// "real product," not "designer site." We use it for the technical
-// / capability-list sections (features, dense index, how it works,
-// FAQ) where editorial warmth would feel forced.
+// `variant` prop is kept for backward compatibility with existing
+// callsites that pass variant="serif" — it's now a no-op (both
+// variants render identically as Inter).  Existing call sites work
+// untouched; the prop can be removed in a follow-up clean-up.
 function Heading({
   as: As = "h2",
-  variant = "sans",
+  variant = "sans", // eslint-disable-line no-unused-vars
   className = "",
   children,
 }) {
-  const isSerif = variant === "serif";
-  const fontClass = isSerif
-    ? "font-serif-display text-[30px] sm:text-[40px] lg:text-[48px] leading-[1.08]"
-    : "text-[28px] sm:text-[36px] lg:text-[42px] leading-[1.1] tracking-[-0.02em]";
   return (
     <As
-      className={`${fontClass} text-gray-900 ${className}`}
-      style={{ fontWeight: isSerif ? 600 : 700 }}
+      className={`text-[28px] sm:text-[38px] lg:text-[46px] leading-[1.08] tracking-[-0.028em] text-gray-900 ${className}`}
+      style={{ fontWeight: 700 }}
     >
       {children}
     </As>
@@ -694,15 +694,20 @@ export default function LandingPage() {
                 so urgency precedes promise. */}
             <FounderRatePill />
 
+            {/* Hero H1 — Task #110 update: Inter Display weight
+                800 with the tightest tracking (-0.035em) we use on
+                the page.  Reads as "confident product" at any
+                viewport.  Line 2 stays muted (stone-500) so the
+                payoff phrase recedes into a secondary emphasis. */}
             <h1
-              className="font-serif-display text-[44px] sm:text-[58px] lg:text-[68px] leading-[1.03] text-gray-900 mt-6"
-              style={{ fontWeight: 600 }}
+              className="text-[44px] sm:text-[58px] lg:text-[68px] leading-[1.04] tracking-[-0.035em] text-gray-900 mt-6"
+              style={{ fontWeight: 800 }}
             >
               {tx_(
                 "landingHeroLine1",
                 "Luk dagen på 30 sekunder.",
               )}{" "}
-              <span className="text-stone-500">
+              <span className="text-stone-500 font-bold">
                 {tx_("landingHeroLine2", "Så er du fri.")}
               </span>
             </h1>
@@ -782,9 +787,12 @@ export default function LandingPage() {
         <div className="grid lg:grid-cols-[1fr_1.05fr] gap-12 lg:gap-20 items-center">
           <div className="max-w-lg">
             <Eyebrow>{tx_("landingMomsTag", "Aldrig mere en MOMS-bøde")}</Eyebrow>
+            {/* MOMS spotlight H2 — Inter weight 700 with the same
+                tracking as section headings, but a slightly larger
+                ramp so it still reads as a featured pull. */}
             <h2
-              className="font-serif-display text-[34px] sm:text-[44px] lg:text-[52px] leading-[1.08] text-gray-900"
-              style={{ fontWeight: 600 }}
+              className="text-[34px] sm:text-[44px] lg:text-[52px] leading-[1.05] tracking-[-0.03em] text-gray-900"
+              style={{ fontWeight: 700 }}
             >
               {tx_(
                 "landingMomsHeading",

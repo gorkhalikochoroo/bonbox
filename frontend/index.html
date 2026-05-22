@@ -18,19 +18,21 @@
     <meta name="apple-mobile-web-app-title" content="BonBox" />
     <link rel="manifest" href="/manifest.json" />
 
-    <!-- Editorial type stack (Task #109 — landing redesign).
-         Fraunces = warm variable serif for marketing display H1s
-         (Mercury / Plain / Tactile aesthetic).  Inter for body.
-         We preconnect to fonts.googleapis + .gstatic so the
-         landing-page first paint isn't blocked by an extra TLS
-         handshake.  Both fonts are display=swap so we never block
-         render — the system font is shown until the web font lands,
-         then we swap in. -->
+    <!-- Display type (Task #109 / Task #110 update).  We started
+         with Fraunces serif but Manoj's read was that it pushed
+         the page toward "designer portfolio."  Now Inter for
+         everything — body, H2, hero H1.  Same family, varying
+         weight + tracking.  This is what Linear, Vercel, Plain
+         ship and it's the strongest "real product, trust me"
+         signal for a finance SaaS audience.
+
+         Preconnect avoids a TLS handshake on first paint.
+         display=swap shows the system font until Inter lands. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
     />
 
     <!-- Open Graph for Facebook sharing -->

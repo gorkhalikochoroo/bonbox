@@ -41,14 +41,22 @@ body {
   padding-right: env(safe-area-inset-right);
 }
 
-/* Editorial serif for marketing display headlines (Task #109).
-   Fraunces is a variable serif — we use weights 500/600/700 only.
-   `opsz` axis is set to 96 (display-size optical for big H1s).
-   Apply via the `font-serif-display` utility class in JSX. */
+/* Marketing display headlines (Task #109 / Task #110 update).
+   We tried Fraunces serif first — Manoj's call was that it skewed
+   "designer portfolio" for a finance SaaS audience.  Now: Inter at
+   weight 700 with tight tracking is the display H1 utility.
+   Same family as body so the page reads as one product, not a
+   moodboard.  Tighter tracking + heavier weight is what Linear,
+   Vercel, Plain all do at the headline scale.
+
+   The .font-serif-display class is kept as a no-op (just Inter)
+   so any stale call-sites keep working through deploy without
+   visual breakage. */
 .font-serif-display {
-  font-family: "Fraunces", ui-serif, Georgia, "Times New Roman", serif;
-  font-variation-settings: "opsz" 96;
-  letter-spacing: -0.018em;
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto,
+    sans-serif;
+  font-feature-settings: "ss01", "cv11";
+  letter-spacing: -0.03em;
 }
 
 .dark body {
