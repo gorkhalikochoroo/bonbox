@@ -18,6 +18,7 @@ def send_email(
     html: str,
     *,
     reply_to: str | None = None,
+    headers: dict[str, str] | None = None,
 ) -> bool:
     """Send an email via Resend. Returns True on success.
 
@@ -29,6 +30,12 @@ def send_email(
     no way to verify the email was legitimate — both of which made
     the autopilot send pattern look more like a spam relay than a
     business tool.
+
+    `headers` (Task #108): arbitrary RFC 5322 headers to add to the
+    outgoing message.  Primary use today: List-Unsubscribe +
+    List-Unsubscribe-Post for RFC 8058 one-click unsubscribe (Gmail
+    / Yahoo / Outlook 2024 requirements).  Resend accepts these via
+    the top-level `headers` field on its API.
     """
     if not resend.api_key:
         print("RESEND_API_KEY not set, skipping email")
@@ -42,6 +49,13 @@ def send_email(
         }
         if reply_to:
             payload["reply_to"] = reply_to
+        if headers:
+            # Resend wants headers as a flat dict of name → value.
+            # Filter to string values; drop any None to avoid 422s.
+            payload["headers"] = {
+                k: v for k, v in headers.items()
+                if v is not None and isinstance(v, str)
+            }
         resend.Emails.send(payload)
         return True
     except Exception as e:

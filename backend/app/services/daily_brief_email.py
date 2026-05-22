@@ -174,6 +174,48 @@ def _insight_li(ins: dict, app_url: str) -> str:
     )
 
 
+def _build_unsubscribe_url(user: User) -> str:
+    """Mint a signed one-click unsubscribe URL for this user + the
+    daily_brief topic.  Task #108.
+
+    Routes to the BACKEND host (api.bonbox.dk) so the public endpoint
+    handles it without a frontend hop — Gmail's one-click POST goes
+    straight to the same URL.  Token has a 30-day TTL.
+    """
+    import os
+    from app.config import settings
+    from app.utils.email_unsubscribe_token import make_unsubscribe_token
+    # Prefer an explicit API base URL when set; otherwise reuse the
+    # AIIA_REDIRECT_URI host (which we know points at the API), and
+    # finally fall back to FRONTEND_URL (dev/local).  This keeps
+    # operators from needing yet another env var in prod when the
+    # rest of the API URL config is already correct.
+    api_base = (
+        os.environ.get("PUBLIC_API_URL")
+        or _api_base_from_redirect()
+        or settings.FRONTEND_URL
+    ).rstrip("/")
+    token = make_unsubscribe_token(str(user.id), "daily_brief")
+    return f"{api_base}/api/email/unsubscribe?token={token}"
+
+
+def _api_base_from_redirect() -> str | None:
+    """Derive the API host from AIIA_REDIRECT_URI if it's set — saves
+    one env var in production.  Returns None when no helpful hint."""
+    import os
+    from urllib.parse import urlparse
+    redirect = os.environ.get("AIIA_REDIRECT_URI") or ""
+    if not redirect:
+        return None
+    try:
+        parsed = urlparse(redirect)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}"
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
 def build_brief_html(brief_payload: dict, user: User) -> str:
     """Render the brief payload as an HTML email body.
 
@@ -185,7 +227,10 @@ def build_brief_html(brief_payload: dict, user: User) -> str:
     date_label = _safe(brief_payload.get("date_label") or "")
     headline = _safe(brief_payload.get("headline") or "")
     business_name = _safe(getattr(user, "business_name", "") or "")
-    unsubscribe_url = f"{app_url}/profile#notifications"
+    # Task #108: signed one-click unsubscribe URL.  Replaces the old
+    # /profile#notifications anchor that required login (and a hash-
+    # scroll that didn't always work).
+    unsubscribe_url = _build_unsubscribe_url(user)
 
     # Headline CTA — same logic as the card
     headline_cta_path = _safe_cta_path(brief_payload.get("headline_cta_url"))
@@ -366,8 +411,22 @@ def send_brief_to_user(
         date_label = _subject_date_label(brief)
         subject = f"Today at BonBox · {date_label}"
 
-        # 6. Send
-        sent_ok = send_email(user.email, subject, html)
+        # 6. Send — Task #108: include RFC 8058 List-Unsubscribe
+        # headers so Gmail / Yahoo / Outlook 2024 inbox UIs can offer
+        # one-click unsubscribe.  Without these, Gmail will degrade
+        # sender reputation and eventually spam-folder the brief.
+        unsubscribe_url = _build_unsubscribe_url(user)
+        list_unsubscribe = f"<{unsubscribe_url}>, <mailto:unsubscribe@bonbox.dk>"
+        unsubscribe_headers = {
+            "List-Unsubscribe": list_unsubscribe,
+            # RFC 8058: tells the inbox provider that POSTing the URL
+            # with body "List-Unsubscribe=One-Click" will unsubscribe
+            # — they'll show the inline Unsubscribe button.
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        }
+        sent_ok = send_email(
+            user.email, subject, html, headers=unsubscribe_headers,
+        )
         if not sent_ok:
             result["error"] = "send_failed"
             audit_service.record(

@@ -1766,7 +1766,7 @@ def _init_db():
 async def db_readiness_gate(request: Request, call_next):
     path = request.url.path
     # Always allow health checks, root, docs, and CORS preflight through
-    if path in ("/", "/api/health", "/api/health/db", "/api/keepalive", "/api/config/features", "/docs", "/redoc", "/openapi.json") or request.method == "OPTIONS":
+    if path in ("/", "/api/health", "/api/health/db", "/api/keepalive", "/api/config/features", "/api/email/unsubscribe", "/docs", "/redoc", "/openapi.json") or request.method == "OPTIONS":
         return await call_next(request)
     # Return 503 instantly if DB isn't ready yet (non-blocking — won't freeze event loop)
     if not _db_ready.is_set():
@@ -2206,6 +2206,9 @@ app.include_router(khata.router, prefix="/api/khata", tags=["Khata"])
 app.include_router(budget.router, prefix="/api/budgets", tags=["Budgets"])
 app.include_router(loan.router, prefix="/api/loans", tags=["Loans"])
 app.include_router(email_settings.router, prefix="/api/email", tags=["Email"])
+# Task #108 — public one-click unsubscribe (GDPR Art. 7(3) + RFC 8058).
+from app.routers import email_unsubscribe as email_unsubscribe_router
+app.include_router(email_unsubscribe_router.router, prefix="/api/email", tags=["Email"])
 app.include_router(whatsapp.router, prefix="/api/whatsapp", tags=["WhatsApp"])
 app.include_router(weather.router, prefix="/api/weather", tags=["Weather"])
 app.include_router(agent.router, prefix="/api/agent", tags=["AI Agent"])
