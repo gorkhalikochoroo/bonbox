@@ -1262,7 +1262,7 @@ export default function LandingPage() {
           <Eyebrow>{tx_("landingAllTag", "Everything in BonBox")}</Eyebrow>
           <Heading>{tx_("landingAllTitle", "One app. 30+ tools that work together.")}</Heading>
           <p className="mt-5 text-[16px] text-stone-600 leading-relaxed">
-            {tx_("landingAllSub", "BonBox replaces the spreadsheet + POS + bookkeeping glue. Every module shares the same data, so the morning Brief actually knows what you sold yesterday.")}
+            {tx_("landingAllSub", "BonBox replaces the spreadsheet glue between your POS and your bookkeeping. Every module shares the same data, so the morning Brief actually knows what you sold yesterday.")}
           </p>
         </div>
 
@@ -1275,7 +1275,7 @@ export default function LandingPage() {
               titleKey: "landingCatMoney",
               titleFallback: "Money",
               items: [
-                tx_("landingCatMoney1", "POS + Sales"),
+                tx_("landingCatMoney1", "Sales tracking · Z-report capture"),
                 tx_("landingCatMoney2", "Receipt OCR — snap, we fill the expense"),
                 tx_("landingCatMoney3", "Recurring expenses (rent, internet, subs)"),
                 tx_("landingCatMoney4", "Cash Book + cash drawer variance"),
@@ -1518,7 +1518,7 @@ export default function LandingPage() {
               descFallback: "Try BonBox for as long as you like.",
               descKey: "landingPriceFreeDesc",
               features: [
-                tx_("landingFreeF1", "POS + Sales + Expenses"),
+                tx_("landingFreeF1", "Sales + Expenses + Daily Close"),
                 tx_("landingFreeF2", "AI Daily Brief (1× refresh/day)"),
                 tx_("landingFreeF3", "Solo owners · 1 location"),
               ],
@@ -1718,7 +1718,7 @@ export default function LandingPage() {
             },
             {
               q: tx_("landingFaq6Q", "What happens after the 14-day trial?"),
-              a: tx_("landingFaq6A", "You drop to Free automatically — no card, no auto-charge. Free keeps POS + Sales + Expenses + the AI Brief forever. To unlock faktura + bank-match + brand-on-PDF, upgrade to Starter (129 kr/mo founding). Pricing is shown on this page; nothing is hidden."),
+              a: tx_("landingFaq6A", "You drop to Free automatically — no card, no auto-charge. Free keeps Sales + Expenses + Daily Close + the AI Brief forever. To unlock faktura + bank-match + brand-on-PDF, upgrade to Starter (129 kr/mo founding). Pricing is shown on this page; nothing is hidden."),
             },
           ].map((item) => (
             <details key={item.q} className="group">

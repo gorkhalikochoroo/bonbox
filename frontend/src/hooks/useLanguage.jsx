@@ -1594,6 +1594,14 @@ const translations = {
     landingFeatStaffBody: "Schedule autopilot reads the weather forecast, your last 8 weeks of revenue, and DK labor law — proposes next week in one tap. Tweak per shift, publish. Pro-tier cafés save 5–10% on labor without overworking the crew.",
     landingFeatRevisorTitle: "Your revisor stops calling.",
     landingFeatRevisorBody: "Invite your bogholder by email — they get a read-only login, every action audit-logged. No password sharing, no GDPR risk, no monthly \"send me the CSVs\" email. SAF-T + kasserapport + faktura, ready for them whenever.",
+    // Task #112 — honest POS framing.  BonBox is NOT a POS; it
+    // captures Z-reports from external POS (Lightspeed, Square,
+    // SumUp, Loyverse, paper).  These keys keep that promise
+    // consistent across the landing page.
+    landingAllSub: "BonBox replaces the spreadsheet glue between your POS and your bookkeeping. Every module shares the same data, so the morning Brief actually knows what you sold yesterday.",
+    landingCatMoney1: "Sales tracking · Z-report capture",
+    landingFreeF1: "Sales + Expenses + Daily Close",
+    landingFaq6A: "You drop to Free automatically — no card, no auto-charge. Free keeps Sales + Expenses + Daily Close + the AI Brief forever. To unlock faktura + bank-match + brand-on-PDF, upgrade to Starter (129 kr/mo founding). Pricing is shown on this page; nothing is hidden.",
     landingFeature1Title: "Sales & Cash Flow", landingFeature1Desc: "Log sales in 2 taps. See revenue, profit, and cash flow — auto-synced to your cashbook in real-time.",
     landingFeature2Title: "Inventory & Stock", landingFeature2Desc: "Track stock levels, get low-stock alerts, sell items with auto-deduction. Pre-built templates for 21+ business types.",
     landingFeature3Title: "Bar Pour System", landingFeature3Desc: "Buy bottles in bulk, sell by glass. Auto-track pours, deduct stock, and log sales per drink.",
@@ -4077,6 +4085,13 @@ const translations = {
     landingFeatStaffBody: "Vagtplan-autopilot læser vejrudsigt, dine seneste 8 ugers omsætning og dansk arbejdsmiljølov — foreslår næste uge med ét tryk. Juster pr. vagt, publicer. Pro-caféer sparer 5–10% på lønudgifter uden at overarbejde holdet.",
     landingFeatRevisorTitle: "Din revisor stopper med at ringe.",
     landingFeatRevisorBody: "Inviter din bogholder med en email — de får et læs-kun login, alle handlinger audit-logges. Ingen delte passwords, ingen GDPR-risiko, ingen månedlig \"send mig CSVerne\" mail. SAF-T + kasserapport + faktura, klar når de har brug for det.",
+    // Task #112 — ærlig POS-framing.  BonBox er IKKE en POS; vi
+    // læser Z-rapporten fra din eksisterende POS (Lightspeed,
+    // Square, SumUp, Loyverse, papir-kasserapport, etc.).
+    landingAllSub: "BonBox erstatter Excel-limen mellem din POS og din bogføring. Alle moduler deler de samme data, så morgenbriefen faktisk ved hvad du solgte i går.",
+    landingCatMoney1: "Salgssporing · Z-rapport-foto",
+    landingFreeF1: "Salg + udgifter + daglig lukning",
+    landingFaq6A: "Du falder automatisk ned til Free — intet kort, ingen auto-træk. Free beholder salg + udgifter + daglig lukning + AI-brief for altid. For at få faktura + bank-match + brand-PDF, opgrader til Starter (129 kr./md. som grundpris). Prisen står på denne side; intet skjules.",
     landingFeature1Title: "Salg & pengestrøm", landingFeature1Desc: "Log salg med 2 tryk. Se omsætning, overskud og pengestrøm — synkroniseret med din kassebog i realtid.",
     landingFeature2Title: "Lager & beholdning", landingFeature2Desc: "Følg lagerniveauer, få advarsler om lav beholdning, sælg varer med automatisk lagertræk. Skabeloner til 21+ virksomhedstyper.",
     landingFeature3Title: "Bar udskænkning", landingFeature3Desc: "Køb flasker i bulk, sælg pr. glas. Auto-registrer udskænkning, træk fra lager og log salg pr. drink.",
