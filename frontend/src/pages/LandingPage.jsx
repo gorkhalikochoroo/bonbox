@@ -126,6 +126,204 @@ function HeroPhone() {
   );
 }
 
+// ─── DailyCloseHero ─────────────────────────────────────────────────
+//
+// Task #109 landing redesign — replaces the generic phone mockup that
+// rendered placeholder products ("Coca-Cola x10 / Rice 5kg / Vodka 2x")
+// with a flat, screen-accurate render of the Daily Close surface
+// itself. Per Mercury / Plain aesthetic: no phone frame, no fake
+// status bar — the screen IS the visual. Lives in the page background
+// (no card-on-card chrome).
+//
+// Numbers are illustrative — they look like a real Tuesday at a
+// Danish café (omsætning ~14k, MOMS frist 13 dage, kontant +
+// kort split that adds up).  Hard-coded so there's no API hop;
+// fully static for the marketing surface.
+function DailyCloseHero() {
+  const { t } = useLanguage();
+  return (
+    <div className="relative w-full max-w-[520px] mx-auto">
+      {/* One soft emerald glow behind the card — replaces the old
+          double-blur that read 2019-template. Single light source. */}
+      <div className="absolute -inset-8 -z-10 bg-emerald-200/50 blur-[100px] rounded-[3rem] pointer-events-none" />
+
+      <div className="relative bg-white rounded-2xl border border-stone-200/80 shadow-[0_24px_60px_-20px_rgba(15,23,42,0.18)] overflow-hidden">
+        {/* Header strip — date + business name */}
+        <div className="px-6 pt-5 pb-4 border-b border-stone-100">
+          <div className="flex items-baseline justify-between">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-emerald-700">
+                {tx(t, "landingDailyCloseEyebrow", "Daily close")}
+              </p>
+              <p className="text-[17px] font-semibold text-gray-900 mt-1">
+                {tx(t, "landingDailyCloseDate", "Tor. 22. maj")}
+              </p>
+            </div>
+            <span className="text-[12px] text-stone-500 tabular-nums">
+              {tx(t, "landingDailyCloseBiz", "Café Bonbo · Vesterbro")}
+            </span>
+          </div>
+        </div>
+
+        {/* Hero number — omsætning */}
+        <div className="px-6 pt-5">
+          <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-stone-500">
+            {tx(t, "landingDailyCloseRevenue", "Omsætning i dag")}
+          </p>
+          <p className="text-[44px] font-semibold text-gray-900 tabular-nums leading-tight tracking-tight">
+            14.230<span className="text-stone-400 ml-1.5 text-[24px] font-medium">kr</span>
+          </p>
+          <p className="text-[12.5px] text-emerald-700 mt-0.5">
+            {tx(t, "landingDailyCloseDelta", "+12% vs. forrige tirsdag")}
+          </p>
+        </div>
+
+        {/* Kontant + kort breakdown */}
+        <div className="px-6 mt-5 grid grid-cols-2 gap-3">
+          <div className="rounded-lg bg-stone-50 border border-stone-100 px-3.5 py-3">
+            <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-stone-500">
+              {tx(t, "landingDailyCloseCash", "Kontant")}
+              <svg className="w-3.5 h-3.5 text-emerald-600" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 8.5l3 3 6-7" />
+              </svg>
+            </div>
+            <p className="text-[18px] font-semibold text-gray-900 tabular-nums mt-1">3.140 kr</p>
+            <p className="text-[11px] text-emerald-700 mt-0.5">{tx(t, "landingDailyCloseMatched", "matchet i kassen")}</p>
+          </div>
+          <div className="rounded-lg bg-stone-50 border border-stone-100 px-3.5 py-3">
+            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-stone-500">{tx(t, "landingDailyCloseCard", "Kort + MobilePay")}</p>
+            <p className="text-[18px] font-semibold text-gray-900 tabular-nums mt-1">11.090 kr</p>
+            <p className="text-[11px] text-stone-500 mt-0.5">{tx(t, "landingDailyCloseTxns", "47 transaktioner")}</p>
+          </div>
+        </div>
+
+        {/* MOMS row — single line, draws the eye to deadline */}
+        <div className="mx-6 mt-5 rounded-lg bg-emerald-50/60 border border-emerald-200/60 px-4 py-3">
+          <div className="flex items-baseline justify-between">
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-emerald-700">
+                {tx(t, "landingDailyCloseMomsLabel", "MOMS Q2 · Frist 1. juni")}
+              </p>
+              <p className="text-[15px] font-semibold text-emerald-900 mt-0.5">
+                {tx(t, "landingDailyCloseMomsAside", "4.230 kr. afsat automatisk")}
+              </p>
+            </div>
+            <p className="text-[24px] font-semibold tabular-nums text-emerald-700">
+              13<span className="text-[12px] font-medium ml-1">dage</span>
+            </p>
+          </div>
+        </div>
+
+        {/* Action — the big "Luk dagen" button */}
+        <div className="px-6 pt-5 pb-5">
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-hidden="true"
+            className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 bg-emerald-600 text-white text-[14.5px] font-semibold rounded-md shadow-[0_4px_14px_-4px_rgba(16,185,129,0.45)]"
+          >
+            {tx(t, "landingDailyCloseCta", "Luk dagen")}
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 12h14M13 6l6 6-6 6" />
+            </svg>
+          </button>
+          <p className="text-[11.5px] text-stone-500 text-center mt-2.5">
+            {tx(t, "landingDailyCloseFooterMicro", "Z-rapport · kasserapport · revisor-eksport · ét tryk")}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ─── MomsCountdownSpotlight ─────────────────────────────────────────
+//
+// Task #109 — the killer-feature spotlight section.  Renders a
+// big, flat, screen-accurate version of the MOMS countdown widget
+// (the same widget the app shows on the Dashboard).  No competitor
+// in DK has this surface as a deadline-style countdown — Dinero /
+// Billy show MOMS in a report; BonBox makes it a frist you can FEEL.
+//
+// Numbers are illustrative — anchored to a real DK MOMS calendar
+// example (Q2 → frist 1. juni → 13 days out from a late-May visit).
+function MomsCountdownSpotlight() {
+  const { t } = useLanguage();
+  return (
+    <div className="relative w-full max-w-[540px] mx-auto">
+      {/* Soft glow — single light source, emerald, behind only. */}
+      <div className="absolute -inset-10 -z-10 bg-emerald-300/40 blur-[120px] rounded-[3rem] pointer-events-none" />
+
+      <div className="relative bg-white rounded-2xl border border-stone-200/80 shadow-[0_28px_60px_-22px_rgba(15,23,42,0.18)] overflow-hidden">
+        {/* Eyebrow strip */}
+        <div className="px-6 pt-5 pb-4 border-b border-stone-100 flex items-baseline justify-between">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-emerald-700">
+            {tx(t, "landingMomsEyebrow", "MOMS Q2 · 2026")}
+          </p>
+          <p className="text-[12px] text-stone-500">
+            {tx(t, "landingMomsDeadlineLabel", "Frist · 1. juni")}
+          </p>
+        </div>
+
+        {/* Big number */}
+        <div className="px-6 pt-7 pb-4 text-center">
+          <p className="text-[12px] font-medium uppercase tracking-[0.1em] text-stone-500 mb-1">
+            {tx(t, "landingMomsCountdownLabel", "Dage tilbage")}
+          </p>
+          <p
+            className="font-serif-display text-[120px] sm:text-[140px] leading-[0.9] tracking-tight text-emerald-700 tabular-nums"
+            style={{ fontWeight: 500 }}
+          >
+            13
+          </p>
+        </div>
+
+        {/* Progress bar — visualizes "you're 71% through the period" */}
+        <div className="px-6">
+          <div className="h-2 rounded-full bg-stone-100 overflow-hidden">
+            <div
+              className="h-full bg-emerald-500 rounded-full"
+              style={{ width: "71%" }}
+            />
+          </div>
+          <div className="flex justify-between text-[11px] text-stone-500 mt-1.5 tabular-nums">
+            <span>1. apr.</span>
+            <span>22. maj · i dag</span>
+            <span>1. juni</span>
+          </div>
+        </div>
+
+        {/* Amount + already set aside */}
+        <div className="px-6 mt-5 grid grid-cols-2 gap-3">
+          <div className="rounded-lg bg-stone-50 border border-stone-100 px-3.5 py-3">
+            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-stone-500">
+              {tx(t, "landingMomsDueLabel", "Skal betales")}
+            </p>
+            <p className="text-[20px] font-semibold text-gray-900 tabular-nums mt-1">4.230 kr</p>
+          </div>
+          <div className="rounded-lg bg-emerald-50/70 border border-emerald-200/60 px-3.5 py-3">
+            <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-emerald-700">
+              {tx(t, "landingMomsAsideLabel", "Afsat automatisk")}
+              <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 8.5l3 3 6-7" />
+              </svg>
+            </div>
+            <p className="text-[20px] font-semibold text-emerald-800 tabular-nums mt-1">4.230 kr</p>
+          </div>
+        </div>
+
+        {/* Footer micro — what BonBox does under the hood */}
+        <div className="px-6 pt-4 pb-5">
+          <p className="text-[12px] text-stone-500 leading-relaxed text-center">
+            {tx(t, "landingMomsFooterMicro", "Beregnet på faktura + kasserapport · Bogføringsloven §7 · indberetning på et tryk")}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 // ─── Counter — animates a number once it scrolls into view ──────────
 // Initial value = `end`, so the first paint shows the REAL number, not
 // a "0s · 0+ · 0 min" zero-flash that briefly tells visitors our close
@@ -446,102 +644,139 @@ export default function LandingPage() {
         )}
       </nav>
 
-      {/* ── HERO ───────────────────────────────────────────────────
-          Top padding = base (matches old pt-32 sm:pt-36) PLUS the
-          dynamic notch inset on phones with status-bar cutouts.
-          `env(safe-area-inset-top, 0px)` resolves to 0 on devices
-          without a notch (desktop / older Androids / iPads in portrait)
-          so layout is unchanged there. Tailwind arbitrary-value brackets
-          preserve the `sm:` breakpoint so desktop still gets the
-          original 144px spacing. */}
-      <Section className="pt-[calc(env(safe-area-inset-top,0px)+8rem)] sm:pt-[calc(env(safe-area-inset-top,0px)+9rem)] pb-12 sm:pb-16">
-        {/* Single subtle glow — replaces the previous 2 blur circles
-            that made the page look like a 2019 SaaS template. */}
-        <div className="absolute inset-x-0 top-20 -z-10 flex justify-center pointer-events-none">
-          <div className="h-[420px] w-[820px] bg-emerald-200/40 blur-[140px] rounded-full" />
-        </div>
-
-        <div className="grid lg:grid-cols-[1.1fr_1fr] gap-12 lg:gap-20 items-center">
+      {/* ── HERO ─── Task #109 landing redesign ────────────────────
+          Product-first, editorial restraint.  Mercury / Plain
+          aesthetic: warm off-white background, serif H1 (Fraunces),
+          ONE primary CTA, NO gradient text, a real-looking Daily
+          Close screen render instead of a phone mockup with
+          placeholder products.
+          Top padding still accounts for env(safe-area-inset-top)
+          so iOS notches don't eat the founder-rate pill. */}
+      <Section className="pt-[calc(env(safe-area-inset-top,0px)+7rem)] sm:pt-[calc(env(safe-area-inset-top,0px)+8rem)] pb-16 sm:pb-24">
+        <div className="grid lg:grid-cols-[1.05fr_1fr] gap-14 lg:gap-20 items-center">
           <div>
-            {/* Task #85 — live founder-rate pill.  Sits above the
-                "Built for Danish hospitality" badge so the urgency
-                hits before the brand promise. */}
+            {/* Task #85 — live founder-rate pill, kept above the H1
+                so urgency precedes promise. */}
             <FounderRatePill />
 
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-emerald-200/80 rounded-full text-[12px] font-medium text-emerald-700 mb-7">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              {tx_("landingBadge", "Built for Danish hospitality")}
-            </div>
-
-            <h1 className="text-[40px] sm:text-[52px] lg:text-[60px] leading-[1.04] tracking-tight font-semibold">
-              {tx_("landingHeroLine1", "The AI manager for")}{" "}
-              <span className="text-emerald-600">{tx_("landingHeroLine2", "Danish small businesses.")}</span>
+            <h1
+              className="font-serif-display text-[44px] sm:text-[58px] lg:text-[68px] leading-[1.03] text-gray-900 mt-6"
+              style={{ fontWeight: 600 }}
+            >
+              {tx_(
+                "landingHeroLine1",
+                "Luk dagen på 30 sekunder.",
+              )}{" "}
+              <span className="text-stone-500">
+                {tx_("landingHeroLine2", "Så er du fri.")}
+              </span>
             </h1>
 
-            <p className="mt-6 text-[17px] sm:text-[18px] text-stone-600 leading-relaxed max-w-[520px]">
+            <p className="mt-6 text-[17px] sm:text-[18px] text-stone-600 leading-[1.65] max-w-[520px]">
               {tx_(
                 "landingHeroSub",
-                "Close out the day in 30 seconds. We file your MOMS. We tell you when your regulars are slipping. A 9am brief that actually helps. 129 DKK/mo founding rate.",
+                "Cafés, restaurants, bars, retail, freelancers, konsulenter. Daily close in 30 seconds, MOMS countdown, faktura with auto-match on bank CSV, receipt OCR. A 9am brief that actually helps. 129 DKK/mo founding rate.",
               )}
             </p>
 
-            <div className="mt-9 flex flex-col sm:flex-row gap-3">
+            <div className="mt-8 flex flex-col sm:flex-row sm:items-center gap-4">
               <Link
                 to="/register"
-                className="inline-flex items-center justify-center px-6 py-3.5 bg-emerald-600 text-white text-[15px] font-medium rounded-md hover:bg-emerald-700 transition shadow-[0_4px_14px_-4px_rgba(16,185,129,0.4)]"
+                className="inline-flex items-center justify-center px-6 py-3.5 bg-emerald-600 text-white text-[15px] font-semibold rounded-md hover:bg-emerald-700 transition shadow-[0_4px_14px_-4px_rgba(16,185,129,0.45)]"
               >
-                {tx_("landingCtaPrimary", "Get started — free")}
+                {tx_("landingCtaPrimary", "Start gratis i 14 dage")}
                 <svg className="w-4 h-4 ml-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M5 12h14M13 6l6 6-6 6" />
                 </svg>
               </Link>
-              {/* Secondary CTA — for the "kick tires before signup"
-                  visitor. Smooth-scrolls to the how-it-works section
-                  rather than forcing them through the register flow. */}
+              {/* Ghost text-link, not a third button.  Per the agent
+                  audit: a hero with three CTAs reads as
+                  spam-template — one strong primary + one quiet
+                  secondary is enough. */}
               <a
                 href="#how"
-                className="inline-flex items-center justify-center px-5 py-3.5 bg-white border border-stone-200 rounded-md hover:border-stone-300 transition text-[14px] font-medium text-stone-800"
+                className="inline-flex items-center text-[14px] font-medium text-stone-700 hover:text-gray-900 underline underline-offset-4 decoration-stone-300 hover:decoration-stone-600 transition"
               >
-                {tx_("landingCtaSecondary", "See how it works")}
-                <svg className="w-4 h-4 ml-2 text-stone-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 5v14M19 12l-7 7-7-7" />
+                {tx_("landingCtaSecondary", "Se Daily Close i 60 sek")}
+                <svg className="w-3.5 h-3.5 ml-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 12h14M13 6l6 6-6 6" />
                 </svg>
-              </a>
-              <a
-                href="https://apps.apple.com/dk/app/bonbox-daily-close/id6762066960"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2.5 px-5 py-3.5 bg-white border border-stone-200 rounded-md hover:border-stone-300 transition text-[14px]"
-              >
-                <span className="text-gray-900">{Icons.Apple}</span>
-                <span className="text-gray-900 font-medium">App Store</span>
               </a>
             </div>
 
-            <div className="mt-7 flex flex-wrap gap-x-6 gap-y-2 text-[13px] text-stone-600">
+            {/* Trust strip — micro-claims that DK SMB owners actually
+                care about (per Danish-market agent). 4 items max so
+                the row stays one line on desktop. */}
+            <div className="mt-7 flex flex-wrap gap-x-5 gap-y-2 text-[12.5px] text-stone-600">
               {[
-                tx_("landingCheck1", "Free 14-day trial"),
-                tx_("landingCheck2", "No card required"),
-                tx_("landingCheck3", "Cancel anytime"),
+                tx_("landingCheck1", "14 dages gratis prøve"),
+                tx_("landingCheck2", "Ingen kortoplysninger"),
+                tx_("landingCheckCompliance", "Bogføringsloven §7 & §10"),
+                tx_("landingCheckGdpr", "GDPR · servere i EU"),
               ].map((txt) => (
-                <span key={txt} className="flex items-center gap-1.5">
-                  {Icons.Check}
+                <span key={txt} className="inline-flex items-center gap-1.5">
+                  <svg className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 8.5l3 3 6-7" />
+                  </svg>
                   {txt}
                 </span>
               ))}
             </div>
           </div>
 
-          {/* Phone mockup — single, centred, no decorative duplicates */}
-          {/* Phone mockup — visible from md (768px) up. Was hidden
-              below lg (1024px) which meant tablets + portrait iPads
-              saw a text-only hero with too much whitespace on the
-              right. md works because HeroPhone scales nicely down
-              to 280px wide. Mobile (<md) still hides it — the hero
-              text + CTA stack reads cleaner on a 390px viewport
-              than any squeezed visual. */}
+          {/* Right column — the actual product surface as a flat,
+              screen-accurate render.  Visible md+ ; on mobile the
+              text stack reads cleaner alone (and the MOMS spotlight
+              below is the killer visual for small screens). */}
           <div className="hidden md:block">
-            <HeroPhone />
+            <DailyCloseHero />
+          </div>
+        </div>
+      </Section>
+
+      {/* ── MOMS COUNTDOWN — killer feature spotlight (Task #109) ──
+          One section, one big visual, one big idea.  Replaces the
+          previous "Brief preview" intro — we put MOMS first because
+          it's the deadline-anxiety surface no DK competitor has
+          (Dinero / Billy show MOMS in a report; we make it a frist).
+          The Brief preview still appears below — this just earns
+          the killer-spotlight slot. */}
+      <Section className="bg-stone-50 border-y border-stone-200/60">
+        <div className="grid lg:grid-cols-[1fr_1.05fr] gap-12 lg:gap-20 items-center">
+          <div className="max-w-lg">
+            <Eyebrow>{tx_("landingMomsTag", "Aldrig mere en MOMS-bøde")}</Eyebrow>
+            <h2
+              className="font-serif-display text-[34px] sm:text-[44px] lg:text-[52px] leading-[1.08] text-gray-900"
+              style={{ fontWeight: 600 }}
+            >
+              {tx_(
+                "landingMomsHeading",
+                "Din MOMS er en dato — ikke en rapport.",
+              )}
+            </h2>
+            <p className="mt-5 text-[16.5px] sm:text-[17px] text-stone-600 leading-[1.65]">
+              {tx_(
+                "landingMomsBody",
+                "BonBox sætter pengene til side automatisk i takt med dine fakturaer og kasserapport. Når fristen nærmer sig, ved du præcis hvor meget der skal indberettes — og hvor meget der allerede ligger klar.",
+              )}
+            </p>
+            <ul className="mt-6 space-y-2.5 text-[14.5px] text-stone-700">
+              {[
+                tx_("landingMomsBullet1", "Auto-afsætning ved hvert salg"),
+                tx_("landingMomsBullet2", "Q1 / Q2 / halvår — vi følger din kadence"),
+                tx_("landingMomsBullet3", "Indberetnings-PDF klar til SKAT"),
+              ].map((b) => (
+                <li key={b} className="flex items-start gap-2">
+                  <svg className="w-4 h-4 mt-0.5 text-emerald-600 flex-shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 8.5l3 3 6-7" />
+                  </svg>
+                  <span>{b}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <MomsCountdownSpotlight />
           </div>
         </div>
       </Section>
