@@ -382,24 +382,34 @@ function Eyebrow({ children }) {
   );
 }
 
-// ─── Heading — restrained, editorial, single colour ────────────────
+// ─── Heading — Task #109: Fraunces serif everywhere on landing.
+// Modernizes every section title at once without per-section edits.
+// `weight=600` is the Fraunces sweet spot — bolder reads as a
+// fashion-magazine display, lighter loses authority on small screens.
 function Heading({ as: As = "h2", className = "", children }) {
   return (
-    <As className={`text-[28px] sm:text-[36px] lg:text-[44px] leading-[1.1] tracking-tight font-semibold text-gray-900 ${className}`}>
+    <As
+      className={`font-serif-display text-[30px] sm:text-[40px] lg:text-[48px] leading-[1.08] text-gray-900 ${className}`}
+      style={{ fontWeight: 600 }}
+    >
       {children}
     </As>
   );
 }
 
-// ─── Feature card — uniform, single accent, no per-card colour ──────
+// ─── Feature card — Task #109: tighter, denser, less template.
+// Removed: rounded-2xl drop shadow on hover, icon-in-box decoration.
+// Kept: single accent (emerald), restrained palette.  The result is
+// a denser card that reads more like a Mercury / Plain product
+// landing — list of capabilities, not a brochure grid.
 function FeatureCard({ icon, title, body }) {
   return (
-    <div className="group relative bg-white rounded-2xl p-7 border border-stone-200/80 hover:border-stone-300 hover:shadow-[0_4px_24px_-8px_rgba(15,23,42,0.08)] transition-all duration-200">
-      <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center mb-5 group-hover:bg-emerald-100 transition-colors">
-        {icon}
+    <div className="group relative bg-white rounded-xl p-6 border border-stone-200/80 transition-all duration-150 hover:border-stone-300">
+      <div className="flex items-center gap-2.5 mb-3">
+        <span className="text-emerald-700">{icon}</span>
+        <h3 className="text-[16px] font-semibold text-gray-900 tracking-tight">{title}</h3>
       </div>
-      <h3 className="text-[17px] font-semibold text-gray-900 mb-2 tracking-tight">{title}</h3>
-      <p className="text-[14.5px] text-stone-600 leading-relaxed">{body}</p>
+      <p className="text-[14px] text-stone-600 leading-[1.6]">{body}</p>
     </div>
   );
 }
@@ -810,8 +820,13 @@ export default function LandingPage() {
 
           {/* Static replica of the real DailyBriefCard render. Update
               when DailyBriefCard.jsx structure changes (it usually
-              doesn't; the brief shape has been stable since 2.0). */}
-          <div className="bg-white rounded-2xl border border-stone-200/70 shadow-sm p-6 sm:p-7">
+              doesn't; the brief shape has been stable since 2.0).
+              Task #109: softer chrome — no shadow, single emerald glow
+              behind, matches the DailyCloseHero + MomsCountdownSpotlight
+              treatment so the page reads as one design system. */}
+          <div className="relative">
+            <div className="absolute -inset-6 -z-10 bg-emerald-200/40 blur-[100px] rounded-[3rem] pointer-events-none" />
+          <div className="relative bg-white rounded-2xl border border-stone-200/80 shadow-[0_24px_60px_-22px_rgba(15,23,42,0.16)] p-6 sm:p-7">
             <div className="flex items-start justify-between gap-4 mb-3">
               <div className="flex items-start gap-3 min-w-0">
                 <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0 mt-0.5 text-emerald-600">
@@ -911,6 +926,7 @@ export default function LandingPage() {
               </div>
             </div>
           </div>
+          </div>{/* /relative glow wrapper — Task #109 */}
         </div>
       </Section>
 
@@ -1085,22 +1101,24 @@ export default function LandingPage() {
               proofFallback: "Powered by · AI Daily Brief · Smart Drift · Predictive staffing",
             },
           ].map((o) => (
+            // Task #109 — tighter, denser, no hover-shadow theatre.
+            // Same visual language as the new FeatureCard but with
+            // an extra "powered by" proof strip the regular cards
+            // don't carry.
             <div
               key={o.titleKey}
-              className="bg-white rounded-2xl p-7 border border-stone-200/80 hover:border-stone-300 hover:shadow-[0_4px_24px_-8px_rgba(15,23,42,0.08)] transition-all duration-200"
+              className="bg-white rounded-xl p-6 border border-stone-200/80 transition-all duration-150 hover:border-stone-300"
             >
-              <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center mb-5">
-                {o.icon}
+              <div className="flex items-center gap-2.5 mb-3">
+                <span className="text-emerald-700">{o.icon}</span>
+                <h3 className="text-[16px] font-semibold text-gray-900 tracking-tight">
+                  {tx_(o.titleKey, o.titleFallback)}
+                </h3>
               </div>
-              <h3 className="text-[18px] font-semibold text-gray-900 mb-3 tracking-tight">
-                {tx_(o.titleKey, o.titleFallback)}
-              </h3>
-              <p className="text-[14.5px] text-stone-600 leading-relaxed">
+              <p className="text-[14px] text-stone-600 leading-[1.6]">
                 {tx_(o.bodyKey, o.bodyFallback)}
               </p>
-              {/* Proof strip — ties each outcome to real modules we
-                  ship, so the marketing claim is auditable. */}
-              <p className="mt-5 pt-5 border-t border-stone-100 text-[11px] font-medium uppercase tracking-[0.08em] text-emerald-700/80">
+              <p className="mt-4 pt-4 border-t border-stone-100 text-[10.5px] font-medium uppercase tracking-[0.08em] text-emerald-700/80">
                 {tx_(o.proofKey, o.proofFallback)}
               </p>
             </div>
