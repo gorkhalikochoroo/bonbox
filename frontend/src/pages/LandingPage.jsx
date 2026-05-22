@@ -604,14 +604,22 @@ export default function LandingPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Compact 2-letter language switcher (Task #110) — EN /
+                DK / DE / etc. instead of "English"/"Dansk"/"Deutsch".
+                Country-style codes Danes recognize instantly + the
+                navbar stays tight on small viewports.  aria-label
+                still uses the full language name so screen readers
+                announce "Dansk" not "DK". */}
             <select
               value={lang}
               onChange={(e) => setLang(e.target.value)}
               aria-label="Language"
-              className="hidden sm:block text-[13px] bg-transparent border border-stone-200 rounded-md px-2 py-1.5 text-gray-700 hover:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-300 cursor-pointer"
+              className="hidden sm:block text-[12px] font-medium tracking-wider uppercase bg-transparent border border-stone-200 rounded-md px-2 py-1.5 text-gray-700 hover:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-300 cursor-pointer"
             >
               {LANGUAGES.map((l) => (
-                <option key={l.code} value={l.code}>{l.label}</option>
+                <option key={l.code} value={l.code} aria-label={l.label}>
+                  {l.short || l.code.toUpperCase()}
+                </option>
               ))}
             </select>
             <Link

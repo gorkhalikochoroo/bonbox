@@ -7073,19 +7073,24 @@ const translations = {
 // kept on disk so the import statements still resolve and so we can
 // re-enable individual languages by adding them back here once they're
 // fully translated.
+// `short` is the 2-letter compact code shown in the navbar switcher
+// (Task #110+): "EN", "DK", "DE" — country-style codes Danes recognize
+// instantly.  `label` is the native-language full name, used inside
+// expanded dropdowns + accessibility (aria-label) so screen-reader
+// users still hear "Dansk" not "DK".
 const LANGUAGES = [
-  { code: "en", label: "English", flag: "🇬🇧" },
-  { code: "da", label: "Dansk", flag: "🇩🇰" },
+  { code: "en", label: "English", short: "EN", flag: "🇬🇧" },
+  { code: "da", label: "Dansk", short: "DK", flag: "🇩🇰" },
   // German added 2026-05-13 — de.js already had 410 lines of real
   // translations, just wasn't exposed in the picker. Useful for
   // Sønderjylland-area shops + CPH restaurants with German staff.
   // Falls back to English for keys not yet translated (most of the
   // newer landing copy) — the tx_() helper handles this gracefully.
-  { code: "de", label: "Deutsch", flag: "🇩🇪" },
-  { code: "np", label: "नेपाली", flag: "🇳🇵" },
-  { code: "vi", label: "Tiếng Việt", flag: "🇻🇳" },
-  { code: "th", label: "ภาษาไทย", flag: "🇹🇭" },
-  { code: "tr", label: "Türkçe", flag: "🇹🇷" },
+  { code: "de", label: "Deutsch", short: "DE", flag: "🇩🇪" },
+  { code: "np", label: "नेपाली", short: "NP", flag: "🇳🇵" },
+  { code: "vi", label: "Tiếng Việt", short: "VN", flag: "🇻🇳" },
+  { code: "th", label: "ภาษาไทย", short: "TH", flag: "🇹🇭" },
+  { code: "tr", label: "Türkçe", short: "TR", flag: "🇹🇷" },
 ];
 
 // Auto-detect language from currency. Currencies whose native language
