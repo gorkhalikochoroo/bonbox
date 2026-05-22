@@ -694,19 +694,24 @@ export default function LandingPage() {
                 so urgency precedes promise. */}
             <FounderRatePill />
 
-            {/* Hero H1 — Task #110 update: Inter Display weight
-                800 with the tightest tracking (-0.035em) we use on
-                the page.  Reads as "confident product" at any
-                viewport.  Line 2 stays muted (stone-500) so the
-                payoff phrase recedes into a secondary emphasis. */}
+            {/* Hero H1 — Task #111 update: Inter weight 800 sized
+                so both EN ("Close the day in 30 seconds.") and DA
+                ("Luk dagen på 30 sekunder.") fit on a single line
+                at lg, then line-2 ("Then go home." / "Så er du
+                fri.") falls cleanly below.  At 60px lg + weight
+                800 + tracking -0.035em, the wrap behavior is
+                predictable across both languages without forcing
+                a <br/>.  Line 2 stays muted (stone-500) so the
+                payoff phrase recedes into secondary emphasis. */}
             <h1
-              className="text-[44px] sm:text-[58px] lg:text-[68px] leading-[1.04] tracking-[-0.035em] text-gray-900 mt-6"
+              className="text-[40px] sm:text-[50px] lg:text-[60px] leading-[1.05] tracking-[-0.035em] text-gray-900 mt-6"
               style={{ fontWeight: 800 }}
             >
               {tx_(
                 "landingHeroLine1",
                 "Luk dagen på 30 sekunder.",
-              )}{" "}
+              )}
+              <br />
               <span className="text-stone-500 font-bold">
                 {tx_("landingHeroLine2", "Så er du fri.")}
               </span>
