@@ -1594,6 +1594,42 @@ const translations = {
     landingFeatStaffBody: "Schedule autopilot reads the weather forecast, your last 8 weeks of revenue, and DK labor law — proposes next week in one tap. Tweak per shift, publish. Pro-tier cafés save 5–10% on labor without overworking the crew.",
     landingFeatRevisorTitle: "Your revisor stops calling.",
     landingFeatRevisorBody: "Invite your bogholder by email — they get a read-only login, every action audit-logged. No password sharing, no GDPR risk, no monthly \"send me the CSVs\" email. SAF-T + kasserapport + faktura, ready for them whenever.",
+    // Task #114 — MOMS spotlight section (EN/DA parity).  Keep DK-specific
+    // vocabulary (MOMS, faktura, kasserapport, SKAT, Bogføringsloven) — even
+    // English-speaking expats in DK use these terms.
+    landingMomsTag: "Never another MOMS fine.",
+    landingMomsHeading: "Your MOMS is a date — not a report.",
+    landingMomsBody: "BonBox sets aside the money automatically as your fakturaer and kasserapport come in. When the deadline approaches, you know exactly how much to file — and how much is already waiting.",
+    landingMomsBullet1: "Auto-set-aside on every sale",
+    landingMomsBullet2: "Q1 / Q2 / half-year — we follow your cadence",
+    landingMomsBullet3: "Filing-ready PDF for SKAT",
+    landingMomsEyebrow: "MOMS Q2 · 2026",
+    landingMomsDeadlineLabel: "Deadline · 1 June",
+    landingMomsCountdownLabel: "Days left",
+    landingMomsDueLabel: "Owed",
+    landingMomsAsideLabel: "Set aside automatically",
+    landingMomsFooterMicro: "Calculated from faktura + kasserapport · Bogføringsloven §7 · file in one tap",
+    // Task #114 — Brief Preview card on landing (EN/DA parity).  The
+    // example brief was previously inlined in LandingPage.jsx as
+    // `tx_(key, defaultEnglish)` — Danish visitors saw English even
+    // with DA selected.  Keys mirrored in both dictionaries so DA
+    // overrides the EN fallback.  Informal "du" / "din".
+    landingBriefPreviewTag: "See it before you sign up",
+    landingBriefPreviewTitle: "This is your 9am brief.",
+    landingBriefPreviewSub: "Every morning at 8am Copenhagen, BonBox pulls together yesterday's revenue, this week's trend, your MOMS deadline, regulars who haven't been back, and bills due — into one card you can read in 30 seconds. Each insight is one tap to the action that matters.",
+    landingBriefPreviewShare: "Forward to your business partner with one tap. The shareable moment that turned BonBox from \"an app I open\" into \"the advisor that arrives.\"",
+    landingBriefPreviewGreeting: "God morgen, Manoj",
+    landingBriefPreviewDate: "Tirsdag, 19. maj 2026",
+    landingBriefPreviewHeadline: "MOMS filing in 8 days — est. 96,405 DKK owed. Slightly ahead of pace this month.",
+    landingBriefPreviewHeadCta: "Review filing",
+    landingBriefPreviewIns1: "Today is tracking +12% above your usual Tuesday — strong start.",
+    landingBriefPreviewIns2: "Recurring posts tomorrow: Husleje, Yousee, Spotify Business (19,547 DKK).",
+    landingBriefPreviewIns2Cta: "Manage recurring",
+    landingBriefPreviewIns3: "3 regulars haven't been back in ~18 days (Marie, Andreas, Lukas) — a quick hello could bring them in this week.",
+    landingBriefPreviewIns3Cta: "Open Khata",
+    landingBriefPreviewIns4: "Saturday forecast is sunny 19°C — terrace will fill. Schedule autopilot suggests 1 extra waiter.",
+    landingBriefPreviewIns4Cta: "Review schedule",
+    landingBriefPreviewFooter: "AI Insight · BonBox",
     // Task #112 — honest POS framing.  BonBox is NOT a POS; it
     // captures Z-reports from external POS (Lightspeed, Square,
     // SumUp, Loyverse, paper).  These keys keep that promise
@@ -4090,6 +4126,37 @@ const translations = {
     landingFeatStaffBody: "Vagtplan-autopilot læser vejrudsigt, dine seneste 8 ugers omsætning og dansk arbejdsmiljølov — foreslår næste uge med ét tryk. Juster pr. vagt, publicer. Pro-caféer sparer 5–10% på lønudgifter uden at overarbejde holdet.",
     landingFeatRevisorTitle: "Din revisor stopper med at ringe.",
     landingFeatRevisorBody: "Inviter din bogholder med en email — de får et læs-kun login, alle handlinger audit-logges. Ingen delte passwords, ingen GDPR-risiko, ingen månedlig \"send mig CSVerne\" mail. SAF-T + kasserapport + faktura, klar når de har brug for det.",
+    // Task #114 — MOMS spotlight-sektion (EN/DA-paritet).  Uformel "du".
+    landingMomsTag: "Aldrig mere en MOMS-bøde",
+    landingMomsHeading: "Din MOMS er en dato — ikke en rapport.",
+    landingMomsBody: "BonBox sætter pengene til side automatisk i takt med dine fakturaer og kasserapport. Når fristen nærmer sig, ved du præcis hvor meget der skal indberettes — og hvor meget der allerede ligger klar.",
+    landingMomsBullet1: "Auto-afsætning ved hvert salg",
+    landingMomsBullet2: "Q1 / Q2 / halvår — vi følger din kadence",
+    landingMomsBullet3: "Indberetnings-PDF klar til SKAT",
+    landingMomsEyebrow: "MOMS Q2 · 2026",
+    landingMomsDeadlineLabel: "Frist · 1. juni",
+    landingMomsCountdownLabel: "Dage tilbage",
+    landingMomsDueLabel: "Skal betales",
+    landingMomsAsideLabel: "Afsat automatisk",
+    landingMomsFooterMicro: "Beregnet på faktura + kasserapport · Bogføringsloven §7 · indberetning på et tryk",
+    // Task #114 — Brief Preview-kort på landing (EN/DA-paritet).  Uformel "du" / "din".
+    // Greeting/Date/Footer er allerede dansk i kilden — spejles uændret.
+    landingBriefPreviewTag: "Se den før du tilmelder dig",
+    landingBriefPreviewTitle: "Dette er dit morgenbrief kl. 9.",
+    landingBriefPreviewSub: "Hver morgen kl. 8 København samler BonBox gårsdagens omsætning, ugens trend, din MOMS-frist, faste kunder der ikke har været her, og regninger der forfalder — i ét kort du kan læse på 30 sekunder. Hver indsigt er ét tryk til den handling der betyder noget.",
+    landingBriefPreviewShare: "Send videre til din kompagnon med ét tryk. Det delelige øjeblik der gjorde BonBox fra \"en app jeg åbner\" til \"rådgiveren der kommer.\"",
+    landingBriefPreviewGreeting: "God morgen, Manoj",
+    landingBriefPreviewDate: "Tirsdag, 19. maj 2026",
+    landingBriefPreviewHeadline: "MOMS-indberetning om 8 dage — anslået 96.405 kr. skyldig. En anelse foran månedens takt.",
+    landingBriefPreviewHeadCta: "Gennemgå indberetning",
+    landingBriefPreviewIns1: "I dag ligger +12% over din normale tirsdag — stærk start.",
+    landingBriefPreviewIns2: "Faste posteringer i morgen: Husleje, Yousee, Spotify Business (19.547 kr.).",
+    landingBriefPreviewIns2Cta: "Administrer faste posteringer",
+    landingBriefPreviewIns3: "3 faste kunder har ikke været her i ~18 dage (Marie, Andreas, Lukas) — en hurtig hilsen kunne hente dem tilbage i denne uge.",
+    landingBriefPreviewIns3Cta: "Åbn Khata",
+    landingBriefPreviewIns4: "Lørdag bliver solrig 19°C — terrassen bliver fyldt. Vagtplan-autopilot foreslår 1 ekstra tjener.",
+    landingBriefPreviewIns4Cta: "Gennemgå vagtplan",
+    landingBriefPreviewFooter: "AI Insight · BonBox",
     // Task #112 — ærlig POS-framing.  BonBox er IKKE en POS; vi
     // læser Z-rapporten fra din eksisterende POS (Lightspeed,
     // Square, SumUp, Loyverse, papir-kasserapport, etc.).
@@ -4221,6 +4288,20 @@ const translations = {
     landingPairsCostAfter: "BonBox + årlig revisor",
     landingPairsSavings: "Du sparer",
     landingPairsDisclaimer: "BonBox er ikke et registreret digitalt bogføringssystem under Bogføringsloven 2024. Par det med Dinero (eller et andet registreret system) og en revisor til de officielle indberetninger. Besparelse-skøn baseret på en typisk dansk lille virksomhed der betaler ~2.000 kr/måned for månedlig revisor-service vs. årlig-kun revisor + BonBox.",
+    // Trust + compliance strip — slightly more formal voice since
+    // it's compliance/legal-adjacent. DK-specific terms (Bogføringsloven,
+    // MOMS, lønseddel, CVR, SKAT, revisor) intentionally stay in Danish.
+    landingTrustHeader: "Bygget til den danske compliance-virkelighed",
+    landingTrustBogf7: "Bogføringsloven §7",
+    landingTrustBogf7Body: "Gap-frit fakturanummer, kreditnota med næste nummer, låste regnskaber.",
+    landingTrustBogf10: "Bogføringsloven §10",
+    landingTrustBogf10Body: "5 års opbevaring. Uforanderlig revisionslog på hver finansiel ændring.",
+    landingTrustGdpr: "GDPR-overholdt",
+    landingTrustGdprBody: "EU-hostet infrastruktur. Ejer-kontrolleret dataeksport og sletning. Revisor logger ind uden deling af adgangskode.",
+    landingTrustAudit: "Revisionslogget",
+    landingTrustAuditBody: "Hver afsendelse, annullering, oplåsning og vagtplan-publicering efterlader et append-only spor du kan vise SKAT.",
+    landingTrustDk: "Bygget i Danmark",
+    landingTrustDkBody: "Lavet til danske småvirksomheder, af folk der har siddet med en revisor ved månedsafslutning. MOMS, lønseddel, CVR-bevidst. Caféer, restauranter, butikker, freelancere — alle er velkomne.",
     landingGlobalTitle: "Virker hvor du arbejder",
     landingGlobalSub: "6 sprog, 17+ valutaer, 21+ virksomhedstyper og voksende.",
     landingCredibility1: "Bygget af Manoj — MSc Data-Driven Business, SDU Danmark",
