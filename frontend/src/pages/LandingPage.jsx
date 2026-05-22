@@ -382,15 +382,32 @@ function Eyebrow({ children }) {
   );
 }
 
-// ─── Heading — Task #109: Fraunces serif everywhere on landing.
-// Modernizes every section title at once without per-section edits.
-// `weight=600` is the Fraunces sweet spot — bolder reads as a
-// fashion-magazine display, lighter loses authority on small screens.
-function Heading({ as: As = "h2", className = "", children }) {
+// ─── Heading — Task #109: editorial restraint via two variants.
+//
+// `serif` is the warm editorial moment — used ONLY at the 3 big
+// emotional pulls of the page (hero H1, MOMS spotlight, "Built to
+// grow your business"). Mercury's secret: serif everywhere reads as
+// "designer portfolio," serif at three moments reads as confidence.
+//
+// `sans` (default) is Inter at weight 700 with tight tracking —
+// the Linear / Plain / Vercel default for section titles. Reads as
+// "real product," not "designer site." We use it for the technical
+// / capability-list sections (features, dense index, how it works,
+// FAQ) where editorial warmth would feel forced.
+function Heading({
+  as: As = "h2",
+  variant = "sans",
+  className = "",
+  children,
+}) {
+  const isSerif = variant === "serif";
+  const fontClass = isSerif
+    ? "font-serif-display text-[30px] sm:text-[40px] lg:text-[48px] leading-[1.08]"
+    : "text-[28px] sm:text-[36px] lg:text-[42px] leading-[1.1] tracking-[-0.02em]";
   return (
     <As
-      className={`font-serif-display text-[30px] sm:text-[40px] lg:text-[48px] leading-[1.08] text-gray-900 ${className}`}
-      style={{ fontWeight: 600 }}
+      className={`${fontClass} text-gray-900 ${className}`}
+      style={{ fontWeight: isSerif ? 600 : 700 }}
     >
       {children}
     </As>
@@ -735,10 +752,12 @@ export default function LandingPage() {
           </div>
 
           {/* Right column — the actual product surface as a flat,
-              screen-accurate render.  Visible md+ ; on mobile the
-              text stack reads cleaner alone (and the MOMS spotlight
-              below is the killer visual for small screens). */}
-          <div className="hidden md:block">
+              screen-accurate render.  Task #110: now visible at all
+              breakpoints (was hidden on mobile, which meant mobile
+              visitors never saw the killer hero visual).  Scales
+              gracefully — max-w-[520px] on desktop, scales down with
+              parent on mobile. */}
+          <div className="mt-10 lg:mt-0">
             <DailyCloseHero />
           </div>
         </div>
@@ -801,7 +820,7 @@ export default function LandingPage() {
         <div className="grid lg:grid-cols-[1fr_1.05fr] gap-12 lg:gap-16 items-center">
           <div className="max-w-lg">
             <Eyebrow>{tx_("landingBriefPreviewTag", "See it before you sign up")}</Eyebrow>
-            <Heading>
+            <Heading variant="serif">
               {tx_("landingBriefPreviewTitle", "This is your 9am brief.")}
             </Heading>
             <p className="mt-5 text-[16px] text-stone-600 leading-relaxed">
@@ -1051,7 +1070,7 @@ export default function LandingPage() {
       <Section className="bg-[#fafaf7]">
         <div className="max-w-2xl mb-14">
           <Eyebrow>{tx_("landingGrowTag", "Grow with BonBox")}</Eyebrow>
-          <Heading>{tx_("landingGrowTitle", "Built to grow your business — not just track it.")}</Heading>
+          <Heading variant="serif">{tx_("landingGrowTitle", "Built to grow your business — not just track it.")}</Heading>
           <p className="mt-5 text-[16px] text-stone-600 leading-relaxed">
             {tx_("landingGrowSub", "Most accounting tools tell you what already happened. BonBox surfaces what to do next — every morning, with numbers from your actual yesterday.")}
           </p>
@@ -1134,66 +1153,70 @@ export default function LandingPage() {
         </p>
       </Section>
 
-      {/* ── FEATURES (6, not 14) ───────────────────────────────── */}
+      {/* ── SIX WAYS LIFE GETS EASIER ─────────────────────────────
+          Task #110: copy reframed away from "feature catalog" to
+          "this is how your week changes."  Each card titled as an
+          outcome the owner FEELS, with the underlying feature
+          surfaced in the body.  Order: highest-anxiety-relief first. */}
       <Section id="features" className="bg-white border-y border-stone-200/70">
         <div className="max-w-2xl mb-14">
-          <Eyebrow>{tx_("landingFeaturesTag", "Six things that actually save time")}</Eyebrow>
-          <Heading>{tx_("landingFeaturesTitle", "An owner's app, not an accountant's.")}</Heading>
+          <Eyebrow>{tx_("landingFeaturesTag", "What changes Monday morning")}</Eyebrow>
+          <Heading>{tx_("landingFeaturesTitle", "Six ways life gets easier.")}</Heading>
           <p className="mt-5 text-[16px] text-stone-600 leading-relaxed">
             {tx_(
               "landingFeaturesSub",
-              "Most accounting tools are built for revisors first. BonBox is built for the owner who lives in the kitchen, checks the books on a phone at 22:00, and just wants the day to make sense in 30 seconds.",
+              "BonBox isn't \"another bookkeeping app.\" It's the layer that turns 12 separate panic-moments a week — close, MOMS, faktura chase, revisor email, weekend staff — into one calm rhythm.",
             )}
           </p>
         </div>
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {[
-            // Refreshed May 2026 — six headline features that reflect
-            // what BonBox actually ships today + the strategic thesis
-            // (the 9am brief is the product surface). Order ranks by
-            // owner impact, not technical feature list.
+            // Refreshed May 2026 — Task #110: outcome-led titles.
+            // Each card is a job-to-be-done from the owner's POV.
+            // Body sentence names the underlying feature so a curious
+            // reader sees the mechanism, not just the promise.
             {
               icon: Icons.Spark,
               titleKey: "landingFeatBriefTitle",
-              titleFallback: "The 9am brief that actually helps",
+              titleFallback: "Open the app at 8 and already know what to do.",
               bodyKey: "landingFeatBriefBody",
-              bodyFallback: "Each morning at 8am: revenue trend, MOMS countdown, regulars who haven't been back, recurring bills due, low-stock alerts. One tap to action, forward to your partner.",
+              bodyFallback: "The 8am Daily Brief lands with yesterday's revenue, MOMS countdown, overdue invoices, regulars drifting away, recurring bills due. Each insight is one tap to fix. You'll re-find the morning rhythm you lost.",
             },
             {
               icon: Icons.Clock,
               titleKey: "landingFeatHeroTitle",
-              titleFallback: "Daily close in 90 seconds",
+              titleFallback: "Close the till in 30 seconds. Go home.",
               bodyKey: "landingFeatHeroBody",
-              bodyFallback: "Snap your Z-report, BonBox reads the numbers. Four steps — Revenue, Payments, Cash, Review. POS sales register reconciliation flags any variance before you lock.",
+              bodyFallback: "Snap the Z-report, BonBox reads the numbers. Four taps — revenue, payments, cash, review. Kasserapport is signed, locked, and ready for SKAT. Saves the 20 minutes of typing you do every night.",
             },
             {
               icon: Icons.Receipt,
               titleKey: "landingFeatFakturaTitle",
-              titleFallback: "Faktura + kreditnota, properly",
+              titleFallback: "Get paid faster. Chase less.",
               bodyKey: "landingFeatFakturaBody",
-              bodyFallback: "Gap-less fakturanummer per Bogføringsloven §7. Direct customer email. Voiding generates a real kreditnota with the next number — your revisor never asks questions.",
+              bodyFallback: "Send fakturaer in one click — gap-less number per Bogføringsloven §7. Bank deposits auto-match to open invoices on the next CSV. Overdue ones surface in the morning Brief before they become a phone call.",
             },
             {
               icon: Icons.Bank,
               titleKey: "landingFeatBankTitle",
-              titleFallback: "Bank reconciliation that thinks",
+              titleFallback: "Stop typing receipts into Excel.",
               bodyKey: "landingFeatBankBody",
-              bodyFallback: "Upload your netbank CSV — BonBox auto-matches incoming payments to open fakturaer with confidence tiers. Unsure ones land in a review inbox, not the books. Aiia integration coming soon.",
+              bodyFallback: "Snap a kvittering with your phone — receipt OCR fills the expense in 4 seconds. Upload your netbank CSV — BonBox matches incoming payments to open fakturaer with confidence tiers. The Excel sheet your bookkeeper hates? Gone.",
             },
             {
               icon: Icons.Calendar,
               titleKey: "landingFeatStaffTitle",
-              titleFallback: "Staff schedule autopilot",
+              titleFallback: "Stop guessing on weekend staffing.",
               bodyKey: "landingFeatStaffBody",
-              bodyFallback: "Weather forecast + 8 weeks of revenue history + DK labor law = next week's schedule in one tap. Tap Apply, tweak per shift, publish. Pro tier saves cafés 5-10% on labor.",
+              bodyFallback: "Schedule autopilot reads the weather forecast, your last 8 weeks of revenue, and DK labor law — proposes next week in one tap. Tweak per shift, publish. Pro-tier cafés save 5–10% on labor without overworking the crew.",
             },
             {
               icon: Icons.Stack,
               titleKey: "landingFeatRevisorTitle",
-              titleFallback: "Your revisor logs in for free",
+              titleFallback: "Your revisor stops calling.",
               bodyKey: "landingFeatRevisorBody",
-              bodyFallback: "Invite your bogholder by email. They get a read-only login, audit-logged. No more password sharing or GDPR risk. Once they're in BonBox, switching tools means retraining them.",
+              bodyFallback: "Invite your bogholder by email — they get a read-only login, every action audit-logged. No password sharing, no GDPR risk, no monthly \"send me the CSVs\" email. SAF-T + kasserapport + faktura, ready for them whenever.",
             },
           ].map((f) => (
             <FeatureCard
@@ -1321,7 +1344,7 @@ export default function LandingPage() {
       <Section className="bg-[#fafaf7]">
         <div className="text-center max-w-2xl mx-auto mb-14">
           <Eyebrow>{tx_("landingFlowTag", "See it in action")}</Eyebrow>
-          <Heading>{tx_("landingFlowTitle", "Snap. Merge. Done — in 36 seconds.")}</Heading>
+          <Heading variant="serif">{tx_("landingFlowTitle", "Snap. Merge. Done — in 36 seconds.")}</Heading>
           <p className="mt-5 text-[16px] text-stone-600 leading-relaxed">
             {tx_("landingFlowSub", "Three steps. No retyping. The owner sees the consolidated PDF before lights out.")}
           </p>
@@ -1595,7 +1618,7 @@ export default function LandingPage() {
       <Section className="bg-[#fafaf7]">
         <div className="text-center max-w-2xl mx-auto mb-12">
           <Eyebrow>{tx_("landingPositioningTag", "Where it fits")}</Eyebrow>
-          <Heading>{tx_("landingPositioningTitle", "Not bookkeeping. Not POS. The layer on top.")}</Heading>
+          <Heading variant="serif">{tx_("landingPositioningTitle", "Not bookkeeping. Not POS. The layer on top.")}</Heading>
           <p className="mt-5 text-[16px] text-stone-600 leading-relaxed">
             {tx_("landingPositioningSub", "BonBox is the morning-after close + AI brief that sits on top of whatever you already use. Keep your POS. Keep your bookkeeper. We do the part nobody else does.")}
           </p>
