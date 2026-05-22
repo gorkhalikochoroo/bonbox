@@ -1021,22 +1021,28 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── PROOF NUMBERS + INDUSTRIES STRIP ────────────────────── */}
-      {/* Three big numbers that earn the strip + a "built for" line
-          that quietly signals BonBox knows its segment. The strip
-          replaces the previous "we trust this without naming names"
-          look with a real positioning statement. */}
+      {/* ── DESIGN TARGETS + INDUSTRIES STRIP ───────────────────────
+          Task #113 honesty: these are DESIGN TARGETS (what BonBox
+          aims for) rather than measured live stats.  We have 2
+          founding customers — animated counters of "90s · 6+ · 5
+          min" would read as proven benchmarks they aren't.  Reframe
+          with the eyebrow "Designed for" and static values (no
+          Counter animation) so visitors read this as our
+          spec/promise, not as fabricated traction. */}
       <section className="py-12 border-y border-stone-200/70 bg-white">
         <div className="max-w-5xl mx-auto px-5 sm:px-6 lg:px-8">
+          <p className="text-center text-[11px] uppercase tracking-[0.12em] text-stone-400 mb-6">
+            {tx_("landingDesignedForHeader", "Designed for")}
+          </p>
           <div className="grid grid-cols-3 gap-6 sm:gap-10">
             {[
-              { val: 90, suffix: "s", label: tx_("landingStatCloseTime", "to close a day") },
-              { val: 6, suffix: "+", label: tx_("landingStatTerminals", "terminals merged at once") },
-              { val: 5, suffix: " min", label: tx_("landingStatSetup", "from signup to first sale") },
+              { val: "90s", label: tx_("landingStatCloseTime", "Daily close target") },
+              { val: "6+", label: tx_("landingStatTerminals", "Terminals merged at once") },
+              { val: "5 min", label: tx_("landingStatSetup", "Signup to first sale") },
             ].map((s) => (
               <div key={s.label} className="text-center">
-                <p className="text-[36px] sm:text-[44px] font-semibold tracking-tight text-gray-900">
-                  <Counter end={s.val} suffix={s.suffix} />
+                <p className="text-[36px] sm:text-[44px] font-semibold tracking-tight text-gray-900 tabular-nums">
+                  {s.val}
                 </p>
                 <p className="text-[13px] sm:text-[14px] text-stone-500 mt-1.5">{s.label}</p>
               </div>
@@ -1123,9 +1129,12 @@ export default function LandingPage() {
               titleKey: "landingGrow2Title",
               titleFallback: "Steadier cash flow",
               bodyKey: "landingGrow2Body",
-              bodyFallback: "Get paid faster, chase less. Bank deposits auto-match to open fakturaer. Overdue invoices surface in the morning Brief. Tax Autopilot never lets you miss a SKAT deadline — no surprise penalties.",
+              // Honesty: we don't submit to SKAT, we generate the
+              // filing-ready PDF + count down the days.  Bank match
+              // is CSV-only today.
+              bodyFallback: "Get paid faster, chase less. Upload your bank CSV — BonBox matches deposits to open fakturaer. Overdue invoices surface in the morning Brief. The MOMS countdown plus the filing-ready PDF mean you stay ahead of every SKAT deadline — you submit, we keep the calendar.",
               proofKey: "landingGrow2Proof",
-              proofFallback: "Powered by · Bank import · Faktura auto-match · Tax Autopilot",
+              proofFallback: "Powered by · Bank CSV import · Faktura auto-match · MOMS countdown + filing PDF",
             },
             {
               icon: (
@@ -1280,7 +1289,7 @@ export default function LandingPage() {
                 tx_("landingCatMoney3", "Recurring expenses (rent, internet, subs)"),
                 tx_("landingCatMoney4", "Cash Book + cash drawer variance"),
                 tx_("landingCatMoney5", "Bank reconciliation auto-match"),
-                tx_("landingCatMoney6", "Tax Autopilot + MOMS filing PDF"),
+                tx_("landingCatMoney6", "MOMS countdown + filing-ready PDF (you submit to SKAT)"),
               ],
             },
             {
@@ -1517,10 +1526,14 @@ export default function LandingPage() {
               regularPrice: null,
               descFallback: "Try BonBox for as long as you like.",
               descKey: "landingPriceFreeDesc",
+              // Task #113 honesty: surface the real Free caps so
+              // visitors don't sign up expecting unlimited.  Numbers
+              // match the actual entitlement caps in
+              // backend/app/services/billing.py.
               features: [
-                tx_("landingFreeF1", "Sales + Expenses + Daily Close"),
-                tx_("landingFreeF2", "AI Daily Brief (1× refresh/day)"),
-                tx_("landingFreeF3", "Solo owners · 1 location"),
+                tx_("landingFreeF1", "200 sales · 100 expenses · 30 OCR / month"),
+                tx_("landingFreeF2", "AI Daily Brief (1× refresh / day)"),
+                tx_("landingFreeF3", "Solo owners · 1 location · 7-day export history"),
               ],
               cta: tx_("landingFreeCta", "Start free"),
               ctaHref: "/register",
@@ -1655,7 +1668,7 @@ export default function LandingPage() {
                 tx_("landingPosIs1", "The 90-second multi-terminal daily close"),
                 tx_("landingPosIs2", "Faktura with Bogføringsloven §7 gap-less numbering"),
                 tx_("landingPosIs3", "The AI morning Brief that knows your last 90 days"),
-                tx_("landingPosIs4", "OCR receipts + auto-match bank deposits to invoices"),
+                tx_("landingPosIs4", "OCR receipts + bank-CSV auto-match to fakturaer"),
                 tx_("landingPosIs5", "Revisor-ready CSV bundle for the årsregnskab"),
               ].map((line) => (
                 <li key={line} className="flex gap-3 text-[14px] text-stone-700 leading-snug">
@@ -1698,7 +1711,7 @@ export default function LandingPage() {
           {[
             {
               q: tx_("landingFaq1Q", "Does this work with my POS?"),
-              a: tx_("landingFaq1A", "BonBox doesn't replace your POS — it reads what comes out of it. Snap a photo of the kasserapport from any phone, BonBox merges them. Works regardless of brand (Lightspeed, Square, SumUp, paper, whatever)."),
+              a: tx_("landingFaq1A", "BonBox doesn't replace your POS — it reads what comes out of it. Snap a photo of the kasserapport from any phone, BonBox extracts the numbers. Works regardless of which till you use, including paper kasserapport. (We don't have brand integrations — we OCR the Z-report, so any POS that prints one works.)"),
             },
             {
               q: tx_("landingFaq2Q", "Do I still need an accountant?"),
