@@ -1561,7 +1561,10 @@ const translations = {
     // call sites; updated so the visitor sees a coherent story.)
     landingSignIn: "Sign In", landingStartFree: "Get started — free",
     landingBadge: "Built for Danish small businesses",
-    landingHeroLine1: "The AI manager for", landingHeroLine2: "Danish small businesses.",
+    // Task #109 landing redesign — product-first headline.
+    // Line2 renders muted (stone-500), so we read it as one sentence
+    // with secondary emphasis on the payoff phrase.
+    landingHeroLine1: "Close the day in 30 seconds.", landingHeroLine2: "Then go home.",
     landingHeroSub: "Cafés, restaurants, bars, retail, freelancers, konsulenter. Daily close in 30 seconds, MOMS countdown, faktura with auto-match on bank CSV, receipt OCR. A 9am brief that actually helps. 129 DKK/mo founding rate.",
     landingCtaPrimary: "Get started — free", landingMobileApp: "Mobile App",
     landingCheck1: "Free 14-day trial", landingCheck2: "No card required", landingCheck3: "Cancel anytime",
@@ -4027,7 +4030,8 @@ const translations = {
     // owner" pitch.  Old multi-terminal kasserapport copy is gone.
     landingSignIn: "Log ind", landingStartFree: "Kom i gang — gratis",
     landingBadge: "Bygget til danske små virksomheder",
-    landingHeroLine1: "Din AI-driftsleder til", landingHeroLine2: "danske små virksomheder.",
+    // Task #109 landing redesign — product-first headline (DA).
+    landingHeroLine1: "Luk dagen på 30 sekunder.", landingHeroLine2: "Så er du fri.",
     landingHeroSub: "Cafeer, restauranter, barer, butikker, freelancere, konsulenter. Daglig lukning på 30 sekunder, MOMS-nedtælling, faktura med auto-match på bank-CSV, kvitterings-OCR. Et morgenbrief kl. 9 der faktisk hjælper. 129 kr./md. som grundpris.",
     landingCtaPrimary: "Kom i gang — gratis", landingMobileApp: "Mobilapp",
     landingCheck1: "Gratis 14-dages prøveperiode", landingCheck2: "Ingen kreditkort", landingCheck3: "Opsig når som helst",
