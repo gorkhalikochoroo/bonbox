@@ -7,12 +7,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Task #90 — register the in-project AppleSignIn plugin. Capacitor 8
-        // auto-registers @objc plugins compiled into linked frameworks, but
-        // plugins living inside the host app target (like ours) must be
-        // registered explicitly so Capacitor.Plugins.AppleSignIn becomes
-        // available to the JS bridge.
-        CAPBridge.registerPluginInstance(AppleSignInPlugin())
+        // Task #90 / build 43 fix — Apple SIWA plugin auto-registers.
+        //
+        // The earlier attempt called `CAPBridge.registerPluginInstance(...)`
+        // here.  That static API existed in Capacitor 7 but was removed
+        // in Cap 8.  The build broke on every Xcode Cloud run with
+        // "type 'CAPBridge' has no member 'registerPluginInstance'".
+        //
+        // Cap 8 discovers plugins by Objective-C runtime introspection
+        // of all linked binaries — including the host app target.
+        // `AppleSignInPlugin` is marked `@objc(AppleSignInPlugin)` and
+        // conforms to `CAPBridgedPlugin` with `jsName = "AppleSignIn"`
+        // + `pluginMethods` declared.  Capacitor finds and registers it
+        // automatically.  No manual call needed here.
         return true
     }
 
