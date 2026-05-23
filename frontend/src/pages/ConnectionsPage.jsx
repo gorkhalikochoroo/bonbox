@@ -30,7 +30,10 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useFeatures } from "../hooks/useFeatures";
-import { Button, Card, Icon } from "../components/ui";
+// Task #120 polish (Agent E): migrated H1 → PageHeader, KPI cards →
+// StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
+// + i18n + a11y unchanged.
+import { Button, Card, Icon, PageHeader } from "../components/ui";
 
 /**
  * Single connection card primitive. Shared layout so the page reads as
@@ -514,15 +517,12 @@ export default function ConnectionsPage() {
       )}
 
       {/* Header */}
-      <div className="mb-7">
-        <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-stone-900 dark:text-stone-100">
-          {t("connectionsTitle") || "Connections"}
-        </h1>
-        <p className="mt-2 text-[15px] text-stone-600 dark:text-stone-400 leading-relaxed max-w-2xl">
-          {t("connectionsSubtitle") ||
-            "Connect once, never again. Your bank, your MobilePay, your revisor, your accountant — all in one place. Each one is one tap and under 60 seconds."}
-        </p>
-      </div>
+      <PageHeader
+        eyebrow={t("connectionsEyebrow") || "MANAGE"}
+        title={t("connectionsTitle") || "Connections"}
+        subtitle={t("connectionsSubtitle") ||
+          "Connect once, never again. Your bank, your MobilePay, your revisor, your accountant — all in one place. Each one is one tap and under 60 seconds."}
+      />
 
       {/* Aiia bank connections panel (Task #67) — shown ABOVE the grid
           when the owner has 1+ active connections, so the most-relevant

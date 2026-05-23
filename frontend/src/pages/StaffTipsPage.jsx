@@ -1,3 +1,6 @@
+// Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
+// StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
+// + i18n + a11y unchanged.
 import { useState, useEffect, useMemo, useCallback } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -5,6 +8,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { formatDate, localIso, localDaysAgo } from "../utils/dateFormat";
 import { FadeIn, AnimatedCard, StaggerContainer, StaggerItem } from "../components/AnimationKit";
+import { PageHeader, TabPills, Icon } from "../components/ui";
 
 /* ═══════════════════════════════════════════════════════════
    SPLIT METHOD DEFINITIONS
@@ -76,31 +80,22 @@ export default function StaffTipsPage() {
 
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6">
-      <FadeIn>
-        <h1 className="text-2xl font-bold dark:text-white flex items-center gap-2">
-          {"\uD83D\uDCB0"} {t("tips") || "Tips"}
-        </h1>
-        <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
-          {t("tipsDesc") || "Distribute tips fairly \u2014 by hours, role, or custom split"}
-        </p>
-      </FadeIn>
+      <PageHeader
+        eyebrow="STAFF"
+        title={t("tips") || "Tips"}
+        subtitle={t("tipsDesc") || "Distribute tips fairly \u2014 by hours, role, or custom split"}
+      />
 
       {/* Tab bar */}
-      <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
-        {[
-          { id: "new", label: t("newTipEntry") || "New Entry", icon: "\u2795" },
-          { id: "history", label: t("tipHistory") || "History", icon: "\uD83D\uDCC5" },
-        ].map(tb => (
-          <button key={tb.id} onClick={() => setTab(tb.id)}
-            className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition ${
-              tab === tb.id
-                ? "bg-white dark:bg-gray-700 shadow text-gray-900 dark:text-white"
-                : "text-gray-500 dark:text-gray-400 hover:text-gray-700"
-            }`}>
-            {tb.icon} {tb.label}
-          </button>
-        ))}
-      </div>
+      <TabPills
+        tabs={[
+          { id: "new", label: t("newTipEntry") || "New Entry" },
+          { id: "history", label: t("tipHistory") || "History" },
+        ]}
+        activeId={tab}
+        onChange={setTab}
+        ariaLabel="Tips view"
+      />
 
       {loading && (
         <div className="text-center py-12 text-gray-400 dark:text-gray-500">

@@ -1,3 +1,6 @@
+// Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
+// StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
+// + i18n + a11y unchanged.
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -6,6 +9,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { formatDate, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
+import { PageHeader, Button, StatCard, SectionBanner, TabPills, Icon } from "../components/ui";
 
 const currentDate = new Date();
 
@@ -93,46 +97,43 @@ export default function ReportsPage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-4xl mx-auto">
-      {/* Tab Switcher */}
-      <div className="flex gap-2">
-        {/* Option A rename — tabs map to job-to-be-done: "Today's Books"
-            is the accountant-style daily snapshot; "Tax Bundle" is the
-            multi-section monthly PDF the user hands to their revisor. */}
-        <button onClick={() => setTab("daily")}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition ${tab === "daily" ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"}`}>
-          📒 {t("todaysBooks") || "Today's Books"}
-        </button>
-        <button onClick={() => setTab("monthly")}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition ${tab === "monthly" ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"}`}>
-          📦 {t("taxBundle") || "Tax Bundle"}
-        </button>
-      </div>
+      {/* Tab Switcher — "Today's Books" is the accountant-style daily
+          snapshot; "Tax Bundle" is the multi-section monthly PDF the
+          user hands to their revisor. */}
+      <TabPills
+        tabs={[
+          { id: "daily", label: t("todaysBooks") || "Today's Books" },
+          { id: "monthly", label: t("taxBundle") || "Tax Bundle" },
+        ]}
+        activeId={tab}
+        onChange={setTab}
+        ariaLabel={t("reportBuilder") || "Report builder"}
+      />
 
       {tab === "daily" && <DailyKasserapport />}
 
       {tab === "monthly" && <>
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("reportBuilder")}</h1></FadeIn>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            {t("buildCustomReport")}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <select value={month} onChange={e => setMonth(Number(e.target.value))}
-            className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
-            {months.map((name, i) => <option key={i+1} value={i+1}>{name}</option>)}
-          </select>
-          <select value={year} onChange={e => setYear(Number(e.target.value))}
-            className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
-            {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="REPORTS"
+        title={t("reportBuilder")}
+        subtitle={t("buildCustomReport")}
+        actions={
+          <>
+            <select value={month} onChange={e => setMonth(Number(e.target.value))}
+              className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+              {months.map((name, i) => <option key={i+1} value={i+1}>{name}</option>)}
+            </select>
+            <select value={year} onChange={e => setYear(Number(e.target.value))}
+              className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+              {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </>
+        }
+      />
 
       {error && (
-        <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg text-sm">{error}</div>
+        <SectionBanner severity="critical" title={error} />
       )}
 
       {/* Overview Cards */}
@@ -147,30 +148,30 @@ export default function ReportsPage() {
         </div>
       ) : overview && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <OverviewCard label={t("revenue")} value={fmt(overview.revenue)} sub={`${fmt(overview.total_sales_count)} ${t("sales")}`} color="blue" />
-          <OverviewCard label={t("expenses")} value={fmt(overview.expenses)} sub={`${fmt(overview.total_expense_count)} ${t("entries")}`} color="red" />
-          <OverviewCard label={t("netProfit")} value={fmt(overview.net_profit)} sub={overview.revenue > 0 ? `${Math.round((overview.net_profit/overview.revenue)*100)}% ${t("margin")}` : "—"} color={overview.net_profit >= 0 ? "green" : "red"} />
-          <OverviewCard label={`${vat.vatName} ${t("payable")}`} value={fmt(overview.vat_payable)} sub={`${t("to")} ${vat.taxAuthority}`} color="purple" />
-          <OverviewCard label={t("stockValue")} value={fmt(overview.inventory_value)} sub={`${overview.low_stock_count} ${t("lowStock")}`} color="amber" />
-          <OverviewCard label={t("khataOutstanding")} value={fmt(overview.khata_outstanding)} sub={t("creditOwed")} color="orange" />
-          <OverviewCard label={t("cashIn")} value={fmt(overview.cash_in)} color="emerald" />
-          <OverviewCard label={t("cashOut")} value={fmt(overview.cash_out)} color="rose" />
-          <OverviewCard label={t("avgPerSale") || "Avg/Sale"} value={fmt(overview.avg_per_sale)} sub={`${fmt(overview.total_sales_count)} ${t("sales")}`} color="cyan" />
-          <OverviewCard label={t("avgDailySales") || "Avg/Day"} value={fmt(overview.avg_daily_sales)} sub={`${overview.days_with_sales || 0} ${t("days") || "days"}`} color="teal" />
+          <StatCard label={t("revenue")} value={fmt(overview.revenue)} helper={`${fmt(overview.total_sales_count)} ${t("sales")}`} />
+          <StatCard label={t("expenses")} value={fmt(overview.expenses)} helper={`${fmt(overview.total_expense_count)} ${t("entries")}`} />
+          <StatCard label={t("netProfit")} value={fmt(overview.net_profit)} helper={overview.revenue > 0 ? `${Math.round((overview.net_profit/overview.revenue)*100)}% ${t("margin")}` : "—"} accent={overview.net_profit < 0 ? "critical" : "neutral"} />
+          <StatCard label={`${vat.vatName} ${t("payable")}`} value={fmt(overview.vat_payable)} helper={`${t("to")} ${vat.taxAuthority}`} />
+          <StatCard label={t("stockValue")} value={fmt(overview.inventory_value)} helper={`${overview.low_stock_count} ${t("lowStock")}`} accent={overview.low_stock_count > 0 ? "warn" : "neutral"} />
+          <StatCard label={t("khataOutstanding")} value={fmt(overview.khata_outstanding)} helper={t("creditOwed")} />
+          <StatCard label={t("cashIn")} value={fmt(overview.cash_in)} />
+          <StatCard label={t("cashOut")} value={fmt(overview.cash_out)} />
+          <StatCard label={t("avgPerSale") || "Avg/Sale"} value={fmt(overview.avg_per_sale)} helper={`${fmt(overview.total_sales_count)} ${t("sales")}`} />
+          <StatCard label={t("avgDailySales") || "Avg/Day"} value={fmt(overview.avg_daily_sales)} helper={`${overview.days_with_sales || 0} ${t("days") || "days"}`} />
         </div>
       )}
 
       {/* Section Selection */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-5">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-lg font-semibold text-gray-800 dark:text-white">{t("selectSections")}</h2>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t("selectSections")}</h2>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
               {t("overviewAlwaysIncluded")}
             </p>
           </div>
           <div className="flex gap-2">
-            <button onClick={selectAll} className="text-xs text-blue-600 dark:text-blue-400 hover:underline">{t("all")}</button>
+            <button onClick={selectAll} className="text-xs text-gray-900 dark:text-gray-100 hover:underline">{t("all")}</button>
             <span className="text-gray-300 dark:text-gray-600">|</span>
             <button onClick={selectNone} className="text-xs text-gray-500 dark:text-gray-400 hover:underline">{t("noneSelect")}</button>
           </div>
@@ -181,30 +182,27 @@ export default function ReportsPage() {
             const on = selected.has(s.key);
             return (
               <button key={s.key} onClick={() => toggleSection(s.key)}
+                aria-pressed={on}
                 className={`flex items-start gap-3 p-3 rounded-xl border text-left transition-all ${
                   on
-                    ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-500/50"
-                    : "border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600"
+                    ? "ring-1 ring-gray-900 dark:ring-gray-100 bg-gray-50 dark:bg-gray-900/60 border-gray-300 dark:border-gray-700"
+                    : "border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 bg-white dark:bg-gray-900"
                 }`}
               >
                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                  on ? "bg-blue-100 dark:bg-blue-800/40" : "bg-gray-100 dark:bg-gray-700"
+                  on ? "bg-gray-200 dark:bg-gray-800" : "bg-gray-100 dark:bg-gray-700"
                 }`}>
-                  <svg className={`w-5 h-5 ${on ? "text-blue-600 dark:text-blue-400" : "text-gray-400 dark:text-gray-500"}`}
+                  <svg className={`w-5 h-5 ${on ? "text-gray-900 dark:text-gray-100" : "text-gray-400 dark:text-gray-500"}`}
                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={s.icon} />
                   </svg>
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className={`text-sm font-medium ${on ? "text-blue-700 dark:text-blue-300" : "text-gray-700 dark:text-gray-300"}`}>
+                    <span className={`text-sm font-medium ${on ? "text-gray-900 dark:text-gray-100" : "text-gray-700 dark:text-gray-300"}`}>
                       {s.label}
                     </span>
-                    {on && (
-                      <svg className="w-4 h-4 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
-                      </svg>
-                    )}
+                    {on && <Icon name="Check" size={14} className="text-gray-900 dark:text-gray-100" />}
                   </div>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{s.desc}</p>
                 </div>
@@ -215,7 +213,7 @@ export default function ReportsPage() {
       </div>
 
       {/* Download Button */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-5">
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
         <div>
           <p className="text-sm text-gray-700 dark:text-gray-300">
             <span className="font-semibold">{selected.size + 1}</span> {t("sectionsSelected")}
@@ -225,25 +223,16 @@ export default function ReportsPage() {
             {months[month-1]} {year} &middot; {cur}
           </p>
         </div>
-        <button onClick={downloadPdf} disabled={downloading}
-          className="w-full sm:w-auto px-6 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20">
-          {downloading ? (
-            <>
-              <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              {t("generatingPdf")}
-            </>
-          ) : (
-            <>
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              {t("downloadReportPdf")}
-            </>
-          )}
-        </button>
+        <Button
+          variant="accent"
+          size="lg"
+          onClick={downloadPdf}
+          disabled={downloading}
+          busy={downloading}
+          iconLeft={!downloading && <Icon name="Download" size={16} />}
+        >
+          {downloading ? t("generatingPdf") : t("downloadReportPdf")}
+        </Button>
       </div>
 
       {/* Disclaimer */}
@@ -277,11 +266,15 @@ function DailyKasserapport() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("dailyKasserapport")}</h1>
-        <input type="date" value={reportDate} onChange={e => setReportDate(e.target.value)}
-          className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-3 py-2 text-sm" />
-      </div>
+      <PageHeader
+        eyebrow="REPORTS"
+        title={t("dailyKasserapport")}
+        actions={
+          <input type="date" value={reportDate} onChange={e => setReportDate(e.target.value)}
+            className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-200 px-3 py-2 text-sm" />
+        }
+      />
+
 
       {loading ? (
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 text-center border border-gray-100 dark:border-gray-700">

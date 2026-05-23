@@ -16,7 +16,10 @@ import {
   shareCloseSummary,
 } from "../utils/shareClose";
 import { sendDailyCloseRangeToAccountant } from "../utils/shareDailyCloseRange";
-import { UpgradeNudge } from "../components/ui";
+// Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
+// StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
+// + i18n + a11y unchanged.
+import { UpgradeNudge, PageHeader, TabPills, Button, Icon } from "../components/ui";
 
 /**
  * Decode an axios error from a blob-typed request.
@@ -250,34 +253,27 @@ export default function DailyClosePage() {
 
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6">
-      <FadeIn>
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold dark:text-white flex items-center gap-2">
-              🌙 {t("endOfDayCloseTitle") || "End-of-Day Close"}
-            </h1>
-            <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
-              {(CLOSE_CONFIG[branchType] || CLOSE_CONFIG.general).description}
-            </p>
-          </div>
-          {/* Online/Offline + pending indicator */}
-          {(!isOnline || pendingCount > 0) && (
+      <PageHeader
+        eyebrow="REPORTS"
+        title={t("endOfDayCloseTitle") || "End-of-Day Close"}
+        subtitle={(CLOSE_CONFIG[branchType] || CLOSE_CONFIG.general).description}
+        actions={
+          (!isOnline || pendingCount > 0) && (
             <div className="flex items-center gap-2">
               {!isOnline && (
-                <span className="text-[10px] px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full font-semibold flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full" /> Offline
+                <span className="text-[10px] px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full font-semibold flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 bg-gray-500 rounded-full" /> Offline
                 </span>
               )}
               {pendingCount > 0 && (
-                <button onClick={doSync} disabled={!isOnline}
-                  className="text-[10px] px-2 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded-full font-semibold hover:bg-amber-200 disabled:opacity-50">
+                <Button variant="secondary" size="sm" onClick={doSync} disabled={!isOnline}>
                   {isOnline ? `Sync ${pendingCount} pending` : `${pendingCount} queued`}
-                </button>
+                </Button>
               )}
             </div>
-          )}
-        </div>
-      </FadeIn>
+          )
+        }
+      />
 
       <DismissibleTip
         id="daily-close-intro-v1"
@@ -288,22 +284,17 @@ export default function DailyClosePage() {
       </DismissibleTip>
 
       {/* Tab bar */}
-      <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
-        {[
-          { id: "close", label: t("newClose") || "New Close", icon: "✏️" },
-          { id: "history", label: t("historyTab") || "History", icon: "📅" },
-          { id: "insights", label: t("insightsTab") || "Insights", icon: "💡" },
-          ...(hasMultiBranch ? [{ id: "branches", label: t("branches") || "Branches", icon: "🏢" }] : []),
-        ].map(tb => (
-          <button key={tb.id} onClick={() => setTab(tb.id)}
-            className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition ${
-              tab === tb.id ? "bg-white dark:bg-gray-700 shadow text-gray-900 dark:text-white"
-                : "text-gray-500 dark:text-gray-400 hover:text-gray-700"
-            }`}>
-            {tb.icon} {tb.label}
-          </button>
-        ))}
-      </div>
+      <TabPills
+        tabs={[
+          { id: "close", label: t("newClose") || "New Close" },
+          { id: "history", label: t("historyTab") || "History" },
+          { id: "insights", label: t("insightsTab") || "Insights" },
+          ...(hasMultiBranch ? [{ id: "branches", label: t("branches") || "Branches" }] : []),
+        ]}
+        activeId={tab}
+        onChange={setTab}
+        ariaLabel="Daily close view"
+      />
 
       {tab === "close" && <CloseForm currency={currency} t={t} branchType={branchType} branchId={branchId} isOnline={isOnline}
         editDraft={editDraft}

@@ -1,9 +1,13 @@
+// Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
+// StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
+// + i18n + a11y unchanged.
 import { useState, useEffect, useMemo, useCallback } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn, TabContent, AnimatedList, AnimatedListItem, AnimatePresence } from "../components/AnimationKit";
+import { PageHeader, Button, TabPills, Icon } from "../components/ui";
 
 /* ═══════════════════════════════════════════════════════════
    HELPERS
@@ -165,14 +169,11 @@ export default function StaffHoursPage() {
 
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
-      <FadeIn>
-        <h1 className="text-2xl font-bold dark:text-white flex items-center gap-2">
-          {t("staffHours") || "Staff Hours"}
-        </h1>
-        <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
-          Track working hours, clock in/out, and confirm schedules.
-        </p>
-      </FadeIn>
+      <PageHeader
+        eyebrow="STAFF"
+        title={t("staffHours") || "Staff Hours"}
+        subtitle="Track working hours, clock in/out, and confirm schedules."
+      />
 
       {/* Period Selector */}
       <FadeIn delay={0.05}>
@@ -223,38 +224,44 @@ export default function StaffHoursPage() {
    ═══════════════════════════════════════════════════════════ */
 function PeriodSelector({ from, to, loading, onPrev, onNext }) {
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 flex items-center justify-between">
-      <button
+    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between">
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={onPrev}
         disabled={loading}
-        className="flex items-center gap-1 text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-green-600 dark:hover:text-green-400 transition disabled:opacity-40"
+        iconLeft={
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+        }
       >
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-        </svg>
         Previous Period
-      </button>
+      </Button>
 
       <div className="text-center">
         {loading ? (
           <div className="h-5 w-40 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
         ) : (
-          <span className="text-sm font-semibold text-gray-800 dark:text-white">
+          <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
             {fmtPeriod(from, to)}
           </span>
         )}
       </div>
 
-      <button
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={onNext}
         disabled={loading}
-        className="flex items-center gap-1 text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-green-600 dark:hover:text-green-400 transition disabled:opacity-40"
+        iconRight={
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        }
       >
         Next Period
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
-      </button>
+      </Button>
     </div>
   );
 }
@@ -266,7 +273,7 @@ function HoursSummaryTable({ summary, loading, currency }) {
   const { t } = useLanguage();
   if (loading) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
         <div className="animate-pulse space-y-3">
           <div className="h-5 w-40 bg-gray-200 dark:bg-gray-700 rounded" />
           <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded" />
@@ -279,18 +286,18 @@ function HoursSummaryTable({ summary, loading, currency }) {
 
   if (!summary || summary.length === 0) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-8 text-center">
-        <div className="text-3xl mb-2">&#128337;</div>
-        <p className="text-gray-500 dark:text-gray-400 font-medium">{t("noHoursLogged")}</p>
-        <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">Use the logging section below to start tracking hours.</p>
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 text-center">
+        <Icon name="Clock" size={28} className="text-gray-400 mx-auto mb-2" />
+        <p className="text-gray-700 dark:text-gray-200 font-medium">{t("noHoursLogged")}</p>
+        <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">Use the logging section below to start tracking hours.</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-      <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700">
-        <h2 className="text-base font-semibold text-gray-800 dark:text-white">{t("periodSummary")}</h2>
+    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+        <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">{t("periodSummary")}</h2>
       </div>
 
       <div className="overflow-x-auto">
@@ -411,26 +418,19 @@ function LoggingSection({ staffList, currency, periodFrom, onLogged }) {
   ];
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-      <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700">
-        <h2 className="text-base font-semibold text-gray-800 dark:text-white">{t("logHours")}</h2>
+    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+        <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">{t("logHours")}</h2>
       </div>
 
       {/* Tab bar */}
-      <div className="flex gap-1 bg-gray-100 dark:bg-gray-900/50 rounded-xl p-1 mx-4 mt-4">
-        {tabs.map(tb => (
-          <button
-            key={tb.id}
-            onClick={() => setLogTab(tb.id)}
-            className={`flex-1 py-2 rounded-lg text-sm font-medium transition ${
-              logTab === tb.id
-                ? "bg-white dark:bg-gray-700 shadow text-gray-900 dark:text-white"
-                : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
-            }`}
-          >
-            {tb.label}
-          </button>
-        ))}
+      <div className="mx-4 mt-4">
+        <TabPills
+          tabs={tabs}
+          activeId={logTab}
+          onChange={setLogTab}
+          ariaLabel={t("logHours")}
+        />
       </div>
 
       <div className="p-4">

@@ -1,9 +1,13 @@
+// Task #120 polish (Agent E): migrated H1 → PageHeader, KPI cards →
+// StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
+// + i18n + a11y unchanged.
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
+import { PageHeader, StatCard, SectionBanner, TabPills, Button } from "../components/ui";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
   PieChart, Pie, Cell,
@@ -54,7 +58,9 @@ export default function RetentionPage() {
       <div className="p-4 md:p-8 max-w-lg mx-auto text-center">
         <div className="text-4xl mb-4">🤝</div>
         <p className="text-red-500">{error}</p>
-        <button onClick={fetchData} className="mt-4 text-sm text-green-600 hover:underline">Try again</button>
+        <Button variant="secondary" onClick={fetchData} className="mt-4">
+          Try again
+        </Button>
       </div>
     );
   }
@@ -81,93 +87,89 @@ export default function RetentionPage() {
   return (
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
       <FadeIn>
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-          🤝 {t("customerRetention") || "Customer Retention"}
-        </h1>
+        <PageHeader
+          eyebrow={t("retentionEyebrow") || "INTEL"}
+          title={t("customerRetention") || "Customer Retention"}
+          subtitle={t("retentionSubtitle") || "Spot at-risk customers before they churn."}
+        />
       </FadeIn>
 
       {/* ─── ALERTS ─── */}
       {alerts?.length > 0 && (
         <div className="space-y-3">
-          {alerts.map((alert, i) => (
-            <div key={i} className={`p-4 rounded-2xl border-l-4 ${
-              alert.severity === "warning" ? "border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20" :
-              alert.severity === "positive" ? "border-green-500 bg-green-50 dark:bg-green-900/20" :
-              "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
-            }`}>
-              <div className="flex items-start gap-3">
-                <span className="text-2xl">{alert.icon}</span>
-                <div className="flex-1">
-                  <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{alert.title}</p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{alert.detail}</p>
-                  {alert.action && (
-                    <p className="text-xs text-green-700 dark:text-green-400 mt-2 font-medium">💡 {alert.action}</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
+          {alerts.map((alert, i) => {
+            const severity = alert.severity === "warning" ? "warn"
+              : alert.severity === "positive" ? "success"
+              : "info";
+            return (
+              <SectionBanner
+                key={i}
+                severity={severity}
+                title={alert.title}
+              >
+                <p>{alert.detail}</p>
+                {alert.action && (
+                  <p className="text-xs mt-2 font-medium">{alert.action}</p>
+                )}
+              </SectionBanner>
+            );
+          })}
         </div>
       )}
 
       {/* ─── KEY METRICS ─── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <MetricCard label="Total Customers" value={total_customers} color="text-blue-600" />
-        <MetricCard
+        <StatCard label="Total Customers" value={total_customers} />
+        <StatCard
           label="Retention Rate"
           value={`${retention_rate}%`}
-          sub={`${active_customers} active`}
-          color={retention_rate >= 60 ? "text-green-600" : "text-red-600"}
+          helper={`${active_customers} active`}
+          accent={retention_rate >= 60 ? "success" : "critical"}
         />
-        <MetricCard
+        <StatCard
           label="Churn Rate"
           value={`${churn_rate}%`}
-          sub={`${churned_customers} lost`}
-          color={churn_rate <= 20 ? "text-green-600" : "text-red-600"}
+          helper={`${churned_customers} lost`}
+          accent={churn_rate <= 20 ? "success" : "critical"}
         />
-        <MetricCard
+        <StatCard
           label="Avg CLV"
-          value={fmt(avg_clv)}
-          sub={`Total: ${fmt(total_clv)}`}
-          color="text-purple-600"
-          currency={currency}
+          value={`${fmt(avg_clv)} ${currency}`}
+          helper={`Total: ${fmt(total_clv)}`}
         />
       </div>
 
       {/* ─── TRANSACTION TRENDS ─── */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm">
-          <p className="text-xs text-gray-500">Transaction Trend</p>
-          <p className={`text-2xl font-bold mt-1 ${txn_trend_pct >= 0 ? "text-green-600" : "text-red-600"}`}>
-            {txn_trend_pct >= 0 ? "+" : ""}{txn_trend_pct}%
-          </p>
-          <p className="text-xs text-gray-400 mt-1">{current_month_txns} vs {prev_month_txns} last month</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm">
-          <p className="text-xs text-gray-500">Revenue Trend</p>
-          <p className={`text-2xl font-bold mt-1 ${rev_trend_pct >= 0 ? "text-green-600" : "text-red-600"}`}>
-            {rev_trend_pct >= 0 ? "+" : ""}{rev_trend_pct}%
-          </p>
-          <p className="text-xs text-gray-400 mt-1">vs previous 30 days</p>
-        </div>
+        <StatCard
+          label="Transaction Trend"
+          value={`${txn_trend_pct >= 0 ? "+" : ""}${txn_trend_pct}%`}
+          helper={`${current_month_txns} vs ${prev_month_txns} last month`}
+          accent={txn_trend_pct >= 0 ? "success" : "critical"}
+        />
+        <StatCard
+          label="Revenue Trend"
+          value={`${rev_trend_pct >= 0 ? "+" : ""}${rev_trend_pct}%`}
+          helper="vs previous 30 days"
+          accent={rev_trend_pct >= 0 ? "success" : "critical"}
+        />
       </div>
 
       {/* ─── TABS ─── */}
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition ${
-              tab === t.key
-                ? "bg-green-600 text-white"
-                : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <TabPills
+        tabs={tabs.map(t => ({
+          id: t.key,
+          label: t.key === "overview" ? "Overview"
+            : t.key === "customers" ? "Top Customers"
+            : "At Risk",
+          count: t.key === "customers" ? (top_customers?.length || 0)
+            : t.key === "at_risk" ? (at_risk_list?.length || 0)
+            : undefined,
+        }))}
+        activeId={tab}
+        onChange={setTab}
+        wrap={false}
+      />
 
       {/* ─── OVERVIEW TAB ─── */}
       {tab === "overview" && (

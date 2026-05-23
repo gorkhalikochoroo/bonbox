@@ -1,3 +1,6 @@
+// Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
+// StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
+// + i18n + a11y unchanged.
 import { useState, useEffect, useMemo, useCallback } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -5,7 +8,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useBranch } from "../components/BranchSelector";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
-import { UpgradeNudge } from "../components/ui";
+import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon } from "../components/ui";
 
 /* ═══════════════════════════════════════════════════════════
    CONSTANTS & HELPERS
@@ -447,107 +450,107 @@ export default function StaffSchedulePage() {
   /* ─── Render ─── */
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6">
-      {/* Header */}
-      <FadeIn>
-        <h1 className="text-2xl font-bold dark:text-white flex items-center gap-2">
-          {"\uD83D\uDCC5"} {t("staffSchedule") || "Staff Schedule"}
-        </h1>
-        <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
-          {t("staffScheduleDesc") || "Plan weekly shifts, manage staff, and track labor costs."}
-        </p>
-      </FadeIn>
+      <PageHeader
+        eyebrow="STAFF"
+        title={t("staffSchedule") || "Staff Schedule"}
+        subtitle={t("staffScheduleDesc") || "Plan weekly shifts, manage staff, and track labor costs."}
+      />
 
       {/* Week navigation + actions */}
       <FadeIn delay={0.05}>
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             {/* Week nav */}
             <div className="flex items-center gap-2">
-              <button
-                onClick={goToPrevWeek}
-                className="px-3 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition"
-              >
+              <Button variant="secondary" size="sm" onClick={goToPrevWeek}>
                 {"\u2190"} Previous
-              </button>
+              </Button>
               <button
                 onClick={goToCurrentWeek}
-                className="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-50 dark:bg-gray-750 text-gray-900 dark:text-white border border-gray-200 dark:border-gray-600 min-w-[220px] text-center"
+                className="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700 min-w-[220px] text-center hover:bg-gray-100 dark:hover:bg-gray-800 transition"
               >
                 {formatWeekRange(weekStart)}
               </button>
-              <button
-                onClick={goToNextWeek}
-                className="px-3 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition"
-              >
+              <Button variant="secondary" size="sm" onClick={goToNextWeek}>
                 Next {"\u2192"}
-              </button>
+              </Button>
             </div>
 
-            {/* Action buttons */}
+            {/* Action buttons — one accent (Publish = the money moment),
+                rest secondary / ghost. */}
             <div className="flex items-center gap-2 flex-wrap justify-center">
-              <button
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={() => setShiftModal({ staffId: null, date: null, shift: null })}
-                className="px-3 py-2 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition"
+                iconLeft={<Icon name="Plus" size={14} />}
               >
-                + Add Shift
-              </button>
-              <button
+                Add Shift
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={handleCopyLastWeek}
                 disabled={copying}
-                className="px-3 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition disabled:opacity-50"
+                busy={copying}
               >
                 {copying ? "Copying..." : "Copy Last Week"}
-              </button>
+              </Button>
               {/* Autopilot (Pro+ killer feature) — proposes next week's
                   schedule from 8 weeks of sales + the 7-day forecast +
                   staff hourly cost. Tier-gated: Starter/Free see an
                   UpgradeNudge dialog on click; Pro/Trial run it. */}
-              <button
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={handleRunAutopilot}
                 disabled={autopilotLoading}
+                busy={autopilotLoading}
+                iconLeft={!autopilotLoading && <Icon name="Sparkles" size={14} />}
                 title={t(
                   "autopilotTitle",
                   "Let BonBox propose next week's schedule from your data"
                 )}
-                className="px-3 py-2 rounded-lg text-sm font-medium bg-gradient-to-r from-violet-600 to-emerald-600 text-white hover:from-violet-700 hover:to-emerald-700 transition disabled:opacity-50"
               >
                 {autopilotLoading
                   ? t("autopilotRunning", "Thinking…")
-                  : "✨ " + t("autopilotButton", "Autopilot")}
-              </button>
-              <button
+                  : t("autopilotButton", "Autopilot")}
+              </Button>
+              <Button
+                variant="accent"
+                size="sm"
                 onClick={handlePublish}
                 disabled={publishing}
-                className="px-3 py-2 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition disabled:opacity-50"
+                busy={publishing}
               >
                 {publishing ? "Publishing..." : "Publish Week"}
-              </button>
+              </Button>
               {/* PDF export — owners print this and pin it on the
-                  back-of-house staff board. Single-page A4 landscape;
-                  confirmed shifts marked ✓ so the wall version stays
-                  in sync with what staff have acknowledged. */}
-              <button
+                  back-of-house staff board. */}
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={handleExportPdf}
                 disabled={exporting}
+                iconLeft={<Icon name="FileText" size={14} />}
                 title={t("schedulePdfTitle") || "Export schedule as PDF (for the staff board)"}
-                className="px-3 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition disabled:opacity-50"
               >
-                {exporting ? "…" : "📄 PDF"}
-              </button>
-              {/* Email schedule to all active staff — one tap delivers
-                  the PDF straight to their inbox via Resend. Reply-to
-                  is the owner so any "can I swap Thursday?" comes back
-                  to them, not noreply@bonbox.dk. */}
-              <button
+                {exporting ? "…" : "PDF"}
+              </Button>
+              {/* Email schedule to all active staff. */}
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={handleEmailToStaff}
                 disabled={emailing || exporting}
+                busy={emailing}
+                iconLeft={!emailing && <Icon name="Send" size={14} />}
                 title={t("scheduleEmailTitle", "Email the week's schedule to every staff member with an email on file")}
-                className="px-3 py-2 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white transition disabled:opacity-50"
               >
                 {emailing
                   ? (t("scheduleEmailSending", "Sending…"))
-                  : ("📧 " + t("scheduleEmailButton", "Email staff"))}
-              </button>
+                  : (t("scheduleEmailButton", "Email staff"))}
+              </Button>
             </div>
           </div>
         </div>
@@ -555,24 +558,30 @@ export default function StaffSchedulePage() {
 
       {/* Error banner */}
       {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-3 text-red-700 dark:text-red-300 text-sm flex items-center justify-between">
-          <span>{error}</span>
-          <button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700 font-bold">{"\u00D7"}</button>
-        </div>
+        <SectionBanner
+          severity="critical"
+          title={error}
+          icon="AlertTriangle"
+          onDismiss={() => setError("")}
+        />
       )}
       {/* Email-success toast (auto-dismisses after 7s \u2014 see handleEmailToStaff) */}
       {emailToast && (
-        <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl p-3 text-emerald-700 dark:text-emerald-300 text-sm flex items-center justify-between">
-          <span>{emailToast}</span>
-          <button onClick={() => setEmailToast("")} className="ml-2 text-emerald-500 hover:text-emerald-700 font-bold">{"\u00D7"}</button>
-        </div>
+        <SectionBanner
+          severity="success"
+          title={emailToast}
+          icon="CheckCircle2"
+          onDismiss={() => setEmailToast("")}
+        />
       )}
       {/* Autopilot-success toast (auto-dismisses after 7s) */}
       {autopilotToast && (
-        <div className="bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800 rounded-xl p-3 text-violet-700 dark:text-violet-300 text-sm flex items-center justify-between">
-          <span>{autopilotToast}</span>
-          <button onClick={() => setAutopilotToast("")} className="ml-2 text-violet-500 hover:text-violet-700 font-bold">{"\u00D7"}</button>
-        </div>
+        <SectionBanner
+          severity="success"
+          title={autopilotToast}
+          icon="Sparkles"
+          onDismiss={() => setAutopilotToast("")}
+        />
       )}
 
       {/* Autopilot suggestion review panel \u2014 Pro killer feature (Task #50).
@@ -596,20 +605,19 @@ export default function StaffSchedulePage() {
 
       {/* Manage Staff collapsible */}
       <FadeIn delay={0.1}>
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
           <button
             onClick={() => setShowManageStaff(!showManageStaff)}
-            className="w-full flex items-center justify-between px-5 py-4 text-left"
+            aria-expanded={showManageStaff}
+            className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-gray-50 dark:hover:bg-gray-700/40 transition rounded-xl"
           >
-            <span className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-              {"\uD83D\uDC65"} Manage Staff
-              <span className="text-xs font-normal text-gray-400 dark:text-gray-500">
+            <span className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+              <Icon name="Users" size={16} className="text-gray-500" /> Manage Staff
+              <span className="text-xs font-normal text-gray-500 dark:text-gray-400">
                 ({activeStaff.length} active)
               </span>
             </span>
-            <span className="text-gray-700 dark:text-gray-200 text-xl font-bold transition-transform" style={{ transform: showManageStaff ? "rotate(180deg)" : "rotate(0)" }}>
-              {"\u25BC"}
-            </span>
+            <Icon name="ChevronDown" size={16} className={`text-gray-500 transition-transform ${showManageStaff ? "rotate-180" : ""}`} />
           </button>
           {showManageStaff && (
             <StaffPanel
@@ -642,14 +650,14 @@ export default function StaffSchedulePage() {
       {/* Schedule Grid */}
       <FadeIn delay={0.15}>
         {loading ? (
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-3" />
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-12 text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 dark:border-gray-100 mx-auto mb-3" />
             <p className="text-gray-500 dark:text-gray-400 text-sm">{t("loadingSchedule")}</p>
           </div>
         ) : activeStaff.length === 0 ? (
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 text-center">
-            <p className="text-4xl mb-3">{"\uD83D\uDC65"}</p>
-            <p className="text-gray-500 dark:text-gray-400 text-sm">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-12 text-center">
+            <Icon name="Users" size={36} className="text-gray-400 mx-auto mb-3" />
+            <p className="text-gray-700 dark:text-gray-200 text-sm">
               No staff members yet. Open "Manage Staff" above to add your team.
             </p>
           </div>
@@ -668,18 +676,18 @@ export default function StaffSchedulePage() {
 
       {/* Bottom stats */}
       <FadeIn delay={0.2}>
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex flex-wrap items-center justify-center gap-6 text-sm">
             <span className="text-gray-600 dark:text-gray-300">
-              Total scheduled: <strong className="text-gray-900 dark:text-white">{stats.totalHours} hrs</strong>
+              Total scheduled: <strong className="text-gray-900 dark:text-gray-100 tabular-nums">{stats.totalHours} hrs</strong>
             </span>
             <span className="text-gray-300 dark:text-gray-600">|</span>
             <span className="text-gray-600 dark:text-gray-300">
-              Estimated cost: <strong className="text-gray-900 dark:text-white">{stats.totalCost.toLocaleString()} {currency}</strong>
+              Estimated cost: <strong className="text-gray-900 dark:text-gray-100 tabular-nums">{stats.totalCost.toLocaleString()} {currency}</strong>
             </span>
             <span className="text-gray-300 dark:text-gray-600">|</span>
             <span className="text-gray-600 dark:text-gray-300">
-              Staff: <strong className="text-gray-900 dark:text-white">{stats.activeCount} active</strong>
+              Staff: <strong className="text-gray-900 dark:text-gray-100 tabular-nums">{stats.activeCount} active</strong>
             </span>
           </div>
         </div>

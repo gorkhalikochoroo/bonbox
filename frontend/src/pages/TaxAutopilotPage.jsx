@@ -1,3 +1,6 @@
+// Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
+// StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
+// + i18n + a11y unchanged.
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -6,7 +9,7 @@ import { useEntitlements } from "../hooks/useEntitlements";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
-import { UpgradeNudge } from "../components/ui";
+import { UpgradeNudge, PageHeader, Button, StatCard, SectionBanner, Icon } from "../components/ui";
 
 function fmt(n) { return n != null ? Math.round(n).toLocaleString() : "—"; }
 
@@ -91,7 +94,9 @@ export default function TaxAutopilotPage() {
     return (
       <div className="p-4 md:p-8 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <div className="text-4xl mb-3 animate-pulse">🧾</div>
+          <div className="mb-3 animate-pulse text-gray-400">
+            <Icon name="Receipt" size={36} className="mx-auto" />
+          </div>
           <p className="text-gray-500 dark:text-gray-400">Loading tax data...</p>
         </div>
       </div>
@@ -101,9 +106,9 @@ export default function TaxAutopilotPage() {
   if (error || !data) {
     return (
       <div className="p-4 md:p-8 max-w-lg mx-auto text-center">
-        <div className="text-4xl mb-4">🧾</div>
-        <p className="text-red-500">{error}</p>
-        <button onClick={fetchData} className="mt-4 text-sm text-green-600 hover:underline">{t("tryAgain")}</button>
+        <Icon name="Receipt" size={36} className="text-gray-400 mx-auto mb-4" />
+        <p className="text-red-600">{error}</p>
+        <Button variant="ghost" onClick={fetchData} className="mt-4">{t("tryAgain")}</Button>
       </div>
     );
   }
@@ -114,13 +119,17 @@ export default function TaxAutopilotPage() {
   return (
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">🧾 Tax Autopilot</h1></FadeIn>
-        <div className="text-right">
-          <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{tax_name} ({rate_pct}%)</p>
-          <p className="text-xs text-gray-400">{authority} • {frequency}</p>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="REPORTS"
+        title="Tax Autopilot"
+        subtitle={`Generates filing-ready PDF — you upload to ${authority}. We watch every sale and expense and surface the next deadline.`}
+        actions={
+          <div className="text-right">
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{tax_name} ({rate_pct}%)</p>
+            <p className="text-xs text-gray-500">{authority} • {frequency}</p>
+          </div>
+        }
+      />
 
       {/* ─── HOW IT WORKS (dismissible) ─── */}
       <DismissibleTip
@@ -129,8 +138,8 @@ export default function TaxAutopilotPage() {
         title="How Tax Autopilot works"
       >
         <p className="mb-1.5">
-          We watch every Sale and Expense, calculate the {tax_name} you owe, and surface
-          the next deadline so you never miss it. The countdown turns red when it&rsquo;s urgent.
+          We watch every Sale and Expense, calculate the {tax_name} you owe, and generate a
+          filing-ready PDF — you upload it to {authority} (or hand it to your revisor).
         </p>
         <p>
           Set your <strong>filing frequency</strong> below — it&rsquo;s the single setting
@@ -147,14 +156,16 @@ export default function TaxAutopilotPage() {
         onSave={saveTaxPrefs}
       />
 
-      {/* ─── COUNTDOWN HERO ─── */}
+      {/* ─── COUNTDOWN HERO — semantic color (red=overdue, amber=soon, emerald=on track).
+          Solid color (not gradient), no rainbow shadow — calmer than the previous
+          tech-glow gradient but the urgency cue stays. ─── */}
       {nextDeadline && (
-        <div className={`rounded-2xl p-6 text-white shadow-lg ${
+        <div className={`rounded-xl p-6 text-white border ${
           nextDeadline.status === "overdue" || nextDeadline.status === "urgent"
-            ? "bg-gradient-to-br from-red-600 to-red-700"
+            ? "bg-red-600 border-red-700"
             : nextDeadline.status === "soon"
-            ? "bg-gradient-to-br from-yellow-600 to-orange-600"
-            : "bg-gradient-to-br from-emerald-600 to-green-700"
+            ? "bg-amber-600 border-amber-700"
+            : "bg-emerald-600 border-emerald-700"
         }`}>
           <div className="flex items-center justify-between">
             <div>
@@ -206,57 +217,50 @@ export default function TaxAutopilotPage() {
       {/* ─── ALERTS ─── */}
       {alerts?.length > 0 && (
         <div className="space-y-3">
-          {alerts.map((alert, i) => (
-            <div key={i} className={`p-4 rounded-2xl border-l-4 ${
-              alert.severity === "critical" ? "border-red-600 bg-red-50 dark:bg-red-900/20" :
-              alert.severity === "warning" ? "border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20" :
-              alert.severity === "positive" ? "border-green-500 bg-green-50 dark:bg-green-900/20" :
-              "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
-            }`}>
-              <div className="flex items-start gap-3">
-                <span className="text-2xl">{alert.icon}</span>
-                <div className="flex-1">
-                  <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{alert.title}</p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{alert.detail}</p>
-                  {alert.action && (
-                    <p className="text-xs text-green-700 dark:text-green-400 mt-2 font-medium">💡 {alert.action}</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
+          {alerts.map((alert, i) => {
+            const severity =
+              alert.severity === "critical" ? "critical" :
+              alert.severity === "warning" ? "warn" :
+              alert.severity === "positive" ? "success" : "info";
+            const icon =
+              alert.severity === "critical" ? "AlertTriangle" :
+              alert.severity === "warning" ? "AlertTriangle" :
+              alert.severity === "positive" ? "CheckCircle2" : "FileText";
+            return (
+              <SectionBanner key={i} severity={severity} icon={icon} title={alert.title}>
+                <p>{alert.detail}</p>
+                {alert.action && (
+                  <p className="text-xs mt-2 font-medium">{alert.action}</p>
+                )}
+              </SectionBanner>
+            );
+          })}
         </div>
       )}
 
       {/* ─── KEY METRICS ─── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <MetricCard
+        <StatCard
           label={`This Month ${tax_name}`}
-          value={fmt(current_month.vat_payable)}
-          sub={current_month.month}
-          color={current_month.vat_payable > 0 ? "text-orange-600" : "text-green-600"}
-          currency={currency}
+          value={`${fmt(current_month.vat_payable)} ${currency}`}
+          helper={current_month.month}
+          accent={current_month.vat_payable > 0 ? "warn" : "success"}
         />
-        <MetricCard
+        <StatCard
           label="Month Sales"
-          value={fmt(current_month.sales_total)}
-          sub={`Output: ${fmt(current_month.output_vat)}`}
-          color="text-green-600"
-          currency={currency}
+          value={`${fmt(current_month.sales_total)} ${currency}`}
+          helper={`Output: ${fmt(current_month.output_vat)}`}
         />
-        <MetricCard
+        <StatCard
           label="Month Expenses"
-          value={fmt(current_month.expenses_total)}
-          sub={`Input: ${fmt(current_month.input_vat)}`}
-          color="text-blue-600"
-          currency={currency}
+          value={`${fmt(current_month.expenses_total)} ${currency}`}
+          helper={`Input: ${fmt(current_month.input_vat)}`}
         />
-        <MetricCard
+        <StatCard
           label={`YTD ${tax_name}`}
-          value={fmt(ytd.vat_payable)}
-          sub={`${ytd.year}`}
-          color={ytd.vat_payable > 0 ? "text-orange-600" : "text-green-600"}
-          currency={currency}
+          value={`${fmt(ytd.vat_payable)} ${currency}`}
+          helper={`${ytd.year}`}
+          accent={ytd.vat_payable > 0 ? "warn" : "success"}
         />
       </div>
 
@@ -272,8 +276,10 @@ export default function TaxAutopilotPage() {
 
       {/* ─── UPCOMING DEADLINES TABLE ─── */}
       {upcoming_deadlines?.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-4">📅 Upcoming Deadlines</h2>
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
+          <h2 className="font-bold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+            <Icon name="Calendar" size={18} className="text-gray-500" /> Upcoming Deadlines
+          </h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -325,8 +331,10 @@ export default function TaxAutopilotPage() {
       )}
 
       {/* ─── YTD BREAKDOWN ─── */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
-        <h2 className="font-bold text-gray-800 dark:text-white mb-4">📊 Year-to-Date Summary ({ytd.year})</h2>
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
+        <h2 className="font-bold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+          <Icon name="BarChart3" size={18} className="text-gray-500" /> Year-to-Date Summary ({ytd.year})
+        </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <h3 className="text-sm font-medium text-gray-500 mb-3">Sales ({tax_name} collected)</h3>
@@ -615,9 +623,9 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
 function TaxPrefsCard({ tax, setTax, saving, msg, onSave }) {
   const { t } = useLanguage();
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+    <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
       <div className="mb-4">
-        <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">{t("taxPreferences")}</p>
+        <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t("taxPreferences")}</p>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
           Controls deadlines and Moms calculations across every report.
         </p>
@@ -671,16 +679,17 @@ function TaxPrefsCard({ tax, setTax, saving, msg, onSave }) {
           </div>
         </label>
 
-        {msg && <p className="text-xs text-green-600 dark:text-green-400">{msg}</p>}
+        {msg && <p className="text-xs text-emerald-700 dark:text-emerald-400">{msg}</p>}
 
-        <button
+        <Button
+          variant="primary"
           type="button"
           disabled={saving}
+          busy={saving}
           onClick={onSave}
-          className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 transition shadow-sm shadow-green-500/20"
         >
           {saving ? "Saving…" : "Save tax preferences"}
-        </button>
+        </Button>
       </div>
     </div>
   );

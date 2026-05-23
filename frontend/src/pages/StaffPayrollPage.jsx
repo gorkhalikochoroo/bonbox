@@ -1,3 +1,6 @@
+// Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
+// StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
+// + i18n + a11y unchanged.
 import { useState, useEffect, useMemo } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -6,7 +9,7 @@ import { displayCurrency } from "../utils/currency";
 import { formatDate, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
-import { UpgradeNudge } from "../components/ui";
+import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon } from "../components/ui";
 
 /* ═══════════════════════════════════════════════════════════
    HELPERS
@@ -364,7 +367,9 @@ export default function StaffPayrollPage() {
     return (
       <div className="p-4 md:p-8 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <div className="text-4xl mb-3 animate-pulse">📄</div>
+          <div className="mb-3 animate-pulse text-gray-400">
+            <Icon name="FileText" size={36} className="mx-auto" />
+          </div>
           <p className="text-gray-500 dark:text-gray-400">Loading payroll...</p>
         </div>
       </div>
@@ -376,15 +381,11 @@ export default function StaffPayrollPage() {
      ═══════════════════════════════════════════════════════════ */
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
-      {/* ─── HEADER ─── */}
-      <FadeIn>
-        <h1 className="text-2xl font-bold dark:text-white flex items-center gap-2">
-          📄 {t("payroll") || "Payroll"}
-        </h1>
-        <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
-          Generate payroll reports for your accountant
-        </p>
-      </FadeIn>
+      <PageHeader
+        eyebrow="STAFF"
+        title={t("payroll") || "Payroll"}
+        subtitle="Generate payroll reports for your accountant"
+      />
 
       <DismissibleTip
         id="payroll-intro-v1"
@@ -403,35 +404,29 @@ export default function StaffPayrollPage() {
 
       {/* ─── PERIOD SELECTOR ─── */}
       <FadeIn delay={0.05}>
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between">
-            <button
-              onClick={() => navigatePeriod("prev")}
-              className="px-4 py-2 text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition"
-            >
+            <Button variant="secondary" size="sm" onClick={() => navigatePeriod("prev")}>
               ← Previous
-            </button>
+            </Button>
             <div className="text-center">
               <p className="text-sm text-gray-500 dark:text-gray-400">{t("payPeriod")}</p>
-              <p className="text-lg font-bold text-gray-800 dark:text-white">
+              <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
                 {period ? periodLabel(period.period_start, period.period_end) : "—"}
               </p>
             </div>
-            <button
-              onClick={() => navigatePeriod("next")}
-              className="px-4 py-2 text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition"
-            >
+            <Button variant="secondary" size="sm" onClick={() => navigatePeriod("next")}>
               Next →
-            </button>
+            </Button>
           </div>
         </div>
       </FadeIn>
 
       {/* ─── STAFF SELECTOR ─── */}
       <FadeIn delay={0.1}>
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-bold text-gray-800 dark:text-white">{t("staffSelection")}</h2>
+            <h2 className="font-bold text-gray-900 dark:text-gray-100">{t("staffSelection")}</h2>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -511,8 +506,8 @@ export default function StaffPayrollPage() {
 
       {/* ─── PAYROLL PREVIEW TABLE ─── */}
       <FadeIn delay={0.15}>
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-4">{t("payrollPreview")}</h2>
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
+          <h2 className="font-bold text-gray-900 dark:text-gray-100 mb-4">{t("payrollPreview")}</h2>
 
           {payrollRows.length === 0 ? (
             <div className="text-center py-8">
@@ -602,10 +597,10 @@ export default function StaffPayrollPage() {
       {/* ─── DANISH PAYROLL ESTIMATE — A-skat / AM-bidrag / ATP / Feriepenge ─── */}
       {isDanish && (
         <FadeIn delay={0.15}>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
             <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
               <div>
-                <h2 className="font-bold text-gray-800 dark:text-white">{t("danishPayrollBreakdown")}</h2>
+                <h2 className="font-bold text-gray-900 dark:text-gray-100">{t("danishPayrollBreakdown")}</h2>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                   Estimate for SKAT remittance and FerieKonto. Submit via your lønsystem.
                 </p>
@@ -735,39 +730,31 @@ export default function StaffPayrollPage() {
 
       {/* ─── EXPORT SECTION ─── */}
       <FadeIn delay={0.2}>
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-3">{t("exportLabel")}</h2>
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
+          <h2 className="font-bold text-gray-900 dark:text-gray-100 mb-3">{t("exportLabel")}</h2>
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 flex-wrap">
-            <button
+            <Button
+              variant="primary"
+              size="lg"
               onClick={generatePdf}
               disabled={pdfLoading || sending || selectedIds.size === 0}
-              className="flex items-center gap-2 px-5 py-3 bg-gray-700 hover:bg-gray-800 dark:bg-gray-600 dark:hover:bg-gray-500 text-white rounded-xl font-semibold transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              busy={pdfLoading}
+              iconLeft={!pdfLoading && <Icon name="FileText" size={16} />}
               title={t("downloadPdfTooltip", "Download PDF to your device")}
             >
-              {pdfLoading ? (
-                <>
-                  <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Generating...
-                </>
-              ) : (
-                <>📄 {t("generatePdf", "Generate PDF")}</>
-              )}
-            </button>
-            <button
+              {pdfLoading ? "Generating..." : t("generatePdf", "Generate PDF")}
+            </Button>
+            <Button
+              variant="accent"
+              size="lg"
               onClick={sendToAccountant}
               disabled={sending || pdfLoading || selectedIds.size === 0}
-              className="flex items-center gap-2 px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold transition shadow-sm shadow-emerald-600/20 disabled:opacity-50 disabled:cursor-not-allowed"
+              busy={sending}
+              iconLeft={!sending && <Icon name="Send" size={16} />}
               title={t("payrollSendTooltip", "Email this payroll directly to your accountant — set their address on Profile")}
             >
-              {sending ? (
-                <>
-                  <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  {t("payrollSending", "Sending…")}
-                </>
-              ) : (
-                <>📤 {t("payrollSendToAccountant", "Send to accountant")}</>
-              )}
-            </button>
+              {sending ? t("payrollSending", "Sending…") : t("payrollSendToAccountant", "Send to accountant")}
+            </Button>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {selectedIds.size === 0
                 ? "Select at least one staff member to export"
@@ -775,19 +762,23 @@ export default function StaffPayrollPage() {
             </p>
           </div>
           {sendToast && (
-            <p className="text-emerald-600 dark:text-emerald-400 text-sm mt-3">{sendToast}</p>
+            <div className="mt-3">
+              <SectionBanner severity="success" title={sendToast} />
+            </div>
           )}
           {error && (
-            <p className="text-red-500 text-sm mt-3">{error}</p>
+            <div className="mt-3">
+              <SectionBanner severity="critical" title={error} />
+            </div>
           )}
         </div>
       </FadeIn>
 
       {/* ─── SICK CALL TRACKER ─── */}
       <FadeIn delay={0.25}>
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
-            🤒 {t("sickCallTracker") || "Sick Calls"}
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
+          <h2 className="font-bold text-gray-900 dark:text-gray-100 mb-4">
+            {t("sickCallTracker") || "Sick Calls"}
           </h2>
 
           {/* Stats cards */}
@@ -802,17 +793,17 @@ export default function StaffPayrollPage() {
             </div>
           ) : sickStats ? (
             <div className="grid grid-cols-3 gap-3 mb-4">
-              <div className="bg-red-50 dark:bg-red-900/20 p-3 rounded-xl text-center">
-                <p className="text-2xl font-bold text-red-600">{sickStats.this_month ?? 0}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">{t("thisMonth") || "This Month"}</p>
+              <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 text-center">
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 tabular-nums">{sickStats.this_month ?? 0}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t("thisMonth") || "This Month"}</p>
               </div>
-              <div className="bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded-xl text-center">
-                <p className="text-2xl font-bold text-yellow-600">{sickStats.last_month ?? 0}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">{t("lastMonth") || "Last Month"}</p>
+              <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 text-center">
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 tabular-nums">{sickStats.last_month ?? 0}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t("lastMonth") || "Last Month"}</p>
               </div>
-              <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-xl text-center">
-                <p className="text-2xl font-bold text-blue-600">{sickStats.weather_related ?? 0}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">{t("weatherDays") || "Weather Days"}</p>
+              <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 text-center">
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 tabular-nums">{sickStats.weather_related ?? 0}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t("weatherDays") || "Weather Days"}</p>
               </div>
             </div>
           ) : null}
@@ -843,16 +834,16 @@ export default function StaffPayrollPage() {
                 </option>
               ))}
             </select>
-            <button
+            <Button
+              variant="primary"
               type="submit"
               disabled={!sickForm.staff_name}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {t("log") || "Log"}
-            </button>
+            </Button>
           </form>
           {sickSuccess && (
-            <p className="text-green-500 text-sm mb-3">{sickSuccess}</p>
+            <p className="text-emerald-700 dark:text-emerald-400 text-sm mb-3">{sickSuccess}</p>
           )}
 
           {/* Recent sick calls */}

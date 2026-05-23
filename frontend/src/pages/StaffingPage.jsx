@@ -1,3 +1,6 @@
+// Task #120 polish (Agent E): migrated H1 → PageHeader, KPI cards →
+// StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
+// + i18n + a11y unchanged.
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -9,6 +12,7 @@ import {
 import { displayCurrency } from "../utils/currency";
 import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
+import { PageHeader, StatCard, SectionBanner, TabPills } from "../components/ui";
 
 const LEVEL_COLORS = {
   Slow: "bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-700",
@@ -151,53 +155,50 @@ export default function StaffingPage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-5xl mx-auto">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">🧠 {t("smartStaffing")}</h1></FadeIn>
-        <div className="flex gap-2">
-          {["forecast", "intelligence", "log"].map(v => (
-            <button
-              key={v}
-              onClick={() => setActiveView(v)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${
-                activeView === v
-                  ? "bg-green-600 text-white"
-                  : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
-              }`}
-            >
-              {v === "forecast" ? "📅 Forecast" : v === "intelligence" ? "🧠 Insights" : "✏️ Log Staff"}
-            </button>
-          ))}
-        </div>
-      </div>
+      <FadeIn>
+        <PageHeader
+          eyebrow={t("staffingEyebrow") || "INTEL"}
+          title={t("smartStaffing")}
+          subtitle={t("staffingSubtitle") || "Forecast headcount needs and spot over/under-staffed days."}
+        />
+      </FadeIn>
+
+      <TabPills
+        tabs={[
+          { id: "forecast", label: t("staffingTabForecast") || "Forecast" },
+          { id: "intelligence", label: t("staffingTabInsights") || "Insights" },
+          { id: "log", label: t("staffingTabLog") || "Log Staff" },
+        ]}
+        activeId={activeView}
+        onChange={setActiveView}
+        wrap={false}
+      />
 
       {error && (
-        <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 p-4 rounded-xl text-center">
-          <p className="text-red-700 dark:text-red-300 text-sm">{error}</p>
-        </div>
+        <SectionBanner severity="critical" icon="AlertTriangle" title={error} />
       )}
 
       {/* ─── INTELLIGENCE ALERTS (always visible) ─── */}
       {insights?.alerts?.length > 0 && (
         <div className="space-y-3">
-          {insights.alerts.map((alert, i) => (
-            <div key={i} className={`p-4 rounded-2xl border-l-4 ${
-              alert.severity === "warning" ? "border-red-500 bg-red-50 dark:bg-red-900/20" :
-              alert.severity === "medium" ? "border-orange-500 bg-orange-50 dark:bg-orange-900/20" :
-              alert.severity === "positive" ? "border-green-500 bg-green-50 dark:bg-green-900/20" :
-              "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
-            }`}>
-              <div className="flex items-start gap-3">
-                <span className="text-2xl">{alert.icon}</span>
-                <div className="flex-1">
-                  <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{alert.title}</p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{alert.detail}</p>
-                  {alert.action && (
-                    <p className="text-xs text-green-700 dark:text-green-400 mt-2 font-medium">💡 {alert.action}</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
+          {insights.alerts.map((alert, i) => {
+            const severity = alert.severity === "warning" ? "critical"
+              : alert.severity === "medium" ? "warn"
+              : alert.severity === "positive" ? "success"
+              : "info";
+            return (
+              <SectionBanner
+                key={i}
+                severity={severity}
+                title={alert.title}
+              >
+                <p>{alert.detail}</p>
+                {alert.action && (
+                  <p className="text-xs mt-2 font-medium">{alert.action}</p>
+                )}
+              </SectionBanner>
+            );
+          })}
         </div>
       )}
 
@@ -363,23 +364,10 @@ export default function StaffingPage() {
           {/* Key metrics */}
           {insights?.ready && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm text-center">
-                <p className="text-xs text-gray-500">Days Analyzed</p>
-                <p className="text-2xl font-bold text-gray-800 dark:text-white mt-1">{insights.days_logged}</p>
-              </div>
-              <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm text-center">
-                <p className="text-xs text-gray-500">Best Day</p>
-                <p className="text-2xl font-bold text-green-600 mt-1">{insights.peak_day?.slice(0, 3) || "—"}</p>
-              </div>
-              <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm text-center">
-                <p className="text-xs text-gray-500">Weakest Day</p>
-                <p className="text-2xl font-bold text-red-600 mt-1">{insights.weakest_day?.slice(0, 3) || "—"}</p>
-              </div>
-              <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm text-center">
-                <p className="text-xs text-gray-500">Savings Potential</p>
-                <p className="text-2xl font-bold text-blue-600 mt-1">{fmt(insights.monthly_savings_potential)}</p>
-                <p className="text-xs text-gray-400">/month</p>
-              </div>
+              <StatCard label="Days Analyzed" value={insights.days_logged} />
+              <StatCard label="Best Day" value={insights.peak_day?.slice(0, 3) || "—"} accent="success" />
+              <StatCard label="Weakest Day" value={insights.weakest_day?.slice(0, 3) || "—"} accent="critical" />
+              <StatCard label="Savings Potential" value={fmt(insights.monthly_savings_potential)} helper="/month" />
             </div>
           )}
 

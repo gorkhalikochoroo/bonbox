@@ -1,8 +1,12 @@
+// Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
+// StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
+// + i18n + a11y unchanged.
 import { useEffect, useState } from "react";
 import api from "../services/api";
 import { trackEvent } from "../hooks/useEventLog";
 import { sendBundleToAccountant } from "../utils/shareDailyCloseRange";
 import { localIso } from "../utils/dateFormat";
+import { PageHeader, Button, SectionBanner, Icon } from "../components/ui";
 
 /**
  * Bookkeeping Export — push BonBox data into the user's existing
@@ -199,14 +203,13 @@ export default function BookkeepingExportPage() {
 
   return (
     <div className="px-4 sm:px-6 py-6 sm:py-8 max-w-3xl mx-auto">
-      <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">Send to your accountant</h1>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 max-w-xl">
-        Export sales + expenses as a clean CSV that imports directly into Dinero,
-        Billy, e-conomic, or any generic accounting tool. BonBox stays as your
-        operational + AI layer; your accountant keeps using what they already know.
-      </p>
+      <PageHeader
+        eyebrow="REPORTS"
+        title="Send to your accountant"
+        subtitle="Export sales + expenses as a clean CSV that imports directly into Dinero, Billy, e-conomic, or any generic accounting tool. BonBox stays as your operational + AI layer; your accountant keeps using what they already know."
+      />
 
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-5 sm:p-6 mt-6 space-y-5">
+      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5 sm:p-6 space-y-5">
         {/* Format picker */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -307,21 +310,18 @@ export default function BookkeepingExportPage() {
 
         {/* Instructions for the selected format */}
         {currentFormat?.instructions && (
-          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-3.5">
-            <p className="text-xs font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wide mb-1">
-              How to import
-            </p>
-            <p className="text-sm text-blue-800 dark:text-blue-200 leading-relaxed">
+          <SectionBanner severity="info" title="How to import">
+            <p className="leading-relaxed">
               {currentFormat.instructions.split("→").map((part, i, arr) => (
                 <span key={i}>
                   {part}
                   {i < arr.length - 1 && (
-                    <strong className="font-bold text-blue-900 dark:text-blue-100 text-base mx-1.5">➜</strong>
+                    <strong className="font-bold text-gray-900 dark:text-gray-100 text-base mx-1.5">➜</strong>
                   )}
                 </span>
               ))}
             </p>
-          </div>
+          </SectionBanner>
         )}
 
         {/* Action */}
@@ -330,30 +330,28 @@ export default function BookkeepingExportPage() {
             File: <span className="font-mono">bonbox-{selected}-{start}-to-{end}.{currentFormat?.ext || "csv"}</span>
           </div>
           <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-            <button
+            <Button
+              variant="secondary"
               onClick={handleDownload}
               disabled={downloading || sending}
-              className="px-4 py-2.5 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 border border-gray-300 dark:border-gray-600 disabled:opacity-50 text-gray-800 dark:text-gray-100 text-sm font-semibold rounded-lg transition"
+              busy={downloading}
             >
               {downloading ? "Generating…" : `Download ${(currentFormat?.ext || "csv").toUpperCase()}`}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="accent"
               onClick={handleSend}
               disabled={downloading || sending}
+              busy={sending}
+              iconLeft={!sending && <Icon name="Send" size={14} />}
               title={
                 businessProfile?.accountant_email
                   ? `Email to ${businessProfile.accountant_email}`
                   : "Set revisor's email on Profile to skip typing it"
               }
-              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg shadow-sm transition inline-flex items-center gap-2"
             >
-              {sending ? "Sending…" : (
-                <>
-                  <span aria-hidden="true">📤</span>
-                  <span>Send to revisor</span>
-                </>
-              )}
-            </button>
+              {sending ? "Sending…" : "Send to revisor"}
+            </Button>
           </div>
         </div>
         {!businessProfile?.accountant_email && (
@@ -363,28 +361,28 @@ export default function BookkeepingExportPage() {
         )}
 
         {msg && (
-          <p className="text-sm text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 rounded-lg px-3 py-2">{msg}</p>
+          <SectionBanner severity="success" title={msg} />
         )}
         {err && (
-          <p className="text-sm text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">{err}</p>
+          <SectionBanner severity="critical" title={err} />
         )}
       </div>
 
       {/* Reassurance */}
       <div className="mt-6 grid sm:grid-cols-3 gap-3">
         <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-          <div className="text-xl mb-1">🔒</div>
-          <div className="text-sm font-semibold text-gray-800 dark:text-gray-200">Returns excluded</div>
+          <Icon name="Lock" size={20} className="text-gray-500 mb-1" />
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">Returns excluded</div>
           <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Returned sales aren't double-counted.</div>
         </div>
         <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-          <div className="text-xl mb-1">📊</div>
-          <div className="text-sm font-semibold text-gray-800 dark:text-gray-200">VAT-aware</div>
+          <Icon name="BarChart3" size={20} className="text-gray-500 mb-1" />
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">VAT-aware</div>
           <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">25% Moms by default; tax-exempt items marked correctly.</div>
         </div>
         <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-          <div className="text-xl mb-1">📁</div>
-          <div className="text-sm font-semibold text-gray-800 dark:text-gray-200">UTF-8 with BOM</div>
+          <Icon name="FileText" size={20} className="text-gray-500 mb-1" />
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">UTF-8 with BOM</div>
           <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Opens cleanly in Excel + Google Sheets.</div>
         </div>
       </div>

@@ -1,8 +1,12 @@
+// Task #120 polish (Agent E): migrated H1 → PageHeader, KPI cards →
+// StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
+// + i18n + a11y unchanged.
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { FadeIn } from "../components/AnimationKit";
+import { PageHeader, StatCard, SectionBanner, Button } from "../components/ui";
 
 /**
  * Modules picker — owners enable the vertical modules they actually use.
@@ -101,36 +105,25 @@ export default function ModulesPage() {
   return (
     <div className="px-4 sm:px-6 py-6 max-w-3xl mx-auto">
       <FadeIn>
-        <div className="mb-2">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            🧩 {t("modulesPageTitle") || "Vertical modules"}
-          </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-xl">
-            {t("modulesPageSubtitle") ||
-              "Pick the feature areas relevant to your business. Hidden modules don't appear in the sidebar — keeps the app focused on what you actually use."}
-          </p>
-        </div>
+        <PageHeader
+          eyebrow={t("modulesEyebrow") || "MANAGE"}
+          title={t("modulesPageTitle") || "Vertical modules"}
+          subtitle={t("modulesPageSubtitle") ||
+            "Pick the feature areas relevant to your business. Hidden modules don't appear in the sidebar — keeps the app focused on what you actually use."}
+        />
       </FadeIn>
 
-      {/* Plan summary card — renders the cap honestly */}
+      {/* Plan summary — two-tile strip using StatCard primitive */}
       <FadeIn delay={0.02}>
-        <div className="mt-4 mb-5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/60 px-5 py-4 flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              {t("modulesYourPlan") || "Your plan"}
-            </div>
-            <div className="text-base font-semibold text-gray-900 dark:text-white mt-0.5">
-              {data?.plan ? data.plan[0].toUpperCase() + data.plan.slice(1) : "—"}
-            </div>
-          </div>
-          <div className="text-right">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              {t("modulesEnabledCap") || "Modules enabled"}
-            </div>
-            <div className="text-base font-semibold text-gray-900 dark:text-white mt-0.5">
-              {selectedIds.length} / {isUnlimited ? (t("unlimited") || "Unlimited") : cap}
-            </div>
-          </div>
+        <div className="mb-5 grid grid-cols-2 gap-3">
+          <StatCard
+            label={t("modulesYourPlan") || "Your plan"}
+            value={data?.plan ? data.plan[0].toUpperCase() + data.plan.slice(1) : "—"}
+          />
+          <StatCard
+            label={t("modulesEnabledCap") || "Modules enabled"}
+            value={`${selectedIds.length} / ${isUnlimited ? (t("unlimited") || "Unlimited") : cap}`}
+          />
         </div>
       </FadeIn>
 
@@ -186,39 +179,40 @@ export default function ModulesPage() {
 
       {/* Cap-hit hint — only shown when at cap AND there's an off module */}
       {data && atCap && data.modules.some((m) => !selectedIds.includes(m.id)) && (
-        <div className="mt-4 px-4 py-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 text-[13px] text-amber-800 dark:text-amber-200">
-          <span className="font-semibold">
-            {(t("modulesCapHitTitle") || "{cap} module on this plan").replace("{cap}", cap)}
-          </span>{" "}
-          {t("modulesCapHitBody") ||
-            "To enable more, upgrade to Pro for ALL modules at once."}
-          {" "}
-          <Link to="/subscription" className="font-semibold text-amber-900 dark:text-amber-100 underline">
-            {t("modulesCapHitCta") || "See plans →"}
-          </Link>
+        <div className="mt-4">
+          <SectionBanner
+            severity="warn"
+            icon="AlertTriangle"
+            title={(t("modulesCapHitTitle") || "{cap} module on this plan").replace("{cap}", cap)}
+          >
+            {t("modulesCapHitBody") ||
+              "To enable more, upgrade to Pro for ALL modules at once."}
+            {" "}
+            <Link to="/subscription" className="font-semibold underline">
+              {t("modulesCapHitCta") || "See plans →"}
+            </Link>
+          </SectionBanner>
         </div>
       )}
 
       {/* Action row */}
       {data && (
         <div className="mt-5 flex items-center gap-3 flex-wrap">
-          <button
+          <Button
+            variant="accent"
             onClick={save}
             disabled={!dirty || saving}
-            className="px-5 py-2.5 bg-[#22c55e] hover:bg-[#16a34a] text-white text-sm font-semibold rounded-lg disabled:opacity-50 transition"
+            busy={saving}
           >
             {saving ? (t("saving") || "Saving…") : (t("save") || "Save")}
-          </button>
+          </Button>
           {dirty && (
-            <button
-              onClick={discardChanges}
-              className="px-4 py-2.5 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
-            >
+            <Button variant="ghost" onClick={discardChanges}>
               {t("discardChanges") || "Discard changes"}
-            </button>
+            </Button>
           )}
           {savedHint && (
-            <span className="text-[13px] text-green-700 dark:text-green-400 font-medium">
+            <span className="text-[13px] text-emerald-700 dark:text-emerald-400 font-medium">
               ✓ {savedHint}
             </span>
           )}
@@ -226,8 +220,8 @@ export default function ModulesPage() {
       )}
 
       {error && (
-        <div className="mt-4 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg px-4 py-3">
-          {error}
+        <div className="mt-4">
+          <SectionBanner severity="critical" icon="AlertTriangle" title={error} />
         </div>
       )}
     </div>

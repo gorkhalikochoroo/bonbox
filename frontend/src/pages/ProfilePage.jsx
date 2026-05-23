@@ -46,7 +46,7 @@ import OperatingProfileSection from "../components/OperatingProfileSection";
 import SmartStaffingCard from "../components/SmartStaffingCard";
 import { resetAllTips } from "../components/DismissibleTip";
 import { localIso } from "../utils/dateFormat";
-import { Button, Card, Icon } from "../components/ui";
+import { Button, Card, Icon, PageHeader } from "../components/ui";
 
 /* ─── form primitives ─────────────────────────────────────────────
    Centralised here so every form field on the page lands at exactly
@@ -686,15 +686,15 @@ export default function ProfilePage() {
 
   return (
     <div className="p-4 sm:p-6 max-w-6xl mx-auto">
+      {/* Task #120 polish (Agent E): migrated H1 → PageHeader, KPI cards →
+          StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
+          + i18n + a11y unchanged. */}
       <FadeIn>
-        <header className="mb-6 sm:mb-8">
-          <h1 className="text-lg sm:text-xl font-semibold text-stone-900 dark:text-stone-100">
-            {t("profile")}
-          </h1>
-          <p className="text-sm text-stone-500 dark:text-stone-400 mt-1">
-            {t("profileSubtitle")}
-          </p>
-        </header>
+        <PageHeader
+          eyebrow={t("profileEyebrow") || "ACCOUNT"}
+          title={t("profile")}
+          subtitle={t("profileSubtitle")}
+        />
       </FadeIn>
 
       <div className="md:grid md:grid-cols-[200px_minmax(0,1fr)] md:gap-10">

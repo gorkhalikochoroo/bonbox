@@ -1,8 +1,12 @@
+// Task #120 polish (Agent E): migrated H1 → PageHeader, KPI cards →
+// StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
+// + i18n + a11y unchanged.
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
+import { PageHeader, Button as UIButton, SectionBanner } from "../components/ui";
 import { trackEvent } from "../hooks/useEventLog";
 import { safeImageUrl } from "../utils/safeUrl";
 import ReceiptCapture from "../components/ReceiptCapture";
@@ -1485,85 +1489,79 @@ export default function DashboardPage() {
         <SmartSaleInput open={smartSaleOpen} onClose={() => setSmartSaleOpen(false)} onSaved={fetchAll} />
 
         {/* ── HEADER ── */}
-        <FadeIn className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100">
-              {(() => {
-                // Time-aware greeting + safer name handling.
-                // Falls back gracefully when business_name is missing or matches the app name.
-                // Note: t() returns the key string when a translation is missing,
-                // so we check both the falsy AND key-equality cases.
-                const hour = new Date().getHours();
-                const tr = (key, fallback) => {
-                  const v = t(key);
-                  return v && v !== key ? v : fallback;
-                };
-                let greet;
-                if (hour < 5) greet = tr("goodEvening", "Good evening");
-                else if (hour < 12) greet = tr("goodMorning", "Good morning");
-                else if (hour < 18) greet = tr("goodAfternoon", "Good afternoon");
-                else greet = tr("goodEvening", "Good evening");
-                const rawName = user?.business_name?.trim() || "";
-                // Don't repeat the app name back at the user — feels like a bug
-                const looksLikeAppName = /^bonbox$/i.test(rawName);
-                const displayName = !rawName || looksLikeAppName
-                  ? (user?.email?.split("@")[0] || "")
-                  : rawName;
-                return displayName ? `${greet}, ${displayName} 👋` : `${greet} 👋`;
-              })()}
-            </h1>
-            <p className="text-sm text-gray-400 mt-0.5">
-              {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={() => setSaleModal(true)} className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 transition-colors shadow-sm">
-              + {t("quickSale")}
-            </button>
-            <button
-              onClick={() => setSmartSaleOpen(true)}
-              title={t("smartEntryTooltip")}
-              className="px-4 py-2 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors flex items-center gap-1.5"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
-                <circle cx="12" cy="12" r="4" />
-              </svg>
-              Smart entry
-            </button>
-            <ReceiptCapture onSaleCreated={fetchAll} />
-            {/* Repeat Yesterday — only show when last sale is ACTUALLY from
-                yesterday's calendar date. The previous predicate (just
-                amount > 0) leaked stale demo / 3-week-old sales onto the
-                button, displaying "Repeat Yesterday's Sale (10,000 DKK)"
-                even when there were 0 sales yesterday — a credibility-
-                breaking inconsistency vs the dashboard summary cards.
-                Compute "yesterday" in the user's local timezone so it
-                matches Sale.date semantics. */}
-            {(() => {
-              if (!lastSale || !(parseFloat(lastSale.amount) > 0) || !lastSale.date) return null;
-              const y = new Date();
-              y.setDate(y.getDate() - 1);
-              const yesterdayISO = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, "0")}-${String(y.getDate()).padStart(2, "0")}`;
-              const saleDate = String(lastSale.date).slice(0, 10);  // ISO or already-trimmed
-              if (saleDate !== yesterdayISO) return null;
-              return (
-                <button onClick={repeatYesterday} className="px-4 py-2 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
-                  {t("repeatYesterday")}
-                  <span className="ml-1 text-green-600 dark:text-green-400">
-                    ({parseFloat(lastSale.amount).toLocaleString()} {currency})
-                  </span>
-                </button>
-              );
+        <FadeIn>
+          <PageHeader
+            title={(() => {
+              // Time-aware greeting + safer name handling.
+              // Falls back gracefully when business_name is missing or matches the app name.
+              // Note: t() returns the key string when a translation is missing,
+              // so we check both the falsy AND key-equality cases.
+              const hour = new Date().getHours();
+              const tr = (key, fallback) => {
+                const v = t(key);
+                return v && v !== key ? v : fallback;
+              };
+              let greet;
+              if (hour < 5) greet = tr("goodEvening", "Good evening");
+              else if (hour < 12) greet = tr("goodMorning", "Good morning");
+              else if (hour < 18) greet = tr("goodAfternoon", "Good afternoon");
+              else greet = tr("goodEvening", "Good evening");
+              const rawName = user?.business_name?.trim() || "";
+              // Don't repeat the app name back at the user — feels like a bug
+              const looksLikeAppName = /^bonbox$/i.test(rawName);
+              const displayName = !rawName || looksLikeAppName
+                ? (user?.email?.split("@")[0] || "")
+                : rawName;
+              return displayName ? `${greet}, ${displayName}` : greet;
             })()}
-            <button onClick={downloadPdf} className="px-4 py-2 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
-              📄 {t("downloadPdf")}
-            </button>
-          </div>
+            subtitle={new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+            actions={
+              <>
+                <UIButton variant="accent" onClick={() => setSaleModal(true)}>
+                  + {t("quickSale")}
+                </UIButton>
+                <UIButton
+                  variant="secondary"
+                  onClick={() => setSmartSaleOpen(true)}
+                  title={t("smartEntryTooltip")}
+                >
+                  Smart entry
+                </UIButton>
+                <ReceiptCapture onSaleCreated={fetchAll} />
+                {/* Repeat Yesterday — only show when last sale is ACTUALLY from
+                    yesterday's calendar date. The previous predicate (just
+                    amount > 0) leaked stale demo / 3-week-old sales onto the
+                    button, displaying "Repeat Yesterday's Sale (10,000 DKK)"
+                    even when there were 0 sales yesterday — a credibility-
+                    breaking inconsistency vs the dashboard summary cards.
+                    Compute "yesterday" in the user's local timezone so it
+                    matches Sale.date semantics. */}
+                {(() => {
+                  if (!lastSale || !(parseFloat(lastSale.amount) > 0) || !lastSale.date) return null;
+                  const y = new Date();
+                  y.setDate(y.getDate() - 1);
+                  const yesterdayISO = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, "0")}-${String(y.getDate()).padStart(2, "0")}`;
+                  const saleDate = String(lastSale.date).slice(0, 10);  // ISO or already-trimmed
+                  if (saleDate !== yesterdayISO) return null;
+                  return (
+                    <UIButton variant="secondary" onClick={repeatYesterday}>
+                      {t("repeatYesterday")}
+                      <span className="ml-1 text-emerald-600 dark:text-emerald-400">
+                        ({parseFloat(lastSale.amount).toLocaleString()} {currency})
+                      </span>
+                    </UIButton>
+                  );
+                })()}
+                <UIButton variant="ghost" onClick={downloadPdf}>
+                  {t("downloadPdf")}
+                </UIButton>
+              </>
+            }
+          />
         </FadeIn>
 
         {quickMsg && (
-          <div role="status" aria-live="polite" className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-4 py-2.5 rounded-xl text-sm font-medium">{quickMsg}</div>
+          <SectionBanner severity="info" title={quickMsg} />
         )}
 
         {/* Two-actor onboarding stake — auto-hides once a closer is set

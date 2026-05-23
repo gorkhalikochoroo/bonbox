@@ -1,9 +1,13 @@
+// Task #120 polish (Agent E): migrated H1 → PageHeader, KPI cards →
+// StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
+// + i18n + a11y unchanged.
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
+import { PageHeader, StatCard, SectionBanner, TabPills, Button } from "../components/ui";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
@@ -106,48 +110,45 @@ export default function BranchPage() {
   return (
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
       <FadeIn>
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-              🏢 {t("branches") || "Branch Bookkeeping"}
-            </h1>
-            {/* Cap-aware hint: shows "1/1 used" or "Unlimited" so the
-                owner sees their plan's reality without leaving the page */}
-            {branchCap !== null && (
-              <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-1">
-                {branchUnlimited
-                  ? (t("branchesUnlimited") || "Unlimited branches on your plan")
-                  : (t("branchesUsedOfCap") || "{used} of {cap} branches used")
-                      .replace("{used}", branchesUsed)
-                      .replace("{cap}", branchCap)}
-              </p>
-            )}
-          </div>
-          <button
-            onClick={() => setShowCreate(!showCreate)}
-            disabled={branchAtCap}
-            title={branchAtCap ? (t("branchAtCapHint") || "Branch limit reached on your plan — upgrade for more") : ""}
-            className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
-          >
-            + New Branch
-          </button>
-        </div>
+        <PageHeader
+          eyebrow={t("branchesEyebrow") || "MANAGE"}
+          title={t("branches") || "Branch Bookkeeping"}
+          subtitle={
+            branchCap !== null
+              ? branchUnlimited
+                ? (t("branchesUnlimited") || "Unlimited branches on your plan")
+                : (t("branchesUsedOfCap") || "{used} of {cap} branches used")
+                    .replace("{used}", branchesUsed)
+                    .replace("{cap}", branchCap)
+              : null
+          }
+          actions={
+            <Button
+              variant="accent"
+              onClick={() => setShowCreate(!showCreate)}
+              disabled={branchAtCap}
+              title={branchAtCap ? (t("branchAtCapHint") || "Branch limit reached on your plan — upgrade for more") : ""}
+            >
+              + New Branch
+            </Button>
+          }
+        />
       </FadeIn>
 
       {/* Cap-hit upgrade prompt — appears below header when at cap */}
       {branchAtCap && (
         <FadeIn delay={0.02}>
-          <div className="px-4 py-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 text-[13px] text-amber-800 dark:text-amber-200 flex items-center gap-3 flex-wrap">
-            <span className="font-semibold">
-              {(t("branchCapHitTitle") || "{cap} branch on your plan").replace("{cap}", branchCap)}
-            </span>
-            <span>
-              {t("branchCapHitBody") || "Upgrade to Pro for up to 3 branches with cross-outlet daily close consolidation."}
-            </span>
-            <a href="/subscription" className="font-semibold text-amber-900 dark:text-amber-100 underline whitespace-nowrap">
+          <SectionBanner
+            severity="warn"
+            icon="AlertTriangle"
+            title={(t("branchCapHitTitle") || "{cap} branch on your plan").replace("{cap}", branchCap)}
+          >
+            {t("branchCapHitBody") || "Upgrade to Pro for up to 3 branches with cross-outlet daily close consolidation."}
+            {" "}
+            <a href="/subscription" className="font-semibold underline whitespace-nowrap">
               {t("seePlans") || "See plans →"}
             </a>
-          </div>
+          </SectionBanner>
         </FadeIn>
       )}
 
@@ -213,19 +214,15 @@ export default function BranchPage() {
 
       {/* ─── TABS ─── */}
       {hasBranches && (
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {[
-            { key: "overview", label: t("overview") },
-            { key: "branches", label: `${t("branches")} (${branches.length})` },
-          ].map((tab2) => (
-            <button key={tab2.key} onClick={() => setTab(tab2.key)}
-              className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition ${
-                tab === tab2.key ? "bg-green-600 text-white" : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300"
-              }`}>
-              {tab2.label}
-            </button>
-          ))}
-        </div>
+        <TabPills
+          tabs={[
+            { id: "overview", label: t("overview") },
+            { id: "branches", label: t("branches"), count: branches.length },
+          ]}
+          activeId={tab}
+          onChange={setTab}
+          wrap={false}
+        />
       )}
 
       {/* ─── OVERVIEW TAB ─── */}

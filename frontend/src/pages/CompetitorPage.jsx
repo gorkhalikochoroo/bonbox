@@ -1,10 +1,13 @@
+// Task #120 polish (Agent E): migrated H1 → PageHeader, KPI cards →
+// StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
+// + i18n + a11y unchanged.
 import { useState, useEffect, useMemo } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
-import { UpgradeNudge } from "../components/ui";
+import { UpgradeNudge, PageHeader, StatCard, SectionBanner, TabPills, Button } from "../components/ui";
 
 function fmt(n) { return n != null ? Math.round(n).toLocaleString() : "\u2014"; }
 
@@ -320,7 +323,9 @@ export default function CompetitorPage() {
       <div className="p-4 md:p-8 max-w-lg mx-auto text-center">
         <div className="text-4xl mb-4">🔍</div>
         <p className="text-red-500">{error}</p>
-        <button onClick={fetchData} className="mt-4 text-sm text-green-600 hover:underline">{t("tryAgain")}</button>
+        <Button variant="secondary" onClick={fetchData} className="mt-4">
+          {t("tryAgain")}
+        </Button>
       </div>
     );
   }
@@ -342,20 +347,16 @@ export default function CompetitorPage() {
   return (
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
       <FadeIn>
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-              🔍 {t("competitorScan") || "Competitor Scan"}
-            </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-              Discover nearby businesses, track competitors & compare prices
-            </p>
-          </div>
-          <button onClick={() => setShowManual(!showManual)}
-            className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-xl text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition">
-            + Add Manually
-          </button>
-        </div>
+        <PageHeader
+          eyebrow={t("competitorEyebrow") || "INTEL"}
+          title={t("competitorScan") || "Competitor Scan"}
+          subtitle={t("competitorSubtitle") || "Discover nearby businesses, track competitors & compare prices."}
+          actions={
+            <Button variant="secondary" onClick={() => setShowManual(!showManual)}>
+              + Add Manually
+            </Button>
+          }
+        />
       </FadeIn>
 
       {/* ─── MANUAL ADD (collapsible) ─── */}
@@ -380,49 +381,52 @@ export default function CompetitorPage() {
       {/* ─── ALERTS ─── */}
       {alerts?.length > 0 && tab !== "discover" && (
         <div className="space-y-3">
-          {alerts.map((alert, i) => (
-            <div key={i} className={`p-4 rounded-2xl border-l-4 ${
-              alert.severity === "warning" ? "border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20" :
-              alert.severity === "positive" ? "border-green-500 bg-green-50 dark:bg-green-900/20" :
-              "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
-            }`}>
-              <div className="flex items-start gap-3">
-                <span className="text-2xl">{alert.icon}</span>
-                <div className="flex-1">
-                  <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{alert.title}</p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{alert.detail}</p>
-                  {alert.action && (
-                    <p className="text-xs text-green-700 dark:text-green-400 mt-2 font-medium">💡 {alert.action}</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
+          {alerts.map((alert, i) => {
+            const severity = alert.severity === "warning" ? "warn"
+              : alert.severity === "positive" ? "success"
+              : "info";
+            return (
+              <SectionBanner
+                key={i}
+                severity={severity}
+                title={alert.title}
+              >
+                <p>{alert.detail}</p>
+                {alert.action && (
+                  <p className="text-xs mt-2 font-medium">{alert.action}</p>
+                )}
+              </SectionBanner>
+            );
+          })}
         </div>
       )}
 
       {/* ─── KEY METRICS ─── */}
       {total_competitors > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <MetricCard label="Tracked" value={total_competitors} color="text-blue-600" />
-          <MetricCard label="Price Checks" value={total_price_checks} color="text-purple-600" />
-          <MetricCard label="Position" value={positionLabel[price_position] || "—"} color="text-gray-700 dark:text-gray-200" />
-          <MetricCard label="We're Cheaper" value={cheaper_count} sub={`Higher: ${pricier_count}`} color="text-green-600" />
+          <StatCard label="Tracked" value={total_competitors} />
+          <StatCard label="Price Checks" value={total_price_checks} />
+          <StatCard label="Position" value={positionLabel[price_position] || "—"} />
+          <StatCard
+            label="We're Cheaper"
+            value={cheaper_count}
+            helper={`Higher: ${pricier_count}`}
+            accent={cheaper_count > pricier_count ? "success" : "neutral"}
+          />
         </div>
       )}
 
       {/* ─── TABS ─── */}
-      <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
-        {tabs.map((tb) => (
-          <button key={tb.key} onClick={() => setTab(tb.key)}
-            className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition ${
-              tab === tb.key ? "bg-white dark:bg-gray-700 shadow text-gray-900 dark:text-white"
-                : "text-gray-500 dark:text-gray-400 hover:text-gray-700"
-            }`}>
-            {tb.icon} {tb.label}
-          </button>
-        ))}
-      </div>
+      <TabPills
+        tabs={tabs.map(tb => ({
+          id: tb.key,
+          label: tb.label.replace(/\s*\(\d+\)$/, ""),
+          count: tb.key === "competitors" ? total_competitors : undefined,
+        }))}
+        activeId={tab}
+        onChange={setTab}
+        wrap={false}
+      />
 
       {/* ═══ DISCOVER TAB ═══ */}
       {tab === "discover" && (

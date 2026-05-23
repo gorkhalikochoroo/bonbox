@@ -1,3 +1,6 @@
+// Task #120 polish (Agent E): migrated H1 → PageHeader, KPI cards →
+// StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
+// + i18n + a11y unchanged.
 import { useState, useEffect, useCallback } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -5,6 +8,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
 import SmartPricingCard from "../components/SmartPricingCard";
+import { PageHeader, StatCard, SectionBanner, Button } from "../components/ui";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from "recharts";
@@ -88,7 +92,9 @@ export default function PricingPage() {
       <div className="p-4 md:p-8 max-w-lg mx-auto text-center">
         <div className="text-4xl mb-4">💰</div>
         <p className="text-red-500">{error}</p>
-        <button onClick={fetchInsights} className="mt-4 text-sm text-green-600 hover:underline">Try again</button>
+        <Button variant="secondary" onClick={fetchInsights} className="mt-4">
+          Try again
+        </Button>
       </div>
     );
   }
@@ -106,9 +112,11 @@ export default function PricingPage() {
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
       {/* Header */}
       <FadeIn>
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-          💰 {t("priceOptimization") || "Price Optimization"}
-        </h1>
+        <PageHeader
+          eyebrow={t("pricingEyebrow") || "INTEL"}
+          title={t("priceOptimization") || "Price Optimization"}
+          subtitle={t("pricingSubtitle") || "Find under-priced items, simulate increases, and benchmark against your neighborhood."}
+        />
       </FadeIn>
 
       {/* ─── MARKET COMPARISON (Smart Pricing, Task #64) ─── */}
@@ -123,55 +131,48 @@ export default function PricingPage() {
       {/* ─── ALERTS ─── */}
       {alerts?.length > 0 && (
         <div className="space-y-3">
-          {alerts.map((alert, i) => (
-            <div key={i} className={`p-4 rounded-2xl border-l-4 ${
-              alert.severity === "warning" ? "border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20" :
-              alert.severity === "positive" ? "border-green-500 bg-green-50 dark:bg-green-900/20" :
-              "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
-            }`}>
-              <div className="flex items-start gap-3">
-                <span className="text-2xl">{alert.icon}</span>
-                <div className="flex-1">
-                  <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{alert.title}</p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{alert.detail}</p>
-                  {alert.action && (
-                    <p className="text-xs text-green-700 dark:text-green-400 mt-2 font-medium">💡 {alert.action}</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
+          {alerts.map((alert, i) => {
+            const severity = alert.severity === "warning" ? "warn"
+              : alert.severity === "positive" ? "success"
+              : "info";
+            return (
+              <SectionBanner
+                key={i}
+                severity={severity}
+                title={alert.title}
+              >
+                <p>{alert.detail}</p>
+                {alert.action && (
+                  <p className="text-xs mt-2 font-medium">{alert.action}</p>
+                )}
+              </SectionBanner>
+            );
+          })}
         </div>
       )}
 
       {/* ─── KEY METRICS ─── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <MetricCard
+        <StatCard
           label="Avg Ticket"
-          value={fmt(avg_ticket)}
-          sub={<span className={trendColor}>{trendIcon} {ticket_change > 0 ? "+" : ""}{fmt(ticket_change)}</span>}
-          color="text-blue-600"
-          currency={currency}
+          value={`${fmt(avg_ticket)} ${currency}`}
+          helper={`${trendIcon} ${ticket_change > 0 ? "+" : ""}${fmt(ticket_change)}`}
+          accent={ticket_trend === "up" ? "success" : ticket_trend === "down" ? "critical" : "neutral"}
         />
-        <MetricCard
+        <StatCard
           label="Previous Period"
-          value={fmt(prev_avg_ticket)}
-          sub="Last 30 days"
-          color="text-gray-500"
-          currency={currency}
+          value={`${fmt(prev_avg_ticket)} ${currency}`}
+          helper="Last 30 days"
         />
-        <MetricCard
+        <StatCard
           label="Daily Volume"
           value={daily_volume}
-          sub="transactions/day"
-          color="text-purple-600"
+          helper="transactions/day"
         />
-        <MetricCard
+        <StatCard
           label="Monthly Revenue"
-          value={fmt(monthly_revenue)}
-          sub={`${total_transactions} transactions`}
-          color="text-green-600"
-          currency={currency}
+          value={`${fmt(monthly_revenue)} ${currency}`}
+          helper={`${total_transactions} transactions`}
         />
       </div>
 
@@ -393,14 +394,13 @@ function SmartPricingSection({ data, loading, currencyCode }) {
 
   if (data.needs_setup) {
     return (
-      <div className="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 rounded-2xl p-5">
-        <h2 className="font-bold text-gray-800 dark:text-white mb-1">
-          🌍 {t("smartPricingTitle") || "Market comparison"}
-        </h2>
-        <p className="text-sm text-gray-700 dark:text-gray-300">
-          {t("smartPricingNeedsSetup") || "Set your postal code and cuisine in Profile to unlock neighborhood price comparisons."}
-        </p>
-      </div>
+      <SectionBanner
+        severity="info"
+        icon="Globe"
+        title={t("smartPricingTitle") || "Market comparison"}
+      >
+        {t("smartPricingNeedsSetup") || "Set your postal code and cuisine in Profile to unlock neighborhood price comparisons."}
+      </SectionBanner>
     );
   }
 
