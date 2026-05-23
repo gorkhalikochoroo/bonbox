@@ -1036,22 +1036,22 @@ export default function InventoryPage() {
           </div>
         )}
         <div className="overflow-x-auto">
-          <table className="w-full text-left min-w-[800px]">
+          <table className="w-full text-left text-[13px]">
             <thead className="bg-gray-50 dark:bg-gray-700/50">
               <tr>
-                <th className="px-3 py-3 w-10">
+                <th className="px-3 py-2.5 w-10">
                   <input type="checkbox" checked={filtered.length > 0 && selected.size === filtered.length} onChange={toggleSelectAll}
                     className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-emerald-500" />
                 </th>
-                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("item")}</th>
-                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("category")}</th>
-                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("quantity")}</th>
-                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("unit")}</th>
-                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("cost")}</th>
-                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("sell")}</th>
-                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("margin")}</th>
-                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("profit")}</th>
-                <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">{t("actions")}</th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("item")}</th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("category")}</th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 text-right">{t("quantity")}</th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("unit")}</th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 text-right">{t("cost")}</th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 text-right">{t("sell")}</th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 text-right">{t("margin")}</th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 text-right">{t("profit")}</th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 text-right">{t("actions")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -1063,28 +1063,28 @@ export default function InventoryPage() {
                 const profit = sell != null ? (sell - buy) * qty : null;
 
                 return (
-                  <tr key={item.id} className={alertIds.has(item.id) ? "bg-red-50 dark:bg-red-900/20" : ""}>
-                    <td className="px-3 py-3">
+                  <tr key={item.id} className={alertIds.has(item.id) ? "bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors" : "hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"}>
+                    <td className="px-3 py-2.5">
                       <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelect(item.id)}
                         className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-emerald-500" />
                     </td>
                     {editId === item.id ? (
                       <>
-                        <td className="px-6 py-3">
+                        <td className="px-3 py-2">
                           <input type="text" value={editData.name} onChange={(e) => setEditData({ ...editData, name: e.target.value })}
-                            className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-28" />
+                            className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-[13px] dark:bg-gray-700 dark:text-white w-28" />
                         </td>
-                        <td className="px-6 py-3">
+                        <td className="px-3 py-2">
                           <input type="text" value={editData.category} onChange={(e) => setEditData({ ...editData, category: e.target.value })}
-                            className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-24" />
+                            className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-[13px] dark:bg-gray-700 dark:text-white w-24" />
                         </td>
-                        <td className="px-6 py-3">
+                        <td className="px-3 py-2 text-right">
                           <input type="number" value={editData.quantity} onChange={(e) => setEditData({ ...editData, quantity: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
-                            className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-20" />
+                            className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-[13px] tabular-nums text-right dark:bg-gray-700 dark:text-white w-20" />
                         </td>
-                        <td className="px-6 py-3">
+                        <td className="px-3 py-2">
                           <select value={editData.unit} onChange={(e) => setEditData({ ...editData, unit: e.target.value })}
-                            className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white">
+                            className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-[13px] dark:bg-gray-700 dark:text-white">
                             <option value="pieces">{t("pieces")}</option>
                             <option value="kg">{t("kg")}</option>
                             <option value="liters">{t("liters")}</option>
@@ -1093,53 +1093,72 @@ export default function InventoryPage() {
                             <option value="dozen">{t("dozen")}</option>
                           </select>
                         </td>
-                        <td className="px-6 py-3">
+                        <td className="px-3 py-2 text-right">
                           <input type="number" step="0.01" value={editData.cost_per_unit} onChange={(e) => setEditData({ ...editData, cost_per_unit: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
-                            className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-20" />
+                            className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-[13px] tabular-nums text-right dark:bg-gray-700 dark:text-white w-20" />
                         </td>
-                        <td className="px-6 py-3">
+                        <td className="px-3 py-2 text-right">
                           <input type="number" step="0.01" value={editData.sell_price} onChange={(e) => setEditData({ ...editData, sell_price: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
                             placeholder="—"
-                            className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-20" />
+                            className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-[13px] tabular-nums text-right dark:bg-gray-700 dark:text-white w-20" />
                         </td>
-                        <td className="px-6 py-3">
+                        <td className="px-3 py-2 text-right">
                           <input type="number" step="0.01" value={editData.sell_price_per_pour} onChange={(e) => setEditData({ ...editData, sell_price_per_pour: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
                             placeholder={t("perPour")}
-                            className="px-2 py-1.5 border border-amber-300 dark:border-amber-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-20" />
+                            className="px-2 py-1.5 border border-amber-300 dark:border-amber-600 rounded-lg text-[13px] tabular-nums text-right dark:bg-gray-700 dark:text-white w-20" />
                         </td>
-                        <td className="px-6 py-3 text-sm text-gray-500">—</td>
-                        <td className="px-6 py-3 text-right space-x-2">
-                          <button onClick={saveEdit} className="text-green-600 dark:text-green-400 text-sm font-medium hover:underline">{t("save")}</button>
-                          <button onClick={() => setEditId(null)} className="text-gray-400 text-sm hover:underline">{t("cancel")}</button>
+                        <td className="px-3 py-2 text-[13px] text-gray-500 text-right tabular-nums">—</td>
+                        <td className="px-3 py-2 text-right">
+                          <span className="inline-flex items-center gap-1">
+                            <button onClick={saveEdit} title={t("save")} aria-label={t("save")}
+                              className="w-7 h-7 inline-flex items-center justify-center rounded-md text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 transition">
+                              <Icon name="Check" size={14} />
+                            </button>
+                            <button onClick={() => setEditId(null)} title={t("cancel")} aria-label={t("cancel")}
+                              className="w-7 h-7 inline-flex items-center justify-center rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+                              <Icon name="X" size={14} />
+                            </button>
+                          </span>
                         </td>
                       </>
                     ) : (
                       <>
-                        <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300 font-medium">
+                        <td className="px-3 py-2.5 text-[13px] text-gray-700 dark:text-gray-300 font-medium">
                           {item.name}
-                          {alertIds.has(item.id) && <span className="ml-1.5 px-1.5 py-0.5 bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-[10px] rounded font-medium">{t("lowLabel")}</span>}
+                          {alertIds.has(item.id) && <span className="ml-1.5 px-1.5 py-0.5 bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-[10px] font-semibold uppercase tracking-wider rounded">{t("lowLabel")}</span>}
                         </td>
-                        <td className="px-6 py-4 text-xs text-gray-500 dark:text-gray-400">{item.category || t("general")}</td>
-                        <td className="px-6 py-4 text-sm font-semibold text-gray-800 dark:text-white">
-                          {qty}
-                          {adjustId === item.id ? (
-                            <span className="ml-2 inline-flex items-center gap-1">
-                              <input type="number" value={adjustQty} onChange={(e) => setAdjustQty(e.target.value)} placeholder="+/-"
-                                className="w-16 px-1.5 py-1 border border-gray-200 dark:border-gray-600 rounded text-xs dark:bg-gray-700 dark:text-white"
-                                onKeyDown={(e) => e.key === "Enter" && adjustStock(item.id, adjustQty)} autoFocus />
-                              <button onClick={() => adjustStock(item.id, adjustQty)} className="text-green-600 text-xs font-medium">{t("go")}</button>
-                              <button onClick={() => { setAdjustId(null); setAdjustQty(""); }} className="text-gray-400 text-xs">X</button>
-                            </span>
-                          ) : (
-                            <button onClick={() => setAdjustId(item.id)} className="ml-2 text-blue-500 text-xs hover:underline">+/-</button>
-                          )}
+                        <td className="px-3 py-2.5 text-[12px] text-gray-500 dark:text-gray-400">{item.category || t("general")}</td>
+                        <td className="px-3 py-2.5 text-[13px] font-semibold text-gray-800 dark:text-white tabular-nums text-right">
+                          <span className="inline-flex items-center justify-end">
+                            {qty}
+                            {adjustId === item.id ? (
+                              <span className="ml-1.5 inline-flex items-center gap-1">
+                                <input type="number" value={adjustQty} onChange={(e) => setAdjustQty(e.target.value)} placeholder="+/-"
+                                  className="w-16 px-1.5 py-1 border border-gray-200 dark:border-gray-600 rounded text-[12px] tabular-nums dark:bg-gray-700 dark:text-white"
+                                  onKeyDown={(e) => e.key === "Enter" && adjustStock(item.id, adjustQty)} autoFocus />
+                                <button onClick={() => adjustStock(item.id, adjustQty)} title={t("go")} aria-label={t("go")}
+                                  className="w-6 h-6 inline-flex items-center justify-center rounded text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/30">
+                                  <Icon name="Check" size={12} />
+                                </button>
+                                <button onClick={() => { setAdjustId(null); setAdjustQty(""); }} title={t("cancel")} aria-label={t("cancel")}
+                                  className="w-6 h-6 inline-flex items-center justify-center rounded text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-gray-700">
+                                  <Icon name="X" size={12} />
+                                </button>
+                              </span>
+                            ) : (
+                              <button onClick={() => setAdjustId(item.id)} title={t("adjustStock") || "+/-"} aria-label={t("adjustStock") || "Adjust stock"}
+                                className="inline-flex items-center justify-center w-5 h-5 rounded text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-gray-700 ml-1.5">
+                                <Icon name="PlusCircle" size={14} />
+                              </button>
+                            )}
+                          </span>
                         </td>
-                        <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{item.unit}</td>
-                        <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{buy} {currency}</td>
-                        <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">
+                        <td className="px-3 py-2.5 text-[13px] text-gray-600 dark:text-gray-400">{item.unit}</td>
+                        <td className="px-3 py-2.5 text-[13px] text-gray-600 dark:text-gray-400 tabular-nums text-right">{buy} {currency}</td>
+                        <td className="px-3 py-2.5 text-[13px] text-gray-600 dark:text-gray-400 tabular-nums text-right">
                           {sell != null ? `${sell} ${currency}` : "—"}
                         </td>
-                        <td className="px-6 py-4 text-sm">
+                        <td className="px-3 py-2.5 text-[13px] tabular-nums text-right">
                           {item.sell_price_per_pour > 0 ? (
                             <span className="text-amber-600 dark:text-amber-400 font-medium">{parseFloat(item.sell_price_per_pour)}/{item.pour_unit || "glass"}</span>
                           ) : margin != null ? (
@@ -1150,7 +1169,7 @@ export default function InventoryPage() {
                             <span className="text-gray-400">—</span>
                           )}
                         </td>
-                        <td className="px-6 py-4 text-sm">
+                        <td className="px-3 py-2.5 text-[13px] tabular-nums text-right">
                           {profit != null ? (
                             <span className={profit >= 0 ? "text-green-600 dark:text-green-400 font-medium" : "text-red-500 font-medium"}>
                               {profit >= 0 ? "+" : ""}{profit.toLocaleString()}
@@ -1159,10 +1178,13 @@ export default function InventoryPage() {
                             <span className="text-gray-400">—</span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="inline-flex items-center gap-2">
+                        <td className="px-3 py-2.5 text-right">
+                          <div className="inline-flex items-center gap-1">
                             {item.pour_size > 0 && (
-                              <button onClick={() => { setPourModal(item); setPourCount(1); }} className="bg-amber-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-amber-600 min-w-[48px] min-h-[32px]">{t("pour")}</button>
+                              <button onClick={() => { setPourModal(item); setPourCount(1); }} title={t("pour")} aria-label={t("pour")}
+                                className="w-7 h-7 inline-flex items-center justify-center rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+                                <Icon name="Wine" size={14} />
+                              </button>
                             )}
                             {/* Smart usage — opens the consumption-config modal so
                                 owner can configure auto-decrement per sale */}
@@ -1170,9 +1192,9 @@ export default function InventoryPage() {
                               onClick={() => setConsumptionModalItem(item)}
                               title={t("inventoryConsumptionTitle") || "Smart usage"}
                               aria-label={t("inventoryConsumptionTitle") || "Smart usage"}
-                              className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-emerald-50 dark:bg-emerald-900/30 hover:bg-emerald-100 dark:hover:bg-emerald-800/40 text-emerald-700 dark:text-emerald-300 text-base transition"
+                              className="w-7 h-7 inline-flex items-center justify-center rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
                             >
-                              🧪
+                              <Icon name="Beaker" size={14} />
                             </button>
                             {/* Compare price — opens SmartPricingModal which
                                 fetches /api/smart-pricing/item for this item.
@@ -1183,19 +1205,31 @@ export default function InventoryPage() {
                                 onClick={() => setSmartPricingItem(item)}
                                 title={t("smartPricingCompareBtn") || "Compare price"}
                                 aria-label={t("smartPricingCompareBtn") || "Compare price"}
-                                className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-800/40 text-indigo-700 dark:text-indigo-300 text-base transition"
+                                className="w-7 h-7 inline-flex items-center justify-center rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
                               >
-                                🌍
+                                <Icon name="Globe" size={14} />
                               </button>
                             )}
-                            <button onClick={() => startEdit(item)} className="bg-blue-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-blue-600 min-w-[48px] min-h-[32px]">{t("edit")}</button>
+                            <button onClick={() => startEdit(item)} title={t("edit")} aria-label={t("edit")}
+                              className="w-7 h-7 inline-flex items-center justify-center rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+                              <Icon name="Pencil" size={14} />
+                            </button>
                             {deleteConfirm === item.id ? (
-                              <span className="inline-flex items-center gap-1.5 bg-red-50 dark:bg-red-900/20 px-2 py-1.5 rounded-lg">
-                                <button onClick={() => deleteItem(item.id)} className="bg-red-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-red-700 min-w-[48px] min-h-[32px]">{t("delete")}</button>
-                                <button onClick={() => setDeleteConfirm(null)} className="bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 text-xs font-bold px-2 py-1.5 rounded-lg hover:bg-gray-300 min-h-[32px]">&#10005;</button>
+                              <span className="inline-flex items-center gap-1">
+                                <button onClick={() => deleteItem(item.id)}
+                                  className="px-2 h-7 inline-flex items-center justify-center rounded-md bg-red-600 text-white text-[11px] font-semibold hover:bg-red-700">
+                                  {t("confirm") || "Confirm"}
+                                </button>
+                                <button onClick={() => setDeleteConfirm(null)} title={t("cancel")} aria-label={t("cancel")}
+                                  className="w-7 h-7 inline-flex items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700">
+                                  <Icon name="X" size={14} />
+                                </button>
                               </span>
                             ) : (
-                              <button onClick={() => setDeleteConfirm(item.id)} className="bg-red-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-red-600 min-w-[48px] min-h-[32px]">{t("delete")}</button>
+                              <button onClick={() => setDeleteConfirm(item.id)} title={t("delete")} aria-label={t("delete")}
+                                className="w-7 h-7 inline-flex items-center justify-center rounded-md text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 transition">
+                                <Icon name="Trash2" size={14} />
+                              </button>
                             )}
                           </div>
                         </td>
@@ -1205,7 +1239,7 @@ export default function InventoryPage() {
                 );
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={10} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noInventoryYet")}</td></tr>
+                <tr><td colSpan={10} className="px-3 py-8 text-center text-[13px] text-gray-400 dark:text-gray-500">{t("noInventoryYet")}</td></tr>
               )}
             </tbody>
           </table>

@@ -55,6 +55,8 @@ import {
   Eraser, Loader2,
   // Stock polish (Task #118) — dead-stock / hot-sellers / search / tag / check
   Flame, TrendingUp, Search, Tag, Check, Hourglass, X,
+  // Stock table icon-only action buttons (Task #121)
+  Beaker, Globe, Pencil, Minus, PlusCircle,
   // Misc / fallback
   Circle, ChevronDown,
 } from "lucide-react";
@@ -94,6 +96,8 @@ const ICONS = {
   Loader: Loader2,
   // Stock polish (Task #118) — used in InventoryPage, WastePage, ExpiryPage
   Flame, TrendingUp, Search, Tag, Check, Hourglass, X,
+  // Stock table icon-only action buttons (Task #121)
+  Beaker, Globe, Pencil, Minus, PlusCircle,
   // Utility
   ChevronDown,
 };
