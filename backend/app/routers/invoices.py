@@ -51,8 +51,10 @@ def _enforce_monthly_invoice_cap(db: Session, user: User, issue_date):
         return  # unlimited (Pro / Trial)
 
     # Issue date can be None (defaults to today server-side later); use
-    # today as the reference month if so.
-    target = issue_date or _date.today()
+    # today as the reference month if so. Use user's local TZ so the
+    # month boundary doesn't shift at UTC midnight (task #39 fix).
+    from app.services.tz_utils import today_local
+    target = issue_date or today_local(user)
     month_start = target.replace(day=1)
     if target.month == 12:
         next_month_start = target.replace(year=target.year + 1, month=1, day=1)

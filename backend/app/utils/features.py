@@ -39,13 +39,17 @@ def is_bank_connect_enabled() -> bool:
     production, so the mock counts as 'enabled' for dev/test).
 
     Recognized providers + the env vars they need:
-      BANK_PROVIDER=gocardless → GOCARDLESS_SECRET_ID + GOCARDLESS_SECRET_KEY
-      BANK_PROVIDER=saltedge   → SALTEDGE_APP_ID + SALTEDGE_SECRET
+      BANK_PROVIDER=gocardless → GOCARDLESS_BASE_URL + GOCARDLESS_SECRET_ID
+                                 + GOCARDLESS_SECRET_KEY (all three)
+      BANK_PROVIDER=saltedge   → SALTEDGE_BASE_URL + SALTEDGE_APP_ID
+                                 + SALTEDGE_SECRET (all three)
       AIIA_ENV=sandbox/live    → AIIA_CLIENT_ID + AIIA_CLIENT_SECRET
 
-    BANK_PROVIDER takes precedence; if it's set but creds are
-    missing the feature is OFF in prod (we don't fall back to mock
-    silently because then "Connected" badges would mislead).
+    BANK_PROVIDER takes precedence; if it's set but ANY required cred is
+    missing the feature is OFF in prod (we don't fall back to mock silently
+    because then "Connected" badges would mislead — RED audit finding #127:
+    partial creds caused the Connect Bank button to stay visible while the
+    factory silently returned MockAiiaClient).
     """
     if not _is_production():
         return True
@@ -53,12 +57,14 @@ def is_bank_connect_enabled() -> bool:
     provider = (os.environ.get("BANK_PROVIDER") or "").strip().lower()
     if provider == "gocardless":
         return bool(
-            (os.environ.get("GOCARDLESS_SECRET_ID") or "").strip()
+            (os.environ.get("GOCARDLESS_BASE_URL") or "").strip()
+            and (os.environ.get("GOCARDLESS_SECRET_ID") or "").strip()
             and (os.environ.get("GOCARDLESS_SECRET_KEY") or "").strip()
         )
     if provider == "saltedge":
         return bool(
-            (os.environ.get("SALTEDGE_APP_ID") or "").strip()
+            (os.environ.get("SALTEDGE_BASE_URL") or "").strip()
+            and (os.environ.get("SALTEDGE_APP_ID") or "").strip()
             and (os.environ.get("SALTEDGE_SECRET") or "").strip()
         )
 

@@ -26,6 +26,7 @@ from app.models.customer import Customer
 from app.models.invoice import Invoice, InvoiceLine
 from app.models.user import User
 from app.services import audit_service
+from app.services.tz_utils import today_local
 from app.services.voucher_service import allocate_invoice_number, format_voucher_number
 from app.utils.time import utc_now
 
@@ -110,8 +111,10 @@ class InvoiceService:
                 "Customer not found",
             )
 
-        # 2. Resolve dates
-        issue = issue_date or date.today()
+        # 2. Resolve dates — must use the user's local TZ, not UTC, otherwise
+        # a Danish user creating a draft at 23:30 CET stamps it with tomorrow's
+        # date (task #39 fix, RED audit finding #127).
+        issue = issue_date or today_local(user)
         terms = due_days if due_days is not None else customer.payment_terms_days
         due = issue + timedelta(days=terms)
 

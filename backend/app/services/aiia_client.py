@@ -424,6 +424,12 @@ def get_aiia_client() -> AiiaClient:
     construct (e.g. missing creds) keeps the rest of the app alive —
     bank-connect just becomes demo-only until config is fixed.
     """
+    # In prod, never fall back to mock when a real provider was requested but
+    # is misconfigured — that would serve synthetic transactions as if they
+    # were the owner's actual bank data (RED audit finding #127). Better to
+    # 502 the Connect Bank flow so the operator notices and fixes the env.
+    is_prod = os.environ.get("ENVIRONMENT", "development").lower() == "production"
+
     provider = (os.environ.get("BANK_PROVIDER") or "").strip().lower()
     if provider == "gocardless":
         try:
@@ -432,9 +438,16 @@ def get_aiia_client() -> AiiaClient:
             from app.services.gocardless_client import get_gocardless_client
             return get_gocardless_client()
         except AiiaClientError as e:
+            if is_prod:
+                logger.error(
+                    "bank: BANK_PROVIDER=gocardless requested but config "
+                    "invalid (%s) — REFUSING to fall back to mock in prod",
+                    e,
+                )
+                raise
             logger.warning(
                 "bank: BANK_PROVIDER=gocardless requested but config "
-                "invalid (%s) — falling back to mock",
+                "invalid (%s) — falling back to mock (non-prod only)",
                 e,
             )
             return MockAiiaClient()
@@ -443,9 +456,16 @@ def get_aiia_client() -> AiiaClient:
             from app.services.saltedge_client import get_saltedge_client
             return get_saltedge_client()
         except AiiaClientError as e:
+            if is_prod:
+                logger.error(
+                    "bank: BANK_PROVIDER=saltedge requested but config "
+                    "invalid (%s) — REFUSING to fall back to mock in prod",
+                    e,
+                )
+                raise
             logger.warning(
                 "bank: BANK_PROVIDER=saltedge requested but config "
-                "invalid (%s) — falling back to mock",
+                "invalid (%s) — falling back to mock (non-prod only)",
                 e,
             )
             return MockAiiaClient()
@@ -460,8 +480,15 @@ def get_aiia_client() -> AiiaClient:
                 return SandboxAiiaClient(base, cid, sec)
             return LiveAiiaClient(base, cid, sec)
         except AiiaClientError as e:
+            if is_prod:
+                logger.error(
+                    "aiia: %s mode requested but config invalid (%s) — "
+                    "REFUSING to fall back to mock in prod",
+                    env, e,
+                )
+                raise
             logger.warning(
-                "aiia: %s mode requested but config invalid (%s) — falling back to mock",
+                "aiia: %s mode requested but config invalid (%s) — falling back to mock (non-prod only)",
                 env, e,
             )
             return MockAiiaClient()

@@ -3,7 +3,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useBranch } from "../components/BranchSelector";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, getTaxConfig, getVatTerms } from "../utils/currency";
 import { trackEvent } from "../hooks/useEventLog";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
@@ -324,9 +324,19 @@ function getBusinessDate(cutoffHour = 0) {
 }
 
 function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnline, editDraft, onEditConsumed }) {
+  const { user } = useAuth();
   const defaultRevCats = useMemo(() => getRevenueCats(branchType), [branchType]);
   const defaultPayMethods = useMemo(() => getPaymentMethods(branchType), [branchType]);
   const config = CLOSE_CONFIG[branchType] || CLOSE_CONFIG.general;
+
+  // VAT rate from user.currency — was hardcoded 0.25 (Danish only), which
+  // was wrong for NPR (13%) / EUR_DE (19%) / GBP (20%) / USD (0%) etc.
+  // Backend already uses _get_vat_rate(user.currency); this aligns the
+  // on-screen preview with what gets persisted. RED finding from audit #127.
+  const vatRate = getTaxConfig(user?.currency).rate;
+  const vatRatePct = Math.round(vatRate * 100);
+  const vatDivisor = 1 + vatRate;
+  const vatName = getVatTerms(user?.currency).vatName || "VAT";
 
   const stepSequence = useMemo(() => {
     const seq = ["revenue", "payments"];
@@ -570,7 +580,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   const momsTotal = useMemo(() => {
     if (momsMode === "manual") return parseFloat(momsManual) || 0;
     if (scanResult?.moms_total) return scanResult.moms_total;
-    return revenueTotal > 0 ? Math.round((revenueTotal * 0.25 / 1.25) * 100) / 100 : 0;
+    return revenueTotal > 0 && vatRate > 0 ? Math.round((revenueTotal * vatRate / vatDivisor) * 100) / 100 : 0;
   }, [momsMode, momsManual, scanResult, revenueTotal]);
   const revenueExMoms = useMemo(() => Math.round((revenueTotal - momsTotal) * 100) / 100, [revenueTotal, momsTotal]);
 
@@ -902,19 +912,19 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             <div className="rounded-xl p-4 space-y-2"
               style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.08), rgba(139,92,246,0.08))" }}>
               <h3 className="font-semibold text-sm flex items-center gap-2" style={{ color: "#6366f1" }}>
-                MOMS (Danish VAT 25%)
+                {vatName} ({vatRatePct}%)
                 {scanResult.moms_total && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 rounded">OCR</span>}
               </h3>
               <div className="flex justify-between text-sm dark:text-gray-300">
                 <span>{t("totalMoms")}</span>
                 <span className="font-semibold" style={{ color: "#6366f1" }}>
-                  {(scanResult.moms_total || Math.round(((scanResult.revenue_total || 0) * 0.25 / 1.25) * 100) / 100).toLocaleString()} {currency}
+                  {(scanResult.moms_total || (vatRate > 0 ? Math.round(((scanResult.revenue_total || 0) * vatRate / vatDivisor) * 100) / 100 : 0)).toLocaleString()} {currency}
                 </span>
               </div>
               {defaultRevCats.map(c => {
                 const val = scanResult.revenue?.[c.key];
                 if (!val) return null;
-                const udenMoms = Math.round((val / 1.25) * 100) / 100;
+                const udenMoms = Math.round((val / vatDivisor) * 100) / 100;
                 return (
                   <div key={c.key} className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
                     <span>{c.label.split(" / ")[0]} (uden moms)</span>
@@ -1332,7 +1342,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               <div className="rounded-xl p-4 space-y-3"
                 style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.08), rgba(139,92,246,0.08))" }}>
                 <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-sm" style={{ color: "#6366f1" }}>MOMS / VAT (25%)</h3>
+                  <h3 className="font-semibold text-sm" style={{ color: "#6366f1" }}>{vatName} ({vatRatePct}%)</h3>
                   {/* Toggle: Auto vs Manual */}
                   <div className="flex bg-gray-200 dark:bg-gray-700 rounded-lg p-0.5 text-xs">
                     <button onClick={() => setMomsMode("auto")}
@@ -1354,14 +1364,14 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   </div>
                 )}
                 {momsMode === "auto" && (
-                  <p className="text-xs text-indigo-400">Auto-calculated: Revenue × 25% / 125%</p>
+                  <p className="text-xs text-indigo-400">Auto-calculated: Revenue × {vatRatePct}% / {100 + vatRatePct}%</p>
                 )}
                 <div className="flex justify-between text-sm dark:text-gray-300 py-0.5">
                   <span>Revenue (med moms)</span>
                   <span>{revenueTotal.toLocaleString()} {currency}</span>
                 </div>
                 <div className="flex justify-between text-sm font-semibold py-0.5" style={{ color: "#6366f1" }}>
-                  <span>MOMS 25%{momsMode === "manual" ? " (from receipt)" : ""}</span>
+                  <span>{vatName} {vatRatePct}%{momsMode === "manual" ? " (from receipt)" : ""}</span>
                   <span>{momsTotal.toLocaleString()} {currency}</span>
                 </div>
                 <div className="flex justify-between text-sm font-bold pt-2 border-t mt-1 dark:text-white" style={{ borderColor: "rgba(99,102,241,0.2)" }}>
