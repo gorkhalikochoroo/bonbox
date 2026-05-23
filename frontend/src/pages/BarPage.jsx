@@ -1,3 +1,8 @@
+// Task #118 polish (Agent B): migrated to PageHeader, SectionBanner,
+// Button, Icon primitives.  Replaced inline 🍸 emoji H1 with PageHeader
+// + Martini Lucide icon eyebrow.  Module-disabled warn block is now a
+// SectionBanner severity="warn".  Inline empty state uses Empty
+// primitive.  Behavior + i18n + a11y unchanged.
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
@@ -6,6 +11,9 @@ import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
 import { localIso } from "../utils/dateFormat";
+import {
+  Button, PageHeader, SectionBanner, Empty, Icon,
+} from "../components/ui";
 
 /**
  * Bar Pour — dedicated page for pour-cost-tracked items (spirits, beer,
@@ -136,23 +144,22 @@ export default function BarPage() {
   return (
     <div className="px-4 sm:px-6 py-6 max-w-6xl mx-auto">
       <FadeIn>
-        <div className="flex items-start justify-between gap-3 mb-2 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-              🍸 {t("barPageTitle") || "Bar Pour"}
-            </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-xl">
-              {t("barPageSubtitle") ||
-                "Pour-cost tracked items — spirits, beer, wine-by-the-glass, mixers. Tap to pour, tap + to restock by the bottle."}
-            </p>
-          </div>
-          <Link
-            to="/inventory"
-            className="text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-          >
-            {t("barManageInInventory") || "Edit / add bottles in Inventory →"}
-          </Link>
-        </div>
+        <PageHeader
+          eyebrow="STOCK"
+          title={t("barPageTitle") || "Bar Pour"}
+          subtitle={
+            t("barPageSubtitle") ||
+            "Pour-cost tracked items — spirits, beer, wine-by-the-glass, mixers. Tap to pour, tap + to restock by the bottle."
+          }
+          actions={
+            <Link
+              to="/inventory"
+              className="text-xs font-medium text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 transition"
+            >
+              {t("barManageInInventory") || "Edit / add bottles in Inventory →"}
+            </Link>
+          }
+        />
       </FadeIn>
 
       {/* Module-disabled soft banner — only shows when user hits /bar
@@ -160,48 +167,53 @@ export default function BarPage() {
           existing data; just explains the missing sidebar entry and
           offers a one-tap path to enable. */}
       {moduleEnabled === false && (
-        <div className="mt-4 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 text-[13px] text-amber-800 dark:text-amber-200 flex items-center gap-3 flex-wrap">
-          <span className="font-semibold">
-            {t("barModuleDisabledTitle") || "Bar Pour module is disabled."}
-          </span>
-          <span>
-            {t("barModuleDisabledBody") || "Enable it to add Bar to your sidebar — your existing bottles still work either way."}
-          </span>
-          <Link to="/modules" className="font-semibold text-amber-900 dark:text-amber-100 underline whitespace-nowrap">
-            {t("barModuleEnable") || "Enable in Modules →"}
-          </Link>
+        <div className="mt-4">
+          <SectionBanner
+            severity="warn"
+            icon="AlertTriangle"
+            title={t("barModuleDisabledTitle") || "Bar Pour module is disabled."}
+          >
+            {t("barModuleDisabledBody") || "Enable it to add Bar to your sidebar — your existing bottles still work either way."}{" "}
+            <Link to="/modules" className="font-semibold underline whitespace-nowrap">
+              {t("barModuleEnable") || "Enable in Modules →"}
+            </Link>
+          </SectionBanner>
         </div>
       )}
 
       {success && (
-        <div className="mt-4 px-4 py-2.5 rounded-xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-sm text-green-700 dark:text-green-300">
-          {success}
+        <div className="mt-4">
+          <SectionBanner severity="success" icon="CheckCircle2" title={success} />
         </div>
       )}
       {error && (
-        <div className="mt-4 px-4 py-2.5 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
-          {error}
+        <div className="mt-4">
+          <SectionBanner severity="critical" icon="AlertTriangle" title={error} />
         </div>
       )}
 
-      {/* Empty state — no bar items configured at all */}
+      {/* Empty state — no bar items configured at all. Uses the shared
+          Empty primitive so the page matches the other "no data yet"
+          screens across BonBox. */}
       {!loading && items.length === 0 && (
         <FadeIn delay={0.05}>
-          <div className="mt-6 rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/40 p-8 text-center">
-            <div className="text-4xl mb-2">🍸</div>
-            <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-1">
-              {t("barEmptyTitle") || "No bar items yet"}
-            </p>
-            <p className="text-[12.5px] text-gray-500 dark:text-gray-400 mb-4 max-w-md mx-auto leading-relaxed">
-              {t("barEmptyHelp") ||
-                "Add bottles in Inventory with a bottle size + pour size set (e.g. 750 ml bottle, 30 ml pour). They'll appear here as tap-to-pour tiles."}
-            </p>
-            <Link
-              to="/inventory"
-              className="inline-block px-5 py-2 bg-[#22c55e] hover:bg-[#16a34a] text-white text-sm font-semibold rounded-lg transition"
-            >
-              {t("barEmptyCta") || "Add bottles in Inventory"}
-            </Link>
+          <div className="mt-6 rounded-xl border border-dashed border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900/40 p-2">
+            <Empty
+              icon="🍸"
+              title={t("barEmptyTitle") || "No bar items yet"}
+              body={
+                t("barEmptyHelp") ||
+                "Add bottles in Inventory with a bottle size + pour size set (e.g. 750 ml bottle, 30 ml pour). They'll appear here as tap-to-pour tiles."
+              }
+              cta={
+                <Link
+                  to="/inventory"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors h-9 px-3.5 text-sm bg-emerald-600 text-white hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2"
+                >
+                  {t("barEmptyCta") || "Add bottles in Inventory"}
+                </Link>
+              }
+            />
           </div>
         </FadeIn>
       )}
@@ -300,7 +312,7 @@ export default function BarPage() {
       {/* Pour Modal — same UX pattern as InventoryPage so muscle memory transfers */}
       {pourModal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setPourModal(null)}>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl p-6 w-full max-w-sm border border-gray-200 dark:border-gray-800" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-1">
               {t("pour") || "Pour"} — {pourModal.name}
             </h3>
@@ -340,7 +352,7 @@ export default function BarPage() {
       {/* Restock Modal */}
       {restockItem && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setRestockItem(null)}>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl p-6 w-full max-w-sm border border-gray-200 dark:border-gray-800" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-1">
               {t("restock") || "Restock"} — {restockItem.name}
             </h3>

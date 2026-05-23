@@ -1,3 +1,6 @@
+// Task #118 polish (Agent C): migrated H1 → PageHeader, one-time/recurring
+// segmented control → TabPills, dropped DismissibleTip emoji prop so it
+// uses the new Lucide default. Behavior + i18n + a11y unchanged.
 import { useState, useEffect, useRef } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -12,6 +15,7 @@ import ReceiptCapture from "../components/ReceiptCapture";
 import ReceiptViewer from "../components/ReceiptViewer";
 import DismissibleTip from "../components/DismissibleTip";
 import RecurringExpensesPanel from "../components/RecurringExpensesPanel";
+import { PageHeader, TabPills } from "../components/ui";
 
 const QUICK_AMOUNTS = [100, 250, 500, 1000, 2500, 5000];
 const DEFAULT_CATEGORIES = ["Ingredients", "Rent", "Wages", "Utilities", "Supplies", "Other"];
@@ -327,14 +331,15 @@ export default function ExpensesPage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("expenseTracker")}</h1></FadeIn>
+      <FadeIn>
+        <PageHeader eyebrow="MONEY" title={t("expenseTracker")} />
+      </FadeIn>
 
       {success && <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
       {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-300 px-4 py-3 rounded-xl text-sm">{error}</div>}
 
       <DismissibleTip
         id="expenses-intro-v1"
-        icon="🧾"
         title="Snap, log, claim back"
       >
         <p>
@@ -358,22 +363,15 @@ export default function ExpensesPage() {
       {/* One-time / Recurring tab strip — lifted ABOVE the Detailed/Quick
           toggle so the high-level distinction is the first decision the
           owner makes. Recurring tab content is server-gated to Starter+. */}
-      <div className="inline-flex gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
-        <button
-          type="button"
-          onClick={() => setExpensesTab("one_time")}
-          className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${expensesTab === "one_time" ? "bg-white dark:bg-gray-600 text-gray-800 dark:text-white shadow-sm" : "text-gray-500 dark:text-gray-400"}`}
-        >
-          {t("oneTimeTab", "One-time")}
-        </button>
-        <button
-          type="button"
-          onClick={() => setExpensesTab("recurring")}
-          className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${expensesTab === "recurring" ? "bg-white dark:bg-gray-600 text-gray-800 dark:text-white shadow-sm" : "text-gray-500 dark:text-gray-400"}`}
-        >
-          {t("recurringTab", "Recurring")}
-        </button>
-      </div>
+      <TabPills
+        ariaLabel="Expense type"
+        tabs={[
+          { id: "one_time", label: t("oneTimeTab", "One-time") },
+          { id: "recurring", label: t("recurringTab", "Recurring") },
+        ]}
+        activeId={expensesTab}
+        onChange={setExpensesTab}
+      />
 
       {expensesTab === "recurring" && (
         <RecurringExpensesPanel

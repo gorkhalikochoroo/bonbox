@@ -1,3 +1,10 @@
+// Task #118 polish (Agent B): migrated to PageHeader, StatCard,
+// SectionBanner, TabPills primitives.  Replaced rainbow CTAs (emerald +
+// blue + purple) with single accent button + secondaries; export PDF/CSV
+// dropped into ghost variants.  Dead-stock alert moved from full-page red
+// gradient to SectionBanner severity="critical".  Expiry/expired alerts
+// replaced with SectionBanner.  Category tab row uses TabPills (gray-900
+// active state, no more bg-green-600).  Behavior + i18n + a11y unchanged.
 import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
@@ -12,6 +19,9 @@ import InventoryConsumptionModal from "../components/InventoryConsumptionModal";
 import InventoryAutopilotPanel from "../components/InventoryAutopilotPanel";
 import SmartPricingModal from "../components/SmartPricingModal";
 import { localIso } from "../utils/dateFormat";
+import {
+  Button, PageHeader, StatCard, SectionBanner, TabPills, Icon,
+} from "../components/ui";
 
 const TEMPLATES = [
   // Food & Drink
@@ -367,85 +377,96 @@ export default function InventoryPage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("inventoryMonitor")}</h1></FadeIn>
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Order autopilot — Pro tier killer feature (Task #63). Visible
-              to everyone so the upsell remains discoverable. The panel
-              itself renders an UpgradeNudge for Free / Starter. */}
-          <button
-            onClick={() => setShowAutopilot((v) => !v)}
-            className="px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 transition font-medium flex items-center gap-1.5"
-            title={t(
-              "inventoryAutopilotButtonTitle",
-              "Group reorder suggestions by supplier and email them in one tap.",
-            )}
-          >
-            {t("inventoryAutopilotButton", "Order autopilot")}
-          </button>
-          <button
-            onClick={() => setShowSmartImport(true)}
-            className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition font-medium flex items-center gap-1.5"
-            title="Paste, upload or photograph your stock list — AI fills in the rest"
-          >
-            ✨ Smart Import
-          </button>
-          <button
-            onClick={() => setShowTemplateModal(true)}
-            className="px-4 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 transition font-medium"
-          >
-            {t("loadTemplate")}
-          </button>
-          {/* Export buttons — PDF for accountant handoff (Bogføringsloven
-              §10), CSV for spreadsheet review. Both call the api client
-              with responseType:'blob' so auth carries automatically and
-              the file downloads via a temporary blob URL. */}
-          <button
-            onClick={async () => {
-              try {
-                const res = await api.get("/inventory/export.pdf", { responseType: "blob" });
-                const url = URL.createObjectURL(res.data);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `stock-list-${localIso()}.pdf`;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-                setTimeout(() => URL.revokeObjectURL(url), 60_000);
-              } catch (e) {
-                console.error("Export PDF failed", e);
-                setError(e?.response?.data?.detail || "Couldn't generate PDF — please retry.");
-              }
-            }}
-            className="px-3 py-2 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600 text-sm rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition font-medium"
-            title="Download a PDF stock-list report"
-          >
-            📄 Export PDF
-          </button>
-          <button
-            onClick={async () => {
-              try {
-                const res = await api.get("/inventory/export.csv", { responseType: "blob" });
-                const url = URL.createObjectURL(res.data);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `stock-list-${localIso()}.csv`;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-                setTimeout(() => URL.revokeObjectURL(url), 60_000);
-              } catch (e) {
-                console.error("Export CSV failed", e);
-                setError(e?.response?.data?.detail || "Couldn't generate CSV — please retry.");
-              }
-            }}
-            className="px-3 py-2 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600 text-sm rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition font-medium"
-            title="Download stock list as CSV (Excel-friendly, semicolon delimited)"
-          >
-            📊 Export CSV
-          </button>
-        </div>
-      </div>
+      <FadeIn>
+        <PageHeader
+          eyebrow="STOCK"
+          title={t("inventoryMonitor")}
+          actions={
+            <>
+              {/* Order autopilot — Pro tier killer feature (Task #63). Visible
+                  to everyone so the upsell remains discoverable. The panel
+                  itself renders an UpgradeNudge for Free / Starter. This is
+                  the page's one accent (money-moment) action. */}
+              <Button
+                variant="accent"
+                onClick={() => setShowAutopilot((v) => !v)}
+                title={t(
+                  "inventoryAutopilotButtonTitle",
+                  "Group reorder suggestions by supplier and email them in one tap.",
+                )}
+              >
+                {t("inventoryAutopilotButton", "Order autopilot")}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => setShowSmartImport(true)}
+                iconLeft={<Icon name="Sparkles" size={16} />}
+                title="Paste, upload or photograph your stock list — AI fills in the rest"
+              >
+                Smart Import
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => setShowTemplateModal(true)}
+              >
+                {t("loadTemplate")}
+              </Button>
+              {/* Export buttons — PDF for accountant handoff (Bogføringsloven
+                  §10), CSV for spreadsheet review. Both call the api client
+                  with responseType:'blob' so auth carries automatically and
+                  the file downloads via a temporary blob URL. Demoted to
+                  ghost so the row reads as "one primary + a few utilities"
+                  instead of the old rainbow. */}
+              <Button
+                variant="ghost"
+                onClick={async () => {
+                  try {
+                    const res = await api.get("/inventory/export.pdf", { responseType: "blob" });
+                    const url = URL.createObjectURL(res.data);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `stock-list-${localIso()}.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                  } catch (e) {
+                    console.error("Export PDF failed", e);
+                    setError(e?.response?.data?.detail || "Couldn't generate PDF — please retry.");
+                  }
+                }}
+                iconLeft={<Icon name="FileText" size={16} />}
+                title="Download a PDF stock-list report"
+              >
+                PDF
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={async () => {
+                  try {
+                    const res = await api.get("/inventory/export.csv", { responseType: "blob" });
+                    const url = URL.createObjectURL(res.data);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `stock-list-${localIso()}.csv`;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                  } catch (e) {
+                    console.error("Export CSV failed", e);
+                    setError(e?.response?.data?.detail || "Couldn't generate CSV — please retry.");
+                  }
+                }}
+                iconLeft={<Icon name="FileSpreadsheet" size={16} />}
+                title="Download stock list as CSV (Excel-friendly, semicolon delimited)"
+              >
+                CSV
+              </Button>
+            </>
+          }
+        />
+      </FadeIn>
 
       <SmartImportModal
         open={showSmartImport}
@@ -479,77 +500,67 @@ export default function InventoryPage() {
       </DismissibleTip>
 
       {alerts.length > 0 && (
-        <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 p-4 rounded-xl">
-          <p className="text-red-700 dark:text-red-300 font-medium text-sm">{t("lowStockAlerts")}: {alerts.length} {t("itemsBelowMinStock")}</p>
-        </div>
+        <SectionBanner
+          severity="critical"
+          icon="AlertTriangle"
+          title={`${t("lowStockAlerts")}: ${alerts.length} ${t("itemsBelowMinStock")}`}
+        />
       )}
 
       {/* ─── Expiry alerts (already past = waste candidate; soon = use first) ─── */}
       {(expired.length > 0 || expiring.length > 0) && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {expired.length > 0 && (
-            <div className="bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800 p-4 rounded-xl">
-              <div className="flex items-start gap-3">
-                <span className="text-2xl shrink-0 mt-0.5">⚠️</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-rose-800 dark:text-rose-200 font-semibold text-sm">
-                    {expired.length} item{expired.length === 1 ? "" : "s"} past expiry
-                  </p>
-                  <p className="text-rose-700 dark:text-rose-300 text-xs mt-0.5">
-                    Move to Waste or remove from stock — usable inventory shouldn't include these.
-                  </p>
-                  <ul className="mt-2 space-y-0.5 text-[12px] text-rose-700 dark:text-rose-300">
-                    {expired.slice(0, 3).map((it) => (
-                      <li key={it.id} className="truncate">
-                        • {it.name} <span className="opacity-70">({it.expiry_date}, {Number(it.quantity).toFixed(1)} {it.unit})</span>
-                      </li>
-                    ))}
-                    {expired.length > 3 && (
-                      <li>
-                        <Link
-                          to="/expiry"
-                          className="text-rose-800 dark:text-rose-200 underline hover:no-underline font-medium"
-                        >
-                          + {expired.length - 3} more — view all →
-                        </Link>
-                      </li>
-                    )}
-                  </ul>
-                </div>
-              </div>
-            </div>
+            <SectionBanner
+              severity="critical"
+              icon="AlertTriangle"
+              title={`${expired.length} item${expired.length === 1 ? "" : "s"} past expiry`}
+            >
+              <p className="mb-2">Move to Waste or remove from stock — usable inventory shouldn't include these.</p>
+              <ul className="space-y-0.5 text-[12px]">
+                {expired.slice(0, 3).map((it) => (
+                  <li key={it.id} className="truncate">
+                    • {it.name} <span className="opacity-70">({it.expiry_date}, {Number(it.quantity).toFixed(1)} {it.unit})</span>
+                  </li>
+                ))}
+                {expired.length > 3 && (
+                  <li>
+                    <Link
+                      to="/expiry"
+                      className="underline hover:no-underline font-medium"
+                    >
+                      + {expired.length - 3} more — view all →
+                    </Link>
+                  </li>
+                )}
+              </ul>
+            </SectionBanner>
           )}
           {expiring.length > 0 && (
-            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-4 rounded-xl">
-              <div className="flex items-start gap-3">
-                <span className="text-2xl shrink-0 mt-0.5">⏰</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-amber-800 dark:text-amber-200 font-semibold text-sm">
-                    {expiring.length} item{expiring.length === 1 ? "" : "s"} expiring within 7 days
-                  </p>
-                  <p className="text-amber-700 dark:text-amber-300 text-xs mt-0.5">
-                    Use these first or plan a discount — first-expired-first-out keeps waste low.
-                  </p>
-                  <ul className="mt-2 space-y-0.5 text-[12px] text-amber-700 dark:text-amber-300">
-                    {expiring.slice(0, 3).map((it) => (
-                      <li key={it.id} className="truncate">
-                        • {it.name} <span className="opacity-70">({it.expiry_date}, {Number(it.quantity).toFixed(1)} {it.unit})</span>
-                      </li>
-                    ))}
-                    {expiring.length > 3 && (
-                      <li>
-                        <Link
-                          to="/expiry"
-                          className="text-amber-800 dark:text-amber-200 underline hover:no-underline font-medium"
-                        >
-                          + {expiring.length - 3} more — view all →
-                        </Link>
-                      </li>
-                    )}
-                  </ul>
-                </div>
-              </div>
-            </div>
+            <SectionBanner
+              severity="warn"
+              icon="AlarmClock"
+              title={`${expiring.length} item${expiring.length === 1 ? "" : "s"} expiring within 7 days`}
+            >
+              <p className="mb-2">Use these first or plan a discount — first-expired-first-out keeps waste low.</p>
+              <ul className="space-y-0.5 text-[12px]">
+                {expiring.slice(0, 3).map((it) => (
+                  <li key={it.id} className="truncate">
+                    • {it.name} <span className="opacity-70">({it.expiry_date}, {Number(it.quantity).toFixed(1)} {it.unit})</span>
+                  </li>
+                ))}
+                {expiring.length > 3 && (
+                  <li>
+                    <Link
+                      to="/expiry"
+                      className="underline hover:no-underline font-medium"
+                    >
+                      + {expiring.length - 3} more — view all →
+                    </Link>
+                  </li>
+                )}
+              </ul>
+            </SectionBanner>
           )}
         </div>
       )}
@@ -559,44 +570,43 @@ export default function InventoryPage() {
           a 🍸 Bar entry in their sidebar; everyone else gets a calmer
           inventory page focused on general kitchen / shop / pantry stock. */}
 
-      {/* Financial overview — auto-calculated from buy/sell prices */}
+      {/* Financial overview — auto-calculated from buy/sell prices. Once
+          we have 10+ priced items, surface a four-tile KPI strip via the
+          unified StatCard. The single "accent" goes on potential profit
+          (the money moment); margin uses red when negative — that's a
+          data-true color, not decoration. */}
       {stats.itemsWithMargin >= 10 ? (
-        <div className="bg-gradient-to-r from-blue-50 to-emerald-50 dark:from-gray-800 dark:to-gray-800 p-5 rounded-2xl border border-blue-100 dark:border-gray-700">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("stockCost")}</p>
-              <p className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white mt-1">{stats.totalCost.toLocaleString()}</p>
-              <p className="text-xs text-gray-400">{currency} {t("invested")}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("potentialRevenue")}</p>
-              <p className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">{stats.totalRevenue.toLocaleString()}</p>
-              <p className="text-xs text-gray-400">{currency} {t("ifAllSold")}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("potentialProfit")}</p>
-              <p className={`text-xl sm:text-2xl font-bold mt-1 ${stats.totalProfit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
-                {stats.totalProfit >= 0 ? "+" : ""}{stats.totalProfit.toLocaleString()}
-              </p>
-              <p className="text-xs text-gray-400">{currency} {t("margin")}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">{t("avgMargin")}</p>
-              <p className={`text-xl sm:text-2xl font-bold mt-1 ${stats.avgMargin >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
-                {stats.avgMargin}%
-              </p>
-              <p className="text-xs text-gray-400">{stats.itemsWithMargin} {t("itemsPriced")}</p>
-            </div>
-          </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <StatCard
+            label={t("stockCost")}
+            value={`${stats.totalCost.toLocaleString()} ${currency}`}
+            helper={t("invested")}
+          />
+          <StatCard
+            label={t("potentialRevenue")}
+            value={`${stats.totalRevenue.toLocaleString()} ${currency}`}
+            helper={t("ifAllSold")}
+          />
+          <StatCard
+            label={t("potentialProfit")}
+            value={`${stats.totalProfit >= 0 ? "+" : ""}${stats.totalProfit.toLocaleString()} ${currency}`}
+            accent={stats.totalProfit >= 0 ? "success" : "critical"}
+            helper={t("margin")}
+          />
+          <StatCard
+            label={t("avgMargin")}
+            value={`${stats.avgMargin}%`}
+            accent={stats.avgMargin >= 0 ? "neutral" : "critical"}
+            helper={`${stats.itemsWithMargin} ${t("itemsPriced")}`}
+          />
         </div>
       ) : items.length > 0 && (
-        <div className="bg-blue-50 dark:bg-gray-800 border border-blue-100 dark:border-gray-700 p-4 rounded-xl flex items-center gap-3">
-          <span className="text-2xl">💡</span>
-          <div>
-            <p className="text-sm font-medium text-blue-800 dark:text-blue-300">{t("addSellPricesHint")}</p>
-            <p className="text-xs text-blue-600/70 dark:text-blue-400/70 mt-0.5">{stats.itemsWithMargin}/{items.length} {t("itemsPriced")} — {t("needAtLeast10")}</p>
-          </div>
-        </div>
+        <SectionBanner
+          severity="info"
+          icon="Sparkles"
+          title={t("addSellPricesHint")}
+          body={`${stats.itemsWithMargin}/${items.length} ${t("itemsPriced")} — ${t("needAtLeast10")}`}
+        />
       )}
 
       {/* Summary cards */}
@@ -799,49 +809,49 @@ export default function InventoryPage() {
         )}
       </div>
 
-      {/* Category tabs */}
+      {/* Category tabs — TabPills (gray-900 active, not green) so they
+          match the sidebar's neutral-dark active treatment. Reserves the
+          one emerald accent for the Order autopilot button at the top. */}
       {categories.length > 0 && (
         <div>
           {templateFilter && (
             <div className="flex items-center gap-2 mb-2">
-              <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">
+              <p className="text-xs text-gray-600 dark:text-gray-400 font-medium">
                 {t("filteredBy")}: {TEMPLATES.find((tp) => tp.type === templateLoaded)?.name || t("loadTemplate")}
               </p>
               <button
                 onClick={() => { setTemplateFilter(null); setActiveCategory("All"); }}
-                className="text-xs text-gray-400 hover:text-red-500 transition"
+                className="text-xs text-gray-400 hover:text-red-500 transition inline-flex items-center gap-1"
+                aria-label={t("showAll")}
               >
-                ✕ {t("showAll")}
+                <Icon name="X" size={12} /> {t("showAll")}
               </button>
             </div>
           )}
-          <div className="flex flex-wrap gap-2">
-            {displayCategories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setActiveCategory(cat)}
-                className={`px-3 py-1.5 text-sm rounded-lg transition font-medium ${
-                  activeCategory === cat
-                    ? "bg-green-600 text-white"
-                    : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
+          <TabPills
+            ariaLabel="Category filter"
+            activeId={activeCategory}
+            onChange={setActiveCategory}
+            tabs={displayCategories.map((cat) => ({ id: cat, label: cat }))}
+          />
         </div>
       )}
 
-      {/* Dead Stock Alert */}
+      {/* Dead Stock — was a full-bleed red gradient, now a SectionBanner
+          severity="critical" containing the list. The red stays on the
+          per-item value because that's a data-true color (loss).  Page
+          chrome around it is calm gray + a single red border. */}
       {deadStock.length > 0 && (
-        <div className="bg-gradient-to-r from-red-50 to-orange-50 dark:from-gray-800 dark:to-gray-800 p-5 rounded-2xl border border-red-200 dark:border-red-800">
-          <h3 className="text-sm font-bold text-red-700 dark:text-red-400 mb-3">{t("deadStockTitle")}</h3>
-          <div className="space-y-2">
+        <SectionBanner
+          severity="critical"
+          icon="AlertTriangle"
+          title={t("deadStockTitle")}
+        >
+          <div className="space-y-2 mt-2">
             {deadStock.map((ds) => (
-              <div key={ds.id} className="flex items-center justify-between bg-white/60 dark:bg-gray-700/40 px-3 py-2 rounded-lg">
+              <div key={ds.id} className="flex items-center justify-between bg-white/70 dark:bg-gray-900/40 px-3 py-2 rounded-lg">
                 <div>
-                  <p className="text-sm font-medium text-gray-800 dark:text-white">{ds.name}</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">{ds.name}</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     {ds.quantity} {t("inStock")} · {ds.days_since_last_sale >= 999 ? t("neverSold") : `${ds.days_since_last_sale} ${t("daysSinceLastSale")}`}
                   </p>
@@ -857,41 +867,46 @@ export default function InventoryPage() {
                         setItems((prev) => prev.filter((it) => it.id !== ds.id));
                       } catch {}
                     }}
-                    className="text-red-400 hover:text-red-600 dark:hover:text-red-300 transition p-1"
+                    className="text-red-400 hover:text-red-600 dark:hover:text-red-300 transition p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 rounded"
                     title={t("removeItem")}
+                    aria-label={t("removeItem")}
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
+                    <Icon name="X" size={16} />
                   </button>
                 </div>
               </div>
             ))}
           </div>
-          <div className="mt-3 pt-3 border-t border-red-200 dark:border-red-700 flex justify-between items-center">
-            <p className="text-xs text-red-600 dark:text-red-400 font-medium">{t("totalDeadStockValue")}</p>
-            <p className="text-base font-bold text-red-700 dark:text-red-400">
+          <div className="mt-3 pt-3 border-t border-red-200/60 dark:border-red-800/40 flex justify-between items-center">
+            <p className="text-xs text-red-700 dark:text-red-300 font-medium">{t("totalDeadStockValue")}</p>
+            <p className="text-base font-bold text-red-700 dark:text-red-400 tabular-nums">
               {deadStock.reduce((sum, ds) => sum + ds.stock_value, 0).toLocaleString()} {currency}
             </p>
           </div>
-        </div>
+        </SectionBanner>
       )}
 
-      {/* Top Profit Items */}
+      {/* Top Profit Items — was a full green-emerald gradient. The
+          margin percentage stays green (data-true: profit > 0), but the
+          card chrome itself is now a neutral gray-50 surface so this no
+          longer competes visually with the dead-stock alert above. */}
       {profitRanking.length > 0 && (
-        <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-gray-800 dark:to-gray-800 p-5 rounded-2xl border border-green-200 dark:border-green-800">
-          <h3 className="text-sm font-bold text-green-700 dark:text-green-400 mb-3">{t("bestMarginItems")}</h3>
+        <div className="bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-800 p-5 rounded-xl">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3 flex items-center gap-2">
+            <Icon name="TrendingUp" size={16} className="text-emerald-600 dark:text-emerald-400" />
+            {t("bestMarginItems")}
+          </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
             {profitRanking.slice(0, 5).map((pr, idx) => (
-              <div key={pr.name} className="flex items-center gap-3 bg-white/60 dark:bg-gray-700/40 px-3 py-2 rounded-lg">
-                <span className="text-lg font-bold text-green-600 dark:text-green-400 w-6 text-center">{idx + 1}</span>
+              <div key={pr.name} className="flex items-center gap-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 px-3 py-2 rounded-lg">
+                <span className="text-lg font-bold text-gray-400 dark:text-gray-500 w-6 text-center tabular-nums">{idx + 1}</span>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-800 dark:text-white truncate">{pr.name}</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{pr.name}</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     {pr.cost} {currency} → {pr.sell} {currency}
                   </p>
                 </div>
-                <span className="text-sm font-bold text-green-600 dark:text-green-400 whitespace-nowrap">+{pr.margin_pct}%</span>
+                <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap tabular-nums">+{pr.margin_pct}%</span>
               </div>
             ))}
           </div>
@@ -899,8 +914,8 @@ export default function InventoryPage() {
       )}
 
       {/* Add item form */}
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-        <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-4">{t("addItem")}</h2>
+      <div className="bg-white dark:bg-gray-900 p-6 rounded-xl border border-gray-200 dark:border-gray-800">
+        <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">{t("addItem")}</h2>
         <form onSubmit={handleSubmit} className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <input type="text" placeholder={t("itemName")} value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -955,17 +970,19 @@ export default function InventoryPage() {
               className="rounded" />
             {t("freshItem")}
           </label>
-          <button type="submit" className="bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 transition font-medium col-span-2 md:col-span-4">
-            {t("addItem")}
-          </button>
+          <div className="col-span-2 md:col-span-4">
+            <Button type="submit" variant="primary" size="lg" className="w-full">
+              {t("addItem")}
+            </Button>
+          </div>
         </form>
       </div>
 
       {/* Inventory table */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">
-            {t("stockItems")} {activeCategory !== "All" && <span className="text-sm font-normal text-gray-400">({activeCategory})</span>}
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+            {t("stockItems")} {activeCategory !== "All" && <span className="text-sm font-normal text-gray-500">({activeCategory})</span>}
           </h2>
           <input
             type="text"

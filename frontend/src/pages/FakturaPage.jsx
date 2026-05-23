@@ -1,10 +1,14 @@
+// Task #118 polish (Agent C): migrated H1 → PageHeader, locked-state amber
+// block → UpgradeNudge card + SectionBanner, primary CTAs → Button variant,
+// status filter row → TabPills, date-range chips → TabPills. Behavior +
+// i18n + a11y unchanged.
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
 import HowItWorksCard from "../components/HowItWorksCard";
-import { UpgradeNudge } from "../components/ui";
+import { UpgradeNudge, PageHeader, Button, SectionBanner, TabPills } from "../components/ui";
 import { localIso } from "../utils/dateFormat";
 
 /**
@@ -94,55 +98,56 @@ export default function FakturaPage() {
 
   if (!hasAccess) {
     return (
-      <div className="p-4 md:p-8 max-w-2xl mx-auto">
-        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl p-6 text-center">
-          <div className="text-4xl mb-3">🔒</div>
-          <h1 className="text-xl font-bold mb-2 text-amber-900 dark:text-amber-200">
-            {t("fakturaStarterRequired") || "Faktura — Starter plan required"}
-          </h1>
-          <p className="text-sm text-amber-800 dark:text-amber-300 mb-4">
-            {t("fakturaStarterDesc") ||
-              "Send invoices, track payments, and replace your accountant's monthly data entry."}
-          </p>
-          <a href="/subscription" className="inline-block px-4 py-2 bg-amber-600 text-white rounded-xl text-sm font-semibold hover:bg-amber-700 transition">
-            {t("upgrade") || "Upgrade"}
-          </a>
-        </div>
+      <div className="p-4 md:p-8 max-w-2xl mx-auto space-y-4">
+        <PageHeader
+          eyebrow="MONEY"
+          title={t("faktura") || "Faktura"}
+          subtitle={
+            t("fakturaStarterDesc") ||
+            "Send invoices, track payments, and replace your accountant's monthly data entry."
+          }
+        />
+        <UpgradeNudge
+          intent="card"
+          tier="starter"
+          benefit={
+            t("fakturaStarterRequired") ||
+            "Send invoices and replace your accountant's monthly data entry"
+          }
+          ctaLabel={t("upgrade") || "See plans"}
+        />
       </div>
     );
   }
 
   return (
     <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-6">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
-            <span>🧾</span> {t("faktura") || "Faktura"}
-          </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            {t("fakturaDesc") || "Send invoices · gap-less numbering · auto-paid via bank match"}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {pendingCount > 0 && (
-            <Link
-              to="/faktura/review"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/30 dark:hover:bg-amber-900/50 text-amber-800 dark:text-amber-200 rounded-xl text-sm font-semibold transition"
-              title={t("reviewBadgeHint") || "Bank deposits that need your confirmation"}
+      <PageHeader
+        eyebrow="MONEY"
+        title={t("faktura") || "Faktura"}
+        subtitle={t("fakturaDesc") || "Send invoices · gap-less numbering · auto-paid via bank match"}
+        actions={
+          <>
+            {pendingCount > 0 && (
+              <Link
+                to="/faktura/review"
+                className="inline-flex items-center gap-2 px-3.5 h-9 rounded-lg text-sm font-medium border border-amber-200 dark:border-amber-800/40 bg-amber-50/70 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 hover:bg-amber-100/80 dark:hover:bg-amber-900/30 transition"
+                title={t("reviewBadgeHint") || "Bank deposits that need your confirmation"}
+              >
+                {pendingCount} {t("toReview") || "to review"}
+              </Link>
+            )}
+            <Button
+              variant="accent"
+              onClick={() => setShowForm(true)}
+              disabled={customers.length === 0}
+              title={customers.length === 0 ? (t("addCustomerFirst") || "Add a customer first") : ""}
             >
-              📥 {pendingCount} {t("toReview") || "to review"}
-            </Link>
-          )}
-        <button
-          onClick={() => setShowForm(true)}
-          disabled={customers.length === 0}
-          className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-          title={customers.length === 0 ? (t("addCustomerFirst") || "Add a customer first") : ""}
-        >
-          + {t("newInvoice") || "New invoice"}
-        </button>
-        </div>
-      </div>
+              + {t("newInvoice") || "New invoice"}
+            </Button>
+          </>
+        }
+      />
 
       {/* Monthly usage chip — only shown for tiers with a real cap
           (Starter). Pro / Trial = unlimited → no chip. Free can't
@@ -184,13 +189,13 @@ export default function FakturaPage() {
       )}
 
       {customers.length === 0 && (
-        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-2xl p-4 text-sm text-blue-800 dark:text-blue-300">
+        <SectionBanner severity="info" icon="Users">
           {t("fakturaNoCustomersHint") ||
             "You need at least one customer before you can send an invoice. "}
           <a href="/customers" className="font-semibold underline">
             {t("addCustomerNow") || "Add one now →"}
           </a>
-        </div>
+        </SectionBanner>
       )}
 
       <HowItWorksCard
@@ -274,7 +279,7 @@ export default function FakturaPage() {
                   onClick={() => { setFromDate(p.from); setToDate(p.to); }}
                   className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${
                     active
-                      ? "bg-green-600 text-white"
+                      ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900"
                       : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
                   }`}
                 >
@@ -301,28 +306,19 @@ export default function FakturaPage() {
         </div>
       </div>
 
-      <div className="flex gap-2 flex-wrap">
-        {[
-          { value: "", label: t("all") || "All" },
-          { value: "draft", label: t("draft") || "Draft" },
-          { value: "sent", label: t("sent") || "Sent" },
-          { value: "paid", label: t("paid") || "Paid" },
-          { value: "overdue", label: t("overdue") || "Overdue" },
-          { value: "credited", label: t("credited") || "Credited" },
-        ].map((s) => (
-          <button
-            key={s.value}
-            onClick={() => setStatusFilter(s.value)}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${
-              statusFilter === s.value
-                ? "bg-green-600 text-white"
-                : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300"
-            }`}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
+      <TabPills
+        ariaLabel="Status filter"
+        tabs={[
+          { id: "", label: t("all") || "All" },
+          { id: "draft", label: t("draft") || "Draft" },
+          { id: "sent", label: t("sent") || "Sent" },
+          { id: "paid", label: t("paid") || "Paid" },
+          { id: "overdue", label: t("overdue") || "Overdue" },
+          { id: "credited", label: t("credited") || "Credited" },
+        ]}
+        activeId={statusFilter}
+        onChange={setStatusFilter}
+      />
 
       {error && (
         <div className="bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 px-4 py-3 rounded-xl text-sm">

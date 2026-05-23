@@ -53,6 +53,8 @@ import {
   Pause, Play, RotateCw, Plus,
   // Demo data (Task #68)
   Eraser, Loader2,
+  // Stock polish (Task #118) — dead-stock / hot-sellers / search / tag / check
+  Flame, TrendingUp, Search, Tag, Check, Hourglass, X,
   // Misc / fallback
   Circle, ChevronDown,
 } from "lucide-react";
@@ -90,6 +92,8 @@ const ICONS = {
   // Demo data (Task #68)
   Eraser,
   Loader: Loader2,
+  // Stock polish (Task #118) — used in InventoryPage, WastePage, ExpiryPage
+  Flame, TrendingUp, Search, Tag, Check, Hourglass, X,
   // Utility
   ChevronDown,
 };

@@ -1,3 +1,6 @@
+// Task #118 polish (Agent C): migrated H1 → PageHeader, summary cards
+// → StatCard. Top-debtors keeps its custom layout (it's not a single
+// metric — it's a tiny ranked list). Behavior + i18n + a11y unchanged.
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import api from "../services/api";
@@ -7,7 +10,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import CustomerOutreachModal from "../components/CustomerOutreachModal";
-import { Icon } from "../components/ui";
+import { Icon, PageHeader, StatCard } from "../components/ui";
 
 export default function KhataPage() {
   const { user } = useAuth();
@@ -182,23 +185,26 @@ export default function KhataPage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("khataTitle")}</h1></FadeIn>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{t("khataSubtitle")}</p>
-        </div>
-        {/* Reach-out CTA — opens the outreach modal with at-risk
-            regulars pre-loaded. Subtle (not primary) so it doesn't
-            distract from the page's main CRUD job. */}
-        <button
-          type="button"
-          onClick={() => setOutreachOpen(true)}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border border-emerald-200 dark:border-emerald-800/40 bg-emerald-50/50 dark:bg-emerald-900/15 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100/60 dark:hover:bg-emerald-900/25 transition"
-        >
-          <Icon name="Heart" size={14} />
-          {t("khataReachOut") || "Reach out to regulars"}
-        </button>
-      </div>
+      <FadeIn>
+        <PageHeader
+          eyebrow="MONEY"
+          title={t("khataTitle")}
+          subtitle={t("khataSubtitle")}
+          actions={
+            // Reach-out CTA — keeps emerald accent because Heart-based
+            // "reach out to regulars" is the page's data-true positive
+            // action. Custom button preserves the icon-left layout.
+            <button
+              type="button"
+              onClick={() => setOutreachOpen(true)}
+              className="inline-flex items-center gap-2 px-3 h-9 rounded-lg text-sm font-medium border border-emerald-200 dark:border-emerald-800/40 bg-emerald-50/50 dark:bg-emerald-900/15 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100/60 dark:hover:bg-emerald-900/25 transition"
+            >
+              <Icon name="Heart" size={14} />
+              {t("khataReachOut") || "Reach out to regulars"}
+            </button>
+          }
+        />
+      </FadeIn>
 
       <CustomerOutreachModal
         open={outreachOpen}
@@ -208,23 +214,29 @@ export default function KhataPage() {
 
       {error && <p className="bg-red-50 text-red-600 p-3 rounded-lg text-sm">{error}</p>}
 
-      {/* Summary Cards */}
+      {/* Summary Cards — total_receivable accent is red because
+          outstanding debt is the page's main pain signal. Customer
+          count is neutral. Top debtors stays as a custom list — it's
+          a mini ranked list, not a single metric. */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5 border border-gray-100 dark:border-gray-700">
-          <p className="text-xs text-gray-500 dark:text-gray-400 uppercase">{t("totalReceivable")}</p>
-          <p className="text-2xl font-bold text-red-600">{fmt(summary.total_receivable)} {currency}</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5 border border-gray-100 dark:border-gray-700">
-          <p className="text-xs text-gray-500 dark:text-gray-400 uppercase">{t("customers")}</p>
-          <p className="text-2xl font-bold text-blue-600">{summary.customer_count}</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5 border border-gray-100 dark:border-gray-700">
-          <p className="text-xs text-gray-500 dark:text-gray-400 uppercase">{t("topDebtors")}</p>
-          <div className="space-y-1 mt-1">
+        <StatCard
+          label={t("totalReceivable")}
+          value={`${fmt(summary.total_receivable)} ${currency}`}
+          accent={summary.total_receivable > 0 ? "critical" : "neutral"}
+        />
+        <StatCard
+          label={t("customers")}
+          value={String(summary.customer_count)}
+        />
+        <div className="rounded-xl border border-gray-200 bg-white px-4 py-3.5 dark:bg-gray-900 dark:border-gray-800">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+            {t("topDebtors")}
+          </p>
+          <div className="space-y-1 mt-1.5">
             {summary.top_debtors?.slice(0, 3).map((d, i) => (
               <div key={i} className="flex justify-between text-sm">
                 <span className="text-gray-700 dark:text-gray-300 truncate">{d.name}</span>
-                <span className="text-red-600 font-medium">{fmt(d.balance)}</span>
+                <span className="text-red-600 dark:text-red-400 font-medium tabular-nums">{fmt(d.balance)}</span>
               </div>
             ))}
             {(!summary.top_debtors || summary.top_debtors.length === 0) && (

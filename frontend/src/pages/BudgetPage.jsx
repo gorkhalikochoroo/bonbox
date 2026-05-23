@@ -1,9 +1,13 @@
+// Task #118 polish (Agent C): migrated H1 → PageHeader, over/near-limit
+// info banners → SectionBanner, summary stats → StatCard grid, primary
+// CTAs → Button variants. Behavior + i18n + a11y unchanged.
 import { useState, useEffect, useMemo } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
+import { PageHeader, Button, SectionBanner, StatCard } from "../components/ui";
 
 const STATUS_COLORS = {
   green: { bg: "bg-green-500", track: "bg-green-100 dark:bg-green-900/30", text: "text-green-600 dark:text-green-400", badge: "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400" },
@@ -119,24 +123,20 @@ export default function BudgetPage() {
         </div>
       )}
 
-      {/* Header */}
       <FadeIn>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("budgetOverview") || "Budget"}</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Track spending vs budget by category</p>
-          </div>
-          <button
-            onClick={() => setEditing(!editing)}
-            className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
-              editing
-                ? "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
-                : "bg-blue-600 text-white hover:bg-blue-700"
-            }`}
-          >
-            {editing ? "Cancel" : t("setBudget") || "Set Budgets"}
-          </button>
-        </div>
+        <PageHeader
+          eyebrow="MONEY"
+          title={t("budgetOverview") || "Budget"}
+          subtitle="Track spending vs budget by category"
+          actions={
+            <Button
+              variant={editing ? "secondary" : "primary"}
+              onClick={() => setEditing(!editing)}
+            >
+              {editing ? "Cancel" : t("setBudget") || "Set Budgets"}
+            </Button>
+          }
+        />
       </FadeIn>
 
       {/* Month nav */}
@@ -229,13 +229,15 @@ export default function BudgetPage() {
               </button>
             </div>
 
-            <button
+            <Button
+              variant="accent"
+              size="lg"
+              busy={saving}
               onClick={handleSave}
-              disabled={saving}
-              className="w-full py-3 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 disabled:opacity-50 transition"
+              className="w-full"
             >
               {saving ? "Saving..." : "Save Budgets"}
-            </button>
+            </Button>
           </div>
         </FadeIn>
       ) : (
@@ -273,50 +275,43 @@ export default function BudgetPage() {
             </FadeIn>
           )}
 
-          {/* Alert banners */}
+          {/* Alert banners — semantic colors preserved (red for over,
+              amber for near limit) since the data warrants it. */}
           {overBudget.length > 0 && (
-            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3">
-              <p className="text-sm font-semibold text-red-700 dark:text-red-400">
-                {overBudget.length} {overBudget.length === 1 ? "category" : "categories"} over budget
-              </p>
-              <p className="text-xs text-red-500 dark:text-red-400/70 mt-0.5">
-                {overBudget.map((c) => c.category).join(", ")}
-              </p>
-            </div>
+            <SectionBanner
+              severity="critical"
+              icon="AlertTriangle"
+              title={`${overBudget.length} ${overBudget.length === 1 ? "category" : "categories"} over budget`}
+            >
+              {overBudget.map((c) => c.category).join(", ")}
+            </SectionBanner>
           )}
           {nearBudget.length > 0 && (
-            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3">
-              <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
-                {nearBudget.length} {nearBudget.length === 1 ? "category" : "categories"} approaching limit (80%+)
-              </p>
-            </div>
+            <SectionBanner
+              severity="warn"
+              icon="AlertTriangle"
+              title={`${nearBudget.length} ${nearBudget.length === 1 ? "category" : "categories"} approaching limit (80%+)`}
+            />
           )}
 
-          {/* Summary stats */}
+          {/* Summary stats — accent only on the semantically-charged
+              tiles (near limit = warn, over = critical). */}
           <StaggerGrid className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <StaggerGridItem>
-              <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 border border-gray-100 dark:border-gray-700 text-center">
-                <p className="text-2xl font-bold text-gray-800 dark:text-white">{cats.length}</p>
-                <p className="text-xs text-gray-400 mt-1">Categories</p>
-              </div>
+              <StatCard label="Categories" value={String(cats.length)} />
             </StaggerGridItem>
             <StaggerGridItem>
-              <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 border border-gray-100 dark:border-gray-700 text-center">
-                <p className="text-2xl font-bold text-green-600 dark:text-green-400">{cats.filter((c) => c.status === "green").length}</p>
-                <p className="text-xs text-gray-400 mt-1">On Track</p>
-              </div>
+              <StatCard
+                label="On Track"
+                value={String(cats.filter((c) => c.status === "green").length)}
+                accent="success"
+              />
             </StaggerGridItem>
             <StaggerGridItem>
-              <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 border border-gray-100 dark:border-gray-700 text-center">
-                <p className="text-2xl font-bold text-amber-500">{nearBudget.length}</p>
-                <p className="text-xs text-gray-400 mt-1">Near Limit</p>
-              </div>
+              <StatCard label="Near Limit" value={String(nearBudget.length)} accent="warn" />
             </StaggerGridItem>
             <StaggerGridItem>
-              <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 border border-gray-100 dark:border-gray-700 text-center">
-                <p className="text-2xl font-bold text-red-500">{overBudget.length}</p>
-                <p className="text-xs text-gray-400 mt-1">Over Budget</p>
-              </div>
+              <StatCard label="Over Budget" value={String(overBudget.length)} accent="critical" />
             </StaggerGridItem>
           </StaggerGrid>
 
@@ -363,16 +358,12 @@ export default function BudgetPage() {
             </FadeIn>
           ) : (
             <FadeIn>
-              <div className="bg-white dark:bg-gray-800 rounded-2xl p-10 border border-gray-100 dark:border-gray-700 text-center">
-                <div className="text-4xl mb-3">📊</div>
-                <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">No budgets yet</h3>
-                <p className="text-sm text-gray-400 mb-4">Set spending limits per category to track your expenses.</p>
-                <button
-                  onClick={() => setEditing(true)}
-                  className="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition"
-                >
+              <div className="bg-white dark:bg-gray-800 rounded-xl p-10 border border-gray-100 dark:border-gray-700 text-center">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">No budgets yet</h3>
+                <p className="text-sm text-gray-500 mb-4">Set spending limits per category to track your expenses.</p>
+                <Button variant="primary" onClick={() => setEditing(true)}>
                   {t("setBudget") || "Set Budgets"}
-                </button>
+                </Button>
               </div>
             </FadeIn>
           )}

@@ -1,3 +1,9 @@
+// Task #118 polish (Agent B): migrated to PageHeader, StatCard,
+// SectionBanner, Button, Icon primitives.  Reason pills and table
+// cleaned up; submit CTA uses Button danger variant (the red is data-true
+// — logging waste is destructive).  The recharts PieChart is one-off and
+// left alone (only the wrapper card chrome polished).  Behavior + i18n +
+// a11y unchanged.
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -8,6 +14,9 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recha
 import { displayCurrency } from "../utils/currency";
 import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
+import {
+  Button, PageHeader, StatCard, SectionBanner, Icon,
+} from "../components/ui";
 
 const REASONS = ["expired", "overcooked", "damaged", "other"];
 const REASON_COLORS = { expired: "#ef4444", overcooked: "#f97316", damaged: "#eab308", other: "#6b7280" };
@@ -133,26 +142,44 @@ export default function WastePage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("wasteTracker")}</h1></FadeIn>
+      <FadeIn>
+        <PageHeader
+          eyebrow="STOCK"
+          title={t("wasteTracker")}
+          subtitle="Log expired or damaged stock so the cost shows up in margin reports."
+        />
+      </FadeIn>
 
-      {success && <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
-      {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">{error}</div>}
+      {success && (
+        <SectionBanner severity="success" icon="CheckCircle2" title={success} />
+      )}
+      {error && (
+        <SectionBanner severity="critical" icon="AlertTriangle" title={error} />
+      )}
 
       {summary && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-            <p className="text-sm text-gray-500 dark:text-gray-400">{t("monthlyWasteCost")}</p>
-            <p className="text-2xl font-bold text-red-600 dark:text-red-400 mt-1">{summary.total_cost.toLocaleString()} {currency}</p>
-          </div>
-          <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-            <p className="text-sm text-gray-500 dark:text-gray-400">{t("itemsWasted")}</p>
-            <p className="text-2xl font-bold text-gray-800 dark:text-white mt-1">{summary.total_items}</p>
-          </div>
-          <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {/* Monthly waste cost is data-true red — every kr here is money
+              already lost.  Items wasted is a neutral count.  The pie
+              chart is a one-off custom viz we leave alone, just dropping
+              it into the standard card chrome. */}
+          <StatCard
+            label={t("monthlyWasteCost")}
+            value={`${summary.total_cost.toLocaleString()} ${currency}`}
+            accent="critical"
+          />
+          <StatCard
+            label={t("itemsWasted")}
+            value={summary.total_items}
+          />
+          <div className="rounded-xl border border-gray-200 bg-white px-4 py-3.5 dark:bg-gray-900 dark:border-gray-800">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+              By reason
+            </p>
             {pieData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={120}>
+              <ResponsiveContainer width="100%" height={110}>
                 <PieChart>
-                  <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={50} label={false}>
+                  <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={45} label={false}>
                     {pieData.map((e, i) => <Cell key={i} fill={Object.values(REASON_COLORS)[i] || "#6b7280"} />)}
                   </Pie>
                   <Tooltip />
@@ -166,9 +193,9 @@ export default function WastePage() {
         </div>
       )}
 
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-        <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-1">{t("logWaste")}</h2>
-        <p className="text-sm text-gray-400 mb-4">{t("trackWaste")}</p>
+      <div className="bg-white dark:bg-gray-900 p-6 rounded-xl border border-gray-200 dark:border-gray-800">
+        <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1">{t("logWaste")}</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{t("trackWaste")}</p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <input type="text" value={item} onChange={(e) => setItem(e.target.value)}
@@ -215,10 +242,18 @@ export default function WastePage() {
           <input type="number" value={cost} onChange={(e) => setCost(e.target.value)}
             placeholder={t("customCost")} className="flex-1 max-w-sm px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
             onKeyDown={(e) => e.key === "Enter" && submit()} />
-          <button onClick={() => submit()} disabled={!item || !qty}
-            className="px-6 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 transition font-semibold disabled:opacity-40">
+          {/* The submit button is intentionally `danger` — logging waste
+              is a "cost-incurring" action, and the red signals the
+              outcome (this number goes against margin). It's not just
+              decoration. */}
+          <Button
+            variant="danger"
+            size="lg"
+            onClick={() => submit()}
+            disabled={!item || !qty}
+          >
             {t("logWaste")}
-          </button>
+          </Button>
         </div>
 
         {/* Date picker */}
@@ -237,9 +272,9 @@ export default function WastePage() {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-base font-semibold text-gray-700 dark:text-gray-200">{t("recentWaste")}</h2>
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">{t("recentWaste")}</h2>
           <div className="flex items-center gap-2 flex-wrap">
             <input
               type="date"

@@ -1,3 +1,7 @@
+// Task #118 polish (Agent C): migrated H1 → PageHeader, sticky banner
+// → SectionBanner (pending returns), primary CTAs → Button variant,
+// dropped the DismissibleTip emoji prop so it uses the Lucide default.
+// Behavior + i18n + a11y unchanged.
 import { useState, useEffect, useMemo } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -12,6 +16,7 @@ import { getVatTerms } from "../utils/currency";
 import TaxBreakdown from "../components/TaxBreakdown";
 import { FadeIn, StaggerGrid, StaggerGridItem, AnimatedList, AnimatedListItem, TabContent, motion, AnimatePresence } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
+import { PageHeader, Button, SectionBanner } from "../components/ui";
 
 const QUICK_AMOUNTS = [500, 1000, 2500, 5000, 7500, 10000, 15000];
 
@@ -261,17 +266,19 @@ export default function SalesPage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      <FadeIn className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("salesTracker")}</h1>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowItemSale(true)}
-            className="px-4 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition"
-          >
-            + {t("itemSale")}
-          </button>
-          <ReceiptCapture onSaleCreated={fetchSales} />
-        </div>
+      <FadeIn>
+        <PageHeader
+          eyebrow="MONEY"
+          title={t("salesTracker")}
+          actions={
+            <>
+              <Button variant="accent" onClick={() => setShowItemSale(true)}>
+                + {t("itemSale")}
+              </Button>
+              <ReceiptCapture onSaleCreated={fetchSales} />
+            </>
+          }
+        />
       </FadeIn>
 
       {success && <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
@@ -280,7 +287,6 @@ export default function SalesPage() {
 
       <DismissibleTip
         id="sales-intro-v1"
-        icon="💸"
         title="Three ways to log a sale"
       >
         <p>
@@ -622,18 +628,18 @@ export default function SalesPage() {
 
       {/* Pending returns banner */}
       {pendingReturnCount > 0 && (
-        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-900/15 border border-amber-200/60 dark:border-amber-800/30">
-          <span className="text-lg">&#x26A0;&#xFE0F;</span>
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
-              {pendingReturnCount} return{pendingReturnCount > 1 ? "s" : ""} pending
-            </p>
-            <p className="text-xs text-amber-600/70 dark:text-amber-400/60">Needs your action — refund, replace, or restock</p>
+        <SectionBanner
+          severity="warn"
+          icon="AlertTriangle"
+          title={`${pendingReturnCount} return${pendingReturnCount > 1 ? "s" : ""} pending`}
+        >
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <span>Needs your action — refund, replace, or restock</span>
+            <Button variant="secondary" size="sm" onClick={() => setStatusFilter("returns")}>
+              View returns
+            </Button>
           </div>
-          <button onClick={() => setStatusFilter("returns")} className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition">
-            View returns
-          </button>
-        </div>
+        </SectionBanner>
       )}
 
       {/* Return summary */}

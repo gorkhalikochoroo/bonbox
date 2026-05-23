@@ -1,3 +1,7 @@
+// Task #118 polish (Agent C): migrated H1 → PageHeader and the
+// balance/in/out stat row → StatCard grid (red/green semantic accents
+// preserved for cash-in vs cash-out where they're data-true).
+// Behavior + i18n + a11y unchanged.
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -7,6 +11,7 @@ import { exportToCsv } from "../utils/exportCsv";
 import { displayCurrency } from "../utils/currency";
 import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
+import { PageHeader, StatCard } from "../components/ui";
 
 const IN_CATEGORIES = ["Sales", "Tips", "Loan", "Other"];
 const OUT_CATEGORIES = ["Purchase", "Wages", "Supplies", "Rent", "Other"];
@@ -118,27 +123,32 @@ export default function CashBookPage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("cashBook")}</h1></FadeIn>
+      <FadeIn>
+        <PageHeader eyebrow="MONEY" title={t("cashBook")} />
+      </FadeIn>
 
       {success && <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
       {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">{error}</div>}
 
-      {/* Balance Summary */}
+      {/* Balance Summary — value accent only when it's data-true
+          (balance going negative = critical; cash-in vs cash-out
+          colors are inherently semantic and preserved). */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-sm text-gray-500 dark:text-gray-400">{t("cashBalance")}</p>
-          <p className={`text-3xl font-bold mt-1 ${balance.balance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
-            {balance.balance.toLocaleString()} {currency}
-          </p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-sm text-gray-500 dark:text-gray-400">{t("totalCashIn")}</p>
-          <p className="text-2xl font-bold text-green-600 dark:text-green-400 mt-1">+{balance.total_in.toLocaleString()} {currency}</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-sm text-gray-500 dark:text-gray-400">{t("totalCashOut")}</p>
-          <p className="text-2xl font-bold text-red-600 dark:text-red-400 mt-1">-{balance.total_out.toLocaleString()} {currency}</p>
-        </div>
+        <StatCard
+          label={t("cashBalance")}
+          value={`${balance.balance.toLocaleString()} ${currency}`}
+          accent={balance.balance >= 0 ? "success" : "critical"}
+        />
+        <StatCard
+          label={t("totalCashIn")}
+          value={`+${balance.total_in.toLocaleString()} ${currency}`}
+          accent="success"
+        />
+        <StatCard
+          label={t("totalCashOut")}
+          value={`-${balance.total_out.toLocaleString()} ${currency}`}
+          accent="critical"
+        />
       </div>
 
       {/* Quick Entry */}

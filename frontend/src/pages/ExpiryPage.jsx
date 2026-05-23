@@ -1,3 +1,8 @@
+// Task #118 polish (Agent B): migrated to PageHeader, StatCard,
+// SectionBanner, Card, Empty primitives.  Replaced ad-hoc rounded-2xl
+// recharts wrapper, the colored alert blocks, and the local MetricCard
+// helper with primitives.  Recharts chart itself is one-off and left
+// alone (only the wrapper polished).  Behavior + i18n + a11y unchanged.
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -7,6 +12,9 @@ import { FadeIn } from "../components/AnimationKit";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
+import {
+  Button, PageHeader, StatCard, SectionBanner, Empty, Icon,
+} from "../components/ui";
 
 function fmt(n) { return n != null ? Math.round(n).toLocaleString() : "\u2014"; }
 
@@ -50,10 +58,12 @@ export default function ExpiryPage() {
 
   if (error || !data) {
     return (
-      <div className="p-4 md:p-8 max-w-lg mx-auto text-center">
-        <div className="text-4xl mb-4">📦</div>
-        <p className="text-red-500">{error}</p>
-        <button onClick={fetchData} className="mt-4 text-sm text-green-600 hover:underline">Try again</button>
+      <div className="p-4 md:p-8 max-w-lg mx-auto">
+        <Empty
+          icon="📦"
+          title={error || "Could not load expiry data"}
+          cta={<Button variant="primary" onClick={fetchData}>Try again</Button>}
+        />
       </div>
     );
   }
@@ -74,72 +84,89 @@ export default function ExpiryPage() {
   return (
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
       <FadeIn>
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-          📦 {t("expiryForecasting") || "Expiry Forecasting"}
-        </h1>
+        <PageHeader
+          eyebrow="STOCK"
+          title={t("expiryForecasting") || "Expiry Forecasting"}
+          subtitle="Track items approaching their expiry date and avoid waste."
+        />
       </FadeIn>
 
-      {/* ─── ALERTS ─── */}
+      {/* ─── ALERTS ─── Each comes back from the API tagged with
+          severity (warning/positive/neutral). Map to the canonical
+          SectionBanner palette so the wider page stays palette-consistent. */}
       {alerts?.length > 0 && (
         <div className="space-y-3">
           {alerts.map((alert, i) => (
-            <div key={i} className={`p-4 rounded-2xl border-l-4 ${
-              alert.severity === "warning" ? "border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20" :
-              alert.severity === "positive" ? "border-green-500 bg-green-50 dark:bg-green-900/20" :
-              "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
-            }`}>
-              <div className="flex items-start gap-3">
-                <span className="text-2xl">{alert.icon}</span>
-                <div className="flex-1">
-                  <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{alert.title}</p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{alert.detail}</p>
-                  {alert.action && (
-                    <p className="text-xs text-green-700 dark:text-green-400 mt-2 font-medium">💡 {alert.action}</p>
-                  )}
-                </div>
-              </div>
-            </div>
+            <SectionBanner
+              key={i}
+              severity={
+                alert.severity === "warning" ? "warn" :
+                alert.severity === "positive" ? "success" :
+                "info"
+              }
+              icon={
+                alert.severity === "warning" ? "AlertTriangle" :
+                alert.severity === "positive" ? "CheckCircle2" :
+                "Sparkles"
+              }
+              title={alert.title}
+            >
+              <p>{alert.detail}</p>
+              {alert.action && (
+                <p className="mt-2 font-medium text-emerald-700 dark:text-emerald-400">
+                  → {alert.action}
+                </p>
+              )}
+            </SectionBanner>
           ))}
         </div>
       )}
 
-      {/* ─── KEY METRICS ─── */}
+      {/* ─── KEY METRICS ─── unified to StatCard. Accent is `critical`
+          when the value is something to act on (expired/expiring items
+          > 0), `success` when zero, neutral for raw counts. The colour
+          stays data-true. */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <MetricCard label="Tracked Items" value={total_tracked_items} color="text-blue-600" />
-        <MetricCard
-          label="At-Risk Value"
-          value={fmt(total_at_risk_value)}
-          color="text-red-600"
-          currency={currency}
+        <StatCard
+          label="Tracked Items"
+          value={total_tracked_items}
         />
-        <MetricCard
+        <StatCard
+          label="At-Risk Value"
+          value={`${fmt(total_at_risk_value)} ${currency}`}
+          accent={total_at_risk_value > 0 ? "critical" : "neutral"}
+        />
+        <StatCard
           label="Expired Items"
           value={expired_items.length}
-          sub="Remove now"
-          color={expired_items.length > 0 ? "text-red-600" : "text-green-600"}
+          accent={expired_items.length > 0 ? "critical" : "success"}
+          helper={expired_items.length > 0 ? "Remove now" : null}
         />
-        <MetricCard
+        <StatCard
           label="Expiring < 7d"
           value={expiring_soon.length}
-          sub="Act fast"
-          color={expiring_soon.length > 0 ? "text-orange-600" : "text-green-600"}
+          accent={expiring_soon.length > 0 ? "warn" : "success"}
+          helper={expiring_soon.length > 0 ? "Act fast" : null}
         />
       </div>
 
       {/* ─── RECOMMENDATIONS ─── */}
       {recommendations?.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-4">💡 Recommendations</h2>
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+            <Icon name="Sparkles" size={16} className="text-emerald-600 dark:text-emerald-400" />
+            Recommendations
+          </h2>
           <div className="space-y-3">
             {recommendations.map((rec, i) => (
-              <div key={i} className={`flex items-start gap-3 p-3 rounded-xl ${
-                rec.priority === "high" ? "bg-red-50 dark:bg-red-900/10" :
-                rec.priority === "medium" ? "bg-yellow-50 dark:bg-yellow-900/10" :
-                "bg-gray-50 dark:bg-gray-700/30"
+              <div key={i} className={`flex items-start gap-3 p-3 rounded-xl border ${
+                rec.priority === "high" ? "bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800/40" :
+                rec.priority === "medium" ? "bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/40" :
+                "bg-gray-50 dark:bg-gray-800/30 border-gray-200 dark:border-gray-700"
               }`}>
-                <span className="text-2xl">{rec.icon}</span>
-                <div>
-                  <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{rec.title}</p>
+                <span className="text-2xl shrink-0" aria-hidden="true">{rec.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{rec.title}</p>
                   <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5">{rec.detail}</p>
                 </div>
                 {rec.priority === "high" && (
@@ -155,8 +182,11 @@ export default function ExpiryPage() {
 
       {/* ─── EXPIRY TIMELINE ─── */}
       {allExpiring.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-4">📅 Expiry Timeline</h2>
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+            <Icon name="Calendar" size={16} />
+            Expiry Timeline
+          </h2>
           {/* Mobile: card layout */}
           <div className="space-y-2 md:hidden">
             {allExpiring.map((item, i) => {
@@ -235,8 +265,11 @@ export default function ExpiryPage() {
 
       {/* ─── WASTE HISTORY ─── */}
       {waste_summary?.top_items?.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-1">🗑️ Waste History (90 days)</h2>
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1 flex items-center gap-2">
+            <Icon name="Trash2" size={16} />
+            Waste History (90 days)
+          </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
             Total waste: {fmt(waste_summary.total_cost_90d)} {currency} | Expired: {fmt(waste_summary.expired_cost_90d)} {currency}
           </p>
@@ -277,51 +310,47 @@ export default function ExpiryPage() {
         </div>
       )}
 
-      {/* ─── MISSING EXPIRY DATES ─── */}
+      {/* ─── MISSING EXPIRY DATES ─── Info-level banner: data is fine,
+          there's just an opportunity to add more detail. */}
       {missing_expiry?.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm border-l-4 border-blue-500">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-2">📝 Missing Expiry Dates</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-            These perishable items need expiry dates for better forecasting.
-          </p>
-          <div className="flex flex-wrap gap-2">
+        <SectionBanner
+          severity="info"
+          icon="FileText"
+          title="Missing Expiry Dates"
+        >
+          <p className="mb-3">These perishable items need expiry dates for better forecasting.</p>
+          <div className="flex flex-wrap gap-2 mb-3">
             {missing_expiry.map((item, i) => (
-              <span key={i} className="bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 text-xs px-3 py-1.5 rounded-full">
+              <span key={i} className="bg-white dark:bg-gray-900/60 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-xs px-3 py-1.5 rounded-full">
                 {item.name} ({item.quantity} {item.unit})
               </span>
             ))}
           </div>
-          <a href="/inventory" className="text-sm text-green-600 dark:text-green-400 hover:underline mt-3 inline-block">
+          <a href="/inventory" className="text-sm font-medium text-emerald-700 dark:text-emerald-400 hover:underline">
             Go to Inventory to add expiry dates →
           </a>
-        </div>
+        </SectionBanner>
       )}
 
       {/* ─── EMPTY STATE ─── */}
       {allExpiring.length === 0 && !waste_summary?.top_items?.length && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-sm text-center">
-          <div className="text-5xl mb-3">📦</div>
-          <h2 className="text-lg font-bold text-gray-800 dark:text-white mb-2">No expiry data yet</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">
-            Add expiry dates to your inventory items to unlock expiry forecasting, waste prediction, and order recommendations.
-          </p>
-          <a href="/inventory" className="inline-block mt-4 px-6 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition">
-            Go to Inventory
-          </a>
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-2 border border-gray-200 dark:border-gray-800">
+          <Empty
+            size="hero"
+            icon="📦"
+            title="No expiry data yet"
+            body="Add expiry dates to your inventory items to unlock expiry forecasting, waste prediction, and order recommendations."
+            cta={
+              <a
+                href="/inventory"
+                className="inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors h-9 px-3.5 text-sm bg-emerald-600 text-white hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2"
+              >
+                Go to Inventory
+              </a>
+            }
+          />
         </div>
       )}
-    </div>
-  );
-}
-
-function MetricCard({ label, value, sub, color, currency }) {
-  return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm text-center">
-      <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
-      <p className={`text-2xl font-bold mt-1 ${color}`}>
-        {value} {currency && <span className="text-sm font-normal opacity-60">{currency}</span>}
-      </p>
-      {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
     </div>
   );
 }

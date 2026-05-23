@@ -1,3 +1,6 @@
+// Task #118 polish (Agent C): migrated H1 → PageHeader, KPI tiles →
+// StatCard grid with semantic accents (lowest point / danger days
+// keep red/yellow when actually at-risk). Behavior + i18n + a11y unchanged.
 import { useState, useEffect } from "react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -8,6 +11,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
+import { PageHeader, StatCard, Button } from "../components/ui";
 
 function fmt(n) {
   if (n == null) return "—";
@@ -99,42 +103,48 @@ export default function CashFlowPage() {
 
   return (
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <FadeIn><h1 className="text-2xl font-bold text-gray-800 dark:text-white">💰 Cash Flow Prediction</h1></FadeIn>
-        <button onClick={fetchForecast} className="text-sm text-green-600 dark:text-green-400 hover:underline">
-          {t("refresh")}
-        </button>
-      </div>
+      <FadeIn>
+        <PageHeader
+          eyebrow="MONEY"
+          title="Cash Flow Prediction"
+          actions={
+            <Button variant="secondary" onClick={fetchForecast}>
+              {t("refresh")}
+            </Button>
+          }
+        />
+      </FadeIn>
 
-      {/* ─── KEY METRICS ─── */}
+      {/* ─── KEY METRICS — accents only when the data warrants it ─── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm text-center">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Current Balance</p>
-          <p className={`text-2xl font-bold mt-1 ${current_balance >= 0 ? "text-green-600" : "text-red-600"}`}>
-            {fmt(current_balance)}
-          </p>
-          <p className="text-xs text-gray-400">{currency}</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm text-center">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Lowest Point</p>
-          <p className={`text-2xl font-bold mt-1 ${lowest_point.balance >= safety_threshold ? "text-green-600" : lowest_point.balance >= 0 ? "text-yellow-600" : "text-red-600"}`}>
-            {fmt(lowest_point.balance)}
-          </p>
-          <p className="text-xs text-gray-400">{lowest_point.date}</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm text-center">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Danger Days</p>
-          <p className={`text-2xl font-bold mt-1 ${danger_days === 0 ? "text-green-600" : danger_days <= 5 ? "text-yellow-600" : "text-red-600"}`}>
-            {danger_days}
-          </p>
-          <p className="text-xs text-gray-400">of 30</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm text-center">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Receivables</p>
-          <p className="text-2xl font-bold mt-1 text-blue-600">{fmt(total_receivable)}</p>
-          <p className="text-xs text-gray-400">{receivables.length} customers</p>
-        </div>
+        <StatCard
+          label="Current Balance"
+          value={`${fmt(current_balance)} ${currency}`}
+          accent={current_balance >= 0 ? "success" : "critical"}
+        />
+        <StatCard
+          label="Lowest Point"
+          value={fmt(lowest_point.balance)}
+          accent={
+            lowest_point.balance >= safety_threshold
+              ? "success"
+              : lowest_point.balance >= 0
+              ? "warn"
+              : "critical"
+          }
+          helper={lowest_point.date}
+        />
+        <StatCard
+          label="Danger Days"
+          value={String(danger_days)}
+          accent={danger_days === 0 ? "success" : danger_days <= 5 ? "warn" : "critical"}
+          helper="of 30"
+        />
+        <StatCard
+          label="Receivables"
+          value={fmt(total_receivable)}
+          helper={`${receivables.length} customers`}
+        />
       </div>
 
       {/* ─── ALERTS ─── */}
