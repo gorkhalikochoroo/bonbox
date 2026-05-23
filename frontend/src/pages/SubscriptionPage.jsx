@@ -818,6 +818,10 @@ export default function SubscriptionPage() {
         <p className="mt-10 text-[11px] text-stone-400 dark:text-stone-500 leading-relaxed text-center">
           {t("pricingTrademarkNotice") || "Dinero, Billy, e-conomic, MobilePay and Dankort are trademarks of their respective owners. BonBox is not affiliated with or endorsed by any of these companies. References are made for interoperability and comparative purposes under nominative fair use."}
         </p>
+
+        {/* Dev tools — only renders if /api/billing/debug/status returns 200
+            (super-admin + kill-switch ON). Hidden for every regular user. */}
+        <DevToolsPanel />
       </div>
     </div>
   );
@@ -871,6 +875,182 @@ function FaqItem({ q, a }) {
           {a}
         </div>
       )}
+    </div>
+  );
+}
+
+
+/**
+ * DevToolsPanel — super-admin only, kill-switch gated.
+ *
+ * Probes GET /api/billing/debug/status on mount. Returns null (renders
+ * nothing) on any non-200 response, so regular users and admins running
+ * with the kill-switch off never see this panel.
+ *
+ * When visible: two action buttons (Expire Trial / Reset Trial) and a
+ * "force" toggle for users who knowingly want to bypass the active-sub
+ * refusal. Every action confirms before firing, then reloads the page
+ * so /billing/me re-reads from the backend.
+ */
+function DevToolsPanel() {
+  const [status, setStatus] = useState(null); // null = loading, false = unavailable, object = available
+  const [force, setForce] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [lastResult, setLastResult] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .get("/api/billing/debug/status")
+      .then((res) => {
+        if (alive) setStatus(res.data);
+      })
+      .catch(() => {
+        if (alive) setStatus(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (status === null || status === false) return null;
+
+  const run = async (action, days) => {
+    const verb = action === "expire-trial" ? "expire your trial" : "reset your trial";
+    const note = force
+      ? " (force=true — will override active-subscription guard)"
+      : "";
+    if (!window.confirm(`This will ${verb}${note}. Continue?`)) return;
+    setBusy(true);
+    setLastResult(null);
+    try {
+      const params = new URLSearchParams();
+      if (force) params.set("force", "true");
+      if (action === "reset-trial" && days) params.set("days", String(days));
+      const qs = params.toString();
+      const url = `/api/billing/debug/${action}${qs ? "?" + qs : ""}`;
+      const res = await api.post(url);
+      setLastResult({ ok: true, data: res.data });
+      // Reload after a beat so /billing/me reflects the new state in the
+      // page above this panel.
+      setTimeout(() => window.location.reload(), 1200);
+    } catch (e) {
+      const detail = e?.response?.data?.detail;
+      setLastResult({
+        ok: false,
+        status: e?.response?.status,
+        message:
+          typeof detail === "string"
+            ? detail
+            : detail?.message || e?.message || "Request failed",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-12 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50/40 dark:bg-amber-950/20 p-5">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300">
+            Dev tools · super-admin only
+          </div>
+          <h3 className="text-base font-semibold text-stone-900 dark:text-stone-100 mt-1">
+            Trial state controls
+          </h3>
+          <p className="text-[13px] text-stone-600 dark:text-stone-300 mt-1">
+            Signed in as <span className="font-medium">{status.admin_email}</span>.
+            Current plan:{" "}
+            <span className="font-mono text-stone-900 dark:text-stone-100">
+              {status.admin_summary?.plan}
+            </span>
+            {status.admin_summary?.subscription_status ? (
+              <>
+                {" "}
+                · Stripe:{" "}
+                <span className="font-mono">
+                  {status.admin_summary.subscription_status}
+                </span>
+              </>
+            ) : null}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => run("expire-trial")}
+          className="px-3 h-10 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-[13px] font-medium hover:bg-stone-50 dark:hover:bg-stone-700 disabled:opacity-50"
+        >
+          Expire trial → Free
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => run("reset-trial", 14)}
+          className="px-3 h-10 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-[13px] font-medium hover:bg-stone-50 dark:hover:bg-stone-700 disabled:opacity-50"
+        >
+          Reset trial (14 days)
+        </button>
+        <label className="flex items-center gap-2 text-[12px] text-stone-600 dark:text-stone-300 ml-2">
+          <input
+            type="checkbox"
+            checked={force}
+            onChange={(e) => setForce(e.target.checked)}
+            className="h-4 w-4 rounded border-stone-300"
+          />
+          force (bypass active-sub guard)
+        </label>
+      </div>
+
+      {busy && (
+        <p className="text-[12px] text-stone-500 dark:text-stone-400">Working…</p>
+      )}
+
+      {lastResult && (
+        <div
+          className={`mt-2 rounded-md border p-2 text-[12px] font-mono break-words ${
+            lastResult.ok
+              ? "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-100"
+              : "border-red-300 bg-red-50 text-red-900 dark:border-red-700 dark:bg-red-950/40 dark:text-red-100"
+          }`}
+        >
+          {lastResult.ok ? (
+            <>
+              <div>OK — target={lastResult.data?.target_email}</div>
+              <div>
+                before: plan={lastResult.data?.before?.plan} · trial_ends_at=
+                {lastResult.data?.before?.trial_ends_at || "null"}
+              </div>
+              <div>
+                after: plan={lastResult.data?.after?.plan} · trial_ends_at=
+                {lastResult.data?.after?.trial_ends_at || "null"}
+              </div>
+              <div className="mt-1 text-stone-500">
+                Reloading in 1s to refresh /billing/me…
+              </div>
+            </>
+          ) : (
+            <>
+              <div>HTTP {lastResult.status} — {lastResult.message}</div>
+              {lastResult.status === 409 && (
+                <div className="mt-1">
+                  Tip: tick the "force" checkbox to override.
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      <p className="mt-3 text-[11px] text-stone-500 dark:text-stone-400 leading-relaxed">
+        Hidden from non-admins. Disabled by default — requires the operator
+        to set <code className="font-mono">DEBUG_BILLING_ENABLED=true</code> on
+        Render. Every action writes a SecurityEvent row.
+      </p>
     </div>
   );
 }

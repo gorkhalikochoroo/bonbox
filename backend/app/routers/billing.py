@@ -438,6 +438,29 @@ def _refuse_active_sub_unless_forced(target: User, force: bool) -> None:
         )
 
 
+@router.get(
+    "/debug/status",
+    include_in_schema=False,
+)
+@limiter.limit("30/minute")
+def debug_status(
+    request: Request,
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Status probe — returns 200 iff the debug endpoints are reachable
+    AND the caller is super_admin. Returns 404 otherwise (kill-switch off
+    or non-admin). Used by the frontend dev-tools panel to decide whether
+    to render. Cannot mutate anything."""
+    _ensure_debug_enabled()
+    return {
+        "enabled": True,
+        "is_super_admin": True,
+        "admin_email": admin.email,
+        "admin_summary": billing_summary(admin),
+    }
+
+
 @router.post(
     "/debug/expire-trial",
     include_in_schema=False,
