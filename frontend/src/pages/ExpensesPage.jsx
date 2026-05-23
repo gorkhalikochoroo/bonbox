@@ -912,7 +912,9 @@ export default function ExpensesPage() {
             </button>
           </div>
         </div>
-        <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+        {/* Desktop / tablet table — hidden on phones where the card list
+            below takes over. md+ stays identical to prior version. */}
+        <div className="hidden md:block overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
         <table className="w-full text-left min-w-[600px]">
           <thead className="bg-gray-50 dark:bg-gray-700/50">
             <tr>
@@ -1053,6 +1055,184 @@ export default function ExpensesPage() {
             )}
           </tbody>
         </table>
+        </div>
+
+        {/* Mobile card list — vertical layout, no horizontal scrolling,
+            all actions reachable as 44px tap targets. Same data as the
+            desktop table; edit drops into a stacked form on the card. */}
+        <div className="md:hidden p-3 space-y-2">
+          {filtered.length === 0 && (
+            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6 text-center text-[13px] text-gray-400 dark:text-gray-500">
+              {t("noExpensesYet")}
+            </div>
+          )}
+          {filtered.slice(0, 50).map((exp) => {
+            const isEditing = editId === exp.id;
+            const confirming = deleteConfirm === exp.id;
+            const isSelected = selected.has(exp.id);
+
+            return (
+              <div
+                key={exp.id}
+                className={`rounded-xl border bg-white dark:bg-gray-800 p-3 ${
+                  isSelected
+                    ? "border-gray-900 dark:border-white ring-1 ring-gray-900 dark:ring-white bg-gray-50 dark:bg-gray-700/40"
+                    : "border-gray-200 dark:border-gray-700"
+                }`}
+              >
+                {isEditing ? (
+                  /* Inline edit form — stacked */
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={editData.description}
+                      onChange={(e) => setEditData({ ...editData, description: e.target.value })}
+                      placeholder={t("description")}
+                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] dark:bg-gray-700 dark:text-white"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <select
+                        value={editData.category_id}
+                        onChange={(e) => setEditData({ ...editData, category_id: e.target.value })}
+                        className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] dark:bg-gray-700 dark:text-white"
+                      >
+                        {categories.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        value={editData.amount}
+                        onChange={(e) => setEditData({ ...editData, amount: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
+                        placeholder={t("amount")}
+                        className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] tabular-nums dark:bg-gray-700 dark:text-white"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <select
+                        value={editData.payment_method}
+                        onChange={(e) => setEditData({ ...editData, payment_method: e.target.value })}
+                        className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] dark:bg-gray-700 dark:text-white"
+                      >
+                        {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
+                          <option key={m} value={m}>{t(m)}</option>
+                        ))}
+                      </select>
+                      <input
+                        type="date"
+                        value={editData.date}
+                        onChange={(e) => setEditData({ ...editData, date: e.target.value })}
+                        className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] dark:bg-gray-700 dark:text-white"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={editData.notes || ""}
+                      onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
+                      placeholder={t("notes")}
+                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] dark:bg-gray-700 dark:text-white"
+                    />
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={() => setEditId(null)}
+                        className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-[13px] font-medium hover:bg-gray-50 dark:hover:bg-gray-700"
+                      >
+                        {t("cancel")}
+                      </button>
+                      <button
+                        onClick={saveEdit}
+                        className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-emerald-600 bg-emerald-600 text-white text-[13px] font-semibold hover:bg-emerald-700"
+                      >
+                        {t("save")}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* Header: description + category | amount */}
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-gray-900 dark:text-white truncate flex items-center gap-1.5">
+                          {exp.description}
+                          {exp.is_personal && (
+                            <span className="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 text-[10px] font-semibold rounded">
+                              {t("personalMode")}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5">
+                          {getCatName(exp.category_id)}
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="font-semibold tabular-nums text-gray-900 dark:text-white">
+                          {parseFloat(exp.amount).toLocaleString()} {currency}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Stat grid: date / payment, with notes/receipt below */}
+                    <div className="grid grid-cols-2 gap-2 text-[12px] pt-2 border-t border-gray-100 dark:border-gray-700">
+                      <div>
+                        <div className="text-gray-500 dark:text-gray-400">{t("date")}</div>
+                        <div className="font-semibold tabular-nums text-gray-900 dark:text-white mt-0.5">
+                          {formatDate(exp.date)}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-gray-500 dark:text-gray-400">{t("payment")}</div>
+                        <div className="font-semibold capitalize text-gray-900 dark:text-white mt-0.5">
+                          {exp.payment_method ? t(exp.payment_method) : "—"}
+                        </div>
+                      </div>
+                    </div>
+
+                    {(exp.notes || exp.receipt_photo) && (
+                      <div className="text-[12px] pt-2 mt-2 border-t border-gray-100 dark:border-gray-700 space-y-1">
+                        {exp.notes && (
+                          <div className="text-gray-500 dark:text-gray-400">{exp.notes}</div>
+                        )}
+                        {exp.receipt_photo && (
+                          <button
+                            type="button"
+                            onClick={() => setReceiptViewing(exp)}
+                            className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 hover:underline text-[12px]"
+                          >
+                            {t("receiptViewerOpen") || "View receipt"}
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Action row */}
+                    <div className="flex items-center gap-2 pt-3 mt-3 border-t border-gray-100 dark:border-gray-700">
+                      <button
+                        onClick={() => startEdit(exp)}
+                        className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 active:bg-gray-100 text-[13px] font-medium transition"
+                      >
+                        {t("edit")}
+                      </button>
+                      {confirming ? (
+                        <button
+                          onClick={() => deleteExpense(exp.id)}
+                          className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg bg-red-600 text-white text-[13px] font-semibold hover:bg-red-700 transition"
+                        >
+                          {t("yesMove") || t("confirm") || "Confirm"}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setDeleteConfirm(exp.id)}
+                          className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/30 dark:hover:text-red-400 active:bg-red-100 text-[13px] font-medium transition"
+                        >
+                          {t("delete") || t("moveToTrash")}
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 

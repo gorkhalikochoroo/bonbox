@@ -734,7 +734,9 @@ export default function SalesPage() {
             </button>
           </div>
         </div>
-        <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+        {/* Desktop / tablet table — hidden on phones, where we render the
+            card list below instead. Keeping md+ identical to prior version. */}
+        <div className="hidden md:block overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
         <table className="w-full text-left min-w-[500px]">
           <thead className="bg-gray-50 dark:bg-gray-700/50">
             <tr>
@@ -949,6 +951,250 @@ export default function SalesPage() {
             )}
           </tbody>
         </table>
+        </div>
+
+        {/* Mobile card list — replaces the previous overflow-x scroll so
+            owners on phones never have to swipe horizontally to reach
+            Edit / Delete. Each card surfaces the same data as the desktop
+            row in a vertical layout with 44px tap targets. */}
+        <div className="md:hidden p-3 space-y-2">
+          {filtered.length === 0 && (
+            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6 text-center text-[13px] text-gray-400 dark:text-gray-500">
+              {t("noSalesYet")}
+            </div>
+          )}
+          {filtered.slice(0, 50).map((sale) => {
+            const st = sale.status || "completed";
+            const statusCfg = {
+              completed: { label: "Completed", cls: "text-green-600 bg-green-50 dark:bg-green-900/20 dark:text-green-400" },
+              returned: { label: "Returned", cls: "text-red-600 bg-red-50 dark:bg-red-900/20 dark:text-red-400" },
+              exchanged: { label: "Exchanged", cls: "text-blue-600 bg-blue-50 dark:bg-blue-900/20 dark:text-blue-400" },
+              "return-pending": { label: "Return pending", cls: "text-amber-600 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-400" },
+            };
+            const sc = statusCfg[st] || statusCfg.completed;
+            const isEditing = editId === sale.id;
+            const isReturnForm = returnMode === sale.id;
+            const confirming = deleteConfirm === sale.id;
+            const isSelected = selected.has(sale.id);
+
+            return (
+              <div
+                key={sale.id}
+                className={`rounded-xl border bg-white dark:bg-gray-800 p-3 ${
+                  st === "return-pending"
+                    ? "border-amber-200 dark:border-amber-800"
+                    : isSelected
+                    ? "border-gray-900 dark:border-white ring-1 ring-gray-900 dark:ring-white bg-gray-50 dark:bg-gray-700/40"
+                    : "border-gray-200 dark:border-gray-700"
+                }`}
+              >
+                {isEditing ? (
+                  /* Inline edit form — stacked */
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="number"
+                        value={editData.amount}
+                        onChange={(e) => setEditData({ ...editData, amount: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
+                        placeholder={t("amount")}
+                        className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] tabular-nums dark:bg-gray-700 dark:text-white"
+                      />
+                      <input
+                        type="date"
+                        value={editData.date}
+                        onChange={(e) => setEditData({ ...editData, date: e.target.value })}
+                        className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] dark:bg-gray-700 dark:text-white"
+                      />
+                    </div>
+                    <select
+                      value={editData.payment_method}
+                      onChange={(e) => setEditData({ ...editData, payment_method: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] dark:bg-gray-700 dark:text-white"
+                    >
+                      {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
+                        <option key={m} value={m}>{t(m)}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      value={editData.notes || ""}
+                      onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
+                      placeholder={t("notes")}
+                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] dark:bg-gray-700 dark:text-white"
+                    />
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={() => setEditId(null)}
+                        className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-[13px] font-medium hover:bg-gray-50 dark:hover:bg-gray-700"
+                      >
+                        {t("cancel")}
+                      </button>
+                      <button
+                        onClick={saveEdit}
+                        className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-emerald-600 bg-emerald-600 text-white text-[13px] font-semibold hover:bg-emerald-700"
+                      >
+                        {t("save")}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* Header: date (primary) + payment (eyebrow) | amount + status */}
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-gray-900 dark:text-white truncate">
+                          {formatDateClear(sale.date)}
+                        </div>
+                        <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5 capitalize">
+                          {sale.payment_method ? t(sale.payment_method) : "—"}
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className={`font-semibold tabular-nums ${st === "returned" ? "text-red-400 line-through" : "text-gray-900 dark:text-white"}`}>
+                          {parseFloat(sale.amount).toLocaleString()} {currency}
+                        </div>
+                        {st !== "completed" && (
+                          <span className={`inline-block mt-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-md ${sc.cls}`}>
+                            {sc.label}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Item info / notes / return info */}
+                    {(sale.item_name || sale.notes || sale.return_reason || sale.receipt_photo) && (
+                      <div className="text-[12px] pt-2 border-t border-gray-100 dark:border-gray-700 space-y-1">
+                        {sale.item_name && (
+                          <div className="text-gray-600 dark:text-gray-400">
+                            <span className="text-gray-500 dark:text-gray-500">{sale.item_name}</span>
+                            {sale.quantity_sold ? ` x ${sale.quantity_sold}` : ""}
+                            {sale.unit_price ? ` @ ${parseFloat(sale.unit_price).toLocaleString()} ${currency}` : ""}
+                            {sale.cost_at_sale != null && sale.unit_price && sale.quantity_sold && (
+                              <span className="ml-1.5 text-green-600 dark:text-green-400">
+                                +{Math.round((sale.unit_price - sale.cost_at_sale) * sale.quantity_sold).toLocaleString()} {t("profit")}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {sale.notes && (
+                          <div className="text-gray-500 dark:text-gray-400 truncate">{sale.notes}</div>
+                        )}
+                        {sale.return_reason && (
+                          <div className={`mt-1.5 px-2 py-1 rounded-md text-[11px] ${sc.cls}`}>
+                            {sale.return_reason}
+                            {sale.return_action && <span className="font-semibold"> — {sale.return_action}</span>}
+                          </div>
+                        )}
+                        {sale.receipt_photo && (
+                          <button
+                            type="button"
+                            onClick={() => setReceiptViewing(sale)}
+                            className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 hover:underline text-[12px]"
+                          >
+                            {t("receiptViewerOpen") || "View receipt"}
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Action row */}
+                    <div className="flex items-center gap-2 pt-3 mt-3 border-t border-gray-100 dark:border-gray-700">
+                      {st === "completed" && !isReturnForm && (
+                        <button
+                          onClick={() => { setReturnMode(sale.id); setReturnData({ reason: "", action: "" }); }}
+                          className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 active:bg-gray-100 text-[13px] font-medium transition"
+                        >
+                          {t("return") || "Return"}
+                        </button>
+                      )}
+                      {st === "return-pending" && !isReturnForm && (
+                        <button
+                          onClick={() => { setReturnMode(sale.id); setReturnData({ reason: sale.return_reason || "", action: "" }); }}
+                          className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-amber-500 bg-amber-500 text-white hover:bg-amber-600 text-[13px] font-semibold transition"
+                        >
+                          {t("processReturn") || "Process return"}
+                        </button>
+                      )}
+                      {st === "completed" && (
+                        <button
+                          onClick={() => startEdit(sale)}
+                          className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 active:bg-gray-100 text-[13px] font-medium transition"
+                        >
+                          {t("edit")}
+                        </button>
+                      )}
+                      {confirming ? (
+                        <button
+                          onClick={() => deleteSale(sale.id)}
+                          className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg bg-red-600 text-white text-[13px] font-semibold hover:bg-red-700 transition"
+                        >
+                          {t("confirm") || "Confirm"}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setDeleteConfirm(sale.id)}
+                          className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/30 dark:hover:text-red-400 active:bg-red-100 text-[13px] font-medium transition"
+                        >
+                          {t("delete")}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Inline return form — same as desktop, just always full width on mobile */}
+                    {isReturnForm && (
+                      <div className="mt-3 text-left p-3 rounded-xl bg-red-50/50 dark:bg-red-900/10 border border-red-200/40 dark:border-red-800/30">
+                        <p className="text-[13px] font-semibold text-gray-800 dark:text-white mb-2">{t("processReturn") || "Process return"}</p>
+                        <p className="text-[11px] text-gray-400 mb-1.5">Reason</p>
+                        <div className="flex flex-wrap gap-1.5 mb-3">
+                          {["Wrong order", "Cold/bad quality", "Changed mind", "Defective", "Size issue", "Other"].map((r) => (
+                            <button key={r} onClick={() => setReturnData({ ...returnData, reason: r })}
+                              className={`text-[11px] font-medium px-2.5 py-1 rounded-md border transition
+                                ${returnData.reason === r
+                                  ? "border-red-400/50 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
+                                  : "border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-500 dark:text-gray-400"
+                                }`}>
+                              {r}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-[11px] text-gray-400 mb-1.5">Action</p>
+                        <div className="grid grid-cols-2 gap-2 mb-3">
+                          {[
+                            { id: "refund", label: "Refund", sub: `${parseFloat(sale.amount).toLocaleString()} ${currency}`, color: "red" },
+                            { id: "replace", label: "Replace", sub: "Send new item", color: "blue" },
+                            { id: "exchange", label: "Exchange", sub: "Swap for another", color: "purple" },
+                            { id: "restock", label: "Restock", sub: "Back to inventory", color: "green" },
+                          ].map((a) => {
+                            const sel = returnData.action === a.id;
+                            const colors = { red: "border-red-400 bg-red-50 dark:bg-red-900/20 text-red-600", blue: "border-blue-400 bg-blue-50 dark:bg-blue-900/20 text-blue-600", purple: "border-purple-400 bg-purple-50 dark:bg-purple-900/20 text-purple-600", green: "border-green-400 bg-green-50 dark:bg-green-900/20 text-green-600" };
+                            return (
+                              <button key={a.id} onClick={() => setReturnData({ ...returnData, action: a.id })}
+                                className={`min-h-[44px] p-2 rounded-lg border-2 text-center transition ${sel ? colors[a.color] : "border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-500"}`}>
+                                <span className="text-[12px] font-semibold block">{a.label}</span>
+                                <span className="text-[10px] block opacity-60">{a.sub}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => { setReturnMode(null); setReturnData({ reason: "", action: "" }); }}
+                            className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg text-[13px] font-medium text-gray-700 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600 transition">
+                            Cancel
+                          </button>
+                          <button onClick={() => processReturn(sale.id)}
+                            disabled={!returnData.reason || !returnData.action}
+                            className={`flex-[2] min-h-[44px] inline-flex items-center justify-center rounded-lg text-[13px] font-semibold text-white transition
+                              ${returnData.reason && returnData.action ? "bg-red-500 hover:bg-red-600" : "bg-gray-300 dark:bg-gray-600 cursor-not-allowed opacity-50"}`}>
+                            Confirm return
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 

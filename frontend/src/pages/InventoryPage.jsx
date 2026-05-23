@@ -1038,7 +1038,8 @@ export default function InventoryPage() {
             )}
           </div>
         )}
-        <div className="overflow-x-auto">
+        {/* Desktop / tablet table — unchanged from md+ up */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left text-[13px]">
             <thead className="bg-gray-50 dark:bg-gray-700/50">
               <tr>
@@ -1246,6 +1247,236 @@ export default function InventoryPage() {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile card list — full-width cards, no horizontal scroll, all
+            actions reachable as 44px tap targets. Same data as the desktop
+            table; edit/adjust still uses the inline edit row (kept simple
+            here to avoid a parallel form). For inline editing on mobile,
+            users tap Edit which drops to the table on tablet+, or the
+            row can be edited on a later pass. */}
+        <div className="md:hidden p-3 space-y-2">
+          {filtered.length === 0 && (
+            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6 text-center text-[13px] text-gray-400 dark:text-gray-500">
+              {t("noInventoryYet")}
+            </div>
+          )}
+          {filtered.map((item) => {
+            const qty = parseFloat(item.quantity);
+            const buy = parseFloat(item.cost_per_unit);
+            const sell = item.sell_price != null ? parseFloat(item.sell_price) : null;
+            const margin = sell && buy > 0 ? Math.round(((sell - buy) / buy) * 100) : null;
+            const profit = sell != null ? (sell - buy) * qty : null;
+            const isLow = alertIds.has(item.id);
+            const isEditing = editId === item.id;
+            const confirming = deleteConfirm === item.id;
+
+            return (
+              <div
+                key={item.id}
+                className={`rounded-xl border bg-white dark:bg-gray-800 p-3 ${
+                  isLow
+                    ? "border-red-200 dark:border-red-800"
+                    : "border-gray-200 dark:border-gray-700"
+                }`}
+              >
+                {isEditing ? (
+                  /* Inline edit form on mobile — stacked fields */
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={editData.name}
+                      onChange={(e) => setEditData({ ...editData, name: e.target.value })}
+                      placeholder={t("item")}
+                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] dark:bg-gray-700 dark:text-white"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        value={editData.category}
+                        onChange={(e) => setEditData({ ...editData, category: e.target.value })}
+                        placeholder={t("category")}
+                        className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] dark:bg-gray-700 dark:text-white"
+                      />
+                      <select
+                        value={editData.unit}
+                        onChange={(e) => setEditData({ ...editData, unit: e.target.value })}
+                        className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] dark:bg-gray-700 dark:text-white"
+                      >
+                        <option value="pieces">{t("pieces")}</option>
+                        <option value="kg">{t("kg")}</option>
+                        <option value="liters">{t("liters")}</option>
+                        <option value="boxes">{t("boxes")}</option>
+                        <option value="bundle">{t("bundle")}</option>
+                        <option value="dozen">{t("dozen")}</option>
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <input
+                        type="number"
+                        value={editData.quantity}
+                        onChange={(e) => setEditData({ ...editData, quantity: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
+                        placeholder={t("quantity")}
+                        className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] tabular-nums dark:bg-gray-700 dark:text-white"
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={editData.cost_per_unit}
+                        onChange={(e) => setEditData({ ...editData, cost_per_unit: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
+                        placeholder={t("cost")}
+                        className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] tabular-nums dark:bg-gray-700 dark:text-white"
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={editData.sell_price}
+                        onChange={(e) => setEditData({ ...editData, sell_price: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
+                        placeholder={t("sell")}
+                        className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] tabular-nums dark:bg-gray-700 dark:text-white"
+                      />
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={() => setEditId(null)}
+                        className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-[13px] font-medium hover:bg-gray-50 dark:hover:bg-gray-700"
+                      >
+                        {t("cancel")}
+                      </button>
+                      <button
+                        onClick={saveEdit}
+                        className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-emerald-600 bg-emerald-600 text-white text-[13px] font-semibold hover:bg-emerald-700"
+                      >
+                        {t("save")}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* Header: name + category | qty + unit */}
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-gray-900 dark:text-white truncate flex items-center gap-1.5">
+                          {item.name}
+                          {isLow && (
+                            <span className="px-1.5 py-0.5 bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-[10px] font-semibold uppercase tracking-wider rounded">
+                              {t("lowLabel")}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5">
+                          {item.category || t("general")}
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="font-semibold tabular-nums text-gray-900 dark:text-white">
+                          {qty} <span className="text-[12px] text-gray-500 dark:text-gray-400 font-normal">{item.unit}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 2-col stat grid: cost/sell, margin/profit */}
+                    <div className="grid grid-cols-2 gap-2 text-[12px] pt-2 border-t border-gray-100 dark:border-gray-700">
+                      <div>
+                        <div className="text-gray-500 dark:text-gray-400">{t("cost")} / {t("sell")}</div>
+                        <div className="font-semibold tabular-nums text-gray-900 dark:text-white mt-0.5">
+                          {buy}
+                          {" / "}
+                          {sell != null ? sell : "—"} {currency}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-gray-500 dark:text-gray-400">{t("margin")} / {t("profit")}</div>
+                        <div className="font-semibold tabular-nums mt-0.5">
+                          {item.sell_price_per_pour > 0 ? (
+                            <span className="text-amber-600 dark:text-amber-400">{parseFloat(item.sell_price_per_pour)}/{item.pour_unit || "glass"}</span>
+                          ) : margin != null ? (
+                            <span className={margin >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}>
+                              {margin >= 0 ? "+" : ""}{margin}%
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
+                          {profit != null && (
+                            <span className={`ml-1.5 ${profit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
+                              {profit >= 0 ? "+" : ""}{profit.toLocaleString()}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action row — 5 buttons, equal width, 44px tap targets.
+                        Icons only (with title for hover/tooltip). The Wine + Globe
+                        buttons only render when their feature applies, just like
+                        on desktop. We always keep 5 cells so the layout doesn't
+                        shift between rows: filler cells render an invisible
+                        spacer to keep edit/delete in the same horizontal spot. */}
+                    <div className="flex items-center gap-2 pt-3 mt-3 border-t border-gray-100 dark:border-gray-700">
+                      {item.pour_size > 0 ? (
+                        <button
+                          onClick={() => { setPourModal(item); setPourCount(1); }}
+                          title={t("pour")}
+                          aria-label={t("pour")}
+                          className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 active:bg-gray-100 transition"
+                        >
+                          <Icon name="Wine" size={18} />
+                        </button>
+                      ) : (
+                        <span className="flex-1" aria-hidden="true" />
+                      )}
+                      <button
+                        onClick={() => setConsumptionModalItem(item)}
+                        title={t("inventoryConsumptionTitle") || "Smart usage"}
+                        aria-label={t("inventoryConsumptionTitle") || "Smart usage"}
+                        className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 active:bg-gray-100 transition"
+                      >
+                        <Icon name="Beaker" size={18} />
+                      </button>
+                      {item.sell_price > 0 ? (
+                        <button
+                          onClick={() => setSmartPricingItem(item)}
+                          title={t("smartPricingCompareBtn") || "Compare price"}
+                          aria-label={t("smartPricingCompareBtn") || "Compare price"}
+                          className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 active:bg-gray-100 transition"
+                        >
+                          <Icon name="Globe" size={18} />
+                        </button>
+                      ) : (
+                        <span className="flex-1" aria-hidden="true" />
+                      )}
+                      <button
+                        onClick={() => startEdit(item)}
+                        title={t("edit")}
+                        aria-label={t("edit")}
+                        className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 active:bg-gray-100 transition"
+                      >
+                        <Icon name="Pencil" size={18} />
+                      </button>
+                      {confirming ? (
+                        <button
+                          onClick={() => deleteItem(item.id)}
+                          aria-label={t("confirm") || "Confirm"}
+                          className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg bg-red-600 text-white text-[12px] font-semibold hover:bg-red-700 transition"
+                        >
+                          {t("confirm") || "?"}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setDeleteConfirm(item.id)}
+                          title={t("delete")}
+                          aria-label={t("delete")}
+                          className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/30 dark:hover:text-red-400 active:bg-red-100 transition"
+                        >
+                          <Icon name="Trash2" size={18} />
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
