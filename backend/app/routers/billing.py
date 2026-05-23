@@ -295,32 +295,105 @@ async def stripe_webhook(
     return result
 
 
-# ─── Debug endpoints — super-admin only ───────────────────────────────
+# ─── Debug endpoints — super-admin only, kill-switch gated ────────────
 #
 # Operator tooling to test the trial-expiry / re-engagement flow without
-# waiting 14 days or running raw SQL on the prod DB. Both endpoints are
-# guarded by `require_super_admin` (6-layer auth incl. SUPER_ADMIN_EMAILS
-# allowlist + role=super_admin DB check) and write to the audit log on
-# every call.
+# waiting 14 days or running raw SQL on the prod DB.
 #
-# Safety properties:
-#   • Cannot grant a paid tier — only flips trial_ends_at + sets plan="free".
-#     Paid plans still require a real Stripe subscription event.
-#   • Refuses to modify another super_admin's account (ops-on-ops guard).
-#   • Audit-logged with before/after snapshots so any incorrect use is
-#     recoverable from the trail.
-#   • If target_email is omitted, operates on the admin's own account
-#     (the common case: "I want to see what my own dashboard looks like
-#     after the trial expires").
+# Defense layers (each one alone is enough to block; all must pass):
+#   L1  Kill-switch:  DEBUG_BILLING_ENABLED env var must be "1"/"true"/"yes"
+#                     (default OFF). Without this, the endpoints respond 404
+#                     and never even reach the auth check — invisible to
+#                     attackers who haven't seen the env config.
+#   L2  Hidden from OpenAPI / docs (include_in_schema=False).
+#   L3  Rate limit 5/min per IP (slowapi). Stops automated probing even if
+#                  every other layer is somehow bypassed.
+#   L4  require_super_admin — 6-layer guard:
+#         a. valid JWT
+#         b. SUPER_ADMIN_EMAILS allowlist configured
+#         c. user.role == 'super_admin' in DB
+#         d. email matches allowlist (constant-time compare)
+#         e. email_verified
+#         f. account age ≥ 24h
+#       Every failure writes a SecurityEvent.
+#   L5  Target resolution refuses to mutate another super_admin's account
+#       (ops-on-ops attack surface).
+#   L6  Active-subscription guard: refuses to flip a user with
+#       subscription_status in ("active","trialing") unless force=true is
+#       explicit. Prevents flicker-revert confusion and accidental damage
+#       to a paying customer's state during a "quick test".
+#   L7  Guaranteed audit: a SecurityEvent row is written BEFORE the
+#       mutation. If the audit write fails, the mutation is aborted —
+#       the audit log is the source of truth.
+#   L8  Cannot grant a paid tier. The only writes are
+#       (trial_ends_at, plan="free"). Even a hijacked super_admin can't
+#       elevate someone to Starter/Pro through this surface.
+#
+# Why a kill-switch on top of all that:
+#   Layered safety — if some future refactor accidentally weakens
+#   require_super_admin (e.g. forgets the role check), the kill-switch
+#   still blocks unless the operator explicitly turned it on.
+
+
+def _debug_endpoints_enabled() -> bool:
+    """Kill-switch — only on when DEBUG_BILLING_ENABLED env is truthy."""
+    import os
+    val = (os.environ.get("DEBUG_BILLING_ENABLED") or "").strip().lower()
+    return val in ("1", "true", "yes", "on")
+
+
+def _ensure_debug_enabled() -> None:
+    """Raise 404 if the kill-switch is off (indistinguishable from a route
+    that doesn't exist — no information leak about the endpoint's
+    existence)."""
+    if not _debug_endpoints_enabled():
+        raise HTTPException(status_code=404, detail="Not Found")
+
+
+def _write_security_event(
+    db: Session,
+    user_id,
+    event_type: str,
+    request: Request,
+    detail: str,
+) -> None:
+    """Write a SecurityEvent row synchronously. Raises on DB failure so the
+    caller knows the audit didn't land — the mutation should NOT proceed
+    without a successful audit write."""
+    from app.models.security_event import SecurityEvent
+
+    evt = SecurityEvent(
+        user_id=user_id,
+        event_type=event_type,
+        ip_address=(request.client.host if request.client else None) or
+                   (request.headers.get("x-forwarded-for", "").split(",")[0].strip() or None),
+        user_agent=request.headers.get("user-agent"),
+        detail=detail[:1900] if detail else None,
+    )
+    db.add(evt)
+    db.flush()  # surface DB errors NOW, not at commit
 
 
 def _resolve_debug_target(
     admin: User, target_email: Optional[str], db: Session
 ) -> User:
-    """Return the User to operate on. Refuses to mutate another super_admin."""
+    """Return the User to operate on. Refuses to mutate another super_admin.
+
+    Email match is case-insensitive at the DB level to avoid 'Alice@x.dk'
+    vs 'alice@x.dk' lookup mismatches.
+    """
+    from sqlalchemy import func
+
     if not target_email:
         return admin
-    target = db.query(User).filter(User.email == target_email.lower().strip()).first()
+    needle = target_email.lower().strip()
+    if not needle or "@" not in needle:
+        raise HTTPException(status_code=400, detail="target_email malformed")
+    target = (
+        db.query(User)
+        .filter(func.lower(User.email) == needle)
+        .first()
+    )
     if not target:
         raise HTTPException(status_code=404, detail="Target user not found")
     if target.id != admin.id and (getattr(target, "role", None) or "").lower() == "super_admin":
@@ -337,39 +410,79 @@ def _snapshot(user: User) -> dict:
         "trial_ends_at": user.trial_ends_at.isoformat()
         if getattr(user, "trial_ends_at", None)
         else None,
+        "subscription_status": getattr(user, "subscription_status", None),
     }
 
 
-@router.post("/debug/expire-trial")
+def _refuse_active_sub_unless_forced(target: User, force: bool) -> None:
+    """Refuse to expire/reset a user whose Stripe sub is live. Without
+    this guard, the call would 'succeed' but the next /billing/me sync
+    would immediately revert the state — confusing for the operator and
+    potentially flicker-visible to the paying user."""
+    status = (getattr(target, "subscription_status", None) or "").lower()
+    if status in ("active", "trialing", "past_due") and not force:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "active_subscription",
+                "message": (
+                    f"Target has Stripe subscription_status={status!r}. The "
+                    "debug flip would be immediately reverted by the next "
+                    "Stripe sync. Pass ?force=true to override (will still "
+                    "revert on next /billing/me, but useful for screenshot "
+                    "tests), or use ?target_email pointing at an account "
+                    "without an active Stripe subscription for a clean test."
+                ),
+                "subscription_status": status,
+            },
+        )
+
+
+@router.post(
+    "/debug/expire-trial",
+    include_in_schema=False,
+)
+@limiter.limit("5/minute")
 def debug_expire_trial(
     request: Request,
     target_email: Optional[str] = None,
+    force: bool = False,
     admin: User = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
     """Force a user into the expired-trial / Free state.
 
-    Use case: verify the trial→Free auto-downgrade works end-to-end (the
-    `effective_plan()` function is supposed to fall to "free" once
-    `trial_ends_at` is in the past; this endpoint moves that boundary
-    backwards so you can test the lock-out without waiting 14 days).
+    Hidden from OpenAPI, kill-switch gated, rate-limited 5/min, super-admin
+    only, refuses on active Stripe subs (unless force=true), audited.
 
-    What this does:
-      1. user.trial_ends_at = now - 1 day  (trial is firmly in the past)
-      2. user.plan = "free"                (clears any paid tier so the
-                                            trial check actually fires)
-
-    What this does NOT do:
-      • Cancel any Stripe subscription. If the user has an active sub,
-        the next webhook event (or /billing/me auto-sync) will flip
-        them back to their paid tier — which is the correct behavior.
-        For a clean test, run /debug/expire-trial against an account
-        with no active subscription.
-
-    To restore: POST /debug/reset-trial.
+    Query params:
+      target_email  default: caller's own account
+      force         default: false. Set true to bypass active-sub refusal.
     """
+    _ensure_debug_enabled()
     target = _resolve_debug_target(admin, target_email, db)
+    _refuse_active_sub_unless_forced(target, force)
+
     before = _snapshot(target)
+
+    # Audit FIRST, mutation second. If the audit write fails for any
+    # reason (DB pool exhausted, schema drift, etc.), the rollback below
+    # aborts the mutation — we never silently flip billing state.
+    try:
+        _write_security_event(
+            db,
+            admin.id,
+            "debug.expire_trial",
+            request,
+            detail=f"target={target.email} force={force} before={before}",
+        )
+    except Exception:
+        db.rollback()
+        log.exception("debug.expire_trial: audit write failed; aborting mutation")
+        raise HTTPException(
+            status_code=503,
+            detail="Audit write failed; refusing to mutate billing state.",
+        )
 
     target.trial_ends_at = utc_now() - timedelta(days=1)
     target.plan = "free"
@@ -377,13 +490,6 @@ def debug_expire_trial(
     db.refresh(target)
 
     after = _snapshot(target)
-    _audit(
-        db,
-        admin.id,
-        "debug.expire_trial",
-        request,
-        detail=f"target={target.email} before={before} after={after}",
-    )
     return {
         "ok": True,
         "target_email": target.email,
@@ -393,39 +499,51 @@ def debug_expire_trial(
     }
 
 
-@router.post("/debug/reset-trial")
+@router.post(
+    "/debug/reset-trial",
+    include_in_schema=False,
+)
+@limiter.limit("5/minute")
 def debug_reset_trial(
     request: Request,
     target_email: Optional[str] = None,
     days: int = 14,
+    force: bool = False,
     admin: User = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
-    """Reset a user to a fresh trial window.
+    """Reset a user to a fresh N-day trial window (1 ≤ N ≤ 30).
 
-    Use case: restore a test account after `/debug/expire-trial`, or
-    extend trial for a specific user for QA / onboarding scenarios.
-
-    What this does:
-      1. user.trial_ends_at = now + `days` days (default 14, max 60)
-      2. user.plan = "free"  (so the trial check kicks in — paid plans
-                              would short-circuit `effective_plan()`)
-
-    What this does NOT do:
-      • Cancel any active Stripe subscription. If the user is currently
-        on a paid sub, this would temporarily set them to Free but the
-        next webhook / /billing/me auto-sync would restore paid tier.
-
-    Same super_admin + audit safety as /debug/expire-trial.
+    Hidden from OpenAPI, kill-switch gated, rate-limited 5/min, super-admin
+    only, refuses on active Stripe subs (unless force=true), audited.
     """
-    if days < 1 or days > 60:
+    _ensure_debug_enabled()
+    if days < 1 or days > 30:
         raise HTTPException(
             status_code=400,
-            detail="days must be between 1 and 60",
+            detail="days must be between 1 and 30",
         )
 
     target = _resolve_debug_target(admin, target_email, db)
+    _refuse_active_sub_unless_forced(target, force)
+
     before = _snapshot(target)
+
+    try:
+        _write_security_event(
+            db,
+            admin.id,
+            "debug.reset_trial",
+            request,
+            detail=f"target={target.email} days={days} force={force} before={before}",
+        )
+    except Exception:
+        db.rollback()
+        log.exception("debug.reset_trial: audit write failed; aborting mutation")
+        raise HTTPException(
+            status_code=503,
+            detail="Audit write failed; refusing to mutate billing state.",
+        )
 
     target.trial_ends_at = utc_now() + timedelta(days=days)
     target.plan = "free"
@@ -433,13 +551,6 @@ def debug_reset_trial(
     db.refresh(target)
 
     after = _snapshot(target)
-    _audit(
-        db,
-        admin.id,
-        "debug.reset_trial",
-        request,
-        detail=f"target={target.email} days={days} before={before} after={after}",
-    )
     return {
         "ok": True,
         "target_email": target.email,
