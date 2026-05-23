@@ -386,7 +386,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder={t("enterTotal")}
-                  className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 mb-3"
+                  className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-gray-900 mb-3"
                   autoFocus
                 />
 
@@ -401,7 +401,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                         ? `Vendor (we found: ${result.suggested_vendor})`
                         : "Description / vendor (optional)"
                     }
-                    className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 mb-3"
+                    className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 mb-3"
                   />
                 )}
 
@@ -417,7 +417,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                       type="date"
                       value={parsedDate || ""}
                       onChange={(e) => setParsedDate(e.target.value)}
-                      className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
                     />
                     {result?.suggested_date && (
                       <span className="text-[11px] text-emerald-600 dark:text-emerald-400 shrink-0">

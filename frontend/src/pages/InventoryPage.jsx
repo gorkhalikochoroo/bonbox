@@ -1018,7 +1018,7 @@ export default function InventoryPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t("searchItems")}
-            className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
           />
         </div>
         {selected.size > 0 && (
@@ -1045,7 +1045,7 @@ export default function InventoryPage() {
               <tr>
                 <th className="px-3 py-2.5 w-10">
                   <input type="checkbox" checked={filtered.length > 0 && selected.size === filtered.length} onChange={toggleSelectAll}
-                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-emerald-500" />
+                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-gray-900" />
                 </th>
                 <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("item")}</th>
                 <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("category")}</th>
@@ -1070,7 +1070,7 @@ export default function InventoryPage() {
                   <tr key={item.id} className={alertIds.has(item.id) ? "bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors" : "hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"}>
                     <td className="px-3 py-2.5">
                       <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelect(item.id)}
-                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-emerald-500" />
+                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-gray-900" />
                     </td>
                     {editId === item.id ? (
                       <>

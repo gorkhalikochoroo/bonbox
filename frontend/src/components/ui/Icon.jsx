@@ -59,6 +59,10 @@ import {
   Beaker, Globe, Pencil, Minus, PlusCircle,
   // Sidebar toggle — Claude-style hide/show (Task #129)
   PanelLeft, PanelLeftClose,
+  // Sidebar footer (Layout.jsx) — replace legacy emoji with Lucide
+  Sun, LogOut,
+  // Insights feedback (Dashboard polish) — Useful / Not useful buttons
+  ThumbsUp, ThumbsDown,
   // Misc / fallback
   Circle, ChevronDown,
 } from "lucide-react";
@@ -102,6 +106,10 @@ const ICONS = {
   Beaker, Globe, Pencil, Minus, PlusCircle,
   // Sidebar toggle — Claude-style hide/show (Task #129)
   PanelLeft, PanelLeftClose,
+  // Sidebar footer
+  Sun, LogOut,
+  // Insights feedback (Dashboard polish)
+  ThumbsUp, ThumbsDown,
   // Utility
   ChevronDown,
 };

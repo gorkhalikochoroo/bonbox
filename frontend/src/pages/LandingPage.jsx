@@ -614,7 +614,7 @@ export default function LandingPage() {
               value={lang}
               onChange={(e) => setLang(e.target.value)}
               aria-label="Language"
-              className="hidden sm:block text-[12px] font-medium tracking-wider uppercase bg-transparent border border-stone-200 rounded-md px-2 py-1.5 text-gray-700 hover:border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-300 cursor-pointer"
+              className="hidden sm:block text-[12px] font-medium tracking-wider uppercase bg-transparent border border-stone-200 rounded-md px-2 py-1.5 text-gray-700 hover:border-stone-300 focus:outline-none focus:ring-2 focus:ring-gray-900 cursor-pointer"
             >
               {LANGUAGES.map((l) => (
                 <option key={l.code} value={l.code} aria-label={l.label}>

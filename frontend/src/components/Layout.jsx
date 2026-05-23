@@ -751,14 +751,14 @@ export default function Layout() {
               `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition ${isActive ? activeClass : inactiveClass}`
             }
           >
-            <span className="text-sm w-5 text-center">👤</span>
+            <span className="w-5 flex items-center justify-center"><Icon name="User" size={16} /></span>
             {t("profile")}
           </NavLink>
           <button
             onClick={toggleDark}
             className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
           >
-            <span className="text-sm w-5 text-center">{dark ? "☀️" : "🌙"}</span>
+            <span className="w-5 flex items-center justify-center"><Icon name={dark ? "Sun" : "Moon"} size={16} /></span>
             {dark ? t("lightMode") : t("darkMode")}
           </button>
           {/* Theme picker lives on Profile / More page now — sidebar kept lean */}
@@ -779,7 +779,7 @@ export default function Layout() {
             onClick={handleLogout}
             className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition font-medium"
           >
-            <span className="text-sm w-5 text-center">🚪</span>
+            <span className="w-5 flex items-center justify-center"><Icon name="LogOut" size={16} /></span>
             {t("signOut")}
           </button>
         </div>

@@ -199,7 +199,7 @@ export default function CashBookPage() {
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
           placeholder={t("whatWasItFor")}
-          className="max-w-sm px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl mb-4 focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:bg-gray-700 dark:text-white"
+          className="max-w-sm px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl mb-4 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:bg-gray-700 dark:text-white"
         />
 
         {/* Quick amounts */}
@@ -227,7 +227,7 @@ export default function CashBookPage() {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder={t("customAmount")}
-            className="flex-1 max-w-sm px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:bg-gray-700 dark:text-white"
+            className="flex-1 max-w-sm px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-gray-900 dark:bg-gray-700 dark:text-white"
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
           <button
@@ -249,7 +249,7 @@ export default function CashBookPage() {
             value={txnDate}
             max={localIso()}
             onChange={(e) => setTxnDate(e.target.value)}
-            className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
           />
           {txnDate !== localIso() && (
             <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">{t("backdatedEntry")}</span>
@@ -280,7 +280,7 @@ export default function CashBookPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t("search")}
-              className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
             />
             {(filterFrom || filterTo) && (
               <button

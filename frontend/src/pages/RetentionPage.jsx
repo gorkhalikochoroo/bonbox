@@ -157,13 +157,13 @@ export default function RetentionPage() {
 
       {/* ─── TABS ─── */}
       <TabPills
-        tabs={tabs.map(t => ({
-          id: t.key,
-          label: t.key === "overview" ? "Overview"
-            : t.key === "customers" ? "Top Customers"
+        tabs={tabs.map(tab => ({
+          id: tab.key,
+          label: tab.key === "overview" ? "Overview"
+            : tab.key === "customers" ? "Top Customers"
             : "At Risk",
-          count: t.key === "customers" ? (top_customers?.length || 0)
-            : t.key === "at_risk" ? (at_risk_list?.length || 0)
+          count: tab.key === "customers" ? (top_customers?.length || 0)
+            : tab.key === "at_risk" ? (at_risk_list?.length || 0)
             : undefined,
         }))}
         activeId={tab}
@@ -326,18 +326,6 @@ function CustomerCard({ customer: c, rank, currency, showUrgency }) {
           <p className="text-[10px] text-gray-400">/month</p>
         </div>
       </div>
-    </div>
-  );
-}
-
-function MetricCard({ label, value, sub, color, currency }) {
-  return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm text-center">
-      <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
-      <p className={`text-2xl font-bold mt-1 ${color}`}>
-        {value} {currency && <span className="text-sm font-normal opacity-60">{currency}</span>}
-      </p>
-      {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
     </div>
   );
 }

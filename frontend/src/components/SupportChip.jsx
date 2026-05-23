@@ -152,7 +152,7 @@ export default function SupportChip() {
                   id="support-kind"
                   value={kind}
                   onChange={(e) => setKind(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-100 focus:border-emerald-400 outline-none"
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-100 focus:border-gray-900 outline-none"
                 >
                   {KIND_OPTIONS.map((k) => (
                     <option key={k.id} value={k.id}>{labelFor(k.label)}</option>
@@ -171,7 +171,7 @@ export default function SupportChip() {
                   value={subject}
                   onChange={(e) => setSubject(e.target.value)}
                   placeholder={t("supportSubjectPlaceholder") || "One-line summary"}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-100 focus:border-emerald-400 outline-none"
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-100 focus:border-gray-900 outline-none"
                 />
               </div>
 
@@ -186,7 +186,7 @@ export default function SupportChip() {
                   value={body}
                   onChange={(e) => setBody(e.target.value)}
                   placeholder={t("supportMessagePlaceholder") || "What were you doing? What did you expect? Screenshots welcome via email."}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-100 focus:border-emerald-400 outline-none resize-none"
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-100 focus:border-gray-900 outline-none resize-none"
                 />
                 <div className="text-[11px] text-gray-400 dark:text-gray-500 mt-1 text-right">
                   {body.length}/5000

@@ -343,7 +343,7 @@ export default function SalesPage() {
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder={`${t("customAmount")} ${getTaxConfig(user?.currency).rate > 0 ? `(${getTaxConfig(user?.currency).label})` : ""}`}
-              className="flex-1 px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="flex-1 px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
               onKeyDown={(e) => e.key === "Enter" && submit()}
             />
             <button
@@ -382,14 +382,14 @@ export default function SalesPage() {
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder={t("addNoteOptional")}
-              className="flex-1 px-2.5 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:bg-gray-700 dark:text-white"
+              className="flex-1 px-2.5 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:bg-gray-700 dark:text-white"
             />
             <input
               type="date"
               value={saleDate}
               max={localIso()}
               onChange={(e) => setSaleDate(e.target.value)}
-              className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
             />
           </div>
           {saleDate !== localIso() && (
@@ -697,21 +697,21 @@ export default function SalesPage() {
               type="date"
               value={filterFrom}
               onChange={(e) => { setFilterFrom(e.target.value); fetchSales(e.target.value, filterTo); }}
-              className="w-full sm:w-auto px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full sm:w-auto px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
             />
             <span className="hidden sm:inline text-xs text-gray-400">→</span>
             <input
               type="date"
               value={filterTo}
               onChange={(e) => { setFilterTo(e.target.value); fetchSales(filterFrom, e.target.value); }}
-              className="w-full sm:w-auto px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full sm:w-auto px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
             />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t("searchSalesPlaceholder")}
-              className="w-full sm:w-auto px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full sm:w-auto px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
             />
             {(filterFrom || filterTo) && (
               <button

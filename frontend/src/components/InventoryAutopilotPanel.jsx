@@ -177,7 +177,7 @@ function SupplierCard({ group, edits, setEdits, onSendOne, sending, t, currency 
                     onChange={(e) =>
                       setEdits((prev) => ({ ...prev, [editKey]: e.target.value }))
                     }
-                    className="w-full sm:w-24 h-10 px-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-stone-900 dark:text-stone-100 text-right focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full sm:w-24 h-10 px-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-stone-900 dark:text-stone-100 text-right focus:outline-none focus:ring-2 focus:ring-gray-900"
                     aria-label={t("inventoryAutopilotQtyLabel", "Quantity to order")}
                   />
                   <span className="text-xs text-stone-500 dark:text-stone-400 shrink-0 min-w-[2rem]">

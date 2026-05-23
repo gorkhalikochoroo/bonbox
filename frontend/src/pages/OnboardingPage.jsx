@@ -518,7 +518,7 @@ export default function OnboardingPage() {
                   maxLength={11}
                   aria-describedby={cvrError ? "onb-cvr-error" : undefined}
                   aria-invalid={!!cvrError}
-                  className="flex-1 px-3 py-2.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  className="flex-1 px-3 py-2.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
                 />
                 <Button
                   variant="secondary"
@@ -562,7 +562,7 @@ export default function OnboardingPage() {
                   setBiz({ ...biz, company_name: e.target.value })
                 }
                 placeholder={t("onbStep2NamePlaceholder") || "e.g. Café Mirabelle ApS"}
-                className="w-full px-3 py-2.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                className="w-full px-3 py-2.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
               />
             </div>
 
@@ -728,7 +728,7 @@ export default function OnboardingPage() {
                 placeholder="revisor@example.dk"
                 autoComplete="off"
                 aria-describedby="onb-acct-email-hint"
-                className="w-full px-3 py-2.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                className="w-full px-3 py-2.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
               />
               <p id="onb-acct-email-hint" className="text-[11px] text-stone-600 dark:text-stone-400 mt-1.5">
                 {t("onbStep3AccountantHint") ||
@@ -813,7 +813,7 @@ export default function OnboardingPage() {
                     autoComplete="off"
                     aria-invalid={!!revisorError}
                     aria-describedby={revisorError ? "onb-revisor-error" : undefined}
-                    className="w-full px-3 py-2.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-3 py-2.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
                   />
                 </div>
                 <div className="mb-2">
@@ -829,7 +829,7 @@ export default function OnboardingPage() {
                     }
                     placeholder={t("onbStep4NamePlaceholder") || "Anna Hansen"}
                     aria-describedby="onb-revisor-name-hint"
-                    className="w-full px-3 py-2.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-3 py-2.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
                   />
                   <p id="onb-revisor-name-hint" className="text-[11px] text-stone-600 dark:text-stone-400 mt-1.5">
                     {t("onbStep4NameHint") ||

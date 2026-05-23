@@ -315,7 +315,7 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
                 <select
                   value={pattern}
                   onChange={(e) => setPattern(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-100 outline-none focus:border-emerald-400"
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-100 outline-none focus:border-gray-900"
                 >
                   <option value="">— {t("inventoryConsumptionPick") || "pick one"} —</option>
                   {PATTERNS.map((p) => (
@@ -337,7 +337,7 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
                     value={servingSize}
                     onChange={(e) => setServingSize(e.target.value)}
                     placeholder="20"
-                    className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-100 outline-none focus:border-emerald-400"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-100 outline-none focus:border-gray-900"
                   />
                 </div>
                 <div>
@@ -349,7 +349,7 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
                     value={unit}
                     onChange={(e) => setUnit(e.target.value.toLowerCase())}
                     placeholder="g"
-                    className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-100 outline-none focus:border-emerald-400"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-100 outline-none focus:border-gray-900"
                   />
                 </div>
               </div>
@@ -368,7 +368,7 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
                   onChange={(e) => setKeywords(e.target.value.slice(0, 500))}
                   rows={2}
                   placeholder="espresso, cappuccino, latte, americano"
-                  className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-100 outline-none focus:border-emerald-400 resize-none"
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-100 outline-none focus:border-gray-900 resize-none"
                 />
                 <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 leading-snug">
                   {t("inventoryConsumptionKeywordsHelp") ||
@@ -387,7 +387,7 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
                     value={previewQuery}
                     onChange={(e) => setPreviewQuery(e.target.value)}
                     placeholder="e.g. Espresso doppio"
-                    className="flex-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-100 outline-none focus:border-emerald-400"
+                    className="flex-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-100 outline-none focus:border-gray-900"
                   />
                   <button
                     type="button"

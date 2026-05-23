@@ -1094,15 +1094,3 @@ function PlaceCard({ place, onTrack, isAdding }) {
 }
 
 
-/* ═══════════════════════════════════════════════════════════
-   METRIC CARD
-   ═══════════════════════════════════════════════════════════ */
-function MetricCard({ label, value, sub, color }) {
-  return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm text-center border border-gray-100 dark:border-gray-700">
-      <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
-      <p className={`text-2xl font-bold mt-1 ${color}`}>{value}</p>
-      {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
-    </div>
-  );
-}

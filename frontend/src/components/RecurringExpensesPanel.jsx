@@ -44,7 +44,7 @@ function PaymentMethodSelect({ value, onChange, t }) {
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="w-full h-10 px-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-stone-800 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+      className="w-full h-10 px-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-stone-800 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-gray-900"
     >
       {PAYMENT_METHODS.map((m) => (
         <option key={m.value} value={m.value}>
@@ -122,7 +122,7 @@ function RuleForm({ initial, categories, currency, onSubmit, onCancel, t }) {
           onChange={(e) => setName(e.target.value)}
           maxLength={100}
           placeholder={t("recurringNamePlaceholder", "e.g. Rent — Nørrebrogade")}
-          className="w-full h-10 px-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          className="w-full h-10 px-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
           autoFocus
         />
       </div>
@@ -140,7 +140,7 @@ function RuleForm({ initial, categories, currency, onSubmit, onCancel, t }) {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="18000"
-            className="w-full h-10 px-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            className="w-full h-10 px-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
           />
         </div>
         <div>
@@ -150,7 +150,7 @@ function RuleForm({ initial, categories, currency, onSubmit, onCancel, t }) {
           <select
             value={dayOfMonth}
             onChange={(e) => setDayOfMonth(e.target.value)}
-            className="w-full h-10 px-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            className="w-full h-10 px-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
           >
             {DAY_OPTIONS.map((d) => (
               <option key={d} value={d}>{d}</option>
@@ -170,7 +170,7 @@ function RuleForm({ initial, categories, currency, onSubmit, onCancel, t }) {
           <select
             value={categoryId}
             onChange={(e) => setCategoryId(e.target.value)}
-            className="w-full h-10 px-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            className="w-full h-10 px-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
           >
             <option value="">—</option>
             {categories.map((c) => (
@@ -200,7 +200,7 @@ function RuleForm({ initial, categories, currency, onSubmit, onCancel, t }) {
           onChange={(e) => setDescription(e.target.value)}
           maxLength={200}
           placeholder={t("recurringDescPlaceholder", "e.g. Monthly rent")}
-          className="w-full h-10 px-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          className="w-full h-10 px-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
         />
       </div>
 
@@ -212,7 +212,7 @@ function RuleForm({ initial, categories, currency, onSubmit, onCancel, t }) {
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={2}
-          className="w-full px-3 py-2 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          className="w-full px-3 py-2 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
         />
       </div>
 

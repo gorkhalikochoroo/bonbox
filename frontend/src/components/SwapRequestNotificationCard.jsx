@@ -143,7 +143,7 @@ function SwapRow({ swap, onChanged, t }) {
             onChange={(e) => setNote(e.target.value.slice(0, 500))}
             rows={2}
             placeholder={t("swapDenyReasonPlaceholder") || "Why? (optional, staff will see this)"}
-            className="w-full px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-xs text-gray-800 dark:text-gray-100 outline-none focus:border-emerald-400 resize-none"
+            className="w-full px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-xs text-gray-800 dark:text-gray-100 outline-none focus:border-gray-900 resize-none"
           />
           <div className="flex items-center gap-2">
             <button

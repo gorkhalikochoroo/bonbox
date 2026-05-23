@@ -224,7 +224,7 @@ export default function OperatingProfileSection() {
                       value={value}
                       onChange={(e) => setDayHours(key, e.target.value)}
                       placeholder="10:00-22:00"
-                      className="flex-1 px-2 py-1 rounded-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-xs text-gray-800 dark:text-gray-100 outline-none focus:border-emerald-400"
+                      className="flex-1 px-2 py-1 rounded-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-xs text-gray-800 dark:text-gray-100 outline-none focus:border-gray-900"
                     />
                     <button
                       onClick={() => toggleClosed(key)}
@@ -320,7 +320,7 @@ function RoleRow({ role, label, category, count, onChange, t }) {
             step="0.5"
             value={count}
             onChange={(e) => onChange(e.target.value === "" ? 0 : Number(e.target.value))}
-            className="w-12 text-center text-sm font-semibold bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-md py-1 outline-none focus:border-emerald-400"
+            className="w-12 text-center text-sm font-semibold bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-md py-1 outline-none focus:border-gray-900"
           />
           <button
             onClick={() => onChange(Math.min(99, Number(count) + 1))}

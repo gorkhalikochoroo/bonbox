@@ -350,18 +350,6 @@ export default function PricingPage() {
   );
 }
 
-function MetricCard({ label, value, sub, color, currency }) {
-  return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm text-center">
-      <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
-      <p className={`text-2xl font-bold mt-1 ${color}`}>
-        {value} {currency && <span className="text-sm font-normal opacity-60">{currency}</span>}
-      </p>
-      <p className="text-xs text-gray-400 mt-0.5">{sub}</p>
-    </div>
-  );
-}
-
 /**
  * Market Comparison section — top of PricingPage.
  *

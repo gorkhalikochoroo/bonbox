@@ -509,7 +509,7 @@ export default function ExpensesPage() {
               value={customCat}
               onChange={(e) => { setCustomCat(e.target.value); if (e.target.value) setCatId(""); }}
               placeholder={t("customCategoryPlaceholder")}
-              className="w-full px-2.5 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:bg-gray-700 dark:text-white"
+              className="w-full px-2.5 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:bg-gray-700 dark:text-white"
             />
             {customCat.length >= 1 && (() => {
               const matches = categories.filter(c => c.name.toLowerCase().includes(customCat.toLowerCase()) && c.name.toLowerCase() !== customCat.toLowerCase());
@@ -538,7 +538,7 @@ export default function ExpensesPage() {
             value={desc}
             onChange={(e) => { setDesc(e.target.value); fetchSuggestion(e.target.value); }}
             placeholder={t("whatWasIt")}
-            className="w-full px-2.5 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:bg-gray-700 dark:text-white"
+            className="w-full px-2.5 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:bg-gray-700 dark:text-white"
           />
           {suggestion && !catId && (
             <button
@@ -583,7 +583,7 @@ export default function ExpensesPage() {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder={`${t("customAmount")} ${getTaxConfig(user?.currency).rate > 0 ? `(${getTaxConfig(user?.currency).label})` : ""}`}
-            className="flex-1 px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:bg-gray-700 dark:text-white"
+            className="flex-1 px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:bg-gray-700 dark:text-white"
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
           <button
@@ -617,7 +617,7 @@ export default function ExpensesPage() {
             value={expDate}
             max={localIso()}
             onChange={(e) => setExpDate(e.target.value)}
-            className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
           />
         </div>
         {expDate !== localIso() && (
@@ -872,21 +872,21 @@ export default function ExpensesPage() {
               type="date"
               value={filterFrom}
               onChange={(e) => { setFilterFrom(e.target.value); fetchData(e.target.value, filterTo); }}
-              className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
             />
             <span className="text-xs text-gray-400">→</span>
             <input
               type="date"
               value={filterTo}
               onChange={(e) => { setFilterTo(e.target.value); fetchData(filterFrom, e.target.value); }}
-              className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
             />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t("searchExpensesPlaceholder")}
-              className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
             />
             {(filterFrom || filterTo) && (
               <button
