@@ -157,7 +157,7 @@ export default function StaffingPage() {
     <div className="p-4 sm:p-6 space-y-6 max-w-5xl mx-auto">
       <FadeIn>
         <PageHeader
-          eyebrow={t("staffingEyebrow") || "INTEL"}
+          eyebrow="INTEL"
           title={t("smartStaffing")}
           subtitle={t("staffingSubtitle") || "Forecast headcount needs and spot over/under-staffed days."}
         />

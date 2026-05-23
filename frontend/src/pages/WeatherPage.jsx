@@ -206,7 +206,7 @@ export default function WeatherPage() {
       {/* Header */}
       <FadeIn>
         <PageHeader
-          eyebrow={t("weatherEyebrow") || "INTEL"}
+          eyebrow="INTEL"
           title={t("weatherSmart")}
           subtitle={t("weatherSubtitle") || "Weather-aware forecasting and revenue correlation."}
           actions={

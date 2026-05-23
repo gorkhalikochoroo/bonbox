@@ -691,7 +691,7 @@ export default function ProfilePage() {
           + i18n + a11y unchanged. */}
       <FadeIn>
         <PageHeader
-          eyebrow={t("profileEyebrow") || "ACCOUNT"}
+          eyebrow="ACCOUNT"
           title={t("profile")}
           subtitle={t("profileSubtitle")}
         />

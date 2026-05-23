@@ -516,9 +516,14 @@ export default function ConnectionsPage() {
         </div>
       )}
 
-      {/* Header */}
+      {/* Header — eyebrow is a sidebar-group identifier, not translated
+          (matches the REPORTS / STOCK / MANAGE pattern across the app).
+          The `t() || fallback` form was broken: t() returns the literal
+          key when no translation exists, which is truthy, so the
+          fallback never fired and "CONNECTIONSEYEBROW" rendered raw to
+          the user. Found via live walkthrough #130. */}
       <PageHeader
-        eyebrow={t("connectionsEyebrow") || "MANAGE"}
+        eyebrow="MANAGE"
         title={t("connectionsTitle") || "Connections"}
         subtitle={t("connectionsSubtitle") ||
           "Connect once, never again. Your bank, your MobilePay, your revisor, your accountant — all in one place. Each one is one tap and under 60 seconds."}

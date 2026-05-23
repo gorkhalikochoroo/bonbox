@@ -111,7 +111,7 @@ export default function BranchPage() {
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
       <FadeIn>
         <PageHeader
-          eyebrow={t("branchesEyebrow") || "MANAGE"}
+          eyebrow="MANAGE"
           title={t("branches") || "Branch Bookkeeping"}
           subtitle={
             branchCap !== null

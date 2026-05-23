@@ -106,7 +106,7 @@ export default function ModulesPage() {
     <div className="px-4 sm:px-6 py-6 max-w-3xl mx-auto">
       <FadeIn>
         <PageHeader
-          eyebrow={t("modulesEyebrow") || "MANAGE"}
+          eyebrow="MANAGE"
           title={t("modulesPageTitle") || "Vertical modules"}
           subtitle={t("modulesPageSubtitle") ||
             "Pick the feature areas relevant to your business. Hidden modules don't appear in the sidebar — keeps the app focused on what you actually use."}

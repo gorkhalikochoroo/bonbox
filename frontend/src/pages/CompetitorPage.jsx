@@ -348,7 +348,7 @@ export default function CompetitorPage() {
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
       <FadeIn>
         <PageHeader
-          eyebrow={t("competitorEyebrow") || "INTEL"}
+          eyebrow="INTEL"
           title={t("competitorScan") || "Competitor Scan"}
           subtitle={t("competitorSubtitle") || "Discover nearby businesses, track competitors & compare prices."}
           actions={

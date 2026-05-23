@@ -113,7 +113,7 @@ export default function PricingPage() {
       {/* Header */}
       <FadeIn>
         <PageHeader
-          eyebrow={t("pricingEyebrow") || "INTEL"}
+          eyebrow="INTEL"
           title={t("priceOptimization") || "Price Optimization"}
           subtitle={t("pricingSubtitle") || "Find under-priced items, simulate increases, and benchmark against your neighborhood."}
         />

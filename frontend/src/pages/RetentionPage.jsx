@@ -88,7 +88,7 @@ export default function RetentionPage() {
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
       <FadeIn>
         <PageHeader
-          eyebrow={t("retentionEyebrow") || "INTEL"}
+          eyebrow="INTEL"
           title={t("customerRetention") || "Customer Retention"}
           subtitle={t("retentionSubtitle") || "Spot at-risk customers before they churn."}
         />
