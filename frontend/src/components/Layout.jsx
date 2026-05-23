@@ -576,19 +576,17 @@ export default function Layout() {
             <BranchSelector compact />
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            {/* Desktop collapse — bold chevron-left, hidden on mobile.
-                Border + slightly heavier hover state so it reads as an
-                affordance rather than blending into the sidebar header
-                background. */}
+            {/* Desktop sidebar hide — Claude-style. Lucide PanelLeftClose
+                inside a 40×40 ghost button (no border, hover bg only) so
+                it reads as a clean toolbar control. Bumped from 32×32 →
+                40×40 (Task #129 — "nice good size noticeable"). */}
             <button
               onClick={toggleDesktopSidebar}
               title={t("hideSidebar") || "Hide sidebar"}
-              className="hidden md:inline-flex items-center justify-center w-8 h-8 rounded-md border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-gray-300 dark:hover:border-gray-500 transition shadow-sm"
+              className="hidden md:inline-flex items-center justify-center w-10 h-10 rounded-lg text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800"
               aria-label={t("hideSidebar") || "Hide sidebar"}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-              </svg>
+              <Icon name="PanelLeftClose" size={20} strokeWidth={1.75} />
             </button>
             {/* Mobile close */}
             <button
@@ -792,20 +790,21 @@ export default function Layout() {
         <SoftErrorBanner />
       </Suspense>
 
-      {/* Floating "show sidebar" — only visible on desktop when the
-          user has collapsed the sidebar. Sits flush against the left
-          edge so it doesn't compete with main content. One tap opens
-          the sidebar back up; preference is persisted. */}
+      {/* Floating "show sidebar" — Claude-style. 44×44 white card with
+          1px gray-200 border, rounded-lg, subtle shadow-sm. Hover stays
+          gray (DNA rule 2: emerald is for money moments only, not for
+          UI affordances). Bumped from 40×40 → 44×44 to meet iOS HIG
+          tap target + "noticeable" requirement. PanelLeft Lucide icon
+          mirrors the close button visually so it's clear what it does.
+          One tap → sidebar slides back in; preference persists. */}
       {desktopSidebarHidden && (
         <button
           onClick={toggleDesktopSidebar}
           title={t("showSidebar") || "Show sidebar"}
           aria-label={t("showSidebar") || "Show sidebar"}
-          className="hidden md:flex fixed top-4 left-3 z-40 items-center justify-center w-10 h-10 rounded-lg bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 shadow-md hover:shadow-lg hover:border-green-500 dark:hover:border-green-400 hover:text-green-600 dark:hover:text-green-300 transition"
+          className="hidden md:flex fixed top-4 left-4 z-40 items-center justify-center w-11 h-11 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white hover:border-gray-300 dark:hover:border-gray-600 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-          </svg>
+          <Icon name="PanelLeft" size={20} strokeWidth={1.75} />
         </button>
       )}
 

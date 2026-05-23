@@ -57,6 +57,8 @@ import {
   Flame, TrendingUp, Search, Tag, Check, Hourglass, X,
   // Stock table icon-only action buttons (Task #121)
   Beaker, Globe, Pencil, Minus, PlusCircle,
+  // Sidebar toggle — Claude-style hide/show (Task #129)
+  PanelLeft, PanelLeftClose,
   // Misc / fallback
   Circle, ChevronDown,
 } from "lucide-react";
@@ -98,6 +100,8 @@ const ICONS = {
   Flame, TrendingUp, Search, Tag, Check, Hourglass, X,
   // Stock table icon-only action buttons (Task #121)
   Beaker, Globe, Pencil, Minus, PlusCircle,
+  // Sidebar toggle — Claude-style hide/show (Task #129)
+  PanelLeft, PanelLeftClose,
   // Utility
   ChevronDown,
 };
