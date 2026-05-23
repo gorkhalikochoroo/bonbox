@@ -2,6 +2,11 @@
 // → SectionBanner (pending returns), primary CTAs → Button variant,
 // dropped the DismissibleTip emoji prop so it uses the Lucide default.
 // Behavior + i18n + a11y unchanged.
+//
+// Task #119 Phase 3 polish: replaced dark-gradient rainbow KPI panels
+// with neutral clickable StatCards.  Click-to-expand affordance
+// preserved via onClick + ChevronDown indicator.  Selected state
+// uses gray-900 ring (no tech-glow per sidebar rule).
 import { useState, useEffect, useMemo } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -16,7 +21,7 @@ import { getVatTerms } from "../utils/currency";
 import TaxBreakdown from "../components/TaxBreakdown";
 import { FadeIn, StaggerGrid, StaggerGridItem, AnimatedList, AnimatedListItem, TabContent, motion, AnimatePresence } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
-import { PageHeader, Button, SectionBanner } from "../components/ui";
+import { PageHeader, Button, SectionBanner, StatCard } from "../components/ui";
 
 const QUICK_AMOUNTS = [500, 1000, 2500, 5000, 7500, 10000, 15000];
 
@@ -427,55 +432,71 @@ export default function SalesPage() {
           todaySales.forEach(s => { todayMethods[s.payment_method] = (todayMethods[s.payment_method] || 0) + parseFloat(s.amount); });
           return (
             <div className="lg:col-span-2 space-y-3">
+              {/* KPI strip — Task #119 Phase 3: dark-gradient rainbow
+                  panels replaced with neutral clickable StatCards.
+                  All values render in neutral gray-900; no per-card
+                  emerald/blue/purple/orange. The "by payment" tile is
+                  the one that can't fit the StatCard template (it
+                  shows breakdown chips, not a single number) so it
+                  keeps a custom container — but with the same chrome. */}
               <div className="grid grid-cols-2 gap-3">
-                <button onClick={() => setExpandedStat(expandedStat === "today" ? null : "today")} className={`text-left bg-gradient-to-br from-green-950 to-gray-800 rounded-xl p-4 border transition hover:brightness-110 active:scale-[0.98] ${expandedStat === "today" ? "border-green-400 ring-1 ring-green-400/50" : "border-green-800/50"}`}>
-                  <div className="flex items-center justify-between">
-                    <p className="text-[10px] uppercase tracking-widest text-green-300/70 font-semibold">{hasFilter ? t("latestDay") : t("today")}</p>
-                    <svg className={`w-3 h-3 text-green-400/60 transition-transform ${expandedStat === "today" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                  </div>
-                  <p className="text-3xl font-extrabold text-green-400 mt-1">{salesLoading ? <span className="opacity-40">…</span> : todayRev.toLocaleString()}</p>
-                  <p className="text-[11px] text-green-300/50 mt-1 font-medium">{salesLoading ? " " : `${todaySales.length} ${todaySales.length !== 1 ? t("salesCount") : t("saleCount")} ${t("today").toLowerCase()}`}</p>
-                </button>
-                <button onClick={() => setExpandedStat(expandedStat === "total" ? null : "total")} className={`text-left bg-gradient-to-br from-blue-950 to-gray-800 rounded-xl p-4 border transition hover:brightness-110 active:scale-[0.98] ${expandedStat === "total" ? "border-blue-400 ring-1 ring-blue-400/50" : "border-blue-800/50"}`}>
-                  <div className="flex items-center justify-between">
-                    <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold">{monthName} {t("revenue")}</p>
-                    <svg className={`w-3 h-3 text-blue-400/60 transition-transform ${expandedStat === "total" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                  </div>
-                  <p className="text-3xl font-extrabold text-blue-400 mt-1">{salesLoading ? <span className="opacity-40">…</span> : totalRev.toLocaleString()}</p>
-                  <p className="text-[11px] text-blue-300/50 mt-1 font-medium">{salesLoading ? " " : `${currency} · ${monthSales.length} ${t("salesCount")}`}</p>
-                </button>
-                <button onClick={() => setExpandedStat(expandedStat === "avg" ? null : "avg")} className={`text-left bg-gradient-to-br from-purple-950 to-gray-800 rounded-xl p-4 border transition hover:brightness-110 active:scale-[0.98] ${expandedStat === "avg" ? "border-purple-400 ring-1 ring-purple-400/50" : "border-purple-800/50"}`}>
-                  <div className="flex items-center justify-between">
-                    <p className="text-[10px] uppercase tracking-widest text-purple-300/70 font-semibold">{t("avgSale")}</p>
-                    <svg className={`w-3 h-3 text-purple-400/60 transition-transform ${expandedStat === "avg" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                  </div>
-                  <p className="text-3xl font-extrabold text-purple-400 mt-1">{salesLoading ? <span className="opacity-40">…</span> : Math.round(avgSale).toLocaleString()}</p>
-                  <p className="text-[11px] text-purple-300/50 mt-1 font-medium">{currency}/{t("day")} · {daysWithSales} {t("days")}</p>
-                </button>
-                <div className="bg-gradient-to-br from-orange-950 to-gray-800 rounded-xl p-4 border border-orange-800/50">
-                  <p className="text-[10px] uppercase tracking-widest text-orange-300/70 font-semibold mb-1.5">{t("byPayment")}</p>
-                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                <StatCard
+                  label={hasFilter ? t("latestDay") : t("today")}
+                  value={salesLoading ? <span className="opacity-40">…</span> : todayRev.toLocaleString()}
+                  helper={salesLoading ? " " : `${todaySales.length} ${todaySales.length !== 1 ? t("salesCount") : t("saleCount")} ${t("today").toLowerCase()}`}
+                  onClick={() => setExpandedStat(expandedStat === "today" ? null : "today")}
+                  selected={expandedStat === "today"}
+                  expandable
+                  ariaControls="sales-stat-panel"
+                />
+                <StatCard
+                  label={`${monthName} ${t("revenue")}`}
+                  value={salesLoading ? <span className="opacity-40">…</span> : totalRev.toLocaleString()}
+                  helper={salesLoading ? " " : `${currency} · ${monthSales.length} ${t("salesCount")}`}
+                  onClick={() => setExpandedStat(expandedStat === "total" ? null : "total")}
+                  selected={expandedStat === "total"}
+                  expandable
+                  ariaControls="sales-stat-panel"
+                />
+                <StatCard
+                  label={t("avgSale")}
+                  value={salesLoading ? <span className="opacity-40">…</span> : Math.round(avgSale).toLocaleString()}
+                  helper={`${currency}/${t("day")} · ${daysWithSales} ${t("days")}`}
+                  onClick={() => setExpandedStat(expandedStat === "avg" ? null : "avg")}
+                  selected={expandedStat === "avg"}
+                  expandable
+                  ariaControls="sales-stat-panel"
+                />
+                {/* "By payment" — special: shows breakdown chips, not a
+                    single number.  Mirrors the StatCard chrome
+                    (rounded-xl, gray-200 border, white bg) so the strip
+                    reads as a single block.  Chips are neutral gray pills;
+                    the active payment-filter chip uses the gray-900 fill
+                    that matches the StatCard selected treatment. */}
+                <div className="rounded-xl border border-gray-200 bg-white dark:bg-gray-900 dark:border-gray-800 px-4 py-3.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1.5">{t("byPayment")}</p>
+                  <div className="flex flex-wrap gap-1.5 mt-1">
                     {Object.entries(methods).sort((a, b) => b[1] - a[1]).map(([m, amt]) => (
                       <button
                         key={m}
                         onClick={() => setSearch(search === m ? "" : m)}
-                        className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition capitalize ${
+                        className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition capitalize ${
                           search === m
-                            ? "bg-orange-500 text-white shadow-lg shadow-orange-500/30"
-                            : "bg-orange-900/40 text-orange-200 hover:bg-orange-800/60 border border-orange-700/40"
+                            ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900"
+                            : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
                         }`}
                       >
                         {t(m)} · {amt.toLocaleString()}
                       </button>
                     ))}
                   </div>
-                  <p className="text-[11px] text-orange-300/50 mt-2 font-medium">{Object.keys(methods).length} {Object.keys(methods).length !== 1 ? t("methodsUsed") : t("methodUsed")}</p>
+                  <p className="text-[11.5px] text-gray-500 dark:text-gray-400 mt-2 leading-snug">{Object.keys(methods).length} {Object.keys(methods).length !== 1 ? t("methodsUsed") : t("methodUsed")}</p>
                 </div>
-              </div>
+                            </div>
 
               {/* Expanded detail panel */}
               {expandedStat === "today" && (
-                <div className="bg-gradient-to-br from-green-950/80 to-gray-800 rounded-xl p-4 border border-green-700/60 animate-in">
+                <div id="sales-stat-panel" className="bg-gradient-to-br from-green-950/80 to-gray-800 rounded-xl p-4 border border-green-700/60 animate-in">
                   <div className="flex items-center justify-between mb-3">
                     <p className="text-xs font-semibold text-green-300">{t("todaysBreakdown")}</p>
                     <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-green-900/50 text-green-400 text-xs hover:bg-green-800/60">&times;</button>
@@ -504,7 +525,7 @@ export default function SalesPage() {
               )}
 
               {expandedStat === "total" && (
-                <div className="bg-gradient-to-br from-blue-950/80 to-gray-800 rounded-xl p-4 border border-blue-700/60 animate-in">
+                <div id="sales-stat-panel" className="bg-gradient-to-br from-blue-950/80 to-gray-800 rounded-xl p-4 border border-blue-700/60 animate-in">
                   <div className="flex items-center justify-between mb-3">
                     <p className="text-xs font-semibold text-blue-300">{t("revenueByDay")}</p>
                     <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-blue-900/50 text-blue-400 text-xs hover:bg-blue-800/60">&times;</button>
@@ -539,7 +560,7 @@ export default function SalesPage() {
                   { label: `> ${Math.round(avgSale * 1.5).toLocaleString()}`, count: amounts.filter(a => a > avgSale * 1.5).length },
                 ];
                 return (
-                  <div className="bg-gradient-to-br from-purple-950/80 to-gray-800 rounded-xl p-4 border border-purple-700/60 animate-in">
+                  <div id="sales-stat-panel" className="bg-gradient-to-br from-purple-950/80 to-gray-800 rounded-xl p-4 border border-purple-700/60 animate-in">
                     <div className="flex items-center justify-between mb-3">
                       <p className="text-xs font-semibold text-purple-300">{monthName} {t("saleDistribution")}</p>
                       <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-purple-900/50 text-purple-400 text-xs hover:bg-purple-800/60">&times;</button>
@@ -576,27 +597,14 @@ export default function SalesPage() {
             </div>
           );
         })() : (
+          // Empty-state KPI strip — Task #119 Phase 3: same StatCard
+          // chrome as the populated state so the page reads as one block
+          // whether or not the owner has logged any sales yet.
           <div className="lg:col-span-2 grid grid-cols-2 gap-3 content-start">
-            <div className="bg-gradient-to-br from-green-950 to-gray-800 rounded-xl p-4 border border-green-800/50">
-              <p className="text-[10px] uppercase tracking-widest text-green-300/70 font-semibold mb-1.5">{t("today")}</p>
-              <p className="text-3xl font-extrabold text-green-400">0</p>
-              <p className="text-[11px] text-green-300/50 mt-1 font-medium">{t("noSalesYet")}</p>
-            </div>
-            <div className="bg-gradient-to-br from-blue-950 to-gray-800 rounded-xl p-4 border border-blue-800/50">
-              <p className="text-[10px] uppercase tracking-widest text-blue-300/70 font-semibold mb-1.5">{t("thisMonth")}</p>
-              <p className="text-3xl font-extrabold text-blue-400">0</p>
-              <p className="text-[11px] text-blue-300/50 mt-1 font-medium">{currency}</p>
-            </div>
-            <div className="bg-gradient-to-br from-purple-950 to-gray-800 rounded-xl p-4 border border-purple-800/50">
-              <p className="text-[10px] uppercase tracking-widest text-purple-300/70 font-semibold mb-1.5">{t("avgSale")}</p>
-              <p className="text-3xl font-extrabold text-purple-400">—</p>
-              <p className="text-[11px] text-purple-300/50 mt-1 font-medium">{t("logFirstSale")}</p>
-            </div>
-            <div className="bg-gradient-to-br from-orange-950 to-gray-800 rounded-xl p-4 border border-orange-800/50">
-              <p className="text-[10px] uppercase tracking-widest text-orange-300/70 font-semibold mb-1.5">{t("byPayment")}</p>
-              <p className="text-lg font-extrabold text-orange-400 mt-1">—</p>
-              <p className="text-[11px] text-orange-300/50 mt-1 font-medium">{t("noDataYet")}</p>
-            </div>
+            <StatCard label={t("today")} value="0" helper={t("noSalesYet")} />
+            <StatCard label={t("thisMonth")} value="0" helper={currency} />
+            <StatCard label={t("avgSale")} value="—" helper={t("logFirstSale")} />
+            <StatCard label={t("byPayment")} value="—" helper={t("noDataYet")} />
           </div>
         )}
       </div>

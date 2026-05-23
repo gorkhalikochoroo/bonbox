@@ -5,6 +5,11 @@
 // gradient to SectionBanner severity="critical".  Expiry/expired alerts
 // replaced with SectionBanner.  Category tab row uses TabPills (gray-900
 // active state, no more bg-green-600).  Behavior + i18n + a11y unchanged.
+//
+// Task #119 Phase 3 polish: replaced dark-gradient rainbow KPI panels
+// with neutral clickable StatCards.  Click-to-expand affordance
+// preserved via onClick + ChevronDown indicator.  Selected state
+// uses gray-900 ring (no tech-glow per sidebar rule).
 import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
@@ -609,49 +614,70 @@ export default function InventoryPage() {
         />
       )}
 
-      {/* Summary cards */}
+      {/* Summary cards — Task #119 Phase 3: rainbow buttons replaced
+          with neutral StatCard primitives.  Click-to-expand affordance
+          preserved via onClick + ChevronDown.  Only data-true accents
+          remain: red on lowStock only when alerts.length > 0 (otherwise
+          neutral — there's no alert to signal), amber on "priced" only
+          when a meaningful share of items are still un-priced. */}
       <div className="space-y-3">
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          <button onClick={() => setExpandedStat(expandedStat === "total" ? null : "total")} className={`text-left bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border transition hover:ring-2 hover:ring-green-400/50 active:scale-[0.98] cursor-pointer ${expandedStat === "total" ? "ring-2 ring-green-400/50 border-green-300 dark:border-green-600" : "border-gray-100 dark:border-gray-700"}`}>
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-gray-500 dark:text-gray-400">{t("totalItems")}</p>
-              <svg className={`w-3 h-3 text-gray-400 transition-transform ${expandedStat === "total" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-            </div>
-            <p className="text-2xl font-bold text-gray-800 dark:text-white mt-1">{items.length}</p>
-          </button>
-          <button onClick={() => setExpandedStat(expandedStat === "low" ? null : "low")} className={`text-left bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border transition hover:ring-2 hover:ring-red-400/50 active:scale-[0.98] cursor-pointer ${expandedStat === "low" ? "ring-2 ring-red-400/50 border-red-300 dark:border-red-600" : "border-gray-100 dark:border-gray-700"}`}>
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-gray-500 dark:text-gray-400">{t("lowStock")}</p>
-              <svg className={`w-3 h-3 text-gray-400 transition-transform ${expandedStat === "low" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-            </div>
-            <p className={`text-2xl font-bold mt-1 ${alerts.length > 0 ? "text-red-500" : "text-green-600 dark:text-green-400"}`}>{alerts.length}</p>
-          </button>
-          <button onClick={() => setExpandedStat(expandedStat === "fresh" ? null : "fresh")} className={`text-left bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border transition hover:ring-2 hover:ring-orange-400/50 active:scale-[0.98] cursor-pointer ${expandedStat === "fresh" ? "ring-2 ring-orange-400/50 border-orange-300 dark:border-orange-600" : "border-gray-100 dark:border-gray-700"}`}>
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-gray-500 dark:text-gray-400">{t("freshItems")}</p>
-              <svg className={`w-3 h-3 text-gray-400 transition-transform ${expandedStat === "fresh" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-            </div>
-            <p className="text-2xl font-bold text-orange-500 mt-1">{perishableCount}</p>
-          </button>
-          <button onClick={() => setExpandedStat(expandedStat === "categories" ? null : "categories")} className={`text-left bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border transition hover:ring-2 hover:ring-purple-400/50 active:scale-[0.98] cursor-pointer ${expandedStat === "categories" ? "ring-2 ring-purple-400/50 border-purple-300 dark:border-purple-600" : "border-gray-100 dark:border-gray-700"}`}>
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-gray-500 dark:text-gray-400">{t("categories")}</p>
-              <svg className={`w-3 h-3 text-gray-400 transition-transform ${expandedStat === "categories" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-            </div>
-            <p className="text-2xl font-bold text-purple-600 dark:text-purple-400 mt-1">{categories.length}</p>
-          </button>
-          <button onClick={() => setExpandedStat(expandedStat === "priced" ? null : "priced")} className={`text-left bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border transition hover:ring-2 hover:ring-blue-400/50 active:scale-[0.98] cursor-pointer ${expandedStat === "priced" ? "ring-2 ring-blue-400/50 border-blue-300 dark:border-blue-600" : "border-gray-100 dark:border-gray-700"}`}>
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-gray-500 dark:text-gray-400">{t("priced")}</p>
-              <svg className={`w-3 h-3 text-gray-400 transition-transform ${expandedStat === "priced" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-            </div>
-            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">{stats.itemsWithMargin}/{items.length}</p>
-          </button>
+          <StatCard
+            label={t("totalItems")}
+            value={items.length}
+            onClick={() => setExpandedStat(expandedStat === "total" ? null : "total")}
+            selected={expandedStat === "total"}
+            expandable
+            ariaControls="inventory-stat-panel"
+          />
+          <StatCard
+            label={t("lowStock")}
+            value={alerts.length}
+            // Critical accent only when there's an alert to signal —
+            // with 0 low-stock items the tile stays neutral, no false alarm.
+            accent={alerts.length > 0 ? "critical" : "neutral"}
+            onClick={() => setExpandedStat(expandedStat === "low" ? null : "low")}
+            selected={expandedStat === "low"}
+            expandable
+            ariaControls="inventory-stat-panel"
+          />
+          <StatCard
+            label={t("freshItems")}
+            value={perishableCount}
+            onClick={() => setExpandedStat(expandedStat === "fresh" ? null : "fresh")}
+            selected={expandedStat === "fresh"}
+            expandable
+            ariaControls="inventory-stat-panel"
+          />
+          <StatCard
+            label={t("categories")}
+            value={categories.length}
+            onClick={() => setExpandedStat(expandedStat === "categories" ? null : "categories")}
+            selected={expandedStat === "categories"}
+            expandable
+            ariaControls="inventory-stat-panel"
+          />
+          <StatCard
+            label={t("priced")}
+            value={`${stats.itemsWithMargin}/${items.length}`}
+            // Warn accent when 5+ items are still un-priced — owner
+            // can't calculate margin on those, so it's a real coverage
+            // gap.  Below that, stay neutral.
+            accent={items.length > 0 && (items.length - stats.itemsWithMargin) >= 5 ? "warn" : "neutral"}
+            onClick={() => setExpandedStat(expandedStat === "priced" ? null : "priced")}
+            selected={expandedStat === "priced"}
+            expandable
+            ariaControls="inventory-stat-panel"
+          />
         </div>
 
-        {/* Expanded detail panels */}
+        {/* Expanded detail panels — each variant shares the same DOM id
+            so the StatCard's aria-controls reference resolves regardless
+            of which one is open.  Sub-panel chrome (the per-variant
+            colored border + dot pills inside) is unchanged for this
+            iteration per the Phase 3 scope: outer tile chrome only. */}
         {expandedStat === "total" && (
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-green-200 dark:border-green-800 shadow-sm">
+          <div id="inventory-stat-panel" className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-green-200 dark:border-green-800 shadow-sm">
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("allItems")} ({items.length})</p>
               <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
@@ -696,7 +722,7 @@ export default function InventoryPage() {
         )}
 
         {expandedStat === "low" && (
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-red-200 dark:border-red-800 shadow-sm">
+          <div id="inventory-stat-panel" className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-red-200 dark:border-red-800 shadow-sm">
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("lowStockItems")} ({alerts.length})</p>
               <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
@@ -721,7 +747,7 @@ export default function InventoryPage() {
         )}
 
         {expandedStat === "fresh" && (
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-orange-200 dark:border-orange-800 shadow-sm">
+          <div id="inventory-stat-panel" className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-orange-200 dark:border-orange-800 shadow-sm">
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("perishableItems")} ({perishableCount})</p>
               <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
@@ -746,7 +772,7 @@ export default function InventoryPage() {
         )}
 
         {expandedStat === "categories" && (
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-purple-200 dark:border-purple-800 shadow-sm">
+          <div id="inventory-stat-panel" className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-purple-200 dark:border-purple-800 shadow-sm">
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("categories")} ({categories.length})</p>
               <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
@@ -772,7 +798,7 @@ export default function InventoryPage() {
         )}
 
         {expandedStat === "priced" && (
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-blue-200 dark:border-blue-800 shadow-sm">
+          <div id="inventory-stat-panel" className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-blue-200 dark:border-blue-800 shadow-sm">
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("pricingStatus")} ({stats.itemsWithMargin}/{items.length})</p>
               <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
