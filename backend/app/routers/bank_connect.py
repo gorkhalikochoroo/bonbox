@@ -74,6 +74,7 @@ from app.services.billing import enforce_feature
 from app.services.cash_sync import sync_cash_out_for_expense
 from app.utils.crypto import encrypt
 from app.utils.time import utc_now
+from app.utils.url import safe_frontend_url
 
 logger = logging.getLogger(__name__)
 # Two router objects so we can mount them under different prefixes in
@@ -418,7 +419,7 @@ def bank_callback(
         )
         db.commit()
         return RedirectResponse(
-            url=f"{settings.FRONTEND_URL.rstrip('/')}/connections?bank_error=1",
+            url=f"{safe_frontend_url()}/connections?bank_error=1",
             status_code=303,
         )
 
@@ -478,14 +479,14 @@ def bank_callback(
         )
         db.rollback()
         return RedirectResponse(
-            url=f"{settings.FRONTEND_URL.rstrip('/')}/connections?bank_error=1",
+            url=f"{safe_frontend_url()}/connections?bank_error=1",
             status_code=303,
         )
 
     # Bounce back to the connections page so the owner sees a "🎉
     # Bank connected" toast.
     return RedirectResponse(
-        url=f"{settings.FRONTEND_URL.rstrip('/')}/connections?bank_connected=1",
+        url=f"{safe_frontend_url()}/connections?bank_connected=1",
         status_code=303,
     )
 

@@ -31,7 +31,7 @@ Test mode:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -72,31 +72,9 @@ def is_test_mode() -> bool:
     return settings.STRIPE_SECRET_KEY.startswith("sk_test_")
 
 
-# Canonical production frontend URL. Stripe success/cancel/return URLs MUST
-# resolve to a public domain; the bonbox.vercel.app alias is access-walled by
-# Vercel and lands the user on a 401 page. If FRONTEND_URL is misconfigured to
-# vercel.app in production, we override here rather than break the upgrade flow.
-_CANONICAL_PROD_FRONTEND = "https://bonbox.dk"
-
-
-def _safe_frontend_url() -> str:
-    """Return the frontend base URL Stripe should redirect back to.
-
-    Always rewrites vercel.app preview aliases to bonbox.dk — the preview alias
-    is access-walled and Stripe callbacks land on a 401. localhost is preserved
-    for dev. Empty FRONTEND_URL falls back to bonbox.dk too.
-    """
-    url = (settings.FRONTEND_URL or "").rstrip("/")
-    if not url:
-        return _CANONICAL_PROD_FRONTEND
-    if "vercel.app" in url:
-        log.warning(
-            "FRONTEND_URL=%s is a vercel.app alias; rewriting to %s for Stripe "
-            "redirects (preview aliases are access-walled and break checkout)",
-            url, _CANONICAL_PROD_FRONTEND,
-        )
-        return _CANONICAL_PROD_FRONTEND
-    return url
+# Frontend URL helpers moved to app.utils.url so bank_connect.py + future
+# external-redirect callers share the same Vercel-preview rewrite logic.
+from app.utils.url import safe_frontend_url as _safe_frontend_url  # noqa: F401
 
 
 # ─────────────────────────── Founding-member helper ────────────────────────
@@ -641,7 +619,10 @@ def _apply_subscription_state(user: User, sub_obj, db: Session) -> None:
             pe = _g(items_data[0], "current_period_end")
     if pe:
         try:
-            user.subscription_period_end = datetime.utcfromtimestamp(int(pe))
+            # datetime.utcfromtimestamp() is deprecated in Py 3.12+. Use the
+            # tz-aware API then strip tzinfo to stay naive-UTC, matching the
+            # convention in app.utils.time.utc_now() (which the DB expects).
+            user.subscription_period_end = datetime.fromtimestamp(int(pe), tz=timezone.utc).replace(tzinfo=None)
         except (TypeError, ValueError):
             pass
 
@@ -689,7 +670,16 @@ def _apply_subscription_state(user: User, sub_obj, db: Session) -> None:
             # Frontend can surface a banner asking user to update card.
             pass
         else:
-            log.warning("Unknown Stripe sub status=%s for user=%s — leaving plan as-is", status, user.id)
+            # An unknown Stripe status (e.g. a future state Stripe ships) used to
+            # silently leave the plan unchanged, which means a paused/abandoned
+            # Pro subscription could retain access indefinitely. Bumped to ERROR
+            # so it surfaces in monitoring; consider a daily reconciliation cron
+            # if these become recurring. AMBER audit finding #127.
+            log.error(
+                "Unknown Stripe sub status=%s for user=%s — leaving plan as-is "
+                "(may indicate Stripe shipped a new state; needs explicit handling)",
+                status, user.id,
+            )
     except Exception as e:
         log.exception("Plan mapping failed for user=%s status=%s: %s", user.id, status, e)
 
