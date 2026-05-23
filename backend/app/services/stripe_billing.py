@@ -728,24 +728,77 @@ def handle_webhook(
         log.warning("Webhook received but Stripe SDK/key not configured — ignoring")
         return {"status": "ignored", "reason": "stripe_not_configured"}
 
-    if not settings.STRIPE_WEBHOOK_SECRET:
-        log.warning("STRIPE_WEBHOOK_SECRET not set — refusing to process webhook")
+    # Build the list of candidate secrets — Task #117.  Stripe sends
+    # events from BOTH test mode and live mode (each with a different
+    # signing secret), so production endpoints typically need to accept
+    # both.  Try every configured secret; first one that verifies wins.
+    candidate_secrets: list[tuple[str, str]] = []
+    if settings.STRIPE_WEBHOOK_SECRET:
+        candidate_secrets.append(("primary", settings.STRIPE_WEBHOOK_SECRET))
+    if settings.STRIPE_WEBHOOK_SECRET_TEST:
+        candidate_secrets.append(("secondary", settings.STRIPE_WEBHOOK_SECRET_TEST))
+
+    if not candidate_secrets:
+        log.warning(
+            "Neither STRIPE_WEBHOOK_SECRET nor STRIPE_WEBHOOK_SECRET_TEST "
+            "is set — refusing to process webhook",
+        )
         return {"status": "ignored", "reason": "no_webhook_secret"}
 
-    # L1 — Verify signature
-    try:
-        event = s.Webhook.construct_event(
-            payload=payload_body,
-            sig_header=signature_header or "",
-            secret=settings.STRIPE_WEBHOOK_SECRET,
+    # L1 — Verify signature against each candidate secret.  We surface
+    # diagnostic info (signature prefix, which secrets we tried) in the
+    # response body when verification fails so the Stripe dashboard's
+    # webhook-attempts view shows a debuggable error instead of a bare
+    # "bad_signature".  No actual secret bytes ever leave the server.
+    event = None
+    last_error: str = ""
+    for label, secret in candidate_secrets:
+        try:
+            event = s.Webhook.construct_event(
+                payload=payload_body,
+                sig_header=signature_header or "",
+                secret=secret,
+            )
+            log.info(
+                "Webhook signature verified against %s secret (sig prefix=%s)",
+                label, (signature_header or "")[:20],
+            )
+            break
+        except ValueError as e:
+            # Not a signature issue — body itself is unparseable.  Same
+            # outcome regardless of which secret we try.
+            log.warning("Webhook payload not valid JSON: %s", e)
+            return {
+                "status": "error",
+                "code": "bad_payload",
+                "exception_msg": str(e)[:200],
+                "_http": 400,
+            }
+        except Exception as e:
+            # SignatureVerificationError on THIS secret — try the next.
+            last_error = type(e).__name__
+            continue
+
+    if event is None:
+        sig_prefix = (signature_header or "")[:40] if signature_header else "(missing)"
+        log.warning(
+            "Webhook signature failed against %d candidate secret(s) — "
+            "sig prefix=%s last_error=%s",
+            len(candidate_secrets), sig_prefix, last_error,
         )
-    except ValueError as e:
-        log.warning("Webhook payload not valid JSON: %s", e)
-        return {"status": "error", "code": "bad_payload", "_http": 400}
-    except Exception as e:
-        # SignatureVerificationError or any other — treat as forged
-        log.warning("Webhook signature verification failed: %s", type(e).__name__)
-        return {"status": "error", "code": "bad_signature", "_http": 400}
+        return {
+            "status": "error",
+            "code": "bad_signature",
+            "secrets_tried": len(candidate_secrets),
+            "last_error": last_error,
+            "hint": (
+                "STRIPE_WEBHOOK_SECRET on Render likely doesn't match this "
+                "endpoint's signing secret in Stripe Dashboard.  If this "
+                "is a TEST-mode event but you've only set the live secret "
+                "(or vice versa), also set STRIPE_WEBHOOK_SECRET_TEST."
+            ),
+            "_http": 400,
+        }
 
     event_type = event.get("type", "")
     event_id = event.get("id", "")

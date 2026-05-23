@@ -75,7 +75,20 @@ class Settings(BaseSettings):
     # signing secret to verify requests really came from Stripe).
     STRIPE_SECRET_KEY: str = ""
     STRIPE_PUBLISHABLE_KEY: str = ""
+    # Primary webhook signing secret — for whichever Stripe mode the
+    # production endpoint is hooked to (typically live).  Get from
+    # Stripe Dashboard → Developers → Webhooks → endpoint → Signing
+    # secret (whsec_...).
     STRIPE_WEBHOOK_SECRET: str = ""
+    # Optional secondary signing secret — Task #117.  Stripe sends
+    # webhook events from BOTH test and live modes; if you have one
+    # endpoint registered in both modes (very common during launch),
+    # each mode has a DIFFERENT signing secret.  Without supporting
+    # both, every test-mode event fails signature verification +
+    # eventually Stripe disables the endpoint.  Set this to the
+    # test-mode whsec_ value (or vice versa).  Handler tries primary
+    # first, then secondary — first one that verifies wins.
+    STRIPE_WEBHOOK_SECRET_TEST: str = ""
     # ── Subscription price IDs ────────────────────────────────────────
     # Tier structure (May 2026): Free → Starter (199/founding 129) →
     # Pro (349/founding 249). Existing customers locked in at older
