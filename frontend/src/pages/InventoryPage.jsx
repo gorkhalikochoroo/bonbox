@@ -413,6 +413,7 @@ export default function InventoryPage() {
               <Button
                 variant="secondary"
                 onClick={() => setShowTemplateModal(true)}
+                className="hidden sm:inline-flex"
               >
                 {t("loadTemplate")}
               </Button>
@@ -442,6 +443,7 @@ export default function InventoryPage() {
                 }}
                 iconLeft={<Icon name="FileText" size={16} />}
                 title="Download a PDF stock-list report"
+                className="hidden sm:inline-flex"
               >
                 PDF
               </Button>
@@ -465,6 +467,7 @@ export default function InventoryPage() {
                 }}
                 iconLeft={<Icon name="FileSpreadsheet" size={16} />}
                 title="Download stock list as CSV (Excel-friendly, semicolon delimited)"
+                className="hidden sm:inline-flex"
               >
                 CSV
               </Button>
@@ -621,7 +624,7 @@ export default function InventoryPage() {
           neutral — there's no alert to signal), amber on "priced" only
           when a meaningful share of items are still un-priced. */}
       <div className="space-y-3">
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <StatCard
             label={t("totalItems")}
             value={items.length}
@@ -942,7 +945,7 @@ export default function InventoryPage() {
       {/* Add item form */}
       <div className="bg-white dark:bg-gray-900 p-6 rounded-xl border border-gray-200 dark:border-gray-800">
         <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">{t("addItem")}</h2>
-        <form onSubmit={handleSubmit} className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
           <input type="text" placeholder={t("itemName")} value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg col-span-2 md:col-span-1" required />

@@ -5,8 +5,8 @@
  * `bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg` by hand.
  *
  * Variants (paired to intent, not color):
- *   • primary   — the action you want the user to take. Stone-900 on
- *                  light bg, stone-50 on dark. Quiet but confident.
+ *   • primary   — the action you want the user to take. Gray-900 on
+ *                  light bg, gray-50 on dark. Quiet but confident.
  *   • accent    — the "money moment" — confirm a purchase, send to
  *                  accountant, complete a close. Emerald.
  *   • secondary — neutral acknowledgement. Cancel, dismiss, alt path.
@@ -28,25 +28,25 @@ const BASE =
   "inline-flex items-center justify-center gap-2 rounded-lg font-medium " +
   "transition-colors focus-visible:outline-none focus-visible:ring-2 " +
   "focus-visible:ring-offset-2 focus-visible:ring-offset-white " +
-  "dark:focus-visible:ring-offset-stone-900 disabled:opacity-50 " +
+  "dark:focus-visible:ring-offset-gray-900 disabled:opacity-50 " +
   "disabled:cursor-not-allowed disabled:pointer-events-none whitespace-nowrap";
 
 const VARIANTS = {
   primary:
-    "bg-stone-900 text-white hover:bg-stone-800 " +
-    "dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white " +
-    "focus-visible:ring-stone-900 dark:focus-visible:ring-stone-100",
+    "bg-gray-900 text-white hover:bg-gray-800 " +
+    "dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white " +
+    "focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100",
   accent:
     "bg-emerald-600 text-white hover:bg-emerald-700 " +
     "focus-visible:ring-emerald-600",
   secondary:
-    "bg-stone-100 text-stone-800 hover:bg-stone-200 " +
-    "dark:bg-stone-800 dark:text-stone-100 dark:hover:bg-stone-700 " +
-    "focus-visible:ring-stone-400",
+    "bg-gray-100 text-gray-800 hover:bg-gray-200 " +
+    "dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700 " +
+    "focus-visible:ring-gray-400",
   ghost:
-    "bg-transparent text-stone-700 hover:bg-stone-100 " +
-    "dark:text-stone-300 dark:hover:bg-stone-800 " +
-    "focus-visible:ring-stone-400",
+    "bg-transparent text-gray-700 hover:bg-gray-100 " +
+    "dark:text-gray-300 dark:hover:bg-gray-800 " +
+    "focus-visible:ring-gray-400",
   danger:
     "bg-red-600 text-white hover:bg-red-700 " +
     "focus-visible:ring-red-600",

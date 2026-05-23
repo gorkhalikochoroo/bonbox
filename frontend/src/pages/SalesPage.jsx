@@ -21,7 +21,7 @@ import { getVatTerms } from "../utils/currency";
 import TaxBreakdown from "../components/TaxBreakdown";
 import { FadeIn, StaggerGrid, StaggerGridItem, AnimatedList, AnimatedListItem, TabContent, motion, AnimatePresence } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
-import { PageHeader, Button, SectionBanner, StatCard } from "../components/ui";
+import { PageHeader, Button, SectionBanner, StatCard, TabPills } from "../components/ui";
 
 const QUICK_AMOUNTS = [500, 1000, 2500, 5000, 7500, 10000, 15000];
 
@@ -653,69 +653,65 @@ export default function SalesPage() {
       {/* Return summary */}
       {returnSummary && returnSummary.total_returns > 0 && statusFilter === "returns" && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700 text-center">
-            <p className="text-[10px] uppercase text-gray-400 font-semibold">Returns</p>
-            <p className="text-lg font-bold text-red-500">{returnSummary.total_returns}</p>
-          </div>
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700 text-center">
-            <p className="text-[10px] uppercase text-gray-400 font-semibold">Refunded</p>
-            <p className="text-lg font-bold text-red-500">{Math.round(returnSummary.total_refunded).toLocaleString()} {currency}</p>
-          </div>
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700 text-center">
-            <p className="text-[10px] uppercase text-gray-400 font-semibold">Pending</p>
-            <p className="text-lg font-bold text-amber-500">{returnSummary.pending_count}</p>
-          </div>
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700 text-center">
-            <p className="text-[10px] uppercase text-gray-400 font-semibold">Exchanged</p>
-            <p className="text-lg font-bold text-blue-500">{returnSummary.by_action?.exchange || 0}</p>
-          </div>
+          <StatCard
+            label="Returns"
+            value={returnSummary.total_returns}
+            accent="critical"
+          />
+          <StatCard
+            label="Refunded"
+            value={`${Math.round(returnSummary.total_refunded).toLocaleString()} ${currency}`}
+            accent="critical"
+          />
+          <StatCard
+            label="Pending"
+            value={returnSummary.pending_count}
+            accent="warn"
+          />
+          <StatCard
+            label="Exchanged"
+            value={returnSummary.by_action?.exchange || 0}
+          />
         </div>
       )}
 
       {/* Sales History */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
             <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">{t("recentSales")}</h2>
             {/* Status filter pills */}
-            <div className="flex gap-1">
-              {[
-                { k: "all", label: "All" },
-                { k: "completed", label: "Completed" },
-                { k: "returns", label: `Returns${returnCount > 0 ? ` (${returnCount})` : ""}` },
-              ].map((f) => (
-                <button key={f.k} onClick={() => setStatusFilter(f.k)}
-                  className={`text-[11px] font-medium px-2.5 py-1 rounded-md border transition
-                    ${statusFilter === f.k
-                      ? f.k === "returns" ? "border-red-400/30 bg-red-50 dark:bg-red-900/15 text-red-600 dark:text-red-400"
-                        : "border-green-400/30 bg-green-50 dark:bg-green-900/15 text-green-600 dark:text-green-400"
-                      : "border-transparent bg-gray-100 dark:bg-gray-700/40 text-gray-500 dark:text-gray-400"
-                    }`}>
-                  {f.label}
-                </button>
-              ))}
-            </div>
+            <TabPills
+              tabs={[
+                { id: "all", label: "All" },
+                { id: "completed", label: "Completed" },
+                { id: "returns", label: `Returns${returnCount > 0 ? ` (${returnCount})` : ""}` },
+              ]}
+              activeId={statusFilter}
+              onChange={setStatusFilter}
+              ariaLabel="Sales status filter"
+            />
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
             <input
               type="date"
               value={filterFrom}
               onChange={(e) => { setFilterFrom(e.target.value); fetchSales(e.target.value, filterTo); }}
-              className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full sm:w-auto px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
-            <span className="text-xs text-gray-400">→</span>
+            <span className="hidden sm:inline text-xs text-gray-400">→</span>
             <input
               type="date"
               value={filterTo}
               onChange={(e) => { setFilterTo(e.target.value); fetchSales(filterFrom, e.target.value); }}
-              className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full sm:w-auto px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t("searchSalesPlaceholder")}
-              className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full sm:w-auto px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
             {(filterFrom || filterTo) && (
               <button
@@ -738,7 +734,7 @@ export default function SalesPage() {
             </button>
           </div>
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
         <table className="w-full text-left min-w-[500px]">
           <thead className="bg-gray-50 dark:bg-gray-700/50">
             <tr>
