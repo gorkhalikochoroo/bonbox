@@ -16,6 +16,8 @@ Multi-layer defense:
 """
 
 import logging
+from datetime import timedelta
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -26,9 +28,11 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
+from app.services.admin_security import _audit, require_super_admin
 from app.services.auth import get_current_user
 from app.services.billing import billing_summary, entitlements_payload
 from app.services import stripe_billing
+from app.utils.time import utc_now
 
 router = APIRouter()
 log = logging.getLogger("bonbox.billing")
@@ -289,3 +293,157 @@ async def stripe_webhook(
         http_code = result.pop("_http")
         return JSONResponse(status_code=http_code, content=result)
     return result
+
+
+# ─── Debug endpoints — super-admin only ───────────────────────────────
+#
+# Operator tooling to test the trial-expiry / re-engagement flow without
+# waiting 14 days or running raw SQL on the prod DB. Both endpoints are
+# guarded by `require_super_admin` (6-layer auth incl. SUPER_ADMIN_EMAILS
+# allowlist + role=super_admin DB check) and write to the audit log on
+# every call.
+#
+# Safety properties:
+#   • Cannot grant a paid tier — only flips trial_ends_at + sets plan="free".
+#     Paid plans still require a real Stripe subscription event.
+#   • Refuses to modify another super_admin's account (ops-on-ops guard).
+#   • Audit-logged with before/after snapshots so any incorrect use is
+#     recoverable from the trail.
+#   • If target_email is omitted, operates on the admin's own account
+#     (the common case: "I want to see what my own dashboard looks like
+#     after the trial expires").
+
+
+def _resolve_debug_target(
+    admin: User, target_email: Optional[str], db: Session
+) -> User:
+    """Return the User to operate on. Refuses to mutate another super_admin."""
+    if not target_email:
+        return admin
+    target = db.query(User).filter(User.email == target_email.lower().strip()).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Target user not found")
+    if target.id != admin.id and (getattr(target, "role", None) or "").lower() == "super_admin":
+        raise HTTPException(
+            status_code=400,
+            detail="Refusing to modify another super_admin's billing state",
+        )
+    return target
+
+
+def _snapshot(user: User) -> dict:
+    return {
+        "plan": getattr(user, "plan", None),
+        "trial_ends_at": user.trial_ends_at.isoformat()
+        if getattr(user, "trial_ends_at", None)
+        else None,
+    }
+
+
+@router.post("/debug/expire-trial")
+def debug_expire_trial(
+    request: Request,
+    target_email: Optional[str] = None,
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Force a user into the expired-trial / Free state.
+
+    Use case: verify the trial→Free auto-downgrade works end-to-end (the
+    `effective_plan()` function is supposed to fall to "free" once
+    `trial_ends_at` is in the past; this endpoint moves that boundary
+    backwards so you can test the lock-out without waiting 14 days).
+
+    What this does:
+      1. user.trial_ends_at = now - 1 day  (trial is firmly in the past)
+      2. user.plan = "free"                (clears any paid tier so the
+                                            trial check actually fires)
+
+    What this does NOT do:
+      • Cancel any Stripe subscription. If the user has an active sub,
+        the next webhook event (or /billing/me auto-sync) will flip
+        them back to their paid tier — which is the correct behavior.
+        For a clean test, run /debug/expire-trial against an account
+        with no active subscription.
+
+    To restore: POST /debug/reset-trial.
+    """
+    target = _resolve_debug_target(admin, target_email, db)
+    before = _snapshot(target)
+
+    target.trial_ends_at = utc_now() - timedelta(days=1)
+    target.plan = "free"
+    db.commit()
+    db.refresh(target)
+
+    after = _snapshot(target)
+    _audit(
+        db,
+        admin.id,
+        "debug.expire_trial",
+        request,
+        detail=f"target={target.email} before={before} after={after}",
+    )
+    return {
+        "ok": True,
+        "target_email": target.email,
+        "before": before,
+        "after": after,
+        "summary": billing_summary(target),
+    }
+
+
+@router.post("/debug/reset-trial")
+def debug_reset_trial(
+    request: Request,
+    target_email: Optional[str] = None,
+    days: int = 14,
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Reset a user to a fresh trial window.
+
+    Use case: restore a test account after `/debug/expire-trial`, or
+    extend trial for a specific user for QA / onboarding scenarios.
+
+    What this does:
+      1. user.trial_ends_at = now + `days` days (default 14, max 60)
+      2. user.plan = "free"  (so the trial check kicks in — paid plans
+                              would short-circuit `effective_plan()`)
+
+    What this does NOT do:
+      • Cancel any active Stripe subscription. If the user is currently
+        on a paid sub, this would temporarily set them to Free but the
+        next webhook / /billing/me auto-sync would restore paid tier.
+
+    Same super_admin + audit safety as /debug/expire-trial.
+    """
+    if days < 1 or days > 60:
+        raise HTTPException(
+            status_code=400,
+            detail="days must be between 1 and 60",
+        )
+
+    target = _resolve_debug_target(admin, target_email, db)
+    before = _snapshot(target)
+
+    target.trial_ends_at = utc_now() + timedelta(days=days)
+    target.plan = "free"
+    db.commit()
+    db.refresh(target)
+
+    after = _snapshot(target)
+    _audit(
+        db,
+        admin.id,
+        "debug.reset_trial",
+        request,
+        detail=f"target={target.email} days={days} before={before} after={after}",
+    )
+    return {
+        "ok": True,
+        "target_email": target.email,
+        "before": before,
+        "after": after,
+        "summary": billing_summary(target),
+    }
