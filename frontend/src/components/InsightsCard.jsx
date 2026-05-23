@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
 import { trackEvent } from "../hooks/useEventLog";
+import Icon from "./ui/Icon";
 
 /**
  * Active per-owner AI insights with 👍/👎 feedback.
@@ -92,17 +93,21 @@ export default function InsightsCard({ className = "" }) {
   if (visible.length === 0) return null;
 
   return (
-    <div className={`bg-gradient-to-br from-purple-50 via-indigo-50 to-blue-50 dark:from-purple-900/20 dark:via-indigo-900/20 dark:to-blue-900/20 border border-indigo-200/60 dark:border-indigo-800/40 rounded-2xl p-4 sm:p-5 ${className}`}>
+    // Neutral surface — same recipe Card uses (rounded-xl, gray-200 border,
+    // white bg). Previously a lavender / indigo gradient that violated the
+    // "gray-* only" DNA rule. The Sparkles icon (gray-500) gives the panel
+    // its identity without painting the whole container.
+    <div className={`bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 sm:p-5 ${className}`}>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span className="text-lg">✨</span>
+          <Icon name="Sparkles" size={20} className="text-gray-500 dark:text-gray-400" />
           <h2 className="text-base font-bold text-gray-800 dark:text-gray-100">
             Insights for your business
           </h2>
         </div>
         <Link
           to="/insights"
-          className="text-xs text-indigo-700 dark:text-indigo-400 hover:underline font-medium"
+          className="text-xs text-gray-700 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 font-medium"
         >
           View all ({visible.length}) →
         </Link>
@@ -111,25 +116,32 @@ export default function InsightsCard({ className = "" }) {
       <div className="space-y-2.5">
         {visible.slice(0, 5).map((p) => {
           const fb = localFeedback[p.id] || p.feedback;
+          // Severity nests inside the neutral panel — sub-cards keep the
+          // semantic accent (red / amber) only when the severity is
+          // data-meaningful. "info" stays fully neutral.
           const sevColors =
             p.severity === "critical"
-              ? "border-red-300/60 bg-white/80 dark:bg-gray-800/60"
+              ? "border-red-200 bg-white dark:bg-gray-800/60"
               : p.severity === "warning"
-              ? "border-amber-300/60 bg-white/80 dark:bg-gray-800/60"
-              : "border-gray-200/80 dark:border-gray-700/60 bg-white/80 dark:bg-gray-800/60";
+              ? "border-amber-200 bg-white dark:bg-gray-800/60"
+              : "border-gray-200 dark:border-gray-700/60 bg-white dark:bg-gray-800/60";
           return (
             <div
               key={p.id}
               className={`rounded-xl border p-3 ${sevColors}`}
             >
               <div className="flex items-start gap-2 mb-1">
-                {p.severity === "critical" && <span className="text-red-500">⚠</span>}
-                {p.severity === "warning" && <span className="text-amber-500">⚠</span>}
+                {p.severity === "critical" && (
+                  <Icon name="AlertTriangle" size={14} className="text-red-500 dark:text-red-400 mt-0.5 shrink-0" />
+                )}
+                {p.severity === "warning" && (
+                  <Icon name="AlertTriangle" size={14} className="text-amber-500 dark:text-amber-400 mt-0.5 shrink-0" />
+                )}
                 <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 flex-1">{p.title}</h3>
               </div>
               <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed mb-2">{p.detail}</p>
               {p.suggested_action && (
-                <p className="text-xs text-indigo-700 dark:text-indigo-400 font-medium mb-2">
+                <p className="text-xs text-gray-700 dark:text-gray-300 font-medium mb-2">
                   → {p.suggested_action}
                 </p>
               )}
@@ -140,32 +152,34 @@ export default function InsightsCard({ className = "" }) {
                     onClick={() => handleFeedback(p.id, "useful")}
                     disabled={!!fb}
                     aria-label="Useful insight"
-                    className={`text-xs px-2 py-1 rounded-md transition ${
+                    className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md transition ${
                       fb === "useful"
-                        ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"
+                        ? "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                         : "hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
                     }`}
                   >
-                    👍 {fb === "useful" ? "Thanks" : "Useful"}
+                    <Icon name="ThumbsUp" size={14} />
+                    <span>{fb === "useful" ? "Thanks" : "Useful"}</span>
                   </button>
                   <button
                     onClick={() => handleFeedback(p.id, "not_useful")}
                     disabled={!!fb}
                     aria-label="Not useful"
-                    className={`text-xs px-2 py-1 rounded-md transition ${
+                    className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md transition ${
                       fb === "not_useful"
-                        ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300"
+                        ? "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                         : "hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
                     }`}
                   >
-                    👎 {fb === "not_useful" ? "Noted" : "Not useful"}
+                    <Icon name="ThumbsDown" size={14} />
+                    <span>{fb === "not_useful" ? "Noted" : "Not useful"}</span>
                   </button>
                 </div>
                 <div className="flex gap-1.5">
                   {p.suggested_action && (
                     <button
                       onClick={() => handleActed(p.id)}
-                      className="text-xs px-2 py-1 rounded-md text-indigo-700 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 font-medium"
+                      className="text-xs px-2 py-1 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium"
                     >
                       Done it
                     </button>

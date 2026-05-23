@@ -6,7 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
-import { PageHeader, Button as UIButton, SectionBanner } from "../components/ui";
+import { PageHeader, Button as UIButton, SectionBanner, StatCard, Icon } from "../components/ui";
 import { trackEvent } from "../hooks/useEventLog";
 import { safeImageUrl } from "../utils/safeUrl";
 import ReceiptCapture from "../components/ReceiptCapture";
@@ -94,7 +94,21 @@ function MiniSparkline({ data, color = "#22C55E", height = 32 }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   KPI CARD — polished card with sparkline + change indicator
+   KPI CARD — StatCard-shaped chrome + sparkline + change indicator
+   ───────────────────────────────────────────────────────────
+   Aligned with the `<StatCard>` primitive so the dashboard KPI row
+   reads the same as every other page in the app. Previously this
+   used `rounded-2xl`, hover-scale, a gradient on `highlight`, a red
+   border on `alert`, and a blue "New day" pill — all violations of
+   the gray-* / emerald-money-moment DNA.
+
+   Now:
+     • `rounded-xl border border-gray-200 bg-white` (Card recipe)
+     • No shadow, no scale, no gradient
+     • `highlight` (revenue KPI) keeps a quiet emerald accent on the
+       value number ONLY — same trick StatCard's accent="success" uses.
+     • Sparkline is data, not chrome, so it stays. Emerald when trend
+       is up / neutral; red when trend is materially down.
    ═══════════════════════════════════════════════════════════ */
 
 function KpiCard({ title, numericValue, value, currency: cur, change, changeLabel, subtitle, alert, sparkData, onClick, highlight }) {
@@ -102,52 +116,68 @@ function KpiCard({ title, numericValue, value, currency: cur, change, changeLabe
   const showChange = change !== undefined && change !== null && Math.abs(change) <= 500;
   const isNew = change !== undefined && (change === -100 || Math.abs(change) > 500);
 
+  // Surface — matches the StatCard recipe exactly. The `alert` prop is
+  // semantically "this number is bad news" — a critical-state KPI gets
+  // a red value but the chrome stays neutral so a row of mixed-state
+  // tiles still reads as one block.
+  const surface =
+    "rounded-xl border border-gray-200 bg-white dark:bg-gray-900 dark:border-gray-800";
+
+  // Value color — emerald ONLY for the revenue/money-moment KPI
+  // (highlight=true). Critical KPI gets red. Everything else stays
+  // gray-900 so the dashboard doesn't paint every tile a different color.
+  const valueClass = highlight
+    ? "text-emerald-600 dark:text-emerald-400"
+    : alert
+      ? "text-red-600 dark:text-red-400"
+      : "text-gray-900 dark:text-gray-100";
+
   return (
     <button
       onClick={onClick}
-      className={`relative overflow-hidden rounded-2xl p-4 sm:p-5 text-left w-full transition-all duration-200 cursor-pointer group
-        hover:scale-[1.02] hover:shadow-lg active:scale-[0.98]
-        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900
-        ${highlight
-          ? "bg-gradient-to-br from-green-500/10 to-emerald-500/5 dark:from-green-500/15 dark:to-emerald-500/5 border-2 border-green-400/30 dark:border-green-500/20"
-          : alert
-            ? "bg-white dark:bg-gray-800 border-2 border-red-300/50 dark:border-red-500/30"
-            : "bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700/60"
-        } shadow-sm`}
+      className={
+        "relative overflow-hidden p-4 sm:p-5 text-left w-full transition cursor-pointer " +
+        "hover:bg-gray-50 hover:border-gray-300 dark:hover:bg-gray-800/60 dark:hover:border-gray-700 " +
+        "focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 " +
+        "focus-visible:ring-offset-1 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-950 active:scale-[0.99] " +
+        surface
+      }
     >
       <div className="flex items-start justify-between gap-2">
-        <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">{title}</p>
-        <svg className="w-4 h-4 text-gray-300 dark:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{title}</p>
       </div>
 
-      <div className="flex items-baseline gap-1.5 mt-2">
-        <span className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
+      <div className="flex items-baseline gap-1.5 mt-1">
+        <span className={`text-[26px] font-bold tabular-nums leading-tight ${valueClass}`}>
           {numericValue !== undefined ? <AnimatedCounter value={numericValue} /> : value}
         </span>
         {cur && <span className="text-sm font-medium text-gray-400 dark:text-gray-500">{cur}</span>}
       </div>
 
-      <div className="flex items-center gap-2 mt-2">
+      <div className="flex items-center gap-2 mt-1">
         {showChange && (
-          <span className={`inline-flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded-md
+          // Change badge — emerald means revenue grew, red means it shrank.
+          // Quiet pill (gray-50 bg) so it doesn't compete with the value.
+          <span className={`inline-flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded-md tabular-nums
             ${isPositive
-              ? "text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30"
-              : "text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-900/30"
+              ? "text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20"
+              : "text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20"
             }`}>
             {isPositive ? "▲" : "▼"} {Math.abs(change)}%
           </span>
         )}
-        {isNew && <span className="text-xs text-blue-500 dark:text-blue-400 font-medium">New day ✨</span>}
-        {changeLabel && <span className="text-xs text-gray-400 dark:text-gray-500">{changeLabel}</span>}
-        {subtitle && !changeLabel && <span className="text-xs text-gray-400 dark:text-gray-500">{subtitle}</span>}
+        {/* "New day" pill — quiet gray, not blue. The old blue here was
+            the only blue on the dashboard chrome and read as a bug. */}
+        {isNew && <span className="text-[11px] text-gray-500 dark:text-gray-400 font-medium">New day</span>}
+        {changeLabel && <span className="text-[11.5px] text-gray-500 dark:text-gray-400">{changeLabel}</span>}
+        {subtitle && !changeLabel && <span className="text-[11.5px] text-gray-500 dark:text-gray-400">{subtitle}</span>}
       </div>
 
-      {/* Sparkline */}
+      {/* Sparkline — kept because it's data, not chrome. Emerald when
+          trend is up / unknown (default), red when materially down. */}
       {sparkData && sparkData.length > 1 && (
         <div className="mt-2 -mx-1">
-          <MiniSparkline data={sparkData} color={isPositive || change === undefined ? "#22C55E" : "#EF4444"} height={28} />
+          <MiniSparkline data={sparkData} color={isPositive || change === undefined ? "#10B981" : "#EF4444"} height={28} />
         </div>
       )}
     </button>
@@ -250,9 +280,10 @@ function ForecastWeatherStaffing({ forecast, weather, staffing, currency, onNavi
   // and explain. Owners want to know the section EXISTS.
   if (!forecast?.forecast?.length) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm">
-        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
-          🔮 {t("forecastWeather", "Next 7 days — forecast & weather")}
+      <div className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
+          <Icon name="Telescope" size={18} className="text-gray-500 dark:text-gray-400" />
+          {t("forecastWeather", "Next 7 days — forecast & weather")}
         </h3>
         <div className="py-6 text-center">
           <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -279,24 +310,48 @@ function ForecastWeatherStaffing({ forecast, weather, staffing, currency, onNavi
   const selWeather = sel !== null ? weatherDays[sel] : null;
   const selStaff = sel !== null ? staffDays[sel] : null;
 
+  // Trend direction icon — Lucide outline so it sits in the same rhythm
+  // as the rest of the page. Previously emoji (📈📉📊) which broke
+  // cross-platform consistency and contrasted oddly with neutral text.
+  const trendIconName =
+    forecast.trend_direction === "up"
+      ? "TrendingUp"
+      : forecast.trend_direction === "down"
+      ? "TrendingDown"
+      : "LineChart";
+  const trendLabel =
+    forecast.trend_direction === "up"
+      ? t("trendUp")
+      : forecast.trend_direction === "down"
+      ? t("trendDown")
+      : t("trendStable");
+
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-sm overflow-hidden">
+    // Neutral surface — rounded-xl, gray-200 border, no shadow. The
+    // interactive bars below are chart fills (data, not chrome) so they
+    // keep their blue. Chrome typography stays gray-* for restraint.
+    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
       {/* Header + Bars */}
       <div className="p-5 sm:p-6 pb-0">
         <div className="flex items-start justify-between mb-2">
           <div>
             <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("revenueForecastTitle")}</h3>
-            <p className="text-xs text-gray-400 mt-0.5">
-              {t("nextDays")} &bull; {forecast.confidence || 95}% {t("confidence")}
-              &bull; {forecast.trend_direction === "up" ? `📈 ${t("trendUp")}` : forecast.trend_direction === "down" ? `📉 ${t("trendDown")}` : `📊 ${t("trendStable")}`}
+            <p className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              <span>{t("nextDays")} &bull; {forecast.confidence || 95}% {t("confidence")}</span>
+              <span aria-hidden="true">&bull;</span>
+              <Icon name={trendIconName} size={14} className="text-gray-500 dark:text-gray-400" />
+              <span>{trendLabel}</span>
             </p>
           </div>
           <div className="text-right flex-shrink-0">
-            <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{total.toLocaleString()} {currency}</p>
+            {/* Total — primary number, no decorative blue. Same gray-900
+                hierarchy other surfaces use. */}
+            <p className="text-lg font-bold tabular-nums text-gray-900 dark:text-gray-100">{total.toLocaleString()} {currency}</p>
           </div>
         </div>
 
-        {/* Interactive bars */}
+        {/* Interactive bars — bar fill colors are data (forecast revenue
+            chart), kept as recharts-equivalent series fills. */}
         <div className="flex items-end gap-1.5 sm:gap-2 mt-4" style={{ height: 100 }}>
           {data.map((f, i) => {
             const isActive = sel === i;
@@ -305,7 +360,7 @@ function ForecastWeatherStaffing({ forecast, weather, staffing, currency, onNavi
             return (
               <div key={i} onClick={() => setSel(isActive ? null : i)}
                 className="flex-1 flex flex-col items-center gap-1 cursor-pointer group">
-                <span className={`text-[10px] font-medium transition-colors ${isActive ? "text-white dark:text-white" : "text-gray-400"}`}>
+                <span className={`text-[10px] font-medium tabular-nums transition-colors ${isActive ? "text-gray-900 dark:text-gray-100" : "text-gray-400"}`}>
                   {(f.predicted_revenue / 1000).toFixed(1)}k
                 </span>
                 <div
@@ -318,7 +373,10 @@ function ForecastWeatherStaffing({ forecast, weather, staffing, currency, onNavi
                     transformOrigin: "bottom",
                   }}
                 />
-                <span className={`text-[11px] font-medium ${isActive ? "text-blue-400" : isWeekend ? "text-blue-500 dark:text-blue-400" : "text-gray-500 dark:text-gray-400"}`}>
+                {/* Weekend day labels: emphasis via bold, never via color.
+                    Active day jumps to gray-900 (same selected-state
+                    treatment used elsewhere in the app). */}
+                <span className={`text-[11px] ${isActive ? "font-semibold text-gray-900 dark:text-gray-100" : isWeekend ? "font-semibold text-gray-700 dark:text-gray-200" : "font-medium text-gray-500 dark:text-gray-400"}`}>
                   {translateDayShort(f.day, t)}
                 </span>
               </div>
@@ -327,24 +385,25 @@ function ForecastWeatherStaffing({ forecast, weather, staffing, currency, onNavi
         </div>
       </div>
 
-      {/* Weather row */}
+      {/* Weather row — emoji condition icons are data (which weather is
+          forecasted), so they stay. Temperature numbers also stay tinted
+          because the color IS the data (cold blue vs warm orange — a
+          glanceable scale, not decoration). */}
       {weatherDays.length > 0 && (
-        <div className="px-5 sm:px-6 py-2 border-t border-gray-100 dark:border-gray-700/40">
+        <div className="px-5 sm:px-6 py-2 border-t border-gray-200 dark:border-gray-800">
           <div className="flex gap-1">
             {weatherDays.slice(0, 7).map((w, i) => {
               const isActive = sel === i;
               const temp = Math.round(w.temp_max || w.temp || 0);
               return (
                 <div key={i} onClick={() => setSel(isActive ? null : i)}
-                  className={`flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-lg cursor-pointer transition ${isActive ? "bg-gray-100 dark:bg-gray-700/40" : ""}`}>
+                  className={`flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-lg cursor-pointer transition ${isActive ? "bg-gray-100 dark:bg-gray-800/60" : ""}`}>
                   <span className="text-sm">{CONDITION_ICON(w.condition)}</span>
-                  {/* Temperature color: previously the "neutral" range
-                      8-14°C used text-gray-300 which is invisible on
-                      the gray card surface — and that's the temperature
-                      range for ~9 months of the Danish year. Use a
-                      visible neutral (slate-600 / slate-300) for the
-                      mid range so the number is readable everywhere. */}
-                  <span className={`text-[11px] font-semibold ${
+                  {/* Temperature: the color encodes the data (cold→warm
+                      scale), so the gradient stays. The mid-range slate-
+                      600 was the readability fix from the previous polish
+                      pass — keeping it. */}
+                  <span className={`text-[11px] font-semibold tabular-nums ${
                     temp >= 18 ? "text-orange-500 dark:text-orange-400"
                     : temp >= 14 ? "text-emerald-600 dark:text-emerald-400"
                     : temp >= 4 ? "text-slate-600 dark:text-slate-300"
@@ -357,12 +416,14 @@ function ForecastWeatherStaffing({ forecast, weather, staffing, currency, onNavi
         </div>
       )}
 
-      {/* Staffing row */}
+      {/* Staffing row — dot colors and headcount color are data viz
+          (busy/normal/quiet = recommended staff scale). Chrome borders
+          shift to gray-200 to match the surface. */}
       {staffDays.length > 0 && (
-        <div className="px-5 sm:px-6 py-2.5 border-t border-gray-100 dark:border-gray-700/40">
+        <div className="px-5 sm:px-6 py-2.5 border-t border-gray-200 dark:border-gray-800">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">{t("smartStaffing")}</span>
-            <span className="text-[10px] text-gray-400">{t("recommendedHeadcount")}</span>
+            <span className="text-[10px] text-gray-500 dark:text-gray-400">{t("recommendedHeadcount")}</span>
           </div>
           <div className="flex gap-1">
             {staffDays.slice(0, 7).map((s, i) => {
@@ -371,13 +432,13 @@ function ForecastWeatherStaffing({ forecast, weather, staffing, currency, onNavi
               const color = level === "Busy" ? "#EF4444" : level === "Normal" ? "#F59E0B" : "#3B82F6";
               return (
                 <div key={i} onClick={() => setSel(isActive ? null : i)}
-                  className={`flex-1 flex flex-col items-center gap-1 py-1.5 rounded-lg cursor-pointer transition ${isActive ? "bg-gray-100 dark:bg-gray-700/40" : ""}`}>
+                  className={`flex-1 flex flex-col items-center gap-1 py-1.5 rounded-lg cursor-pointer transition ${isActive ? "bg-gray-100 dark:bg-gray-800/60" : ""}`}>
                   <div className="flex flex-col items-center gap-0.5">
                     {Array.from({ length: s.recommended_staff || 3 }, (_, j) => (
                       <div key={j} className="w-1.5 h-1.5 rounded-full" style={{ background: color, opacity: 0.5 + (j / (s.recommended_staff || 3)) * 0.5 }} />
                     ))}
                   </div>
-                  <span className="text-[11px] font-bold" style={{ color }}>{s.recommended_staff || 3}</span>
+                  <span className="text-[11px] font-bold tabular-nums" style={{ color }}>{s.recommended_staff || 3}</span>
                 </div>
               );
             })}
@@ -387,35 +448,41 @@ function ForecastWeatherStaffing({ forecast, weather, staffing, currency, onNavi
 
       {/* Detail panel when a day is selected */}
       {selected && (
-        <div className="px-5 sm:px-6 py-3 border-t border-gray-100 dark:border-gray-700/40 bg-gray-50/50 dark:bg-gray-700/10">
+        <div className="px-5 sm:px-6 py-3 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/40">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-bold text-gray-800 dark:text-white">{translateDayShort(selected.day, t)}</span>
-              {selWeather && <span className="text-sm">{CONDITION_ICON(selWeather.condition)} {Math.round(selWeather.temp_max || 0)}°</span>}
+              <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{translateDayShort(selected.day, t)}</span>
+              {selWeather && <span className="text-sm text-gray-700 dark:text-gray-200">{CONDITION_ICON(selWeather.condition)} {Math.round(selWeather.temp_max || 0)}°</span>}
             </div>
             {selStaff && (
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md uppercase"
-                style={{
-                  background: selStaff.business_level === "Busy" ? "rgba(239,68,68,0.1)" : "rgba(59,130,246,0.1)",
-                  color: selStaff.business_level === "Busy" ? "#EF4444" : "#3B82F6",
-                }}>{selStaff.business_level === "Busy" ? t("busy") : selStaff.business_level === "Quiet" || selStaff.business_level === "Slow" ? t("slow") : t("normal")}</span>
+              // Business-level pill — only "Busy" gets the red accent
+              // (data-meaningful: needs more staff). Other levels stay
+              // neutral instead of inventing a blue chrome accent.
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tabular-nums
+                ${selStaff.business_level === "Busy"
+                  ? "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400"
+                  : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                }`}>
+                {selStaff.business_level === "Busy" ? t("busy") : selStaff.business_level === "Quiet" || selStaff.business_level === "Slow" ? t("slow") : t("normal")}
+              </span>
             )}
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <p className="text-[10px] text-gray-400">{t("revenue")}</p>
-              <p className="text-sm font-bold text-gray-800 dark:text-white">{selected.predicted_revenue.toLocaleString()}</p>
+              <p className="text-[10px] text-gray-500 dark:text-gray-400">{t("revenue")}</p>
+              <p className="text-sm font-bold tabular-nums text-gray-900 dark:text-gray-100">{selected.predicted_revenue.toLocaleString()}</p>
             </div>
             {selStaff && (
               <div>
-                <p className="text-[10px] text-gray-400">{t("staffShort")}</p>
-                <p className="text-sm font-bold text-blue-500">{selStaff.recommended_staff} {t("peopleAbbrev")}</p>
+                <p className="text-[10px] text-gray-500 dark:text-gray-400">{t("staffShort")}</p>
+                {/* Staff count is data, not a money-moment — neutral gray. */}
+                <p className="text-sm font-bold tabular-nums text-gray-900 dark:text-gray-100">{selStaff.recommended_staff} {t("peopleAbbrev")}</p>
               </div>
             )}
             {selWeather && (
               <div>
-                <p className="text-[10px] text-gray-400">{t("precip")}</p>
-                <p className="text-sm font-bold text-gray-600 dark:text-gray-300">{selWeather.precipitation || 0}mm</p>
+                <p className="text-[10px] text-gray-500 dark:text-gray-400">{t("precip")}</p>
+                <p className="text-sm font-bold tabular-nums text-gray-700 dark:text-gray-200">{selWeather.precipitation || 0}mm</p>
               </div>
             )}
           </div>
@@ -423,8 +490,8 @@ function ForecastWeatherStaffing({ forecast, weather, staffing, currency, onNavi
       )}
 
       {!selected && (
-        <div className="px-5 sm:px-6 py-2 border-t border-gray-100 dark:border-gray-700/40">
-          <p className="text-center text-[11px] text-gray-400 py-1 border border-dashed border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer" onClick={onNavigate}>
+        <div className="px-5 sm:px-6 py-2 border-t border-gray-200 dark:border-gray-800">
+          <p className="text-center text-[11px] text-gray-500 dark:text-gray-400 py-1 border border-dashed border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer" onClick={onNavigate}>
             {t("tapDayForDetails")} &bull; {t("viewFullForecast")} →
           </p>
         </div>
@@ -446,10 +513,11 @@ function InventoryPanel({ items, currency, onNavigate }) {
     return (
       <div
         onClick={onNavigate}
-        className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+        className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition"
       >
-        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
-          📦 {t("inventory", "Inventory")}
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
+          <Icon name="Boxes" size={18} className="text-gray-500 dark:text-gray-400" />
+          {t("inventory", "Inventory")}
         </h3>
         <div className="py-6 text-center">
           <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -488,42 +556,49 @@ function InventoryPanel({ items, currency, onNavigate }) {
   const expCount = processed.filter((i) => i.isExpiring).length;
   const totalValue = Math.round(processed.reduce((s, i) => s + i.qty * i.cost, 0));
 
+  // Status row styles — critical/warning keep their accent (data-meaningful:
+  // a critical low-stock item NEEDS the red signal). "ok" stays fully
+  // neutral so the row doesn't look mid-stress at rest.
   const statusStyles = {
-    critical: "bg-red-50 dark:bg-red-900/10 border-red-200/60 dark:border-red-800/30",
-    warning: "bg-amber-50 dark:bg-amber-900/10 border-amber-200/60 dark:border-amber-800/30",
-    ok: "bg-transparent border-gray-100 dark:border-gray-700/40",
+    critical: "bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800/30",
+    warning: "bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/30",
+    ok: "bg-transparent border-gray-200 dark:border-gray-800",
   };
-  const barColors = { critical: "#EF4444", warning: "#F59E0B", ok: "#22C55E" };
+  // Bar fill colors are data viz (stock-health scale). Emerald not green
+  // to align with the rest of the app's money-moment accent.
+  const barColors = { critical: "#EF4444", warning: "#F59E0B", ok: "#10B981" };
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm">
+    <div className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800">
       <div className="flex items-start justify-between mb-3">
         <div>
           <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("inventory")}</h3>
-          <p className="text-xs text-gray-400 mt-0.5">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             {items.length} {t("inventoryItemsLabel", "items")}
           </p>
         </div>
         <div className="text-right">
-          <p className="text-sm font-bold text-gray-800 dark:text-white">{totalValue.toLocaleString()}</p>
-          <p className="text-[10px] text-gray-400">{currency} {t("stockValue", "stock value")}</p>
+          <p className="text-sm font-bold tabular-nums text-gray-900 dark:text-gray-100">{totalValue.toLocaleString()}</p>
+          <p className="text-[10px] text-gray-500 dark:text-gray-400">{currency} {t("stockValue", "stock value")}</p>
         </div>
       </div>
 
-      {/* Filter pills — DK accountants/staff see this; translate. */}
+      {/* Filter pills — selected pill uses the neutral "ring-1 ring-gray-900
+          + bg-gray-50" treatment (the StatCard/sidebar pattern). Previously
+          painted each filter a different color (blue/red/amber) which read
+          as decoration; now hierarchy comes from selection, not category. */}
       <div className="flex gap-1.5 mb-3">
         {[
-          { k: "all", label: `${t("inventoryAll", "All")} (${items.length})`, color: "#3B82F6" },
-          { k: "low", label: `${t("inventoryLow", "Low")} (${lowCount})`, color: "#EF4444" },
-          { k: "exp", label: `${t("inventoryExpiring", "Expiring")} (${expCount})`, color: "#F59E0B" },
+          { k: "all", label: `${t("inventoryAll", "All")} (${items.length})` },
+          { k: "low", label: `${t("inventoryLow", "Low")} (${lowCount})` },
+          { k: "exp", label: `${t("inventoryExpiring", "Expiring")} (${expCount})` },
         ].map((f) => (
           <button key={f.k} onClick={() => setFilter(f.k)}
-            className={`text-[11px] font-medium px-2.5 py-1 rounded-md border transition
+            className={`text-[11px] font-medium px-2.5 py-1 rounded-md transition
               ${filter === f.k
-                ? "border-current"
-                : "border-transparent bg-gray-100 dark:bg-gray-700/40 text-gray-500 dark:text-gray-400"
-              }`}
-            style={filter === f.k ? { color: f.color, background: `${f.color}15` } : {}}>
+                ? "ring-1 ring-gray-900 dark:ring-gray-100 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                : "bg-gray-100 dark:bg-gray-800/40 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800"
+              }`}>
             {f.label}
           </button>
         ))}
@@ -564,19 +639,27 @@ function InventoryPanel({ items, currency, onNavigate }) {
         ))}
       </div>
 
-      {/* Reorder banner */}
+      {/* Reorder banner — SectionBanner primitive (critical severity).
+          Low-stock is data-meaningful so the red accent stays. The
+          inline emoji + colored button got replaced by the standard
+          banner chrome + a quiet gray action link. */}
       {lowCount > 0 && (
-        <div className="mt-3 px-3 py-2.5 rounded-xl bg-red-50 dark:bg-red-900/10 border border-red-200/50 dark:border-red-800/30">
-          <p className="text-xs font-semibold text-red-600 dark:text-red-400 mb-1">
-            📦 {t("reorderNeeded", "Reorder needed")} ({lowCount} {t("inventoryItemsLabel", "items")})
-          </p>
-          <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-2">
-            {processed.filter((i) => i.isLow).map((i) => i.name).slice(0, 4).join(", ")}
-          </p>
-          <button onClick={(e) => { e.stopPropagation(); onNavigate(); }}
-            className="text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-red-500 text-white hover:bg-red-600 transition">
-            {t("viewInventory")}
-          </button>
+        <div className="mt-3">
+          <SectionBanner
+            severity="critical"
+            icon="Package"
+            title={`${t("reorderNeeded", "Reorder needed")} (${lowCount} ${t("inventoryItemsLabel", "items")})`}
+          >
+            <p className="mb-2">
+              {processed.filter((i) => i.isLow).map((i) => i.name).slice(0, 4).join(", ")}
+            </p>
+            <button
+              onClick={(e) => { e.stopPropagation(); onNavigate(); }}
+              className="text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-gray-900 text-white hover:bg-gray-800 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100 transition"
+            >
+              {t("viewInventory")}
+            </button>
+          </SectionBanner>
         </div>
       )}
     </div>
@@ -592,17 +675,24 @@ function AlertsPanel({ actionItems, summary, weekComparison, onNavigate }) {
   const [dismissed, setDismissed] = useState(new Set());
   const [filter, setFilter] = useState("all");
 
-  // Build alerts from real data
+  // Build alerts from real data. Icons are Lucide names (resolved via
+  // <Icon name="…" />) — no more emoji chrome.
   const alerts = [];
 
   // Action items from API
   if (actionItems?.length > 0) {
     actionItems.forEach((item) => {
       const typeMap = { restock: "critical", expiring: "warning", cost: "warning", tip: "info", return: "critical" };
-      const iconMap = { restock: "📦", expiring: "⏰", cost: "💸", tip: "💡", return: "↩️" };
+      const iconMap = {
+        restock: "Package",
+        expiring: "AlarmClock",
+        cost: "Wallet",
+        tip: "Sparkles",
+        return: "RotateCw",
+      };
       alerts.push({
         type: typeMap[item.type] || "info",
-        icon: iconMap[item.type] || "💡",
+        icon: iconMap[item.type] || "Sparkles",
         title: item.title,
         desc: item.detail,
         action: item.type === "restock" ? "View Inventory" : item.type === "cost" ? "Check Expenses" : item.type === "return" ? "View Sales" : "View Details",
@@ -617,7 +707,7 @@ function AlertsPanel({ actionItems, summary, weekComparison, onNavigate }) {
     const up = weekComparison.change_pct > 0;
     alerts.push({
       type: up ? "success" : "warning",
-      icon: up ? "📈" : "📉",
+      icon: up ? "TrendingUp" : "TrendingDown",
       title: `Weekly revenue ${up ? "up" : "down"} ${Math.abs(weekComparison.change_pct)}%`,
       desc: `This week: ${Math.round(weekComparison.this_week_revenue).toLocaleString()} vs last: ${Math.round(weekComparison.last_week_revenue).toLocaleString()}`,
       action: "View Reports", route: "/reports", id: "week-change",
@@ -629,14 +719,14 @@ function AlertsPanel({ actionItems, summary, weekComparison, onNavigate }) {
     const margin = summary.profit_margin || 0;
     if (margin > 0 && margin < 15) {
       alerts.push({
-        type: "warning", icon: "⚡",
+        type: "warning", icon: "AlertTriangle",
         title: `Profit margin at ${margin}%`,
         desc: "Below the 15% healthy threshold. Review expense categories.",
         action: "Review Expenses", route: "/expenses", id: "margin-low",
       });
     } else if (margin >= 15) {
       alerts.push({
-        type: "success", icon: "💪",
+        type: "success", icon: "Heart",
         title: `Healthy ${margin}% profit margin`,
         desc: "On track for profitability this month.",
         action: "View Reports", route: "/reports", id: "margin-ok",
@@ -644,7 +734,7 @@ function AlertsPanel({ actionItems, summary, weekComparison, onNavigate }) {
     }
     if (summary.inventory_alerts > 0) {
       alerts.push({
-        type: "critical", icon: "📦",
+        type: "critical", icon: "Package",
         title: `${summary.inventory_alerts} items below minimum`,
         desc: "Stock levels critically low on some items.",
         action: "View Inventory", route: "/inventory", id: "inv-alerts",
@@ -653,70 +743,90 @@ function AlertsPanel({ actionItems, summary, weekComparison, onNavigate }) {
   }
 
   if (alerts.length === 0) {
-    alerts.push({ type: "success", icon: "✅", title: "All clear", desc: "No alerts right now.", action: "View Reports", route: "/reports", id: "all-clear" });
+    alerts.push({ type: "success", icon: "CheckCircle2", title: "All clear", desc: "No alerts right now.", action: "View Reports", route: "/reports", id: "all-clear" });
   }
 
   const visible = alerts.filter((a) => !dismissed.has(a.id) && (filter === "all" || a.type === filter || (filter === "info" && a.type === "success")));
   const critCount = alerts.filter((a) => a.type === "critical" && !dismissed.has(a.id)).length;
 
+  // Per-alert styling — same palette SectionBanner uses (50/200 paired
+  // shades). Info alerts stay fully neutral instead of inventing a blue.
   const typeStyles = {
-    critical: "bg-red-50 dark:bg-red-900/10 border-red-200/60 dark:border-red-800/30",
-    warning: "bg-amber-50 dark:bg-amber-900/10 border-amber-200/60 dark:border-amber-800/30",
-    info: "bg-blue-50 dark:bg-blue-900/10 border-blue-200/60 dark:border-blue-800/30",
-    success: "bg-green-50 dark:bg-green-900/10 border-green-200/60 dark:border-green-800/30",
+    critical: "bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800/30",
+    warning: "bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/30",
+    info: "bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700",
+    success: "bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800/30",
   };
-  const typeColors = { critical: "#EF4444", warning: "#F59E0B", info: "#3B82F6", success: "#22C55E" };
+  // Icon tint per severity — matches the SectionBanner recipe.
+  const iconColor = {
+    critical: "text-red-600 dark:text-red-400",
+    warning: "text-amber-600 dark:text-amber-400",
+    info: "text-gray-500 dark:text-gray-400",
+    success: "text-emerald-600 dark:text-emerald-400",
+  };
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm">
+    <div className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("alerts")}</h3>
           {critCount > 0 && (
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-500 text-white animate-pulse">{critCount}</span>
+            // Critical badge — solid red is data-meaningful (count of
+            // urgent alerts). Lost the pulsing animation; pulsing pills
+            // read as "this app is anxious" and the count alone is enough.
+            <span className="text-[10px] font-bold tabular-nums px-2 py-0.5 rounded-full bg-red-600 text-white">{critCount}</span>
           )}
         </div>
-        <span className="text-[11px] text-gray-400">{visible.length} active</span>
+        <span className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">{visible.length} active</span>
       </div>
 
-      {/* Filter pills */}
+      {/* Filter pills — neutral selected-state pattern (ring + bg-gray-50).
+          Was painting each filter blue/red/amber even when unselected,
+          which made the row look like four open alerts simultaneously. */}
       <div className="flex gap-1.5 mb-3 overflow-x-auto">
         {[
-          { k: "all", label: t("alertsAll", "All"), color: "#f1f1f1" },
-          { k: "critical", label: `${t("alertsCritical", "Critical")} (${critCount})`, color: "#EF4444" },
-          { k: "warning", label: t("alertsWarnings", "Warnings"), color: "#F59E0B" },
-          { k: "info", label: t("alertsInfo", "Info"), color: "#3B82F6" },
+          { k: "all", label: t("alertsAll", "All") },
+          { k: "critical", label: `${t("alertsCritical", "Critical")} (${critCount})` },
+          { k: "warning", label: t("alertsWarnings", "Warnings") },
+          { k: "info", label: t("alertsInfo", "Info") },
         ].map((f) => (
           <button key={f.k} onClick={() => setFilter(f.k)}
-            className={`text-[11px] font-medium px-2.5 py-1 rounded-md border whitespace-nowrap transition
-              ${filter === f.k ? "border-current" : "border-transparent bg-gray-100 dark:bg-gray-700/40 text-gray-500 dark:text-gray-400"}`}
-            style={filter === f.k ? { color: f.color, background: `${f.color}15` } : {}}>
+            className={`text-[11px] font-medium px-2.5 py-1 rounded-md whitespace-nowrap transition
+              ${filter === f.k
+                ? "ring-1 ring-gray-900 dark:ring-gray-100 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                : "bg-gray-100 dark:bg-gray-800/40 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800"
+              }`}>
             {f.label}
           </button>
         ))}
       </div>
 
-      {/* Alert cards */}
+      {/* Alert cards — icon shifts to Lucide, action button uses the
+          neutral gray-900 confident-quiet treatment. Border/bg accent
+          is per-severity (data-meaningful). */}
       <div className="space-y-2 max-h-[320px] overflow-y-auto">
         {visible.map((a) => (
           <div key={a.id} className={`px-3 py-2.5 rounded-xl border ${typeStyles[a.type]}`}>
             <div className="flex items-start gap-2">
-              <span className="text-sm mt-0.5">{a.icon}</span>
+              <span className={`mt-0.5 shrink-0 ${iconColor[a.type]}`}>
+                <Icon name={a.icon} size={16} />
+              </span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2 mb-0.5">
                   <span className="text-xs font-semibold text-gray-800 dark:text-gray-100">{a.title}</span>
                   <button
                     onClick={() => setDismissed(new Set([...dismissed, a.id]))}
                     aria-label={t("dismissAlert", "Dismiss alert") + ": " + a.title}
-                    className="text-gray-500 hover:text-gray-700 text-sm leading-none flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded w-5 h-5 flex items-center justify-center"
+                    className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-sm leading-none flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 rounded w-5 h-5 flex items-center justify-center"
                   >
                     <span aria-hidden="true">&times;</span>
                   </button>
                 </div>
-                <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed mb-1.5">{a.desc}</p>
-                <button onClick={() => onNavigate(a.route)}
-                  className="text-[11px] font-semibold px-2.5 py-1 rounded-md border transition"
-                  style={{ color: typeColors[a.type], background: `${typeColors[a.type]}10`, borderColor: `${typeColors[a.type]}30` }}>
+                <p className="text-[11px] text-gray-600 dark:text-gray-400 leading-relaxed mb-1.5">{a.desc}</p>
+                <button
+                  onClick={() => onNavigate(a.route)}
+                  className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-gray-900 text-white hover:bg-gray-800 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100 transition"
+                >
                   {a.action}
                 </button>
               </div>
@@ -724,8 +834,9 @@ function AlertsPanel({ actionItems, summary, weekComparison, onNavigate }) {
           </div>
         ))}
         {visible.length === 0 && (
-          <p className="text-center py-4 text-sm text-gray-400">
-            ✅ {t("alertsAllClear", "All clear — no active alerts")}
+          <p className="flex items-center justify-center gap-1.5 py-4 text-sm text-gray-500 dark:text-gray-400">
+            <Icon name="CheckCircle2" size={14} className="text-emerald-600 dark:text-emerald-400" />
+            {t("alertsAllClear", "All clear — no active alerts")}
           </p>
         )}
       </div>
@@ -746,15 +857,17 @@ function PLCard({ revenue, expenses, profit, margin, currency, onNavigate, loadi
   return (
     <div
       onClick={onNavigate}
-      className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow flex-1"
+      className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition flex-1"
     >
       <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("profitAndLoss")}</h3>
-      <p className="text-xs text-gray-400 mt-0.5 mb-4">{t("thisMonth")}</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-4">{t("thisMonth")}</p>
 
-      <div className="border-b border-gray-100 dark:border-gray-700 pb-3 mb-3 space-y-2">
+      <div className="border-b border-gray-200 dark:border-gray-800 pb-3 mb-3 space-y-2">
         <div className="flex justify-between">
-          <span className="text-sm text-gray-500 dark:text-gray-400">{t("revenue")}</span>
-          <span className="text-sm font-semibold text-green-600 dark:text-green-400">
+          <span className="text-sm text-gray-600 dark:text-gray-400">{t("revenue")}</span>
+          {/* Revenue is THE money moment — emerald accent earns its keep
+              here. Stays restrained because the chrome is neutral. */}
+          <span className="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
             {loading
               ? placeholder
               // Revenue is always non-negative in our model — but be
@@ -765,8 +878,10 @@ function PLCard({ revenue, expenses, profit, margin, currency, onNavigate, loadi
           </span>
         </div>
         <div className="flex justify-between">
-          <span className="text-sm text-gray-500 dark:text-gray-400">{t("expenses")}</span>
-          <span className="text-sm font-semibold text-red-500 dark:text-red-400">
+          <span className="text-sm text-gray-600 dark:text-gray-400">{t("expenses")}</span>
+          {/* Expenses — red is data-meaningful (money leaving the
+              business), kept. */}
+          <span className="text-sm font-semibold tabular-nums text-red-600 dark:text-red-400">
             {loading
               ? placeholder
               // Guard against double-minus when an expense row is itself
@@ -782,10 +897,12 @@ function PLCard({ revenue, expenses, profit, margin, currency, onNavigate, loadi
       <div className="flex justify-between items-baseline">
         <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("netProfit")}</span>
         <div className="text-right">
-          <p className={`text-xl font-bold ${loading ? "text-gray-400" : (isProfit ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400")}`}>
+          {/* Net profit — emerald when positive (money moment), red
+              when negative (data-meaningful loss). */}
+          <p className={`text-xl font-bold tabular-nums ${loading ? "text-gray-400" : (isProfit ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}`}>
             {loading ? placeholder : `${isProfit ? "+" : ""}${profit.toLocaleString()} ${currency}`}
           </p>
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
             {/* t() doesn't do {pct} interpolation — substitute at call
                 site. Previously this rendered the literal "Margin: {pct}%"
                 because the object 2nd arg was ignored. */}
@@ -794,13 +911,17 @@ function PLCard({ revenue, expenses, profit, margin, currency, onNavigate, loadi
         </div>
       </div>
 
-      {/* Empty state when user has no data yet — don't pretend they're "profitable" with 0 DKK */}
-      <div className={`mt-3 px-3 py-2.5 rounded-xl text-xs leading-relaxed
+      {/* Status banner — the "no data" empty state used to be blue
+          (the only blue on the page chrome) and read as a bug. Now
+          neutral gray-50 for empty, emerald for profit (data-meaningful
+          money moment), red for loss. Same 50/200 recipe SectionBanner
+          uses so it nests in the design rhythm. */}
+      <div className={`mt-3 px-3 py-2.5 rounded-xl text-xs leading-relaxed border
         ${revenue === 0 && expenses === 0
-          ? "bg-blue-50 dark:bg-blue-900/15 text-blue-700 dark:text-blue-300 border border-blue-200/50 dark:border-blue-800/30"
+          ? "bg-gray-50 dark:bg-gray-800/40 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700"
           : isProfit
-            ? "bg-green-50 dark:bg-green-900/15 text-green-700 dark:text-green-400 border border-green-200/50 dark:border-green-800/30"
-            : "bg-red-50 dark:bg-red-900/15 text-red-600 dark:text-red-400 border border-red-200/50 dark:border-red-800/30"
+            ? "bg-emerald-50 dark:bg-emerald-900/15 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/30"
+            : "bg-red-50 dark:bg-red-900/15 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800/30"
         }`}>
         {revenue === 0 && expenses === 0
           ? t("dashNoDataYet")
@@ -825,10 +946,11 @@ function ExpenseBreakdown({ breakdown, currency, onNavigate }) {
     return (
       <div
         onClick={onNavigate}
-        className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+        className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition"
       >
-        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
-          💸 {t("expenses", "Expenses")}
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
+          <Icon name="Wallet" size={18} className="text-gray-500 dark:text-gray-400" />
+          {t("expenses", "Expenses")}
         </h3>
         <div className="py-6 text-center">
           <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -844,12 +966,15 @@ function ExpenseBreakdown({ breakdown, currency, onNavigate }) {
   const maxAmount = sorted[0]?.amount || 1;
 
   return (
+    // Neutral surface. The bar fills below are chart series colors
+    // (one color per expense category) — those stay because they're
+    // data labels, not chrome.
     <div
       onClick={onNavigate}
-      className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow flex-1"
+      className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition flex-1"
     >
       <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("expenseBreakdown")}</h3>
-      <p className="text-xs text-gray-400 mt-0.5 mb-4">{t("thisMonthByCategory")}</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-4">{t("thisMonthByCategory")}</p>
 
       <div className="space-y-3">
         {sorted.slice(0, 6).map((e, i) => {
@@ -860,11 +985,11 @@ function ExpenseBreakdown({ breakdown, currency, onNavigate }) {
             <div key={i}>
               <div className="flex justify-between items-baseline mb-1">
                 <span className="text-sm text-gray-700 dark:text-gray-200">{e.category}</span>
-                <span className="text-sm text-gray-400">
+                <span className="text-sm text-gray-500 dark:text-gray-400 tabular-nums">
                   {Math.round(e.amount).toLocaleString()} {currency} &middot; {pct}%
                 </span>
               </div>
-              <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div className="h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
                 <div
                   className="h-full rounded-full transition-all duration-700"
                   style={{ width: `${barWidth}%`, background: color }}
@@ -876,9 +1001,9 @@ function ExpenseBreakdown({ breakdown, currency, onNavigate }) {
       </div>
 
       {total > 0 && (
-        <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700 flex justify-between">
-          <span className="text-sm text-gray-500 dark:text-gray-400">{t("total")}</span>
-          <span className="text-sm font-bold text-gray-700 dark:text-gray-200">{Math.round(total).toLocaleString()} {currency}</span>
+        <div className="mt-4 pt-3 border-t border-gray-200 dark:border-gray-800 flex justify-between">
+          <span className="text-sm text-gray-600 dark:text-gray-400">{t("total")}</span>
+          <span className="text-sm font-bold tabular-nums text-gray-900 dark:text-gray-100">{Math.round(total).toLocaleString()} {currency}</span>
         </div>
       )}
     </div>
@@ -898,10 +1023,11 @@ function TopSellersCard({ topSellers, currency, onNavigate }) {
     return (
       <div
         onClick={onNavigate}
-        className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+        className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition"
       >
-        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
-          🏆 {t("topSellers", "Top sellers")}
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
+          <Icon name="TrendingUp" size={18} className="text-gray-500 dark:text-gray-400" />
+          {t("topSellers", "Top sellers")}
         </h3>
         <div className="py-6 text-center">
           <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -911,8 +1037,6 @@ function TopSellersCard({ topSellers, currency, onNavigate }) {
       </div>
     );
   }
-
-  const medals = ["🥇", "🥈", "🥉"];
 
   const sorted = [...topSellers].sort((a, b) =>
     mode === "revenue" ? b.revenue - a.revenue : b.sales - a.sales
@@ -924,19 +1048,25 @@ function TopSellersCard({ topSellers, currency, onNavigate }) {
   const totalQty = topSellers.reduce((s, i) => s + i.sales, 0);
 
   return (
+    // Neutral surface — bar fills below ARE data series colors (one
+    // color per ranked product), kept as the chart-label-equivalent
+    // colors the DNA explicitly preserves.
     <div
-      className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+      className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition"
       onClick={onNavigate}
     >
       {/* Header with toggle */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         <div>
           <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("topSellers")}</h3>
-          <p className="text-xs text-gray-400 mt-0.5">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 tabular-nums">
             {topSellers.length} {t("products")} &bull; {mode === "revenue" ? `${totalRev.toLocaleString()} ${currency}` : `${totalQty.toLocaleString()} ${t("sold")}`}
           </p>
         </div>
-        <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700/50 rounded-lg p-0.5">
+        {/* Segmented toggle — selected uses gray-900 confident-dark
+            (same TabPills recipe). Previously a soft white-on-gray
+            pill that read as "tab" without committing to the role. */}
+        <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
           {[
             { k: "revenue", label: t("revenueParen", { currency }) },
             { k: "qty", label: t("qtySold") },
@@ -944,10 +1074,10 @@ function TopSellersCard({ topSellers, currency, onNavigate }) {
             <button
               key={opt.k}
               onClick={(e) => { e.stopPropagation(); setMode(opt.k); }}
-              className={`text-xs font-medium px-3 py-1.5 rounded-md transition-all
+              className={`text-xs font-medium px-3 py-1.5 rounded-md transition
                 ${mode === opt.k
-                  ? "bg-white dark:bg-gray-600 text-gray-800 dark:text-white shadow-sm"
-                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                  ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900"
+                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
                 }`}
             >
               {opt.label}
@@ -956,29 +1086,40 @@ function TopSellersCard({ topSellers, currency, onNavigate }) {
         </div>
       </div>
 
-      {/* Items with horizontal bars */}
+      {/* Items — rank indicator uses bold + size hierarchy instead of
+          emoji medals. Top 3 get gray-900 bold; ranks 4+ get a small
+          gray-400 number. The bar fills + the value alongside them
+          ARE the chart series (one color per ranked item), kept. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
         {sorted.slice(0, 8).map((item, i) => {
           const val = mode === "revenue" ? item.revenue : item.sales;
           const barW = Math.max((val / maxVal) * 100, 4);
           const color = TOP_BAR_COLORS[i % TOP_BAR_COLORS.length];
+          // Rank treatment: 1-3 get bold gray-900, 4+ get quiet gray-400.
+          // Hierarchy via size + weight, not via medal emoji that drift
+          // visually across Apple/Windows/Noto platforms.
+          const rankClass = i < 3
+            ? "text-sm font-bold text-gray-900 dark:text-gray-100"
+            : "text-xs text-gray-400 font-medium";
           return (
             <div key={i} className="flex items-center gap-3">
-              <span className="text-sm w-6 text-center flex-shrink-0">{medals[i] || <span className="text-xs text-gray-400 font-medium">{i + 1}</span>}</span>
+              <span className={`${rankClass} w-6 text-center flex-shrink-0 tabular-nums`}>{i + 1}</span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-baseline justify-between mb-1">
                   <span className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate">{item.name}</span>
-                  <span className="text-sm font-bold flex-shrink-0 ml-2" style={{ color }}>
+                  {/* Primary value: gray-900 (data, not chrome accent).
+                      The bar fill below already carries the series color. */}
+                  <span className="text-sm font-bold tabular-nums flex-shrink-0 ml-2 text-gray-900 dark:text-gray-100">
                     {mode === "revenue" ? `${item.revenue.toLocaleString()}` : item.sales}
                   </span>
                 </div>
-                <div className="h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                <div className="h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
                   <div className="h-full rounded-full transition-all duration-500" style={{ width: `${barW}%`, background: color }} />
                 </div>
                 {mode === "revenue" ? (
-                  <span className="text-[10px] text-gray-400 mt-0.5 block">{item.sales} {t("sold")}</span>
+                  <span className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 block tabular-nums">{item.sales} {t("sold")}</span>
                 ) : (
-                  <span className="text-[10px] text-gray-400 mt-0.5 block">{item.revenue.toLocaleString()} {currency}</span>
+                  <span className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 block tabular-nums">{item.revenue.toLocaleString()} {currency}</span>
                 )}
               </div>
             </div>
@@ -999,10 +1140,11 @@ function PaymentBreakdownCard({ paymentBreakdown, currency, onNavigate }) {
     return (
       <div
         onClick={onNavigate}
-        className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+        className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition"
       >
-        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
-          💳 {t("paymentMethods", "Payment methods")}
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
+          <Icon name="CreditCard" size={18} className="text-gray-500 dark:text-gray-400" />
+          {t("paymentMethods", "Payment methods")}
         </h3>
         <div className="py-6 text-center">
           <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -1013,17 +1155,22 @@ function PaymentBreakdownCard({ paymentBreakdown, currency, onNavigate }) {
     );
   }
   const total = paymentBreakdown.reduce((s, p) => s + p.amount, 0);
-  const methodColors = { cash: "#22C55E", card: "#3B82F6", mobilepay: "#8B5CF6" };
+  // Method colors are chart series labels (one color per payment method).
+  // Emerald for cash (money in!), blue for card, purple for MobilePay —
+  // matches the brand colors users see in the real apps, so the legend
+  // reads as recognition not decoration.
+  const methodColors = { cash: "#10B981", card: "#3B82F6", mobilepay: "#8B5CF6" };
 
   return (
     <div
       onClick={onNavigate}
-      className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow flex-1"
+      className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition flex-1"
     >
       <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("paymentMethods")}</h3>
-      <p className="text-xs text-gray-400 mt-0.5 mb-4">{t("thisMonth")}</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-4">{t("thisMonth")}</p>
 
-      {/* Stacked bar */}
+      {/* Stacked bar — series colors are data labels (per-method
+          recognition), kept. */}
       {total > 0 && (
         <div className="flex h-3 rounded-full overflow-hidden mb-4">
           {paymentBreakdown.sort((a, b) => b.amount - a.amount).map((p, i) => (
@@ -1046,11 +1193,11 @@ function PaymentBreakdownCard({ paymentBreakdown, currency, onNavigate }) {
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: color }} />
                 <span className="text-sm text-gray-700 dark:text-gray-200">{label}</span>
-                <span className="text-xs text-gray-400">{p.count} sales</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">{p.count} sales</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">{Math.round(p.amount).toLocaleString()}</span>
-                <span className="text-xs text-gray-400 w-8 text-right">{pct}%</span>
+                <span className="text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">{Math.round(p.amount).toLocaleString()}</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400 w-8 text-right tabular-nums">{pct}%</span>
               </div>
             </div>
           );
