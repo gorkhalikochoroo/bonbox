@@ -410,19 +410,32 @@ def get_aiia_client() -> AiiaClient:
     """Return the right client for the current env. Default = mock so
     contributors can run tests without setup.
 
+    Provider policy: **one per deploy**, picked via BANK_PROVIDER env var.
+    No runtime fallback between providers — if GoCardless rate-limits or
+    is down, the Connect Bank button surfaces a 502 and the owner retries.
+    Adding cross-provider failover would double the credential surface
+    (have to keep both healthy) and complicate testing for marginal benefit.
+
     Provider selection:
       BANK_PROVIDER=gocardless  → real EU PSD2 via GoCardless Bank
         Account Data (formerly Nordigen). Free tier, no commercial
-        agreement. Requires GOCARDLESS_SECRET_ID + GOCARDLESS_SECRET_KEY.
-        See app.services.gocardless_client.
+        agreement. Requires GOCARDLESS_BASE_URL + GOCARDLESS_SECRET_ID
+        + GOCARDLESS_SECRET_KEY. See app.services.gocardless_client.
+      BANK_PROVIDER=saltedge   → real EU/global PSD2 via Salt Edge.
+        Requires SALTEDGE_BASE_URL + SALTEDGE_APP_ID + SALTEDGE_SECRET.
+        Alternate to GoCardless — pick one or the other for the deploy.
       (unset) → fall back to AIIA_ENV legacy behavior:
         AIIA_ENV='mock' (default)  → MockAiiaClient
         AIIA_ENV='sandbox'         → SandboxAiiaClient (501 placeholder)
         AIIA_ENV='live'            → LiveAiiaClient   (501 placeholder)
 
-    Falling back to MockAiiaClient when the requested provider fails to
-    construct (e.g. missing creds) keeps the rest of the app alive —
-    bank-connect just becomes demo-only until config is fixed.
+    Mock fallback rules (RED finding #127):
+      - In dev/test (ENVIRONMENT != 'production'), if a real provider is
+        requested but creds are invalid, we fall back to MockAiiaClient so
+        contributors aren't blocked. Logs a WARNING.
+      - In prod, we REFUSE to fall back to mock and re-raise the error.
+        Serving synthetic transactions as real bank data would be worse
+        than a broken Connect Bank button.
     """
     # In prod, never fall back to mock when a real provider was requested but
     # is misconfigured — that would serve synthetic transactions as if they
