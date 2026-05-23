@@ -24,13 +24,18 @@ import { useLanguage } from "../hooks/useLanguage";
  * Steps render as numbered cards. Footer is optional small-print at the
  * bottom — good for compliance call-outs.
  */
+// Default tone changed from "blue" → "neutral" (May 2026): the new gray
+// neutral surface matches the rest of the redesigned app (sidebar +
+// SectionBanner + DismissibleTip). Pages that still pass tone="blue"
+// explicitly keep their old look until they're individually migrated,
+// so this default change is non-breaking.
 export default function HowItWorksCard({
   storageKey,
   icon = "\u{1F4A1}",
   title,
   steps = [],
   footer = null,
-  tone = "blue",
+  tone = "neutral",
   className = "",
 }) {
   const { t } = useLanguage();
@@ -72,6 +77,17 @@ export default function HowItWorksCard({
 
   const palette =
     {
+      // Neutral is the new default — matches the sidebar / SectionBanner
+      // recipe (gray-50 / gray-200 / gray-700 text + gray-900 chip).
+      // Using gray-900 (not green) on the step-number chip echoes the
+      // selected-pill treatment from TabPills and the active-nav-item
+      // treatment from Layout.jsx. Calm, accounting-software feel.
+      neutral: {
+        wrap:
+          "bg-gray-50 dark:bg-gray-800/60 border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-100",
+        chip: "bg-gray-900 text-white dark:bg-white dark:text-gray-900",
+        accent: "text-gray-600 dark:text-gray-400",
+      },
       blue: {
         wrap:
           "bg-blue-50/70 dark:bg-blue-900/15 border-blue-200/70 dark:border-blue-800/40 text-blue-900 dark:text-blue-100",
@@ -110,7 +126,11 @@ export default function HowItWorksCard({
 
   return (
     <div
-      className={`relative rounded-2xl border p-5 ${palette.wrap} ${className}`}
+      // rounded-xl (12px) — matches the rest of the design system. Was
+      // rounded-2xl before, which made the panel feel "softer" than its
+      // neighbors. Single radius across all cards keeps the page rhythm
+      // tight.
+      className={`relative rounded-xl border p-5 ${palette.wrap} ${className}`}
       role="note"
     >
       <div className="flex items-start justify-between gap-3 mb-4">
