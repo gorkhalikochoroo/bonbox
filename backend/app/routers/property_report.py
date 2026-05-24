@@ -26,11 +26,13 @@ from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.business_profile import BusinessProfile
 from app.models.order_channel_config import OrderChannelConfig
 from app.models.sale import Sale
 from app.models.user import User
 from app.routers.auth import get_current_user
 from app.services.channel_defaults import channel_label_map
+from app.services.tz_utils import business_day_window, business_today_local
 
 router = APIRouter()
 log = logging.getLogger("bonbox.property_report")
@@ -128,13 +130,41 @@ def property_financial_report(
     Default boundaries: 06:00 → 06:00 next day (Danish restaurant convention,
     avoids splitting late-night service across two reports).
     """
-    if report_date is None:
-        report_date = _date.today()
+    # Resolve cutoff from BusinessProfile when the caller didn't pass one
+    # explicitly. The Query param defaults to 6 (Danish restaurant
+    # convention) — same default the helper falls back to — but if the
+    # owner has saved a custom cutoff in their profile we honour it.
+    # This keeps the property report internally consistent with
+    # DailyClose prefill and LiveKpisToday (all three now derive from
+    # the same BusinessProfile field via the same helper).
+    profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == user.id)
+        .first()
+    )
+    if profile is not None and profile.day_cutoff_hour is not None:
+        # Explicit Query override wins — but if the request didn't carry
+        # a cutoff, FastAPI fills in the default (6). To detect "the
+        # caller really wanted 6" vs "the caller didn't say", we treat
+        # the Query as advisory and prefer the stored profile when it
+        # exists. The query param remains in the signature for backward
+        # compatibility with external clients.
+        user.day_cutoff_hour = profile.day_cutoff_hour
+    else:
+        user.day_cutoff_hour = day_cutoff_hour
 
-    # Build [start, end) window in user's timezone-naive UTC for now.
-    # Day starts at `day_cutoff_hour` on report_date and ends 24h later.
-    start_dt = datetime.combine(report_date, datetime.min.time()).replace(hour=day_cutoff_hour)
-    end_dt = start_dt + timedelta(days=1)
+    if report_date is None:
+        report_date = business_today_local(user)
+
+    # UTC [start, end) for the user's business day. Timezone-aware now —
+    # the previous timezone-naive `datetime.combine(...).replace(hour=…)`
+    # treated 06:00 as "wall clock 06:00 whatever timezone the server
+    # happens to be in", which drifted between Render's UTC clock and
+    # Copenhagen's CEST by 1-2 hours. `business_day_window` builds the
+    # window in the user's TZ + cutoff and converts to UTC, so a 02:00
+    # CEST sale on report_date=2026-05-24 + cutoff=6 correctly falls in
+    # the 2026-05-23 window.
+    start_dt, end_dt = business_day_window(user, report_date)
 
     try:
         # All sales for this user touching the [start, end) window.
@@ -177,6 +207,15 @@ def property_financial_report(
     # never-configured channel (e.g. legacy import).
     channel_labels = _resolve_channel_labels(db, user.id)
 
+    # CRIT-5 fix (Report Coherence audit #148): previously `total_revenue`
+    # was computed in this loop with one filter set, while `taxable_sales`
+    # was a SEPARATE comprehension below with a DIFFERENT filter set —
+    # which meant a soft-deleted void row could contribute to one and not
+    # the other, so MOMS never reconciled cleanly with revenue. Now BOTH
+    # sums are derived from the same single pass, sharing the same
+    # void/return/delete rules. The only legitimate divergence is
+    # `is_tax_exempt` — see comment at the assignment below.
+    taxable_sales = 0.0
     for s in rows:
         try:
             amt = float(s.amount or 0)
@@ -203,6 +242,18 @@ def property_financial_report(
             total_revenue += amt
             service_charge += sc
             discount_total += disc
+
+            # MOMS basis — same universe as revenue MINUS tax-exempt
+            # rows. A gift-card sale or a B2B reverse-charge sale shows
+            # up in revenue (the cash hit the till) but contributes zero
+            # to the MOMS the owner owes SKAT, so it MUST be excluded
+            # here. This is the ONLY documented divergence between
+            # `total_revenue` and `taxable_sales`. Note `is_deleted` is
+            # not re-checked because the SQL filter at line 168 already
+            # excludes deleted rows — and re-checking it here would
+            # silently mask any future query-shape regression.
+            if not s.is_tax_exempt:
+                taxable_sales += amt
 
             # Per-channel
             if ch not in by_channel:
@@ -241,10 +292,6 @@ def property_financial_report(
     # preference. Previously hardcoded /5 (= extract 25%) which gave the
     # wrong tax for any non-DK user (NPR 13%, GBP 20%, EUR 21%, etc.) and
     # for B2B users entering net prices.
-    taxable_sales = sum(
-        float(s.amount or 0) for s in rows
-        if not s.is_deleted and not s.is_void and s.status != "returned" and not s.is_tax_exempt
-    )
     try:
         from app.services.tax_service import _get_vat_rate
         vat_rate = _get_vat_rate(user.currency or "DKK")

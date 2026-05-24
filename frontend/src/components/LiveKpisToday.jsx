@@ -44,17 +44,62 @@ export default function LiveKpisToday() {
   // localIso (not toISOString) so a Danish owner closing at 01:14 CEST
   // doesn't accidentally see yesterday's data labelled "today".
   const todayStr = localIso();
-  // Default cutoff hour mirrors PropertyReport — 6am restaurant convention
-  // (so a late-night service that ends at 02:30 still counts as TODAY's
-  // shift). Stays at 6 for v1; we can expose the toggle in a later pass
-  // if owners ask for it.
-  const cutoffHour = 6;
+  // CRIT-fix (Report Coherence audit #148): cutoff USED to be hardcoded
+  // to 6 here while DailyClosePage (rendered on the same /daily-close
+  // route) read the value from BusinessProfile.day_cutoff_hour. If an
+  // owner had configured a different cutoff (e.g. 4am for a bakery),
+  // the two surfaces on the same page would disagree about whether a
+  // 05:00 sale counts toward today or yesterday. Now we fetch the
+  // owner-configured cutoff from BusinessProfile and fall back to 6
+  // (the Danish restaurant convention) only when the profile lookup
+  // fails — same fallback the backend helper uses, so a missing profile
+  // never produces drift between client and server.
+  const FALLBACK_CUTOFF_HOUR = 6;
+  const [cutoffHour, setCutoffHour] = useState(null);
 
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // Fetch the owner-configured cutoff once on mount. Defer the
+  // property-report fetch until we know what cutoff to ask for — if we
+  // pre-fetch with 6 and the profile says 4, we'd briefly render the
+  // wrong numbers and then snap to the right ones, which is exactly the
+  // drift this audit is trying to eliminate.
   useEffect(() => {
+    let cancelled = false;
+    api
+      .get("/business")
+      .then((r) => {
+        if (cancelled) return;
+        const raw = r?.data?.day_cutoff_hour;
+        const num = Number(raw);
+        // Treat null / undefined / NaN as "no preference saved" and
+        // fall back to the convention. Clamp to [0, 23] defensively —
+        // a corrupted DB row should never let LiveKpisToday explode.
+        if (!Number.isFinite(num)) {
+          setCutoffHour(FALLBACK_CUTOFF_HOUR);
+        } else {
+          setCutoffHour(Math.min(23, Math.max(0, Math.trunc(num))));
+        }
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        // L8 — multi-source fallback. Profile fetch failure is non-fatal
+        // here; we just degrade to the convention and surface a soft
+        // warning in the console so this regression is loud during dev
+        // without breaking the owner's view of the shift.
+        // eslint-disable-next-line no-console
+        console.warn("LiveKpisToday: BusinessProfile fetch failed, using cutoff=6 fallback", e);
+        setCutoffHour(FALLBACK_CUTOFF_HOUR);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (cutoffHour === null) return;  // wait for cutoff resolution
     let cancelled = false;
     setLoading(true);
     setError("");
@@ -79,7 +124,7 @@ export default function LiveKpisToday() {
     return () => {
       cancelled = true;
     };
-  }, [todayStr]);
+  }, [todayStr, cutoffHour]);
 
   const totals = report?.totals || {};
   const channels = report?.order_channels || [];
@@ -143,7 +188,13 @@ export default function LiveKpisToday() {
         <StatCard
           label={t("liveOrdersToday") || "Orders"}
           value={fmt(orders)}
-          helper={orders > 0 ? `${t("liveSinceCutoff") || "since"} 06:00` : null}
+          helper={
+            orders > 0
+              ? `${t("liveSinceCutoff") || "since"} ${String(
+                  cutoffHour ?? FALLBACK_CUTOFF_HOUR
+                ).padStart(2, "0")}:00`
+              : null
+          }
         />
         <StatCard
           label={t("liveGuestsToday") || "Guests"}

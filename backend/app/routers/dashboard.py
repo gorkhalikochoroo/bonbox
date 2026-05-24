@@ -22,6 +22,7 @@ from app.services.prediction import get_staffing_recommendations
 from app.services.daily_brief import get_or_create_brief
 from app.services.daily_brief_email import send_brief_to_user
 from app.services.anomaly_detector import run_daily_scan, serialize_alert, dismiss_alert
+from app.services.tz_utils import business_today_local
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from fastapi import Request, HTTPException
@@ -157,7 +158,25 @@ def get_dashboard_batch(
     Replaces 15 separate API calls with one DB-session-efficient request.
     Optional fields (weather, staffing, budgets) return null on failure.
     """
-    today = date.today()
+    # Resolve "today" against the user's BUSINESS day, not UTC midnight.
+    # A 02:00 CEST sale on a 06:00-cutoff profile is YESTERDAY's revenue,
+    # and a query made at 03:00 on Jan 1 still belongs to the Dec 31
+    # business day (so the month_rev figure doesn't snap to an empty
+    # January while the late-night shift is still in progress). We pull
+    # the BusinessProfile up-front and attach `day_cutoff_hour` to the
+    # user so `business_today_local` sees the real cutoff without a
+    # second query. This `profile` is reused further down for the
+    # onboarding-flags lookup — keep them in sync.
+    profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == user.id)
+        .first()
+    )
+    if profile is not None and profile.day_cutoff_hour is not None:
+        # Stash on the request-scoped user object — no DB write, no
+        # side-effects beyond this request lifetime.
+        user.day_cutoff_hour = profile.day_cutoff_hour
+    today = business_today_local(user)
     yesterday = today - timedelta(days=1)
     target_year = year or today.year
     target_month = month or today.month
@@ -229,11 +248,8 @@ def get_dashboard_batch(
     # Onboarding flags — surface CVR-verification and accountant-email setup
     # in the welcome checklist so new users discover the recently shipped
     # multilayer CVR auto-detect + Send-to-accountant export flows.
-    profile = (
-        db.query(BusinessProfile)
-        .filter(BusinessProfile.user_id == user.id)
-        .first()
-    )
+    # `profile` is fetched once at the top of the endpoint (for the
+    # business-day cutoff) and reused here — saves a duplicate query.
     has_business_profile_verified = bool(
         profile and profile.cvr_verified_at is not None
     )
@@ -1118,7 +1134,19 @@ def get_summary(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    today = date.today()
+    # Resolve "today" against the user's business day (same helper /batch
+    # uses — both endpoints feed the same Dashboard tiles so they MUST
+    # agree about whether a 02:00 CEST sale belongs to today or yesterday).
+    # The BusinessProfile fetch is reused further down for the onboarding
+    # flags — see the matching pattern in /batch.
+    profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == user.id)
+        .first()
+    )
+    if profile is not None and profile.day_cutoff_hour is not None:
+        user.day_cutoff_hour = profile.day_cutoff_hour
+    today = business_today_local(user)
     yesterday = today - timedelta(days=1)
     month_start = today.replace(day=1)
 
@@ -1199,12 +1227,9 @@ def get_summary(
 
     # Onboarding flags — see /dashboard/all for context. Same logic, kept
     # in sync so the welcome checklist works whether the frontend hits
-    # /dashboard/all or /dashboard/summary.
-    profile = (
-        db.query(BusinessProfile)
-        .filter(BusinessProfile.user_id == user.id)
-        .first()
-    )
+    # /dashboard/all or /dashboard/summary. `profile` was fetched at the
+    # top of this endpoint for the business-day cutoff resolution — reuse
+    # rather than re-querying.
     has_business_profile_verified = bool(
         profile and profile.cvr_verified_at is not None
     )
