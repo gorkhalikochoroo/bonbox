@@ -31,11 +31,28 @@ Multi-tenant hygiene:
   • No global / shared events — every row is per-tenant from day one.
   • Indexes scoped to (user_id, ...) so query plans stay tenant-local.
 
-JSON column choice:
-  • `sa.JSON().with_variant(JSONB, "postgresql")` — matches migration 006's
-    pattern (kasserapport_extractions). SQLite gets TEXT; Postgres gets
-    native JSONB (we never query INTO the dict so the binary advantage
-    isn't load-bearing — but it costs nothing to use the right type).
+Type choices (lessons paid for):
+  • All `id` / FK columns are **String(36)**, NOT native postgresql.UUID.
+    The GUID() TypeDecorator in app/database.py maps to VARCHAR(36) on
+    both SQLite AND Postgres (it does NOT use native UUID). Declaring
+    UUID(as_uuid=True) here would create a column type that doesn't
+    match what `Base.metadata.create_all()` produces — and the FK
+    constraint to events.id would fail with "foreign key constraint
+    type mismatch". See main.py:_migrations Migration 034 comment for
+    the back-story (sales.invoice_id had this exact bug).
+  • JSON column uses `sa.JSON().with_variant(JSONB, "postgresql")` —
+    matches migration 006's kasserapport_extractions pattern. SQLite
+    gets TEXT, Postgres gets native JSONB.
+
+Why direct `op.add_column` instead of `batch_alter_table`:
+  • `batch_alter_table` is needed for SQLite when DROP/ALTER COLUMN
+    semantics aren't natively supported. For a plain nullable ADD COLUMN
+    (with no NOT NULL backfill) SQLite supports the operation directly.
+  • On Postgres, batch mode adds no value here and historically masked
+    a silent skip during the 2026-05-24 kulturarrangør deploy (the
+    events table got created but the sales ADD COLUMN ops never landed
+    on prod, taking the home page offline). Direct `op.add_column` makes
+    the failure path visible.
 
 Revision ID: m3n4o5p6q7r8
 Revises: l2m3n4o5p6q7
@@ -53,21 +70,15 @@ depends_on = None
 
 
 def upgrade():
-    bind = op.get_bind()
-    dialect = bind.dialect.name
-
     # ── 1. Create the events table ────────────────────────────────────
-    # UUID-on-PG / String(36)-on-SQLite, same idiom as every other table.
+    # String(36) for ids on both dialects — matches GUID() TypeDecorator.
+    # See module docstring "Type choices" for why we don't use UUID here.
     op.create_table(
         "events",
-        sa.Column(
-            "id",
-            sa.dialects.postgresql.UUID(as_uuid=True).with_variant(sa.String(36), "sqlite"),
-            primary_key=True,
-        ),
+        sa.Column("id", sa.String(36), primary_key=True),
         sa.Column(
             "user_id",
-            sa.dialects.postgresql.UUID(as_uuid=True).with_variant(sa.String(36), "sqlite"),
+            sa.String(36),
             sa.ForeignKey("users.id"),
             nullable=False,
             index=True,
@@ -102,43 +113,39 @@ def upgrade():
         ["user_id", "event_date", "is_deleted"],
     )
 
-    # ── 2 + 3. Sale.event_id + Sale.ticket_breakdown ─────────────────
-    # Use batch_alter_table so SQLite (dev) handles the FK column via
-    # the copy-and-move strategy. Postgres (prod) sees the same logical
-    # ADD COLUMN op without the table rewrite. Both dialects end up with
-    # `event_id` (FK, ondelete=SET NULL, nullable, indexed) and
-    # `ticket_breakdown` (JSON / JSONB, nullable) on `sales`.
-    #
-    # Note on the named FK: batch mode requires constraints to be named
-    # (alembic re-emits them when copying-and-moving). The name is also
-    # a nicer hook for prod-side `DROP CONSTRAINT` if we ever need it.
+    # ── 2. Sale.event_id (nullable FK, ON DELETE SET NULL) ────────────
+    # Direct op.add_column — batch_alter_table is unnecessary for
+    # nullable ADD COLUMN on either dialect and historically masked a
+    # silent skip on Postgres prod (see module docstring).
+    op.add_column(
+        "sales",
+        sa.Column(
+            "event_id",
+            sa.String(36),
+            sa.ForeignKey(
+                "events.id",
+                ondelete="SET NULL",
+                name="fk_sales_event_id_events",
+            ),
+            nullable=True,
+        ),
+    )
+    op.create_index("ix_sale_event_id", "sales", ["event_id"])
+
+    # ── 3. Sale.ticket_breakdown — multi-tier ticket prices/counts ────
     json_type = sa.JSON().with_variant(JSONB, "postgresql")
-    with op.batch_alter_table("sales") as batch_op:
-        batch_op.add_column(
-            sa.Column(
-                "event_id",
-                sa.dialects.postgresql.UUID(as_uuid=True).with_variant(sa.String(36), "sqlite"),
-                sa.ForeignKey(
-                    "events.id",
-                    ondelete="SET NULL",
-                    name="fk_sales_event_id_events",
-                ),
-                nullable=True,
-            )
-        )
-        batch_op.add_column(
-            sa.Column("ticket_breakdown", json_type, nullable=True),
-        )
-        batch_op.create_index("ix_sale_event_id", ["event_id"])
+    op.add_column(
+        "sales",
+        sa.Column("ticket_breakdown", json_type, nullable=True),
+    )
 
 
 def downgrade():
     # Reverse order — drop dependent columns first, then the events table.
-    # batch_alter_table to keep SQLite + Postgres on the same code path.
-    with op.batch_alter_table("sales") as batch_op:
-        batch_op.drop_index("ix_sale_event_id")
-        batch_op.drop_column("ticket_breakdown")
-        batch_op.drop_column("event_id")
+    # Direct ops (no batch mode) — see upgrade() comment.
+    op.drop_index("ix_sale_event_id", table_name="sales")
+    op.drop_column("sales", "ticket_breakdown")
+    op.drop_column("sales", "event_id")
 
     op.drop_index("ix_event_user_date", table_name="events")
     op.drop_table("events")

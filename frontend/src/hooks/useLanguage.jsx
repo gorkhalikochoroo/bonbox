@@ -8001,10 +8001,45 @@ export function LanguageProvider({ children }) {
   // raw key. Older 1-arg calls keep working — they just get the key
   // back, which is what callers historically guarded with `|| "…"`
   // (but that pattern is broken when the key string is truthy).
-  const t = useCallback((key, fallback) => {
+  // Polymorphic second arg:
+  //   • t("key")                  → resolved string, or raw key if missing
+  //   • t("key", "fallback text") → resolved string, or "fallback text" if missing
+  //   • t("key", { var: "val" })  → resolved string with {var} placeholders
+  //                                 substituted; falls back to the raw template
+  //                                 string with substitutions applied if missing.
+  //
+  // The object form was added 2026-05-24 after `t("revenueParen", { currency })`
+  // surfaced as "Revenue ({currency})" literally on the Dashboard — the bug
+  // was that the second arg was ignored entirely when the key was found, so
+  // the {currency} placeholder in the EN/DA/NP template was never substituted.
+  // Backwards compatible with all existing string-fallback call sites because
+  // typeof "string" !== "object".
+  const t = useCallback((key, fallbackOrVars) => {
+    const isVarsObject =
+      fallbackOrVars !== null &&
+      typeof fallbackOrVars === "object" &&
+      !Array.isArray(fallbackOrVars);
+    const fallback = isVarsObject ? undefined : fallbackOrVars;
+    const vars = isVarsObject ? fallbackOrVars : null;
+
     const hit = loaded[lang]?.[key] || loaded.en[key];
-    if (hit) return hit;
-    return fallback !== undefined ? fallback : key;
+    let result;
+    if (hit) {
+      result = hit;
+    } else {
+      result = fallback !== undefined ? fallback : key;
+    }
+
+    // Substitute {var} placeholders if a vars object was supplied. Missing
+    // keys in `vars` leave the placeholder text untouched — better than
+    // silently rendering "undefined" in the UI. Only acts on strings; if
+    // a translation entry is e.g. a JSX node, it passes through unchanged.
+    if (vars && typeof result === "string" && result.indexOf("{") !== -1) {
+      result = result.replace(/\{(\w+)\}/g, (match, name) =>
+        vars[name] !== undefined ? String(vars[name]) : match,
+      );
+    }
+    return result;
   }, [loaded, lang]);
 
   return (

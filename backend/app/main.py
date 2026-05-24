@@ -226,6 +226,38 @@ _migrations = [
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS voucher_number INTEGER",
     "CREATE INDEX IF NOT EXISTS ix_sales_voucher ON sales (user_id, voucher_number)",
     "CREATE INDEX IF NOT EXISTS ix_expenses_voucher ON expenses (user_id, voucher_number)",
+    # ── Migration 013: kulturarrangør — Event entity + Sale.event_id ────
+    # Cultural-event organizers (Sudip-style customers) tag each Sale with
+    # the event it belongs to, so post-event reports can be sliced by show.
+    #
+    # CRITICAL: this block must run BEFORE migration 014 (which adds the
+    # expense FX columns) because migration 014 chained off 013 in alembic.
+    # Failure mode if missing: every Dashboard / Sales / Reports query
+    # 500s with "column sales.event_id does not exist" because SQLAlchemy
+    # auto-selects Sale.event_id once the model declares it. 2026-05-24
+    # incident — Agent Y added the alembic file but missed this list,
+    # taking the home page offline for ~30 min before hotfix.
+    #
+    # VARCHAR(36) for event_id matches GUID() (see Migration 034 comment).
+    # Native UUID would silently fail inside the SAVEPOINT wrapper.
+    """CREATE TABLE IF NOT EXISTS events (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        name VARCHAR(255) NOT NULL,
+        event_date DATE NOT NULL,
+        venue VARCHAR(255),
+        notes TEXT,
+        is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+        deleted_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_events_user_id ON events (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_event_user_date ON events (user_id, event_date, is_deleted)",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS event_id VARCHAR(36) REFERENCES events(id) ON DELETE SET NULL",
+    "CREATE INDEX IF NOT EXISTS ix_sale_event_id ON sales (event_id)",
+    "CREATE INDEX IF NOT EXISTS ix_sales_user_event ON sales (user_id, event_id) WHERE event_id IS NOT NULL",
+    "ALTER TABLE sales ADD COLUMN IF NOT EXISTS ticket_breakdown JSONB",
     # ── Migration 014: foreign-currency capture on expenses ─────────────
     # Bogføringsloven §10 / SKAT cross-border compliance. Three nullable
     # columns; existing single-currency rows are unaffected.
