@@ -151,6 +151,21 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # serious solo evaluator (a few scans/week); hitting it is a
         # strong "upgrade to Starter" signal.
         "expense_receipt_scans_per_month": 10,
+        # MOMS PDF exports — 2026-05-24, per Manoj's "yes just limit cap"
+        # decision on #148 CRIT-4. The Pro upsell is /tax/filing-pdf
+        # (SKAT-ready). /reports/vat-export/pdf is the basic "view MOMS
+        # for any period" PDF — Free keeps access but with a small
+        # monthly cap so abusive scripts can't grind the renderer.
+        # Counted via audit_logs `reports.vat_export_pdf_generated`
+        # rows (the audit trail added in commit 707f2cb). The JSON
+        # endpoint (/vat-export) is NOT capped — that's just data the
+        # page renders.
+        #
+        # 2 / mo lets a Free user generate one ad-hoc summary + one
+        # quarterly review before the cap bites. A real small biz hits
+        # roughly 4 quarterly + 1 yearly = ~5/yr legitimate use, so the
+        # cap rarely fires for normal workflow; abusers hit it fast.
+        "moms_pdf_exports_per_month": 2,
     },
     "starter": {
         "branches": 1,
@@ -174,6 +189,10 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # a marginal cost of ~4 DKK/user vs 129 DKK rev. See the Free
         # tier comment above for the full math.
         "expense_receipt_scans_per_month": 200,
+        # MOMS PDF exports — Starter gets a high cap that's effectively
+        # unlimited for legitimate workflow but still bounded against
+        # abuse. See the Free-tier comment above for the design rationale.
+        "moms_pdf_exports_per_month": 100,
     },
     "trial": {  # = full Pro for 14 days
         "branches": 3,
@@ -189,6 +208,8 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "invoices_per_month": -1,  # unlimited
         # Trial mirrors Pro — see pro's comment for the recalibration math.
         "expense_receipt_scans_per_month": 500,
+        # MOMS PDF exports — Trial mirrors Pro: unlimited.
+        "moms_pdf_exports_per_month": -1,
     },
     "pro": {
         "branches": 3,
@@ -208,6 +229,9 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # headroom; marginal cost ~10 DKK/user vs 249 DKK rev. See the
         # Free tier comment above for the full cost-per-tier math.
         "expense_receipt_scans_per_month": 500,
+        # MOMS PDF exports — Pro gets unlimited. The Pro upsell narrative
+        # is "no caps on the basics, plus SKAT-ready /tax/filing-pdf".
+        "moms_pdf_exports_per_month": -1,
     },
 }
 

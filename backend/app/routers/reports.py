@@ -3,7 +3,7 @@ import logging
 from datetime import date, timedelta
 import calendar
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -19,6 +19,7 @@ from reportlab.graphics.shapes import Drawing, Rect, String
 from reportlab.graphics import renderPDF
 
 from app.database import get_db
+from app.models.audit_log import AuditLog
 from app.models.user import User
 from app.models.sale import Sale
 from app.models.expense import Expense, ExpenseCategory
@@ -30,6 +31,7 @@ from app.models.staffing import StaffingRule
 from app.models.business_profile import BusinessProfile
 from app.services import audit_service
 from app.services.auth import get_current_user
+from app.services.billing import effective_plan, get_cap
 from pydantic import BaseModel
 from typing import List
 
@@ -43,6 +45,29 @@ def _client_ip(request: Request) -> str | None:
         return request.client.host if request.client else None
     except Exception:  # noqa: BLE001
         return None
+
+
+def _count_moms_pdf_exports_this_month(db: Session, user_id) -> int:
+    """Count how many MOMS PDF exports the user has generated in the
+    current calendar month. Source is the `audit_logs` rows written by
+    `vat_export_pdf` (action == reports.vat_export_pdf_generated, added
+    in commit 707f2cb). Using audit rows as the counter means:
+      • One source of truth — the same rows the accountant trail relies on
+      • No separate usage-tracking table to keep in sync
+      • A failed PDF that never wrote its audit row is naturally not
+        counted, which is the user-friendly direction.
+    """
+    first_of_month = date.today().replace(day=1)
+    return (
+        db.query(func.count(AuditLog.id))
+        .filter(
+            AuditLog.user_id == user_id,
+            AuditLog.action == "reports.vat_export_pdf_generated",
+            AuditLog.created_at >= first_of_month,
+        )
+        .scalar()
+        or 0
+    )
 
 
 def _get_business_profile(db: Session, user_id) -> dict:
@@ -1015,7 +1040,42 @@ def vat_export_pdf(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Generate localized VAT/Tax PDF report."""
+    """Generate localized VAT/Tax PDF report.
+
+    Tier-capped — Free=2/mo, Starter=100/mo, Pro+Trial=unlimited. Per
+    Manoj's "yes just limit cap" decision on #148 CRIT-4: keep the
+    surface reachable for every tier (the Pro upsell is /tax/filing-pdf,
+    the SKAT-ready filing artifact) but bound Free usage so abusive
+    scripts can't grind the renderer. The JSON sibling `/vat-export`
+    stays uncapped — that's the data the VAT page reads to render.
+    """
+    # ── Tier cap — count this month's audit rows, deny at the cap ──
+    cap = get_cap(user, "moms_pdf_exports_per_month")
+    if cap >= 0:  # -1 means unlimited
+        used = _count_moms_pdf_exports_this_month(db, user.id)
+        if used >= cap:
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "code": "plan_required",
+                    "feature": "moms_pdf_exports",
+                    "required_plan": "starter",
+                    "current_plan": effective_plan(user),
+                    "used_this_month": used,
+                    "monthly_cap": cap,
+                    # DK-first phrasing — the surface is jurisdiction-
+                    # locked (MOMS / kr stay Danish even on EN UI).
+                    "message": (
+                        f"Du har brugt dine {cap} MOMS PDF-eksporter "
+                        f"denne måned. Opgrader til Starter for 100/md."
+                    ),
+                    "message_en": (
+                        f"You've used your {cap} MOMS PDF exports this "
+                        f"month. Upgrade to Starter for 100 / month."
+                    ),
+                },
+            )
+
     tax_name = get_vat_terms(user.currency or "DKK")["name"]
     if quarter:
         q_months = {1: (1, 3), 2: (4, 6), 3: (7, 9), 4: (10, 12)}
