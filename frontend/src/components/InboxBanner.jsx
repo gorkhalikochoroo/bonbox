@@ -110,7 +110,12 @@ export default function InboxBanner({
 
   const [state, setState] = useState(null);   // null = loading, {} = loaded
   const [error, setError] = useState("");
-  const [hidden, setHidden] = useState(() => (dismissable ? _isDismissed() : false));
+  // Dismiss-button was removed (2026-05-25) — users were mis-tapping it
+  // and losing the alias entirely with no clear path back. The collapse
+  // chevron now does all the de-clutter work via a slim ~70px row.
+  // Hard-wired to false: any leftover localStorage flag from before is
+  // safely ignored.
+  const [hidden, setHidden] = useState(false);
   const [copied, setCopied] = useState(false);
   const [testing, setTesting] = useState(false);
   const [toast, setToast] = useState(null);   // { kind, msg }
@@ -244,8 +249,12 @@ export default function InboxBanner({
       role="region"
       aria-label={t("inboxBannerAria", "Receipt-forwarding email inbox")}
     >
-      {/* Collapse/expand toggle — banner is always collapsible. Sits
-          to the left of the dismiss × when both are present. */}
+      {/* Collapse/expand toggle — the ONLY control on the banner now.
+          The previous dismiss × was removed (2026-05-25) because users
+          mis-tapped it sitting next to this chevron and lost the alias
+          entirely with no obvious way back. With the slim collapsed
+          row at ~70px, dismiss was never load-bearing — collapse already
+          de-clutters the page. */}
       <button
         type="button"
         onClick={toggleExpanded}
@@ -253,32 +262,15 @@ export default function InboxBanner({
           ? t("inboxCollapse", "Hide receipt inbox details")
           : t("inboxExpand", "Show receipt inbox details")}
         aria-expanded={expanded}
-        className={`absolute top-3 ${dismissable ? "right-12" : "right-3"} w-8 h-8 rounded-full inline-flex items-center justify-center
+        className="absolute top-3 right-3 w-8 h-8 rounded-full inline-flex items-center justify-center
                    hover:bg-black/5 dark:hover:bg-white/10 transition
                    text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200
-                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500`}
+                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
       >
         {expanded
           ? <ChevronUp className="w-4 h-4" aria-hidden="true" />
           : <ChevronDown className="w-4 h-4" aria-hidden="true" />}
       </button>
-
-      {/* Dismiss (banner-only — keeps the surface alive on /connections) */}
-      {dismissable && (
-        <button
-          type="button"
-          onClick={onDismiss}
-          aria-label={t("inboxDismiss", "Hide receipt inbox tip")}
-          className="absolute top-3 right-3 w-8 h-8 rounded-full inline-flex items-center justify-center
-                     hover:bg-black/5 dark:hover:bg-white/10 transition
-                     text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200
-                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-            <path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          </svg>
-        </button>
-      )}
 
       <div className="flex items-start gap-3 pr-8 sm:pr-10">
         <div className="shrink-0 p-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/20">
