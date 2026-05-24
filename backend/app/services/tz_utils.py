@@ -51,7 +51,15 @@ def utc_window_for_local_day(user, d: date) -> tuple[datetime, datetime]:
     return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
 
 
-def utc_now() -> datetime:
-    """UTC now — naive (compatible with default utc_now() callsites
-    that this codebase already uses)."""
-    return utc_now()
+# Note: `utc_now` is intentionally re-exported from `app.utils.time` via the
+# top-of-file import. Do NOT define a wrapper here — a previous wrapper
+# shadowed the import and recursed into itself (RecursionError landmine).
+# Callers using `from app.services.tz_utils import utc_now` keep working;
+# this module is a one-stop shop for time/TZ helpers.
+__all__ = [
+    "now_local",
+    "today_local",
+    "week_start_local",
+    "utc_window_for_local_day",
+    "utc_now",
+]
