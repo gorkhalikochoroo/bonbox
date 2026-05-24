@@ -425,25 +425,139 @@ def _try_claude(image_path: str, currency_hint: str = "DKK") -> dict | None:
     return result
 
 
+def _try_claude_z_report(image_path: str) -> dict | None:
+    """Call the Z-report-specialized Claude extractor. Returns its result
+    if overall confidence ≥ _CLAUDE_MIN_USE_OVERALL, else None so the
+    caller falls back to Mindee → Claude generic → regex. Never raises.
+    """
+    try:
+        from app.services import claude_vision_ocr
+        result = claude_vision_ocr.extract_z_report_data(image_path)
+    except Exception as e:  # noqa: BLE001
+        print(f"[OCR] Claude Z-Report call raised, falling back: {e}")
+        return None
+    if not result or not isinstance(result.get("confidence"), dict):
+        return None
+    overall = float(result["confidence"].get("overall", 0.0))
+    if overall < _CLAUDE_MIN_USE_OVERALL:
+        print(f"[OCR] Claude Z-Report low confidence {overall:.2f} (< {_CLAUDE_MIN_USE_OVERALL}), falling back")
+        return None
+    return result
+
+
+def _classify_doc(image_path: str) -> str:
+    """Wrapper around claude_vision_ocr.classify_document_type that
+    fails silently to 'unknown' so the legacy fallback chain still runs
+    if the classifier breaks. Never raises."""
+    try:
+        from app.services import claude_vision_ocr
+        return claude_vision_ocr.classify_document_type(image_path)
+    except Exception as e:  # noqa: BLE001
+        print(f"[OCR] doc-type classifier failed, defaulting to 'unknown': {e}")
+        return "unknown"
+
+
+def _z_report_to_legacy_shape(z: dict) -> dict:
+    """Map the rich extract_z_report_data result into parse_z_report's
+    historical return shape — keeps daily_close.py callers + frontend
+    working unchanged while exposing the new rich fields as additional
+    keys (cash_denominations, per_clerk, payment_breakdown).
+
+    Back-compat invariants the existing callers rely on:
+      • revenue.food / drinks / takeaway present (None when missing)
+      • payments.cash / card / mobilepay present (None when missing)
+      • tips / moms_total / revenue_total present (None when missing)
+      • confidence is a string bucket
+      • ocr_available True when we got a usable revenue_total
+    """
+    rb = z.get("revenue_breakdown") or {}
+    pb = z.get("payment_breakdown") or {}
+    conf_overall = float((z.get("confidence") or {}).get("overall", 0.0))
+
+    # Card aggregate — prefer 'card' if Claude returned it, else sum
+    # the breakdown pieces it did return (softpay + visa + mastercard +
+    # dankort). The legacy frontend renders a single 'card' bucket.
+    card_total = pb.get("card")
+    if card_total is None:
+        pieces = [pb.get(k) for k in ("softpay", "visa", "mastercard", "dankort")]
+        card_total = sum(p for p in pieces if p is not None) or None
+
+    return {
+        # Legacy shape — preserved for back-compat
+        "revenue": {
+            "food": rb.get("food"),
+            "drinks": rb.get("drinks"),
+            "takeaway": rb.get("other"),  # 'other' is the closest match
+        },
+        "payments": {
+            "cash": pb.get("cash"),
+            "card": card_total,
+            "mobilepay": pb.get("mobilepay"),
+        },
+        "tips": z.get("tip"),
+        "moms_total": z.get("moms_total"),
+        "revenue_total": z.get("revenue_total"),
+        "raw_text": "",  # Z-report extractor doesn't emit raw text
+        "ocr_available": True,
+        "confidence": _confidence_to_bucket(conf_overall),
+        "confidence_per_field": z.get("confidence") or {},
+        "claude_notes": z.get("notes"),
+        "_provider": z.get("_provider") or "claude_z_report",
+        # ─── New rich fields — daily_close.py routes these through to
+        #     the prefill response so the frontend can auto-populate
+        #     all three steps + the per-clerk cross-check.
+        "doc_type": z.get("doc_type", "z_report"),
+        "business_date": z.get("business_date"),
+        "revenue_breakdown": rb,
+        "payment_breakdown": pb,
+        "cash_denominations": z.get("cash_denominations") or {},
+        "cash_counted_total": z.get("cash_counted_total"),
+        "transactions": z.get("transactions") or {},
+        "per_clerk": z.get("per_clerk") or [],
+        "surcharge": z.get("surcharge"),
+        "kasse_dif": z.get("kasse_dif"),
+        "moms_rate": z.get("moms_rate"),
+    }
+
+
 def parse_z_report(image_path: str) -> dict:
     """Parse a Z-report / kasserapport image using OCR and extract structured fields.
 
     Returns dict with revenue breakdown, payment methods, tips, MOMS, and totals.
 
     OCR chain (May 2026):
-      1. Mindee Receipt API — primary (free up to 250/mo, ~$0.04 after)
-      2. Claude Vision (claude_vision_ocr) — smart fallback, ~$0.003/doc
-      3. OCR.space + regex — fallback
-      4. Google Vision + regex — fallback
-      5. None of the above — return ocr_available=False (manual entry)
+      0. Doc-type classifier (cheap Haiku) — routes Z-reports to the
+         specialized extractor before spending money on Mindee (which
+         can't parse them anyway).
+      1. Z-report path:     Claude Z-Report specialized extractor.
+      1. Receipt/unknown:   Mindee Receipt API (primary, ~$0.04, free ≤250/mo).
+      2. Receipt fallback:  Claude Vision generic receipt (~$0.003).
+      3. OCR.space + regex
+      4. Google Vision + regex
+      5. None → ocr_available=False (manual entry)
 
-    Z-reports are non-standard cash-register prints. Mindee's Receipt API
-    may or may not handle them well — we try anyway (it's free up to
-    250/mo, no harm), and if confidence < 0.85 we fall through to Claude
-    which handles Z-reports better. The operator gets free Mindee usage
-    when it works, smart fallback when it doesn't.
+    Z-reports are non-standard cash-register prints. The classifier
+    short-circuits the Mindee call (which can't parse them) and routes
+    straight to the specialized Claude extractor that knows the
+    kasserapport structure (per-clerk earnings, cash denomination
+    counts, payment-method breakdown).
     """
-    # ── Layer 1 — Mindee (primary) ──────────────────────────────────
+    # ── Layer 0 — doc-type classifier (cheap Haiku) ──────────────────
+    doc_type = _classify_doc(image_path)
+
+    # ── Layer 1a — Z-report specialized path ─────────────────────────
+    # Skip Mindee entirely when the classifier says z_report — Mindee
+    # has no schema for kasserapports and just returns garbage we'd
+    # have to discard. Goes straight to the specialized Claude extractor.
+    if doc_type == "z_report":
+        z_result = _try_claude_z_report(image_path)
+        if z_result is not None:
+            return _z_report_to_legacy_shape(z_result)
+        # Specialized extractor failed → fall through to the legacy
+        # generic-receipt chain below as a safety net. Better to
+        # return SOMETHING than nothing.
+
+    # ── Layer 1b — Mindee (primary for non-Z documents) ─────────────
     structured = _try_mindee(image_path)
     # ── Layer 2 — Claude Vision (smart fallback) ────────────────────
     if structured is None:

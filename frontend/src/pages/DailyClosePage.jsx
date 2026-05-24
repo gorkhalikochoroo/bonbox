@@ -436,6 +436,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     if (incoming.tips != null) merged.tips = incoming.tips;
     if (incoming.moms_total != null) merged.moms_total = incoming.moms_total;
     if (incoming.revenue_total != null) merged.revenue_total = incoming.revenue_total;
+    // Rich Z-report fields — last scan wins (typical retake = better photo)
+    if (incoming.prefill) merged.prefill = incoming.prefill;
+    if (incoming.cash_denominations) merged.cash_denominations = incoming.cash_denominations;
+    if (incoming.cash_counted_total != null) merged.cash_counted_total = incoming.cash_counted_total;
+    if (incoming.per_clerk) merged.per_clerk = incoming.per_clerk;
+    if (incoming.doc_type) merged.doc_type = incoming.doc_type;
     merged.raw_text = ((existing.raw_text || "") + "\n---\n" + (incoming.raw_text || "")).slice(0, 2000);
     merged.ocr_available = true;
     const allVals = [...Object.values(merged.revenue || {}), ...Object.values(merged.payments || {}), merged.tips, merged.moms_total, merged.revenue_total];
@@ -490,12 +496,33 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     payMethods.forEach(m => { if (p[m.key]) newPay[m.key] = String(p[m.key]); });
     Object.entries(p).forEach(([k, v]) => { if (v && !newPay[k]) newPay[k] = String(v); });
     setPayAmounts(prev => ({ ...prev, ...newPay }));
-    // Fill tips (only for types that have tips)
+    // Fill tips (only for types that have tips). Z-reports often show
+    // tips as negative (paid out) — keep the sign for accountant clarity.
     if (config.hasTips && scanResult.tips) setTipsTotal(String(scanResult.tips));
     // If OCR detected MOMS, switch to manual mode with the scanned value
     if (scanResult.moms_total) {
       setMomsMode("manual");
       setMomsManual(String(scanResult.moms_total));
+    }
+    // ── Z-report specialized prefill (Part D) ───────────────────────
+    // When the backend ran the kasserapport-specialized extractor it
+    // returns a `prefill` block with cash-drawer counts, per-clerk
+    // earnings, and the full payment-method split. Pre-populate the
+    // cash-drawer step and drop the clerk summary into notes so the
+    // owner spots schedule mismatches before locking the close.
+    const pf = scanResult.prefill;
+    if (pf) {
+      // Step 3 — Cash drawer counted total (from denomination math)
+      if (pf.cash_drawer?.counted_total != null) {
+        setCashCounted(String(pf.cash_drawer.counted_total));
+      }
+      // Notes — per-clerk earnings + any kasserapport notes
+      const noteParts = [];
+      if (pf.per_clerk_notes) noteParts.push(pf.per_clerk_notes);
+      if (scanResult.claude_notes) noteParts.push(scanResult.claude_notes);
+      if (noteParts.length > 0) {
+        setNotes(prev => prev ? prev + "\n" + noteParts.join("\n") : noteParts.join("\n"));
+      }
     }
     // Jump to review or step 1
     setScanMode("skipped");

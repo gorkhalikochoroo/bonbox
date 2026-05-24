@@ -923,6 +923,63 @@ async def scan_z_report(
     parsed = parse_z_report(local_path)
     parsed["image_url"] = image_url
 
+    # When the specialized Z-report extractor ran, package the rich
+    # fields into a `prefill` block the frontend uses to auto-populate
+    # all three daily-close steps. The legacy keys (revenue / payments
+    # / tips / moms_total / revenue_total) remain at the top level so
+    # existing callers + the simple "Apply OCR" path still work.
+    if parsed.get("doc_type") == "z_report":
+        rb = parsed.get("revenue_breakdown") or {}
+        pb = parsed.get("payment_breakdown") or {}
+        per_clerk = parsed.get("per_clerk") or []
+        cash_denoms = parsed.get("cash_denominations") or {}
+
+        # Per-clerk earnings summary — frontend drops this into the
+        # Notes field so the owner can spot-check vs. their schedule
+        # (which is the most common kasserapport error class: clerk
+        # logged into the wrong terminal).
+        clerk_notes = None
+        if per_clerk:
+            clerk_lines = [
+                f"{c.get('name') or c.get('id') or '?'}: "
+                f"{c.get('total'):.2f} kr" if isinstance(c.get('total'), (int, float))
+                else f"{c.get('name') or c.get('id') or '?'}: (uklart)"
+                for c in per_clerk
+            ]
+            clerk_notes = "Pr. ekspedient: " + ", ".join(clerk_lines)
+
+        parsed["prefill"] = {
+            # Step 1 — Revenue breakdown
+            "revenue_breakdown": {
+                "food": rb.get("food"),
+                "drinks": rb.get("drinks"),
+                "other": rb.get("other"),
+                "tips": rb.get("tips"),
+                "surcharge": rb.get("surcharge"),
+            },
+            # Step 2 — Payment methods
+            "payment_breakdown": {
+                "cash": pb.get("cash"),
+                "card": parsed.get("payments", {}).get("card"),
+                "mobilepay": pb.get("mobilepay"),
+                "softpay": pb.get("softpay"),
+                "visa": pb.get("visa"),
+                "mastercard": pb.get("mastercard"),
+                "dankort": pb.get("dankort"),
+            },
+            # Step 3 — Cash drawer count + denomination breakdown
+            "cash_drawer": {
+                "counted_total": parsed.get("cash_counted_total"),
+                "denominations": cash_denoms,
+                "kasse_dif": parsed.get("kasse_dif"),
+            },
+            # Cross-check + Notes prefill
+            "transactions": parsed.get("transactions") or {},
+            "per_clerk": per_clerk,
+            "per_clerk_notes": clerk_notes,
+            "business_date": parsed.get("business_date"),
+        }
+
     return parsed
 
 

@@ -636,6 +636,7 @@ def aggregate(
 @router.post("/close-pdf")
 def close_pdf(
     body: dict,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -691,6 +692,7 @@ def close_pdf(
         .first()
     )
     business_profile_dict: dict = {}
+    logo_bytes: bytes | None = None
     if bp_row is not None:
         business_profile_dict = {
             "company_name": bp_row.company_name or "",
@@ -706,6 +708,20 @@ def close_pdf(
         # "Restaurant Mirabelle ApS" vs just "Mirabelle").
         if bp_row.company_name and not business_name:
             business_name = bp_row.company_name
+        # Best-effort logo fetch. Storage hiccup → PDF still renders.
+        if bp_row.logo_url:
+            try:
+                from app.services.storage import get_storage
+                storage = get_storage()
+                if hasattr(storage, "get"):
+                    logo_bytes = storage.get(bp_row.logo_url)
+            except Exception:
+                logo_bytes = None
+
+    # is_locked_signed: a multi-terminal-close render is always for a
+    # confirmed (router-validated) aggregate. The flag drives the
+    # audit footer label.
+    is_locked_signed = True
 
     # L4 — pass `user` so render_close_pdf's defensive feature check
     # fires. Belt-and-braces backup for the enforce_feature gate above.
@@ -718,6 +734,9 @@ def close_pdf(
             business_profile=business_profile_dict,
             bilagsnummer=bilagsnummer,
             user=user,
+            generated_by_email=(user.email or None),
+            is_locked_signed=is_locked_signed,
+            logo_bytes=logo_bytes,
         )
     except PermissionError:
         from app.services.billing import feature_locked_detail
@@ -731,6 +750,31 @@ def close_pdf(
     iso_date = (date_label.split(" ")[0] if date_label else "today").replace(".", "-")
     biz_slug = "".join(c if c.isalnum() else "_" for c in (business_name or "bonbox").lower())[:32]
     filename = f"lukning_{biz_slug}_{iso_date}.pdf"
+
+    # ── Audit row — tamper-evidence trail. Records the SHA-256 of the
+    # PDF + the bilagsnummer + the timestamp so a future revisor can
+    # re-hash the downloaded PDF and confirm it matches what we issued.
+    try:
+        from app.utils.document_hash import compute_document_hash
+        from app.services import audit_service
+        audit_service.record(
+            db, user=user,
+            action="kasserapport.pdf_generated",
+            entity_type="kasserapport_close",
+            entity_id=None,
+            after={
+                "bilagsnummer": bilagsnummer,
+                "date_label": date_label,
+                "pdf_size_bytes": len(pdf_bytes),
+                "pdf_sha256": compute_document_hash(pdf_bytes),
+                "is_locked_signed": is_locked_signed,
+            },
+            ip_address=getattr(request.client, "host", None) if request and request.client else None,
+        )
+        db.commit()
+    except Exception:
+        # Audit failure must never block the download.
+        pass
 
     return Response(
         content=pdf_bytes,
