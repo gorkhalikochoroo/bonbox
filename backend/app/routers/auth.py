@@ -988,6 +988,8 @@ def update_profile(
         current_user.prices_include_moms = bool(data.prices_include_moms)
     if data.has_employees is not None:
         current_user.has_employees = bool(data.has_employees)
+    if data.auto_email_on_close is not None:
+        current_user.auto_email_on_close = bool(data.auto_email_on_close)
     db.commit()
     db.refresh(current_user)
     return current_user

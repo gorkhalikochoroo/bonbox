@@ -56,6 +56,11 @@ class UserResponse(BaseModel):
     # the next dashboard load. Non-null timestamp = wizard done (or
     # explicitly skipped); leave them on /dashboard.
     onboarding_completed_at: datetime | None = None
+    # Lane A — close-ritual prefs (Manoj-confirmed, May 2026).
+    # Surfaced on /auth/me so the Daily Close page can render the
+    # auto-email toggle in its current state without a second fetch.
+    auto_email_on_close: bool = True
+    bank_drop_dismissed_ids: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -107,6 +112,10 @@ class UserUpdate(BaseModel):
     tax_filing_frequency: str | None = None  # "monthly" | "bimonthly" | "quarterly" | "half_yearly"
     prices_include_moms: bool | None = None
     has_employees: bool | None = None
+    # Lane A — close-ritual auto-email opt-in (Starter+ feature, but
+    # the preference is writable on any plan; gate enforced at lock
+    # time). Default True; toggle lives on the Daily Close page.
+    auto_email_on_close: bool | None = None
 
 
 class PasswordChange(BaseModel):

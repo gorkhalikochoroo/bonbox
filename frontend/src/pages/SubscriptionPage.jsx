@@ -134,6 +134,12 @@ const buildTiers = (t) => [
       // OCR" lie.
       { text: t("featStarterSupplierDetect", "Auto-detect 16+ Danish suppliers (Hørkram, BC Catering, AB Catering, …) — instant categorization on every invoice") || "Auto-detect 16+ Danish suppliers (Hørkram, BC Catering, AB Catering, …) — instant categorization on every invoice" },
       { text: t("featStarterEmailRevisor", "Email kasserapport to your bogholder in one tap") || "Email kasserapport to your bogholder in one tap" },
+      // Lane A — auto-email on lock. Starter's "the day is closed, no
+      // extra tap needed" promise. PDF + scanned Z-report photo arrive
+      // in owner + accountant inbox the moment FoH staff hits Confirm
+      // & Lock. This bullet is the user-facing translation of the
+      // close_auto_email + close_scan_attached entitlements.
+      { text: t("featStarterCloseAutoEmail", "Auto-email kasserapport + scanned Z-report to your owner + accountant the moment you lock — no extra tap, no forgetting") || "Auto-email kasserapport + scanned Z-report to your owner + accountant the moment you lock — no extra tap, no forgetting" },
       { text: t("featStarterFaktura30", "Faktura — up to 30 / month, emailed direct to customer") || "Faktura — up to 30 / month, emailed direct to customer" },
       { text: t("featStarterKreditnota", "Proper kreditnota flow — Bogføringsloven §7 compliant") || "Proper kreditnota flow — Bogføringsloven §7 compliant" },
       { text: t("featStarterHistory31", "31 days of history + Dinero / Billy / e-conomic CSV templates") || "31 days of history + Dinero / Billy / e-conomic CSV templates" },
@@ -182,6 +188,12 @@ const buildTiers = (t) => [
       { text: t("featProReceipt500", "Receipt OCR — 500 / month, AI vision-grade accuracy") || "Receipt OCR — 500 / month, AI vision-grade accuracy" },
       { text: t("featProMultiTerm", "Multi-terminal close — merge Z-reports from every POS into one PDF") || "Multi-terminal close — merge Z-reports from every POS into one PDF" },
       { text: t("featProStaffEmail", "Email schedule to every staff member at once") || "Email schedule to every staff member at once" },
+      // Lane A — Pro-only push notification. Owner gets a push the
+      // moment FoH staff locks the close so they know "the day is
+      // wrapped" from anywhere, without waiting for the morning
+      // brief. Peace-of-mind moat for multi-branch owners who can't
+      // physically be at every location.
+      { text: t("featProClosePush", "Push notification to owner when staff locks the close — peace of mind from anywhere") || "Push notification to owner when staff locks the close — peace of mind from anywhere" },
       { text: t("featProMulti3", "3 branches, 5 team members") || "3 branches, 5 team members" },
       { text: t("featProWhiteLabel", "White-label faktura PDFs — no BonBox brand") || "White-label faktura PDFs — no BonBox brand" },
       { text: t("featProBrief5", "AI brief — 5 refreshes / day, 200 chat messages") || "AI brief — 5 refreshes / day, 200 chat messages" },

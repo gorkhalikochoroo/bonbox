@@ -115,6 +115,24 @@ class User(Base):
     is_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     locked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     locked_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # ── Lane A — close-ritual upgrades (Manoj-confirmed, May 2026) ──
+    # When True AND the user's plan has has_feature("close_auto_email"),
+    # the daily-close lock handler fires one email to owner + accountant
+    # with the kasserapport PDF + scanned Z-report photo attached. Both
+    # the entitlement AND this preference must be on to send — so a
+    # Starter user can opt out from Profile if they're testing things or
+    # have a manual workflow they want to keep. Default True since the
+    # whole point of Lane A is "fewer taps to close the day", and the
+    # opt-out is a single toggle on the Daily Close page.
+    auto_email_on_close: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Per-close bank-drop reminder dismissal — the locked-state card shows
+    # "🏦 Bank drop: put X DKK in safe" with a "Sat i sikkerhedsboks"
+    # button. Once clicked, we stash the close_id here so the same card
+    # doesn't keep nagging. NULL or empty = nothing dismissed. Stored
+    # comma-separated rather than a join table — at most ~30/year per
+    # user, no need for a row each. Capped at 4096 chars at the schema
+    # layer; older entries roll off in a FIFO.
+    bank_drop_dismissed_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
     # First-run onboarding wizard completion (Task #55).
     # NULL = the user has never finished (or skipped past) the welcome
     # wizard; non-null timestamp = they've been through it once and we

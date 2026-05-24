@@ -233,6 +233,47 @@ const translations = {
     // 16+ entries (see backend/app/data/danish_suppliers.py).
     featStarterSupplierDetect:
       "Auto-detect 16+ Danish suppliers — instant categorization on every invoice",
+    // Lane A — close-ritual upgrades. Starter bullet promises the
+    // PDF + Z-report photo arrive automatically the moment FoH staff
+    // taps Confirm & Lock. Pro bullet adds the push notification.
+    // Strings live here so the SubscriptionPage marketing copy and
+    // the locked-state Daily Close card both pull from one source.
+    featStarterCloseAutoEmail:
+      "Auto-email kasserapport + scanned Z-report to your owner + accountant the moment you lock — no extra tap, no forgetting",
+    featProClosePush:
+      "Push notification to owner when staff locks the close — peace of mind from anywhere",
+    // Daily Close — Lane A UI strings (see DailyClosePage.jsx)
+    autoEmailToggleLabel: "Email owner + accountant automatically on lock",
+    autoEmailToggleHint:
+      "When you tap Confirm & Lock, we send one email with the kasserapport PDF + scanned Z-report photo to your owner email and your accountant.",
+    autoEmailToggleStarterGate: "Auto-email on lock is on Starter+",
+    autoEmailToggleStarterGateBody:
+      "Free still lets you manually tap Send to accountant after locking. Upgrade to Starter for the no-extra-tap version.",
+    autoEmailNeedsOwnerEmail:
+      "Set your owner email on Profile first so we know where to send the kasserapport.",
+    autoEmailNeedsOwnerEmailCta: "Add owner email",
+    // Locked-state card — after Confirm & Lock fires
+    closeLockedTitle: "Tonight's close — locked at {time} by {who}",
+    closeLockedEmailSent: "Sent to {recipients}",
+    closeLockedEmailQueued: "Email queued for retry — we'll keep trying",
+    closeLockedEmailRetry: "Retry email now",
+    closeLockedEmailSkippedPref:
+      "Auto-email is off in your settings — open Settings to turn it back on",
+    closeLockedEmailSkippedNoRecipient:
+      "No owner email on file — set one on Profile to enable auto-send",
+    closeLockedEmailFailed:
+      "Email send is disabled in this environment.",
+    closeLockedScanDegraded:
+      "Z-report photo couldn't be fetched right now — your accountant got the PDF, no photo attached. We'll keep the original on file.",
+    closeLockedPushSent: "Owner notified via push",
+    closeLockedFreeUpgradeNudge:
+      "Want the kasserapport auto-sent to your accountant the moment you lock? Upgrade to Starter.",
+    // Bank-drop reminder card (universal — Free + paid)
+    bankDropReminderTitle: "Bank-drop reminder",
+    bankDropReminderBody:
+      "Put {amount} {currency} in safe / drop bag. Keep {float} {currency} float in the drawer.",
+    bankDropMarkDone: "Marked as done",
+    bankDropDone: "✓ In safe",
     // SmartImportModal upgrade-nudge copy — surfaced when a Free user
     // OCRs a supplier invoice. The slot used to host the green-check
     // SupplierBanner before the May-24 retroactive gate.
@@ -2823,6 +2864,45 @@ const translations = {
     // på den generelle vareindkøbs-OCR, der er gratis for alle.
     featStarterSupplierDetect:
       "Auto-genkend 16+ danske leverandører — øjeblikkelig kategorisering på hver faktura",
+    // Lane A — dagsafslutnings-ritual. Starter-bullet lover at PDF +
+    // Z-rapport-foto ankommer automatisk når personalet trykker
+    // "Bekræft & lås". Pro-bullet tilføjer push-notifikation.
+    featStarterCloseAutoEmail:
+      "Auto-send kasserapport + scannet Z-rapport til ejer + revisor i samme sekund du låser — ingen ekstra tap, ingen glemmer",
+    featProClosePush:
+      "Push-besked til ejer når personalet låser dagsafslutningen — ro i sindet hvor du end er",
+    // Daily Close — Lane A UI-strenge
+    autoEmailToggleLabel: "Send automatisk til ejer + revisor når jeg låser",
+    autoEmailToggleHint:
+      "Når du trykker Bekræft & Lås, sender vi én mail med kasserapport-PDF + scannet Z-rapport-foto til ejer og revisor.",
+    autoEmailToggleStarterGate: "Auto-send ved låsning kræver Starter+",
+    autoEmailToggleStarterGateBody:
+      "Free har stadig den manuelle Send-til-revisor knap efter låsning. Opgrader til Starter for varianten uden ekstra tap.",
+    autoEmailNeedsOwnerEmail:
+      "Tilføj først ejer-mail under Profil, så vi ved hvor kasserapporten skal hen.",
+    autoEmailNeedsOwnerEmailCta: "Tilføj ejer-mail",
+    // Låst-tilstand kort
+    closeLockedTitle: "Aftenens kassebon — låst kl. {time} af {who}",
+    closeLockedEmailSent: "Sendt til {recipients}",
+    closeLockedEmailQueued: "Mail i kø til genforsøg — vi prøver igen",
+    closeLockedEmailRetry: "Prøv at sende igen",
+    closeLockedEmailSkippedPref:
+      "Auto-send er slået fra i dine indstillinger — slå til igen i Indstillinger",
+    closeLockedEmailSkippedNoRecipient:
+      "Ingen ejer-mail på filen — tilføj én under Profil for at aktivere auto-send",
+    closeLockedEmailFailed:
+      "Mail-afsendelse er slået fra i dette miljø.",
+    closeLockedScanDegraded:
+      "Z-rapport-foto kunne ikke hentes lige nu — din revisor fik PDF'en, intet foto vedhæftet. Vi gemmer originalen.",
+    closeLockedPushSent: "Ejer fik push",
+    closeLockedFreeUpgradeNudge:
+      "Vil du have kasserapporten sendt automatisk til din revisor i samme sekund du låser? Opgrader til Starter.",
+    // Bank-drop påmindelse (universel — Free + betalt)
+    bankDropReminderTitle: "Bank-drop påmindelse",
+    bankDropReminderBody:
+      "Sæt {amount} {currency} i sikkerhedsboks / dropbag. Behold {float} {currency} som byttepenge i kassen.",
+    bankDropMarkDone: "Sat i sikkerhedsboks",
+    bankDropDone: "✓ I sikkerhedsboks",
     // SmartImportModal upgrade-nudge — vises når en Free-bruger OCR-er
     // en leverandørfaktura.
     smartImportSupplierGateTitle: "Auto-genkendelse af leverandører — Starter+",

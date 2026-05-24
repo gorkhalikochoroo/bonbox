@@ -3,6 +3,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useBranch } from "../components/BranchSelector";
+import { useEntitlements } from "../hooks/useEntitlements";
 import { displayCurrency, getTaxConfig, getVatTerms } from "../utils/currency";
 import { trackEvent } from "../hooks/useEventLog";
 import { FadeIn } from "../components/AnimationKit";
@@ -223,6 +224,12 @@ export default function DailyClosePage() {
   const [history, setHistory] = useState([]);
   const [insights, setInsights] = useState(null);
   const [loading, setLoading] = useState(false);
+  // Lane A — when CloseForm successfully locks a close, the parent
+  // captures the close_ritual block returned by the backend (auto-
+  // email status, scan attached, bank-drop hint, etc.) so we can
+  // render the locked-state card at the top of the History tab. The
+  // card stays until the user dismisses it or navigates away.
+  const [lastLockedClose, setLastLockedClose] = useState(null);
 
   // Offline resilience
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -299,9 +306,21 @@ export default function DailyClosePage() {
       {tab === "close" && <CloseForm currency={currency} t={t} branchType={branchType} branchId={branchId} isOnline={isOnline}
         editDraft={editDraft}
         onEditConsumed={() => setEditDraft(null)}
-        onDone={() => { fetchHistory(); fetchInsights(); setTab("history"); }}
+        onDone={(lockResult) => {
+          fetchHistory();
+          fetchInsights();
+          // Lane A — surface the lock result on the next view so the
+          // user sees email-status feedback even though the form has
+          // been replaced by the History tab.
+          if (lockResult && lockResult.close_ritual) {
+            setLastLockedClose(lockResult);
+          }
+          setTab("history");
+        }}
         onQueued={() => { setPendingCount(getOfflineQueue().length); setTab("history"); }} />}
       {tab === "history" && <HistoryView data={history} currency={currency} t={t} onRefresh={fetchHistory} insights={insights}
+        lastLockedClose={lastLockedClose}
+        onDismissLastLocked={() => setLastLockedClose(null)}
         onEdit={(dc) => { setEditDraft(dc); setTab("close"); }} />}
       {tab === "insights" && <InsightsView data={insights} currency={currency} t={t} />}
       {tab === "branches" && <BranchSummaryView currency={currency} />}
@@ -324,10 +343,38 @@ function getBusinessDate(cutoffHour = 0) {
 }
 
 function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnline, editDraft, onEditConsumed }) {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
+  const { hasFeature } = useEntitlements();
   const defaultRevCats = useMemo(() => getRevenueCats(branchType), [branchType]);
   const defaultPayMethods = useMemo(() => getPaymentMethods(branchType), [branchType]);
   const config = CLOSE_CONFIG[branchType] || CLOSE_CONFIG.general;
+
+  // Lane A — auto-email-on-lock preference. Mirrors user.auto_email_on_close
+  // and writes through to /auth/profile when toggled. Starter+ feature;
+  // shown locked for Free users with the upgrade nudge so the path
+  // to Starter is one tap.
+  const closeAutoEmailEntitled = hasFeature("close_auto_email");
+  const [autoEmailPref, setAutoEmailPref] = useState(
+    user?.auto_email_on_close !== false,
+  );
+  // Keep the local state in sync when /auth/me reloads with a new value
+  useEffect(() => {
+    if (typeof user?.auto_email_on_close === "boolean") {
+      setAutoEmailPref(user.auto_email_on_close);
+    }
+  }, [user?.auto_email_on_close]);
+
+  const toggleAutoEmail = async () => {
+    const next = !autoEmailPref;
+    setAutoEmailPref(next);  // optimistic
+    try {
+      await api.patch("/auth/profile", { auto_email_on_close: next });
+      refreshUser?.();
+    } catch {
+      // Rollback on failure — toggle is non-critical, fail silently
+      setAutoEmailPref(!next);
+    }
+  };
 
   // VAT rate from user.currency — was hardcoded 0.25 (Danish only), which
   // was wrong for NPR (13%) / EUR_DE (19%) / GBP (20%) / USD (0%) etc.
@@ -706,13 +753,16 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     }
 
     try {
-      await api.post("/daily-close", payload);
+      const resp = await api.post("/daily-close", payload);
       trackEvent(
         payload.status === "draft" ? "daily_close_draft_saved" : "daily_close_completed",
         "daily-close",
         payload.report_date || null
       );
-      onDone();
+      // Lane A — bubble the lock response (including close_ritual)
+      // up to the parent so the locked-state card on History can
+      // render the email status + bank-drop reminder + push status.
+      onDone(resp?.data || null);
     } catch (err) {
       if (!err.response) {
         // Network failed mid-request — queue for later
@@ -1482,6 +1532,55 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               </div>
             </div>
 
+            {/* ─── Lane A — Auto-email-on-lock toggle ─── */}
+            {/* Starter+ users see a live toggle; Free users see the
+                gated state with a one-tap upgrade link. The toggle
+                state is the user's preference; the entitlement is
+                the tier gate — both must be true at lock time for
+                the email to fire (router enforces). */}
+            <div className={`rounded-xl p-4 ${
+              closeAutoEmailEntitled
+                ? "bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800"
+                : "bg-gray-50 dark:bg-gray-800/50 border border-dashed border-gray-300 dark:border-gray-700"
+            }`}>
+              {closeAutoEmailEntitled ? (
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={autoEmailPref}
+                    onChange={toggleAutoEmail}
+                    className="mt-1 h-4 w-4 rounded text-green-600 focus:ring-green-500"
+                  />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
+                      📧 {t("autoEmailToggleLabel") || "Email owner + accountant automatically on lock"}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      {t("autoEmailToggleHint") || "When you tap Confirm & Lock, we send one email with the kasserapport PDF + scanned Z-report photo to your owner email and your accountant."}
+                    </p>
+                  </div>
+                </label>
+              ) : (
+                <div className="flex items-start gap-3">
+                  <span className="text-gray-400 mt-0.5">🔒</span>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                      {t("autoEmailToggleStarterGate") || "Auto-email on lock is on Starter+"}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      {t("autoEmailToggleStarterGateBody") || "Free still lets you manually tap Send to accountant after locking. Upgrade to Starter for the no-extra-tap version."}
+                    </p>
+                    <a
+                      href="/subscription"
+                      className="inline-block mt-2 text-xs font-semibold text-green-600 dark:text-green-400 hover:underline"
+                    >
+                      {t("pricingUpgradeStarter") || "Upgrade to Starter"} →
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">{error}</div>}
           </div>
         )}
@@ -1541,9 +1640,188 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
 
 
 /* ═══════════════════════════════════════════════════════════
+   LANE A — Just-locked card (locked-state UI per the doctrine)
+   ═══════════════════════════════════════════════════════════
+   Renders right after Confirm & Lock fires. Honest about every
+   downstream outcome:
+     • Email status: sent | queued_retry | skipped_pref | skipped_no_recipient
+                     | failed_skipped | skipped_feature_locked
+     • Bank-drop reminder: universal (all tiers); dismissible with
+       persistence to user.bank_drop_dismissed_ids
+     • Push status: Pro-only; falls back gracefully when no subscription
+     • Upgrade nudge for Free users — points to Starter
+
+   L9 in the multi-barrier defense: never lie about state. If the email
+   couldn't go, the card says so — it doesn't fake a green checkmark.
+*/
+function JustLockedCard({ t, close, currency, onDismiss }) {
+  const ritual = close.close_ritual || {};
+  const closedAt = close.closed_at
+    ? new Date(close.closed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "—";
+  const closedBy = close.closed_by || (t("staffShort") || "Staff");
+  const recipients = (ritual.sent_to || []).join(", ");
+
+  // Local dismiss state for bank-drop — POST to backend so the
+  // dismissal sticks across reloads/devices.
+  const [bankDropDone, setBankDropDone] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [emailStatus, setEmailStatus] = useState(ritual.email_status);
+
+  const handleBankDropDone = async () => {
+    setBankDropDone(true);  // optimistic
+    try {
+      await api.post(`/daily-close/${close.id}/bank-drop-dismiss`);
+    } catch {
+      // Non-critical — UI already showed done; let it stand. Worst
+      // case: the reminder re-appears on next reload.
+    }
+  };
+
+  const handleRetryEmail = async () => {
+    setRetrying(true);
+    try {
+      // Re-trigger the auto-email by saving the close again with
+      // status=confirmed. Backend's lock handler re-runs the email
+      // pipeline. Cheaper than a dedicated /retry-email endpoint.
+      const resp = await api.post("/daily-close", {
+        date: close.date, branch_id: close.branch_id,
+        status: "confirmed",
+        revenue_breakdown: close.revenue_breakdown,
+        payment_breakdown: close.payment_breakdown,
+        moms_total: close.moms_total, moms_mode: close.moms_mode,
+        cash_counted: close.cash_counted,
+        tips_total: close.tips_total, tips_staff_count: close.tips_staff_count,
+        notes: close.notes, closed_by: close.closed_by,
+      });
+      const newStatus = resp?.data?.close_ritual?.email_status;
+      if (newStatus) setEmailStatus(newStatus);
+    } catch {
+      // Leave status as-is so the retry button stays available
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  // Build the email status row — honest about every state
+  let emailLine = null;
+  if (emailStatus === "sent") {
+    emailLine = (
+      <p className="text-sm text-gray-700 dark:text-gray-200">
+        📧 {(t("closeLockedEmailSent") || "Sent to {recipients}").replace("{recipients}", recipients || "—")}
+        {ritual.scan_degraded && (
+          <span className="block text-xs text-amber-600 dark:text-amber-400 mt-1">
+            ⚠️ {t("closeLockedScanDegraded") || "Z-report photo couldn't be fetched right now — your accountant got the PDF, no photo attached."}
+          </span>
+        )}
+      </p>
+    );
+  } else if (emailStatus === "queued_retry") {
+    emailLine = (
+      <div className="text-sm text-amber-700 dark:text-amber-300 flex items-center gap-2 flex-wrap">
+        <span>📧 {t("closeLockedEmailQueued") || "Email queued for retry — we'll keep trying"}</span>
+        <button onClick={handleRetryEmail} disabled={retrying}
+          className="text-xs px-2.5 py-1 bg-amber-500 text-white rounded-md font-medium hover:bg-amber-600 disabled:opacity-50">
+          {retrying ? "..." : (t("closeLockedEmailRetry") || "Retry now")}
+        </button>
+      </div>
+    );
+  } else if (emailStatus === "skipped_preference_off") {
+    emailLine = (
+      <p className="text-sm text-gray-600 dark:text-gray-300">
+        🔕 {t("closeLockedEmailSkippedPref") || "Auto-email is off in your settings — open Settings to turn it back on"}
+      </p>
+    );
+  } else if (emailStatus === "skipped_no_recipient") {
+    emailLine = (
+      <p className="text-sm text-amber-700 dark:text-amber-300">
+        ⚠️ {t("closeLockedEmailSkippedNoRecipient") || "No owner email on file — set one on Profile to enable auto-send"}
+      </p>
+    );
+  } else if (emailStatus === "failed_skipped") {
+    emailLine = (
+      <p className="text-sm text-gray-500 dark:text-gray-400">
+        ℹ️ {t("closeLockedEmailFailed") || "Email send is disabled in this environment."}
+      </p>
+    );
+  } else if (emailStatus === "skipped_feature_locked") {
+    // Free user — show the upgrade nudge instead
+    emailLine = (
+      <div className="text-sm bg-amber-50 dark:bg-amber-900/20 rounded-lg p-3 border border-amber-200 dark:border-amber-800">
+        <p className="text-amber-800 dark:text-amber-200 font-medium">
+          💡 {t("closeLockedFreeUpgradeNudge") || "Want the kasserapport auto-sent to your accountant the moment you lock? Upgrade to Starter."}
+        </p>
+        <a href="/subscription" className="inline-block mt-2 text-xs font-bold text-amber-700 dark:text-amber-300 hover:underline">
+          {t("pricingUpgradeStarter") || "Upgrade to Starter"} →
+        </a>
+      </div>
+    );
+  }
+
+  const bankDrop = ritual.bank_drop;
+  const showBankDrop = bankDrop && !bankDropDone;
+
+  return (
+    <FadeIn>
+      <div className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border border-green-200 dark:border-green-800 rounded-2xl p-4 sm:p-5 shadow-sm relative">
+        <button
+          onClick={onDismiss}
+          aria-label="Dismiss"
+          className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none"
+        >
+          ×
+        </button>
+        <div className="flex items-start gap-3">
+          <div className="text-2xl">✓</div>
+          <div className="flex-1 space-y-3">
+            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              🔒 {(t("closeLockedTitle") || "Tonight's close — locked at {time} by {who}")
+                .replace("{time}", closedAt)
+                .replace("{who}", closedBy)}
+            </p>
+            {emailLine}
+            {ritual.push_status === "sent" && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                🔔 {t("closeLockedPushSent") || "Owner notified via push"}
+              </p>
+            )}
+            {showBankDrop && (
+              <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-amber-200 dark:border-amber-800 flex items-start gap-3">
+                <span className="text-xl">🏦</span>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    {t("bankDropReminderTitle") || "Bank-drop reminder"}
+                  </p>
+                  <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5">
+                    {(t("bankDropReminderBody") || "Put {amount} {currency} in safe / drop bag. Keep {float} {currency} float in the drawer.")
+                      .replace("{amount}", (bankDrop.to_drop_dkk || 0).toLocaleString())
+                      .replace("{currency}", currency)
+                      .replace("{float}", (bankDrop.leave_in_drawer_dkk || 1000).toLocaleString())}
+                  </p>
+                  <button onClick={handleBankDropDone}
+                    className="mt-2 text-xs px-3 py-1 bg-amber-500 text-white rounded-md font-medium hover:bg-amber-600">
+                    {t("bankDropMarkDone") || "Marked as done"}
+                  </button>
+                </div>
+              </div>
+            )}
+            {bankDropDone && (
+              <p className="text-xs text-green-700 dark:text-green-300">
+                {t("bankDropDone") || "✓ In safe"}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </FadeIn>
+  );
+}
+
+
+/* ═══════════════════════════════════════════════════════════
    HISTORY VIEW
    ═══════════════════════════════════════════════════════════ */
-function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
+function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLockedClose, onDismissLastLocked }) {
   const { user } = useAuth();
   const [downloading, setDownloading] = useState(null);
   const [sharing, setSharing] = useState(null);
@@ -1936,6 +2214,19 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit }) {
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-xs font-semibold rounded-full shadow-lg">
           {shareToast}
         </div>
+      )}
+
+      {/* ─── Lane A — Just-locked close card ─── */}
+      {/* Renders the close_ritual block returned by the lock handler:
+          email status (honest — never "sent" when it wasn't), bank-drop
+          reminder, push status. Dismissible. */}
+      {lastLockedClose && (
+        <JustLockedCard
+          t={t}
+          close={lastLockedClose}
+          currency={currency}
+          onDismiss={onDismissLastLocked}
+        />
       )}
 
       {/* Active cash streak warning banner */}

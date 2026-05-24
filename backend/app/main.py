@@ -1184,6 +1184,19 @@ _migrations = [
     # contract — we don't retroactively re-tier closed tickets.
     "ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS is_priority BOOLEAN NOT NULL DEFAULT FALSE",
     "CREATE INDEX IF NOT EXISTS ix_support_priority_status ON support_tickets (is_priority, status, created_at)",
+
+    # ── Migration 053: Lane A close-ritual upgrades (Manoj-confirmed) ────
+    # `auto_email_on_close` — when True AND tier has close_auto_email,
+    # the lock handler fires one email with kasserapport PDF + Z-report
+    # photo to owner + accountant. Default TRUE: the Lane A value
+    # proposition is "no extra tap" so the opt-in friction belongs on
+    # the toggle, not the default. Free users still have the row, the
+    # router-layer gate refuses to send for them either way.
+    # `bank_drop_dismissed_ids` — comma-separated DailyClose ids the
+    # owner has dismissed the bank-drop reminder card on. Capped client-
+    # side to ~30 entries with FIFO rolloff (a few thousand chars max).
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_email_on_close BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS bank_drop_dismissed_ids TEXT",
 ]
 
 
@@ -1415,6 +1428,9 @@ def _run_migrations():
             ok += _add("users", "apple_sub", "VARCHAR(255)")
             ok += _add("users", "google_sub", "VARCHAR(255)")
             ok += _add("users", "oauth_provider", "VARCHAR(20)")
+            # Migration 053 mirror — Lane A close-ritual prefs.
+            ok += _add("users", "auto_email_on_close", "BOOLEAN NOT NULL DEFAULT 1")
+            ok += _add("users", "bank_drop_dismissed_ids", "TEXT")
             # Migration 033 — Faktura Danish-compliance fields
             ok += _add("business_profiles", "bank_reg_number", "VARCHAR(8)")
             ok += _add("business_profiles", "bank_account_number", "VARCHAR(20)")

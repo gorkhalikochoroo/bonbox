@@ -17,6 +17,7 @@ import uuid
 from datetime import date, datetime, timedelta
 from collections import defaultdict
 from io import BytesIO
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ from app.models.cashbook import CashTransaction
 from app.models.business_profile import BusinessProfile
 from app.schemas.daily_close import DailyCloseCreate, DailyCloseResponse, DailyCloseUnlock
 from app.services.auth import get_current_user
-from app.services.billing import effective_plan, get_cap
+from app.services.billing import effective_plan, get_cap, has_feature, record_feature_skip
 from app.services.receipt_ocr import save_receipt_photo, parse_z_report
 from app.services.daily_close_range_export import (
     build_daily_close_range_pdf,
@@ -47,6 +48,7 @@ from app.services.daily_close_range_export import (
 )
 from app.services import audit_service
 from app.utils.time import utc_now
+from app.utils.document_hash import compute_document_hash, short_hash
 
 router = APIRouter()
 
@@ -112,6 +114,475 @@ def _to_response(dc: DailyClose) -> dict:
         "created_at": dc.created_at,
         "receipt_photo": getattr(dc, "receipt_photo", None),
     }
+
+
+# ─── Lane A — close-ritual auto-email helpers (Manoj-confirmed) ───
+#
+# When the FoH staff taps "Confirm & Lock" on the daily close, we
+# auto-fire one email to owner + accountant with the kasserapport PDF
+# + scanned Z-report photo (Starter+ feature). The lock-time email
+# replaces the old "remember to tap Send to accountant after locking"
+# step — one tap, both audiences notified, no forgetting.
+#
+# Multi-barrier:
+#   L3 (router) — `_fire_close_auto_email` is only called for
+#                 status="confirmed" and after `has_feature` + the
+#                 user's `auto_email_on_close` preference pass.
+#   L4 (service) — `send_close_notification` re-checks `has_feature`
+#                  inside email_service so a future refactor that
+#                  drops the L3 gate still can't leak the feature.
+#   L6 (fail-closed) — missing recipients → falls back to user.email,
+#                      partial send is acceptable, never raises.
+#   L7 (audit) — every attempt writes an audit_logs row + a
+#                SecurityEvent on failure for operator monitoring.
+#   L8 (degrade) — scan-image fetch failure → email sends with PDF
+#                  only and a "scan unavailable" note; Resend hiccup →
+#                  status="queued_retry" so the operator can re-trigger.
+#   L9 (UI) — return shape tells the frontend exactly what happened:
+#             email_status, recipients, has_scan, bank_drop block.
+
+
+def _serialize_close_for_email(dc: DailyClose) -> dict:
+    """Compact dict the email template uses — only the four numbers
+    that matter for an accountant glance: total revenue, MOMS, cash
+    difference, and tips. Mirrors the kasserapport one-page summary."""
+    return {
+        "date": dc.date.isoformat() if dc.date else None,
+        "revenue_total": float(dc.revenue_total or 0),
+        "moms_total": float(dc.moms_total or 0),
+        "cash_difference": float(dc.cash_difference) if dc.cash_difference is not None else None,
+        "tips_total": float(dc.tips_total) if dc.tips_total is not None else None,
+    }
+
+
+def _build_close_email_html(
+    *,
+    business_name: str,
+    dc: DailyClose,
+    currency: str,
+    closed_by: str | None,
+    has_scan: bool,
+    scan_degraded: bool,
+    is_danish: bool,
+) -> tuple[str, str]:
+    """Build (subject, html) for the lock-time auto-email.
+
+    Danish for DKK users, English otherwise. Keeps the format tight —
+    accountants are glancing at the email body to decide whether to
+    open the attachments, not reading prose.
+    """
+    rev = float(dc.revenue_total or 0)
+    moms = float(dc.moms_total or 0)
+    cash_diff = float(dc.cash_difference or 0) if dc.cash_difference is not None else None
+    closer = (closed_by or "").strip() or ("personalet" if is_danish else "staff")
+
+    def _fmt(v: float) -> str:
+        if is_danish:
+            return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        return f"{v:,.2f}"
+
+    if is_danish:
+        subject = f"Aftenens kasserapport — {dc.date.isoformat()} — {business_name}"
+        scan_line = (
+            "<p style='color:#6b7280;font-size:13px;'>📷 Z-rapport-foto vedhæftet.</p>"
+            if has_scan else
+            ("<p style='color:#b45309;font-size:13px;'>⚠️ Z-rapport-foto kunne ikke hentes lige nu — kun PDF vedhæftet.</p>"
+             if scan_degraded else "")
+        )
+        cash_line = (
+            f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>Kassedifference</td>"
+            f"<td style='padding:4px 0;text-align:right;'>{_fmt(cash_diff)} {currency}</td></tr>"
+            if cash_diff is not None else ""
+        )
+        intro = (
+            f"<p>Hej,</p>"
+            f"<p>Dagens kasserapport for <strong>{business_name}</strong> er låst "
+            f"af {closer} kl. {dc.closed_at.strftime('%H:%M') if dc.closed_at else '—'}.</p>"
+        )
+        footer = (
+            "<p style='color:#6b7280;font-size:13px;'>"
+            "Sendt automatisk fra BonBox da dagsafslutningen blev låst. "
+            "Svar på denne mail for at kontakte ejeren."
+            "</p>"
+        )
+        kpi_rev = "Omsætning"
+        kpi_moms = "Salgsmoms (25%)"
+    else:
+        subject = f"Tonight's close — {dc.date.isoformat()} — {business_name}"
+        scan_line = (
+            "<p style='color:#6b7280;font-size:13px;'>📷 Z-report photo attached.</p>"
+            if has_scan else
+            ("<p style='color:#b45309;font-size:13px;'>⚠️ Z-report photo couldn't be fetched right now — PDF only.</p>"
+             if scan_degraded else "")
+        )
+        cash_line = (
+            f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>Cash difference</td>"
+            f"<td style='padding:4px 0;text-align:right;'>{_fmt(cash_diff)} {currency}</td></tr>"
+            if cash_diff is not None else ""
+        )
+        intro = (
+            f"<p>Hello,</p>"
+            f"<p>Tonight's close for <strong>{business_name}</strong> is locked "
+            f"by {closer} at {dc.closed_at.strftime('%H:%M') if dc.closed_at else '—'}.</p>"
+        )
+        footer = (
+            "<p style='color:#6b7280;font-size:13px;'>"
+            "Sent automatically from BonBox when the daily close was locked. "
+            "Reply to this email to reach the owner."
+            "</p>"
+        )
+        kpi_rev = "Revenue"
+        kpi_moms = "Output VAT (25%)"
+
+    html = (
+        "<div style='font-family:system-ui,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;"
+        "color:#111827;line-height:1.5;font-size:14px;max-width:560px;'>"
+        f"{intro}"
+        "<table style='border-collapse:collapse;margin:16px 0;'>"
+        f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>{kpi_rev}</td>"
+        f"<td style='padding:4px 0;font-weight:600;text-align:right;'>{_fmt(rev)} {currency}</td></tr>"
+        f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>{kpi_moms}</td>"
+        f"<td style='padding:4px 0;text-align:right;'>{_fmt(moms)} {currency}</td></tr>"
+        f"{cash_line}"
+        "</table>"
+        f"{scan_line}"
+        f"{footer}"
+        "</div>"
+    )
+    return subject, html
+
+
+def _fetch_scan_bytes_best_effort(receipt_url: str | None) -> tuple[bytes | None, str | None]:
+    """Best-effort fetch of the Z-report photo for email attachment.
+    Returns (bytes, filename) or (None, None) on any failure — never
+    raises into the close-confirm path. L8 — graceful degradation.
+
+    Supports two storage shapes:
+      • Supabase URL (starts with "http"): GET it
+      • Local path (uploads/...): read from disk
+    """
+    if not receipt_url:
+        return None, None
+    try:
+        if receipt_url.startswith("http"):
+            # Supabase signed URL or public path. urlopen is fine for
+            # the small JPEGs we deal with; httpx is already in the
+            # service stack but keeping the import local.
+            from urllib.request import Request, urlopen
+            req = Request(receipt_url, headers={"User-Agent": "BonBox/1.0"})
+            with urlopen(req, timeout=8) as resp:  # noqa: S310 — internal URL only
+                data = resp.read()
+            return data, "z_report.jpg"
+        # Local path branch — read from disk
+        from pathlib import Path
+        p = Path(receipt_url)
+        if p.is_file():
+            return p.read_bytes(), p.name
+    except Exception as e:  # noqa: BLE001
+        logger.warning("scan_image fetch failed: %s", e)
+    return None, None
+
+
+def _compute_bank_drop_hint(dc: DailyClose) -> dict | None:
+    """Build the bank-drop reminder block for the locked-state card.
+    Universal (all tiers — low cost).
+
+    The hint is informational — it tells the staff how much cash is
+    currently in the drawer per their count, and suggests a "leave a
+    float of 1.000 DKK, bag the rest" rule. Owners can fine-tune via
+    the Profile page later (out of scope for Lane A).
+    """
+    counted = float(dc.cash_counted) if dc.cash_counted is not None else None
+    if counted is None or counted <= 0:
+        return None
+    # Conservative default float — 1.000 DKK is the Copenhagen café
+    # standard for opening cash. Anything left over goes in the safe
+    # / drop bag for the morning trip to the bank.
+    DEFAULT_FLOAT = 1000.0
+    to_drop = max(0.0, round(counted - DEFAULT_FLOAT, 2))
+    return {
+        "counted_dkk": round(counted, 2),
+        "leave_in_drawer_dkk": DEFAULT_FLOAT,
+        "to_drop_dkk": to_drop,
+    }
+
+
+def _fire_close_auto_email(
+    db: Session,
+    request: Request,
+    user: User,
+    dc: DailyClose,
+) -> dict:
+    """Run the Lane A auto-email pipeline after a successful lock.
+
+    Returns a structured status block the router embeds in its
+    response so the frontend can render an honest locked-state card:
+
+        {
+            "feature_available": bool,       # L3 — tier has close_auto_email
+            "preference_on": bool,            # L3 — user opted in
+            "email_status": "...",            # L9 — sent | queued_retry | skipped_* | failed_skipped
+            "sent_to": [...],
+            "has_scan": bool,
+            "scan_degraded": bool,            # L8 — scan should have been attached but wasn't
+            "pdf_hash": "...",                # L7 — hash matches what's in audit_logs
+            "push_status": "...",             # L3 — pro-only push notification
+            "bank_drop": {...} | None,        # universal — informational
+            "upgrade_hint": {...} | None,     # L10 — for Free users in the response
+        }
+
+    NEVER raises into the close-confirm flow. Every failure mode is
+    swallowed + logged + reflected in the return dict.
+    """
+    result: dict[str, Any] = {
+        "feature_available": False,
+        "preference_on": bool(getattr(user, "auto_email_on_close", True)),
+        "email_status": "skipped_feature_locked",
+        "sent_to": [],
+        "has_scan": False,
+        "scan_degraded": False,
+        "pdf_hash": None,
+        "push_status": "skipped_feature_locked",
+        "bank_drop": _compute_bank_drop_hint(dc),
+        "upgrade_hint": None,
+    }
+
+    feature_on = has_feature(user, "close_auto_email")
+    result["feature_available"] = feature_on
+
+    # L10 — Free user gets a structured upgrade hint they can render
+    # next to the "Send to accountant" button. The actual button still
+    # works (Free has direct_accountant_email gate — that's a different
+    # tier; close_auto_email is Starter+).
+    if not feature_on:
+        from app.services.billing import min_plan_for_feature, feature_locked_detail
+        result["upgrade_hint"] = feature_locked_detail(user, "close_auto_email")
+        # L7 — record the skip so we can see "this Free user just
+        # closed; if they were on Starter we'd have auto-emailed".
+        # Strong upgrade-pitch signal.
+        try:
+            record_feature_skip(
+                user, "close_auto_email",
+                {"close_id": str(dc.id), "stage": "lock_handler"},
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        # Push to owner — Pro-only. Still skipped for the same reason.
+        return result
+
+    # L3 — user preference. Honest about WHY we didn't send so the
+    # frontend can offer "Turn auto-send back on?" instead of
+    # silently appearing broken.
+    pref_on = bool(getattr(user, "auto_email_on_close", True))
+    result["preference_on"] = pref_on
+    if not pref_on:
+        result["email_status"] = "skipped_preference_off"
+        # Push notification is independently useful even with email
+        # off — but we still gate it on the same preference (Lane A
+        # is "the close is locked, let the owner know"). Pro tier
+        # gets the push.
+        result["push_status"] = _fire_close_push(db, user, dc)
+        return result
+
+    # Build PDF for the single-day range (reuses the kasserapport
+    # accountant-grade PDF generator that's already tested + audit-
+    # graded). One-day range = a single close → one-page PDF.
+    profile = db.query(BusinessProfile).filter(
+        BusinessProfile.user_id == user.id,
+    ).first()
+    business_name = (
+        (profile.company_name if profile and profile.company_name else None)
+        or getattr(user, "business_name", None)
+        or "BonBox"
+    )
+    currency = user.currency or "DKK"
+    is_danish = (currency == "DKK")
+
+    try:
+        pdf_bytes = build_daily_close_range_pdf(
+            [dc], from_date=dc.date, to_date=dc.date,
+            business_name=business_name, currency=currency,
+            profile=profile, db=db, user_id=user.id,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("close_auto_email: PDF build failed close_id=%s: %s", dc.id, e)
+        result["email_status"] = "failed_skipped"
+        return result
+
+    pdf_hash = compute_document_hash(pdf_bytes)
+    pdf_short = short_hash(pdf_bytes)
+    result["pdf_hash"] = pdf_hash
+
+    # L6 — recipient resolution with fallback chain. owner_email from
+    # BusinessProfile if set, else the account-holder's own email.
+    # Accountant is best-effort; partial send (just owner) is OK.
+    owner_email = ""
+    if profile and getattr(profile, "email", None):
+        owner_email = (profile.email or "").strip().lower()
+    if not owner_email:
+        owner_email = (user.email or "").strip().lower()
+    accountant_email = ""
+    if profile and getattr(profile, "accountant_email", None):
+        accountant_email = (profile.accountant_email or "").strip().lower()
+
+    recipients: list[str] = []
+    if owner_email:
+        recipients.append(owner_email)
+    if accountant_email and accountant_email != owner_email:
+        recipients.append(accountant_email)
+
+    if not recipients:
+        result["email_status"] = "skipped_no_recipient"
+        # L7 — record the audit attempt anyway so operator can see
+        # "owner has no email on file" as a friction signal.
+        audit_service.record(
+            db, user=user,
+            action="close.auto_emailed",
+            entity_type="daily_close",
+            entity_id=dc.id,
+            before={"recipients": [], "has_scan": False, "pdf_hash": pdf_hash},
+            after={"email_status": "skipped_no_recipient", "message_id": None},
+            ip_address=getattr(request.client, "host", None) if request.client else None,
+        )
+        result["push_status"] = _fire_close_push(db, user, dc)
+        return result
+
+    # L8 — scan image, best-effort. If fetch fails we still send the
+    # PDF + a "scan unavailable" line in the body. `scan_degraded`
+    # is True ONLY when there WAS a scan recorded on the close but
+    # we couldn't fetch the bytes — "no scan recorded" is normal,
+    # not degradation (owner may not have used the Snap Z-report
+    # flow tonight).
+    scan_bytes, scan_filename = (None, None)
+    scan_supposed_to_attach = has_feature(user, "close_scan_attached")
+    receipt_url = getattr(dc, "receipt_photo", None)
+    if scan_supposed_to_attach and receipt_url:
+        scan_bytes, scan_filename = _fetch_scan_bytes_best_effort(receipt_url)
+    scan_degraded = bool(scan_supposed_to_attach and receipt_url and not scan_bytes)
+    result["scan_degraded"] = scan_degraded
+
+    pdf_filename = f"kasserapport_{dc.date.isoformat()}_{pdf_short}.pdf"
+
+    subject, html = _build_close_email_html(
+        business_name=business_name,
+        dc=dc, currency=currency,
+        closed_by=dc.closed_by,
+        has_scan=bool(scan_bytes),
+        scan_degraded=scan_degraded,
+        is_danish=is_danish,
+    )
+
+    # L4 — service-layer entitlement gate happens INSIDE
+    # send_close_notification. The router gate above is the primary;
+    # the service gate is the backup. Both must agree.
+    from app.services.email_service import send_close_notification
+    send_result = send_close_notification(
+        user,
+        close_id=dc.id,
+        pdf_bytes=pdf_bytes,
+        scan_image_bytes=scan_bytes,
+        pdf_filename=pdf_filename,
+        scan_filename=scan_filename,
+        recipients=recipients,
+        subject=subject, html=html,
+        reply_to=user.email,
+    )
+    result["email_status"] = send_result["status"]
+    result["sent_to"] = send_result["sent_to"]
+    result["has_scan"] = send_result["has_scan"]
+
+    # L7 — audit row for every attempt, success or not.
+    audit_service.record(
+        db, user=user,
+        action="close.auto_emailed",
+        entity_type="daily_close",
+        entity_id=dc.id,
+        before={
+            "recipients": list(recipients),
+            "has_scan": bool(scan_bytes),
+            "pdf_hash": pdf_hash,
+        },
+        after={
+            "email_status": send_result["status"],
+            "sent_to": send_result["sent_to"],
+            "scan_degraded": scan_degraded,
+        },
+        ip_address=getattr(request.client, "host", None) if request.client else None,
+    )
+
+    # L7 — SecurityEvent on failure so operator monitoring can spot
+    # "Resend is down" without grepping logs.
+    if send_result["status"] in ("queued_retry", "failed_skipped"):
+        try:
+            from app.services.billing import _record_gate_refusal
+            _record_gate_refusal(
+                user, "gate_skipped.close_auto_email_failed",
+                {
+                    "close_id": str(dc.id),
+                    "email_status": send_result["status"],
+                    "error": send_result.get("error"),
+                    "recipients_count": len(recipients),
+                    "scan_degraded": scan_degraded,
+                },
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Pro-only push to owner — independent of email status (an owner
+    # who muted email may still want the push).
+    result["push_status"] = _fire_close_push(db, user, dc)
+
+    return result
+
+
+def _fire_close_push(db: Session, user: User, dc: DailyClose) -> str:
+    """Send a privacy-safe push to the owner that staff just locked
+    the close. Pro-only feature; degrades gracefully when there's no
+    push subscription, no VAPID config, or pywebpush isn't installed.
+
+    Returns the status string the response payload includes:
+        "sent" | "skipped_feature_locked" | "skipped_no_subscription"
+        | "queued_retry" | "failed_skipped"
+    """
+    if not has_feature(user, "close_push_notification"):
+        return "skipped_feature_locked"
+    try:
+        from app.models.push_subscription import PushSubscription
+        from app.services.push_sender import send_to_subscription
+        subs = db.query(PushSubscription).filter(
+            PushSubscription.user_id == user.id,
+        ).all()
+        if not subs:
+            return "skipped_no_subscription"
+        # Privacy-safe payload — no amounts, no customer names, only
+        # a generic "close locked" notification. Owner taps to open
+        # the Daily Close history page.
+        currency = user.currency or "DKK"
+        is_danish = (currency == "DKK")
+        title = "BonBox · Dagsafslutning låst" if is_danish else "BonBox · Close locked"
+        body = (
+            f"{dc.closed_by or 'Personalet'} har låst dagens kasserapport."
+            if is_danish else
+            f"{dc.closed_by or 'Staff'} just locked tonight's close."
+        )
+        payload = {
+            "title": title, "body": body[:140],
+            "tag": "bonbox-close-locked",
+            "data": {"url": "/daily-close"},
+        }
+        any_ok = False
+        for sub in subs:
+            res = send_to_subscription(sub, payload)
+            if res.get("ok"):
+                any_ok = True
+        try:
+            db.commit()
+        except Exception:  # noqa: BLE001
+            pass
+        return "sent" if any_ok else "queued_retry"
+    except Exception as e:  # noqa: BLE001
+        logger.warning("close_push: failed user=%s err=%s", user.id, e)
+        return "failed_skipped"
 
 
 # ─── POST — submit daily close ───
@@ -284,7 +755,15 @@ def create_daily_close(
         )
         db.commit()
         db.refresh(existing)
-        return _to_response(existing)
+        response = _to_response(existing)
+        # L3 — Lane A close-ritual auto-email. Only on transition INTO
+        # confirmed (i.e. the lock event), not on subsequent draft saves
+        # of an unlocked-then-edited close. The helper handles all the
+        # tier + preference gating + scan attachment + retry — never
+        # raises into this path.
+        if status == "confirmed":
+            response["close_ritual"] = _fire_close_auto_email(db, request, user, existing)
+        return response
 
     dc = DailyClose(
         id=uuid.uuid4(),
@@ -329,7 +808,55 @@ def create_daily_close(
     )
     db.commit()
     db.refresh(dc)
-    return _to_response(dc)
+    response = _to_response(dc)
+    # L3 — Lane A close-ritual auto-email. Only on the lock transition.
+    # Drafts (status="draft") do NOT trigger — the email is the "the
+    # day is officially closed, here's the kasserapport" notification.
+    if status == "confirmed":
+        response["close_ritual"] = _fire_close_auto_email(db, request, user, dc)
+    return response
+
+
+# ─── POST — dismiss bank-drop reminder (Lane A — universal) ──
+#
+# Stores the close_id in user.bank_drop_dismissed_ids so the locked-
+# state card no longer shows the "🏦 Bank drop" reminder for this
+# close. Universal across all tiers (Free/Starter/Pro/Trial) — the
+# reminder itself is free.
+
+@router.post("/{close_id}/bank-drop-dismiss")
+@_limiter.limit("30/minute")
+def dismiss_bank_drop_reminder(
+    request: Request,
+    close_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Mark the bank-drop reminder for a specific close as done. Idempotent.
+
+    The reminder card on the locked-state UI ("🏦 Put X DKK in safe")
+    shows until the staff taps "Sat i sikkerhedsboks" — that triggers
+    this endpoint. Stored on user.bank_drop_dismissed_ids as a comma-
+    separated list, FIFO-trimmed at 30 entries (~1 month of closes).
+    """
+    dc = db.query(DailyClose).filter(
+        DailyClose.id == close_id,
+        DailyClose.user_id == user.id,
+        DailyClose.is_deleted.isnot(True),
+    ).first()
+    if not dc:
+        raise HTTPException(status_code=404, detail="Daily close not found")
+
+    raw = (getattr(user, "bank_drop_dismissed_ids", None) or "").strip()
+    existing = [x for x in raw.split(",") if x]
+    sid = str(close_id)
+    if sid not in existing:
+        existing.append(sid)
+        # FIFO rolloff — keep only the most-recent 30.
+        existing = existing[-30:]
+        user.bank_drop_dismissed_ids = ",".join(existing)
+        db.commit()
+    return {"ok": True, "dismissed_count": len(existing)}
 
 
 # ─── POST — unlock a confirmed daily close ───

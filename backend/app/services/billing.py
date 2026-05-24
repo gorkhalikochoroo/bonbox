@@ -370,6 +370,25 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # rides on the supplier match. Starter+ unlocks both — turns the
         # 30-line invoice into 30 categorised inventory rows in one tap.
         "supplier_auto_detection": False,
+        # 2026-05-24 — Lane A close-ritual upgrades (Manoj-confirmed).
+        # When FoH staff taps "Confirm & Lock" on the daily close, we
+        # auto-fire one email to owner + accountant with the kasserapport
+        # PDF + the scanned Z-report photo attached. Free still gets the
+        # manual "Send to accountant" button — only the no-extra-tap
+        # auto-fire on lock is gated. Starter+ unlocks the auto-send;
+        # the Z-report photo attachment rides on the same gate.
+        "close_auto_email": False,
+        # `close_scan_attached` is the photo-attachment companion to
+        # close_auto_email. They move together today — kept as separate
+        # flags so a future tier reshuffle (e.g. "Starter sends email
+        # without photo, Pro adds photo") doesn't require backfill.
+        "close_scan_attached": False,
+        # `close_push_notification` — Pro-only. Owner gets a push the
+        # moment staff locks the close. Requires VAPID + an active
+        # push_subscriptions row; degrades to "skipped" gracefully when
+        # neither exists (L8 fallback) so a missing subscription never
+        # breaks the lock flow.
+        "close_push_notification": False,
     },
     "starter": {
         "ai_anomaly_detection": True,
@@ -394,6 +413,9 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "customer_outreach": False,        # Pro-only — Task #69 Pro killer
         "multi_terminal_close": False,     # Pro-only — P5 honesty fix
         "supplier_auto_detection": True,   # Starter+ — Danish supplier dict + auto-categorize
+        "close_auto_email": True,          # Lane A — auto-fire on lock
+        "close_scan_attached": True,       # Lane A — Z-report photo on the email
+        "close_push_notification": False,  # Pro-only — push to owner on lock
     },
     "trial": {  # = full Pro
         "ai_anomaly_detection": True,
@@ -418,6 +440,9 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "customer_outreach": True,
         "multi_terminal_close": True,
         "supplier_auto_detection": True,
+        "close_auto_email": True,
+        "close_scan_attached": True,
+        "close_push_notification": True,
     },
     "pro": {
         "ai_anomaly_detection": True,
@@ -442,6 +467,9 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "customer_outreach": True,        # Pro killer — Task #69
         "multi_terminal_close": True,     # P5 honesty fix — multi-POS consolidated close
         "supplier_auto_detection": True,  # Danish supplier dict + auto-categorize (retro gate)
+        "close_auto_email": True,         # Lane A — auto-fire on lock
+        "close_scan_attached": True,      # Lane A — Z-report photo on the email
+        "close_push_notification": True,  # Lane A — Pro-only push to owner on lock
     },
 }
 
