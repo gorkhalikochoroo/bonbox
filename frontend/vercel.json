@@ -4,14 +4,12 @@
   ],
   "headers": [
     {
-      "//": "Hash-named immutable assets — the content hash IS the cache buster, so cache forever. Without this, Vercel's default 'max-age=0, must-revalidate' forces 8+ round-trips per page load (one per chunk) which dominated initial-load perceived latency (2026-05-24 incident — Manoj reported 'loading real slow' after deploy; full vendor-charts/vendor-i18n/vendor-react chunks were being conditionally re-fetched on every hard reload).",
       "source": "/assets/(.*)",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
       ]
     },
     {
-      "//": "Non-hashed root assets — favicon, manifest, icons — get a short cache. They CAN change without filename change, so we can't go immutable. 1 hour is the standard balance.",
       "source": "/(favicon\\.svg|manifest\\.json|icon-.*\\.png|apple-touch-icon\\.png|robots\\.txt|sitemap\\.xml)",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=3600, must-revalidate" }
