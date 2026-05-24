@@ -56,7 +56,7 @@ import {
   AreaChart, Area,
   BarChart, Bar, Cell, ReferenceLine,
 } from "recharts";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, getTaxConfig } from "../utils/currency";
 import { formatDateShort, localIso } from "../utils/dateFormat";
 
 /* ═══════════════════════════════════════════════════════════
@@ -1583,15 +1583,22 @@ export default function DashboardPage() {
     // convention; downstream MOMS math (tax_service._calc_vat) reads
     // user.prices_include_moms to interpret the column. Without this
     // conversion an Excl-MOMS toggle on an Incl-MOMS profile would
-    // mis-extract MOMS by 25%.
+    // mis-extract MOMS by the wrong rate.
+    //
+    // Rate is currency-aware (DKK 25%, EUR 21%, NPR 13%, GBP 20%, etc.)
+    // — the single-source TAX_RATES table in utils/currency.js is the
+    // same table the rest of the frontend reads.
     const profileInclMoms = user?.prices_include_moms ?? true;
+    const vatRate = getTaxConfig(user?.currency).rate;  // e.g. 0.25 DKK
     let storedAmount = amount;
-    if (inclMoms && !profileInclMoms) {
-      // User said "Incl. MOMS" but profile stores net → strip MOMS.
-      storedAmount = amount / 1.25;
-    } else if (!inclMoms && profileInclMoms) {
-      // User said "Excl. MOMS" but profile stores gross → add MOMS.
-      storedAmount = amount * 1.25;
+    if (vatRate > 0 && inclMoms !== profileInclMoms) {
+      if (inclMoms && !profileInclMoms) {
+        // User said "Incl. MOMS" but profile stores net → strip MOMS.
+        storedAmount = amount / (1 + vatRate);
+      } else {
+        // User said "Excl. MOMS" but profile stores gross → add MOMS.
+        storedAmount = amount * (1 + vatRate);
+      }
     }
     // Round to 2 decimals so we don't write fractional øre into the DB.
     storedAmount = Math.round(storedAmount * 100) / 100;
