@@ -959,6 +959,12 @@ export default function ProfilePage() {
                   Stored on BusinessProfile.target_labor_pct, default 30%.
                   Backend clamps to [0.10, 0.50] regardless of input. */}
               <LaborTargetStepper />
+              {/* Day rollover — when the business day flips for kasse-
+                  rapport / daily-close / live-KPI windows. Stored on
+                  BusinessProfile.day_cutoff_hour, default 6 (Danish
+                  restaurant convention — 02:00 = yesterday's shift).
+                  Backend clamps to [0, 23]. */}
+              <DayCutoffStepper />
 
               {editorExpanded ? (
                 <div id="operating-profile-editor">
@@ -2113,6 +2119,111 @@ function LaborTargetStepper() {
         <p className="text-[11px] text-stone-500 dark:text-stone-400">
           {t("laborTargetHint") ||
             "Most Danish cafés target 25–35%. Tighter operations run lower."}
+        </p>
+        <div className="flex items-center gap-3 shrink-0">
+          {toast && (
+            <span className="text-xs text-emerald-700 dark:text-emerald-400">
+              {toast}
+            </span>
+          )}
+          <Button onClick={onSave} disabled={saving} size="sm">
+            {saving ? (t("saving") || "Saving…") : (t("save") || "Save")}
+          </Button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+/** DayCutoffStepper — service-day rollover hour editor.
+ *
+ *  Stored on BusinessProfile.day_cutoff_hour (integer, [0, 23]). The
+ *  whole TZ stack (tz_utils.business_day_window / business_today_local)
+ *  uses this to decide which calendar date a sale belongs to. A 02:00
+ *  ring with cutoff=6 lands on YESTERDAY's books — that's the Danish
+ *  restaurant convention.
+ *
+ *  Defaults to 6 if the API returns null/undefined so the UI matches
+ *  what the backend default + tz_utils helper now promise (migration
+ *  012 made the column default 6 as well, but defensive defaulting here
+ *  keeps the editor sensible if /business returns nothing).
+ *
+ *  Backend clamps [0, 23] regardless of input; this UI bounds the input
+ *  itself so the slider never represents an invalid hour visually.
+ */
+function DayCutoffStepper() {
+  const { t } = useLanguage();
+  const [hour, setHour] = useState(6);
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    api.get("/business")
+      .then((r) => {
+        if (!alive) return;
+        const raw = r.data?.day_cutoff_hour;
+        if (raw != null) {
+          const v = parseInt(raw, 10);
+          if (!Number.isNaN(v) && v >= 0 && v <= 23) setHour(v);
+        }
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+    return () => { alive = false; };
+  }, []);
+
+  const onSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    setToast("");
+    try {
+      await api.put("/business", { day_cutoff_hour: hour });
+      setToast(t("dayCutoffSaved") || "Saved");
+      setTimeout(() => setToast(""), 2000);
+    } catch {
+      setToast(t("dayCutoffFailed") || "Couldn't save — try again.");
+      setTimeout(() => setToast(""), 3000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!loaded) return null;
+
+  // Pad hour for the display label so 06:00 reads cleanly.
+  const hourLabel = String(hour).padStart(2, "0") + ":00";
+
+  return (
+    <Card variant="subtle">
+      <Card.Header
+        title={t("dayCutoffTitle") || "Business-day rollover"}
+        subtitle={
+          t("dayCutoffSubtitle") ||
+          "When does today's books close and tomorrow's open? Restaurants usually pick 06:00 so late-night service still counts toward last night's shift."
+        }
+        icon={<Icon name="Clock" size={16} className="text-stone-500" />}
+      />
+      <div className="flex items-center gap-4 py-2">
+        <input
+          type="range"
+          min={0}
+          max={23}
+          step={1}
+          value={hour}
+          onChange={(e) => setHour(parseInt(e.target.value, 10))}
+          className="flex-1 accent-emerald-600"
+          aria-label={t("dayCutoffSliderAria") || "Day rollover hour (0-23)"}
+        />
+        <span className="text-xl font-semibold text-stone-900 dark:text-stone-100 w-16 text-right tabular-nums">
+          {hourLabel}
+        </span>
+      </div>
+      <div className="flex items-center justify-between gap-3 pt-2">
+        <p className="text-[11px] text-stone-500 dark:text-stone-400">
+          {t("dayCutoffHint") ||
+            "06:00 = Danish restaurant convention (02:00 sale → yesterday). 00:00 = midnight rollover (office hours)."}
         </p>
         <div className="flex items-center gap-3 shrink-0">
           {toast && (

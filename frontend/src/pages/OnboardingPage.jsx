@@ -73,6 +73,40 @@ const FILING_OPTIONS = [
   { id: "monthly",     labelKey: "filingMonthly",    labelFallback: "Monthly" },
 ];
 
+// ── Day-rollover presets ────────────────────────────────────────────
+//
+// Why this exists on Step 3:
+//   The Danish restaurant convention is that service ending at 02:00
+//   belongs to YESTERDAY's business day (the kitchen closed at 23:00,
+//   the bar coasted to 02:30 — that's one shift). If the dashboard
+//   rolls over at midnight, the late-night ring lands on the wrong
+//   day's books and the daily-close + kasserapport drift one row.
+//
+//   Before this step existed the column default was 0 (midnight) and
+//   nobody asked, so every DK profile silently lived with the wrong
+//   rollover. Now we ask once, default the right preset by currency,
+//   and let the owner override later from Profile.
+//
+// "preset" maps to the integer hour stored on BusinessProfile.day_cutoff_hour.
+// "custom" hides the hour behind a 0-23 stepper for owners with niche
+// shifts (overnight bakery at 04:00, late-night kebab at 07:00, …).
+const CUTOFF_PRESETS = [
+  {
+    id: "restaurant", hour: 6,
+    labelKey: "onbStep3CutoffRestaurant",
+    labelFallback: "Restaurant / café (06:00)",
+    descKey: "onbStep3CutoffRestaurantDesc",
+    descFallback: "Late-night service (02:00) still counts toward yesterday — Danish standard.",
+  },
+  {
+    id: "office", hour: 0,
+    labelKey: "onbStep3CutoffOffice",
+    labelFallback: "Office hours (00:00)",
+    descKey: "onbStep3CutoffOfficeDesc",
+    descFallback: "Calendar-day rollover at midnight. Pick this for retail, B2B, workshops.",
+  },
+];
+
 
 // ── Step indicator ──────────────────────────────────────────────────
 
@@ -135,12 +169,33 @@ export default function OnboardingPage() {
   const [savingBusiness, setSavingBusiness] = useState(false);
 
   // Step 3 — Tax preferences.
+  // day_cutoff_mode: "restaurant" | "office" | "custom" — UI choice that
+  //   maps to an integer hour at save time. Default is currency-aware:
+  //   DKK owners get the restaurant preset (matches the new DB default +
+  //   the b2e227a tz_utils helper); everyone else gets office hours.
+  // day_cutoff_custom: 0-23 — only consulted when mode === "custom".
+  const isDkk = ((user?.currency || "DKK").toUpperCase() === "DKK");
   const [tax, setTax] = useState({
     tax_filing_frequency: "half_yearly",
     prices_include_moms: true,
     accountant_email: "",
+    day_cutoff_mode: isDkk ? "restaurant" : "office",
+    day_cutoff_custom: isDkk ? 6 : 0,
   });
   const [savingTax, setSavingTax] = useState(false);
+
+  /** Resolve the UI choice to an integer hour for the API payload. */
+  const resolveCutoffHour = () => {
+    if (tax.day_cutoff_mode === "custom") {
+      const v = parseInt(tax.day_cutoff_custom, 10);
+      if (Number.isNaN(v)) return isDkk ? 6 : 0;
+      if (v < 0) return 0;
+      if (v > 23) return 23;
+      return v;
+    }
+    const preset = CUTOFF_PRESETS.find((p) => p.id === tax.day_cutoff_mode);
+    return preset ? preset.hour : (isDkk ? 6 : 0);
+  };
 
   // Step 4 — Revisor invite.
   const [revisor, setRevisor] = useState({ email: "", name: "" });
@@ -266,7 +321,7 @@ export default function OnboardingPage() {
     }
   };
 
-  /** Save tax preferences + accountant email + advance to step 4. */
+  /** Save tax preferences + accountant email + day-rollover + advance. */
   const saveTaxAndNext = async () => {
     setSavingTax(true);
     setStepError("");
@@ -276,22 +331,27 @@ export default function OnboardingPage() {
         tax_filing_frequency: tax.tax_filing_frequency,
         prices_include_moms: !!tax.prices_include_moms,
       });
-      // 2. Business profile accountant email — optional; only call if set
+      // 2. Business profile — accountant email (optional) AND the
+      //    day_cutoff_hour from the rollover chooser. We always send
+      //    the cutoff: owners explicitly picked it (or defaulted from
+      //    currency), and a stored choice means future schema flips
+      //    won't silently change their dashboard rollover.
+      const cutoffHour = resolveCutoffHour();
       const email = (tax.accountant_email || "").trim().toLowerCase();
-      if (email) {
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         // Light client-side validation (server has the real validator)
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-          setStepError(t("onbAccountantEmailInvalid") || "Enter a valid accountant email.");
-          setSavingTax(false);
-          return;
-        }
-        await api.put("/business", {
-          // Echo company_name so PUT (which uses exclude_unset semantics
-          // for nothing — it sets fields directly) doesn't blank it.
-          company_name: biz.company_name,
-          accountant_email: email,
-        });
+        setStepError(t("onbAccountantEmailInvalid") || "Enter a valid accountant email.");
+        setSavingTax(false);
+        return;
       }
+      // Echo company_name so PUT (which uses exclude_unset semantics
+      // for nothing — it sets fields directly) doesn't blank it.
+      const bizPayload = {
+        company_name: biz.company_name,
+        day_cutoff_hour: cutoffHour,
+      };
+      if (email) bizPayload.accountant_email = email;
+      await api.put("/business", bizPayload);
       goNext();
     } catch (err) {
       setStepError(
@@ -712,6 +772,122 @@ export default function OnboardingPage() {
                 />
               </button>
             </div>
+
+            {/* Day rollover — when does the business day end?
+                Drives kasserapport / daily-close / live-KPI windows. */}
+            <fieldset className="mb-5">
+              <legend className="block text-xs font-medium text-stone-700 dark:text-stone-300 mb-1">
+                {t("onbStep3CutoffLabel") || "When does your business day roll over?"}
+              </legend>
+              <p
+                id="onb-cutoff-hint"
+                className="text-[11px] text-stone-600 dark:text-stone-400 mb-2 leading-relaxed"
+              >
+                {t("onbStep3CutoffHint") ||
+                  "A 02:00 sale belongs to YESTERDAY's shift — restaurant convention. You can change this later in Profile."}
+              </p>
+              <div
+                className="space-y-2"
+                role="radiogroup"
+                aria-label={t("onbStep3CutoffLabel") || "Day rollover"}
+                aria-describedby="onb-cutoff-hint"
+              >
+                {CUTOFF_PRESETS.map((opt) => {
+                  const active = tax.day_cutoff_mode === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() =>
+                        setTax({ ...tax, day_cutoff_mode: opt.id })
+                      }
+                      className={
+                        "w-full text-left flex items-start gap-3 rounded-lg border p-3 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
+                        (active
+                          ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 ring-1 ring-emerald-500/50"
+                          : "border-stone-200 dark:border-stone-800 hover:border-stone-300 dark:hover:border-stone-700")
+                      }
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={
+                          "mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 " +
+                          (active
+                            ? "bg-emerald-600 border-emerald-600 ring-2 ring-emerald-200 dark:ring-emerald-900/40"
+                            : "border-stone-400 dark:border-stone-600")
+                        }
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium">
+                          {t(opt.labelKey) || opt.labelFallback}
+                        </span>
+                        <span className="block text-[11px] text-stone-600 dark:text-stone-400 mt-0.5">
+                          {t(opt.descKey) || opt.descFallback}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+                {/* Custom row — radio + hour input as siblings so the
+                    interactive number input is NOT nested in the radio
+                    button (which would be invalid HTML). Clicking the
+                    number input also flips the mode to custom so the
+                    visual state stays consistent. */}
+                <div
+                  className={
+                    "w-full flex items-center gap-3 rounded-lg border p-3 transition " +
+                    (tax.day_cutoff_mode === "custom"
+                      ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 ring-1 ring-emerald-500/50"
+                      : "border-stone-200 dark:border-stone-800")
+                  }
+                >
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={tax.day_cutoff_mode === "custom"}
+                    onClick={() => setTax({ ...tax, day_cutoff_mode: "custom" })}
+                    className="flex items-center gap-3 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={
+                        "w-4 h-4 rounded-full border-2 shrink-0 " +
+                        (tax.day_cutoff_mode === "custom"
+                          ? "bg-emerald-600 border-emerald-600 ring-2 ring-emerald-200 dark:ring-emerald-900/40"
+                          : "border-stone-400 dark:border-stone-600")
+                      }
+                    />
+                    <span className="text-sm font-medium">
+                      {t("onbStep3CutoffCustom") || "Custom hour"}
+                    </span>
+                  </button>
+                  <input
+                    type="number"
+                    min={0}
+                    max={23}
+                    step={1}
+                    value={tax.day_cutoff_custom}
+                    onChange={(e) =>
+                      setTax({
+                        ...tax,
+                        day_cutoff_mode: "custom",
+                        day_cutoff_custom: e.target.value,
+                      })
+                    }
+                    onFocus={() =>
+                      setTax((tx) => ({ ...tx, day_cutoff_mode: "custom" }))
+                    }
+                    aria-label={t("onbStep3CutoffCustomAria") || "Custom rollover hour (0-23)"}
+                    className="w-16 px-2 py-1 rounded border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <span className="text-[11px] text-stone-500 dark:text-stone-400 shrink-0">
+                    {t("onbStep3CutoffCustomSuffix") || ":00 local time (0–23)"}
+                  </span>
+                </div>
+              </div>
+            </fieldset>
 
             {/* Accountant email (optional) */}
             <div className="mb-2">

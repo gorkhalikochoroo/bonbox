@@ -173,8 +173,13 @@ _migrations = [
     "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS unlock_reason TEXT",
     "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS unlocked_by VARCHAR(255)",
     "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS unlocked_at TIMESTAMP",
-    # Business profile — night shift cutoff
-    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS day_cutoff_hour INTEGER DEFAULT 0",
+    # Business profile — service-day rollover hour. Default 6 = Danish
+    # restaurant convention (02:00 close still counts toward yesterday's
+    # shift). Matches the SQLAlchemy model default + tz_utils helper
+    # default after migration 012_dk_cutoff_default_6. Pre-migration
+    # tenants get backfilled by the migration; this DDL is the safety
+    # net for fresh schemas that haven't gone through Alembic.
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS day_cutoff_hour INTEGER DEFAULT 6",
     # Wine menu — display name + glass pricing
     "ALTER TABLE wines ADD COLUMN IF NOT EXISTS menu_name VARCHAR(255)",
     "ALTER TABLE wines ADD COLUMN IF NOT EXISTS glass_price NUMERIC(12,2)",
@@ -1400,8 +1405,12 @@ def _run_migrations():
             ok += _add("daily_closes", "unlock_reason", "TEXT")
             ok += _add("daily_closes", "unlocked_by", "VARCHAR(255)")
             ok += _add("daily_closes", "unlocked_at", "TIMESTAMP")
-            # Business profile — night shift cutoff
-            ok += _add("business_profiles", "day_cutoff_hour", "INTEGER DEFAULT 0")
+            # Business profile — service-day rollover hour. Default 6 =
+            # Danish restaurant convention (02:00 close still belongs to
+            # yesterday's shift). Migration 012_dk_cutoff_default_6 owns
+            # the canonical change + DKK backfill; this is the
+            # safety-net for fresh schemas that bypass Alembic.
+            ok += _add("business_profiles", "day_cutoff_hour", "INTEGER DEFAULT 6")
             # Wine menu — display name + glass pricing
             ok += _add("wines", "menu_name", "VARCHAR(255)")
             ok += _add("wines", "glass_price", "NUMERIC(12,2)")

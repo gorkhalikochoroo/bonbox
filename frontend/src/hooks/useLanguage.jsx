@@ -74,7 +74,7 @@ const translations = {
     // that auto-scrolls to the wizard. Bottom-of-page lives-with-the-
     // owner experience instead of "do I navigate to Floor or Close?"
     closeTheDayCta: "Close the day",
-    closeTheDayCtaHint: "When your shift ends, lock the day's numbers and send to your accountant.",
+    closeTheDayCtaHint: "When your shift ends, lock the day's numbers and send to your revisor.",
     todaysFloor: "Today's Floor", todaysBooks: "Today's Books",
     taxBundle: "Tax Bundle", endOfDayCloseTitle: "End-of-Day Close",
     // MOMS countdown widget — Free-tier dashboard hook
@@ -415,7 +415,7 @@ const translations = {
     faqQ5: "Is BonBox a Dinero alternative?",
     faqA5: "For daily ops — yes, and cheaper. BonBox is 129 kr/mo (founding) vs Dinero Starter+ at 245 kr/mo or Dinero Pro at 345 kr/mo (their prices as of May 2026). BonBox handles fakturaer, customers, mileage, OCR receipts, bank-match. For the official filings (Moms-angivelse + årsregnskab) we are NOT a replacement — Dinero Starter (FREE up to 100.000 kr/yr revenue) handles Moms filing; for årsregnskab you still need a revisor once a year. Pair BonBox + Dinero Starter free + annual revisor and you'll typically pay ~70-80 % less than monthly revisor service.",
     faqQ6: "What about VAT (Moms)?",
-    faqA6: "All prices shown are excl. moms. Danish businesses are invoiced with 25% Moms automatically. EU businesses with valid VAT numbers are reverse-charged.",
+    faqA6: "All prices shown are excl. MOMS. Danish businesses are invoiced with 25% MOMS automatically. EU businesses with valid MOMS numbers are reverse-charged.",
     faqQ7: "Can I cancel anytime?",
     faqA7: "Yes. No contracts, no notice period. You'll keep access until the end of the current billing period and can export all your data at any time.",
     faqQ8: "Is my data safe?",
@@ -1000,7 +1000,7 @@ const translations = {
     all: "All", noneSelect: "None", sectionsSelected: "sections selected",
     includingOverview: "including overview", downloadReportPdf: "Download Report PDF",
     generatingPdf: "Generating PDF...", reportsDisclaimer: "Reports are estimates for reference only.",
-    dailyKasserapport: "Daily Cash Report", kasserapport: "Cash Report", subtotal: "Subtotal",
+    dailyKasserapport: "Daily Kasserapport", kasserapport: "Kasserapport", subtotal: "Subtotal",
     totalInclVat: "Total", transactionCount: "Transactions", paymentBreakdown: "Payment Breakdown",
     kasseBalance: "Cash Register Balance", printReport: "Print", dailyReport: "Daily Report",
     expensesTotal: "Expenses", netCash: "Net Cash", noSalesOnDate: "No sales on this date",
@@ -2686,6 +2686,26 @@ const translations = {
     onbStep3AccountantDisambig: "Different from the read-only revisor login in the next step — that one's for accountants who want to log in and see your books directly.",
     onbAccountantEmailInvalid: "Enter a valid accountant email.",
     onbTaxSaveFailed: "Couldn't save tax preferences. Try again.",
+    // Day rollover chooser — stored on BusinessProfile.day_cutoff_hour.
+    // Defaulted by currency (DKK → restaurant preset, others → office).
+    // Owner can change anytime from Profile → Operations → Business-day
+    // rollover. Matches migration 012 + tz_utils._DEFAULT_CUTOFF_HOUR.
+    onbStep3CutoffLabel: "When does your business day roll over?",
+    onbStep3CutoffHint: "A 02:00 sale belongs to YESTERDAY's shift — restaurant convention. You can change this later in Profile.",
+    onbStep3CutoffRestaurant: "Restaurant / café (06:00)",
+    onbStep3CutoffRestaurantDesc: "Late-night service (02:00) still counts toward yesterday — Danish standard.",
+    onbStep3CutoffOffice: "Office hours (00:00)",
+    onbStep3CutoffOfficeDesc: "Calendar-day rollover at midnight. Pick this for retail, B2B, workshops.",
+    onbStep3CutoffCustom: "Custom hour",
+    onbStep3CutoffCustomAria: "Custom rollover hour (0-23)",
+    onbStep3CutoffCustomSuffix: ":00 local time (0–23)",
+    // Profile editor (day rollover stepper alongside LaborTargetStepper)
+    dayCutoffTitle: "Business-day rollover",
+    dayCutoffSubtitle: "When does today's books close and tomorrow's open? Restaurants usually pick 06:00 so late-night service still counts toward last night's shift.",
+    dayCutoffSliderAria: "Day rollover hour (0-23)",
+    dayCutoffHint: "06:00 = Danish restaurant convention (02:00 sale → yesterday). 00:00 = midnight rollover (office hours).",
+    dayCutoffSaved: "Saved",
+    dayCutoffFailed: "Couldn't save — try again.",
     // Step 4 — revisor
     onbStep4Title: "Share with your revisor",
     onbStep4Subtitle: "Most Danish small businesses share their books with a revisor. Invite yours now — they'll get read-only access to your reports.",
@@ -2805,6 +2825,15 @@ const translations = {
     "smartScan.continueManual": "Continue manually",
     "smartScan.invoiceHandoff": "Faktura detected by Smart scan",
     "smartScan.invoiceHandoffBody": "Pick the same image again to import the line items. We'll review them before saving.",
+    // Q2 (#155) — direct handoff cap + load states. Jurisdiction-locked
+    // DK term `faktura` stays Danish even in EN per translation-scope rule.
+    "smartScan.invoiceCapHit": "Daily smart-import limit reached — upgrade or wait until tomorrow.",
+    "smartScan.upgrade.smart_imports_per_day": "Higher daily limit for Smart Inventory Import",
+    // Q3 (#155) — native camera permission denial fallback.
+    "smartScan.cameraDenied": "Camera permission denied — pick image",
+    // Direct handoff load state in SmartImportModal.
+    "smartImport.loadingDraft": "Opening faktura…",
+    "smartImport.draftLoadFailed": "Couldn't open the registered faktura — pick the image again.",
   },
   da: {
     dashboard: "Oversigt", sales: "Salg", expenses: "Udgifter", inventory: "Lager",
@@ -5322,6 +5351,25 @@ const translations = {
     onbStep3AccountantDisambig: "Ikke det samme som læseadgangen i næste trin — den er til revisorer, der selv vil logge ind og se dine bøger.",
     onbAccountantEmailInvalid: "Indtast en gyldig revisor-e-mail.",
     onbTaxSaveFailed: "Kunne ikke gemme skat-præferencer. Prøv igen.",
+    // Dagsskifte — gemmes på BusinessProfile.day_cutoff_hour. DKK-ejere
+    // får restaurant-forvalget (kl. 06), andre valutaer får kontortid
+    // (kl. 00). Kan ændres når som helst fra Profil → Drift.
+    onbStep3CutoffLabel: "Hvornår skifter din forretningsdag?",
+    onbStep3CutoffHint: "Et salg kl. 02 hører til I GÅRS vagt — dansk restaurantstandard. Du kan altid ændre det i Profil.",
+    onbStep3CutoffRestaurant: "Restaurant / café (kl. 06)",
+    onbStep3CutoffRestaurantDesc: "Sen aftenservering (kl. 02) tæller stadig med til i går — dansk standard.",
+    onbStep3CutoffOffice: "Kontortid (kl. 00)",
+    onbStep3CutoffOfficeDesc: "Kalenderdøgn skifter ved midnat. Vælg denne til butik, B2B og værksted.",
+    onbStep3CutoffCustom: "Eget klokkeslæt",
+    onbStep3CutoffCustomAria: "Eget dagsskifte (0-23)",
+    onbStep3CutoffCustomSuffix: ":00 lokal tid (0–23)",
+    // Profileditor (dagsskifte i Drift-sektionen, ved siden af løn-mål)
+    dayCutoffTitle: "Dagsskifte",
+    dayCutoffSubtitle: "Hvornår lukker i dags bøger og åbner i morgens? Restauranter vælger typisk kl. 06, så sen vagt stadig tæller med til i går.",
+    dayCutoffSliderAria: "Dagsskifte-time (0-23)",
+    dayCutoffHint: "Kl. 06 = dansk restaurantstandard (salg kl. 02 → i går). Kl. 00 = midnatsskifte (kontortid).",
+    dayCutoffSaved: "Gemt",
+    dayCutoffFailed: "Kunne ikke gemme — prøv igen.",
     onbStep4Title: "Del med din revisor",
     onbStep4Subtitle: "De fleste danske café-ejere deler bøgerne med en revisor. Inviter nu — de får skrivebeskyttet adgang til dine rapporter.",
     onbStep4EmailLabel: "Revisors e-mail",
@@ -5431,6 +5479,14 @@ const translations = {
     "smartScan.continueManual": "Fortsæt manuelt",
     "smartScan.invoiceHandoff": "Faktura registreret af Smart skan",
     "smartScan.invoiceHandoffBody": "Vælg det samme billede igen for at importere varerne. Vi gennemgår dem inden de gemmes.",
+    // Q2 (#155) — direkte handoff: cap + load states.
+    "smartScan.invoiceCapHit": "Daglig grænse for smart-import er nået — opgradér eller vent til i morgen.",
+    "smartScan.upgrade.smart_imports_per_day": "Højere daglig grænse for Smart lager-import",
+    // Q3 (#155) — fallback når kameraadgang er nægtet.
+    "smartScan.cameraDenied": "Kamera-tilladelse nægtet — vælg billede",
+    // Direkte handoff load state i SmartImportModal.
+    "smartImport.loadingDraft": "Åbner faktura…",
+    "smartImport.draftLoadFailed": "Kunne ikke åbne tidligere registreret faktura — vælg billede igen.",
   },
   np: {
     dashboard: "ड्यासबोर्ड", sales: "बिक्री", expenses: "खर्च", inventory: "स्टक",

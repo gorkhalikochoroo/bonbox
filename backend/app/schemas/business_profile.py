@@ -21,7 +21,7 @@ class BusinessProfileCreate(BaseModel):
     accountant_name: str | None = None
     source: str | None = None
     founded: str | None = None
-    day_cutoff_hour: int | None = None  # 0-6; night shift cutoff
+    day_cutoff_hour: int | None = None  # 0-23; service-day rollover hour. DK default 6 (restaurant convention — 02:00 = yesterday's shift).
     # CVR verification trail — usually set by the lookup pipeline,
     # not the user. Allowed in payload so the verify endpoint can
     # PATCH them via the same shape, but most clients omit them.
@@ -67,7 +67,11 @@ class BusinessProfileResponse(BaseModel):
     accountant_name: str | None = None
     source: str | None = None
     founded: str | None = None
-    day_cutoff_hour: int = 0
+    # 0-23. DK default 6 (Danish restaurant convention — service ending
+    # 02:00 belongs to yesterday's business day). Non-DK tenants can set
+    # 0 for midnight rollover. Matches the column default and the
+    # `tz_utils._DEFAULT_CUTOFF_HOUR` helper after migration 012.
+    day_cutoff_hour: int = 6
     # Verification trail — exposed so the frontend can render the
     # "✓ Verified · CVR · 2 days ago" stamp and the warning banners.
     cvr_verified_at: datetime | None = None

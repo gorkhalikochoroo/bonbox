@@ -74,7 +74,26 @@ class BusinessProfile(Base):
     accountant_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     accountant_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Operations
-    day_cutoff_hour: Mapped[int] = mapped_column(Integer, default=0)  # 0-6; hour before which "today" = yesterday (night shift)
+    # day_cutoff_hour — hour of the local day at which the "business day"
+    # rolls over. A sale clocked BEFORE this hour belongs to the previous
+    # business day's books; AFTER it belongs to today's.
+    #
+    # Default 6 = Danish restaurant convention. Service ending 02:00 belongs
+    # to yesterday's business day — closing the till at 03:00 still counts
+    # toward last night's kasserapport, not the new calendar morning. This
+    # matches what `app.services.tz_utils._DEFAULT_CUTOFF_HOUR` promises
+    # to callers, so the helper-default and the column-default no longer
+    # drift apart (the pre-b2e227a drift that motivated this change).
+    #
+    # Non-DK currencies may want 0 (midnight rollover) — that's the
+    # office-hours convention and the owner can override via the Profile
+    # editor. The Alembic backfill that ships with this default change
+    # ONLY touches DKK users so it doesn't silently flip the meaning of
+    # stored values for foreign tenants.
+    #
+    # Valid range [0, 23]; clamped in `tz_utils._user_cutoff_hour`
+    # defensively for legacy rows that pre-date validation.
+    day_cutoff_hour: Mapped[int] = mapped_column(Integer, default=6)
     # Meta
     source: Mapped[str | None] = mapped_column(String(50), nullable=True)  # cvrapi.dk, companies_house, manual
     founded: Mapped[str | None] = mapped_column(String(20), nullable=True)

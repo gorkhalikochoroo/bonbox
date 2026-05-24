@@ -389,6 +389,21 @@ def save_profile(
         BusinessProfile.user_id == user.id,
     ).first()
 
+    # day_cutoff_hour — clamp to [0, 23] so a typo (e.g. "26") can't
+    # land a junk value that the tz_utils helper would then defensively
+    # clamp on every read forever. Doing it here keeps stored values
+    # honest and matches the validator bounds documented on the model.
+    if data.day_cutoff_hour is not None:
+        try:
+            h = int(data.day_cutoff_hour)
+            if h < 0:
+                h = 0
+            elif h > 23:
+                h = 23
+            data.day_cutoff_hour = h
+        except (TypeError, ValueError):
+            data.day_cutoff_hour = None
+
     # target_labor_pct — clamp to [0.10, 0.50] so the schedule autopilot
     # never proposes an over- or under-staffed week from a typo. Stored
     # as a fraction. Default 0.30 is the documented baseline.
