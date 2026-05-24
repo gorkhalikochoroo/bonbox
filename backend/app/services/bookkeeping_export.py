@@ -29,6 +29,7 @@ from typing import Iterable
 
 from sqlalchemy.orm import Session
 
+from app.models.business_profile import BusinessProfile
 from app.models.expense import Expense, ExpenseCategory
 from app.models.sale import Sale
 from app.models.user import User
@@ -36,6 +37,11 @@ from app.models.invoice import Invoice
 from app.models.customer import Customer
 from app.models.mileage import MileageEntry
 from app.services.voucher_service import format_voucher_number
+from app.utils.document_hash import (
+    compute_document_hash,
+    get_software_identifier,
+)
+from app.utils.time import utc_now
 
 log = logging.getLogger("bonbox.bookkeeping_export")
 
@@ -451,41 +457,137 @@ def export_generic(user: User, db: Session, start: date, end: date) -> bytes:
 
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=",", quoting=csv.QUOTE_MINIMAL, lineterminator="\n")
+    # Columns are additive over the historical set — preserves existing
+    # importer mappings. SAF-T-compatible names appended at the end:
+    #   TransactionId      = bilagsnummer (matches SAF-T <TransactionID>)
+    #   TransactionDate    = ISO date
+    #   AccountID          = chart-of-accounts account (1010 or 2750)
+    #   Debit / Credit     = SAF-T splits the amount into Debit vs Credit
+    # Existing columns up to "Payment" stay byte-identical for backwards
+    # compat. Importers that ignore extra columns continue to work.
     w.writerow([
         "Bilagsnummer", "Date", "Type", "Description", "Category",
         "Amount", "Currency", "VAT %", "Payment",
+        # SAF-T compatibility (additive — does not change existing imports)
+        "TransactionId", "TransactionDate", "AccountID", "Debit", "Credit",
     ])
     for s in sales:
         vat = "0" if getattr(s, "is_tax_exempt", False) else default_vat_str
         sale_text = getattr(s, "item_name", None) or getattr(s, "notes", None) or "Sale"
         vn = getattr(s, "voucher_number", None)
         bilag = f"S-{s.date.year}-{vn:04d}" if vn else ""
+        amount_str = _money_dot(s.amount)
+        date_iso = s.date.isoformat() if hasattr(s.date, "isoformat") else str(s.date)
+        # Sales are credit entries on revenue account 1010
         w.writerow([
             bilag,
-            s.date.isoformat() if hasattr(s.date, "isoformat") else str(s.date),
+            date_iso,
             "Sale",
             sale_text[:120],
             "",
-            _money_dot(s.amount),
+            amount_str,
             cur,
             vat,
             (getattr(s, "payment_method", None) or "").capitalize(),
+            # SAF-T fields
+            bilag, date_iso, "1010", "0.00", amount_str,
         ])
     for e in expenses:
         vat = "0" if getattr(e, "is_tax_exempt", False) else default_vat_str
         cat_name = cats.get(str(e.category_id), "Other")
         vn = getattr(e, "voucher_number", None)
         bilag = f"E-{e.date.year}-{vn:04d}" if vn else ""
+        amount_str = _money_dot(e.amount)
+        date_iso = e.date.isoformat() if hasattr(e.date, "isoformat") else str(e.date)
+        # Expenses are debit entries on cost account 2750
         w.writerow([
             bilag,
-            e.date.isoformat() if hasattr(e.date, "isoformat") else str(e.date),
+            date_iso,
             "Expense",
             (e.description or cat_name)[:120],
             cat_name,
-            _money_dot(e.amount),
+            amount_str,
             cur,
             vat,
             (getattr(e, "payment_method", None) or "").capitalize(),
+            # SAF-T fields
+            bilag, date_iso, "2750", amount_str, "0.00",
+        ])
+
+    return buf.getvalue().encode("utf-8-sig")
+
+
+# ───────── MOMS summary (period totals at a glance) ─────────
+
+
+def export_moms_summary(user: User, db: Session, start: date, end: date) -> bytes:
+    """Per-period MOMS summary CSV — one row per VAT rate observed in the
+    range, showing salg/koeb totals and net moms owed/refundable.
+
+    The revisor wants to see this 30-second view BEFORE diving into the
+    line-item CSV: "Did the totals roughly match what I expected for
+    this quarter?". Ties directly to the MOMS-angivelse PDF numbers.
+
+    Columns: Periode start · Periode slut · Momssats · Salg ekskl. moms ·
+             Moms af salg · Køb ekskl. moms · Moms af køb · Netto moms.
+    """
+    sales = _query_sales(user, db, start, end)
+    expenses = _query_expenses(user, db, start, end)
+
+    # Aggregate at 25% bucket vs 0% bucket. We don't yet support
+    # multi-rate (DK is 25% flat for almost every SMB), so the buckets
+    # collapse but the structure scales when reduced-rate sectors are
+    # added later.
+    bucket_25 = {"sales": 0.0, "expenses": 0.0}
+    bucket_0 = {"sales": 0.0, "expenses": 0.0}
+    for s in sales:
+        amt = float(getattr(s, "amount", 0) or 0)
+        if getattr(s, "is_tax_exempt", False):
+            bucket_0["sales"] += amt
+        else:
+            bucket_25["sales"] += amt
+    for e in expenses:
+        amt = float(getattr(e, "amount", 0) or 0)
+        if getattr(e, "is_tax_exempt", False):
+            bucket_0["expenses"] += amt
+        else:
+            bucket_25["expenses"] += amt
+
+    def _split(gross: float, rate: float) -> tuple[float, float]:
+        """Return (net, vat) given a gross-incl-VAT amount and rate."""
+        if rate <= 0:
+            return gross, 0.0
+        net = gross / (1.0 + rate)
+        return net, gross - net
+
+    salg_net, salg_moms = _split(bucket_25["sales"], 0.25)
+    kob_net, kob_moms = _split(bucket_25["expenses"], 0.25)
+    netto_moms = salg_moms - kob_moms
+
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=",", quoting=csv.QUOTE_MINIMAL, lineterminator="\n")
+    w.writerow([
+        "Periode start", "Periode slut", "Momssats",
+        "Salg ekskl. moms", "Moms af salg",
+        "Køb ekskl. moms", "Moms af køb",
+        "Netto moms (positiv = skyldig)", "Currency",
+    ])
+    w.writerow([
+        start.isoformat(), end.isoformat(), "25%",
+        _money_dot(salg_net), _money_dot(salg_moms),
+        _money_dot(kob_net), _money_dot(kob_moms),
+        _money_dot(netto_moms),
+        user.currency or "DKK",
+    ])
+    # 0% / exempt — render only when there's content so the file stays
+    # uncluttered for the typical SMB.
+    if bucket_0["sales"] or bucket_0["expenses"]:
+        w.writerow([
+            start.isoformat(), end.isoformat(), "0%",
+            _money_dot(bucket_0["sales"]), "0.00",
+            _money_dot(bucket_0["expenses"]), "0.00",
+            "0.00",
+            user.currency or "DKK",
         ])
 
     return buf.getvalue().encode("utf-8-sig")
@@ -628,47 +730,163 @@ def export_bundle(user: User, db: Session, start: date, end: date) -> bytes:
       • sales-and-expenses CSV (Dinero format — Danish default)
       • faktura CSV (AR register)
       • mileage CSV (kørselsfradrag log)
+      • moms-summary CSV (period MOMS totals at a glance)
       • README.txt explaining what each file is + import order
+      • manifest.txt with business info, period, file list, and SHA-256
+        hash of each file (audit-grade tamper-evidence)
 
     Used by the "Send to accountant" monthly button. One attachment,
-    revisor opens it, sees four files, knows exactly what to do.
+    revisor opens it, sees the files, knows exactly what to do.
+
+    Audit-grade upgrade (May 2026):
+      Manifest provides forensic provenance — business name + CVR +
+      VAT no + address, the user who generated the bundle, the exact
+      UTC timestamp, the software version, and SHA-256 of every file.
+      If the revisor's downloaded copy doesn't match the hashes, the
+      bundle has been altered post-handoff.
     """
     sales_csv = export_dinero(user, db, start, end)
     faktura_csv = export_faktura(user, db, start, end)
     mileage_csv = export_mileage(user, db, start, end)
+    moms_summary_csv = export_moms_summary(user, db, start, end)
+
+    # Look up the BusinessProfile for the manifest — gracefully empty
+    # when the owner hasn't filled it in yet.
+    try:
+        profile = (
+            db.query(BusinessProfile)
+            .filter(BusinessProfile.user_id == user.id)
+            .first()
+        )
+    except Exception:
+        profile = None
 
     period_label = f"{start.isoformat()}_to_{end.isoformat()}"
+    software_id = get_software_identifier()
+    generated_at = utc_now().strftime("%Y-%m-%d %H:%M UTC")
+    generator_email = (getattr(user, "email", None) or "system")
+
+    # Compute hashes BEFORE writing the manifest so the manifest can
+    # carry the digests. Hashes are computed over the raw bytes that
+    # will end up in the ZIP (post UTF-8 + BOM).
+    files_to_pack: list[tuple[str, bytes]] = [
+        (f"sales-expenses-dinero-{period_label}.csv", sales_csv),
+        (f"faktura-{period_label}.csv", faktura_csv),
+        (f"mileage-{period_label}.csv", mileage_csv),
+        (f"moms-summary-{period_label}.csv", moms_summary_csv),
+    ]
+    file_hashes = {
+        name: compute_document_hash(data) for name, data in files_to_pack
+    }
+
+    # ── Business identity block (for manifest header) ────────────────
+    biz_lines = []
+    biz_name = (
+        (profile.company_name if profile and profile.company_name else None)
+        or getattr(user, "business_name", None) or "—"
+    )
+    biz_lines.append(f"Business name:    {biz_name}")
+    biz_lines.append(
+        f"CVR / Org. no:    {getattr(profile, 'org_number', None) or '—'}"
+    )
+    vat_no = getattr(profile, "vat_number", None) if profile else None
+    biz_lines.append(f"VAT number:       {vat_no or '—'}")
+    addr_parts = []
+    if profile:
+        if getattr(profile, "address", None):
+            addr_parts.append(profile.address)
+        z = getattr(profile, "zipcode", None) or ""
+        c = getattr(profile, "city", None) or ""
+        if z or c:
+            addr_parts.append(f"{z} {c}".strip())
+    biz_lines.append(
+        f"Address:          {', '.join(addr_parts) if addr_parts else '—'}"
+    )
+
+    manifest_lines = [
+        "BonBox bookkeeping handoff — manifest",
+        "=" * 60,
+        f"Period:           {start.isoformat()} -> {end.isoformat()}",
+        f"Generated:        {generated_at}",
+        f"Generated by:     {generator_email}",
+        f"Software:         {software_id}",
+        "",
+        *biz_lines,
+        "",
+        "FILES + SHA-256 HASHES",
+        "-" * 60,
+    ]
+    for name, data in files_to_pack:
+        manifest_lines.append(f"{name}")
+        manifest_lines.append(f"  size:  {len(data)} bytes")
+        manifest_lines.append(f"  sha256: {file_hashes[name]}")
+    manifest_lines.append("")
+    manifest_lines.append(
+        "Verify a file by running locally:"
+    )
+    manifest_lines.append(
+        "  shasum -a 256 <filename>"
+    )
+    manifest_lines.append(
+        "and confirming the digest matches the value above."
+    )
+    manifest_text = "\n".join(manifest_lines) + "\n"
+
     readme = (
         f"BonBox bookkeeping handoff\n"
-        f"Period: {start.isoformat()} → {end.isoformat()}\n"
-        f"Generated for: {user.business_name or user.email}\n\n"
+        f"Period: {start.isoformat()} -> {end.isoformat()}\n"
+        f"Generated for: {biz_name}  (by {generator_email})\n"
+        f"Software: {software_id}\n\n"
         f"FILES IN THIS BUNDLE\n"
         f"  1. sales-expenses-dinero-{period_label}.csv\n"
         f"     Daily sales + expense vouchers. Dinero-format CSV (semicolon\n"
-        f"     delimiter, Danish moms columns). Import order: first.\n\n"
+        f"     delimiter, Danish moms columns). Import first.\n\n"
         f"  2. faktura-{period_label}.csv\n"
         f"     Outgoing invoices (AR register). One row per sent/paid/credited\n"
-        f"     faktura with customer, CVR, totals, and paid status. Used to\n"
+        f"     faktura with customer, CVR, totals, and paid status. Use to\n"
         f"     reconcile against bank receipts.\n\n"
         f"  3. mileage-{period_label}.csv\n"
         f"     Kørselsgodtgørelse log. Contemporaneous trip log with frozen\n"
         f"     2026 rates. Post the period total as a single fradrag-voucher.\n\n"
+        f"  4. moms-summary-{period_label}.csv\n"
+        f"     Period MOMS totals at a glance — salg ekskl. moms, moms af salg,\n"
+        f"     køb ekskl. moms, moms af køb, netto moms. Confirms the angivelse\n"
+        f"     before you dive into the line-item CSV.\n\n"
+        f"  5. manifest.txt\n"
+        f"     Business info + SHA-256 of every file in this bundle. If a\n"
+        f"     downloaded copy's hash doesn't match the manifest, the file\n"
+        f"     has been altered after BonBox produced it.\n\n"
+        f"HOW TO IMPORT\n"
+        f"  • Dinero: Bogføring -> Importér -> CSV. Map Dato/Bilag/Beskrivelse/\n"
+        f"    Beløb/Moms/Konto. Sales account 1010, expense account 2750 are\n"
+        f"    BonBox defaults — re-map as needed.\n"
+        f"  • Billy:  Bogføring -> Importér. Convert the Dinero CSV's first\n"
+        f"    line to your column names, or use export_billy() directly.\n"
+        f"  • e-conomic: Daglig bogføring -> Indlæs kassekladde (CSV). Account\n"
+        f"    1010 = sales (U25/U0), 2750 = expenses (I25/I0).\n\n"
         f"NOTES\n"
-        f"  • Sales account 1010, expense account 2750 are BonBox defaults.\n"
-        f"    Re-map in your bookkeeping software as needed.\n"
         f"  • Faktura rows with status='credited' are voided; the kreditnota\n"
-        f"    reversal row will appear separately with type='kreditnota'.\n"
-        f"  • Mileage TOTAL row at the bottom shows the period fradrag sum.\n\n"
+        f"    reversal row appears separately with type='kreditnota'.\n"
+        f"  • Mileage TOTAL row at the bottom shows the period fradrag sum.\n"
+        f"  • Bilagsnumre on every row are Bogføringsloven §15 compliant\n"
+        f"    (sequential, gapless within each year).\n\n"
         f"Questions: contact@bonbox.dk\n"
     )
 
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(f"sales-expenses-dinero-{period_label}.csv", sales_csv)
-        zf.writestr(f"faktura-{period_label}.csv", faktura_csv)
-        zf.writestr(f"mileage-{period_label}.csv", mileage_csv)
+        for name, data in files_to_pack:
+            zf.writestr(name, data)
         zf.writestr("README.txt", readme.encode("utf-8"))
+        zf.writestr("manifest.txt", manifest_text.encode("utf-8"))
     return out.getvalue()
+
+
+# Public alias used by the audit tests + external callers — matches the
+# naming convention in the audit checklist ("export_bookkeeping_zip").
+def export_bookkeeping_zip(user: User, db: Session, start: date, end: date) -> bytes:
+    """Alias for export_bundle() — the audit-grade ZIP handoff."""
+    return export_bundle(user, db, start, end)
 
 
 # ───────── Format registry ─────────

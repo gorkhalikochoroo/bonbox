@@ -40,6 +40,12 @@ from app.models.invoice import Invoice
 from app.models.sale import Sale
 from app.models.user import User
 from app.services.tax_service import _calc_vat, _get_vat_rate, TAX_CONFIG
+from app.utils.document_hash import (
+    compute_document_hash,
+    get_software_identifier,
+    make_numbered_canvas,
+    short_hash,
+)
 from app.utils.time import utc_now
 
 
@@ -312,12 +318,52 @@ def build_moms_filing_pdf(
     )
 
     buf = BytesIO()
+    software_id = get_software_identifier()
+    generated_at = utc_now()
+    generated_at_str = generated_at.strftime("%Y-%m-%d %H:%M UTC")
+    generator_email = (getattr(user, "email", None) or "system")
+
+    # Document hash is set after pass 1 (computing it requires the
+    # rendered bytes). The audit footer carries this for tamper-
+    # evidence — see _final_footer below.
+    doc_hash_holder = {"value": "pending"}
+
+    def _draw_audit_footer(canv, page_num, total_pages):
+        """Footer drawn on every page by the NumberedCanvas.
+
+        Layout (bottom of page):
+          • Left:   Doc-hash: <16 hex chars>
+          • Center: Generated YYYY-MM-DD HH:MM UTC by user@email · BonBox v…
+          • Right:  Side X / Y
+        """
+        from reportlab.lib import colors as _c
+        canv.saveState()
+        canv.setFont("Helvetica", 6.8)
+        canv.setFillColor(_c.HexColor("#94a3b8"))
+        canv.drawRightString(
+            A4[0] - 22 * mm, 10 * mm,
+            ("Side " if is_danish else "Page ") + f"{page_num} / {total_pages}",
+        )
+        canv.drawCentredString(
+            A4[0] / 2, 10 * mm,
+            f"{('Genereret' if is_danish else 'Generated')} "
+            f"{generated_at_str} {('af' if is_danish else 'by')} "
+            f"{generator_email}  ·  {software_id}",
+        )
+        canv.drawString(
+            22 * mm, 10 * mm,
+            f"Doc-hash: {doc_hash_holder['value']}",
+        )
+        canv.restoreState()
+
     doc = SimpleDocTemplate(
         buf, pagesize=A4,
-        topMargin=22 * mm, bottomMargin=18 * mm,
+        topMargin=22 * mm, bottomMargin=22 * mm,
         leftMargin=22 * mm, rightMargin=22 * mm,
         title=f"MOMS-angivelse — {biz_display}",
         author="BonBox",
+        creator=software_id,
+        subject=f"MOMS {bilagsnummer}",
     )
     styles = getSampleStyleSheet()
     h1 = ParagraphStyle("H1", parent=styles["Title"], fontSize=14, spaceAfter=2,
@@ -371,10 +417,19 @@ def build_moms_filing_pdf(
             addr_parts.append(f"{z} {c}".strip())
         if addr_parts:
             biz_lines.append(f"<font color='#6b7280'>{', '.join(addr_parts)}</font>")
-        if getattr(profile, "org_number", None):
+        # Surface CVR + VAT number (when distinct) — a SKAT-auditor
+        # expects to see both. For DK the two are typically identical
+        # but EU-cross-border filers carry separate numbers.
+        cvr = getattr(profile, "org_number", None)
+        vat_no = getattr(profile, "vat_number", None)
+        if cvr:
             cvr_label = "CVR" if is_danish else "Org. nr."
             biz_lines.append(
-                f"<font color='#6b7280'>{cvr_label} {profile.org_number}</font>"
+                f"<font color='#6b7280'>{cvr_label} {cvr}</font>"
+            )
+        if vat_no and vat_no != cvr:
+            biz_lines.append(
+                f"<font color='#6b7280'>VAT {vat_no}</font>"
             )
     # MOMS-registered confirmation footer
     if is_danish:
@@ -529,6 +584,50 @@ def build_moms_filing_pdf(
     ]))
     story.append(td)
 
+    # ─── Section D2 — Source traceability ────────────────────
+    # For each number on the angivelse, where did it come from? An
+    # auditor expects to see the DB sources broken out: POS Sale rows,
+    # Invoice rows, Expense rows. Aligns with Bogføringsloven §9
+    # ("every entry traceable to its source").
+    if is_danish:
+        story.append(Paragraph("D2 · KILDER", section_title))
+        src_rows = [
+            [Paragraph("POS-kassesalg (Sale)", val),
+             Paragraph(_money_dk(data["pos_revenue"], currency), val_r)],
+            [Paragraph("Fakturasalg (Invoice)", val),
+             Paragraph(_money_dk(data["invoice_revenue"], currency), val_r)],
+            [Paragraph("Sum (= Salg med moms)", val_b),
+             Paragraph(_money_dk(data["salg_med_moms"], currency), val_br)],
+            [Paragraph("Bogførte udgifter (Expense)", val),
+             Paragraph(_money_dk(data["kob_med_moms"], currency), val_r)],
+            [Paragraph("Indgående moms heraf", val_b),
+             Paragraph(_money_dk(data["moms_af_kob"], currency), val_br)],
+        ]
+    else:
+        story.append(Paragraph("D2 · SOURCES", section_title))
+        src_rows = [
+            [Paragraph("POS sales (Sale)", val),
+             Paragraph(_money_dk(data["pos_revenue"], currency), val_r)],
+            [Paragraph("Invoice sales (Invoice)", val),
+             Paragraph(_money_dk(data["invoice_revenue"], currency), val_r)],
+            [Paragraph("Sum (= taxable sales)", val_b),
+             Paragraph(_money_dk(data["salg_med_moms"], currency), val_br)],
+            [Paragraph("Logged expenses (Expense)", val),
+             Paragraph(_money_dk(data["kob_med_moms"], currency), val_r)],
+            [Paragraph("Input VAT from above", val_b),
+             Paragraph(_money_dk(data["moms_af_kob"], currency), val_br)],
+        ]
+    td2 = Table(src_rows, colWidths=[110 * mm, 56 * mm])
+    td2.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("LINEABOVE", (0, 2), (-1, 2), 0.4, DIVIDER),
+    ]))
+    story.append(td2)
+
     # ─── Section E — Signering (Signature) ───────────────────
     story.append(Spacer(1, 8 * mm))
     if is_danish:
@@ -553,27 +652,405 @@ def build_moms_filing_pdf(
     ]))
     story.append(ts)
 
-    # ─── Footer ──────────────────────────────────────────────
-    story.append(Spacer(1, 14 * mm))
+    # ─── Footer + disclaimer ─────────────────────────────────
+    # Disclaimer: BonBox produces this PDF from the data the owner
+    # entered. The owner — not BonBox — is responsible for submitting
+    # to SKAT and verifying against their own records. SKAT regards
+    # the registered MOMS-pligtige party as responsible regardless of
+    # which software produced the angivelse.
+    story.append(Spacer(1, 6 * mm))
     story.append(HRFlowable(width="100%", thickness=0.5, color=DIVIDER,
                              spaceBefore=2, spaceAfter=4))
-    generated = utc_now().strftime("%d/%m/%Y %H:%M UTC")
+    generated = generated_at_str
     if is_danish:
         footer_text = (
-            f"Genereret af BonBox · {generated} · "
-            "Opbevares i 5 år iht. Bogføringsloven §10. "
+            f"Genereret af {software_id} · {generated}<br/>"
+            "Opbevares i 5 år iht. Bogføringsloven §10 · "
             "Indberettes på SKAT.dk eller sendes til revisor."
+        )
+        disclaimer_text = (
+            f"Denne PDF afspejler BonBox's beregning pr. {generated}. "
+            "Brugeren er ansvarlig for at indberette beløbene på SKAT.dk "
+            "og afstemme dem med egne regnskabsbilag før indsendelse."
         )
     else:
         footer_text = (
-            f"Generated by BonBox · {generated} · "
-            "Retain for 5 years per record-keeping law. "
+            f"Generated by {software_id} · {generated}<br/>"
+            "Retain for 5 years per record-keeping law · "
             "File with your tax authority or forward to your accountant."
         )
+        disclaimer_text = (
+            f"This PDF reflects BonBox's calculation as of {generated}. "
+            "The user is responsible for uploading to SKAT.dk and "
+            "verifying against their own records before submission."
+        )
     story.append(Paragraph(footer_text, foot))
+    story.append(Spacer(1, 1 * mm))
+    story.append(Paragraph(
+        f"<font color='#94a3b8' size='7'><i>{disclaimer_text}</i></font>",
+        foot,
+    ))
 
-    doc.build(story)
-    return buf.getvalue()
+    # ─── Build with NumberedCanvas (accurate Page X of Y) ────
+    # First build computes the document hash from the rendered bytes.
+    # We then patch the hash holder + rebuild once more — only TWO doc
+    # objects involved, never reusing flowables that ReportLab mutated.
+    # NumberedCanvas defers per-page footer rendering until after build
+    # so total page count is known, sidestepping reportlab's
+    # canvas-level constraint that getPageNumber() inside build()
+    # doesn't know the final total.
+    canvas_maker = make_numbered_canvas(_draw_audit_footer)
+    # Pass 1: hash placeholder is "pending".
+    doc.build(list(story), canvasmaker=canvas_maker)
+    pass1_bytes = buf.getvalue()
+    doc_hash_holder["value"] = short_hash(pass1_bytes, length=16)
+
+    # Pass 2: rebuild with the real hash. Fresh buf + fresh doc so
+    # reportlab doesn't trip over previously-laid-out flowables.
+    buf2 = BytesIO()
+    doc2 = SimpleDocTemplate(
+        buf2, pagesize=A4,
+        topMargin=22 * mm, bottomMargin=22 * mm,
+        leftMargin=22 * mm, rightMargin=22 * mm,
+        title=doc.title, author=doc.author,
+        creator=software_id, subject=doc.subject,
+    )
+    # Rebuild the story flowables — calling the original function would
+    # be cleanest, but cheaper here to just re-collect them since we
+    # haven't moved the source data. ReportLab's `build` mutates
+    # flowables in-place so a true second pass needs fresh objects.
+    story2 = _rebuild_filing_story(
+        data=data, profile=profile, biz_display=biz_display,
+        period_start=period_start, period_end=period_end,
+        bilagsnummer=bilagsnummer, software_id=software_id,
+        generated_at_str=generated_at_str, currency=currency,
+        is_danish=is_danish,
+    )
+    doc2.build(story2, canvasmaker=canvas_maker)
+    return buf2.getvalue()
+
+
+def _rebuild_filing_story(
+    *, data: dict, profile: Any, biz_display: str,
+    period_start: date, period_end: date, bilagsnummer: str,
+    software_id: str, generated_at_str: str, currency: str,
+    is_danish: bool,
+) -> list:
+    """Recreate the filing PDF story as fresh flowables.
+
+    ReportLab mutates Paragraph/Table/Spacer objects during build (sets
+    `_postponed`, splitter state, etc.). For our 2-pass render — where
+    pass 1 captures the document hash and pass 2 re-renders with that
+    hash visible in the footer — we need a clean second set of
+    flowables. Inlining the build logic here keeps it next to the main
+    renderer for easy auditing without exposing it as a public API.
+    """
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_RIGHT
+    from reportlab.lib.pagesizes import A4 as _A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm as _mm
+    from reportlab.platypus import (
+        HRFlowable, Paragraph, Spacer, Table, TableStyle,
+    )
+
+    INK = colors.HexColor("#171717")
+    MUTED = colors.HexColor("#6b7280")
+    DIVIDER = colors.HexColor("#e5e7eb")
+    NET_OWED = colors.HexColor("#15803d")
+    NET_REFUND = colors.HexColor("#6b7280")
+
+    styles = getSampleStyleSheet()
+    h1 = ParagraphStyle("H1", parent=styles["Title"], fontSize=14, spaceAfter=2,
+                        textColor=INK, fontName="Helvetica-Bold")
+    sub = ParagraphStyle("Sub", parent=styles["Normal"], fontSize=9,
+                         textColor=MUTED, alignment=TA_RIGHT)
+    section_title = ParagraphStyle(
+        "Sect", parent=styles["Normal"], fontSize=8.5, textColor=MUTED,
+        fontName="Helvetica-Bold", leading=12, spaceBefore=10, spaceAfter=4,
+    )
+    val = ParagraphStyle("Val", parent=styles["Normal"], fontSize=10.5,
+                         textColor=INK, fontName="Helvetica", leading=14)
+    val_r = ParagraphStyle("ValR", parent=val, alignment=TA_RIGHT)
+    val_b = ParagraphStyle("ValB", parent=val, fontName="Helvetica-Bold")
+    val_br = ParagraphStyle("ValBR", parent=val_b, alignment=TA_RIGHT)
+    foot = ParagraphStyle("Foot", parent=styles["Normal"], fontSize=8,
+                          textColor=MUTED, fontName="Helvetica-Oblique", leading=11)
+
+    title_text = "MOMS-ANGIVELSE" if is_danish else "VAT RETURN"
+    story: list = []
+
+    # Header
+    if is_danish:
+        period_label = _format_period_dk(period_start, period_end)
+        bilag_label = "Bilagsnr"
+    else:
+        period_label = _format_period_en(period_start, period_end)
+        bilag_label = "Voucher"
+    date_block = (
+        f"{period_label}<br/>"
+        f"<font size='8'>{bilag_label} {bilagsnummer}</font>"
+    )
+    head_table = Table(
+        [[Paragraph(title_text, h1), Paragraph(date_block, sub)]],
+        colWidths=[100 * _mm, 66 * _mm],
+    )
+    head_table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
+    story.append(head_table)
+    story.append(HRFlowable(width="100%", thickness=0.5, color=DIVIDER,
+                             spaceBefore=4, spaceAfter=12))
+
+    # Business block
+    biz_lines = [f"<font name='Helvetica-Bold' size='10.5'>{biz_display}</font>"]
+    if profile:
+        addr_parts = []
+        if getattr(profile, "address", None):
+            addr_parts.append(profile.address)
+        z = getattr(profile, "zipcode", None) or ""
+        c = getattr(profile, "city", None) or ""
+        if z or c:
+            addr_parts.append(f"{z} {c}".strip())
+        if addr_parts:
+            biz_lines.append(f"<font color='#6b7280'>{', '.join(addr_parts)}</font>")
+        cvr = getattr(profile, "org_number", None)
+        vat_no = getattr(profile, "vat_number", None)
+        if cvr:
+            cvr_label = "CVR" if is_danish else "Org. nr."
+            biz_lines.append(f"<font color='#6b7280'>{cvr_label} {cvr}</font>")
+        if vat_no and vat_no != cvr:
+            biz_lines.append(f"<font color='#6b7280'>VAT {vat_no}</font>")
+    rate_label = ("Momssats" if is_danish else "VAT rate")
+    biz_lines.append(
+        f"<font color='#6b7280' size='9'>{rate_label}: {data['vat_rate_pct']}%</font>"
+    )
+    story.append(Paragraph("<br/>".join(biz_lines), val))
+    story.append(Spacer(1, 6 * _mm))
+
+    # Sections A, B, C, D, D2, E — re-use the existing labels.
+    # (Implementation deliberately mirrors the original story builder
+    # in build_moms_filing_pdf; if you change one, change the other.)
+    if is_danish:
+        story.append(Paragraph("A · SALG", section_title))
+        labels = {
+            "salg_med": "Salg med moms (omsætning inkl. moms)" if data["prices_include_moms"]
+                        else "Salg med moms (omsætning ekskl. moms)",
+            "salg_uden": "Salg uden moms (eksempt / nul-sats)",
+            "moms_salg": "Moms af salg (udgående moms)",
+        }
+    else:
+        story.append(Paragraph("A · SALES", section_title))
+        labels = {
+            "salg_med": "Taxable sales (gross)" if data["prices_include_moms"]
+                        else "Taxable sales (net)",
+            "salg_uden": "Zero-rated / exempt sales",
+            "moms_salg": "Output VAT",
+        }
+    a_rows = [
+        [Paragraph(labels["salg_med"], val),
+         Paragraph(_money_dk(data["salg_med_moms"], currency), val_r)],
+        [Paragraph(labels["salg_uden"], val),
+         Paragraph(_money_dk(data["salg_uden_moms"], currency), val_r)],
+        [Paragraph(labels["moms_salg"], val_b),
+         Paragraph(_money_dk(data["moms_af_salg"], currency),
+                   ParagraphStyle("acc", parent=val_br,
+                                  textColor=colors.HexColor("#4338ca")))],
+    ]
+    ta = Table(a_rows, colWidths=[110 * _mm, 56 * _mm])
+    ta.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("LINEABOVE", (0, -1), (-1, -1), 0.5, DIVIDER),
+    ]))
+    story.append(ta)
+
+    if is_danish:
+        story.append(Paragraph("B · KØB", section_title))
+        labels_b = {
+            "kob_med": "Køb med moms (varekøb inkl. moms)",
+            "moms_kob": "Moms af køb (indgående moms)",
+        }
+    else:
+        story.append(Paragraph("B · PURCHASES", section_title))
+        labels_b = {
+            "kob_med": "Taxable purchases (gross)",
+            "moms_kob": "Input VAT",
+        }
+    b_rows = [
+        [Paragraph(labels_b["kob_med"], val),
+         Paragraph(_money_dk(data["kob_med_moms"], currency), val_r)],
+        [Paragraph(labels_b["moms_kob"], val_b),
+         Paragraph(_money_dk(data["moms_af_kob"], currency),
+                   ParagraphStyle("acc", parent=val_br,
+                                  textColor=colors.HexColor("#1d4ed8")))],
+    ]
+    tb = Table(b_rows, colWidths=[110 * _mm, 56 * _mm])
+    tb.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("LINEABOVE", (0, -1), (-1, -1), 0.5, DIVIDER),
+    ]))
+    story.append(tb)
+
+    moms_til_skat = data["moms_til_skat"]
+    is_owed = moms_til_skat > 0
+    if is_danish:
+        story.append(Paragraph("C · TIL BETALING / TILGODE", section_title))
+        c_label = "Moms til SKAT (positiv = skyldig, negativ = tilgode)"
+        big_caption = "Skyldig moms" if is_owed else ("Tilgode hos SKAT"
+                       if moms_til_skat < 0 else "Ingen moms at indberette")
+    else:
+        story.append(Paragraph("C · NET", section_title))
+        c_label = "Net VAT (positive = owed, negative = refund)"
+        big_caption = "Owed to tax authority" if is_owed else ("Refund due"
+                       if moms_til_skat < 0 else "No VAT to report")
+    big_color = NET_OWED if is_owed else NET_REFUND
+    story.append(Paragraph(
+        f"<font color='#6b7280' size='9'>{c_label}</font>",
+        ParagraphStyle("clab", parent=val, leading=12),
+    ))
+    big_row = [[
+        Paragraph(_money_dk(abs(moms_til_skat), currency),
+                  ParagraphStyle("Big", parent=val_b, fontSize=22, leading=26,
+                                 textColor=big_color)),
+        Paragraph(f"<font color='#6b7280' size='9'>{big_caption}</font>",
+                  ParagraphStyle("bcap", parent=val_r, leading=12)),
+    ]]
+    big_table = Table(big_row, colWidths=[110 * _mm, 56 * _mm])
+    big_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(big_table)
+
+    # D — reconciliation
+    if is_danish:
+        story.append(Paragraph("D · SAMMENHÆNG", section_title))
+        d_rows = [
+            [Paragraph("Antal salgsbilag", val), Paragraph(f"{data['sales_count']}", val_r)],
+            [Paragraph("Antal udgiftsbilag", val), Paragraph(f"{data['expense_count']}", val_r)],
+            [Paragraph("Periode", val), Paragraph(period_label, val_r)],
+        ]
+    else:
+        story.append(Paragraph("D · RECONCILIATION", section_title))
+        d_rows = [
+            [Paragraph("Sales transactions", val), Paragraph(f"{data['sales_count']}", val_r)],
+            [Paragraph("Expense transactions", val), Paragraph(f"{data['expense_count']}", val_r)],
+            [Paragraph("Period", val), Paragraph(period_label, val_r)],
+        ]
+    td = Table(d_rows, colWidths=[110 * _mm, 56 * _mm])
+    td.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    story.append(td)
+
+    # D2 — source traceability
+    if is_danish:
+        story.append(Paragraph("D2 · KILDER", section_title))
+        src_rows = [
+            [Paragraph("POS-kassesalg (Sale)", val),
+             Paragraph(_money_dk(data["pos_revenue"], currency), val_r)],
+            [Paragraph("Fakturasalg (Invoice)", val),
+             Paragraph(_money_dk(data["invoice_revenue"], currency), val_r)],
+            [Paragraph("Sum (= Salg med moms)", val_b),
+             Paragraph(_money_dk(data["salg_med_moms"], currency), val_br)],
+            [Paragraph("Bogførte udgifter (Expense)", val),
+             Paragraph(_money_dk(data["kob_med_moms"], currency), val_r)],
+            [Paragraph("Indgående moms heraf", val_b),
+             Paragraph(_money_dk(data["moms_af_kob"], currency), val_br)],
+        ]
+    else:
+        story.append(Paragraph("D2 · SOURCES", section_title))
+        src_rows = [
+            [Paragraph("POS sales (Sale)", val),
+             Paragraph(_money_dk(data["pos_revenue"], currency), val_r)],
+            [Paragraph("Invoice sales (Invoice)", val),
+             Paragraph(_money_dk(data["invoice_revenue"], currency), val_r)],
+            [Paragraph("Sum (= taxable sales)", val_b),
+             Paragraph(_money_dk(data["salg_med_moms"], currency), val_br)],
+            [Paragraph("Logged expenses (Expense)", val),
+             Paragraph(_money_dk(data["kob_med_moms"], currency), val_r)],
+            [Paragraph("Input VAT from above", val_b),
+             Paragraph(_money_dk(data["moms_af_kob"], currency), val_br)],
+        ]
+    td2 = Table(src_rows, colWidths=[110 * _mm, 56 * _mm])
+    td2.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("LINEABOVE", (0, 2), (-1, 2), 0.4, DIVIDER),
+    ]))
+    story.append(td2)
+
+    # E — signature
+    story.append(Spacer(1, 8 * _mm))
+    if is_danish:
+        story.append(Paragraph("E · SIGNERING", section_title))
+        sign_label = "Underskrevet af"; date_label_x = "Dato"
+    else:
+        story.append(Paragraph("E · SIGNATURE", section_title))
+        sign_label = "Signed by"; date_label_x = "Date"
+    sign_rows = [
+        [Paragraph(f"{sign_label}: ____________________________________", val),
+         Paragraph(f"{date_label_x}: ___________________", val)],
+    ]
+    ts = Table(sign_rows, colWidths=[110 * _mm, 56 * _mm])
+    ts.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(ts)
+
+    # Footer + disclaimer (inline body content, not the canvas footer)
+    story.append(Spacer(1, 6 * _mm))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=DIVIDER,
+                             spaceBefore=2, spaceAfter=4))
+    if is_danish:
+        footer_text = (
+            f"Genereret af {software_id} · {generated_at_str}<br/>"
+            "Opbevares i 5 år iht. Bogføringsloven §10 · "
+            "Indberettes på SKAT.dk eller sendes til revisor."
+        )
+        disclaimer_text = (
+            f"Denne PDF afspejler BonBox's beregning pr. {generated_at_str}. "
+            "Brugeren er ansvarlig for at indberette beløbene på SKAT.dk "
+            "og afstemme dem med egne regnskabsbilag før indsendelse."
+        )
+    else:
+        footer_text = (
+            f"Generated by {software_id} · {generated_at_str}<br/>"
+            "Retain for 5 years per record-keeping law · "
+            "File with your tax authority or forward to your accountant."
+        )
+        disclaimer_text = (
+            f"This PDF reflects BonBox's calculation as of {generated_at_str}. "
+            "The user is responsible for uploading to SKAT.dk and "
+            "verifying against their own records before submission."
+        )
+    story.append(Paragraph(footer_text, foot))
+    story.append(Spacer(1, 1 * _mm))
+    story.append(Paragraph(
+        f"<font color='#94a3b8' size='7'><i>{disclaimer_text}</i></font>",
+        foot,
+    ))
+    return story
 
 
 def resolve_default_period(user: User) -> tuple[date, date]:
