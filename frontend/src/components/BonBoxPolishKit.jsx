@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useLanguage } from "../hooks/useLanguage";
 
 // === ANIMATED COUNTER — Numbers count up on load ===
 export function AnimatedCounter({
@@ -215,16 +216,39 @@ export function ShortcutsHelp({ open, onClose }) {
 }
 
 // === QUICK SALE MODAL ===
-export function QuickSaleModal({ open, onClose, onSubmit, currency = "DKK" }) {
+/**
+ * Quick Sale modal — log a number fast.
+ *
+ * MOMS toggle (added 2026-05-24): owner picks whether the typed amount
+ * INCLUDES MOMS (gross — typical DK B2C / POS exports) or EXCLUDES
+ * MOMS (net — B2B / wholesale). Default = `pricesIncludeMoms` prop
+ * from the user's BusinessProfile. Caller's `onSubmit(amount, inclMoms)`
+ * receives BOTH values and decides whether to convert before POST.
+ *
+ * Why pass the choice through instead of converting here: keeps the
+ * conversion logic in one place (the parent that knows the user's
+ * profile setting), and matches the DailyClosePage pattern of
+ * `prices_include_moms_override`.
+ */
+export function QuickSaleModal({
+  open, onClose, onSubmit, currency = "DKK",
+  pricesIncludeMoms = true,
+}) {
+  const { t } = useLanguage();
   const [amount, setAmount] = useState("");
+  const [inclMoms, setInclMoms] = useState(pricesIncludeMoms);
   const inputRef = useRef(null);
 
   useEffect(() => {
     if (open && inputRef.current) {
       inputRef.current.focus();
       setAmount("");
+      // Reset toggle to the user's profile default each time the modal
+      // opens — so a one-off "Excl. MOMS" entry doesn't quietly stick
+      // for the next quick sale.
+      setInclMoms(pricesIncludeMoms);
     }
-  }, [open]);
+  }, [open, pricesIncludeMoms]);
 
   // Escape closes the modal — standard expectation for any dialog.
   useEffect(() => {
@@ -244,16 +268,58 @@ export function QuickSaleModal({ open, onClose, onSubmit, currency = "DKK" }) {
     const cleaned = String(amount || "").replace(/\./g, "").replace(/,/g, ".");
     const num = parseFloat(cleaned);
     if (num > 0) {
-      onSubmit(num);
+      onSubmit(num, inclMoms);
       onClose();
     }
   }
 
+  // Toggle button — styled as a segmented control. The two halves are
+  // mutually exclusive radio buttons in spirit (clicking one un-selects
+  // the other). DK terms locked: "MOMS" uppercase per jurisdiction rule.
+  const Pill = ({ active, label, onClick }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={
+        "flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors " +
+        (active
+          ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 shadow-sm"
+          : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800")
+      }
+    >
+      {label}
+    </button>
+  );
+
   return (
     <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center" onClick={onClose}>
       <div className="bg-white dark:bg-gray-900 rounded-2xl p-8 w-[400px] shadow-2xl border border-gray-200 dark:border-gray-700 animate-scaleIn" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Quick Sale</h3>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">Log today's revenue in seconds</p>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+          {t("quickSale") || "Quick Sale"}
+        </h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+          {t("quickSaleSubtitle") || "Log today's revenue in seconds"}
+        </p>
+
+        {/* MOMS toggle — two-pill segmented control */}
+        <div
+          role="group"
+          aria-label={t("quickSaleMomsToggleAria") || "MOMS handling"}
+          className="flex gap-1 p-1 mb-5 rounded-xl bg-gray-100 dark:bg-gray-800"
+        >
+          <Pill
+            active={inclMoms}
+            onClick={() => setInclMoms(true)}
+            label={t("quickSaleInclMoms") || "Incl. MOMS"}
+          />
+          <Pill
+            active={!inclMoms}
+            onClick={() => setInclMoms(false)}
+            label={t("quickSaleExclMoms") || "Excl. MOMS"}
+          />
+        </div>
+
         <form onSubmit={handleSubmit}>
           <div className="relative mb-6">
             <input
@@ -269,7 +335,14 @@ export function QuickSaleModal({ open, onClose, onSubmit, currency = "DKK" }) {
               placeholder="0"
               className="w-full text-center text-5xl font-bold bg-transparent border-none outline-none text-gray-900 dark:text-white placeholder-gray-300 dark:placeholder-gray-700"
             />
-            <div className="text-center text-sm text-gray-400 mt-1">{currency}</div>
+            <div className="text-center text-sm text-gray-400 mt-1">
+              {currency === "DKK" ? "kr." : currency}
+              <span className="ml-1.5 text-xs text-gray-500 dark:text-gray-400">
+                {inclMoms
+                  ? (t("quickSaleHintIncl") || "incl. MOMS")
+                  : (t("quickSaleHintExcl") || "excl. MOMS")}
+              </span>
+            </div>
           </div>
           <div className="grid grid-cols-3 gap-2 mb-6">
             {[5000, 8000, 10000, 12000, 15000, 20000].map((v) => (
@@ -288,7 +361,7 @@ export function QuickSaleModal({ open, onClose, onSubmit, currency = "DKK" }) {
             disabled={!amount}
             className="w-full py-3 rounded-xl font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            Log Sale
+            {t("quickSaleLogBtn") || "Log Sale"}
           </button>
         </form>
       </div>

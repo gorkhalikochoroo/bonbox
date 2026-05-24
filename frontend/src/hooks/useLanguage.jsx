@@ -806,6 +806,13 @@ const translations = {
     dankort: "Dankort", bankTransfer: "Bank Transfer",
     // Quick Sale
     quickSale: "Quick Sale",
+    quickSaleSubtitle: "Log today's revenue in seconds",
+    quickSaleLogBtn: "Log sale",
+    quickSaleInclMoms: "Incl. MOMS",
+    quickSaleExclMoms: "Excl. MOMS",
+    quickSaleHintIncl: "incl. MOMS",
+    quickSaleHintExcl: "excl. MOMS",
+    quickSaleMomsToggleAria: "MOMS handling",
     // Time periods
     today: "Today", thisWeek: "This Week", thisMonth: "This Month", last30Days: "Last 30 Days",
     // Layout / Nav
@@ -3592,6 +3599,13 @@ const translations = {
     dankort: "Dankort", bankTransfer: "Bankoverførsel",
     // Quick Sale
     quickSale: "Hurtig salg",
+    quickSaleSubtitle: "Log dagens omsætning på sekunder",
+    quickSaleLogBtn: "Log salg",
+    quickSaleInclMoms: "Inkl. MOMS",
+    quickSaleExclMoms: "Ekskl. MOMS",
+    quickSaleHintIncl: "inkl. MOMS",
+    quickSaleHintExcl: "ekskl. MOMS",
+    quickSaleMomsToggleAria: "MOMS-håndtering",
     // Time periods
     today: "I dag", thisWeek: "Denne uge", thisMonth: "Denne måned", last30Days: "Sidste 30 dage",
     // Layout / Nav

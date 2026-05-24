@@ -1574,10 +1574,30 @@ export default function DashboardPage() {
   }, []);
 
   // ── Quick actions ──
-  const handleQuickSale = async (amount) => {
+  const handleQuickSale = async (amount, inclMoms = true) => {
+    // The Sale model stores `amount` in the form the user's profile
+    // dictates (gross if prices_include_moms=true, net if false). The
+    // Quick Sale modal lets the owner override per-entry — e.g. their
+    // profile is "Incl. MOMS" (B2C default) but THIS specific sale is a
+    // B2B net invoice. Convert here so the row matches the profile
+    // convention; downstream MOMS math (tax_service._calc_vat) reads
+    // user.prices_include_moms to interpret the column. Without this
+    // conversion an Excl-MOMS toggle on an Incl-MOMS profile would
+    // mis-extract MOMS by 25%.
+    const profileInclMoms = user?.prices_include_moms ?? true;
+    let storedAmount = amount;
+    if (inclMoms && !profileInclMoms) {
+      // User said "Incl. MOMS" but profile stores net → strip MOMS.
+      storedAmount = amount / 1.25;
+    } else if (!inclMoms && profileInclMoms) {
+      // User said "Excl. MOMS" but profile stores gross → add MOMS.
+      storedAmount = amount * 1.25;
+    }
+    // Round to 2 decimals so we don't write fractional øre into the DB.
+    storedAmount = Math.round(storedAmount * 100) / 100;
     try {
-      await api.post("/sales", { amount, date: localIso(), payment_method: "cash", description: t("quickSaleDesc") });
-      trackEvent("sale_logged", "dashboard", `quick_sale ${amount} ${currency}`);
+      await api.post("/sales", { amount: storedAmount, date: localIso(), payment_method: "cash", description: t("quickSaleDesc") });
+      trackEvent("sale_logged", "dashboard", `quick_sale ${amount} ${currency} ${inclMoms ? "incl" : "excl"}_moms`);
       showToast(`${t("saleLogged")} ${amount.toLocaleString()} ${currency}`, "success");
       fetchAll();
     } catch { showToast(t("failedToLogSale"), "error"); }
@@ -1638,7 +1658,7 @@ export default function DashboardPage() {
       <div className="p-4 sm:p-6 space-y-5 max-w-[1400px] mx-auto">
         <ToastContainer />
         <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
-        <QuickSaleModal open={saleModal} onClose={() => setSaleModal(false)} onSubmit={handleQuickSale} currency={currency} />
+        <QuickSaleModal open={saleModal} onClose={() => setSaleModal(false)} onSubmit={handleQuickSale} currency={currency} pricesIncludeMoms={user?.prices_include_moms ?? true} />
         <SmartSaleInput open={smartSaleOpen} onClose={() => setSmartSaleOpen(false)} onSaved={fetchAll} />
 
         {/* ── HEADER ── */}
