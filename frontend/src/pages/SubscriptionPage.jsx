@@ -900,8 +900,10 @@ function DevToolsPanel() {
 
   useEffect(() => {
     let alive = true;
+    // api.js baseURL is already "https://api.bonbox.dk/api" — paths must
+    // NOT re-prefix with /api/ or we get /api/api/... (404).
     api
-      .get("/api/billing/debug/status")
+      .get("/billing/debug/status")
       .then((res) => {
         if (alive) setStatus(res.data);
       })
@@ -928,7 +930,8 @@ function DevToolsPanel() {
       if (force) params.set("force", "true");
       if (action === "reset-trial" && days) params.set("days", String(days));
       const qs = params.toString();
-      const url = `/api/billing/debug/${action}${qs ? "?" + qs : ""}`;
+      // api.js baseURL already includes /api — don't double-prefix.
+      const url = `/billing/debug/${action}${qs ? "?" + qs : ""}`;
       const res = await api.post(url);
       setLastResult({ ok: true, data: res.data });
       // Reload after a beat so /billing/me reflects the new state in the
