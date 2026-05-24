@@ -2926,6 +2926,63 @@ const translations = {
     eventsGuests: "Guests",
     eventsExpenses: "Expenses tied to event",
     eventsViewSales: "View tagged sales →",
+    // ── Cash-up event ticket sheet (migration 015) ─────────────────
+    // DK terms locked: MOMS uppercase, "kr" for kroner short-form,
+    // tier labels themselves stay in the language the owner typed
+    // (we never translate "Voksen"/"Studerende" — they're data, not
+    // UI chrome).
+    eventTicketTiersSection: "Ticket tiers",
+    eventTicketTiersSuggest: "Use Voksen / Studerende / Barn",
+    eventTicketTiersHelp:
+      "Up to 6 tiers, whole DKK only. You'll enter quantities sold after the event.",
+    eventTicketTierAdd: "Add another tier",
+    eventTicketTierLabel: "Label (e.g. Voksen)",
+    eventTicketTierPrice: "Price kr",
+    eventTicketTierRemove: "Remove tier",
+    eventTicketTierBadge: "{n} ticket tier(s) defined",
+    eventTicketTierBadgeShort: "tier",
+    eventTicketTierLabelMissing: "Every tier needs a label.",
+    eventTicketTierPriceInvalid: "Tier price must be a whole number ≥ 0 kr.",
+    eventTicketTierDuplicate: "Tier labels must be unique.",
+    eventIsTaxExempt: "MOMS-fri event (e.g. §13 live theatre)",
+    eventIsTaxExemptHint:
+      "Stamps each cash-up sale as MOMS-fri. Cinema isn't exempt — leave unchecked for movie nights.",
+    eventCashupButton: "Cash up event",
+    eventCashupButtonDisabledHint:
+      "Add ticket tiers to this event first (Edit → Ticket tiers).",
+    eventCashupTitle: "Cash up event",
+    eventCashupSubtitle:
+      "Enter how many of each ticket type you sold. We'll compute the gross + MOMS and log one Sale row tagged to this event.",
+    eventCashupNoTiers:
+      "This event has no ticket tiers. Edit the event to add tiers first.",
+    eventCashupPerTicket: "per ticket",
+    eventCashupQtyLabel: "Quantity sold",
+    eventCashupIncrement: "Increase quantity",
+    eventCashupDecrement: "Decrease quantity",
+    eventCashupShowSplit: "+ Split by payment method (optional)",
+    eventCashupHideSplit: "Hide payment split",
+    eventCashupSplitCurrent: "currently",
+    eventCashupNotesPlaceholder:
+      "Notes (optional) — e.g. door takings + advance Billetto",
+    eventCashupGrossLabel: "Gross",
+    eventCashupMomsPreview: "MOMS (25%, owner view)",
+    eventCashupExemptHint:
+      "Tax-exempt event — no MOMS will be applied to this sale.",
+    eventCashupLogButton: "Log cash-up",
+    eventCashupSubmitting: "Logging…",
+    eventCashupFooterHint:
+      "One Sale row will be created with a sequential bilagsnummer and full revisor-grade audit trail.",
+    eventCashupErrSplit: "Payment split must sum to {gross}.",
+    eventCashupErrGeneric: "Couldn't log the cash-up. Try again.",
+    eventCashupSuccess: "Cash-up logged · {gross}",
+    eventCashupSuccessWithVno:
+      "Cash-up logged · Bilagsnummer #{vno} · {gross}",
+    // Payment-method labels referenced in the split inputs. Other
+    // pages already define these keys but in case this is the only
+    // page that hits them, fall back to clear English.
+    paymentCash: "Cash",
+    paymentCard: "Card",
+    paymentOnline: "Online",
     // Sales-page filter chip — DK-first wording for the multi-select
     // event filter that lives near the top of the sales list.
     filterByEvent: "Filter by event",
@@ -5673,6 +5730,62 @@ const translations = {
     eventsGuests: "Gæster",
     eventsExpenses: "Udgifter knyttet til event",
     eventsViewSales: "Vis taggede salg →",
+    // ── Cash-up event ticket sheet (migration 015) — DA ────────────
+    // DK terms locked: MOMS uppercase, revisor (not "regnskab" or
+    // "bogholder") for the accountant, MOMS-fri for the §13 case.
+    // Tier-label suggestion strings ("Voksen / Studerende / Barn")
+    // stay Danish in both locales — they ARE the data the owner
+    // sees on a real cinema ticket.
+    eventTicketTiersSection: "Billet-niveauer",
+    eventTicketTiersSuggest: "Brug Voksen / Studerende / Barn",
+    eventTicketTiersHelp:
+      "Op til 6 niveauer, hele kroner kun. Du indtaster solgte antal efter eventet.",
+    eventTicketTierAdd: "Tilføj endnu et niveau",
+    eventTicketTierLabel: "Betegnelse (fx Voksen)",
+    eventTicketTierPrice: "Pris kr",
+    eventTicketTierRemove: "Fjern niveau",
+    eventTicketTierBadge: "{n} billet-niveau(er) defineret",
+    eventTicketTierBadgeShort: "niveau",
+    eventTicketTierLabelMissing: "Hvert niveau skal have en betegnelse.",
+    eventTicketTierPriceInvalid:
+      "Pris pr. billet skal være et helt tal ≥ 0 kr.",
+    eventTicketTierDuplicate: "Betegnelser skal være unikke.",
+    eventIsTaxExempt: "MOMS-fri event (fx §13 levende teater)",
+    eventIsTaxExemptHint:
+      "Stempler hvert kasse-op-salg som MOMS-fri. Biograf er ikke fritaget — lad være ubrugt til filmaftener.",
+    eventCashupButton: "Kasse op for event",
+    eventCashupButtonDisabledHint:
+      "Tilføj billet-niveauer til dette event først (Rediger → Billet-niveauer).",
+    eventCashupTitle: "Kasse op for event",
+    eventCashupSubtitle:
+      "Indtast hvor mange af hver billet-type du solgte. Vi beregner brutto + MOMS og logger ét salg tagget til dette event.",
+    eventCashupNoTiers:
+      "Dette event har ingen billet-niveauer. Rediger eventet og tilføj niveauer først.",
+    eventCashupPerTicket: "pr. billet",
+    eventCashupQtyLabel: "Solgt antal",
+    eventCashupIncrement: "Forøg antal",
+    eventCashupDecrement: "Reducér antal",
+    eventCashupShowSplit: "+ Opdel efter betalingsmetode (valgfri)",
+    eventCashupHideSplit: "Skjul betalingsopdeling",
+    eventCashupSplitCurrent: "lige nu",
+    eventCashupNotesPlaceholder:
+      "Noter (valgfri) — fx dørsalg + Billetto-forsalg",
+    eventCashupGrossLabel: "Brutto",
+    eventCashupMomsPreview: "MOMS (25%, ejer-visning)",
+    eventCashupExemptHint:
+      "MOMS-fri event — der bliver ikke beregnet MOMS på dette salg.",
+    eventCashupLogButton: "Log kasse-op",
+    eventCashupSubmitting: "Logger…",
+    eventCashupFooterHint:
+      "Der oprettes ét salg med løbende bilagsnummer og fuld revisor-godkendt revisionsspor.",
+    eventCashupErrSplit: "Betalingsopdelingen skal summere til {gross}.",
+    eventCashupErrGeneric: "Kunne ikke logge kasse-op. Prøv igen.",
+    eventCashupSuccess: "Kasse-op logget · {gross}",
+    eventCashupSuccessWithVno:
+      "Kasse-op logget · Bilagsnummer #{vno} · {gross}",
+    paymentCash: "Kontant",
+    paymentCard: "Kort",
+    paymentOnline: "Online",
     filterByEvent: "Filtrér efter event",
     filterAllEvents: "Alle events",
     filterNoEvent: "Intet event",

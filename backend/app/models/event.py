@@ -29,7 +29,8 @@ confirmed owners say "event" out loud, not "begivenhed".
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import String, Date, DateTime, Text, Boolean, ForeignKey, Index
+from sqlalchemy import String, Date, DateTime, Text, Boolean, ForeignKey, Index, JSON
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
@@ -54,6 +55,37 @@ class Event(Base):
     event_date: Mapped[date] = mapped_column(Date)
     venue: Mapped[str | None] = mapped_column(String(255), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # ── Cash-up ticket sheet (migration 015) ──────────────────────────
+    # Optional list of ticket tiers defined at event-create time.
+    # Drives the "💰 Cash up event" modal — the owner types quantity
+    # per tier, BonBox computes gross and writes ONE Sale row tagged
+    # to the event with the per-tier breakdown captured in
+    # Sale.ticket_breakdown.
+    #
+    # Stored shape (Pydantic-validated at the API edge, free-form here
+    # for forward-compat):
+    #   [
+    #     {"label": "Voksen",     "price_dkk": 150},
+    #     {"label": "Studerende", "price_dkk": 100},
+    #     {"label": "Barn",       "price_dkk":  50}
+    #   ]
+    #
+    # JSON column → SQLite TEXT, Postgres JSONB. We never query into
+    # the array — always loaded with the parent row. Matches the
+    # Sale.ticket_breakdown variant pattern from migration 013.
+    ticket_tiers: Mapped[list | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True,
+    )
+
+    # Whole-event MOMS-fri toggle. Set TRUE for events that qualify
+    # under Momsloven §13 (live theatre, museum). The cash-up handler
+    # reads this and stamps every resulting Sale row's `is_tax_exempt`
+    # so the accountant-grade MOMS extract is correct. Default FALSE
+    # = standard 25% MOMS posture (what cinema-night events use).
+    # No per-tier MOMS UI in v1 — per Manoj's brief, the posture is
+    # whole-event, not per-row.
+    is_tax_exempt: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Soft-delete — see module docstring. The flag is independent of
     # whether sales linked to this event still exist; soft-deleting an

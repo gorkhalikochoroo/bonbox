@@ -1262,6 +1262,23 @@ _migrations = [
     # Idempotent — safe to re-run.
     "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS received_date DATE",
     "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS expected_shelf_life_days INTEGER",
+
+    # ── Migration 015 (alembic n4o5p6q7r8s9): Cash-up event ticket sheet ──
+    # events.ticket_tiers — JSONB array of `{label, price_dkk}` rows,
+    # defined at event-create time. The "💰 Cash up event" modal reads
+    # this back and renders the tiers as a count-per-tier sheet. Nullable
+    # so existing events without a ticketed pricing structure keep working
+    # (the cash-up button stays disabled for them; tooltip explains).
+    # events.is_tax_exempt — whole-event MOMS-fri flag for cases like
+    # Momsloven §13 (live theatre, museum). The cash-up handler stamps
+    # the resulting Sale row with this flag so the revisor's MOMS extract
+    # is correct. Default FALSE = standard 25% MOMS posture, which is
+    # what every existing event implicitly is.
+    # CRITICAL: list this after migration 013 so the `events` table
+    # exists when these ALTERs land. The SAVEPOINT loop below tolerates
+    # an idempotent re-run because IF NOT EXISTS guards the ADD COLUMN.
+    "ALTER TABLE events ADD COLUMN IF NOT EXISTS ticket_tiers JSONB",
+    "ALTER TABLE events ADD COLUMN IF NOT EXISTS is_tax_exempt BOOLEAN NOT NULL DEFAULT FALSE",
 ]
 
 
@@ -1434,6 +1451,14 @@ def _run_migrations():
             # Migration 054 — expiry chain Phase 1 (Manoj-confirmed)
             ok += _add("inventory_items", "received_date", "DATE")
             ok += _add("inventory_items", "expected_shelf_life_days", "INTEGER")
+            # Migration 015 mirror — Cash-up event ticket sheet.
+            # SQLite stores the tier array as TEXT (JSON); Postgres got
+            # native JSONB via the main MIGRATIONS list above. is_tax_exempt
+            # default 0 = standard 25% MOMS posture for any pre-existing
+            # event rows. Both columns are pure additive — never relax an
+            # existing constraint.
+            ok += _add("events", "ticket_tiers", "TEXT")
+            ok += _add("events", "is_tax_exempt", "BOOLEAN NOT NULL DEFAULT 0")
             # Daily Close — MOMS / VAT fields
             ok += _add("daily_closes", "moms_total", "NUMERIC(12,2)")
             ok += _add("daily_closes", "revenue_ex_moms", "NUMERIC(12,2)")
