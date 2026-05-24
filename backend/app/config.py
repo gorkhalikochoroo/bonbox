@@ -192,6 +192,26 @@ class Settings(BaseSettings):
     # inbox so we never silently mint claims with the wrong shape.
     VAPID_SUBJECT: str = "mailto:hello@bonbox.dk"
 
+    # ── Receipt-forwarding email inbox (Postmark Inbound) — v0.1 ───────
+    # The webhook is dark-launched: INBOX_ENABLED=false (default) makes
+    # /api/inbox/postmark-webhook return 503 with an honesty body so
+    # Postmark stops retrying. Flip to "true" once the Server's Inbound
+    # endpoint is configured + DNS for `in.bonbox.dk` MX → Postmark is
+    # live. Same sandbox-honesty pattern as MobilePay / Aiia.
+    INBOX_ENABLED: bool = False
+    # Postmark Basic-Auth secret. Configured on the Inbound Stream
+    # under "Webhook URL" as `https://USER:PASS@api.bonbox.dk/api/inbox/
+    # postmark-webhook`. Constant-time compared in the router so an
+    # operator typo doesn't leak via timing. Both blank = 401 on every
+    # hit (defense-in-depth — same effect as INBOX_ENABLED=false).
+    POSTMARK_INBOUND_USER: str = ""
+    POSTMARK_INBOUND_PASS: str = ""
+    # The host portion of every alias. Owners forward receipts to
+    # `<short>-<random>@<INBOX_DOMAIN>`. Keep this in env so a future
+    # custom-domain feature (Pro tier v0.2+) can swap per-user without
+    # touching code.
+    INBOX_DOMAIN: str = "in.bonbox.dk"
+
     # ── Priority support routing (P10) ─────────────────────────────────
     # When a Pro user submits a /support/tickets request, we tag the row
     # with is_priority + prefix the subject [PRIORITY]. If these env vars

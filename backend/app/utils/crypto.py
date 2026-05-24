@@ -206,6 +206,40 @@ def decrypt(ciphertext: bytes | str) -> str:
         raise
 
 
+def fernet_encrypt_bytes(plaintext: bytes) -> bytes:
+    """Encrypt raw bytes → Fernet token bytes.
+
+    The text-mode `encrypt()` above forces UTF-8 round-tripping which
+    corrupts arbitrary binary payloads (PDFs, JPEGs, HEIC). This helper
+    is the canonical at-rest path for the receipt-inbox blobs — same
+    MultiFernet key chain, same authentication/timestamp guarantees.
+    Empty input returns empty bytes (caller decides if that's an error).
+    """
+    if not plaintext:
+        return b""
+    if not isinstance(plaintext, (bytes, bytearray)):
+        raise TypeError("fernet_encrypt_bytes requires bytes input")
+    return _get_fernet().encrypt(bytes(plaintext))
+
+
+def fernet_decrypt_bytes(ciphertext: bytes | str) -> bytes:
+    """Decrypt a Fernet token → raw bytes. Mirror of
+    `fernet_encrypt_bytes`. Raises InvalidToken on tamper / bad-key /
+    wrong-version. Empty input returns empty bytes.
+    """
+    if not ciphertext:
+        return b""
+    if isinstance(ciphertext, str):
+        ciphertext = ciphertext.encode("utf-8")
+    try:
+        return _get_fernet().decrypt(ciphertext)
+    except InvalidToken:
+        logger.exception(
+            "crypto.fernet_decrypt_bytes: InvalidToken — wrong key or tampered ciphertext"
+        )
+        raise
+
+
 def assert_key_configured() -> None:
     """Call from app startup to fail-fast if the key is misconfigured.
     Triggers the lru_cache validation without ever logging the key.

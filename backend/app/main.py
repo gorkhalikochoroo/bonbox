@@ -75,6 +75,10 @@ from app.routers import mobilepay as mobilepay_router
 # classifier (#145) to route to the right destination page with
 # pre-extracted data. Universal feature; batch + PDF-direct are gated.
 from app.routers import smart_scan as smart_scan_router
+# Receipt-forwarding email inbox (v0.1). Postmark Inbound webhook +
+# alias allocator + lightweight test endpoint. Dark-launched behind
+# INBOX_ENABLED until prod Postmark creds land — see utils.features.
+from app.routers import inbox as inbox_router
 # Task #72 — Web Push (VAPID) subscribe / unsubscribe / public-key /
 # test endpoints. Mounted under /api/push. The 8am morning brief
 # delivery cron lives in app.jobs.daily_brief_push_job.
@@ -1279,6 +1283,73 @@ _migrations = [
     # an idempotent re-run because IF NOT EXISTS guards the ADD COLUMN.
     "ALTER TABLE events ADD COLUMN IF NOT EXISTS ticket_tiers JSONB",
     "ALTER TABLE events ADD COLUMN IF NOT EXISTS is_tax_exempt BOOLEAN NOT NULL DEFAULT FALSE",
+
+    # ── Migration 016: Receipt-forwarding email inbox (v0.1) ──────────
+    # The Sudip-style "forward like you do to your revisor" workflow.
+    # Three users columns + two new tables. ALL ids VARCHAR(36) to match
+    # the GUID() TypeDecorator (see Migration 034 comment above). Native
+    # UUID would FK-fail on Postgres.
+    #
+    # Idempotent — every ALTER has IF NOT EXISTS, every CREATE TABLE has
+    # IF NOT EXISTS, every CREATE INDEX has IF NOT EXISTS. Safe to re-run.
+    #
+    # Retention: EmailMessage + ReceiptIntake rows that produced an
+    # accounting entry must be retained for 5 years (Bogføringsloven
+    # §10). Rejected/quarantined/orphan rows fall under 30d spam
+    # retention. The purge job is deferred to v0.2 — see TODO in
+    # services/accounting_retention.py once Manoj greenlights it.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS inbox_alias VARCHAR(40) UNIQUE",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS inbox_enabled BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS inbox_alias_rotated_at TIMESTAMP",
+    # Partial index — only non-null aliases. Speeds up the alias→user
+    # lookup on every webhook hit without bloating the index with NULLs.
+    "CREATE INDEX IF NOT EXISTS ix_users_inbox_alias ON users (inbox_alias) WHERE inbox_alias IS NOT NULL",
+
+    # email_messages — one row per inbound Postmark webhook hit.
+    # status enum enforced via CHECK so a buggy router can never insert
+    # an unknown status. UNIQUE(alias, message_id) is the idempotency
+    # key — same email replayed is a no-op.
+    """CREATE TABLE IF NOT EXISTS email_messages (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) REFERENCES users(id) ON DELETE CASCADE,
+        alias VARCHAR(40) NOT NULL,
+        from_addr TEXT NOT NULL,
+        subject TEXT,
+        message_id TEXT,
+        body_text_hash CHAR(64),
+        spf_pass BOOLEAN,
+        dkim_pass BOOLEAN,
+        dmarc_pass BOOLEAN,
+        attachment_ct INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL CHECK (status IN (
+            'received','queued','processed','quarantined',
+            'throttled','rejected','orphan')),
+        reason TEXT,
+        received_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (alias, message_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_em_user_status ON email_messages (user_id, status)",
+
+    # receipt_intake — one row per accepted attachment.
+    # expense_id is nullable: we create the intake row, then the
+    # expense, then back-fill in the same transaction.
+    # storage_path holds a relative path under uploads/receipts/ with a
+    # .enc suffix; the blob itself is Fernet-encrypted.
+    """CREATE TABLE IF NOT EXISTS receipt_intake (
+        id VARCHAR(36) PRIMARY KEY,
+        email_message_id VARCHAR(36) REFERENCES email_messages(id) ON DELETE CASCADE,
+        user_id VARCHAR(36) REFERENCES users(id) ON DELETE CASCADE,
+        storage_path TEXT NOT NULL,
+        filename TEXT,
+        mime_type TEXT,
+        byte_size INTEGER,
+        sha256 CHAR(64) NOT NULL,
+        ocr_status TEXT NOT NULL DEFAULT 'queued',
+        ocr_confidence REAL,
+        expense_id VARCHAR(36) REFERENCES expenses(id) ON DELETE SET NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_ri_user_status ON receipt_intake (user_id, ocr_status)",
 ]
 
 
@@ -2400,6 +2471,14 @@ app.include_router(
     smart_scan_router.router,
     prefix="/api/smart-scan",
     tags=["Smart Scan"],
+)
+# Receipt-forwarding email inbox (v0.1). Webhook accepts Postmark Basic
+# Auth; /me + /test are session-authenticated. Dark-launched: GET /me
+# answers honestly with infra_enabled=false until INBOX_ENABLED flips.
+app.include_router(
+    inbox_router.router,
+    prefix="/api/inbox",
+    tags=["Inbox"],
 )
 # Property Financial Report — Danish-restaurant daily close in the format
 # Aloha / Restwave / Pos+ users already recognize. Sales conversation hook.

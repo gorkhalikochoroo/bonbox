@@ -475,6 +475,19 @@ def register(request: Request, response: Response, data: UserRegister, db: Sessi
     from app.services.billing import start_trial
     start_trial(user)
     db.add(user)
+    db.flush()  # need user.id before allocating an alias
+    # Migration 016 — allocate the receipt-forwarding inbox alias up
+    # front so the user's first /api/inbox/me hit returns immediately
+    # (no lazy-allocation round-trip). Idempotent: if the column is
+    # already populated (re-running register on the same row, which
+    # shouldn't happen but defense in depth), the call no-ops.
+    try:
+        from app.services.inbox_service import ensure_alias
+        ensure_alias(db, user)
+    except Exception as _e:  # noqa: BLE001
+        # Never fail signup over a nice-to-have alias allocation —
+        # the lazy path will catch it on first GET /inbox/me.
+        logger.warning("auth.register: inbox alias allocation skipped: %s", _e)
     db.commit()
     db.refresh(user)
 

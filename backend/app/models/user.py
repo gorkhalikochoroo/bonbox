@@ -142,6 +142,24 @@ class User(Base):
     # Stored on User (not BusinessProfile) because new signups have no
     # BusinessProfile row yet — the wizard is the thing that CREATES one.
     onboarding_completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # ── Migration 016 — receipt-forwarding email inbox (v0.1) ──
+    # `inbox_alias` is the user-facing unique address (`nepali-7k4q` in
+    # `nepali-7k4q@in.bonbox.dk`) that owners forward receipts to. We
+    # generate it lazily on first /inbox/me hit for existing users; new
+    # signups get one allocated at register-time. NULL means "never
+    # used the feature" — distinguishes from an actively rotated-away
+    # alias in v0.2.
+    inbox_alias: Mapped[str | None] = mapped_column(String(40), unique=True, nullable=True, index=True)
+    # `inbox_enabled` is the per-user kill switch. Default True (opt-out
+    # rather than opt-in) so the feature is discoverable. The webhook
+    # honours False as a fail-closed signal and `quarantines` rather than
+    # drafts expenses. Independent of the global `INBOX_ENABLED` env var.
+    inbox_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # `inbox_alias_rotated_at` — set by v0.2's POST /inbox/rotate.
+    # Stamped here so old aliases can be invalidated (status='rejected'
+    # on the message_id index) without leaking the previous addresses to
+    # this column. v0.1 never writes to this column.
+    inbox_alias_rotated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, onupdate=utc_now

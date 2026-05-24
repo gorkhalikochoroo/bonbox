@@ -66,6 +66,9 @@ import {
   Sun, LogOut,
   // Insights feedback (Dashboard polish) — Useful / Not useful buttons
   ThumbsUp, ThumbsDown,
+  // Receipt-forwarding inbox (v0.1) — Copy + AlertCircle pair with
+  // the existing Mail icon on the InboxBanner / Connections card.
+  Copy, AlertCircle,
   // Misc / fallback
   Circle, ChevronDown,
 } from "lucide-react";
@@ -115,6 +118,8 @@ const ICONS = {
   Sun, LogOut,
   // Insights feedback (Dashboard polish)
   ThumbsUp, ThumbsDown,
+  // Receipt-forwarding inbox (v0.1)
+  Copy, AlertCircle,
   // Utility
   ChevronDown,
 };

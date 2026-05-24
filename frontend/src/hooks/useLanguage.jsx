@@ -2988,6 +2988,47 @@ const translations = {
     filterByEvent: "Filter by event",
     filterAllEvents: "All events",
     filterNoEvent: "No event",
+
+    // ── Receipt-forwarding email inbox v0.1 ─────────────────────────
+    // Sudip-style owners forward receipts from their phone-mail app to
+    // a personal `<short>-<rnd>@in.bonbox.dk` alias. We OCR and draft
+    // an Expense. The address is in English (it's an email) but helper
+    // copy keeps DK trust anchors — `revisor`, `Bogføringsloven §10` —
+    // even in the EN block per the DK terminology lock.
+    inboxBannerAria: "Receipt-forwarding email inbox",
+    inboxBannerTitle: "Your receipt inbox",
+    inboxBannerTitleSoon: "Receipt inbox · Coming soon",
+    inboxAliasPreview: "sudip-xyz@in.bonbox.dk",
+    inboxBannerBody:
+      "Forward any receipt to this address. We'll OCR it, draft an Expense, and notify you. Stored for 5 years per Bogføringsloven §10 — your revisor sees a complete audit trail.",
+    inboxBannerBodySoon:
+      "We're wiring up our inbound email provider. You'll get a personal inbox like the preview above — forward any receipt and BonBox drafts the Expense for you. Stored for 5 years per Bogføringsloven §10 so your revisor has a complete audit trail.",
+    inboxStatusActive: "Active",
+    inboxStatusPending: "Pending setup · estimated <2 weeks",
+    inboxStatusActiveUnlimited: "Active · unlimited",
+    inboxStatusActiveOfCap: "Active · {n} of {cap} this month",
+    inboxCountUnlimited: "{n} this month",
+    inboxCountOfCap: "{n} of {cap} this month",
+    inboxSendTest: "Send test email",
+    inboxSendingTest: "Sending…",
+    inboxTestOwnerOnly: "Owner-only — ask the account owner to send a test.",
+    inboxTestSent: "Test receipt queued — it'll appear as a draft in a moment.",
+    inboxTestFailedGeneric: "Couldn't send a test receipt.",
+    inboxAtCapHint:
+      "You've used all {cap} inbox receipts this month — extra mails are held safely for 30 days; upgrade to Starter to release them.",
+    inboxNearCapHint:
+      "Only {left} of {cap} inbox receipts left this month — upgrade to Starter for unlimited forwarding.",
+    inboxCopy: "Copy",
+    inboxCopyAria: "Copy receipt inbox address",
+    inboxCopied: "Copied!",
+    inboxCopyFailed: "Couldn't copy — long-press the address to select.",
+    inboxDismiss: "Hide receipt inbox tip",
+    inboxCardTitle: "Receipt forwarding",
+    inboxCardDesc:
+      "Forward any receipt to your personal BonBox address. We OCR it, draft an Expense, and notify you — stored 5 years per Bogføringsloven §10 so your revisor has a complete audit trail.",
+    inboxCardDescSoon:
+      "We're wiring up our inbound email provider. Forward any receipt to your personal address and BonBox drafts the Expense for you — stored 5 years per Bogføringsloven §10.",
+    inboxComingSoonNote: "We'll email you the day your inbox goes live.",
   },
   da: {
     dashboard: "Oversigt", sales: "Salg", expenses: "Udgifter", inventory: "Lager",
@@ -5789,6 +5830,46 @@ const translations = {
     filterByEvent: "Filtrér efter event",
     filterAllEvents: "Alle events",
     filterNoEvent: "Intet event",
+
+    // ── Receipt-forwarding email inbox v0.1 (DA) ────────────────────
+    // DK terminology lock: `revisor`, `Bogføringsloven §10`, `kvittering`,
+    // `bilag`, `udgift` stay Danish. Address example mirrors a Nepali
+    // user (Sudip) since that's the design audience. UI chrome
+    // translated; the alias itself is always English.
+    inboxBannerAria: "E-mail-indbakke til kvitteringer",
+    inboxBannerTitle: "Din kvittering-indbakke",
+    inboxBannerTitleSoon: "Kvittering-indbakke · Kommer snart",
+    inboxAliasPreview: "sudip-xyz@in.bonbox.dk",
+    inboxBannerBody:
+      "Videresend enhver kvittering til denne adresse. Vi OCR-aflæser den, opretter et udkast til et bilag og giver dig besked. Opbevares i 5 år iht. Bogføringsloven §10 — din revisor får et komplet revisionsspor.",
+    inboxBannerBodySoon:
+      "Vi er ved at sætte vores indgående e-mail-udbyder op. Du får en personlig indbakke som den ovenfor — videresend en kvittering, og BonBox laver bilaget for dig. Opbevares i 5 år iht. Bogføringsloven §10, så din revisor får et komplet revisionsspor.",
+    inboxStatusActive: "Aktiv",
+    inboxStatusPending: "Under opsætning · estimeret <2 uger",
+    inboxStatusActiveUnlimited: "Aktiv · ubegrænset",
+    inboxStatusActiveOfCap: "Aktiv · {n} af {cap} i denne måned",
+    inboxCountUnlimited: "{n} i denne måned",
+    inboxCountOfCap: "{n} af {cap} i denne måned",
+    inboxSendTest: "Send test-e-mail",
+    inboxSendingTest: "Sender…",
+    inboxTestOwnerOnly: "Kun for ejer — bed kontoejeren om at sende en test.",
+    inboxTestSent: "Test-kvittering i kø — den vises som udkast om et øjeblik.",
+    inboxTestFailedGeneric: "Kunne ikke sende en test-kvittering.",
+    inboxAtCapHint:
+      "Du har brugt alle {cap} indbakke-kvitteringer i denne måned — yderligere mails holdes sikkert i 30 dage; opgradér til Starter for at frigive dem.",
+    inboxNearCapHint:
+      "Kun {left} af {cap} indbakke-kvitteringer tilbage i denne måned — opgradér til Starter for ubegrænset videresendelse.",
+    inboxCopy: "Kopiér",
+    inboxCopyAria: "Kopiér indbakke-adressen",
+    inboxCopied: "Kopieret!",
+    inboxCopyFailed: "Kunne ikke kopiere — hold fingeren på adressen for at markere.",
+    inboxDismiss: "Skjul indbakke-tip",
+    inboxCardTitle: "Videresendelse af kvitteringer",
+    inboxCardDesc:
+      "Videresend enhver kvittering til din personlige BonBox-adresse. Vi OCR-aflæser den, opretter et bilag og giver dig besked — opbevares i 5 år iht. Bogføringsloven §10, så din revisor får et komplet revisionsspor.",
+    inboxCardDescSoon:
+      "Vi er ved at sætte vores indgående e-mail-udbyder op. Videresend enhver kvittering til din personlige adresse, og BonBox laver bilaget for dig — opbevares i 5 år iht. Bogføringsloven §10.",
+    inboxComingSoonNote: "Vi sender dig en e-mail den dag, din indbakke går i luften.",
   },
   np: {
     dashboard: "ड्यासबोर्ड", sales: "बिक्री", expenses: "खर्च", inventory: "स्टक",

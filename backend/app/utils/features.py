@@ -100,6 +100,48 @@ def is_mobilepay_enabled() -> bool:
     )
 
 
+def is_inbox_enabled() -> bool:
+    """True iff the receipt-forwarding email inbox is wired in.
+
+    Three signals must all be present (matches the
+    `mobilepay`/`bank-connect` honesty pattern):
+      • `INBOX_ENABLED=true` env var (or settings flag)
+      • `POSTMARK_INBOUND_USER` populated
+      • `POSTMARK_INBOUND_PASS` populated
+
+    In non-production we still require the flag itself (False by
+    default) so dev environments don't accidentally answer 200 to
+    spoofed Postmark hits during a local Stripe/MobilePay test.
+    Returning False makes:
+      • GET /api/inbox/me  → infra_enabled=false (UI shows "Coming soon")
+      • POST /api/inbox/postmark-webhook → 503 with honest reason
+    """
+    # Defer to env over the pydantic-settings cache so tests can flip
+    # the var with monkeypatch.setenv without re-importing settings.
+    raw = (os.environ.get("INBOX_ENABLED") or "").strip().lower()
+    if raw in ("", "0", "false", "no", "off"):
+        # No override → fall through to settings (so .env still works).
+        try:
+            from app.config import settings  # local import avoids cycle
+            if not getattr(settings, "INBOX_ENABLED", False):
+                return False
+        except Exception:  # noqa: BLE001
+            return False
+    elif raw not in ("1", "true", "yes", "on"):
+        return False
+
+    user = (os.environ.get("POSTMARK_INBOUND_USER") or "").strip()
+    pwd = (os.environ.get("POSTMARK_INBOUND_PASS") or "").strip()
+    if not user or not pwd:
+        try:
+            from app.config import settings
+            user = user or (getattr(settings, "POSTMARK_INBOUND_USER", "") or "").strip()
+            pwd = pwd or (getattr(settings, "POSTMARK_INBOUND_PASS", "") or "").strip()
+        except Exception:  # noqa: BLE001
+            pass
+    return bool(user and pwd)
+
+
 def feature_flags() -> dict[str, bool]:
     """Bundle the public feature flags for the /api/config/features
     response.  Keep keys snake_case to match the frontend's
@@ -107,4 +149,5 @@ def feature_flags() -> dict[str, bool]:
     return {
         "bank_connect_enabled": is_bank_connect_enabled(),
         "mobilepay_enabled": is_mobilepay_enabled(),
+        "inbox_enabled": is_inbox_enabled(),
     }

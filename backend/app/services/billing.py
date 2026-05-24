@@ -174,6 +174,13 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "events_per_month": 1,                       # taste — 1 event/month, then upgrade
         "foreign_currency_expenses_per_month": 2,    # taste — 2 foreign-ccy expenses/month
         "billetto_imports_per_month": 1,             # taste — 1 ticket-CSV import/month
+        # 2026-05-24 — Receipt-forwarding email inbox (v0.1, Manoj-
+        # confirmed). The feature itself is universal so cap-gating is
+        # the only lever. Free gets 5/mo — enough to validate the
+        # workflow on a quiet account but they hit the wall quickly if
+        # they actually adopt the muscle memory. Starter+ unlimited
+        # because the inbox IS the workflow at scale.
+        "inbox_messages_per_month": 5,
     },
     "starter": {
         "branches": 1,
@@ -209,6 +216,10 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "events_per_month": 50,
         "foreign_currency_expenses_per_month": -1,   # Starter — unlimited
         "billetto_imports_per_month": 20,            # 240/yr covers all but power organizers
+        # Inbox v0.1 — Starter unlimited. The workflow only pays back
+        # when there's no cap nagging the owner; capping it would defeat
+        # the entire "forward like you do to your revisor" muscle memory.
+        "inbox_messages_per_month": -1,
     },
     "trial": {  # = full Pro for 14 days
         "branches": 3,
@@ -230,6 +241,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "events_per_month": -1,
         "foreign_currency_expenses_per_month": -1,
         "billetto_imports_per_month": -1,
+        "inbox_messages_per_month": -1,
     },
     "pro": {
         "branches": 3,
@@ -258,6 +270,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "events_per_month": -1,
         "foreign_currency_expenses_per_month": -1,
         "billetto_imports_per_month": -1,
+        "inbox_messages_per_month": -1,
     },
 }
 
@@ -491,6 +504,15 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # feature is dark until Manoj flips it — no half-built surface
         # leaks to a user.
         "accountant_month_end_bundle": False,
+        # 2026-05-24 — Receipt-forwarding email inbox (v0.1). Universal
+        # like Smart Scan auto-routing: every owner gets the alias and
+        # the workflow because "forward like you do to your revisor" is
+        # core value, not an upsell. Cap-gated via
+        # PLAN_CAPS["inbox_messages_per_month"] (Free=5, Starter/Pro=-1).
+        # When INBOX_ENABLED env var is false this feature is dark for
+        # every tier anyway — the boolean here is the per-user gate,
+        # the env var is the infrastructure gate.
+        "inbox_email_capture": True,
     },
     "starter": {
         "ai_anomaly_detection": True,
@@ -526,6 +548,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "accountant_month_end_bundle": False,  # Pro-only — positioned, build pending
         "multi_tier_tickets": True,        # Starter+ — adult/student/family pricing
         "cross_event_analytics": False,    # Pro-only — comparison across events
+        "inbox_email_capture": True,       # Universal — workflow feature
     },
     "trial": {  # = full Pro
         "ai_anomaly_detection": True,
@@ -561,6 +584,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "accountant_month_end_bundle": True,    # Trial mirrors Pro
         "multi_tier_tickets": True,             # Trial mirrors Pro
         "cross_event_analytics": True,          # Trial mirrors Pro
+        "inbox_email_capture": True,            # Universal
     },
     "pro": {
         "ai_anomaly_detection": True,
@@ -596,6 +620,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "accountant_month_end_bundle": True,  # Pro killer — one-click revisor pack
         "multi_tier_tickets": True,        # Starter+ — same on Pro
         "cross_event_analytics": True,     # Pro killer for kulturarrangører
+        "inbox_email_capture": True,       # Universal
     },
 }
 

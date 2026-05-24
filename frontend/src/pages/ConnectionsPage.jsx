@@ -164,6 +164,14 @@ export default function ConnectionsPage() {
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);   // { kind: 'success'|'error', msg }
   const [busyConn, setBusyConn] = useState(null);
+  // Receipt-forwarding inbox state (v0.1) — fetched from /api/inbox/me.
+  // Shape: { alias, enabled, messages_this_month, cap, infra_enabled }.
+  // null = still loading; {} = transport error (we render the card in
+  // an honest "coming soon" / disabled state in that case). Owner-only
+  // test-email button gates locally + backend re-checks.
+  const [inboxState, setInboxState] = useState(null);
+  const [inboxTesting, setInboxTesting] = useState(false);
+  const [inboxCopied, setInboxCopied] = useState(false);
 
   // Reload bank_connections — used after Sync / Disconnect to refresh state.
   const reloadBankConnections = useCallback(async () => {
@@ -220,6 +228,21 @@ export default function ConnectionsPage() {
     // MobilePay is a side request — failure is silent (no connection yet)
     // and shouldn't block the initial render of the rest of the page.
     reloadMobilePayConnection();
+    // Receipt-forwarding inbox (v0.1) — also a side request. If the
+    // endpoint isn't deployed yet (404/501) we fall back to a "Coming
+    // soon" card; on any other transport error we render an honest
+    // disconnected card (no fake alias).
+    api.get("/inbox/me")
+      .then((r) => { if (alive) setInboxState(r.data || {}); })
+      .catch((err) => {
+        if (!alive) return;
+        const status = err?.response?.status;
+        if (status === 404 || status === 501) {
+          setInboxState({ infra_enabled: false, alias: null });
+        } else {
+          setInboxState({ _error: true });
+        }
+      });
     return () => { alive = false; };
   }, [reloadMobilePayConnection]);
 
@@ -429,6 +452,73 @@ export default function ConnectionsPage() {
       });
     } finally {
       setMpBusy(false);
+    }
+  };
+
+  // ── Receipt-forwarding inbox (v0.1) handlers ───────────────────────
+  //
+  // Copy alias to clipboard with the legacy textarea fallback for
+  // embedded webviews (same trick DailyBriefCard uses). The "Copied!"
+  // pill is local UI feedback — no toast required since the button
+  // itself transforms.
+  const copyInboxAlias = async () => {
+    const alias = inboxState?.alias;
+    if (!alias) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(alias);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = alias;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setInboxCopied(true);
+      setTimeout(() => setInboxCopied(false), 2200);
+    } catch {
+      setToast({
+        kind: "error",
+        msg: t("inboxCopyFailed", "Couldn't copy — long-press the address to select."),
+      });
+    }
+  };
+
+  // Send-test goes through the same toast tray as Bank/MobilePay so
+  // owners get one consistent place to read success/error feedback.
+  // Backend rate-limits to 5/day per owner; we don't bother enforcing
+  // that here (defense in depth = backend wins).
+  const sendInboxTest = async () => {
+    if (inboxTesting) return;
+    setInboxTesting(true);
+    try {
+      const r = await api.post("/inbox/test");
+      const ok = r?.data?.ok !== false;
+      if (ok) {
+        setToast({
+          kind: "success",
+          msg: t(
+            "inboxTestSent",
+            "Test receipt queued — it'll appear as a draft in a moment.",
+          ),
+        });
+      } else {
+        setToast({
+          kind: "error",
+          msg: r?.data?.reason || t("inboxTestFailedGeneric", "Couldn't send a test receipt."),
+        });
+      }
+    } catch (err) {
+      const detail = err?.response?.data?.detail || err?.response?.data?.reason;
+      setToast({
+        kind: "error",
+        msg: detail || t("inboxTestFailedGeneric", "Couldn't send a test receipt."),
+      });
+    } finally {
+      setInboxTesting(false);
     }
   };
 
@@ -761,6 +851,136 @@ export default function ConnectionsPage() {
               disabled: mpBusy,
             }}
           />
+        )}
+
+        {/* Receipt-forwarding inbox (v0.1) — custom card body because
+            it shows the user's `<short>-<rnd>@in.bonbox.dk` alias as a
+            monospace block with [Copy] + [Send test email] inline. Uses
+            the `Card` primitive directly so it matches the visual
+            rhythm (border, radius, padding) of the ConnectionCard tiles
+            around it. Owner-only test button; non-owner sees a tooltip
+            saying so. Backend re-checks ownership anyway. */}
+        {inboxState && !inboxState._error && (
+          (() => {
+            const infraEnabled = !!inboxState.infra_enabled;
+            const alias = inboxState.alias || "";
+            const count = Number(inboxState.messages_this_month || 0);
+            const cap = Number(inboxState.cap);
+            const isUnlimited = cap < 0;
+            const isOwner = (user?.role || "owner").toLowerCase() === "owner";
+            // Status maps to the same dot palette as ConnectionCard.
+            const statusDot = !infraEnabled
+              ? "bg-amber-500"   // pending setup
+              : alias
+              ? "bg-emerald-500" // active
+              : "bg-stone-400";  // active backend but no alias yet (fresh user)
+            const statusLabel = !infraEnabled
+              ? t("inboxStatusPending", "Pending setup · estimated <2 weeks")
+              : isUnlimited
+              ? t("inboxStatusActiveUnlimited", "Active · unlimited")
+              : t("inboxStatusActiveOfCap", "Active · {n} of {cap} this month", { n: count, cap });
+            return (
+              <Card className="flex flex-col h-full">
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="w-9 h-9 rounded-lg bg-stone-100 dark:bg-stone-800
+                                  flex items-center justify-center shrink-0
+                                  text-stone-700 dark:text-stone-300">
+                    <Icon name="Mail" size={18} strokeWidth={1.75} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-[15px] font-semibold text-stone-900 dark:text-stone-100 tracking-tight">
+                        {t("inboxCardTitle", "Receipt forwarding")}
+                      </h3>
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <span className={`w-1.5 h-1.5 rounded-full ${statusDot}`} aria-hidden="true" />
+                      <span className="text-[11.5px] text-stone-500 dark:text-stone-400">
+                        {statusLabel}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-[13px] text-stone-600 dark:text-stone-300 leading-relaxed mb-3">
+                  {infraEnabled
+                    ? t(
+                        "inboxCardDesc",
+                        "Forward any receipt to your personal BonBox address. We OCR it, draft an Expense, and notify you — stored 5 years per Bogføringsloven §10 so your revisor has a complete audit trail.",
+                      )
+                    : t(
+                        "inboxCardDescSoon",
+                        "We're wiring up our inbound email provider. Forward any receipt to your personal address and BonBox drafts the Expense for you — stored 5 years per Bogføringsloven §10.",
+                      )}
+                </p>
+
+                {/* Alias / preview block */}
+                {infraEnabled && alias ? (
+                  <div className="flex items-stretch gap-2 mb-3">
+                    <code className="flex-1 min-w-0 truncate font-mono text-[12.5px]
+                                     px-2.5 py-2 rounded-lg bg-stone-100 dark:bg-stone-800
+                                     border border-stone-200 dark:border-stone-700
+                                     text-stone-900 dark:text-stone-100 select-all">
+                      {alias}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={copyInboxAlias}
+                      aria-label={inboxCopied
+                        ? t("inboxCopied", "Copied!")
+                        : t("inboxCopyAria", "Copy receipt inbox address")}
+                      className="inline-flex items-center justify-center gap-1 min-h-[40px] px-3
+                                 rounded-lg text-[12px] font-semibold
+                                 bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900
+                                 hover:bg-stone-700 dark:hover:bg-stone-200 transition
+                                 focus-visible:outline-none focus-visible:ring-2
+                                 focus-visible:ring-emerald-500"
+                    >
+                      {inboxCopied
+                        ? <><Icon name="Check" size={14} /> {t("inboxCopied", "Copied!")}</>
+                        : <><Icon name="Copy" size={14} /> {t("inboxCopy", "Copy")}</>}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="mb-3">
+                    <code className="inline-block font-mono text-[12.5px] px-2.5 py-1.5
+                                     rounded-lg bg-stone-100/70 dark:bg-stone-800/60
+                                     border border-dashed border-stone-300 dark:border-stone-700
+                                     text-stone-500 dark:text-stone-400 italic">
+                      {t("inboxAliasPreview", "sudip-xyz@in.bonbox.dk")}
+                    </code>
+                  </div>
+                )}
+
+                <div className="mt-auto flex items-center gap-2">
+                  {infraEnabled ? (
+                    <button
+                      type="button"
+                      onClick={sendInboxTest}
+                      disabled={!isOwner || inboxTesting}
+                      title={!isOwner
+                        ? t("inboxTestOwnerOnly", "Owner-only — ask the account owner to send a test.")
+                        : undefined}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold
+                                 bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900
+                                 hover:bg-stone-700 dark:hover:bg-stone-200
+                                 disabled:opacity-50 disabled:cursor-not-allowed
+                                 transition focus-visible:outline-none focus-visible:ring-2
+                                 focus-visible:ring-emerald-500 focus-visible:ring-offset-2
+                                 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900"
+                    >
+                      {inboxTesting
+                        ? <><Icon name="Loader" className="w-3.5 h-3.5 animate-spin" /> {t("inboxSendingTest", "Sending…")}</>
+                        : <><Icon name="Send" size={14} /> {t("inboxSendTest", "Send test email")}</>}
+                    </button>
+                  ) : (
+                    <span className="text-[11.5px] text-stone-500 dark:text-stone-400 italic">
+                      {t("inboxComingSoonNote", "We'll email you the day your inbox goes live.")}
+                    </span>
+                  )}
+                </div>
+              </Card>
+            );
+          })()
         )}
 
         {/* Revisor (accountant login) */}

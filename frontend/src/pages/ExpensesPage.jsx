@@ -20,6 +20,7 @@ import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit
 import ReceiptCapture from "../components/ReceiptCapture";
 import ReceiptViewer from "../components/ReceiptViewer";
 import DismissibleTip from "../components/DismissibleTip";
+import InboxBanner from "../components/InboxBanner";
 import { safeImageUrl } from "../utils/safeUrl";
 import RecurringExpensesPanel from "../components/RecurringExpensesPanel";
 import { PageHeader, TabPills, StatCard } from "../components/ui";
@@ -578,6 +579,14 @@ export default function ExpensesPage() {
           input Moms you can deduct on your next filing. Each expense gets a sequential bilagsnummer.
         </p>
       </DismissibleTip>
+
+      {/* Receipt-forwarding inbox (v0.1) — surfaces the user's
+          unique `<short>-<rnd>@in.bonbox.dk` alias so Sudip-style owners
+          keep their phone-mail muscle memory: receipt lands in inbox →
+          tap Forward → done. Inbox-sourced expenses appear as drafts in
+          the list below with source='inbox', so the rest of the page is
+          unchanged. Hides itself if dismissed or on transport error. */}
+      <InboxBanner />
 
       {showSetup && (
         <div className="bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 p-5 rounded-xl">
