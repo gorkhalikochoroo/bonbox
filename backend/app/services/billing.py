@@ -389,6 +389,21 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # neither exists (L8 fallback) so a missing subscription never
         # breaks the lock flow.
         "close_push_notification": False,
+        # 2026-05-24 — Inventory expiry alerts (Phase 1, Manoj-confirmed).
+        # The Free tier still gets the /expiry page + the static
+        # "expiring soon" list — the gate is on the alert-rich layer:
+        # Brief insight ("3 items expire today"), Dashboard ExpiryAlertsCard
+        # surfaced when items ≤3 days out, the waste-cost estimate
+        # ("380 DKK at risk"), and per-item action chips (used /
+        # wasted / extended / sold-at-discount). Without expiry_alerts the
+        # /expiry page renders an UpgradeNudge in the alerts slot and the
+        # waste-cost column is stripped server-side (L4 defensive layer).
+        "expiry_alerts": False,
+        # `expiry_push_notifications` — Pro-only. Owner gets a push the
+        # morning of any item's day-of-expiry. Free + Starter still see
+        # the in-app surfaces; only the daily 6am push fan-out is gated
+        # here. Degrades silently when push isn't subscribed (L8).
+        "expiry_push_notifications": False,
     },
     "starter": {
         "ai_anomaly_detection": True,
@@ -416,6 +431,8 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "close_auto_email": True,          # Lane A — auto-fire on lock
         "close_scan_attached": True,       # Lane A — Z-report photo on the email
         "close_push_notification": False,  # Pro-only — push to owner on lock
+        "expiry_alerts": True,             # Phase 1 — Brief insight + Dashboard card + waste-cost
+        "expiry_push_notifications": False,  # Pro-only — day-of-expiry push
     },
     "trial": {  # = full Pro
         "ai_anomaly_detection": True,
@@ -443,6 +460,8 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "close_auto_email": True,
         "close_scan_attached": True,
         "close_push_notification": True,
+        "expiry_alerts": True,
+        "expiry_push_notifications": True,
     },
     "pro": {
         "ai_anomaly_detection": True,
@@ -470,6 +489,8 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "close_auto_email": True,         # Lane A — auto-fire on lock
         "close_scan_attached": True,      # Lane A — Z-report photo on the email
         "close_push_notification": True,  # Lane A — Pro-only push to owner on lock
+        "expiry_alerts": True,            # Phase 1 — Brief + Dashboard card + waste-cost
+        "expiry_push_notifications": True,  # Pro-only — day-of-expiry push to owner
     },
 }
 

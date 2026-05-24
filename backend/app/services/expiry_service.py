@@ -3,10 +3,32 @@ Expiry Forecasting Service — tracks items approaching expiry, waste prediction
 order reduction recommendations.
 
 Uses inventory (expiry_date, is_perishable) + waste logs (historical waste patterns).
+
+────────────────────────────────────────────────────────────────────────
+Phase 1 — Expiry alert chain (May 2026, Manoj-confirmed)
+────────────────────────────────────────────────────────────────────────
+Functions below `get_expiry_forecast` power the Phase 1 alert chain:
+  • scan_upcoming_expiries() — surface items expiring in N days, with
+    a defensive feature-flag check so Free users can't sneak past L4.
+  • estimate_waste_cost() — DKK at risk for items in the alert window.
+    Returns 0 for users lacking `expiry_alerts` (defensive L4 layer
+    behind the router gate at L3).
+  • infer_expiry_date() — single source of truth for "this item has no
+    explicit expiry; should we guess?". Combines received_date /
+    created_at + category shelf-life from inventory_perishable.
+  • record_expiry_action() — log a used / wasted / extended /
+    sold_at_discount action on a soon-expiring item; writes an
+    AuditLog row (L7) so the future "BonBox saved you X kr this
+    month" claim has provenance.
+
+All functions are user-scoped (L5) and fail closed (L6) on missing data
+or unknown feature flags.
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from collections import defaultdict
+from typing import Optional
+from uuid import UUID
 
 from sqlalchemy import func, and_
 from sqlalchemy.orm import Session
@@ -302,3 +324,289 @@ def _generate_expiry_alerts(expired, soon, moderate, missing, at_risk, waste_tot
         })
 
     return alerts
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Phase 1 — Expiry alert chain (Manoj-confirmed, May 2026)
+# ═══════════════════════════════════════════════════════════════════════
+
+# Per-action enumeration. Stays a flat tuple so the router can build a
+# pydantic Literal and tests can iterate the canonical list. Each value
+# maps to (audit_action, optional WasteLog reason).
+_EXPIRY_ACTIONS: dict[str, dict[str, str | None]] = {
+    "used": {"audit": "expiry.item_used", "waste_reason": None},
+    "wasted": {"audit": "expiry.item_wasted", "waste_reason": "expired"},
+    "extended": {"audit": "expiry.item_extended", "waste_reason": None},
+    "sold_discount": {"audit": "expiry.item_sold_discount", "waste_reason": None},
+}
+
+
+def allowed_expiry_actions() -> list[str]:
+    """Canonical action list. Used by tests + the router Literal."""
+    return list(_EXPIRY_ACTIONS.keys())
+
+
+def infer_expiry_date(item: InventoryItem) -> Optional[date]:
+    """Single source of truth for "what date should we treat this item
+    as expiring on?".
+
+    Multi-layer fallback per L8 (inventory OCR → category default → silent):
+      1. If item already has explicit expiry_date, use it.
+      2. Otherwise: if category is in PERISHABLE_CATEGORIES AND a base
+         date is available (received_date OR created_at::date), infer
+         received_date + (expected_shelf_life_days OR category default).
+      3. Otherwise: None — item is silently skipped from alerts (no
+         false-positive "expires in ?" entries per L6 / L9).
+    """
+    if item.expiry_date:
+        return item.expiry_date
+    # Lazy import keeps the SHELF_LIFE_DAYS dict out of this module's
+    # top-level import graph — used only when we need to infer.
+    from app.services.inventory_perishable import (
+        compute_default_expiry, is_perishable_category,
+    )
+    cat = getattr(item, "category", None)
+    if not is_perishable_category(cat):
+        return None
+    base = getattr(item, "received_date", None)
+    if base is None:
+        created = getattr(item, "created_at", None)
+        base = created.date() if isinstance(created, datetime) else None
+    if base is None:
+        base = date.today()
+    override = getattr(item, "expected_shelf_life_days", None)
+    if isinstance(override, int) and 0 < override <= 365:
+        return base + timedelta(days=int(override))
+    return compute_default_expiry(cat, base)
+
+
+def scan_upcoming_expiries(
+    user,
+    db: Session,
+    *,
+    days_ahead: int = 3,
+    include_expired: bool = True,
+) -> dict:
+    """Return items expiring within `days_ahead` days.
+
+    Returns
+    -------
+    {
+        "items": [
+            {
+                "id": str,
+                "name": str,
+                "category": str | None,
+                "quantity": float,
+                "unit": str,
+                "expiry_date": "YYYY-MM-DD",
+                "days_left": int,                 # negative = expired
+                "cost_at_risk_dkk": float | None, # None for Free users
+                "inferred": bool,                 # True = no explicit date
+            },
+            ...
+        ],
+        "total_at_risk_dkk": float,
+        "feature_available": bool,                # has_feature(expiry_alerts)
+        "scan_window_days": int,
+    }
+
+    L4 — defensive feature gate runs inside the service so a router that
+    forgets to gate, or a bypass via cron, still strips the waste-cost
+    field for Free users (which is the marketing-promise tier line).
+    L5 — strictly user_id-scoped query; cross-tenant access impossible.
+    """
+    from app.services.billing import has_feature  # lazy import
+
+    today = date.today()
+    cutoff = today + timedelta(days=max(0, int(days_ahead)))
+
+    # Pull every perishable / dated item; we infer in Python because
+    # inferred dates aren't stored. Cap at 200 to keep memory bounded.
+    rows = (
+        db.query(InventoryItem)
+        .filter(
+            InventoryItem.user_id == user.id,
+            InventoryItem.quantity > 0,
+        )
+        .order_by(InventoryItem.expiry_date.asc().nullslast())
+        .limit(200)
+        .all()
+    )
+
+    feature_available = bool(has_feature(user, "expiry_alerts"))
+
+    items_out: list[dict] = []
+    total_at_risk = 0.0
+    for item in rows:
+        eff_date = infer_expiry_date(item)
+        if eff_date is None:
+            continue  # L8 silent skip — no category, no explicit date
+        days_left = (eff_date - today).days
+        if days_left < 0 and not include_expired:
+            continue
+        if days_left > int(days_ahead):
+            continue
+        qty = float(item.quantity or 0)
+        unit_cost = float(item.cost_per_unit or 0)
+        cost = round(qty * unit_cost, 2)
+        total_at_risk += cost
+        inferred = item.expiry_date is None
+        items_out.append({
+            "id": str(item.id),
+            "name": item.name,
+            "category": item.category or None,
+            "quantity": qty,
+            "unit": item.unit or "pieces",
+            "expiry_date": eff_date.isoformat(),
+            "days_left": days_left,
+            # L4 — waste-cost field is gated. Free users see the items
+            # but the DKK column is None (frontend hides the column).
+            "cost_at_risk_dkk": cost if feature_available else None,
+            "inferred": inferred,
+        })
+
+    return {
+        "items": items_out,
+        # Tier-gated aggregate — Free gets 0, paid gets the real number.
+        # Mirrors the "(380 DKK at risk)" line in the Brief insight.
+        "total_at_risk_dkk": round(total_at_risk, 2) if feature_available else 0.0,
+        "feature_available": feature_available,
+        "scan_window_days": int(days_ahead),
+    }
+
+
+def estimate_waste_cost(user, db: Session, *, days_ahead: int = 3) -> float:
+    """Sum of cost_at_risk for items expiring within `days_ahead` days.
+
+    L4 — defensive: returns 0.0 for Free users (no `expiry_alerts`)
+    regardless of what items are in stock. The router/Brief generator
+    SHOULD have already filtered at the call site, but this defensive
+    layer ensures a refactor can't accidentally leak a paid-tier number.
+    """
+    from app.services.billing import has_feature
+    if not has_feature(user, "expiry_alerts"):
+        return 0.0
+    scan = scan_upcoming_expiries(user, db, days_ahead=days_ahead)
+    return float(scan.get("total_at_risk_dkk") or 0.0)
+
+
+def record_expiry_action(
+    db: Session,
+    user,
+    item: InventoryItem,
+    *,
+    action: str,
+    ip_address: str | None = None,
+) -> dict:
+    """Apply an owner-confirmed action to a soon-expiring item.
+
+    Actions:
+      • "used"          — used in service; decrements stock, no waste log
+      • "wasted"        — discarded; decrements stock + writes WasteLog
+      • "extended"      — pushes expiry_date +3 days (owner override)
+      • "sold_discount" — sold at discount; decrements stock, no waste
+
+    L7 — every action writes an AuditLog row (`expiry.action_taken`)
+    with item_id, action, and item_value_dkk so the future "BonBox
+    saved you X kr this month from prevented waste" claim has data.
+    L9 — extensions and stock-decrements are bounded so a misclick
+    can't wipe the quantity below zero.
+    """
+    from app.services.audit_service import record as audit_record
+
+    if action not in _EXPIRY_ACTIONS:
+        raise ValueError(f"unknown expiry action: {action!r}")
+
+    qty = float(item.quantity or 0)
+    unit_cost = float(item.cost_per_unit or 0)
+    item_value = round(qty * unit_cost, 2)
+    before = {
+        "id": str(item.id),
+        "quantity": qty,
+        "expiry_date": item.expiry_date.isoformat() if item.expiry_date else None,
+    }
+
+    if action == "extended":
+        # Owner overrides by pushing the expiry +3 days. Bounded so a
+        # holding-the-button misclick can't extend by a year.
+        from datetime import timedelta as _td
+        base = item.expiry_date or infer_expiry_date(item) or date.today()
+        item.expiry_date = base + _td(days=3)
+    elif action == "wasted":
+        # Decrement quantity to 0 + log waste row with `expired` reason.
+        item.quantity = 0
+        try:
+            db.add(WasteLog(
+                user_id=user.id,
+                item_name=item.name,
+                quantity=qty,
+                unit=item.unit or "pieces",
+                estimated_cost=item_value,
+                reason="expired",
+                date=date.today(),
+            ))
+        except Exception:  # noqa: BLE001
+            # WasteLog signature may evolve; do not block the user's
+            # action on a write here — the audit log captures it.
+            pass
+    elif action in ("used", "sold_discount"):
+        # Decrement to 0; the existing inventory flow will rebuild the
+        # quantity on the next received delivery. Bounded below 0.
+        item.quantity = 0
+
+    after = {
+        "id": str(item.id),
+        "quantity": float(item.quantity or 0),
+        "expiry_date": item.expiry_date.isoformat() if item.expiry_date else None,
+        "action": action,
+    }
+
+    # L7 — single audit row covers both alerts AND owner actions; the
+    # action key in the JSON detail makes them filterable.
+    audit_record(
+        db,
+        user,
+        action="expiry.action_taken",
+        entity_type="inventory_item",
+        entity_id=item.id if isinstance(item.id, UUID) else None,
+        before=before,
+        after={**after, "item_value_dkk": item_value},
+        ip_address=ip_address,
+    )
+    db.commit()
+    return {"ok": True, "action": action, "item_value_dkk": item_value}
+
+
+def record_alert_sent(
+    db: Session,
+    user,
+    *,
+    items_count: int,
+    total_at_risk_dkk: float,
+    channel: str = "brief",
+) -> None:
+    """L7 — log that an expiry alert was surfaced (Brief, push, or
+    Dashboard card render). Best-effort; an audit-write failure does
+    not block the alert from reaching the user.
+    """
+    if items_count <= 0:
+        return  # L9 — no false-positive "0 items expiring" alerts logged
+    try:
+        from app.services.audit_service import record as audit_record
+        audit_record(
+            db,
+            user,
+            action="expiry.alert_sent",
+            entity_type="user",
+            entity_id=user.id if isinstance(getattr(user, "id", None), UUID) else None,
+            after={
+                "items_count": int(items_count),
+                "total_at_risk_dkk": round(float(total_at_risk_dkk or 0), 2),
+                "channel": channel[:40],
+            },
+        )
+        db.commit()
+    except Exception:  # noqa: BLE001
+        # Never let observability writes break user-visible alerts.
+        pass

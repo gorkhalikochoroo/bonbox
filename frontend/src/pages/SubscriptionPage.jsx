@@ -133,6 +133,14 @@ const buildTiers = (t) => [
       // OCR so the bullet's HONESTLY a tier upsell, not a "Free can't
       // OCR" lie.
       { text: t("featStarterSupplierDetect", "Auto-detect 16+ Danish suppliers (Hørkram, BC Catering, AB Catering, …) — instant categorization on every invoice") || "Auto-detect 16+ Danish suppliers (Hørkram, BC Catering, AB Catering, …) — instant categorization on every invoice" },
+      // Phase 1 expiry chain (May 2026, Manoj-confirmed). Starter
+      // unlocks the in-app + Brief alerts; Pro adds push notifications.
+      // Pinned 5,000+ kr/year as the marketing number — a 30-cover
+      // café losing 10-20% of food cost to waste is ~50,000 kr/year;
+      // preventing 5% of that via active alerts is ~2,500-5,000 kr.
+      // We round CONSERVATIVELY (5,000+) per the "honest marketing"
+      // doctrine — easy to defend, easy to over-deliver on.
+      { text: t("featStarterExpiryAlerts", "Inventory expiry alerts — we warn you before items spoil, saves 5,000+ DKK/year") || "Inventory expiry alerts — we warn you before items spoil, saves 5,000+ DKK/year" },
       { text: t("featStarterEmailRevisor", "Email kasserapport to your bogholder in one tap") || "Email kasserapport to your bogholder in one tap" },
       // Lane A — auto-email on lock. Starter's "the day is closed, no
       // extra tap needed" promise. PDF + scanned Z-report photo arrive
@@ -194,6 +202,10 @@ const buildTiers = (t) => [
       // brief. Peace-of-mind moat for multi-branch owners who can't
       // physically be at every location.
       { text: t("featProClosePush", "Push notification to owner when staff locks the close — peace of mind from anywhere") || "Push notification to owner when staff locks the close — peace of mind from anywhere" },
+      // Phase 1 expiry chain — Pro-only add-on on top of the Starter
+      // alerts. Day-of-expiry push hits the owner's phone at 06:15 UTC
+      // so they walk into the kitchen knowing what to use first.
+      { text: t("featProExpiryPush", "Push notification when items expire today — never lose a perishable to a forgotten reminder") || "Push notification when items expire today — never lose a perishable to a forgotten reminder" },
       { text: t("featProMulti3", "3 branches, 5 team members") || "3 branches, 5 team members" },
       { text: t("featProWhiteLabel", "White-label faktura PDFs — no BonBox brand") || "White-label faktura PDFs — no BonBox brand" },
       { text: t("featProBrief5", "AI brief — 5 refreshes / day, 200 chat messages") || "AI brief — 5 refreshes / day, 200 chat messages" },

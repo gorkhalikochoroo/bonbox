@@ -93,6 +93,20 @@ class InventoryItem(Base):
     supplier_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     supplier_lead_time_days: Mapped[int] = mapped_column(default=1)
     pack_size: Mapped[Optional[float]] = mapped_column(Numeric(10, 3), nullable=True, default=1)
+    # ── Inventory expiry chain Phase 1 (May 2026, Manoj-confirmed) ──
+    # `received_date` is the date the supplier dropped off / the owner
+    # added the item.  Used as the base for `compute_default_expiry`
+    # when the supplier invoice doesn't carry an explicit "best before"
+    # field — the inferred expiry is then received_date + shelf-life
+    # days (inventory_perishable.SHELF_LIFE_DAYS).  Falls back to the
+    # row's created_at::date when NULL so existing items don't break.
+    #
+    # `expected_shelf_life_days` lets a power-user override the default
+    # (e.g. their butcher promises 7 days vs the Meat default of 4).
+    # NULL = use the SHELF_LIFE_DAYS table.  Capped at 365 in the
+    # schema layer to keep alert math sane on stale rows.
+    received_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    expected_shelf_life_days: Mapped[Optional[int]] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, onupdate=utc_now

@@ -30,6 +30,7 @@ import DismissibleTip from "../components/DismissibleTip";
 import CloserPromptCard from "../components/CloserPromptCard";
 import TrialFinalStretchTip from "../components/TrialFinalStretchTip";
 import MomsCountdownCard from "../components/MomsCountdownCard";
+import ExpiryAlertsCard from "../components/ExpiryAlertsCard";
 import ConnectionsProgressCard from "../components/ConnectionsProgressCard";
 import PushOptInPrompt from "../components/PushOptInPrompt";
 import DemoDataCard from "../components/DemoDataCard";
@@ -1800,6 +1801,10 @@ export default function DashboardPage() {
 
         {/* ── AI ANOMALY ALERTS — only renders when there are open alerts ── */}
         <AnomalyAlertsCard />
+
+        {/* ── EXPIRY ALERTS — Starter+. Self-hides if no items expire
+            within 3 days OR the user lacks the entitlement. ── */}
+        <ExpiryAlertsCard />
 
         {/* ── SICK-CALL NOTIFICATIONS — interrupt-only; renders only when
             staff have called in. Pulls from /staff/absences. ── */}

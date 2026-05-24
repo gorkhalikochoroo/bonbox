@@ -164,6 +164,15 @@ class Precompute:
     top_regulars_at_risk: list[dict] = field(default_factory=list)  # [{name, days_since_last}]
     regular_customer_count: int = 0  # total customers w/ ≥3 visits in 90d
 
+    # Inventory expiry chain Phase 1 (May 2026 — Manoj-confirmed).
+    # Items expiring within 3 days (Starter+ tier gate at candidate level).
+    # Counters drive the morning "3 items expire today, 380 kr at risk"
+    # insight. Empty + zero = silence (L9 — no false-positive alerts).
+    expiry_items_today: int = 0
+    expiry_items_3d: int = 0
+    expiry_at_risk_dkk: float = 0.0
+    expiry_top_names: list[str] = field(default_factory=list)  # up to 3 for the prose
+
     def to_dict(self) -> dict:
         return {k: v for k, v in self.__dict__.items()}
 
@@ -287,6 +296,30 @@ def compute_precompute(user: User, db: Session) -> Precompute:
         }
         for i in low_stock_rows
     ]
+
+    # ── Expiry chain Phase 1 — items expiring within 3 days ────────
+    # Wrapped defensively so a brand-new account / corrupt rows can't
+    # crash the brief. The candidate generator below gates by feature
+    # flag — precompute just collects the numbers; gating is L2 candidate
+    # selection, NOT L2 precompute. (Same pattern as customer_outreach.)
+    expiry_items_today = 0
+    expiry_items_3d = 0
+    expiry_at_risk_dkk = 0.0
+    expiry_top_names: list[str] = []
+    try:
+        # Lazy import keeps daily_brief.py independent of expiry_service
+        # at module level — if the import fails we still ship the brief.
+        from app.services.expiry_service import scan_upcoming_expiries
+        scan = scan_upcoming_expiries(user, db, days_ahead=3)
+        scan_items = scan.get("items") or []
+        for it in scan_items:
+            if (it.get("days_left") or 0) <= 0:
+                expiry_items_today += 1
+            expiry_items_3d += 1
+        expiry_at_risk_dkk = float(scan.get("total_at_risk_dkk") or 0.0)
+        expiry_top_names = [str(it.get("name") or "")[:80] for it in scan_items[:3] if it.get("name")]
+    except Exception:  # noqa: BLE001
+        logger.warning("expiry precompute failed (non-fatal)", exc_info=True)
 
     # Khata outstanding (sum of unpaid balances across all customers)
     khata_total = 0.0
@@ -568,6 +601,10 @@ def compute_precompute(user: User, db: Session) -> Precompute:
         last_close_date=last_close_date,
         top_regulars_at_risk=top_regulars_at_risk,
         regular_customer_count=regular_customer_count,
+        expiry_items_today=expiry_items_today,
+        expiry_items_3d=expiry_items_3d,
+        expiry_at_risk_dkk=round(expiry_at_risk_dkk, 2),
+        expiry_top_names=expiry_top_names,
     )
 
 
@@ -604,6 +641,7 @@ def generate_candidates(
     p: Precompute,
     *,
     has_customer_outreach: bool = True,
+    has_expiry_alerts: bool = True,
 ) -> list[Candidate]:
     """Apply hand-tuned rules to the precompute. Each rule fires only when
     its data is present and meaningful — no generic filler.
@@ -614,6 +652,12 @@ def generate_candidates(
     brief-level call-to-action ("text these N regulars now") is the
     Pro killer feature.  Without this gate the marketing positioning
     of Pro Customer Outreach would be a lie.
+
+    `has_expiry_alerts` (expiry chain Phase 1) gates the "3 items
+    expire today — 380 kr at risk" insight to Starter+ tiers.  Free
+    callers still see the items list on /expiry; only the brief-level
+    insight + waste-cost prose is gated.  Same tier-leak-defense
+    pattern.
     """
     out: list[Candidate] = []
     cur = p.currency
@@ -907,6 +951,52 @@ def generate_candidates(
             # loop instead of leaving the insight as a passive nudge.
             cta_label="Text these regulars",
             cta_url="/khata?outreach=at-risk",
+        ))
+
+    # ── Expiry chain Phase 1 — Starter+ insight ──────────────────────
+    # Fires when at least one item is in the 3-day expiry window. The
+    # waste-cost "kr at risk" prose is included when the precompute
+    # gave us a non-zero number (which itself was tier-gated at L4 in
+    # scan_upcoming_expiries — so a Free caller will always see 0 here
+    # even before the has_expiry_alerts gate below).
+    if has_expiry_alerts and p.expiry_items_3d > 0:
+        n = p.expiry_items_3d
+        today_n = p.expiry_items_today
+        names_text = ", ".join(p.expiry_top_names[:3]) if p.expiry_top_names else ""
+        cost_text = (
+            f" — {_fmt_money(p.expiry_at_risk_dkk, cur)} på spil"
+            if p.expiry_at_risk_dkk > 0 else ""
+        )
+        # Prioritize "today" framing when at least one is past zero,
+        # otherwise "within 3 days". Owner reads the urgency before the
+        # number. DK-first prose per the design doctrine (Brief renders
+        # in user's language but the candidate text is base-EN; the
+        # LLM polish handles localization).
+        if today_n > 0:
+            text = (
+                f"{today_n} {'vare udløber' if today_n == 1 else 'varer udløber'} i dag"
+                f"{cost_text}"
+                + (f" ({names_text}) — brug eller spil dem ned før service." if names_text else " — brug eller sælg dem ned før service.")
+            )
+            weight = 0.93
+        else:
+            text = (
+                f"{n} {'vare' if n == 1 else 'varer'} udløber inden for 3 dage"
+                f"{cost_text}"
+                + (f" ({names_text}) — planlæg brug eller rabat." if names_text else " — planlæg brug eller rabat.")
+            )
+            weight = 0.78
+        facts = [str(today_n if today_n > 0 else n)]
+        if p.expiry_at_risk_dkk > 0:
+            facts.append(_fmt_money(p.expiry_at_risk_dkk, cur))
+        facts.extend(p.expiry_top_names[:3])
+        out.append(Candidate(
+            type="action",
+            text=text,
+            weight=weight,
+            facts=facts,
+            cta_label="Åbn spildalarmer",
+            cta_url="/expiry",
         ))
 
     # Sort by weight descending so the LLM (or the fallback) picks
@@ -1293,6 +1383,7 @@ def get_or_create_brief(
     candidates = generate_candidates(
         p,
         has_customer_outreach=bool(_has_feature(user, "customer_outreach")),
+        has_expiry_alerts=bool(_has_feature(user, "expiry_alerts")),
     )
     polished, in_tok, out_tok, model = _try_llm_polish(p, candidates, user, db)
     payload = polished if polished else fallback_brief(p, candidates, user=user)

@@ -111,7 +111,13 @@ _INVOICE_SYSTEM = (
     "    '45,50' = 45.50. Return numerics, not strings.\n"
     "  • vat_rate: Danish food + most goods = 0.25 (25% MOMS). Default "
     "    to 0.25 when the slip shows a VAT total but doesn't break down "
-    "    rate per line. If you see a 0% or reduced rate line, use that.\n\n"
+    "    rate per line. If you see a 0% or reduced rate line, use that.\n"
+    "  • expiry_date: per-line best-before / use-by date. Danish labels: "
+    "    'Bedst før', 'Udløb', 'MHT', 'Sidste anv.dato'. English: "
+    "    'Best before', 'Use by', 'Sell by', 'Exp.'. ISO YYYY-MM-DD; "
+    "    translate DD-MM-YYYY or DD.MM.YYYY before returning. NULL when "
+    "    the line has no visible date — never reuse the invoice header "
+    "    date as a per-line expiry.\n\n"
     "INVOICE TOTALS — subtotal (ex VAT), vat_total, grand_total, "
     "currency (usually DKK).\n\n"
     "CONFIDENCE — your own self-reported certainty per group, 0.0 (could "
@@ -196,6 +202,24 @@ _EXTRACTION_TOOL = {
                             "description": (
                                 "Decimal (0.25 = 25%). Danish food + most "
                                 "goods = 0.25."
+                            ),
+                        },
+                        # Expiry chain Phase 1 (May 2026) — extract the
+                        # per-line "best before" date when visible on the
+                        # invoice. Danish labels: "Bedst før", "Udløb",
+                        # "Mindst holdbar til" (MHT), "Sidste anv.dato".
+                        # English / parallel labels: "Best before", "Use
+                        # by", "Sell by", "Exp.". Per-line only — the
+                        # invoice header `invoice_date` stays distinct.
+                        # ADDITIVE — old callers ignore the new field.
+                        "expiry_date": {
+                            "type": ["string", "null"],
+                            "description": (
+                                "ISO YYYY-MM-DD per-line best-before / "
+                                "use-by date. Look for: Bedst før, "
+                                "Udløb, MHT, Sidste anv., Best before, "
+                                "Use by, Exp. NULL when not visible — "
+                                "do NOT guess from the invoice header date."
                             ),
                         },
                         "confidence": {
@@ -404,6 +428,13 @@ def _validate_line_item(raw: Any) -> Optional[dict]:
         # nonsense like vat_rate=250.
         if 0.0 <= vat_rate <= 1.0:
             item["vat_rate"] = vat_rate
+
+    # Expiry chain Phase 1 — per-line best-before date when visible.
+    # Reuse the same ISO-cleaner used for the invoice header; same
+    # Danish DD-MM-YYYY / DD.MM.YYYY tolerance applies.
+    expiry_iso = _clean_iso_date(raw.get("expiry_date"))
+    if expiry_iso:
+        item["expiry_date"] = expiry_iso
 
     item_conf = _coerce_number(raw.get("confidence"))
     if item_conf is not None:

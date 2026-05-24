@@ -265,6 +265,37 @@ const translations = {
       "Auto-email kasserapport + scanned Z-report to your owner + accountant the moment you lock — no extra tap, no forgetting",
     featProClosePush:
       "Push notification to owner when staff locks the close — peace of mind from anywhere",
+    // Phase 1 expiry chain — marketing copy lives here so the
+    // SubscriptionPage and the locked-state UpgradeNudge both pull
+    // from the single source of truth.
+    featStarterExpiryAlerts:
+      "Inventory expiry alerts — we warn you before items spoil, saves 5,000+ DKK/year",
+    featProExpiryPush:
+      "Push notification when items expire today — never lose a perishable to a forgotten reminder",
+    // ExpiryForecastingPage UI strings — Free UpgradeNudge + Starter+
+    // alerts banner. DK-first per the doctrine; EN defaults sit
+    // alongside for users who toggled to English.
+    expiryUpgradeNudgeBenefit:
+      "Inventory expiry alerts are a Starter+ feature — upgrade and save ~5,000 DKK/year on food waste",
+    expiryUpgradeNudgeCta: "See plans",
+    expiryBannerTodayTitle: "{n} items expire today",
+    expiryBannerSoonTitle: "{n} items expire within 3 days",
+    expiryAtRisk: "at risk",
+    expiryDueToday: "due today",
+    expiryInDays: "{n}d left",
+    expiryActionUsed: "Used",
+    expiryActionWasted: "Wasted",
+    expiryActionExtended: "+3d",
+    expiryActionDiscount: "Sold",
+    expiryConfirmUsed: "Mark this item as used in service?",
+    expiryConfirmWasted: "Mark this item as wasted? This logs a waste row.",
+    expiryConfirmExtended: "Extend expiry by 3 days?",
+    expiryConfirmDiscount: "Mark as sold at discount?",
+    expiryHeadlineToday: "{n} items expire today",
+    expiryHeadlineSoon: "{n} items expire within 3 days",
+    expiryAndSoon: "{n} more within 3 days",
+    expiryEyebrow: "EXPIRY ALERT",
+    expiryCardAria: "Open expiry alerts",
     // Daily Close — Lane A UI strings (see DailyClosePage.jsx)
     autoEmailToggleLabel: "Email owner + accountant automatically on lock",
     autoEmailToggleHint:
@@ -2910,6 +2941,32 @@ const translations = {
       "Auto-send kasserapport + scannet Z-rapport til ejer + revisor i samme sekund du låser — ingen ekstra tap, ingen glemmer",
     featProClosePush:
       "Push-besked til ejer når personalet låser dagsafslutningen — ro i sindet hvor du end er",
+    // Phase 1 — Spildalarmer (DK primary per CLAUDE.md doctrine)
+    featStarterExpiryAlerts:
+      "Spildalarmer på lager — vi advarer dig før varer udløber, så du sparer 5.000+ kr/år",
+    featProExpiryPush:
+      "Push-notifikation når varer udløber i dag — gå aldrig glip af en perishable pga. en glemt påmindelse",
+    expiryUpgradeNudgeBenefit:
+      "Spildalarmer er en Starter+ funktion — opgrader for at spare ~5.000 kr/år i fødevarespild",
+    expiryUpgradeNudgeCta: "Se planer",
+    expiryBannerTodayTitle: "{n} varer udløber i dag",
+    expiryBannerSoonTitle: "{n} varer udløber inden for 3 dage",
+    expiryAtRisk: "på spil",
+    expiryDueToday: "udløber i dag",
+    expiryInDays: "{n}d tilbage",
+    expiryActionUsed: "Brugt",
+    expiryActionWasted: "Spildt",
+    expiryActionExtended: "+3d",
+    expiryActionDiscount: "Solgt",
+    expiryConfirmUsed: "Marker denne vare som brugt i service?",
+    expiryConfirmWasted: "Marker denne vare som spildt? Det logges som en spildpost.",
+    expiryConfirmExtended: "Forlæng udløb med 3 dage?",
+    expiryConfirmDiscount: "Marker som solgt med rabat?",
+    expiryHeadlineToday: "{n} varer udløber i dag",
+    expiryHeadlineSoon: "{n} varer udløber inden for 3 dage",
+    expiryAndSoon: "{n} flere inden for 3 dage",
+    expiryEyebrow: "SPILDALARM",
+    expiryCardAria: "Åbn spildalarmer",
     // Daily Close — Lane A UI-strenge
     autoEmailToggleLabel: "Send automatisk til ejer + revisor når jeg låser",
     autoEmailToggleHint:
@@ -5408,6 +5465,32 @@ const translations = {
     featFreeReceiptOCR10: "रसिद OCR — फोटो खिच्नुहोस्, हामी खर्च भर्छौं (१० / महिना)",
     featStarterReceipt200: "रसिद OCR — २०० / महिना, AI-vision-ग्रेड शुद्धता",
     featProReceipt500: "रसिद OCR — ५०० / महिना, AI-vision-ग्रेड शुद्धता",
+    // Phase 1 expiry chain — Nepali keys
+    featStarterExpiryAlerts:
+      "स्टकको म्याद चेतावनी — सामान बिग्रिनुअघि सूचना, वार्षिक ५,०००+ DKK बचत",
+    featProExpiryPush:
+      "आज म्याद सकिने सामानको push नोटिफिकेसन — कुनै पनि perishable बिर्सिएर हराउने छैन",
+    expiryUpgradeNudgeBenefit:
+      "स्टक म्याद चेतावनी Starter+ सुविधा हो — अपग्रेड गरेर वार्षिक ~५,००० DKK बचाउनुहोस्",
+    expiryUpgradeNudgeCta: "योजनाहरू हेर्नुहोस्",
+    expiryBannerTodayTitle: "{n} सामानको म्याद आज सकिन्छ",
+    expiryBannerSoonTitle: "{n} सामानको म्याद ३ दिनभित्र सकिन्छ",
+    expiryAtRisk: "जोखिममा",
+    expiryDueToday: "आज सकिन्छ",
+    expiryInDays: "{n}d बाँकी",
+    expiryActionUsed: "प्रयोग",
+    expiryActionWasted: "बर्बाद",
+    expiryActionExtended: "+3d",
+    expiryActionDiscount: "बिक्री",
+    expiryConfirmUsed: "यो सामान सेवामा प्रयोग भयो भनेर मार्क गर्ने?",
+    expiryConfirmWasted: "यो सामान बर्बाद भयो भनेर मार्क गर्ने? यो waste रोको रूपमा रेकर्ड हुनेछ।",
+    expiryConfirmExtended: "म्याद ३ दिन थप्ने?",
+    expiryConfirmDiscount: "छुटमा बिक्री भयो भनेर मार्क गर्ने?",
+    expiryHeadlineToday: "{n} सामानको म्याद आज सकिन्छ",
+    expiryHeadlineSoon: "{n} सामानको म्याद ३ दिनभित्र सकिन्छ",
+    expiryAndSoon: "थप {n} ३ दिनभित्र",
+    expiryEyebrow: "म्याद चेतावनी",
+    expiryCardAria: "म्याद चेतावनी खोल्नुहोस्",
     featFree90Days: "९० दिनको पूर्ण इतिहास (पुरानो पढ्न मात्र)",
     featFree1Biz: "१ व्यवसाय, १ प्रयोगकर्ता",
     featStarterHeader: "Free मा भएको सबै — सीमाबिना:",

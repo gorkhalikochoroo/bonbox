@@ -3,9 +3,18 @@
 // recharts wrapper, the colored alert blocks, and the local MetricCard
 // helper with primitives.  Recharts chart itself is one-off and left
 // alone (only the wrapper polished).  Behavior + i18n + a11y unchanged.
+//
+// Phase 1 expiry chain (May 2026, Manoj-confirmed):
+//   • Starter+ → alerts banner at top with waste-cost prose +
+//     per-item action chips (used / wasted / extended / sold_discount).
+//   • Free     → UpgradeNudge in the alerts slot ("Spildalarmer er en
+//     Starter+ funktion") + items list still rendered but the
+//     waste-cost column is hidden (backend strips it server-side via
+//     scan_upcoming_expiries' L4 gate).
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
+import { useEntitlements } from "../hooks/useEntitlements";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
@@ -13,7 +22,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import {
-  Button, PageHeader, StatCard, SectionBanner, Empty, Icon,
+  Button, PageHeader, StatCard, SectionBanner, Empty, Icon, UpgradeNudge,
 } from "../components/ui";
 
 function fmt(n) { return n != null ? Math.round(n).toLocaleString() : "\u2014"; }
@@ -28,21 +37,53 @@ const STATUS_CONFIG = {
 export default function ExpiryPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
+  const { hasFeature } = useEntitlements();
   const currency = displayCurrency(user?.currency);
 
   const [data, setData] = useState(null);
+  const [upcoming, setUpcoming] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [actingId, setActingId] = useState(null);
+
+  // Phase 1 — tier gate read from entitlements. Drives the alerts
+  // banner (Starter+) vs UpgradeNudge (Free) at the top of the page.
+  const expiryAlertsAvailable = hasFeature("expiry_alerts");
 
   useEffect(() => { fetchData(); }, []);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const res = await api.get("/expiry/forecast");
-      setData(res.data);
+      const [forecast, upcomingRes] = await Promise.all([
+        api.get("/expiry/forecast"),
+        api.get("/expiry/upcoming", { params: { days: 3 } }).catch(() => ({ data: null })),
+      ]);
+      setData(forecast.data);
+      setUpcoming(upcomingRes.data);
     } catch { setError("Could not load expiry data"); }
     setLoading(false);
+  };
+
+  // L9 — every action confirmed before firing, even the non-destructive
+  // ones. Owner can undo via /inventory if they tap wrong.
+  const handleAction = async (itemId, action) => {
+    const promptMap = {
+      used: t("expiryConfirmUsed", "Mark this item as used in service?"),
+      wasted: t("expiryConfirmWasted", "Mark this item as wasted? This logs a waste row."),
+      extended: t("expiryConfirmExtended", "Extend expiry by 3 days?"),
+      sold_discount: t("expiryConfirmDiscount", "Mark as sold at discount?"),
+    };
+    if (!window.confirm(promptMap[action] || "Confirm?")) return;
+    setActingId(`${itemId}:${action}`);
+    try {
+      await api.post(`/expiry/item/${itemId}/mark`, { action });
+      await fetchData();
+    } catch (e) {
+      console.warn("expiry action failed", e);
+    } finally {
+      setActingId(null);
+    }
   };
 
   if (loading) {
@@ -91,6 +132,91 @@ export default function ExpiryPage() {
         />
       </FadeIn>
 
+      {/* ─── Phase 1 — alerts banner OR Free-tier UpgradeNudge ───
+          Starter+ users see the live "X items expire today, Y kr at
+          risk" banner with one-tap action chips per item. Free users
+          see the same items list lower down but the alert-rich layer
+          + waste-cost column is gated to Starter+. */}
+      {!expiryAlertsAvailable && (
+        <UpgradeNudge
+          intent="card"
+          tier="starter"
+          icon="⏰"
+          benefit={
+            t(
+              "expiryUpgradeNudgeBenefit",
+              "Spildalarmer er en Starter+ funktion — opgrader for at spare ~5,000 kr/år i fødevarespild",
+            )
+          }
+          ctaLabel={t("expiryUpgradeNudgeCta", "See plans")}
+        />
+      )}
+      {expiryAlertsAvailable && upcoming?.items?.length > 0 && (
+        <SectionBanner
+          severity={
+            upcoming.items.some((i) => (i.days_left ?? 99) <= 0) ? "warn" : "info"
+          }
+          icon="AlarmClock"
+          title={
+            upcoming.items.some((i) => (i.days_left ?? 99) <= 0)
+              ? t("expiryBannerTodayTitle", "Items expire today")
+                  .replace(
+                    "{n}",
+                    String(upcoming.items.filter((i) => (i.days_left ?? 99) <= 0).length),
+                  )
+              : t("expiryBannerSoonTitle", "Items expire soon")
+                  .replace("{n}", String(upcoming.items.length))
+          }
+        >
+          {(upcoming.total_at_risk_dkk ?? 0) > 0 && (
+            <p className="font-medium">
+              {fmt(upcoming.total_at_risk_dkk)} {currency} {t("expiryAtRisk", "at risk")}
+            </p>
+          )}
+          <div className="mt-3 space-y-2">
+            {upcoming.items.slice(0, 6).map((it) => (
+              <div
+                key={it.id}
+                className="flex flex-wrap items-center justify-between gap-2 bg-white dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+                    {it.name}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {it.quantity} {it.unit} ·{" "}
+                    {(it.days_left ?? 99) <= 0
+                      ? t("expiryDueToday", "due today")
+                      : t("expiryInDays", "{n}d left").replace("{n}", String(it.days_left))}
+                    {it.cost_at_risk_dkk != null && it.cost_at_risk_dkk > 0 && (
+                      <> · {fmt(it.cost_at_risk_dkk)} {currency}</>
+                    )}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { a: "used", label: t("expiryActionUsed", "Used") },
+                    { a: "wasted", label: t("expiryActionWasted", "Wasted") },
+                    { a: "extended", label: t("expiryActionExtended", "+3d") },
+                    { a: "sold_discount", label: t("expiryActionDiscount", "Sold") },
+                  ].map(({ a, label }) => (
+                    <button
+                      key={a}
+                      type="button"
+                      disabled={actingId === `${it.id}:${a}`}
+                      onClick={() => handleAction(it.id, a)}
+                      className="text-xs px-2.5 py-1 rounded-md bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 border border-emerald-200 dark:border-emerald-800/60 disabled:opacity-50"
+                    >
+                      {actingId === `${it.id}:${a}` ? "…" : label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </SectionBanner>
+      )}
+
       {/* ─── ALERTS ─── Each comes back from the API tagged with
           severity (warning/positive/neutral). Map to the canonical
           SectionBanner palette so the wider page stays palette-consistent. */}
@@ -125,17 +251,23 @@ export default function ExpiryPage() {
       {/* ─── KEY METRICS ─── unified to StatCard. Accent is `critical`
           when the value is something to act on (expired/expiring items
           > 0), `success` when zero, neutral for raw counts. The colour
-          stays data-true. */}
+          stays data-true.
+          Phase 1 — Free users don't see At-Risk Value (tier-gated by
+          backend already returns 0). The card is hidden client-side
+          so the layout stays clean (3 cards instead of "1 zero card +
+          3 real ones"). */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard
           label="Tracked Items"
           value={total_tracked_items}
         />
-        <StatCard
-          label="At-Risk Value"
-          value={`${fmt(total_at_risk_value)} ${currency}`}
-          accent={total_at_risk_value > 0 ? "critical" : "neutral"}
-        />
+        {expiryAlertsAvailable && (
+          <StatCard
+            label="At-Risk Value"
+            value={`${fmt(total_at_risk_value)} ${currency}`}
+            accent={total_at_risk_value > 0 ? "critical" : "neutral"}
+          />
+        )}
         <StatCard
           label="Expired Items"
           value={expired_items.length}

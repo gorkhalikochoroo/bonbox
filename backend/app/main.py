@@ -1197,6 +1197,19 @@ _migrations = [
     # side to ~30 entries with FIFO rolloff (a few thousand chars max).
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_email_on_close BOOLEAN NOT NULL DEFAULT TRUE",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS bank_drop_dismissed_ids TEXT",
+
+    # ── Migration 054: Inventory expiry chain Phase 1 (Manoj-confirmed) ──
+    # Two additive InventoryItem columns powering the expiry alert chain:
+    # `received_date` — used as the inference base for expiry when the
+    #     supplier invoice doesn't carry "Bedst før" / "Udløb". Falls
+    #     back to created_at::date when NULL so existing rows keep
+    #     working (no backfill needed).
+    # `expected_shelf_life_days` — per-item override of the category
+    #     default in inventory_perishable.SHELF_LIFE_DAYS. NULL = use
+    #     the table.
+    # Idempotent — safe to re-run.
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS received_date DATE",
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS expected_shelf_life_days INTEGER",
 ]
 
 
@@ -1366,6 +1379,9 @@ def _run_migrations():
             ok += _add("inventory_items", "supplier_email", "VARCHAR(255)")
             ok += _add("inventory_items", "supplier_lead_time_days", "INTEGER DEFAULT 1")
             ok += _add("inventory_items", "pack_size", "NUMERIC(10,3) DEFAULT 1")
+            # Migration 054 — expiry chain Phase 1 (Manoj-confirmed)
+            ok += _add("inventory_items", "received_date", "DATE")
+            ok += _add("inventory_items", "expected_shelf_life_days", "INTEGER")
             # Daily Close — MOMS / VAT fields
             ok += _add("daily_closes", "moms_total", "NUMERIC(12,2)")
             ok += _add("daily_closes", "revenue_ex_moms", "NUMERIC(12,2)")
@@ -2514,6 +2530,7 @@ try:
     # isolated; the brief cache means the second-fired (email) cron hits
     # the same DailyBrief row and adds no extra LLM cost.
     from app.jobs.daily_brief_push_job import send_daily_brief_pushes
+    from app.jobs.expiry_scanner_job import run_expiry_scan
 
     _scheduler = BackgroundScheduler()
     _scheduler.add_job(
@@ -2617,6 +2634,18 @@ try:
         trigger=CronTrigger(hour=6, minute=0),
         id="daily_brief_push",
         name="Daily Brief morning push",
+        replace_existing=True,
+    )
+    # Expiry chain Phase 1 — daily 06:15 UTC scan. Sits BETWEEN the
+    # brief push (06:00 UTC) and email (06:30 UTC) so a Pro owner with
+    # an expiring item gets the brief push first, the dedicated
+    # expiry push 15 min later, then the email confirmation. Each
+    # channel is independent — no single failure cascades.
+    _scheduler.add_job(
+        run_expiry_scan,
+        trigger=CronTrigger(hour=6, minute=15),
+        id="expiry_scan",
+        name="Daily expiry scan + Pro push",
         replace_existing=True,
     )
     _scheduler.start()

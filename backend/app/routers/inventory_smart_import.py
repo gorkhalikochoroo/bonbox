@@ -45,7 +45,7 @@ Endpoint contract:
 """
 import logging
 import uuid
-from datetime import datetime, time as dtime
+from datetime import date, datetime, time as dtime
 from typing import Annotated
 
 from fastapi import (
@@ -116,6 +116,13 @@ class CommitItem(BaseModel):
     unit: Annotated[str, StringConstraints(max_length=20)] | None = None
     category: Annotated[str, StringConstraints(max_length=60)] | None = None
     cost_per_unit: float | None = Field(None, ge=0, le=1_000_000)
+    # Expiry chain Phase 1 (May 2026) — optional ISO date from
+    # inventory_ocr OR owner override at review time. Plain string here
+    # so the pydantic v2 field stays JSON-friendly across clients; the
+    # commit path parses it to a `date` via inventory_perishable's
+    # downstream helpers. Capped at 12 chars (YYYY-MM-DDxx) — anything
+    # longer falls through to "unparseable, default to inference".
+    expiry_date: Annotated[str, StringConstraints(max_length=12)] | None = None
 
 
 CommitRequest.model_rebuild()  # because CommitItem is referenced before defined
@@ -448,6 +455,13 @@ async def import_file(
                         **({"vat_rate": li["vat_rate"]} if "vat_rate" in li else {}),
                         **({"category_confidence": li["category_confidence"]}
                            if "category_confidence" in li else {}),
+                        # Expiry chain Phase 1 — pass the per-line
+                        # best-before through to the review screen so
+                        # the owner can confirm before /commit writes
+                        # the InventoryItem. Empty when OCR didn't find
+                        # a date — commit will then infer from category.
+                        **({"expiry_date": li["expiry_date"]}
+                           if "expiry_date" in li else {}),
                     }
                     for li in inv_result["line_items"]
                     if li.get("name")
@@ -657,13 +671,24 @@ def commit_draft(
         today = utc_now().date()
         perishable_count = 0
         for entry in body.items:
-            # Auto-fill is_perishable + expiry_date for known-perishable
-            # categories. Single source of truth = inventory_perishable.
-            # Owner can edit either field afterward to override defaults.
+            # Expiry chain Phase 1 (May 2026) — multi-layer fallback:
+            #   1. Explicit expiry_date from the review body wins (OCR
+            #      extracted it OR the owner typed it during review).
+            #   2. Otherwise mark_perishable_if_needed infers from
+            #      category + received_at.
+            #   3. Otherwise NULL — the item silently skips alerts (L9).
+            explicit_expiry: date | None = None
+            if entry.expiry_date:
+                try:
+                    explicit_expiry = date.fromisoformat(
+                        entry.expiry_date[:10]
+                    )
+                except (ValueError, TypeError):
+                    explicit_expiry = None
             is_per, expiry = mark_perishable_if_needed(
                 category=entry.category,
-                is_perishable=None,
-                expiry_date=None,
+                is_perishable=True if explicit_expiry else None,
+                expiry_date=explicit_expiry,
                 received_at=today,
             )
             if is_per:
@@ -678,6 +703,11 @@ def commit_draft(
                 category=entry.category or "General",
                 is_perishable=is_per,
                 expiry_date=expiry,
+                # Receipt provenance — the alert chain uses received_date
+                # as the inference base when the invoice didn't carry an
+                # explicit best-before. Stamp it on every commit so the
+                # ExpiryForecastingPage's days_left math stays honest.
+                received_date=today,
             )
             db.add(item)
             created.append(item)
