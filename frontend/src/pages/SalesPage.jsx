@@ -253,6 +253,8 @@ export default function SalesPage() {
       trackEvent("sale_logged", "sales", `${value} ${currency} via ${method}`);
       setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${formatDate(saleDate)})` : ""}!`);
       fetchSales(filterFrom, filterTo);
+      // Cross-page refresh: notify Dashboard, Reports, Expenses, etc.
+      window.dispatchEvent(new Event("bonbox-data-changed"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
       setError(err.response?.data?.detail || t("failedToAddSale"));
@@ -278,6 +280,7 @@ export default function SalesPage() {
       setEditId(null);
       setEditData({});
       fetchSales(filterFrom, filterTo);
+      window.dispatchEvent(new Event("bonbox-data-changed"));
       setSuccess(t("saleUpdated"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
@@ -291,6 +294,7 @@ export default function SalesPage() {
       await Promise.all([...selected].map(id => api.delete(`/sales/${id}`)));
       setSelected(new Set());
       fetchSales(filterFrom, filterTo);
+      window.dispatchEvent(new Event("bonbox-data-changed"));
       setSuccess(`${selected.size} ${t("movedToDeleted")}`);
       setTimeout(() => setSuccess(""), 2500);
     } catch {
@@ -303,6 +307,7 @@ export default function SalesPage() {
       await api.delete(`/sales/${id}`);
       setDeleteConfirm(null);
       fetchSales(filterFrom, filterTo);
+      window.dispatchEvent(new Event("bonbox-data-changed"));
       setSuccess(t("movedToDeleted"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {

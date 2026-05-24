@@ -1627,12 +1627,23 @@ export default function DashboardPage() {
       trackEvent("sale_logged", "dashboard", trackLabel);
       showToast(`${t("saleLogged")} ${amount.toLocaleString()} ${currency}`, "success");
       fetchAll();
+      // Cross-page refresh signal — see EventsPage handleCashedUp.
+      window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch { showToast(t("failedToLogSale"), "error"); }
   };
 
   const repeatYesterday = async () => {
-    try { await api.post("/sales/repeat-yesterday"); trackEvent("sale_logged", "dashboard", "repeat_yesterday"); setQuickMsg(t("yesterdayCopied")); fetchAll(); setTimeout(() => setQuickMsg(""), 3000); }
-    catch { setQuickMsg(t("noYesterdaySale")); setTimeout(() => setQuickMsg(""), 3000); }
+    try {
+      await api.post("/sales/repeat-yesterday");
+      trackEvent("sale_logged", "dashboard", "repeat_yesterday");
+      setQuickMsg(t("yesterdayCopied"));
+      fetchAll();
+      window.dispatchEvent(new Event("bonbox-data-changed"));
+      setTimeout(() => setQuickMsg(""), 3000);
+    } catch {
+      setQuickMsg(t("noYesterdaySale"));
+      setTimeout(() => setQuickMsg(""), 3000);
+    }
   };
 
   const downloadPdf = async () => {

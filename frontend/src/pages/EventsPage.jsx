@@ -274,6 +274,13 @@ export default function EventsPage() {
     const res = await api.post(`/events/${selectedId}/cashup`, payload);
     setSummary(res.data.summary);
     setCashupOpen(false);
+    // Cross-page refresh signal — Dashboard, Sales, Reports, Expenses
+    // listen for "bonbox-data-changed" and auto-refetch when a sale
+    // mutation lands anywhere in the app. Without this dispatch the
+    // freshly-cashed-up event's Sale row stays invisible on other open
+    // tabs until the user manually refreshes. Pattern documented in
+    // QuickAdd.jsx + KhataPage.jsx where it was already established.
+    window.dispatchEvent(new Event("bonbox-data-changed"));
     // Lightweight success surfacing — re-uses the error banner slot
     // with a green tint so the owner sees confirmation immediately.
     setError("");
