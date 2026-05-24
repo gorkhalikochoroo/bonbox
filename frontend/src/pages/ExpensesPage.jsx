@@ -7,6 +7,7 @@
 // preserved via onClick + ChevronDown indicator.  Selected state
 // uses gray-900 ring (no tech-glow per sidebar rule).
 import { useState, useEffect, useRef } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -180,6 +181,80 @@ export default function ExpensesPage() {
     window.addEventListener("bonbox-data-changed", onDataChanged);
     return () => window.removeEventListener("bonbox-data-changed", onDataChanged);
   }, []);
+
+  // ─── Smart Scan prefill consumer ─────────────────────────────────
+  // SmartScanModal navigates here with extracted_data in location.state
+  // when the classifier recognizes a receipt / invoice that belongs in
+  // Expenses. We pre-fill the new-expense form fields and remember
+  // which fields the AI was uncertain about so we can mark them with
+  // a "Bekræft venligst" chip until the owner touches them.
+  //
+  // We tag the prefill in component state instead of consuming
+  // location.state directly on every render — otherwise pressing
+  // Submit (which fetchData → setExpenses) would re-trigger the
+  // prefill loop. We also clear router state via navigate(..., {
+  // replace: true, state: null }) once consumed so a refresh of the
+  // page after saving doesn't re-apply old prefill values.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [verifyHints, setVerifyHints] = useState([]);
+  const [touchedHints, setTouchedHints] = useState(new Set());
+  useEffect(() => {
+    const st = location.state;
+    if (!st || (st.source !== "smart_scan" && st.source !== "smart_scan_manual")) return;
+    const prefill = st.prefill || null;
+    const hints = Array.isArray(st.verify_hints) ? st.verify_hints : [];
+    setVerifyHints(hints);
+    setTouchedHints(new Set());
+    if (prefill) {
+      // Field mapping — backend extracted_data shape mirrors the
+      // /expenses/upload-receipt response, so we reuse the same keys.
+      // Missing keys fall back to the existing form defaults.
+      if (prefill.suggested_amount != null) setAmount(String(prefill.suggested_amount));
+      if (prefill.amount != null && !prefill.suggested_amount) setAmount(String(prefill.amount));
+      if (prefill.suggested_vendor) setDesc(prefill.suggested_vendor);
+      if (!prefill.suggested_vendor && prefill.vendor) setDesc(prefill.vendor);
+      if (prefill.suggested_date) setExpDate(prefill.suggested_date);
+      if (!prefill.suggested_date && prefill.date) setExpDate(prefill.date);
+      if (prefill.payment_method) setMethod(prefill.payment_method);
+      // Category — backend might send either suggested_category.category_id
+      // (matched against existing) or category_id directly. We rely on
+      // categories being already loaded by the fetchData() above; if
+      // it's not yet loaded, the catId setter still works once the user
+      // sees the picker (categories state will populate from the fetch).
+      const catId = prefill.suggested_category?.category_id || prefill.category_id;
+      if (catId) setCatId(catId);
+      setSuccess(
+        st.source === "smart_scan_manual"
+          ? t("smartScan.openedManual", "Åbnet manuelt — udfyld felterne")
+          : t("smartScan.prefilled", "Felter pre-udfyldt fra billedet — bekræft venligst"),
+      );
+      setTimeout(() => setSuccess(""), 4000);
+    }
+    // Clear router state so a refresh / back-nav doesn't re-apply
+    // prefill values after the owner has saved or modified them.
+    navigate(location.pathname, { replace: true, state: null });
+    // We intentionally ignore navigate / location.pathname in deps;
+    // re-running on those would loop. We only respond to a new
+    // location.state arriving (treated as a one-shot side effect).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
+
+  // Render-helper: does a given field name still need the
+  // "Bekræft venligst" chip? Yes when the field is in verifyHints AND
+  // the owner hasn't touched it yet.
+  const showVerifyChip = (field) => {
+    return verifyHints.includes(field) && !touchedHints.has(field);
+  };
+  const markTouched = (field) => {
+    if (!verifyHints.includes(field)) return;
+    setTouchedHints((prev) => {
+      if (prev.has(field)) return prev;
+      const next = new Set(prev);
+      next.add(field);
+      return next;
+    });
+  };
 
   const quickSetup = async () => {
     try {
@@ -543,13 +618,26 @@ export default function ExpensesPage() {
           </div>
         </div>
 
+        {/* Smart Scan verify chip — shown above the field when the
+            classifier flagged this field as needing double-check. Hides
+            itself once the owner edits the field. */}
+        {showVerifyChip("vendor") && (
+          <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300 mb-1 flex items-center gap-1">
+            <span className="inline-block w-2 h-2 rounded-full bg-amber-500" aria-hidden="true" />
+            {t("smartScan.verifyHint", "Bekræft venligst")} — {t("vendor", "Vendor")}
+          </p>
+        )}
         <div className="relative mb-2">
           <input
             type="text"
             value={desc}
-            onChange={(e) => { setDesc(e.target.value); fetchSuggestion(e.target.value); }}
+            onChange={(e) => { setDesc(e.target.value); fetchSuggestion(e.target.value); markTouched("vendor"); }}
             placeholder={t("whatWasIt")}
-            className="w-full px-2.5 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:bg-gray-700 dark:text-white"
+            className={`w-full px-2.5 py-1 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:bg-gray-700 dark:text-white ${
+              showVerifyChip("vendor")
+                ? "border-amber-300 dark:border-amber-600 bg-amber-50/50 dark:bg-amber-900/10"
+                : "border-gray-200 dark:border-gray-600"
+            }`}
           />
           {suggestion && !catId && (
             <button
@@ -575,6 +663,12 @@ export default function ExpensesPage() {
           ))}
         </div>
 
+        {(showVerifyChip("amount") || showVerifyChip("total")) && (
+          <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300 mb-1 flex items-center gap-1">
+            <span className="inline-block w-2 h-2 rounded-full bg-amber-500" aria-hidden="true" />
+            {t("smartScan.verifyHint", "Bekræft venligst")} — {t("amount", "Amount")}
+          </p>
+        )}
         <div className="flex items-center gap-2">
           <button
             onClick={startVoice}
@@ -592,9 +686,13 @@ export default function ExpensesPage() {
           <input
             type="number"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e) => { setAmount(e.target.value); markTouched("amount"); markTouched("total"); }}
             placeholder={`${t("customAmount")} ${getTaxConfig(user?.currency).rate > 0 ? `(${getTaxConfig(user?.currency).label})` : ""}`}
-            className="flex-1 px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:bg-gray-700 dark:text-white"
+            className={`flex-1 px-3 py-1.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:bg-gray-700 dark:text-white ${
+              (showVerifyChip("amount") || showVerifyChip("total"))
+                ? "border-amber-300 dark:border-amber-600 bg-amber-50/50 dark:bg-amber-900/10"
+                : "border-gray-200 dark:border-gray-600"
+            }`}
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
           <button
@@ -620,6 +718,12 @@ export default function ExpensesPage() {
         </div>
 
         {/* Notes + Date row */}
+        {showVerifyChip("date") && (
+          <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300 mt-2 flex items-center gap-1">
+            <span className="inline-block w-2 h-2 rounded-full bg-amber-500" aria-hidden="true" />
+            {t("smartScan.verifyHint", "Bekræft venligst")} — {t("date", "Date")}
+          </p>
+        )}
         <div className="mt-2 flex items-center gap-2">
           <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)}
             placeholder={t("notesOptional")} className="flex-1 px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
@@ -627,8 +731,12 @@ export default function ExpensesPage() {
             type="date"
             value={expDate}
             max={localIso()}
-            onChange={(e) => setExpDate(e.target.value)}
-            className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
+            onChange={(e) => { setExpDate(e.target.value); markTouched("date"); }}
+            className={`px-2 py-1 border rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900 ${
+              showVerifyChip("date")
+                ? "border-amber-300 dark:border-amber-600 bg-amber-50/50 dark:bg-amber-900/10"
+                : "border-gray-200 dark:border-gray-600"
+            }`}
           />
         </div>
         {expDate !== localIso() && (

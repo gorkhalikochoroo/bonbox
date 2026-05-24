@@ -11,7 +11,7 @@
 // preserved via onClick + ChevronDown indicator.  Selected state
 // uses gray-900 ring (no tech-glow per sidebar rule).
 import { useState, useEffect, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -145,6 +145,31 @@ export default function InventoryPage() {
   };
 
   useEffect(() => { fetchData(); }, []);
+
+  // ─── Smart Scan prefill consumer (invoice → Inventory) ───────────
+  // SmartScanModal navigates here when the classifier recognizes a
+  // supplier invoice. The backend already runs the invoice OCR
+  // extractor and returns extracted_data — but the committable draft
+  // lives behind /inventory/smart-import/file (it needs a draft id
+  // server-side, so the owner uploads the same image to the smart-
+  // import endpoint to get a draft they can review + commit).
+  //
+  // UX: we drop them straight into the SmartImportModal with the
+  // "image" mode pre-selected so they only have to re-pick the file.
+  // A banner inside the modal lets them know why we asked again.
+  // (Building a "promote extracted_data → draft" backend endpoint
+  // would be the next iteration; not in scope per the brief.)
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [smartScanInvoicePrefill, setSmartScanInvoicePrefill] = useState(null);
+  useEffect(() => {
+    const st = location.state;
+    if (!st || (st.source !== "smart_scan" && st.source !== "smart_scan_manual")) return;
+    setSmartScanInvoicePrefill(st.prefill || { _empty: true });
+    setShowSmartImport(true);
+    navigate(location.pathname, { replace: true, state: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -478,10 +503,12 @@ export default function InventoryPage() {
 
       <SmartImportModal
         open={showSmartImport}
-        onClose={() => setShowSmartImport(false)}
+        onClose={() => { setShowSmartImport(false); setSmartScanInvoicePrefill(null); }}
+        smartScanPrefill={smartScanInvoicePrefill}
         onCommitted={() => {
           // Refresh the items list so the new rows appear immediately.
           fetchData();
+          setSmartScanInvoicePrefill(null);
         }}
       />
 

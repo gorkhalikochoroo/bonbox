@@ -28,8 +28,16 @@ import { resizeImageIfLarge } from "../utils/resizeImage";
  *   • All bounds (200-item cap, 200-char name max, 12MB image cap, etc.)
  *     come back as 422 from Pydantic — toasted clearly.
  */
-export default function SmartImportModal({ open, onClose, onCommitted }) {
-  const [mode, setMode] = useState("text"); // text | csv | excel | image | history
+export default function SmartImportModal({ open, onClose, onCommitted, smartScanPrefill = null }) {
+  // Smart Scan handoff (Inventory invoice path): when InventoryPage
+  // opens us with a smartScanPrefill, we auto-select the "image" mode
+  // (the typical input for invoices) and surface a banner explaining
+  // why we asked the owner to re-upload. The Smart Scan classifier
+  // already extracted the data once, but the smart-import commit flow
+  // requires a draft id only the /smart-import/file endpoint creates.
+  // Auto-selecting image mode + a clear banner is honest: we don't
+  // pretend the data is already imported.
+  const [mode, setMode] = useState(smartScanPrefill ? "image" : "text"); // text | csv | excel | image | history
   const [textInput, setTextInput] = useState("");
   const [fileInput, setFileInput] = useState(null);
   const [draft, setDraft] = useState(null);
@@ -57,8 +65,12 @@ export default function SmartImportModal({ open, onClose, onCommitted }) {
       setDraft(null);
       setError("");
       setHistory(null);
+    } else if (smartScanPrefill) {
+      // Re-opened with a Smart Scan handoff — force image mode so the
+      // owner sees the right picker immediately.
+      setMode("image");
     }
-  }, [open]);
+  }, [open, smartScanPrefill]);
 
   // Lazy-load history when the user picks the History tab. Re-fetches on
   // re-entry so the list reflects any imports just committed during this
@@ -203,6 +215,24 @@ export default function SmartImportModal({ open, onClose, onCommitted }) {
 
         {/* Body */}
         <div className="flex-1 overflow-auto px-6 py-4">
+          {/* Smart Scan handoff banner — fires when InventoryPage opened
+              us with a smart-scan invoice prefill. Honest copy: the
+              classifier already extracted the data once, but we need
+              to re-upload to create a committable draft. */}
+          {smartScanPrefill && !draft && (
+            <div className="mb-4 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 p-3 text-sm text-emerald-900 dark:text-emerald-100">
+              <div className="font-medium flex items-center gap-2 mb-0.5">
+                <span aria-hidden="true">✨</span>
+                {t("smartScan.invoiceHandoff", "Faktura registreret af Smart skan")}
+              </div>
+              <div className="text-xs opacity-90">
+                {t(
+                  "smartScan.invoiceHandoffBody",
+                  "Vælg det samme billede igen for at importere varerne. Vi gennemgår dem inden de gemmes.",
+                )}
+              </div>
+            </div>
+          )}
           {!draft ? (
             <ExtractStep
               mode={mode}

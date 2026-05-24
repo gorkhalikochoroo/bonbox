@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -226,6 +227,36 @@ export default function DailyClosePage() {
   // fields so the owner doesn't have to re-type yesterday's numbers.
   // Cleared via onEditConsumed when the form has loaded the values.
   const [editDraft, setEditDraft] = useState(null);
+
+  // ─── Smart Scan prefill consumer ─────────────────────────────────
+  // SmartScanModal navigates here with the kasserapport extraction in
+  // location.state when the classifier recognizes a Z-report. We hand
+  // the payload to CloseForm via the smartScanPrefill prop; CloseForm
+  // hydrates its scanResult state from it (same path it uses for
+  // /daily-close/scan-report POSTs) so the wizard pre-fills steps 1–3.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [smartScanPrefill, setSmartScanPrefill] = useState(null);
+  const [smartScanVerifyHints, setSmartScanVerifyHints] = useState([]);
+  useEffect(() => {
+    const st = location.state;
+    if (!st || (st.source !== "smart_scan" && st.source !== "smart_scan_manual")) return;
+    // Switch to the close tab so the prefill lands somewhere visible.
+    setTab("close");
+    if (st.prefill) {
+      setSmartScanPrefill(st.prefill);
+      setSmartScanVerifyHints(Array.isArray(st.verify_hints) ? st.verify_hints : []);
+    } else {
+      // Manual override or empty extracted_data — still switch to the
+      // close tab and clear any stale prefill so the owner starts fresh.
+      setSmartScanPrefill(null);
+      setSmartScanVerifyHints([]);
+    }
+    // Clear router state — same reason as ExpensesPage: refresh / back-
+    // nav must not re-apply yesterday's prefill.
+    navigate(location.pathname, { replace: true, state: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
   const [history, setHistory] = useState([]);
   const [insights, setInsights] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -393,6 +424,9 @@ export default function DailyClosePage() {
         {tab === "close" && <CloseForm currency={currency} t={t} branchType={branchType} branchId={branchId} isOnline={isOnline}
           editDraft={editDraft}
           onEditConsumed={() => setEditDraft(null)}
+          smartScanPrefill={smartScanPrefill}
+          smartScanVerifyHints={smartScanVerifyHints}
+          onSmartScanConsumed={() => { setSmartScanPrefill(null); setSmartScanVerifyHints([]); }}
           onDone={(lockResult) => {
             fetchHistory();
             fetchInsights();
@@ -434,7 +468,7 @@ function getBusinessDate(cutoffHour = 0) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnline, editDraft, onEditConsumed }) {
+function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed }) {
   const { user, refreshUser } = useAuth();
   const { hasFeature } = useEntitlements();
   const defaultRevCats = useMemo(() => getRevenueCats(branchType), [branchType]);
@@ -554,6 +588,32 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     onEditConsumed?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editDraft]);
+
+  // ─── Smart Scan prefill (kasserapport) ────────────────────────────
+  // When SmartScanModal classifies a kasserapport, it navigates here
+  // with the scan-report extraction in location.state. The DailyClose
+  // page hands that payload down here as smartScanPrefill. We hydrate
+  // the existing scanResult state from it — same shape the
+  // /daily-close/scan-report endpoint returns — so the existing
+  // mergeScans / applyScanValues / verify-this-amount UX is reused
+  // without duplicating the wizard logic.
+  //
+  // L6 fail-closed: we DO NOT auto-apply the values into the steps;
+  // we drop the owner at scanMode="result" so they see what we found,
+  // can review, and tap "Use these" (existing affordance) to fill.
+  const [smartScanVerifyState, setSmartScanVerifyState] = useState([]);
+  useEffect(() => {
+    if (!smartScanPrefill) return;
+    // Hydrate the scanResult — backend extracted_data uses the same
+    // schema as /daily-close/scan-report (the same service powers both).
+    setScanResult(smartScanPrefill);
+    setScanMode("result");
+    setStep(1);
+    setSmartScanVerifyState(Array.isArray(smartScanVerifyHints) ? smartScanVerifyHints : []);
+    onSmartScanConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [smartScanPrefill]);
+
   const [scanError, setScanError] = useState("");
   // "with-moms" | "without-moms" — owner picks before scan so the OCR
   // numbers are interpreted correctly. Most DK Z-reports show gross
@@ -992,6 +1052,26 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {/* ─── SCAN RESULT CARD ─── */}
         {scanMode === "result" && scanResult && (
           <div className="space-y-5">
+            {/* Smart Scan source banner — appears when the kasserapport
+                was classified + prefilled by SmartScanModal (instead of
+                uploaded directly here). Tells the owner why the form
+                already has values, and lists the fields the classifier
+                flagged as needing verification. */}
+            {smartScanVerifyState.length > 0 && (
+              <div className="rounded-xl p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 text-sm text-emerald-900 dark:text-emerald-100 space-y-1">
+                <div className="font-medium flex items-center gap-1.5">
+                  <span className="inline-block w-2 h-2 rounded-full bg-amber-500" aria-hidden="true" />
+                  {t("smartScan.verifyHint", "Bekræft venligst")}
+                </div>
+                <div className="text-xs opacity-90">
+                  {t(
+                    "smartScan.verifyDailyClose",
+                    "Vi har pre-udfyldt felterne fra dit billede. Tjek særligt:",
+                  )}{" "}
+                  <strong>{smartScanVerifyState.join(", ")}</strong>
+                </div>
+              </div>
+            )}
             {/* Confidence indicator */}
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold dark:text-white">{t("scanResults")}</h2>

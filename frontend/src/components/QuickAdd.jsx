@@ -1,8 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
+import { ScanLine } from "lucide-react";
 import Modal from "./Modal";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { localIso } from "../utils/dateFormat";
+import { trackEvent } from "../hooks/useEventLog";
+// Lazy-load Smart Scan modal — only fetched when the owner taps the
+// "Smart skan" entry below. Keeps QuickAdd's bundle lean for owners
+// who use the keypad path 99% of the time.
+const SmartScanModal = lazy(() => import("./SmartScanModal"));
 
 const INCOME_CATS = ["Salary", "Freelance", "Side Income", "Gift Received", "Borrowed"];
 const PERSONAL_CATEGORIES = [
@@ -17,6 +23,11 @@ const PERSONAL_CATEGORIES = [
 export default function QuickAdd() {
   const { t } = useLanguage();
   const [open, setOpen] = useState(false);
+  // Smart Scan handoff — opening the smart-scan modal from inside
+  // QuickAdd closes the quick-add Modal so the two don't stack. The
+  // Smart Scan modal is mounted at the same component level so its
+  // onClose can re-focus the FAB and the body-scroll lock stays sane.
+  const [smartScanOpen, setSmartScanOpen] = useState(false);
   const mode = localStorage.getItem("bonbox_mode") || "business";
   const [tab, setTab] = useState(mode === "personal" ? "personal_income" : "sale");
   const [categories, setCategories] = useState([]);
@@ -163,6 +174,37 @@ export default function QuickAdd() {
           <div className="bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 px-4 py-2.5 rounded-lg mb-4 text-sm font-medium text-center">
             {error}
           </div>
+        )}
+
+        {/* Smart skan — first option in the QuickAdd menu. Only shown
+            in business mode (smart-scan documents are kvittering /
+            kasserapport / faktura — all jurisdiction-business concepts).
+            Tapping opens the same SmartScanModal as the mobile FAB; we
+            close the quick-add modal first so the two don't stack. */}
+        {mode !== "personal" && (
+          <button
+            onClick={() => {
+              trackEvent("smart_scan_quickadd_opened", "smart_scan");
+              setOpen(false);
+              setSmartScanOpen(true);
+            }}
+            className="w-full mb-4 flex items-center gap-3 px-3 py-3 rounded-xl border border-emerald-200 dark:border-emerald-800/40 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+          >
+            <div className="w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 group-hover:scale-105 transition">
+              <ScanLine size={18} strokeWidth={2} aria-hidden="true" />
+            </div>
+            <div className="min-w-0 flex-1 text-left">
+              <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-200">
+                {t("smartScan.title", "Smart skan")}
+              </p>
+              <p className="text-[11px] text-emerald-700/80 dark:text-emerald-300/80">
+                {t("smartScan.subtitle", "Tag ét billede — vi finder ud af resten")}
+              </p>
+            </div>
+            <svg className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M5 12h14M13 5l7 7-7 7" />
+            </svg>
+          </button>
         )}
 
         <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1 mb-5">
@@ -508,6 +550,16 @@ export default function QuickAdd() {
           </div>
         )}
       </Modal>
+
+      {/* Smart Scan modal — mounted at the same level as the QuickAdd
+          Modal so we can hand off without nesting. SmartScanModal owns
+          its own body-scroll lock + escape-to-close behavior, and its
+          navigation closes itself before pushing the prefilled route. */}
+      <Suspense fallback={null}>
+        {smartScanOpen && (
+          <SmartScanModal open={smartScanOpen} onClose={() => setSmartScanOpen(false)} />
+        )}
+      </Suspense>
     </>
   );
 }

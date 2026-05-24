@@ -22,6 +22,10 @@ const QuickAdd = lazy(() => import("./QuickAdd"));
 const BonBoxAgent = lazy(() => import("./BonBoxAgent"));
 const SupportChip = lazy(() => import("./SupportChip"));
 const SmartLanguageToast = lazy(() => import("./SmartLanguageToast"));
+// Smart Scan — mobile-only FAB that opens the unified "snap anything"
+// classifier modal. Routes to Expenses / Daily Close / Inventory based
+// on the backend's doc_type guess.
+const SmartScanFAB = lazy(() => import("./SmartScanFAB"));
 // Task #49 — Accountant read-only banner. Renders only for accountant
 // sessions; no-ops otherwise so the import cost is negligible.
 const AccountantViewBanner = lazy(() => import("./AccountantViewBanner"));
@@ -941,6 +945,11 @@ export default function Layout() {
         <Suspense fallback={null}>
           <QuickAdd />
           <BonBoxAgent />
+          {/* Smart Scan FAB — mobile-only "snap anything" entry. Sits
+              above the BonBoxAgent orb in the bottom-right column. The
+              QuickAdd menu also exposes Smart skan as its first option,
+              so both surfaces reach the same modal. */}
+          <SmartScanFAB />
           {/* SupportChip — bottom-left "?" so the founder hears
               from owners before they churn. */}
           <SupportChip />
