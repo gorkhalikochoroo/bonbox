@@ -90,6 +90,45 @@ def test_plan_caps_match_marketing_page():
     # handled via custom sales conversation, not a self-service tier.)
 
 
+def test_expense_receipt_scan_caps_match_marketing_page():
+    """Receipt OCR caps recalibrated 2026-05-24 when Claude Vision became
+    the primary OCR (paid-per-call). Marketing copy on SubscriptionPage
+    promises:
+      • Free    — "(10 / month)"
+      • Starter — "200 / month"
+      • Pro     — "500 / month"
+    These backend caps MUST equal those numbers — drift = a marketing
+    promise that the gate breaks. Trial mirrors Pro per the
+    trial=full-Pro contract."""
+    assert PLAN_CAPS["free"]["expense_receipt_scans_per_month"] == 10
+    assert PLAN_CAPS["starter"]["expense_receipt_scans_per_month"] == 200
+    assert PLAN_CAPS["pro"]["expense_receipt_scans_per_month"] == 500
+    assert PLAN_CAPS["trial"]["expense_receipt_scans_per_month"] == 500
+
+
+@pytest.mark.parametrize("plan,expected", [
+    ("free",     10),
+    ("starter",  200),
+    ("pro",      500),
+])
+def test_get_cap_expense_receipt_per_plan(plan, expected):
+    """get_cap() must surface the recalibrated values to every router
+    that gates expense-OCR uploads. This is the layer the routers
+    actually call — pinning it here means a future hand-edit to
+    PLAN_CAPS that fails to flow through get_cap will fail this test."""
+    u = _user(plan)
+    assert get_cap(u, "expense_receipt_scans_per_month") == expected
+
+
+def test_at_cap_expense_receipt_boundary():
+    """Boundary check on the new Free cap (10/mo). One under = not at
+    cap; equal = at cap; over (e.g. legacy data) = at cap."""
+    u = _user("free")
+    assert at_cap(u, "expense_receipt_scans_per_month", 9) is False
+    assert at_cap(u, "expense_receipt_scans_per_month", 10) is True
+    assert at_cap(u, "expense_receipt_scans_per_month", 11) is True
+
+
 def test_trial_caps_match_pro_caps():
     """The marketing claim '14 days of full Pro' MUST be true at the cap
     level. Trial entitlement for every resource matches Pro's exactly."""

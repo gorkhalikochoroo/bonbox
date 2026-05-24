@@ -374,7 +374,7 @@ async def parse_receipt(
                     "monthly_cap": cap,
                     "message": (
                         f"You've used your {cap} receipt scans this month. "
-                        "Upgrade to Starter for unlimited."
+                        "Upgrade to Starter for 200 / month."
                     ),
                 },
             )
@@ -566,7 +566,7 @@ async def upload_expense_receipt(
                     "monthly_cap": cap,
                     "message": (
                         f"You've used your {cap} receipt scans this month. "
-                        "Upgrade to Starter for unlimited."
+                        "Upgrade to Starter for 200 / month."
                     ),
                 },
             )
@@ -637,6 +637,16 @@ async def upload_expense_receipt(
         "ocr_available": parsed.get("ocr_available") or amount_block.get("ocr_available", False),
         "confidence": parsed.get("confidence", "low"),
         "raw_text": parsed.get("raw_text") or amount_block.get("raw_text", ""),
+        # Pass-through from Claude Vision (May 2026). Frontend uses
+        # confidence_per_field to render "verify this" hints on
+        # low-confidence fields and claude_notes to surface any
+        # ambiguity the model flagged. Existing callers ignore unknown
+        # keys so this is back-compat.
+        "confidence_per_field": parsed.get("confidence_per_field") or {},
+        "claude_notes": parsed.get("claude_notes"),
+        "vat_amount": parsed.get("vat_amount"),
+        "vat_rate": parsed.get("vat_rate"),
+        "line_items": parsed.get("line_items") or [],
         "usage": {
             "used_this_month": _count_receipt_scans_this_month(db, user.id),
             "monthly_cap": cap,

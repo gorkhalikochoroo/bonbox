@@ -199,7 +199,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                   Receipt scans this month: {capError.used} / {capError.cap}
                 </div>
                 <p className="text-xs leading-relaxed">
-                  {capError.message || "Upgrade to Starter for unlimited receipt scans."}
+                  {capError.message || "Upgrade to Starter for 200 receipt scans / month."}
                 </p>
                 <a
                   href="/subscription"
@@ -361,6 +361,16 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                         ))}
                       </div>
                     )}
+                    {/* Claude Vision's free-text notes — surfaces any
+                        ambiguity the model self-reported ("Milk line
+                        amount could be 30 or 36 — partial occlusion").
+                        Honesty-first: if the model flagged uncertainty,
+                        the owner sees it BEFORE saving. */}
+                    {result.claude_notes && (
+                      <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-2 italic">
+                        ℹ {result.claude_notes}
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-lg mb-3">
@@ -381,6 +391,22 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                   </details>
                 )}
 
+                {/* Per-field "verify this" hint — derived from
+                    Claude Vision's self-reported confidence. Threshold
+                    0.85: anything below means the model was uncertain
+                    enough that the owner should double-check before
+                    saving. Honesty-first: confidence is the model's
+                    real uncertainty, not a heuristic. */}
+                {(() => {
+                  const conf = result?.confidence_per_field?.total;
+                  const isLow = typeof conf === "number" && conf < 0.85;
+                  return isLow && result?.confidence_per_field ? (
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-1">
+                      Verify the amount — confidence {Math.round((conf || 0) * 100)}%.
+                    </p>
+                  ) : null;
+                })()}
+
                 <input
                   type="number"
                   value={amount}
@@ -391,41 +417,63 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                 />
 
                 {/* Description (pre-filled with OCR vendor) — expense mode */}
-                {isExpense && (
-                  <input
-                    type="text"
-                    value={desc}
-                    onChange={(e) => setDesc(e.target.value)}
-                    placeholder={
-                      result?.suggested_vendor
-                        ? `Vendor (we found: ${result.suggested_vendor})`
-                        : "Description / vendor (optional)"
-                    }
-                    className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 mb-3"
-                  />
-                )}
+                {isExpense && (() => {
+                  const conf = result?.confidence_per_field?.vendor;
+                  const isLow = typeof conf === "number" && conf < 0.85;
+                  return (
+                    <div className="mb-3">
+                      {isLow && (
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-1">
+                          Verify the vendor — confidence {Math.round(conf * 100)}%.
+                        </p>
+                      )}
+                      <input
+                        type="text"
+                        value={desc}
+                        onChange={(e) => setDesc(e.target.value)}
+                        placeholder={
+                          result?.suggested_vendor
+                            ? `Vendor (we found: ${result.suggested_vendor})`
+                            : "Description / vendor (optional)"
+                        }
+                        className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                      />
+                    </div>
+                  );
+                })()}
 
                 {/* Date row — pre-filled by OCR-parsed receipt date,
                     fallback to today. Owner sees what we read so they
                     catch back-dated mistakes before saving. */}
-                {isExpense && (
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">
-                      Date
-                    </span>
-                    <input
-                      type="date"
-                      value={parsedDate || ""}
-                      onChange={(e) => setParsedDate(e.target.value)}
-                      className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-                    />
-                    {result?.suggested_date && (
-                      <span className="text-[11px] text-emerald-600 dark:text-emerald-400 shrink-0">
-                        ✓ from receipt
-                      </span>
-                    )}
-                  </div>
-                )}
+                {isExpense && (() => {
+                  const conf = result?.confidence_per_field?.date;
+                  const isLow = typeof conf === "number" && conf < 0.85;
+                  return (
+                    <div className="mb-3">
+                      {isLow && (
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-1">
+                          Verify the date — confidence {Math.round(conf * 100)}%.
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">
+                          Date
+                        </span>
+                        <input
+                          type="date"
+                          value={parsedDate || ""}
+                          onChange={(e) => setParsedDate(e.target.value)}
+                          className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                        />
+                        {result?.suggested_date && !isLow && (
+                          <span className="text-[11px] text-emerald-600 dark:text-emerald-400 shrink-0">
+                            ✓ from receipt
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Suggested-category chip — shown only when OCR
                     matched a vendor and the user already has that
