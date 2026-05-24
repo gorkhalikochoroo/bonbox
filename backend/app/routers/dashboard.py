@@ -39,6 +39,27 @@ router = APIRouter()
 _ai_limiter = Limiter(key_func=get_remote_address)
 
 
+def _resolve_user_cutoff(db: Session, user: User) -> None:
+    """Hydrate `user.day_cutoff_hour` from the BusinessProfile row.
+
+    `business_today_local` / `business_day_window` look at
+    `user.day_cutoff_hour` first (see tz_utils._user_cutoff_hour). The
+    User model doesn't carry that column natively — it lives on
+    BusinessProfile — so each endpoint that wants the DK business-day
+    cutoff has to fetch the profile once and stash the value on the
+    request-scoped User. Missing profile / NULL cutoff is the common
+    case for freshly-onboarded users; tz_utils falls back to the
+    Danish-restaurant default (06:00) so we never raise.
+    """
+    profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == user.id)
+        .first()
+    )
+    if profile is not None and profile.day_cutoff_hour is not None:
+        user.day_cutoff_hour = profile.day_cutoff_hour
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # BATCH ENDPOINT — replaces 15 separate API calls with 1
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1277,7 +1298,14 @@ def get_top_sellers(
     days: int = Query(30, ge=1, le=365),
 ):
     """Top selling items by revenue and quantity in the last N days."""
-    since = date.today() - timedelta(days=days)
+    # Anchor the lookback window on the user's business "today" so
+    # /batch.top_sellers (which uses business_today_local) and this
+    # standalone endpoint return the same rows — otherwise a 02:30 CEST
+    # query would show a 30-day window that disagrees with the dashboard
+    # tile by one day at the boundary. See b2e227a for the /batch pattern.
+    _resolve_user_cutoff(db, user)
+    today = business_today_local(user)
+    since = today - timedelta(days=days)
 
     rows = (
         db.query(
@@ -1316,7 +1344,16 @@ def get_action_items(
     user: User = Depends(get_current_user),
 ):
     """Actionable insights for the business owner."""
-    today = date.today()
+    # Business-day "today" — the "no sales logged today" check below
+    # (Sale.date == today) MUST match the same convention /batch and
+    # /summary use. Otherwise an owner who's still in their late-night
+    # shift at 02:30 CEST would see a spurious "no sales today" alert
+    # the moment UTC midnight ticks, even though they're mid-service.
+    # Month-start (for the expense-ratio check) also needs to be the
+    # business-day month so the ratio doesn't snap to an empty new
+    # month while the late shift is still ongoing.
+    _resolve_user_cutoff(db, user)
+    today = business_today_local(user)
     month_start = today.replace(day=1)
     items = []
 
@@ -1430,7 +1467,13 @@ def get_benchmarks(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    today = date.today()
+    # Month-to-date benchmarks have to roll over at the user's business-day
+    # boundary, not UTC midnight. Otherwise a 02:30 CEST query on the 1st
+    # snaps to an "empty new month" while the operator is still inside the
+    # previous month's last shift — same drift class the /batch fix
+    # squashes for the summary tiles.
+    _resolve_user_cutoff(db, user)
+    today = business_today_local(user)
     month_start = today.replace(day=1)
     btype = user.business_type or "restaurant"
 
@@ -1548,7 +1591,15 @@ def get_week_comparison(
     user: User = Depends(get_current_user),
 ):
     """Compare this week vs last week (Monday-based weeks)."""
-    today = date.today()
+    # Pin "today" to the business day BEFORE computing Monday — a query
+    # at 02:30 CEST on a Monday is still inside Sunday's business day,
+    # so "this week" should still be the week that just ended, not the
+    # one that just started. Deriving the Monday from
+    # business_today_local also keeps the DST-week-length quirks
+    # (spring-forward 23h, fall-back 25h Sundays) tied to the user's
+    # local wall-clock instead of UTC drift.
+    _resolve_user_cutoff(db, user)
+    today = business_today_local(user)
     weekday = today.weekday()  # Monday=0
     this_monday = today - timedelta(days=weekday)
     last_monday = this_monday - timedelta(days=7)
@@ -1606,7 +1657,14 @@ def get_payment_breakdown(
     user: User = Depends(get_current_user),
 ):
     """Payment method totals for the current month."""
-    today = date.today()
+    # MTD payment mix must use the business-day month boundary so the
+    # breakdown matches the /batch summary's month_revenue figure at
+    # the 1st-of-month rollover. Without this, on a 02:30 CEST query
+    # on the 1st, summary still reports last month's revenue (correct
+    # under the cutoff) while payment-breakdown would already report
+    # zero — same drift the rest of this audit squashes.
+    _resolve_user_cutoff(db, user)
+    today = business_today_local(user)
     month_start = today.replace(day=1)
 
     rows = (
