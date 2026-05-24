@@ -18,22 +18,16 @@
     <meta name="apple-mobile-web-app-title" content="BonBox" />
     <link rel="manifest" href="/manifest.json" />
 
-    <!-- Display type (Task #109 / Task #110 update).  We started
-         with Fraunces serif but Manoj's read was that it pushed
-         the page toward "designer portfolio."  Now Inter for
-         everything — body, H2, hero H1.  Same family, varying
-         weight + tracking.  This is what Linear, Vercel, Plain
-         ship and it's the strongest "real product, trust me"
-         signal for a finance SaaS audience.
+    <!-- Display type (Task #109 / Task #110, self-hosted 2026-05-24).
+         Inter for everything — body, H2, hero H1. Same family, varying
+         weight + tracking. This is what Linear, Vercel, Plain ship and
+         it's the strongest "real product, trust me" signal for a
+         finance SaaS audience.
 
-         Preconnect avoids a TLS handshake on first paint.
-         display=swap shows the system font until Inter lands. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
-    />
+         Inter is now self-hosted via @fontsource/inter (see main.jsx).
+         No CDN dependency, no Google Fonts 503 risk, no CSP gymnastics,
+         and the woff2 files ride the immutable /assets/* cache header. -->
+
 
     <!-- Open Graph for Facebook sharing -->
     <meta property="og:title" content="BonBox — The AI manager for Danish small businesses" />
