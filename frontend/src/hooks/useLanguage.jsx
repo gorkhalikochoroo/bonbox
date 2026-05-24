@@ -8109,31 +8109,44 @@ export function LanguageProvider({ children }) {
   // EN is always inline so the fallback path never depends on a
   // network fetch — search/SEO/initial-paint stay deterministic.
   //
-  // Second-arg fallback (added 2026-05-16): when both `lang` and EN
-  // lack the key, return the caller-supplied fallback instead of the
-  // raw key. Older 1-arg calls keep working — they just get the key
-  // back, which is what callers historically guarded with `|| "…"`
-  // (but that pattern is broken when the key string is truthy).
-  // Polymorphic second arg:
-  //   • t("key")                  → resolved string, or raw key if missing
-  //   • t("key", "fallback text") → resolved string, or "fallback text" if missing
-  //   • t("key", { var: "val" })  → resolved string with {var} placeholders
-  //                                 substituted; falls back to the raw template
-  //                                 string with substitutions applied if missing.
+  // Argument shapes (all mix-and-match safe, fully backwards compatible):
+  //   • t("key")                          → resolved string, or raw key if missing
+  //   • t("key", "fallback text")         → resolved, or fallback if missing
+  //   • t("key", { var: "val" })          → resolved with {var} substituted; if
+  //                                         missing, returns key (with subs applied
+  //                                         if the key string itself has {placeholders})
+  //   • t("key", "fallback", { var: "v" })→ resolved or fallback, THEN {var} subs.
+  //                                         This is the natural pattern when the
+  //                                         fallback is a real human-readable template
+  //                                         like "Cash-up logged · {gross}" — both
+  //                                         the resolved key AND the fallback share
+  //                                         the same placeholder shape.
   //
-  // The object form was added 2026-05-24 after `t("revenueParen", { currency })`
-  // surfaced as "Revenue ({currency})" literally on the Dashboard — the bug
-  // was that the second arg was ignored entirely when the key was found, so
-  // the {currency} placeholder in the EN/DA/NP template was never substituted.
-  // Backwards compatible with all existing string-fallback call sites because
-  // typeof "string" !== "object".
-  const t = useCallback((key, fallbackOrVars) => {
-    const isVarsObject =
+  // Why each form exists:
+  //   2-arg string fallback — original behavior since 2026-05-16, callers used to
+  //   guard with `|| "…"` but that's broken when t() returns a truthy key string.
+  //   2-arg vars object — added 2026-05-24 after Dashboard showed "Revenue
+  //   ({currency})" literally. The second arg was ignored when the key existed.
+  //   3-arg form — added later same day after EventsPage cash-up toast showed
+  //   "Cash-up logged · {gross}" literally. Agent had naturally written the
+  //   key+fallback+vars triple pattern (because the fallback string is a real
+  //   user-visible template, not a debug placeholder) and a 2-arg-only t()
+  //   silently dropped the vars object.
+  const t = useCallback((key, fallbackOrVars, maybeVars) => {
+    // Disambiguate the second arg: string = fallback, object = vars
+    const secondIsVarsObject =
       fallbackOrVars !== null &&
       typeof fallbackOrVars === "object" &&
       !Array.isArray(fallbackOrVars);
-    const fallback = isVarsObject ? undefined : fallbackOrVars;
-    const vars = isVarsObject ? fallbackOrVars : null;
+    const fallback = secondIsVarsObject ? undefined : fallbackOrVars;
+    const varsFromSecond = secondIsVarsObject ? fallbackOrVars : null;
+    // Third arg, if present, is always a vars object (overrides second-as-vars)
+    const thirdIsVarsObject =
+      maybeVars !== null &&
+      maybeVars !== undefined &&
+      typeof maybeVars === "object" &&
+      !Array.isArray(maybeVars);
+    const vars = thirdIsVarsObject ? maybeVars : varsFromSecond;
 
     const hit = loaded[lang]?.[key] || loaded.en[key];
     let result;
