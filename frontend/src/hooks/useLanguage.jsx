@@ -103,6 +103,8 @@ const translations = {
     acctSavingsItemsLabel: "items",
     acctSavingsHoursShort: "h",
     acctSavingsTileAria: "See how the hours add up",
+    acctSavingsDismissAria: "Hide until next month",
+    acctSavingsDismissTitle: "Hide until next month",
     // SubscriptionPage live taglines for the Starter + Pro pricing cards
     pricingStarterAcctTagline: "Saves your revisor ~{hours} hours/month = ~{money}",
     pricingStarterAcctTaglineFallback: "Saves your revisor hours every month",
@@ -939,8 +941,8 @@ const translations = {
     connBankAiia: "Aiia direct sync (PSD2)",
     connMobilePayDesc: "Coming soon: auto-match MobilePay Erhverv settlements to your open invoices. We're awaiting the Vipps partnership — for now, enter MobilePay totals on the daily close.",
     connRevisorTitle: "Revisor (read-only login)",
-    connRevisorDesc: "Invite your accountant — they get their own login, see your books live, no shared passwords.",
-    connAccountantEmailTitle: "Accountant email",
+    connRevisorDesc: "Invite your revisor — they get their own login, see your books live, no shared passwords.",
+    connAccountantEmailTitle: "Revisor email",
     connAccountantEmailDesc: "Where the kasserapport PDF + month-end exports get sent. Stored on your profile, used by every export.",
     connBriefEmailTitle: "Morning brief email",
     connBriefEmailDesc: "The same AI brief you see on the dashboard, delivered to your inbox at 8 am Copenhagen — so you open BonBox already knowing the day.",
@@ -2104,12 +2106,12 @@ const translations = {
     // ───────────────────────────────────────────────────────────
     // Profile — accountant contact + verified-CVR banner
     // ───────────────────────────────────────────────────────────
-    accountantContact: "Accountant contact",
+    accountantContact: "Revisor contact",
     accountantContactDesc: "Pre-fills the Send button on Daily Close range exports. Optional.",
-    accountantNameLabel: "Accountant name (optional)",
+    accountantNameLabel: "Revisor name (optional)",
     accountantNameHint: "Used in the email greeting (\"Hej Anna,\").",
-    accountantEmailLabel: "Accountant email",
-    accountantSaved: "Accountant contact saved",
+    accountantEmailLabel: "Revisor email",
+    accountantSaved: "Revisor contact saved",
     accountantSaveFailed: "Could not save — try again",
     // Revisor access — read-only login for the accountant (own credentials, no shared passwords).
     revisorAccessTitle: "Revisor access",
@@ -2918,6 +2920,8 @@ const translations = {
     acctSavingsItemsLabel: "stk",
     acctSavingsHoursShort: "t",
     acctSavingsTileAria: "Se hvordan timerne er regnet ud",
+    acctSavingsDismissAria: "Skjul indtil næste måned",
+    acctSavingsDismissTitle: "Skjul indtil næste måned",
     // Pristabel-taglines på Starter- og Pro-kortet
     pricingStarterAcctTagline: "Sparer din revisor ~{hours} timer/md = ~{money}",
     pricingStarterAcctTaglineFallback: "Sparer din revisor timer hver måned",

@@ -214,12 +214,37 @@ function BreakdownDrawer({ data, onClose, t }) {
 // ═════════════════════════════════════════════════════════════════════
 // Main widget
 // ═════════════════════════════════════════════════════════════════════
+// Per-month dismissal — owner clicks X, widget hides for the rest of
+// THIS calendar month, then reappears automatically when a new month
+// starts AND fresh savings have accrued. Reappearing monthly is the
+// point: the widget IS the proof that BonBox earns the subscription
+// fee, so a permanent dismissal would silently kill that signal.
+function _currentMonthKey() {
+  const d = new Date();
+  return `acctSavingsDismissed_${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+function _isDismissedThisMonth() {
+  try {
+    return window.localStorage.getItem(_currentMonthKey()) === "1";
+  } catch {
+    return false; // private mode / storage disabled → never hide
+  }
+}
+function _dismissThisMonth() {
+  try {
+    window.localStorage.setItem(_currentMonthKey(), "1");
+  } catch {
+    // noop — storage unavailable, dismissal is best-effort
+  }
+}
+
 export default function AccountantHoursWidget() {
   const { t } = useLanguage();
   const { hasFeature } = useEntitlements();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
+  const [dismissed, setDismissed] = useState(() => _isDismissedThisMonth());
 
   // L1 — frontend pre-flight gate. The backend service also enforces
   // this (Free returns zero payload regardless), so a user who bypasses
@@ -277,6 +302,13 @@ export default function AccountantHoursWidget() {
     );
   }
 
+  // ── Per-month dismissal — owner clicked X earlier this month ──────
+  // Render nothing for the rest of the calendar month; the localStorage
+  // key resets when a new month starts (see _currentMonthKey).
+  if (dismissed) {
+    return null;
+  }
+
   // ── Live numbers ────────────────────────────────────────────────────
   const hours = Number(data?.hours_saved) || 0;
   const money = Number(data?.money_saved_dkk) || 0;
@@ -286,6 +318,17 @@ export default function AccountantHoursWidget() {
     (acc, row) => acc + (Number(row?.items) || 0),
     0,
   );
+
+  // Dismiss handler — used by the X button on the live-numbers tile.
+  // stopPropagation is critical because the whole tile is itself a
+  // <button> that opens the drawer; without it, dismissing would also
+  // pop the drawer for a split-second.
+  function handleDismiss(e) {
+    e.stopPropagation();
+    e.preventDefault();
+    _dismissThisMonth();
+    setDismissed(true);
+  }
 
   // Empty-state copy (Starter+ with no activity this month yet). Render
   // the same tile shell but with a hint to take an action. Better than
@@ -323,9 +366,35 @@ export default function AccountantHoursWidget() {
     );
   }
 
-  // Live-numbers tile. Click → drawer.
+  // Live-numbers tile. Click → drawer. X (top-right) → dismiss for the month.
   return (
     <>
+      <div className="relative">
+        {/* Dismiss X — positioned absolute so it overlays the tile's click
+            target. Tap target = 32×32 (a11y / touch). stopPropagation is
+            inside handleDismiss so the underlying drawer-open button
+            doesn't also fire. */}
+        <button
+          type="button"
+          onClick={handleDismiss}
+          aria-label={
+            t("acctSavingsDismissAria", "Skjul indtil næste måned") ||
+            "Skjul indtil næste måned"
+          }
+          title={
+            t("acctSavingsDismissTitle", "Skjul indtil næste måned") ||
+            "Skjul indtil næste måned"
+          }
+          className={
+            "absolute top-2 right-2 z-10 w-8 h-8 rounded-lg " +
+            "flex items-center justify-center text-gray-400 dark:text-gray-500 " +
+            "hover:text-gray-700 dark:hover:text-gray-200 " +
+            "hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors " +
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+          }
+        >
+          <Icon name="X" size={16} aria-hidden="true" />
+        </button>
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -385,6 +454,7 @@ export default function AccountantHoursWidget() {
           />
         </div>
       </button>
+      </div>
 
       {open && (
         <BreakdownDrawer
