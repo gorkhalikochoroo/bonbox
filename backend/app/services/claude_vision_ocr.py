@@ -1,24 +1,33 @@
-"""Claude Vision OCR — primary receipt extraction.
+"""Claude Vision OCR — secondary fallback for receipt extraction.
+
+Demoted from primary on 2026-05-24 when Mindee Receipt API became the
+primary layer. Claude Vision now fires when Mindee is unavailable or
+returns low confidence — which makes it the "smart fallback" for the
+harder cases (Z-reports, non-standard formats, hand-stamped totals,
+multi-language receipts Mindee struggles with).
 
 Uses Anthropic's vision-capable model to read receipt images and return
-structured JSON with per-field confidence. Replaces the regex-on-OCR-text
-approach with native vision-LLM understanding.
+structured JSON with per-field confidence.
 
-Why Claude Vision over generic OCR + regex:
-  • Real per-field confidence (model's own uncertainty, not "regex hit")
-  • Handles ANY receipt format (Z-reports, supplier invoices, café receipts)
-  • Multi-language native (Danish MOMS, EU VAT, Nepali receipts, etc.)
-  • Reasons about ambiguity ("digit partially occluded, leaning 7")
-  • Returns structured JSON — no parsing layer needed
+Why Claude Vision is the right secondary (not primary):
+  • Mindee is purpose-built for standard receipts (~85% of our traffic):
+    trained on millions of labeled receipts, native EU VAT/MOMS parsing,
+    well-calibrated per-field confidence.
+  • Claude wins on the LONG TAIL — anything Mindee's Receipt v5 wasn't
+    trained on: handwritten amounts, Z-reports, supplier invoices in
+    non-standard formats, multi-language Nepali receipts.
+  • Claude is ~10x cheaper per call ($0.003 vs $0.04), so even when it
+    fires on the long tail it doesn't blow the cost model.
 
 Cost: ~$0.003 per receipt (Claude Sonnet 4.5 vision). Acceptable for all
 tiers — see PLAN_CAPS.expense_receipt_scans_per_month for monthly bounds.
 
-Fallback chain (called from receipt_ocr.extract_amount_from_image):
-  1. Claude Vision (this module) → if available
-  2. Google Vision API → existing fallback
-  3. OCR.space → existing fallback
-  4. Heuristic regex → last resort
+Fallback chain (called from receipt_ocr.parse_expense_receipt etc.):
+  1. Mindee (mindee_ocr) — primary, ~$0.04/doc, conf ≥ 0.85 gate
+  2. Claude Vision (this module) — secondary fallback, ~$0.003/doc, conf ≥ 0.70 gate
+  3. OCR.space + regex — fallback
+  4. Google Vision + regex — last resort
+  5. Heuristic regex — final fallback
 
 Honesty-first contract:
   • confidence values are the MODEL's own self-reported certainty, not a

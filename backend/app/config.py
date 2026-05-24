@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     # buckets (RLS off; access mediated entirely by our backend's auth).
     SUPABASE_RECEIPTS_BUCKET: str = "receipts"
     ANTHROPIC_API_KEY: str = ""
+    # Mindee Receipt API — primary OCR provider (2026-05). Free tier
+    # gives 250 pages/month; Standard plan beyond that is ~$0.04/page.
+    # When empty, the receipt OCR chain skips Mindee and falls through
+    # to Claude Vision (secondary) → Google Vision + regex (last resort).
+    MINDEE_API_KEY: str = ""
     COMPANIES_HOUSE_API_KEY: str = ""
     GOOGLE_CLIENT_ID: str = ""  # Google OAuth client ID
     # Sign in with Apple — list of accepted audience values. iOS app
