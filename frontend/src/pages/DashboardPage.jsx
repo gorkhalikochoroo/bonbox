@@ -1603,7 +1603,7 @@ export default function DashboardPage() {
     // Round to 2 decimals so we don't write fractional øre into the DB.
     storedAmount = Math.round(storedAmount * 100) / 100;
     try {
-      await api.post("/sales", { amount: storedAmount, date: localIso(), payment_method: "cash", description: t("quickSaleDesc") });
+      await api.post("/sales", { amount: storedAmount, date: localIso(), payment_method: "cash", notes: t("quickSaleDesc") });
       trackEvent("sale_logged", "dashboard", `quick_sale ${amount} ${currency} ${inclMoms ? "incl" : "excl"}_moms`);
       showToast(`${t("saleLogged")} ${amount.toLocaleString()} ${currency}`, "success");
       fetchAll();
