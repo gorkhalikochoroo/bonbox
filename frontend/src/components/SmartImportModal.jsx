@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import api from "../services/api";
+import { useEntitlements } from "../hooks/useEntitlements";
+import { useLanguage } from "../hooks/useLanguage";
 import { resizeImageIfLarge } from "../utils/resizeImage";
 
 /**
@@ -36,6 +38,15 @@ export default function SmartImportModal({ open, onClose, onCommitted }) {
   const [committing, setCommitting] = useState(false);
   const [history, setHistory] = useState(null); // null = unloaded, [] = empty
   const fileRef = useRef(null);
+  // L1 / L2 — tier-aware UI. The backend (L3 router) already short-
+  // circuits the supplier dictionary match for Free, so the pre-flight
+  // here uses the same flag from the entitlements payload — no second
+  // round-trip needed. hasFeature() fails closed if entitlements
+  // haven't loaded yet, so Free users never accidentally see the
+  // Starter+ pill / banner during the bootstrap window.
+  const { hasFeature } = useEntitlements();
+  const { t } = useLanguage();
+  const supplierDetectionUnlocked = hasFeature("supplier_auto_detection");
 
   useEffect(() => {
     if (!open) {
@@ -215,6 +226,8 @@ export default function SmartImportModal({ open, onClose, onCommitted }) {
               committing={committing}
               onBack={() => setDraft(null)}
               onCommit={runCommit}
+              supplierDetectionUnlocked={supplierDetectionUnlocked}
+              t={t}
             />
           )}
         </div>
@@ -517,6 +530,48 @@ function HistoryList({ history }) {
   );
 }
 
+/* ─── Supplier auto-detection upgrade nudge — Free-tier UI ──────────── */
+/*
+ * Renders L1 / L9 of the supplier-detection tier gate: when the owner is
+ * on Free we replace the green-check SupplierBanner with a one-tap
+ * upgrade pitch. Same visual footprint so the layout doesn't shift.
+ *
+ * Defensive UX: the OCR itself ran (we still got line items) — this
+ * banner is purely about the dictionary-match + auto-category layer.
+ */
+function SupplierUpgradeNudge({ t }) {
+  return (
+    <div className="rounded-lg border px-3 py-2 text-sm bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800">
+      <div className="flex items-start gap-2">
+        <span className="text-base leading-none text-amber-600 dark:text-amber-400 mt-0.5">
+          🔒
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-gray-900 dark:text-gray-100">
+            {t(
+              "smartImportSupplierGateTitle",
+              "Supplier auto-detection — Starter+",
+            ) || "Supplier auto-detection — Starter+"}
+          </p>
+          <p className="mt-0.5 text-xs text-gray-700 dark:text-gray-300">
+            {t(
+              "smartImportSupplierGateBody",
+              "Upgrade to identify Hørkram / BC Catering / AB Catering and auto-categorize up to 30 items at once.",
+            ) ||
+              "Upgrade to identify Hørkram / BC Catering / AB Catering and auto-categorize up to 30 items at once."}
+          </p>
+        </div>
+        <a
+          href="/subscription"
+          className="shrink-0 text-xs font-semibold px-2 py-1 rounded bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:opacity-90"
+        >
+          {t("smartImportSupplierGateCta", "Upgrade") || "Upgrade"}
+        </a>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Supplier banner — only renders for image-kind invoice OCR ─────── */
 /*
  * Three states:
@@ -633,22 +688,41 @@ function CategoryPill({ category, confidence }) {
 /* ─── Review step UI ──────────────────────────────────────────────── */
 function ReviewStep({
   draft, updateRow, removeRow, error, committing, onBack, onCommit,
+  supplierDetectionUnlocked, t,
 }) {
   const items = draft.items || [];
   const ruleCount = items.filter((it) => it.category_source === "rule").length;
   const aiCount = items.filter((it) => it.category_source === "ai").length;
   const fallbackCount = items.filter((it) => it.category_source === "fallback").length;
 
+  // L1 / L2 — pre-flight tier gate.  When the owner is on Free, the
+  // backend never enriches the response with supplier_match / per-line
+  // categories (L3 router gate).  Render the upgrade nudge in the same
+  // slot so the layout doesn't shift and the user knows WHY the
+  // SupplierBanner is missing.  We only show the nudge on image
+  // imports where the supplier-detection feature would have applied —
+  // text / CSV / Excel have no header to detect.
+  const wouldShowSupplierBanner = draft.source_kind === "image";
+  const showSupplierGate =
+    wouldShowSupplierBanner && !supplierDetectionUnlocked;
+
   return (
     <div className="space-y-4">
-      {/* Supplier banner — only present on image imports where the
-          inventory OCR pulled a header. Renders null otherwise. */}
-      <SupplierBanner
-        supplier={draft.supplier}
-        supplierMatch={draft.supplier_match}
-        invoiceTotals={draft.invoice_totals}
-        ocrProvider={draft.ocr_provider}
-      />
+      {/* Supplier banner OR upgrade nudge — only present on image imports.
+          For Starter+ users we render the real green-check banner with
+          dictionary match. For Free users we replace it with the
+          UpgradeNudge so the slot is never silently empty (L9 graceful
+          degradation). */}
+      {showSupplierGate ? (
+        <SupplierUpgradeNudge t={t} />
+      ) : (
+        <SupplierBanner
+          supplier={draft.supplier}
+          supplierMatch={draft.supplier_match}
+          invoiceTotals={draft.invoice_totals}
+          ocrProvider={draft.ocr_provider}
+        />
+      )}
 
       {/* Stats banner */}
       <div className="flex flex-wrap gap-3 text-sm items-center">
@@ -735,8 +809,14 @@ function ReviewStep({
                 />
                 {/* Auto-detected pill shows beneath the editable input
                     when the supplier match attached a category. The
-                    pill color encodes confidence; black text always. */}
-                {typeof it.category_confidence === "number" && it.category && (
+                    pill color encodes confidence; black text always.
+                    L1 — gated to Starter+: Free users either don't get
+                    a category_confidence at all (backend strips it) OR
+                    we belt-and-braces hide the pill here so the layout
+                    matches the upgrade nudge above. */}
+                {supplierDetectionUnlocked &&
+                  typeof it.category_confidence === "number" &&
+                  it.category && (
                   <div className="px-2 -mt-0.5">
                     <CategoryPill
                       category={it.category}

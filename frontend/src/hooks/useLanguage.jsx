@@ -227,6 +227,19 @@ const translations = {
     featFreeReceiptOCR10: "Receipt OCR — snap a photo, we fill the expense (10 / month)",
     featStarterReceipt200: "Receipt OCR — 200 / month, AI vision-grade accuracy",
     featProReceipt500: "Receipt OCR — 500 / month, AI vision-grade accuracy",
+    // Supplier auto-detection — Starter+ value-add on top of the
+    // generic inventory OCR that's free for everyone. The bullet
+    // names the three best-known wholesalers; the full registry is
+    // 16+ entries (see backend/app/data/danish_suppliers.py).
+    featStarterSupplierDetect:
+      "Auto-detect 16+ Danish suppliers — instant categorization on every invoice",
+    // SmartImportModal upgrade-nudge copy — surfaced when a Free user
+    // OCRs a supplier invoice. The slot used to host the green-check
+    // SupplierBanner before the May-24 retroactive gate.
+    smartImportSupplierGateTitle: "Supplier auto-detection — Starter+",
+    smartImportSupplierGateBody:
+      "Upgrade to identify Hørkram / BC Catering / AB Catering and auto-categorize up to 30 items at once.",
+    smartImportSupplierGateCta: "Upgrade",
     featFree90Days: "90 days of full history (older stays read-only)",
     featFree1Biz: "1 business, 1 user",
     // Starter tier
@@ -2806,6 +2819,16 @@ const translations = {
     featFreeReceiptOCR10: "Kvitterings-OCR — tag et billede, vi udfylder bilaget (10 / måned)",
     featStarterReceipt200: "Kvitterings-OCR — 200 / måned, AI-præcision på synsniveau",
     featProReceipt500: "Kvitterings-OCR — 500 / måned, AI-præcision på synsniveau",
+    // Auto-genkendelse af leverandører — Starter+ værditilføjelse oven
+    // på den generelle vareindkøbs-OCR, der er gratis for alle.
+    featStarterSupplierDetect:
+      "Auto-genkend 16+ danske leverandører — øjeblikkelig kategorisering på hver faktura",
+    // SmartImportModal upgrade-nudge — vises når en Free-bruger OCR-er
+    // en leverandørfaktura.
+    smartImportSupplierGateTitle: "Auto-genkendelse af leverandører — Starter+",
+    smartImportSupplierGateBody:
+      "Opgrader for at genkende Hørkram / BC Catering / AB Catering og auto-kategorisere op til 30 varer ad gangen.",
+    smartImportSupplierGateCta: "Opgrader",
     featFree90Days: "90 dages fuld historik (ældre er kun læseadgang)",
     featFree1Biz: "1 virksomhed, 1 bruger",
     featStarterHeader: "Alt i Free — uden lofterne:",

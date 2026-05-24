@@ -62,7 +62,7 @@ from app.models.inventory import InventoryItem
 from app.models.inventory_import import InventoryImport
 from app.models.user import User
 from app.services.auth import get_current_user
-from app.services.billing import get_cap
+from app.services.billing import get_cap, has_feature, record_feature_skip
 from app.services.inventory_categorizer import (
     CATEGORIZER_PROMPT_VERSION, categorize_items, get_taxonomy,
 )
@@ -386,7 +386,39 @@ async def import_file(
             # refusal); the fallback below then runs.
             inv_result = extract_inventory_data(raw)
             if inv_result is not None:
-                inv_result = _enrich_supplier(inv_result)
+                # L3 — tier gate on the supplier_auto_detection feature.
+                # Free tier gets the raw Claude Vision extraction (line
+                # items + extracted supplier name / CVR if present) but
+                # NOT the supplier-dictionary match and NOT the per-line
+                # auto-categorization. Starter+ unlocks both. We pass
+                # `user=user` to _enrich_supplier as a defense-in-depth
+                # belt-and-braces — the service-layer L4 gate inside
+                # enrich_with_supplier re-checks the same flag so a
+                # future caller that bypasses this router still can't
+                # leak the feature.
+                if has_feature(user, "supplier_auto_detection"):
+                    inv_result = _enrich_supplier(inv_result, user=user)
+                else:
+                    # L7 — observability row so Manoj can see how often
+                    # the supplier-detection upsell would have fired.
+                    # Best-effort; never blocks the user-visible path.
+                    try:
+                        record_feature_skip(
+                            user,
+                            "supplier_auto_detection",
+                            {
+                                "source_kind": "image",
+                                "supplier_name": (
+                                    (inv_result.get("supplier") or {}).get("name")
+                                ),
+                                "line_items": len(inv_result.get("line_items") or []),
+                            },
+                        )
+                    except Exception:  # noqa: BLE001
+                        logger.warning(
+                            "smart-import: gate_skipped audit write failed (non-fatal)",
+                            exc_info=True,
+                        )
 
             if inv_result and inv_result.get("line_items"):
                 # Adapt the inventory_ocr shape → the generic items shape

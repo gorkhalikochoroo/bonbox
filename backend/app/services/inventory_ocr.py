@@ -706,7 +706,11 @@ def extract_inventory_data(
 # auto-categorization. The router calls this *after* extract_inventory_data
 # to produce the response the frontend renders.
 
-def enrich_with_supplier(extraction: Optional[dict]) -> Optional[dict]:
+def enrich_with_supplier(
+    extraction: Optional[dict],
+    *,
+    user: Optional[Any] = None,
+) -> Optional[dict]:
     """Match supplier + auto-categorize each line item in-place.
 
     Adds:
@@ -716,9 +720,40 @@ def enrich_with_supplier(extraction: Optional[dict]) -> Optional[dict]:
 
     Returns the SAME dict (mutated) for chaining convenience. None
     in → None out.
+
+    L4 tier-gate (multi-barrier doctrine): if ``user`` is provided AND
+    that user's plan does not have the ``supplier_auto_detection``
+    feature, the enrichment short-circuits — the extraction is returned
+    unchanged (no ``supplier_match`` key, no per-item ``category`` /
+    ``category_confidence``). The router gate (L3) is the primary
+    enforcement; this defensive layer catches any future caller that
+    bypasses the router. ``user=None`` keeps the public function
+    backward-compatible for tests + admin / CLI callers that have no
+    user context.
     """
     if extraction is None or not isinstance(extraction, dict):
         return None
+
+    # L4 — defensive tier gate. The router (L3) should already have
+    # branched on has_feature() before calling us; this is the second
+    # layer that catches refactors / future callers that forget. Lazy
+    # import keeps billing out of inventory_ocr's import graph at
+    # module level — only loaded when a user is actually passed in.
+    if user is not None:
+        try:
+            from app.services.billing import has_feature
+            if not has_feature(user, "supplier_auto_detection"):
+                logger.debug(
+                    "[Inventory OCR] enrich skipped — user lacks supplier_auto_detection"
+                )
+                return extraction
+        except Exception as e:  # noqa: BLE001
+            # Fail closed: if we can't verify the entitlement we MUST
+            # skip enrichment rather than silently grant it.
+            logger.warning(
+                "[Inventory OCR] entitlement check failed, skipping enrichment: %s", e,
+            )
+            return extraction
 
     # Lazy import keeps the data dict out of inventory_ocr's import
     # graph at module level — only loaded when enrichment is called.

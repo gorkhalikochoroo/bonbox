@@ -360,6 +360,16 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # aggregator endpoints are gated here so Free can't bypass the
         # tier boundary by hitting /api/kasserapport/aggregate directly.
         "multi_terminal_close": False,
+        # 2026-05-24 — Supplier auto-detection (retroactive gate on
+        # commit 142e278). Free still gets generic Claude Vision OCR for
+        # inventory invoices (line items extract correctly + supplier
+        # name / CVR are surfaced when the model reads them). The gated
+        # value-add is the dictionary match against the 16+ Danish food
+        # wholesalers (Hørkram, BC Catering, AB Catering, Dagrofa
+        # Foodservice, …) AND the per-line auto-categorization that
+        # rides on the supplier match. Starter+ unlocks both — turns the
+        # 30-line invoice into 30 categorised inventory rows in one tap.
+        "supplier_auto_detection": False,
     },
     "starter": {
         "ai_anomaly_detection": True,
@@ -383,6 +393,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "smart_pricing": True,             # Task #64 — same on all tiers, retention
         "customer_outreach": False,        # Pro-only — Task #69 Pro killer
         "multi_terminal_close": False,     # Pro-only — P5 honesty fix
+        "supplier_auto_detection": True,   # Starter+ — Danish supplier dict + auto-categorize
     },
     "trial": {  # = full Pro
         "ai_anomaly_detection": True,
@@ -406,6 +417,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "smart_pricing": True,
         "customer_outreach": True,
         "multi_terminal_close": True,
+        "supplier_auto_detection": True,
     },
     "pro": {
         "ai_anomaly_detection": True,
@@ -429,6 +441,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "smart_pricing": True,
         "customer_outreach": True,        # Pro killer — Task #69
         "multi_terminal_close": True,     # P5 honesty fix — multi-POS consolidated close
+        "supplier_auto_detection": True,  # Danish supplier dict + auto-categorize (retro gate)
     },
 }
 
@@ -689,6 +702,29 @@ def record_cap_refusal(user: User, cap_key: str, detail: dict[str, Any]) -> None
     logging L7 observability). Writes `cap_exceeded.<cap_key>` to
     security_events. Best-effort — never raises."""
     _record_gate_refusal(user, f"cap_exceeded.{cap_key}", detail)
+
+
+def record_feature_skip(user: User, feature: str, detail: dict[str, Any] | None = None) -> None:
+    """Public wrapper for routers that SOFT-skip a feature for the user's
+    tier rather than 402-refusing it.
+
+    Used when the underlying request still succeeds (the user gets a
+    degraded but valid result) and we only want to observe that the
+    Starter+ value-add was skipped. Example: Free tier still gets the
+    generic inventory OCR but the supplier dictionary match + auto-
+    categorization layer is short-circuited — record a
+    `gate_skipped.supplier_auto_detection` row so Manoj can see "this
+    feature would have helped N Free users this week → strong upgrade-
+    pitch signal".
+
+    Writes `gate_skipped.<feature>` to security_events. Best-effort —
+    never raises, never blocks the user-visible path.
+    """
+    payload = dict(detail) if isinstance(detail, dict) else {}
+    payload.setdefault("feature", feature)
+    payload.setdefault("plan", effective_plan(user))
+    payload.setdefault("upgrade_to", min_plan_for_feature(feature))
+    _record_gate_refusal(user, f"gate_skipped.{feature}", payload)
 
 
 def _record_gate_refusal(user: User, event_type: str, detail: dict[str, Any]) -> None:

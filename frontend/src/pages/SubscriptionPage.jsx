@@ -126,6 +126,13 @@ const buildTiers = (t) => [
       { text: t("featStarterBankRec", "Bank reconciliation — upload netbank CSV, auto-match payments to fakturaer") || "Bank reconciliation — upload netbank CSV, auto-match payments to fakturaer" },
       { text: t("featStarterRecurring", "Recurring expenses — rent, internet, subscriptions auto-post on schedule") || "Recurring expenses — rent, internet, subscriptions auto-post on schedule" },
       { text: t("featStarterReceipt200", "Receipt OCR — 200 / month, AI vision-grade accuracy") || "Receipt OCR — 200 / month, AI vision-grade accuracy" },
+      // Supplier auto-detection — Starter-exclusive value-add. Pairs
+      // naturally with bank reconciliation: snap the supplier invoice,
+      // 30 categorized inventory rows appear, the matching MobilePay /
+      // bank line auto-reconciles. Free still gets generic inventory
+      // OCR so the bullet's HONESTLY a tier upsell, not a "Free can't
+      // OCR" lie.
+      { text: t("featStarterSupplierDetect", "Auto-detect 16+ Danish suppliers (Hørkram, BC Catering, AB Catering, …) — instant categorization on every invoice") || "Auto-detect 16+ Danish suppliers (Hørkram, BC Catering, AB Catering, …) — instant categorization on every invoice" },
       { text: t("featStarterEmailRevisor", "Email kasserapport to your bogholder in one tap") || "Email kasserapport to your bogholder in one tap" },
       { text: t("featStarterFaktura30", "Faktura — up to 30 / month, emailed direct to customer") || "Faktura — up to 30 / month, emailed direct to customer" },
       { text: t("featStarterKreditnota", "Proper kreditnota flow — Bogføringsloven §7 compliant") || "Proper kreditnota flow — Bogføringsloven §7 compliant" },
