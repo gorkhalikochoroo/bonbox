@@ -496,10 +496,34 @@ async def agent_chat(
     from app.services.billing import enforce_cap
     from app.services.tz_utils import utc_window_for_local_day, today_local
     from app.models.event_log import EventLog
-    from sqlalchemy import func as _sa_func
+    from sqlalchemy import func as _sa_func, text as _sa_text
+    import hashlib as _hashlib
 
     _today = today_local(user)
     _day_start_utc, _day_end_utc = utc_window_for_local_day(user, _today)
+
+    # Serialize concurrent chat-cap counting per-user via a Postgres
+    # advisory transaction lock. Closes the classic check-then-act race
+    # where two concurrent requests at count=cap-1 could both pass the
+    # cap check and both write EventLog rows. The lock auto-releases on
+    # commit/rollback. Key is hashed from (user_id, "agent.chat") so
+    # only this user's concurrent calls serialize — every other user's
+    # chat flows independently.
+    #
+    # Best-effort: wrapped in try/except so dev/test on SQLite (no
+    # advisory locks) still works — the race is only a prod concern
+    # where Postgres is the backend.
+    try:
+        _chat_lock_key = int(
+            _hashlib.md5(f"agent.chat:{user.id}".encode("utf-8")).hexdigest()[:15],
+            16,
+        )
+        db.execute(_sa_text("SELECT pg_advisory_xact_lock(:k)"), {"k": _chat_lock_key})
+    except Exception:  # noqa: BLE001
+        # Non-Postgres backend (SQLite test/dev) — the race is acceptable
+        # outside production. Continue without the lock.
+        pass
+
     used_today = (
         db.query(_sa_func.count(EventLog.id))
         .filter(

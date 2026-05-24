@@ -143,6 +143,16 @@ def create_branch(
     if at_cap(current_user, "branches", existing):
         cap = get_cap(current_user, "branches")
         plan = effective_plan(current_user)
+        # L7 — write SecurityEvent observability row before raising.
+        # Kept at 403 (not 402) because BranchPage.jsx:70 specifically
+        # checks for 403 to render its UpgradeNudge; switching the status
+        # would silently break the frontend handling.
+        from app.services.billing import record_cap_refusal
+        record_cap_refusal(
+            current_user,
+            "branches",
+            {"plan": plan, "limit": cap, "current": existing},
+        )
         raise HTTPException(
             status_code=403,
             detail=(

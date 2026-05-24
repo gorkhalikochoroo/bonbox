@@ -656,6 +656,15 @@ def feature_locked_detail(user: User, feature: str) -> dict[str, Any]:
 # stays usable from non-FastAPI contexts (e.g. CLI scripts) without
 # pulling FastAPI in transitively at import time.
 
+def record_cap_refusal(user: User, cap_key: str, detail: dict[str, Any]) -> None:
+    """Public wrapper around _record_gate_refusal for routers that need to
+    audit a cap-exceeded event without going through enforce_cap (e.g.
+    callers that need to preserve a non-402 HTTP status while still
+    logging L7 observability). Writes `cap_exceeded.<cap_key>` to
+    security_events. Best-effort — never raises."""
+    _record_gate_refusal(user, f"cap_exceeded.{cap_key}", detail)
+
+
 def _record_gate_refusal(user: User, event_type: str, detail: dict[str, Any]) -> None:
     """L7 — best-effort SecurityEvent write for every gate refusal.
 

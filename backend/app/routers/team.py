@@ -128,6 +128,14 @@ def invite_member(
     if at_cap(user, "team_users", seats_used):
         cap = get_cap(user, "team_users")
         plan = effective_plan(user)
+        # L7 — SecurityEvent observability row before raising the 403.
+        # Status stays 403 (not 402) for frontend-handler compatibility.
+        from app.services.billing import record_cap_refusal
+        record_cap_refusal(
+            user,
+            "team_users",
+            {"plan": plan, "limit": cap, "current": seats_used},
+        )
         raise HTTPException(
             status_code=403,
             detail=(
