@@ -1,8 +1,9 @@
 import io
+import logging
 from datetime import date, timedelta
 import calendar
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -27,9 +28,21 @@ from app.models.khata import KhataCustomer, KhataTransaction
 from app.models.cashbook import CashTransaction
 from app.models.staffing import StaffingRule
 from app.models.business_profile import BusinessProfile
+from app.services import audit_service
 from app.services.auth import get_current_user
 from pydantic import BaseModel
 from typing import List
+
+log = logging.getLogger(__name__)
+
+
+def _client_ip(request: Request) -> str | None:
+    """Best-effort client IP for audit rows. Mirrors the pattern used in
+    tax.py / smart_scan.py."""
+    try:
+        return request.client.host if request.client else None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _get_business_profile(db: Session, user_id) -> dict:
@@ -932,6 +945,7 @@ def _get_vat_data(db, user, start, end):
 
 @router.get("/vat-export")
 def vat_export(
+    request: Request,
     month: int = Query(None),
     year: int = Query(...),
     quarter: int = Query(None, ge=1, le=4),
@@ -959,11 +973,42 @@ def vat_export(
 
     data = _get_vat_data(db, user, start, end)
     data["period"] = period_label
+
+    # Audit log — Bogføringsloven §10 expects a trail on every financial-
+    # data egress. Mirrors the tax.py:307 pattern. Failure must NEVER
+    # block the response (the user has a legitimate right to view their
+    # own MOMS data — audit is a side channel).
+    try:
+        audit_service.record(
+            db, user=user,
+            action="reports.vat_export_viewed",
+            entity_type="vat_export",
+            entity_id=None,
+            before=None,
+            after={
+                "period": period_label,
+                "period_start": start.isoformat(),
+                "period_end": end.isoformat(),
+                "currency": data.get("currency"),
+                "vat_rate_pct": data.get("vat_rate_pct"),
+                "output_vat": float(data.get("output_vat") or 0),
+                "input_vat": float(data.get("input_vat") or 0),
+                "vat_payable": float(data.get("vat_payable") or 0),
+                "format": "json",
+            },
+            ip_address=_client_ip(request),
+        )
+        db.commit()
+    except Exception as e:  # noqa: BLE001
+        log.warning("reports.vat_export_viewed audit log failed: %s", e)
+        db.rollback()
+
     return data
 
 
 @router.get("/vat-export/pdf")
 def vat_export_pdf(
+    request: Request,
     month: int = Query(None),
     year: int = Query(...),
     quarter: int = Query(None, ge=1, le=4),
@@ -1122,6 +1167,38 @@ def vat_export_pdf(
 
     doc.build(elements)
     buf.seek(0)
+
+    # Audit log — Bogføringsloven §10: every financial-PDF egress writes
+    # an audit row. Mirrors tax.py:307. Failure logs but never blocks
+    # the download (user has a right to their own MOMS data).
+    pdf_bytes_len = buf.getbuffer().nbytes
+    try:
+        audit_service.record(
+            db, user=user,
+            action="reports.vat_export_pdf_generated",
+            entity_type="vat_export",
+            entity_id=None,
+            before=None,
+            after={
+                "period": period_label,
+                "period_start": start.isoformat(),
+                "period_end": end.isoformat(),
+                "currency": cur,
+                "vat_rate_pct": data.get("vat_rate_pct"),
+                "output_vat": float(data.get("output_vat") or 0),
+                "input_vat": float(data.get("input_vat") or 0),
+                "vat_payable": float(data.get("vat_payable") or 0),
+                "filename": filename,
+                "pdf_size_bytes": pdf_bytes_len,
+                "format": "pdf",
+            },
+            ip_address=_client_ip(request),
+        )
+        db.commit()
+    except Exception as e:  # noqa: BLE001
+        log.warning("reports.vat_export_pdf_generated audit log failed: %s", e)
+        db.rollback()
+
     return StreamingResponse(
         buf,
         media_type="application/pdf",
