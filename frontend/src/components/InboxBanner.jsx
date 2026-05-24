@@ -114,16 +114,16 @@ export default function InboxBanner({
   const [copied, setCopied] = useState(false);
   const [testing, setTesting] = useState(false);
   const [toast, setToast] = useState(null);   // { kind, msg }
-  // Card form (used on /connections) is always full because it lives in
-  // a grid where every tile is the same shape — collapsing one looks
-  // broken. Only the banner form (used on /expenses) is collapsible.
-  const [expanded, setExpandedState] = useState(() =>
-    variant === "card" ? true : _isExpanded(),
-  );
+  // This component is the BANNER variant only (the /connections page
+  // uses a separate `InboxConnectionCard` defined below). So it's
+  // always collapsible — no variant check needed. Default state is
+  // collapsed because most owners forward receipts weekly at most;
+  // the full card was hogging real estate on every /expenses visit.
+  const [expanded, setExpandedState] = useState(_isExpanded);
   const toggleExpanded = () => {
     setExpandedState((prev) => {
       const next = !prev;
-      if (variant !== "card") _setExpanded(next);
+      _setExpanded(next);
       return next;
     });
   };
@@ -244,26 +244,24 @@ export default function InboxBanner({
       role="region"
       aria-label={t("inboxBannerAria", "Receipt-forwarding email inbox")}
     >
-      {/* Collapse/expand toggle (banner-only — the card form on
-          /connections lives in a uniform grid and always stays full). */}
-      {variant !== "card" && (
-        <button
-          type="button"
-          onClick={toggleExpanded}
-          aria-label={expanded
-            ? t("inboxCollapse", "Hide receipt inbox details")
-            : t("inboxExpand", "Show receipt inbox details")}
-          aria-expanded={expanded}
-          className={`absolute top-3 ${dismissable ? "right-12" : "right-3"} w-8 h-8 rounded-full inline-flex items-center justify-center
-                     hover:bg-black/5 dark:hover:bg-white/10 transition
-                     text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200
-                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500`}
-        >
-          {expanded
-            ? <ChevronUp className="w-4 h-4" aria-hidden="true" />
-            : <ChevronDown className="w-4 h-4" aria-hidden="true" />}
-        </button>
-      )}
+      {/* Collapse/expand toggle — banner is always collapsible. Sits
+          to the left of the dismiss × when both are present. */}
+      <button
+        type="button"
+        onClick={toggleExpanded}
+        aria-label={expanded
+          ? t("inboxCollapse", "Hide receipt inbox details")
+          : t("inboxExpand", "Show receipt inbox details")}
+        aria-expanded={expanded}
+        className={`absolute top-3 ${dismissable ? "right-12" : "right-3"} w-8 h-8 rounded-full inline-flex items-center justify-center
+                   hover:bg-black/5 dark:hover:bg-white/10 transition
+                   text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200
+                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500`}
+      >
+        {expanded
+          ? <ChevronUp className="w-4 h-4" aria-hidden="true" />
+          : <ChevronDown className="w-4 h-4" aria-hidden="true" />}
+      </button>
 
       {/* Dismiss (banner-only — keeps the surface alive on /connections) */}
       {dismissable && (
