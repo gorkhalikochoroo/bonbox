@@ -34,6 +34,11 @@ limiter = Limiter(key_func=get_remote_address)
 def list_sales(
     from_date: date = Query(None, alias="from"),
     to_date: date = Query(None, alias="to"),
+    # Cultural-event filter (migration 013). When present, only returns
+    # sales tagged for this event. Pass `event_id=null` (literal string)
+    # to find UNTAGGED sales — useful for "show me everything that wasn't
+    # tied to an event last month".
+    event_id: str | None = Query(None),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -42,6 +47,16 @@ def list_sales(
         query = query.filter(Sale.date >= from_date)
     if to_date:
         query = query.filter(Sale.date <= to_date)
+    if event_id is not None:
+        normalised = event_id.strip().lower()
+        if normalised in ("null", "none", ""):
+            query = query.filter(Sale.event_id.is_(None))
+        else:
+            try:
+                ev_uuid = uuid.UUID(event_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid event_id")
+            query = query.filter(Sale.event_id == ev_uuid)
     return query.order_by(Sale.date.desc(), Sale.created_at.desc()).all()
 
 
@@ -126,6 +141,24 @@ def create_sale(
     else:
         sale_data["terminal_id"] = None
 
+    # ── Cultural event tagging (migration 013) ─────────────────────────
+    # event_id is optional. When supplied, verify it belongs to the
+    # caller — same IDOR-defense pattern as terminal_id above. We don't
+    # require the event to be non-deleted so back-dated sales for a
+    # since-soft-deleted event still tag correctly (e.g. owner deletes
+    # the event after the fact but a delayed CSV import for that day
+    # still links cleanly).
+    eid = sale_data.get("event_id")
+    if eid is not None:
+        from app.models.event import Event as _Event
+        owns_event = (
+            db.query(_Event.id)
+            .filter(_Event.id == eid, _Event.user_id == user.id)
+            .first()
+        )
+        if not owns_event:
+            raise HTTPException(status_code=404, detail="Event not found")
+
     # Item sale: link to inventory, auto-calculate amount, deduct stock
     if data.inventory_item_id and data.quantity_sold and data.unit_price:
         item = db.query(InventoryItem).filter(
@@ -197,7 +230,24 @@ def update_sale(
     if not sale:
         raise HTTPException(status_code=404, detail="Sale not found")
     old_method = sale.payment_method
-    for field, value in data.model_dump(exclude_unset=True).items():
+    update_payload = data.model_dump(exclude_unset=True)
+    # ── Cultural event tagging (migration 013) ─────────────────────────
+    # When the PATCH/PUT payload moves the sale to a different event,
+    # verify the new event belongs to the caller. Sending `event_id=None`
+    # explicitly clears the tag — always allowed.
+    if "event_id" in update_payload and update_payload["event_id"] is not None:
+        from app.models.event import Event as _Event
+        owns_event = (
+            db.query(_Event.id)
+            .filter(
+                _Event.id == update_payload["event_id"],
+                _Event.user_id == user.id,
+            )
+            .first()
+        )
+        if not owns_event:
+            raise HTTPException(status_code=404, detail="Event not found")
+    for field, value in update_payload.items():
         setattr(sale, field, value)
     ref_id = f"sale_{sale.id}"
     if old_method == "cash" and sale.payment_method != "cash":
@@ -413,10 +463,63 @@ async def import_csv(
     request: Request,
     file: UploadFile = File(...),
     dry_run: bool = False,
+    source: str | None = Query(None, pattern="^(billetto)$"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Import sales from CSV. Expects columns: date, amount, payment_method (optional).
+    """Import sales from CSV.
+
+    Default mode (no `source` query param) — minimal columns:
+        date, amount, payment_method (optional)
+    This is the historical contract and is preserved byte-for-byte.
+
+    `source=billetto` — accept Billetto/TicketCo's pre-event ticket
+    export. Mapping (header names are case-insensitive; we accept the
+    EN headers Billetto emits by default + the DK aliases their
+    Danish-locale exports use):
+
+        Billetto column         →  BonBox handling
+        --------------------------------------------------------------
+        Order ID (Ordrenummer)  →  Sale.reference_id  (prefixed "billetto:")
+                                   + appended into Sale.notes
+        Order date / Date /
+          Ordredato             →  Sale.date
+        Ticket type /
+          Billettype            →  appended to Sale.notes ("ticket_type=…")
+                                   (Sale model has no ticket_breakdown
+                                    column today — Agent Y owns that
+                                    follow-up; until that lands we keep
+                                    the dimension in notes so the data
+                                    is never lost on import)
+        Amount / Beløb /
+          Total / Gross         →  Sale.amount (gross — what the
+                                    customer paid; net-of-fee math
+                                    happens via the separate "fee"
+                                    Expense row below)
+        Fee (Gebyr)             →  recorded as a separate Expense entry
+                                   tagged "Billetto fee" so MOMS /
+                                   bookkeeping handles it as a cost,
+                                   not a sales deduction
+        Payout / Payout date /
+          Udbetalingsdato       →  stringified into Sale.notes
+                                   ("payout=YYYY-MM-DD") for trace —
+                                   not stored as a structured field
+        Payment method /
+          Betalingsmetode       →  Sale.payment_method (defaulted to
+                                   "online" because Billetto is an
+                                   online ticketing platform)
+
+    Two cross-cutting decisions worth flagging:
+
+      • amount is the GROSS figure (what the buyer was charged). The
+        Billetto fee is split out as its own Expense entry, mirroring
+        how revenue + cost would book in Dinero/Billy/e-conomic. The
+        revisor sees the full gross sale AND the platform's cut as a
+        line-item cost.
+      • The "Billetto fee" Expense is auto-tagged with payment_method
+        "online" and category "Other" (or auto-categorised by the
+        existing keyword map). Owners can re-categorise individually
+        in the Expenses page if they prefer.
 
     Multi-layer defense:
       • dry_run=true → parse + validate but do NOT commit. Used by the frontend
@@ -424,6 +527,9 @@ async def import_csv(
       • Returns imported_ids → the frontend can offer an "Undo last import"
         button that calls /import-csv/rollback within 5 minutes.
       • Per-row try/except so one malformed row doesn't drop the whole batch.
+      • `source` is regex-bounded to a known whitelist so an attacker
+        can't pass a value that bypasses validation; unknown sources
+        fall through to the default (simple) parser.
     """
     # Validate file type
     if file.content_type not in ("text/csv", "application/vnd.ms-excel", "text/plain"):
@@ -449,13 +555,45 @@ async def import_csv(
     errors = []
     preview_rows = []
     pending_sales = []  # (Sale instance, row_num) — added to DB only on commit
+    # Pending Billetto-fee expenses — written alongside the sale rows in
+    # the commit phase below, so the bilagsnummer sequence stays gapless.
+    pending_fee_expenses: list[tuple[date, float, str]] = []
+
+    # ── Billetto helper: pick first non-empty value among aliases ─────
+    def _pick(row: dict, *aliases: str) -> str:
+        for a in aliases:
+            v = row.get(a)
+            if v:
+                return v
+        return ""
 
     for i, row in enumerate(reader, start=2):
         row = {k.strip().lower(): v.strip() for k, v in row.items() if k}
         try:
-            sale_date = row.get("date", "")
-            amount_raw = row.get("amount", "") or row.get("revenue", "") or row.get("total", "")
-            method = row.get("payment_method", "") or row.get("payment", "") or "mixed"
+            if source == "billetto":
+                # ── Billetto / TicketCo column mapping ────────────────
+                # Header aliases cover EN + DK locale exports.
+                sale_date = _pick(
+                    row, "order date", "date", "ordredato",
+                    "purchase date", "ordre dato",
+                )
+                amount_raw = _pick(
+                    row, "amount", "total", "gross", "beløb", "belob",
+                )
+                ticket_type = _pick(row, "ticket type", "billettype")
+                order_id = _pick(row, "order id", "ordrenummer", "order_id")
+                fee_raw = _pick(row, "fee", "gebyr", "billetto fee")
+                payout_date = _pick(
+                    row, "payout date", "payout", "udbetalingsdato",
+                )
+                method = _pick(
+                    row, "payment method", "betalingsmetode", "payment",
+                ) or "online"
+            else:
+                sale_date = row.get("date", "")
+                amount_raw = row.get("amount", "") or row.get("revenue", "") or row.get("total", "")
+                method = row.get("payment_method", "") or row.get("payment", "") or "mixed"
+                ticket_type = order_id = fee_raw = payout_date = ""
 
             if not sale_date or not amount_raw:
                 errors.append(f"Row {i}: missing date or amount")
@@ -499,21 +637,82 @@ async def import_csv(
                 "just_eat",  # legacy — Just Eat closed DK 2024, kept for historical imports
             )
             if normalized_method not in allowed:
-                normalized_method = "mixed"
+                normalized_method = "online" if source == "billetto" else "mixed"
 
-            sale = Sale(
-                user_id=user.id,
-                date=parsed_date,
-                amount=amount_val,
-                payment_method=normalized_method,
-                notes="CSV import",
-            )
+            # ── Build per-row sale ────────────────────────────────────
+            if source == "billetto":
+                # Preserve every Billetto dimension we don't have a
+                # structured column for in Sale.notes. Format: pipe-
+                # separated key=value pairs so a future migration can
+                # round-trip these into Sale.ticket_breakdown once
+                # Agent Y's column lands.
+                trace_parts = ["source=billetto"]
+                if order_id:
+                    trace_parts.append(f"order_id={order_id}")
+                if ticket_type:
+                    trace_parts.append(f"ticket_type={ticket_type}")
+                if payout_date:
+                    trace_parts.append(f"payout={payout_date}")
+                notes_str = " | ".join(trace_parts)
+                # reference_id is the right home for the order id — it's
+                # indexed and prevents duplicate imports of the same
+                # Billetto order if the user re-uploads the file.
+                ref_id = (
+                    f"billetto:{order_id}"[:100] if order_id else None
+                )
+                sale = Sale(
+                    user_id=user.id,
+                    date=parsed_date,
+                    amount=amount_val,
+                    payment_method=normalized_method,
+                    notes=notes_str,
+                    reference_id=ref_id,
+                )
+                # Parse the Billetto fee (if present) into a pending
+                # Expense row. Writing it now would commit before the
+                # sale's bilagsnummer is allocated — defer to the
+                # commit phase below so the audit order matches the
+                # user's mental model (sale, then platform cost).
+                if fee_raw:
+                    try:
+                        fee_val = float(
+                            fee_raw.replace(",", "").replace(" ", "")
+                        )
+                        if fee_val > 0:
+                            pending_fee_expenses.append(
+                                (parsed_date, fee_val, order_id or "")
+                            )
+                    except ValueError:
+                        # Don't fail the row — sale is still valid;
+                        # the fee just won't get logged. Owner can
+                        # add it manually if needed.
+                        errors.append(
+                            f"Row {i}: ignored unparseable fee '{fee_raw}'"
+                        )
+            else:
+                sale = Sale(
+                    user_id=user.id,
+                    date=parsed_date,
+                    amount=amount_val,
+                    payment_method=normalized_method,
+                    notes="CSV import",
+                )
             pending_sales.append(sale)
             preview_rows.append({
                 "row": i,
                 "date": str(parsed_date),
                 "amount": amount_val,
                 "payment_method": normalized_method,
+                **(
+                    {
+                        "source": "billetto",
+                        "order_id": order_id,
+                        "ticket_type": ticket_type,
+                        "fee": fee_raw,
+                    }
+                    if source == "billetto"
+                    else {}
+                ),
             })
             imported += 1
         except Exception as e:
@@ -528,10 +727,13 @@ async def import_csv(
             "preview": preview_rows[:50],  # cap preview to keep response small
             "preview_truncated": imported > 50,
             "dry_run": True,
+            "source": source or "simple",
+            "billetto_fee_count": len(pending_fee_expenses) if source == "billetto" else 0,
         }
 
     # Commit phase
     imported_ids: list[str] = []
+    fee_expense_count = 0
     try:
         # Allocate bilagsnummer per row before persisting. We allocate
         # in-loop (rather than batch+1) so each sale's voucher matches
@@ -551,6 +753,72 @@ async def import_csv(
             db.add(s)
         db.flush()  # populate IDs without committing yet
         imported_ids = [str(s.id) for s in pending_sales]
+
+        # ── Billetto fee → Expense rows ────────────────────────────────
+        # Created after sales so the sale-side bilagsnummer sequence stays
+        # contiguous (revisor expects sale numbers, then expense numbers).
+        # Wrapped defensively so a fee-write failure NEVER drops the sale
+        # commit — losing the gross sale is much worse than losing the
+        # platform-fee cost (owner can re-add the fee manually).
+        if source == "billetto" and pending_fee_expenses:
+            try:
+                from app.models.expense import (
+                    Expense as _Expense,
+                    ExpenseCategory as _ExpenseCategory,
+                )
+                # Find or create the user's "Other" category — same
+                # convention the Quick Expense flow uses, so the fee
+                # entries land in a category the owner already knows.
+                other_cat = (
+                    db.query(_ExpenseCategory)
+                    .filter(
+                        _ExpenseCategory.user_id == user.id,
+                        _ExpenseCategory.name == "Other",
+                    )
+                    .first()
+                )
+                if not other_cat:
+                    other_cat = _ExpenseCategory(
+                        user_id=user.id,
+                        name="Other",
+                        color="#3B82F6",
+                    )
+                    db.add(other_cat)
+                    db.flush()
+                for fee_date, fee_val, ref in pending_fee_expenses:
+                    fee_exp = _Expense(
+                        user_id=user.id,
+                        category_id=other_cat.id,
+                        date=fee_date,
+                        amount=fee_val,
+                        description="Billetto fee",
+                        is_recurring=False,
+                        payment_method="online",
+                        notes=f"source=billetto | order_id={ref}" if ref else "source=billetto",
+                        is_personal=False,
+                        reference_id=(f"billetto_fee:{ref}"[:100] if ref else None),
+                    )
+                    if allocate_voucher:
+                        try:
+                            fee_exp.voucher_number = allocate_voucher(
+                                db, user.id, "expense", fee_date.year
+                            )
+                        except Exception:  # noqa: BLE001
+                            pass
+                    db.add(fee_exp)
+                    fee_expense_count += 1
+                db.flush()
+            except Exception as e:  # noqa: BLE001
+                log.warning(
+                    "Billetto fee expense write failed (sales kept): %s", e
+                )
+                # roll back ONLY the fee inserts — sales are already
+                # added to the session; we can't selectively rollback,
+                # so we accept that fees may not land and let the user
+                # add them manually. Errors list surfaces the problem.
+                errors.append(
+                    f"Billetto fees not recorded (db error): {str(e)[:100]}"
+                )
         db.commit()
     except Exception as e:
         db.rollback()
@@ -565,6 +833,8 @@ async def import_csv(
         "imported": imported,
         "errors": errors,
         "imported_ids": imported_ids,  # frontend can use these for "Undo"
+        "source": source or "simple",
+        "billetto_fee_expenses_created": fee_expense_count,
     }
 
 

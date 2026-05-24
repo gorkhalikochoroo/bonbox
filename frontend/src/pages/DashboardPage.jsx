@@ -1574,7 +1574,7 @@ export default function DashboardPage() {
   }, []);
 
   // ── Quick actions ──
-  const handleQuickSale = async (amount, inclMoms = true) => {
+  const handleQuickSale = async (amount, inclMoms = true, isTaxExempt = false) => {
     // The Sale model stores `amount` in the form the user's profile
     // dictates (gross if prices_include_moms=true, net if false). The
     // Quick Sale modal lets the owner override per-entry — e.g. their
@@ -1588,10 +1588,17 @@ export default function DashboardPage() {
     // Rate is currency-aware (DKK 25%, EUR 21%, NPR 13%, GBP 20%, etc.)
     // — the single-source TAX_RATES table in utils/currency.js is the
     // same table the rest of the frontend reads.
+    //
+    // MOMS-fri (is_tax_exempt=true): skip the Incl./Excl. conversion
+    // entirely. The row gets stored at face value and flagged exempt
+    // so property_report drops it from `taxable_sales` while keeping
+    // it in `total_revenue` (gift cards, B2B reverse-charge, EU export,
+    // §13 nr.17). The MOMS-angivelse PDF then reports it correctly on
+    // line `salg_uden_moms` (fixed in commit 8fce2ef).
     const profileInclMoms = user?.prices_include_moms ?? true;
     const vatRate = getTaxConfig(user?.currency).rate;  // e.g. 0.25 DKK
     let storedAmount = amount;
-    if (vatRate > 0 && inclMoms !== profileInclMoms) {
+    if (!isTaxExempt && vatRate > 0 && inclMoms !== profileInclMoms) {
       if (inclMoms && !profileInclMoms) {
         // User said "Incl. MOMS" but profile stores net → strip MOMS.
         storedAmount = amount / (1 + vatRate);
@@ -1603,8 +1610,21 @@ export default function DashboardPage() {
     // Round to 2 decimals so we don't write fractional øre into the DB.
     storedAmount = Math.round(storedAmount * 100) / 100;
     try {
-      await api.post("/sales", { amount: storedAmount, date: localIso(), payment_method: "cash", notes: t("quickSaleDesc") });
-      trackEvent("sale_logged", "dashboard", `quick_sale ${amount} ${currency} ${inclMoms ? "incl" : "excl"}_moms`);
+      await api.post("/sales", {
+        amount: storedAmount,
+        date: localIso(),
+        payment_method: "cash",
+        notes: t("quickSaleDesc"),
+        // Only forward the flag when set — keeps the payload clean for
+        // the normal case and lets backend defaults handle the false
+        // path. Backend schema (schemas/sale.py:44) defaults to False
+        // so this is the same as omission when not exempt.
+        ...(isTaxExempt ? { is_tax_exempt: true } : {}),
+      });
+      const trackLabel = isTaxExempt
+        ? `quick_sale ${amount} ${currency} moms_fri`
+        : `quick_sale ${amount} ${currency} ${inclMoms ? "incl" : "excl"}_moms`;
+      trackEvent("sale_logged", "dashboard", trackLabel);
       showToast(`${t("saleLogged")} ${amount.toLocaleString()} ${currency}`, "success");
       fetchAll();
     } catch { showToast(t("failedToLogSale"), "error"); }

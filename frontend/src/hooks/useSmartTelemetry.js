@@ -69,8 +69,11 @@ export function useSmartTelemetry() {
     if (!ALLOWED_EVENTS.has(event)) return;
     if (!ALLOWED_PAGES.has(page)) return;
     const body = { event, page, detail: _sanitiseDetail(detail) };
+    // Migration 013 (kulturarrangør sprint): `/api/events` now serves
+    // the cultural-event entity CRUD; analytics telemetry lives at
+    // `/api/event-log`. Wire shape ({event, page, detail}) unchanged.
     // Fire-and-forget — telemetry must not throw or block.
-    api.post("/events", body).catch(() => { /* silently swallow */ });
+    api.post("/event-log", body).catch(() => { /* silently swallow */ });
   }
   return { track };
 }

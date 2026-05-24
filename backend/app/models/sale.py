@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import String, Date, DateTime, Numeric, Text, Boolean, ForeignKey, Index, Integer
+from sqlalchemy import String, Date, DateTime, Numeric, Text, Boolean, ForeignKey, Index, Integer, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
@@ -90,6 +90,31 @@ class Sale(Base):
         GUID(), ForeignKey("invoices.id", ondelete="SET NULL"),
         nullable=True, index=True,
     )
+    # ── Cultural event tagging (migration 013) ─────────────────────────
+    # Sudip-style customers run 10-15 events per year (Nepali Movie Night,
+    # diaspora cultural shows, pop-up market stalls) and need to slice
+    # the sales ledger by which event a row belongs to. NULL is fine —
+    # every existing row keeps working without backfill. ON DELETE SET
+    # NULL so soft-/hard-deleting an Event preserves the historical sale
+    # (auditability beats referential strictness here).
+    event_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("events.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
+    # Multi-tier ticket pricing breakdown for event sales. Optional, only
+    # populated when the sale represents a batch of tickets at varying
+    # prices. Schema (validated at the Pydantic layer, free-form here):
+    #   {
+    #     "adult":   {"price": 250.0, "count": 30},
+    #     "student": {"price": 150.0, "count": 12},
+    #     "family":  {"price": 500.0, "count":  4},
+    #   }
+    # The sum-product of (price * count) across tiers must equal sale.amount
+    # — the router cross-checks this on create/update and rejects mismatches.
+    # JSON column → SQLite stores as TEXT, Postgres uses native JSON. We don't
+    # use JSONB here because we never query into the dict; reads always
+    # fetch the whole row.
+    ticket_breakdown: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, onupdate=utc_now

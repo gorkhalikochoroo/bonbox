@@ -1,5 +1,6 @@
 import uuid
 import datetime
+from typing import Any
 from pydantic import BaseModel, field_validator
 
 
@@ -36,6 +37,55 @@ def _normalize_channel(v):
     return _CHANNEL_SYNONYMS.get(v, v) or "dine_in"
 
 
+# ── ticket_breakdown validator (migration 013) ────────────────────────
+# Shape:
+#   {
+#     "adult":   {"price": 250, "count": 30},
+#     "student": {"price": 150, "count": 12},
+#     "family":  {"price": 500, "count":  4},
+#   }
+# Tier label is free-form (matches the owner's wording — "adult", "kid",
+# "earlybird"…); the only contract is each tier has numeric `price` >= 0
+# and integer `count` >= 0. We deliberately do NOT cross-check
+# sum-product == sale.amount here — the router does that with the actual
+# Sale.amount in hand. Pure Pydantic-level checks only.
+_MAX_TIERS = 20  # sanity cap — no event has 20 distinct ticket tiers
+
+
+def _validate_ticket_breakdown(v: Any) -> Any:
+    if v is None:
+        return None
+    if not isinstance(v, dict):
+        raise ValueError("ticket_breakdown must be an object")
+    if len(v) == 0:
+        # An empty dict is meaningless — treat as None so we don't store
+        # `{}` and confuse downstream consumers.
+        return None
+    if len(v) > _MAX_TIERS:
+        raise ValueError(f"ticket_breakdown has too many tiers (max {_MAX_TIERS})")
+    cleaned: dict[str, dict[str, float]] = {}
+    for tier, payload in v.items():
+        if not isinstance(tier, str) or not tier.strip():
+            raise ValueError("ticket_breakdown tier label must be a non-empty string")
+        if len(tier) > 40:
+            raise ValueError("ticket_breakdown tier label too long (max 40 chars)")
+        if not isinstance(payload, dict):
+            raise ValueError(f"ticket_breakdown[{tier!r}] must be an object")
+        try:
+            price = float(payload.get("price", 0))
+            count = int(payload.get("count", 0))
+        except (TypeError, ValueError) as e:
+            raise ValueError(
+                f"ticket_breakdown[{tier!r}] needs numeric price + integer count"
+            ) from e
+        if price < 0:
+            raise ValueError(f"ticket_breakdown[{tier!r}].price must be >= 0")
+        if count < 0:
+            raise ValueError(f"ticket_breakdown[{tier!r}].count must be >= 0")
+        cleaned[tier.strip()] = {"price": price, "count": count}
+    return cleaned
+
+
 class SaleCreate(BaseModel):
     date: datetime.date
     amount: float | None = None  # optional for item sales (auto-calculated)
@@ -63,6 +113,11 @@ class SaleCreate(BaseModel):
     # If both supplied, terminal_id wins. Both NULL = single-terminal venue.
     terminal_id: uuid.UUID | None = None
     terminal_label: str | None = None
+    # Cultural event tagging (migration 013) — optional FK. Router checks
+    # the event belongs to the same user before persisting (defense vs IDOR).
+    event_id: uuid.UUID | None = None
+    # Multi-tier ticket pricing breakdown — see helper docstring above.
+    ticket_breakdown: dict | None = None
 
     @field_validator("payment_method", mode="before")
     @classmethod
@@ -75,6 +130,11 @@ class SaleCreate(BaseModel):
     @classmethod
     def normalize_channel(cls, v):
         return _normalize_channel(v)
+
+    @field_validator("ticket_breakdown", mode="before")
+    @classmethod
+    def normalize_ticket_breakdown(cls, v):
+        return _validate_ticket_breakdown(v)
 
 
 class SaleUpdate(BaseModel):
@@ -91,6 +151,12 @@ class SaleUpdate(BaseModel):
     is_void: bool | None = None
     is_manager_void: bool | None = None
     is_error_correct: bool | None = None
+    # Cultural event tagging (migration 013) — both optional. Passing
+    # event_id=None on PATCH explicitly clears the tag (router uses
+    # `model_dump(exclude_unset=True)` so omitting the key keeps the
+    # existing value untouched).
+    event_id: uuid.UUID | None = None
+    ticket_breakdown: dict | None = None
 
     @field_validator("payment_method", mode="before")
     @classmethod
@@ -105,6 +171,11 @@ class SaleUpdate(BaseModel):
         if v is None:
             return None
         return _normalize_channel(v)
+
+    @field_validator("ticket_breakdown", mode="before")
+    @classmethod
+    def normalize_ticket_breakdown(cls, v):
+        return _validate_ticket_breakdown(v)
 
 
 class SaleReturnRequest(BaseModel):
@@ -147,5 +218,10 @@ class SaleResponse(BaseModel):
     is_void: bool = False
     is_manager_void: bool = False
     is_error_correct: bool = False
+    # Cultural event tagging (migration 013) — surfaced so the Sales-list
+    # UI can render the event chip and the EventsPage detail view can
+    # show each sale's breakdown without a second fetch.
+    event_id: uuid.UUID | None = None
+    ticket_breakdown: dict | None = None
 
     model_config = {"from_attributes": True}

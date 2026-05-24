@@ -155,6 +155,9 @@ const KhataPage = lazyRetry(() => import("./pages/KhataPage"));
 const FakturaPage = lazyRetry(() => import("./pages/FakturaPage"));
 const FakturaReviewPage = lazyRetry(() => import("./pages/FakturaReviewPage"));
 const CustomersPage = lazyRetry(() => import("./pages/CustomersPage"));
+// Cultural events (migration 013, kulturarrangør sprint) — Sudip-style
+// owners tag Sales by which event (movie night, pop-up stall) they belong to.
+const EventsPage = lazyRetry(() => import("./pages/EventsPage"));
 const MileagePage = lazyRetry(() => import("./pages/MileagePage"));
 const LoanTrackerPage = lazyRetry(() => import("./pages/LoanTrackerPage"));
 const WeatherPage = lazyRetry(() => import("./pages/WeatherPage"));
@@ -322,6 +325,7 @@ function AppRoutes() {
         >
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/sales" element={<SalesPage />} />
+          <Route path="/events" element={<EventsPage />} />
           <Route path="/expenses" element={<ExpensesPage />} />
           <Route path="/inventory" element={<InventoryPage />} />
           <Route path="/staffing" element={<StaffingPage />} />

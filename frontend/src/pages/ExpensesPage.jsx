@@ -80,6 +80,109 @@ export default function ExpensesPage() {
   const suggestTimer = useRef(null);
   const [expandedStat, setExpandedStat] = useState(null); // "today" | "total" | "avg" | null
 
+  // ── Foreign-currency capture (Bogføringsloven §10 cross-border) ─────
+  // Sudip Sam (Nepali-DK event organizer) pays his Nepali film
+  // distributor in USD/EUR/NPR. The receipt is in the foreign currency
+  // but the bookkeeping voucher MUST also record the DKK equivalent so
+  // the revisor can reconcile. This block lets the owner type the
+  // raw foreign amount + pick the currency + live-fetch the ECB rate
+  // (via frankfurter.app — free, no key) and shows the computed DKK
+  // figure before save. POST sends both numbers so the audit trail is
+  // complete.
+  const accountCcy = (user?.currency || "DKK").toUpperCase();
+  const [fxOpen, setFxOpen] = useState(false);
+  const [fxCurrency, setFxCurrency] = useState("USD");
+  const [fxOriginalAmount, setFxOriginalAmount] = useState("");
+  const [fxRate, setFxRate] = useState("");            // manual override / fallback
+  const [fxLiveRate, setFxLiveRate] = useState(null);  // last fetched ECB rate
+  const [fxLoading, setFxLoading] = useState(false);
+  const [fxError, setFxError] = useState("");
+  // Common ISO 4217 codes Sudip + other DK SMBs are likely to touch.
+  // Kept short on purpose — owners with niche currencies can type their
+  // own three letters via the editable input (we accept any uppercase
+  // 3-letter token).
+  const FX_CURRENCIES = ["DKK", "USD", "EUR", "NPR", "GBP", "SEK", "NOK", "PLN"];
+  // ECB-published rates (via frankfurter.app) cover ~30 currencies.
+  // Hardcoded fallback table for when the API is down or the chosen
+  // currency isn't in ECB's list (NPR is the relevant one for Sudip —
+  // ECB doesn't publish NPR, so frankfurter returns nothing and we
+  // must fall back to a sane recent value or the user's manual rate).
+  // L4 fail-soft — better an approximate rate than blocking the save.
+  // These are 2026-Q2 anchors; owners can override via the manual
+  // input.
+  const FX_FALLBACK_TO_DKK = {
+    DKK: 1, USD: 6.85, EUR: 7.46, NPR: 0.052, GBP: 8.60,
+    SEK: 0.65, NOK: 0.62, PLN: 1.72,
+  };
+
+  // Live ECB rate lookup (debounced by the toggle/input itself — only
+  // runs when the owner opens the panel or changes currency). Network
+  // failures are non-fatal: we surface a yellow note and fall back to
+  // the table above so the owner can still save the expense.
+  useEffect(() => {
+    if (!fxOpen) return;
+    if (fxCurrency === accountCcy) { setFxLiveRate(1); setFxError(""); return; }
+    setFxLoading(true);
+    setFxError("");
+    const ctrl = new AbortController();
+    fetch(
+      `https://api.frankfurter.app/latest?from=${encodeURIComponent(fxCurrency)}&to=${encodeURIComponent(accountCcy)}`,
+      { signal: ctrl.signal },
+    )
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((data) => {
+        const rate = data?.rates?.[accountCcy];
+        if (typeof rate === "number" && rate > 0) {
+          setFxLiveRate(rate);
+          // Pre-fill the manual override field so the displayed math
+          // matches the rate that will actually get POSTed. The owner
+          // can still type their own override on top.
+          setFxRate(String(rate));
+        } else {
+          // Frankfurter doesn't publish this currency (e.g. NPR) —
+          // fall back to the local table without surfacing a red error.
+          const fb = FX_FALLBACK_TO_DKK[fxCurrency];
+          if (fb) {
+            setFxLiveRate(fb);
+            setFxRate(String(fb));
+            setFxError(t("fx.fallbackInUse", "Using built-in rate (ECB has no live rate for this currency)"));
+          } else {
+            setFxError(t("fx.rateMissing", "No live rate available — type one manually below."));
+          }
+        }
+      })
+      .catch((e) => {
+        if (e.name === "AbortError") return;
+        // L4 fail-soft — ECB API hiccup. Use fallback table.
+        const fb = FX_FALLBACK_TO_DKK[fxCurrency];
+        if (fb) {
+          setFxLiveRate(fb);
+          setFxRate(String(fb));
+          setFxError(t("fx.apiDown", "FX API unreachable — using built-in rate. You can edit below."));
+        } else {
+          setFxError(t("fx.apiDownNoFallback", "FX API unreachable — type a rate manually."));
+        }
+      })
+      .finally(() => setFxLoading(false));
+    return () => ctrl.abort();
+  }, [fxOpen, fxCurrency, accountCcy]);
+
+  // Effective rate used for math/POST — manual override wins over
+  // the live/fallback figure so an owner who knows their bank's
+  // actual posted rate can type it instead. Empty manual input
+  // falls back to live, then to the table.
+  const fxEffectiveRate = (() => {
+    const manual = parseFloat(fxRate);
+    if (!isNaN(manual) && manual > 0) return manual;
+    if (typeof fxLiveRate === "number" && fxLiveRate > 0) return fxLiveRate;
+    return FX_FALLBACK_TO_DKK[fxCurrency] || null;
+  })();
+  const fxConvertedAccount = (() => {
+    const orig = parseFloat(fxOriginalAmount);
+    if (isNaN(orig) || !fxEffectiveRate) return null;
+    return orig * fxEffectiveRate;
+  })();
+
   const filtered = expenses.filter(e => {
     if (search) {
       // Searchable surface: vendor (stored as description), notes,
@@ -312,7 +415,24 @@ export default function ExpensesPage() {
   };
 
   const submit = async (quickAmt) => {
-    const value = quickAmt || parseFloat(amount);
+    // ── Foreign-currency branch ──────────────────────────────────────
+    // When the FX panel is open AND the chosen currency differs from
+    // the account currency AND the owner typed a foreign amount, the
+    // DKK figure POSTed as `amount` is derived from the conversion —
+    // the `amount` input field is ignored. This matches the math the
+    // owner sees below the FX inputs ("≈ X kr"). Otherwise we use the
+    // existing path.
+    const isForeign =
+      fxOpen
+      && fxCurrency
+      && fxCurrency.toUpperCase() !== accountCcy
+      && !isNaN(parseFloat(fxOriginalAmount))
+      && parseFloat(fxOriginalAmount) > 0
+      && typeof fxEffectiveRate === "number"
+      && fxEffectiveRate > 0;
+    const value = isForeign
+      ? Number(fxConvertedAccount.toFixed(2))
+      : (quickAmt || parseFloat(amount));
     if (!value) return;
     // Need either a selected category or a custom one typed
     let finalCatId = catId;
@@ -332,7 +452,7 @@ export default function ExpensesPage() {
         setCatId(catRes.data.id);
         setCustomCat("");
       }
-      await api.post("/expenses", {
+      const payload = {
         category_id: finalCatId,
         date: expDate,
         amount: value,
@@ -342,7 +462,13 @@ export default function ExpensesPage() {
         notes: notes || null,
         is_personal: isPersonal,
         is_tax_exempt: isTaxExempt,
-      });
+      };
+      if (isForeign) {
+        payload.currency = fxCurrency.toUpperCase();
+        payload.fx_rate = Number(fxEffectiveRate.toFixed(6));
+        payload.original_amount = parseFloat(fxOriginalAmount);
+      }
+      await api.post("/expenses", payload);
       const isBackdated = expDate !== localIso();
       setAmount("");
       setDesc("");
@@ -352,7 +478,20 @@ export default function ExpensesPage() {
       setIsPersonal(false);
       setIsTaxExempt(false);
       setExpDate(localIso());
-      trackEvent("expense_logged", "expenses", `${value} ${currency}`);
+      // Reset FX section state after a successful save so the next
+      // entry starts in the default (single-currency) mode.
+      setFxOpen(false);
+      setFxOriginalAmount("");
+      setFxRate("");
+      setFxLiveRate(null);
+      setFxError("");
+      trackEvent(
+        isForeign ? "expense_logged_fx" : "expense_logged",
+        "expenses",
+        isForeign
+          ? `${parseFloat(fxOriginalAmount)} ${fxCurrency} → ${value} ${currency}`
+          : `${value} ${currency}`,
+      );
       setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${formatDate(expDate)})` : ""}!`);
       fetchData(filterFrom, filterTo);
       setTimeout(() => setSuccess(""), 2500);
@@ -697,11 +836,102 @@ export default function ExpensesPage() {
           />
           <button
             onClick={() => submit()}
-            disabled={!amount || (!catId && !customCat.trim())}
+            disabled={
+              (!amount && !(fxOpen && fxConvertedAccount != null && fxConvertedAccount > 0))
+              || (!catId && !customCat.trim())
+            }
             className="px-4 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold text-sm disabled:opacity-40"
           >
             {t("add")}
           </button>
+        </div>
+
+        {/* ── Foreign-currency capture ─────────────────────────────────
+            Sudip Sam (Nepali-DK event organizer) pays his Nepali film
+            distributor in NPR/USD. Bogføringsloven §10 requires the
+            original-currency record alongside the DKK conversion.
+            Hidden by default to keep the form lean for the 95%
+            single-currency case. */}
+        <div className="mt-2">
+          <button
+            type="button"
+            onClick={() => setFxOpen(!fxOpen)}
+            className={`text-xs font-medium inline-flex items-center gap-1 ${
+              fxOpen
+                ? "text-amber-700 dark:text-amber-300"
+                : "text-gray-500 dark:text-gray-400 hover:text-blue-600"
+            }`}
+          >
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-current" aria-hidden="true" />
+            {fxOpen
+              ? t("fx.hide", "Hide foreign currency")
+              : t("fx.show", "Foreign currency")}
+          </button>
+          {fxOpen && (
+            <div className="mt-2 p-3 rounded-lg border border-amber-200 dark:border-amber-700/40 bg-amber-50/40 dark:bg-amber-900/10 space-y-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={fxOriginalAmount}
+                  onChange={(e) => setFxOriginalAmount(e.target.value)}
+                  placeholder={t("fx.originalAmountPlaceholder", "Original amount")}
+                  className="flex-1 px-2.5 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
+                />
+                <select
+                  value={fxCurrency}
+                  onChange={(e) => setFxCurrency(e.target.value.toUpperCase())}
+                  className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
+                >
+                  {FX_CURRENCIES.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <label className="text-gray-500 dark:text-gray-400 flex-shrink-0">
+                  {t("fx.rateLabel", "Rate")} 1 {fxCurrency} =
+                </label>
+                <input
+                  type="number"
+                  step="0.000001"
+                  min="0"
+                  value={fxRate}
+                  onChange={(e) => setFxRate(e.target.value)}
+                  placeholder={fxLoading ? "…" : (fxLiveRate || "—")}
+                  className="w-28 px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white text-xs"
+                />
+                <span className="text-gray-500 dark:text-gray-400">{accountCcy}</span>
+                {fxLoading && (
+                  <span className="text-gray-400 dark:text-gray-500 italic">
+                    {t("fx.fetching", "fetching ECB…")}
+                  </span>
+                )}
+              </div>
+              {fxError && (
+                <p className="text-[11px] text-amber-700 dark:text-amber-300">{fxError}</p>
+              )}
+              {fxConvertedAccount != null && (
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                  ≈ {fxConvertedAccount.toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
+                  {currency}
+                  <span className="ml-1 text-xs font-normal text-gray-500 dark:text-gray-400">
+                    ({parseFloat(fxOriginalAmount || 0)} {fxCurrency} ×{" "}
+                    {typeof fxEffectiveRate === "number"
+                      ? fxEffectiveRate.toLocaleString(undefined, { maximumFractionDigits: 6 })
+                      : "—"})
+                  </span>
+                </p>
+              )}
+              <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                {t(
+                  "fx.bogforingNote",
+                  "Original amount + rate are saved alongside the DKK figure for revisor reconciliation (Bogføringsloven §10).",
+                )}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Tax breakdown */}

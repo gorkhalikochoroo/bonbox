@@ -799,15 +799,68 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   const tipsPP = tipsTotal && staffCount && parseInt(staffCount) > 0
     ? Math.round(parseFloat(tipsTotal) / parseInt(staffCount)) : null;
 
+  // ─── Tax-exempt awareness ──────────────────────────────────────────
+  // Today's MOMS calc used to roll ALL revenue into the taxable base,
+  // which double-counts gift cards, B2B reverse-charge, EU export, and
+  // §13 nr.17 charitable events as MOMS-liable. Those rows already exist
+  // in the Sale table with `is_tax_exempt=true` (see commit 8fce2ef for
+  // the MOMS PDF fix). Here we pull the exempt total for the same
+  // business day from `/property-report` and subtract it from the
+  // taxable base so the close screen agrees with what eventually lands
+  // on the SKAT MOMS-angivelse PDF.
+  //
+  // `/property-report` returns both `totals.total_revenue` (includes
+  // exempt) and `totals.taxable_sales` (excludes exempt) — the
+  // difference is the exempt total we want to show. Self-contained
+  // fetch: keeps the existing /daily-close/prefill path untouched so
+  // the close wizard still loads even if this call fails.
+  const [exemptSalesTotal, setExemptSalesTotal] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchExempt = async () => {
+      try {
+        const params = { date: businessDate, day_cutoff_hour: cutoffHour };
+        if (branchId) params.branch_id = branchId;
+        const res = await api.get("/property-report", { params });
+        if (cancelled) return;
+        const totals = res?.data?.totals || {};
+        const totalRev = Number(totals.total_revenue || 0);
+        const taxable = Number(totals.taxable_sales || 0);
+        // Clamp at 0 — a corrupted server response should never let a
+        // negative exempt total flow into the MOMS math. Round to 2dp
+        // because the prop is displayed in money cells.
+        const exempt = Math.max(0, Math.round((totalRev - taxable) * 100) / 100);
+        setExemptSalesTotal(exempt);
+      } catch {
+        // Silent — falls back to "no exempt rows known", which is
+        // strictly worse than perfect but still better than blocking
+        // the close wizard. The headline MOMS calc just won't be
+        // exempt-aware until refresh.
+        if (!cancelled) setExemptSalesTotal(0);
+      }
+    };
+    fetchExempt();
+    return () => { cancelled = true; };
+  }, [businessDate, branchId, cutoffHour]);
+
   // MOMS / VAT — toggle between auto-calc and manual entry from receipt
   const [momsMode, setMomsMode] = useState("auto"); // "auto" | "manual"
   const [momsManual, setMomsManual] = useState("");
 
+  // Taxable base = entered revenue MINUS today's exempt sales total.
+  // Clamp at 0: if the user only entered a placeholder and the exempt
+  // total exceeds it, we'd otherwise show a negative MOMS amount which
+  // confuses the owner more than a zero.
+  const taxableBase = useMemo(() => {
+    return Math.max(0, Math.round((revenueTotal - exemptSalesTotal) * 100) / 100);
+  }, [revenueTotal, exemptSalesTotal]);
+
   const momsTotal = useMemo(() => {
     if (momsMode === "manual") return parseFloat(momsManual) || 0;
     if (scanResult?.moms_total) return scanResult.moms_total;
-    return revenueTotal > 0 && vatRate > 0 ? Math.round((revenueTotal * vatRate / vatDivisor) * 100) / 100 : 0;
-  }, [momsMode, momsManual, scanResult, revenueTotal]);
+    return taxableBase > 0 && vatRate > 0 ? Math.round((taxableBase * vatRate / vatDivisor) * 100) / 100 : 0;
+  }, [momsMode, momsManual, scanResult, taxableBase]);
   const revenueExMoms = useMemo(() => Math.round((revenueTotal - momsTotal) * 100) / 100, [revenueTotal, momsTotal]);
 
   const addCustomRevCat = () => {
@@ -867,6 +920,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       // override. Both are accepted by the backend in DailyCloseCreate.
       revenue_total_override,
       prices_include_moms_override,
+      // Tax-exempt total for the day. Pydantic schemas/daily_close.py
+      // does NOT accept this field yet — sending it is forward-compat
+      // for when the audit row + MOMS PDF want to display the split.
+      // Until the schema is extended, FastAPI ignores unknown fields
+      // (Pydantic v2 default), so this is safe to send today.
+      exempt_sales_total: exemptSalesTotal || null,
     };
   };
 
@@ -1623,6 +1682,17 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   <span>Revenue (med moms)</span>
                   <span>{revenueTotal.toLocaleString()} {currency}</span>
                 </div>
+                {/* Salg uden moms i dag — exempt rows the owner already
+                    flagged via Quick Sale MOMS-fri or the Sales page.
+                    Pulled from /property-report (taxable_sales vs
+                    total_revenue) so the close MOMS calc matches the
+                    SKAT MOMS-angivelse PDF. DK term locked. */}
+                {exemptSalesTotal > 0 && (
+                  <div className="flex justify-between text-xs text-amber-700 dark:text-amber-300 py-0.5">
+                    <span>{t("salgUdenMomsToday") || "Salg uden moms i dag"}</span>
+                    <span>-{exemptSalesTotal.toLocaleString()} {currency}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-sm font-semibold py-0.5" style={{ color: "#6366f1" }}>
                   <span>{vatName} {vatRatePct}%{momsMode === "manual" ? " (from receipt)" : ""}</span>
                   <span>{momsTotal.toLocaleString()} {currency}</span>

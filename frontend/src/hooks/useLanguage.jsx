@@ -813,6 +813,12 @@ const translations = {
     quickSaleHintIncl: "incl. MOMS",
     quickSaleHintExcl: "excl. MOMS",
     quickSaleMomsToggleAria: "MOMS handling",
+    // MOMS-fri — third pill on Quick Sale for tax-exempt rows
+    // (gift cards, B2B reverse-charge, EU export, §13 nr.17). DK term
+    // stays Danish in EN per jurisdiction lock.
+    quickSaleMomsExempt: "MOMS-fri",
+    quickSaleHintExempt: "MOMS-fri",
+    quickSaleMomsExemptAria: "MOMS-fri toggle",
     // Time periods
     today: "Today", thisWeek: "This Week", thisMonth: "This Month", last30Days: "Last 30 Days",
     // Layout / Nav
@@ -1234,6 +1240,10 @@ const translations = {
     sendMessage: "Send message",
     // ─── DailyClose page ───
     totalMoms: "Total MOMS",
+    // Sub-line under the MOMS calc — sales the owner already marked
+    // tax-exempt for today (gift cards, B2B reverse-charge, EU export,
+    // §13 nr.17). DK term stays Danish in EN per jurisdiction lock.
+    salgUdenMomsToday: "Salg uden moms i dag",
     totalExpenses: "Total expenses",
     paymentsLabel: "Payments",
     perPerson: "Per person",
@@ -2851,6 +2861,20 @@ const translations = {
     "smartScan.pick.faktura": "Faktura",
     "smartScan.pick.fakturaHint": "To Inventory",
     "smartScan.verifyHint": "Please verify",
+    // ── Foreign-currency capture (Bogføringsloven §10) ──
+    // Used in the new ExpensesPage FX panel. The Danish-DK fiscal terms
+    // (revisor, Bogføringsloven) stay in Danish per the terminology lock
+    // even in the EN string — they are the authority's words, not UI.
+    "fx.show": "Foreign currency",
+    "fx.hide": "Hide foreign currency",
+    "fx.originalAmountPlaceholder": "Original amount",
+    "fx.rateLabel": "Rate",
+    "fx.fetching": "fetching ECB…",
+    "fx.fallbackInUse": "Using built-in rate (ECB has no live rate for this currency)",
+    "fx.rateMissing": "No live rate available — type one manually below.",
+    "fx.apiDown": "FX API unreachable — using built-in rate. You can edit below.",
+    "fx.apiDownNoFallback": "FX API unreachable — type a rate manually.",
+    "fx.bogforingNote": "Original amount + rate are saved alongside the DKK figure for revisor reconciliation (Bogføringsloven §10).",
     "smartScan.lowConfidence": "A little uncertain — check the fields on the next page",
     "smartScan.heuristicNote": "Classified without AI this time — please verify",
     "smartScan.prefilled": "Fields pre-filled from the image — please verify",
@@ -2877,6 +2901,36 @@ const translations = {
     // smartScan.* because the trigger is the Smart Scan integration.
     "smartScan.invoiceLoadingDraft": "Opening faktura…",
     "smartScan.invoiceLoadFailed": "Couldn't open the registered faktura — pick the image again.",
+    // Cultural events (migration 013, kulturarrangør sprint). DK-first
+    // loan-word convention: "Event" reads cleanly in both EN and DK UI
+    // per Manoj's Sudip interviews — owners say "event" out loud.
+    events: "Events",
+    eventsTitle: "Events",
+    eventsSubtitle: "Tag sales by the cultural event or pop-up they belong to. One click to see totals, guests, and MOMS per event.",
+    eventsNew: "New event",
+    eventsEmpty: "No events yet. Create one to start tagging sales by event.",
+    eventsNamePlaceholder: "Event name (e.g. Nepali Movie Night)",
+    eventsVenuePlaceholder: "Venue (optional)",
+    eventsNotesPlaceholder: "Notes (optional)",
+    eventsNameDateRequired: "Name and date are required",
+    eventsCreateFailed: "Failed to create event",
+    eventsLoadFailed: "Failed to load events",
+    eventsDeleteFailed: "Failed to delete event",
+    eventsConfirmDelete: "Soft-delete this event? Past sales stay tagged.",
+    eventsSummaryFailed: "Couldn't load summary.",
+    eventsSelectHint: "Pick an event on the left to see its summary.",
+    eventsTotalSales: "Total sales",
+    eventsSalesUnit: "sales",
+    eventsMomsHint: "owner view, see PDF for accountant total",
+    eventsExempt: "MOMS-exempt",
+    eventsGuests: "Guests",
+    eventsExpenses: "Expenses tied to event",
+    eventsViewSales: "View tagged sales →",
+    // Sales-page filter chip — DK-first wording for the multi-select
+    // event filter that lives near the top of the sales list.
+    filterByEvent: "Filter by event",
+    filterAllEvents: "All events",
+    filterNoEvent: "No event",
   },
   da: {
     dashboard: "Oversigt", sales: "Salg", expenses: "Udgifter", inventory: "Lager",
@@ -3606,6 +3660,11 @@ const translations = {
     quickSaleHintIncl: "inkl. MOMS",
     quickSaleHintExcl: "ekskl. MOMS",
     quickSaleMomsToggleAria: "MOMS-håndtering",
+    // MOMS-fri — tredje pill på Hurtig salg for momsfrie posteringer
+    // (gavekort, B2B reverse-charge, EU-eksport, §13 nr.17).
+    quickSaleMomsExempt: "MOMS-fri",
+    quickSaleHintExempt: "MOMS-fri",
+    quickSaleMomsExemptAria: "MOMS-fri valg",
     // Time periods
     today: "I dag", thisWeek: "Denne uge", thisMonth: "Denne måned", last30Days: "Sidste 30 dage",
     // Layout / Nav
@@ -4017,6 +4076,9 @@ const translations = {
     sendMessage: "Send besked",
     // ─── DailyClose page ───
     totalMoms: "Samlet MOMS",
+    // Underlinje under MOMS-beregningen — dagens momsfrie salg
+    // (gavekort, B2B reverse-charge, EU-eksport, §13 nr.17).
+    salgUdenMomsToday: "Salg uden moms i dag",
     totalExpenses: "Samlede udgifter",
     paymentsLabel: "Betalinger",
     perPerson: "Pr. person",
@@ -5548,6 +5610,19 @@ const translations = {
     "smartScan.pick.faktura": "Faktura",
     "smartScan.pick.fakturaHint": "Til Lager",
     "smartScan.verifyHint": "Bekræft venligst",
+    // ── Fremmed valuta (Bogføringsloven §10) ──
+    // ExpensesPage FX-panel. Danske bogføringstermer (revisor,
+    // Bogføringsloven) holdes på dansk per terminologilåsen.
+    "fx.show": "Fremmed valuta",
+    "fx.hide": "Skjul fremmed valuta",
+    "fx.originalAmountPlaceholder": "Beløb i original valuta",
+    "fx.rateLabel": "Kurs",
+    "fx.fetching": "henter ECB-kurs…",
+    "fx.fallbackInUse": "Bruger indbygget kurs (ECB har ingen live-kurs for denne valuta)",
+    "fx.rateMissing": "Ingen live-kurs tilgængelig — indtast manuelt nedenfor.",
+    "fx.apiDown": "FX-API utilgængelig — bruger indbygget kurs. Du kan rette nedenfor.",
+    "fx.apiDownNoFallback": "FX-API utilgængelig — indtast en kurs manuelt.",
+    "fx.bogforingNote": "Originalbeløb + kurs gemmes ved siden af DKK-tallet, så revisor kan afstemme (Bogføringsloven §10).",
     "smartScan.lowConfidence": "Lidt usikker — tjek felterne på næste side",
     "smartScan.heuristicNote": "Klassificeret uden AI denne gang — bekræft venligst",
     "smartScan.prefilled": "Felter pre-udfyldt fra billedet — bekræft venligst",
@@ -5573,6 +5648,34 @@ const translations = {
     // fordi udløseren er Smart Scan-integrationen.
     "smartScan.invoiceLoadingDraft": "Åbner faktura…",
     "smartScan.invoiceLoadFailed": "Kunne ikke åbne tidligere registreret faktura — vælg billede igen.",
+    // Cultural events (migration 013, kulturarrangør sprint). "Event"
+    // stays English in the DK UI per Manoj's Sudip interviews — owners
+    // say "event" out loud, "begivenhed" reads as bureaucratic.
+    events: "Events",
+    eventsTitle: "Events",
+    eventsSubtitle: "Tag salg med det kulturelle event eller pop-up de hører til. Ét klik viser omsætning, gæster og MOMS per event.",
+    eventsNew: "Nyt event",
+    eventsEmpty: "Ingen events endnu. Opret et for at begynde at tagge salg.",
+    eventsNamePlaceholder: "Event-navn (fx Nepali Movie Night)",
+    eventsVenuePlaceholder: "Lokation (valgfri)",
+    eventsNotesPlaceholder: "Noter (valgfri)",
+    eventsNameDateRequired: "Navn og dato er påkrævet",
+    eventsCreateFailed: "Kunne ikke oprette event",
+    eventsLoadFailed: "Kunne ikke hente events",
+    eventsDeleteFailed: "Kunne ikke slette event",
+    eventsConfirmDelete: "Slet dette event? Tidligere salg beholder taggen.",
+    eventsSummaryFailed: "Kunne ikke hente oversigten.",
+    eventsSelectHint: "Vælg et event til venstre for at se oversigten.",
+    eventsTotalSales: "Salg i alt",
+    eventsSalesUnit: "salg",
+    eventsMomsHint: "ejer-visning — se PDF for revisor-totalen",
+    eventsExempt: "MOMS-fri",
+    eventsGuests: "Gæster",
+    eventsExpenses: "Udgifter knyttet til event",
+    eventsViewSales: "Vis taggede salg →",
+    filterByEvent: "Filtrér efter event",
+    filterAllEvents: "Alle events",
+    filterNoEvent: "Intet event",
   },
   np: {
     dashboard: "ड्यासबोर्ड", sales: "बिक्री", expenses: "खर्च", inventory: "स्टक",

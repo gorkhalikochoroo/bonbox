@@ -26,7 +26,7 @@
  */
 import {
   // Core
-  Home, ShoppingBag, Receipt,
+  Home, ShoppingBag, Receipt, CalendarDays,
   // Money
   Wallet, BookOpen, LineChart, Target, Landmark, CreditCard,
   BookText, FileText, Users, Car,
@@ -75,7 +75,7 @@ import {
 // safe — only the icon name string needs updating in Layout.jsx.
 const ICONS = {
   // Core
-  Home, ShoppingBag, Receipt,
+  Home, ShoppingBag, Receipt, CalendarDays,
   // Money group
   Wallet, BookOpen, LineChart, Target, Landmark, CreditCard,
   BookText, FileText, Users, Car,

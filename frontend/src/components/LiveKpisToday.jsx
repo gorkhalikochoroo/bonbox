@@ -1,10 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { useAuth } from "../hooks/useAuth";
 import { localIso } from "../utils/dateFormat";
 import { formatMoney } from "../utils/currency";
 import { StatCard, SectionBanner } from "./ui";
+
+// Auto-refresh interval for the live KPI tiles. 5s is the sweet spot
+// for a busy shift — fast enough that the owner feels the numbers
+// move during a service rush, slow enough not to thrash the backend
+// or the browser's tab. Polling pauses while the document is hidden
+// (see visibilitychange listener) so a phone in someone's pocket
+// doesn't pin the CPU and drain the battery.
+const REFRESH_MS = 5000;
 
 /**
  * LiveKpisToday — the live operational snapshot that used to live on
@@ -36,8 +44,17 @@ import { StatCard, SectionBanner } from "./ui";
  *   L9 — Mobile-first 2-col grid (sm: 4-col on tablets +). Matches
  *        the StatCard rows on Dashboard so the visual language is
  *        consistent across the app.
+ *
+ * Optional `eventId` prop (migration 013 — kulturarrangør sprint):
+ *   When set, scopes the underlying fetch to sales tagged for this
+ *   cultural event. EventsPage uses this to render the same KPI row
+ *   at the top of an event detail view so the owner gets the same
+ *   visual language whether they're scanning today's shift or a past
+ *   event recap. Passing null / undefined keeps the legacy behaviour
+ *   (full tenant view). Agent X owns the auto-refresh polling; this
+ *   prop only adds the query-param plumbing.
  */
-export default function LiveKpisToday() {
+export default function LiveKpisToday({ eventId = null } = {}) {
   const { t } = useLanguage();
   const { user } = useAuth();
   const currency = user?.currency || "DKK";
@@ -61,6 +78,14 @@ export default function LiveKpisToday() {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // Tracks the timestamp of the most recent successful fetch — fed into
+  // the muted "updated Ns ago" hint. `Date.now()`-style number, not a
+  // Date object, so the formatter is a single subtraction.
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
+  // Re-render driver for the "Ns ago" hint. Stored as a counter (not a
+  // timestamp) because we only need to trigger React reconciliation —
+  // the actual age is computed off `lastUpdatedAt`.
+  const [, setAgeTick] = useState(0);
 
   // Fetch the owner-configured cutoff once on mount. Defer the
   // property-report fetch until we know what cutoff to ask for — if we
@@ -99,33 +124,109 @@ export default function LiveKpisToday() {
     };
   }, []);
 
+  // ─── Polling auto-refresh ──────────────────────────────────────────
+  // The fetch logic lives inside the effect (not a hoisted callback)
+  // because the deps drive everything we care about: cutoffHour, the
+  // date string, and the polling guard. A ref tracks the "live" cancel
+  // flag for any in-flight request so a tab-hidden event can short-
+  // circuit a fetch that's already on the wire.
+  const inflightRef = useRef({ cancelled: false });
+
   useEffect(() => {
     if (cutoffHour === null) return;  // wait for cutoff resolution
-    let cancelled = false;
-    setLoading(true);
-    setError("");
-    api
-      .get("/property-report", {
-        params: { date: todayStr, day_cutoff_hour: cutoffHour },
-      })
-      .then((r) => {
-        if (cancelled) return;
+
+    // First-paint flag: show the skeleton only on the very first
+    // fetch. Subsequent silent refreshes must NOT flash the skeleton
+    // — that would look like the page is broken during a service rush.
+    let isFirstFetch = report === null;
+
+    const runFetch = async () => {
+      // If the tab is hidden, skip the network call entirely. The
+      // visibility listener (below) will trigger a fresh fetch on
+      // resume, so we won't be stuck with stale numbers.
+      if (typeof document !== "undefined" && document.hidden) return;
+
+      // Mark a fresh in-flight request — previous one (if any) is
+      // dropped via its closed-over `localCancelled` token.
+      const token = inflightRef.current = { cancelled: false };
+      if (isFirstFetch) {
+        setLoading(true);
+        setError("");
+      }
+      try {
+        // event_id (migration 013 — kulturarrangør sprint) is only sent
+        // when an EventsPage caller passes it down. Legacy callers
+        // (DailyClosePage) keep the same unscoped query they always
+        // sent — adding the key only when truthy.
+        const params = { date: todayStr, day_cutoff_hour: cutoffHour };
+        if (eventId) params.event_id = eventId;
+        const r = await api.get("/property-report", { params });
+        if (token.cancelled) return;
         setReport(r.data || null);
+        setLastUpdatedAt(Date.now());
+        // A server-soft-error (_error in payload) is informational
+        // — keep the report, surface the message in a thin amber row.
         if (r.data?._error) setError(r.data._error);
-      })
-      .catch(() => {
-        if (cancelled) return;
+        else setError("");
+      } catch {
+        if (token.cancelled) return;
         // L8 — keep the rest of the page alive; surface a soft error
-        // banner instead of a blank component.
-        setError(t("liveKpisUnavailable") || "Live data unavailable — refresh to retry.");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
+        // banner instead of a blank component. Only show this on the
+        // first failure; silent polling failures stay quiet so the
+        // owner doesn't see a flickering error during a brief blip.
+        if (isFirstFetch) {
+          setError(t("liveKpisUnavailable") || "Live data unavailable — refresh to retry.");
+        }
+      } finally {
+        if (!token.cancelled && isFirstFetch) setLoading(false);
+        isFirstFetch = false;
+      }
     };
-  }, [todayStr, cutoffHour]);
+
+    // Kick off the first fetch immediately, then start the 5s poll.
+    runFetch();
+    const intervalId = setInterval(runFetch, REFRESH_MS);
+
+    // Pause polling when the tab is hidden, resume + refresh on show.
+    // Listening to `visibilitychange` rather than `focus`/`blur` so a
+    // background tab that the OS hasn't unfocused (but DID hide) also
+    // pauses — matters on iOS Safari where the tab can be visible
+    // but the page hidden during the Home Indicator drag.
+    const handleVisibility = () => {
+      if (typeof document === "undefined") return;
+      if (!document.hidden) {
+        // Snap-refresh on resume so the owner sees the catch-up
+        // numbers immediately instead of waiting up to 5s.
+        runFetch();
+      }
+    };
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibility);
+    }
+
+    return () => {
+      inflightRef.current.cancelled = true;
+      clearInterval(intervalId);
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibility);
+      }
+    };
+    // `report` intentionally NOT in deps — its initial-null check is
+    // captured in `isFirstFetch` at effect start, and re-running this
+    // effect on every fetch would tear down and re-create the
+    // interval, breaking the 5s cadence. eventId IS in deps so an
+    // EventsPage caller switching events resets the polling cleanly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todayStr, cutoffHour, eventId]);
+
+  // Tick the "Ns ago" hint every second so the number visibly counts
+  // up between polls. Independent from the fetch interval — no
+  // network impact, just a re-render.
+  useEffect(() => {
+    if (lastUpdatedAt === null) return;
+    const id = setInterval(() => setAgeTick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [lastUpdatedAt]);
 
   const totals = report?.totals || {};
   const channels = report?.order_channels || [];
@@ -187,6 +288,14 @@ export default function LiveKpisToday() {
   const revenue = totals.total_revenue || 0;
   const isEmpty = revenue === 0 && orders === 0;
 
+  // "Updated Ns ago" — subtle muted hint so the owner knows the
+  // numbers are live but doesn't see a noisy spinner during a service
+  // rush. Computed once per render off the age tick interval (1s).
+  // Stays empty until the first successful fetch lands.
+  const ageSeconds = lastUpdatedAt
+    ? Math.max(0, Math.floor((Date.now() - lastUpdatedAt) / 1000))
+    : null;
+
   return (
     <section aria-label={t("liveKpisLabel") || "Live KPIs today"} className="space-y-3">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -221,6 +330,18 @@ export default function LiveKpisToday() {
           helper={dominantTender ? dominantTender.label : (t("liveNoPaymentsYet") || "—")}
         />
       </div>
+
+      {/* Subtle "last updated Ns ago" hint — muted text under the tiles
+          so the owner knows the numbers are auto-refreshing without a
+          jarring spinner. Hidden until the first poll lands.
+          Ephemeral status text, not user-content — left untranslated
+          to keep the i18n-keys-allowlist for this sprint tight (only
+          quickSale.* exempt keys + dailyClose.salgUdenMomsToday). */}
+      {ageSeconds !== null && (
+        <p className="text-xs text-gray-400 dark:text-gray-500" aria-live="polite">
+          {ageSeconds < 5 ? "Updated just now" : `Updated ${ageSeconds}s ago`}
+        </p>
+      )}
 
       {/* Inline soft error — keep the cards visible but tell the truth.
           Happens when the backend returned a payload but with _error set

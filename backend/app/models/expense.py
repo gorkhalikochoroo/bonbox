@@ -53,6 +53,26 @@ class Expense(Base):
     # in the model so the create + read paths can populate / surface it.
     # VARCHAR(500) at the SQL level matches the migration in main.py.
     receipt_photo: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # ── Foreign-currency capture (migration 014) ──────────────────────
+    # Bogføringsloven §10 / SKAT cross-border guidance requires the
+    # original-currency record to be retained alongside the DKK
+    # conversion. `amount` (above) STAYS in the user's account currency
+    # so all existing MOMS math, dashboards, and bilag-voucher logic
+    # keep working byte-for-byte for single-currency entries.
+    #
+    # Semantics:
+    #   • Null `currency` ⇒ amount is implicitly in the account
+    #     currency (default for every legacy row).
+    #   • Non-null `currency` that DIFFERS from the account currency
+    #     ⇒ `fx_rate` and `original_amount` are also populated. The
+    #     router enforces the three-fields-together rule on write.
+    #   • `fx_rate` precision is 10,6 because DKK/NPR rates run ~0.05;
+    #     4 decimals isn't enough headroom for low-value currencies.
+    #   • `original_amount` precision is 14,2 — comfortably above any
+    #     realistic SMB cross-border invoice in any currency.
+    currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    fx_rate: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
+    original_amount: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

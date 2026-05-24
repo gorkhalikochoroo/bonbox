@@ -58,7 +58,7 @@ export default function SmartDriftBanner() {
       })
       .catch(() => {
         // Silent — banner is non-critical. A real failure is surfaced
-        // via /events anyway so we'll see it in the admin telemetry.
+        // via /event-log anyway so we'll see it in the admin telemetry.
         if (alive) setFindings([]);
       });
     return () => { alive = false; };

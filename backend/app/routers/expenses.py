@@ -451,7 +451,40 @@ def create_expense(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    expense = Expense(user_id=user.id, **data.model_dump())
+    payload = data.model_dump()
+
+    # ── L2 — Foreign-currency validation (Bogføringsloven §10) ─────────
+    # `amount` is the DKK-equivalent (account currency) figure that all
+    # downstream MOMS / dashboard / bilag logic consumes — keeping it
+    # there is non-negotiable. The three FX fields are an audit trail.
+    # Enforce the all-or-nothing rule so we never persist a half-filled
+    # foreign-currency row that the revisor can't reconcile.
+    account_ccy = (user.currency or "DKK").upper()
+    submitted_ccy = (payload.get("currency") or "").upper() or None
+    fx_rate = payload.get("fx_rate")
+    original_amount = payload.get("original_amount")
+
+    is_foreign = bool(submitted_ccy) and submitted_ccy != account_ccy
+    if is_foreign:
+        # When the user explicitly logged a foreign-currency expense
+        # we require BOTH the original amount and the FX rate.
+        if fx_rate is None or original_amount is None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Foreign-currency expense requires both fx_rate and "
+                    "original_amount (Bogføringsloven §10 cross-border)."
+                ),
+            )
+    else:
+        # Same-currency or null-currency entry — strip the FX trail so
+        # the row stays clean. Keeping `currency` null preserves the
+        # backward-compat semantics for every existing report path.
+        payload["currency"] = None
+        payload["fx_rate"] = None
+        payload["original_amount"] = None
+
+    expense = Expense(user_id=user.id, **payload)
     # Allocate bilagsnummer (DK Bogføringsloven 2024). Year from expense.date
     # so back-dated entries land in the correct fiscal year sequence.
     try:
@@ -475,6 +508,37 @@ def create_expense(
                 db.commit()
             except Exception:
                 db.rollback()
+
+    # ── L7 — Audit row for foreign-currency entries ────────────────────
+    # The DKK figure (`amount`) is what bookkeeping sees; the original
+    # currency, rate, and raw foreign amount get captured into the
+    # immutable audit log so even if the row is later edited/deleted the
+    # original cross-border record survives for Bogføringsloven §9.
+    # Defensive — audit failures NEVER block the create path.
+    if is_foreign:
+        try:
+            from app.services.audit_service import record as audit_record
+            audit_record(
+                db,
+                user,
+                "expense.created_foreign_currency",
+                "expense",
+                entity_id=expense.id,
+                after={
+                    "expense_id": str(expense.id),
+                    "account_currency": account_ccy,
+                    "original_currency": submitted_ccy,
+                    "original_amount": float(original_amount),
+                    "fx_rate": float(fx_rate),
+                    "amount_account_ccy": float(expense.amount),
+                    "date": expense.date.isoformat(),
+                    "voucher_number": expense.voucher_number,
+                },
+            )
+            db.commit()
+        except Exception:  # noqa: BLE001 — audit write must never break create
+            logger.exception("audit.expense.created_foreign_currency failed")
+
     return expense
 
 

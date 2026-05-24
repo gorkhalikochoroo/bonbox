@@ -222,13 +222,25 @@ export function ShortcutsHelp({ open, onClose }) {
  * MOMS toggle (added 2026-05-24): owner picks whether the typed amount
  * INCLUDES MOMS (gross — typical DK B2C / POS exports) or EXCLUDES
  * MOMS (net — B2B / wholesale). Default = `pricesIncludeMoms` prop
- * from the user's BusinessProfile. Caller's `onSubmit(amount, inclMoms)`
- * receives BOTH values and decides whether to convert before POST.
+ * from the user's BusinessProfile. Caller's
+ * `onSubmit(amount, inclMoms, isTaxExempt)` receives all three values
+ * and decides whether to convert before POST.
  *
  * Why pass the choice through instead of converting here: keeps the
  * conversion logic in one place (the parent that knows the user's
  * profile setting), and matches the DailyClosePage pattern of
  * `prices_include_moms_override`.
+ *
+ * MOMS-fri third pill (added 2026-05-24): a sale row can be marked
+ * `is_tax_exempt=true` for gift cards, B2B reverse-charge, EU export,
+ * and §13 nr.17 charitable events. When MOMS-fri is selected:
+ *   • the Incl./Excl. MOMS toggle is visually disabled (irrelevant —
+ *     no MOMS is extracted from the amount either way),
+ *   • the sale is POSTed with `is_tax_exempt: true` so the property
+ *     report / MOMS-angivelse PDF correctly excludes it from
+ *     `taxable_sales` (commit 8fce2ef fix for `salg_uden_moms`).
+ *
+ * DK term lock: "MOMS-fri" stays Danish in EN UI per jurisdiction rule.
  */
 export function QuickSaleModal({
   open, onClose, onSubmit, currency = "DKK",
@@ -237,6 +249,10 @@ export function QuickSaleModal({
   const { t } = useLanguage();
   const [amount, setAmount] = useState("");
   const [inclMoms, setInclMoms] = useState(pricesIncludeMoms);
+  // Tax-exempt flag — when true, the Incl./Excl. toggle is dimmed
+  // and the resulting sale gets `is_tax_exempt=true`. Reset to false
+  // each time the modal opens so a one-off exempt entry doesn't stick.
+  const [isTaxExempt, setIsTaxExempt] = useState(false);
   const inputRef = useRef(null);
 
   useEffect(() => {
@@ -247,6 +263,7 @@ export function QuickSaleModal({
       // opens — so a one-off "Excl. MOMS" entry doesn't quietly stick
       // for the next quick sale.
       setInclMoms(pricesIncludeMoms);
+      setIsTaxExempt(false);
     }
   }, [open, pricesIncludeMoms]);
 
@@ -268,24 +285,34 @@ export function QuickSaleModal({
     const cleaned = String(amount || "").replace(/\./g, "").replace(/,/g, ".");
     const num = parseFloat(cleaned);
     if (num > 0) {
-      onSubmit(num, inclMoms);
+      // When MOMS-fri is active, inclMoms is moot — the row never
+      // contributes to taxable sales, so no conversion is needed.
+      // We still forward the current inclMoms value (for storage
+      // shape consistency) but the caller should treat it as N/A
+      // when isTaxExempt=true.
+      onSubmit(num, inclMoms, isTaxExempt);
       onClose();
     }
   }
 
-  // Toggle button — styled as a segmented control. The two halves are
-  // mutually exclusive radio buttons in spirit (clicking one un-selects
-  // the other). DK terms locked: "MOMS" uppercase per jurisdiction rule.
-  const Pill = ({ active, label, onClick }) => (
+  // Toggle button — styled as a segmented control. Mutually exclusive
+  // radio buttons in spirit (clicking one un-selects the others).
+  // DK terms locked: "MOMS" / "MOMS-fri" uppercase per jurisdiction rule.
+  // `disabled` dims the pill when the Incl./Excl. toggle is irrelevant
+  // (i.e. MOMS-fri is active) — purely visual; the click still works so
+  // the user can switch back without going through MOMS-fri first.
+  const Pill = ({ active, label, onClick, disabled = false }) => (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={active}
+      aria-disabled={disabled || undefined}
       className={
         "flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors " +
         (active
           ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 shadow-sm"
-          : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800")
+          : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800") +
+        (disabled ? " opacity-40 cursor-not-allowed" : "")
       }
     >
       {label}
@@ -302,22 +329,54 @@ export function QuickSaleModal({
           {t("quickSaleSubtitle") || "Log today's revenue in seconds"}
         </p>
 
-        {/* MOMS toggle — two-pill segmented control */}
+        {/* MOMS handling — Incl. / Excl. segmented control. Visually
+            disabled when MOMS-fri is active (the value is irrelevant
+            for an exempt row, so we dim it to remove cognitive load). */}
         <div
           role="group"
           aria-label={t("quickSaleMomsToggleAria") || "MOMS handling"}
-          className="flex gap-1 p-1 mb-5 rounded-xl bg-gray-100 dark:bg-gray-800"
+          className={
+            "flex gap-1 p-1 mb-3 rounded-xl bg-gray-100 dark:bg-gray-800 " +
+            (isTaxExempt ? "opacity-50" : "")
+          }
         >
           <Pill
-            active={inclMoms}
+            active={inclMoms && !isTaxExempt}
             onClick={() => setInclMoms(true)}
             label={t("quickSaleInclMoms") || "Incl. MOMS"}
+            disabled={isTaxExempt}
           />
           <Pill
-            active={!inclMoms}
+            active={!inclMoms && !isTaxExempt}
             onClick={() => setInclMoms(false)}
             label={t("quickSaleExclMoms") || "Excl. MOMS"}
+            disabled={isTaxExempt}
           />
+        </div>
+
+        {/* MOMS-fri — single dedicated pill below the Incl./Excl. pair.
+            Separate row so the visual hierarchy is "normal vs special":
+            most sales are Incl./Excl., MOMS-fri is the special-case
+            override (gift cards, B2B reverse-charge, EU export,
+            §13 nr.17 charitable events). DK term locked. */}
+        <div
+          className="flex gap-1 p-1 mb-5 rounded-xl bg-gray-100 dark:bg-gray-800"
+          role="group"
+          aria-label={t("quickSaleMomsExemptAria") || "MOMS-fri toggle"}
+        >
+          <button
+            type="button"
+            onClick={() => setIsTaxExempt(v => !v)}
+            aria-pressed={isTaxExempt}
+            className={
+              "flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors " +
+              (isTaxExempt
+                ? "bg-amber-500 text-white dark:bg-amber-400 dark:text-gray-900 shadow-sm"
+                : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800")
+            }
+          >
+            {t("quickSaleMomsExempt") || "MOMS-fri"}
+          </button>
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -338,7 +397,9 @@ export function QuickSaleModal({
             <div className="text-center text-sm text-gray-400 mt-1">
               {currency === "DKK" ? "kr." : currency}
               <span className="ml-1.5 text-xs text-gray-500 dark:text-gray-400">
-                {inclMoms
+                {isTaxExempt
+                  ? (t("quickSaleHintExempt") || "MOMS-fri")
+                  : inclMoms
                   ? (t("quickSaleHintIncl") || "incl. MOMS")
                   : (t("quickSaleHintExcl") || "excl. MOMS")}
               </span>

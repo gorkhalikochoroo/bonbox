@@ -10,7 +10,12 @@ function flushEvents() {
   if (eventQueue.length === 0) return;
   const batch = [...eventQueue];
   eventQueue = [];
-  api.post("/events/batch", { events: batch }).catch(() => {
+  // Migration 013 (kulturarrangør sprint): the `/api/events` namespace
+  // now belongs to the cultural-event entity CRUD (Sudip-style customers
+  // tagging Sales by which event a row belongs to). Analytics telemetry
+  // moved to `/api/event-log`. The wire shape ({events: [...]}) and the
+  // GDPR opt-out handling are unchanged.
+  api.post("/event-log/batch", { events: batch }).catch(() => {
     // silently fail — don't interrupt user experience
   });
 }

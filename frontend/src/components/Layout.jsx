@@ -57,6 +57,12 @@ const navGroups = [
       // Each item gets a UNIQUE icon — no duplicates across categories.
       { to: "/dashboard", icon: "Home", labelKey: "navHome" },
       { to: "/sales", icon: "ShoppingBag", labelKey: "sales" },
+      // Cultural events (migration 013, kulturarrangør sprint) — sits
+      // directly under Sales because event-tagged sales are the core
+      // flow. Visible to everyone; for non-event owners it stays empty
+      // (no nag). DK-first label key is "events" — same English-loaned
+      // word works in both EN and DK UI per Manoj's Sudip interviews.
+      { to: "/events", icon: "CalendarDays", labelKey: "events" },
       { to: "/expenses", icon: "Receipt", labelKey: "expenses" },
     ],
   },

@@ -470,6 +470,16 @@ def export_generic(user: User, db: Session, start: date, end: date) -> bytes:
         "Amount", "Currency", "VAT %", "Payment",
         # SAF-T compatibility (additive — does not change existing imports)
         "TransactionId", "TransactionDate", "AccountID", "Debit", "Credit",
+        # Foreign-currency trail (Bogføringsloven §10 cross-border) —
+        # blank for single-currency rows so legacy importers keep
+        # reading the file cleanly. When populated, original_amount and
+        # original_currency carry the raw figures the user typed; the
+        # `Amount` / `Currency` columns above stay in the account
+        # currency for MOMS math. `fx_rate_used` is the rate that
+        # produced the conversion; `fx_date` is the expense date (which
+        # is also the rate-lookup date — we don't separately store the
+        # rate publication date today).
+        "original_amount", "original_currency", "fx_rate_used", "fx_date",
     ])
     for s in sales:
         vat = "0" if getattr(s, "is_tax_exempt", False) else default_vat_str
@@ -491,6 +501,10 @@ def export_generic(user: User, db: Session, start: date, end: date) -> bytes:
             (getattr(s, "payment_method", None) or "").capitalize(),
             # SAF-T fields
             bilag, date_iso, "1010", "0.00", amount_str,
+            # Foreign-currency trail — sales don't carry FX today;
+            # placeholder blanks keep the column count consistent across
+            # the file so any importer with strict CSV parsing succeeds.
+            "", "", "", "",
         ])
     for e in expenses:
         vat = "0" if getattr(e, "is_tax_exempt", False) else default_vat_str
@@ -499,6 +513,17 @@ def export_generic(user: User, db: Session, start: date, end: date) -> bytes:
         bilag = f"E-{e.date.year}-{vn:04d}" if vn else ""
         amount_str = _money_dot(e.amount)
         date_iso = e.date.isoformat() if hasattr(e.date, "isoformat") else str(e.date)
+        # Foreign-currency trail (Bogføringsloven §10) — only populated
+        # for cross-border expense rows. `getattr` defaults keep this
+        # safe on stale SQLAlchemy sessions that pre-date migration 014.
+        orig_amt_raw = getattr(e, "original_amount", None)
+        orig_ccy = (getattr(e, "currency", None) or "")
+        fx_rate_raw = getattr(e, "fx_rate", None)
+        orig_amt_str = _money_dot(orig_amt_raw) if orig_amt_raw is not None else ""
+        fx_rate_str = (
+            f"{float(fx_rate_raw):.6f}" if fx_rate_raw is not None else ""
+        )
+        fx_date_str = date_iso if orig_ccy else ""
         # Expenses are debit entries on cost account 2750
         w.writerow([
             bilag,
@@ -512,6 +537,8 @@ def export_generic(user: User, db: Session, start: date, end: date) -> bytes:
             (getattr(e, "payment_method", None) or "").capitalize(),
             # SAF-T fields
             bilag, date_iso, "2750", amount_str, "0.00",
+            # Foreign-currency trail
+            orig_amt_str, orig_ccy, fx_rate_str, fx_date_str,
         ])
 
     return buf.getvalue().encode("utf-8-sig")

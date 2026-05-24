@@ -62,6 +62,13 @@ export default function SalesPage() {
   const [returnMode, setReturnMode] = useState(null); // sale id being returned
   const [returnData, setReturnData] = useState({ reason: "", action: "" });
   const [returnSummary, setReturnSummary] = useState(null);
+  // Cultural event filter (migration 013, kulturarrangør sprint). The
+  // chip near the top of the page lets Sudip-style owners narrow the
+  // sales list to a single event ("Show me everything from the Nepali
+  // Movie Night on April 4"). `eventFilter` is the selected event_id
+  // (or "" for All, or "__none__" for untagged sales).
+  const [eventOptions, setEventOptions] = useState([]);  // [{id, name, event_date}]
+  const [eventFilter, setEventFilter] = useState("");
 
   const filtered = sales.filter(s => {
     // Status filter
@@ -118,12 +125,18 @@ export default function SalesPage() {
     recognition.start();
   };
 
-  const fetchSales = async (from, to) => {
+  const fetchSales = async (from, to, eventId) => {
     try {
       setFetchError("");
       const params = {};
       if (from) params.from = from;
       if (to) params.to = to;
+      // Cultural event filter (migration 013). "" = All events, no
+      // event_id sent. "__none__" = untagged sales (server treats the
+      // literal "null" as untagged). Otherwise an event UUID.
+      const effectiveEventFilter = eventId !== undefined ? eventId : eventFilter;
+      if (effectiveEventFilter === "__none__") params.event_id = "null";
+      else if (effectiveEventFilter) params.event_id = effectiveEventFilter;
       const res = await api.get("/sales", { params });
       setSales(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
@@ -133,6 +146,15 @@ export default function SalesPage() {
       // sticks on a skeleton forever if the network fails.
       setSalesLoading(false);
     }
+  };
+  // Pull the owner's event list once for the filter dropdown. We pull
+  // all events (including soft-deleted) so historical filters keep
+  // working even after the owner clears out old entries.
+  const fetchEventOptions = () => {
+    api
+      .get("/events", { params: { sort: "date_desc", include_deleted: true } })
+      .then((r) => setEventOptions(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setEventOptions([]));
   };
   const fetchInventory = () => {
     api.get("/inventory").then((res) => setInventoryItems(res.data)).catch(() => {});
@@ -180,13 +202,32 @@ export default function SalesPage() {
   };
 
   useEffect(() => {
-    fetchSales();
+    // Deep-link support (migration 013): EventsPage "View tagged sales →"
+    // sends owners here with `?event_id=<uuid>` in the URL. Pre-populate
+    // the filter on first mount so the page lands already-narrowed.
+    let initialEvent = "";
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const ev = params.get("event_id");
+      if (ev) initialEvent = ev;
+    } catch { /* SSR / no window */ }
+    if (initialEvent) setEventFilter(initialEvent);
+    fetchSales(undefined, undefined, initialEvent || "");
     fetchInventory();
     fetchReturnSummary();
-    const onDataChanged = () => { fetchSales(); fetchInventory(); fetchReturnSummary(); };
+    fetchEventOptions();
+    const onDataChanged = () => { fetchSales(filterFrom, filterTo); fetchInventory(); fetchReturnSummary(); };
     window.addEventListener("bonbox-data-changed", onDataChanged);
     return () => window.removeEventListener("bonbox-data-changed", onDataChanged);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Re-fetch sales whenever the event filter changes — keeps the chip
+  // and the list in sync without needing a manual refresh.
+  useEffect(() => {
+    fetchSales(filterFrom, filterTo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventFilter]);
 
   const submit = async (amt) => {
     const value = amt || parseFloat(amount);
@@ -289,6 +330,46 @@ export default function SalesPage() {
       {success && <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
       {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">{error}</div>}
       {fetchError && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">{fetchError}</div>}
+
+      {/* Cultural-event filter chip (migration 013, kulturarrangør sprint).
+          Hidden when the owner has zero events — keeps the Sales page calm
+          for the 90% of users who'll never use this feature. Sudip-style
+          owners with 10-15 events/year see a single-row dropdown that
+          narrows the list to "Show me everything from event X". */}
+      {eventOptions.length > 0 && (
+        <div className="flex items-center gap-3 flex-wrap text-sm">
+          <label
+            htmlFor="sales-event-filter"
+            className="font-medium text-gray-600 dark:text-gray-300"
+          >
+            {t("filterByEvent") || "Filter by event"}:
+          </label>
+          <select
+            id="sales-event-filter"
+            value={eventFilter}
+            onChange={(e) => setEventFilter(e.target.value)}
+            className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
+          >
+            <option value="">{t("filterAllEvents") || "All events"}</option>
+            <option value="__none__">{t("filterNoEvent") || "No event"}</option>
+            {eventOptions.map((ev) => (
+              <option key={ev.id} value={ev.id}>
+                {ev.name} · {ev.event_date}
+                {ev.is_deleted ? " (deleted)" : ""}
+              </option>
+            ))}
+          </select>
+          {eventFilter && (
+            <button
+              type="button"
+              onClick={() => setEventFilter("")}
+              className="text-xs text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 underline"
+            >
+              {t("clear") || "Clear"}
+            </button>
+          )}
+        </div>
+      )}
 
       <DismissibleTip
         id="sales-intro-v1"

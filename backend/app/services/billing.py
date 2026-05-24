@@ -166,6 +166,14 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # roughly 4 quarterly + 1 yearly = ~5/yr legitimate use, so the
         # cap rarely fires for normal workflow; abusers hit it fast.
         "moms_pdf_exports_per_month": 2,
+        # 2026-05-24 — Kulturarrangør / event-organizer features.
+        # Starter-centric tier strategy (per Manoj): Free gets a taste
+        # (1-2/month) so owners see the value and upgrade; Starter is the
+        # workhorse where 80%+ of paying customers live. Pro adds
+        # unlimited + future cross-event analytics.
+        "events_per_month": 1,                       # taste — 1 event/month, then upgrade
+        "foreign_currency_expenses_per_month": 2,    # taste — 2 foreign-ccy expenses/month
+        "billetto_imports_per_month": 1,             # taste — 1 ticket-CSV import/month
     },
     "starter": {
         "branches": 1,
@@ -193,6 +201,14 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # unlimited for legitimate workflow but still bounded against
         # abuse. See the Free-tier comment above for the design rationale.
         "moms_pdf_exports_per_month": 100,
+        # Kulturarrangør caps — Starter feels unlimited for typical
+        # event organizers (kulturarrangør runs 8-13/yr → ~1/mo).
+        # 50 events/mo covers cafés running daily promotions too.
+        # FX expense is unlimited because Frankfurter API is free and
+        # rate-limited per IP not per user — no marginal cost to cap.
+        "events_per_month": 50,
+        "foreign_currency_expenses_per_month": -1,   # Starter — unlimited
+        "billetto_imports_per_month": 20,            # 240/yr covers all but power organizers
     },
     "trial": {  # = full Pro for 14 days
         "branches": 3,
@@ -210,6 +226,10 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "expense_receipt_scans_per_month": 500,
         # MOMS PDF exports — Trial mirrors Pro: unlimited.
         "moms_pdf_exports_per_month": -1,
+        # Kulturarrangør caps — Trial mirrors Pro: all unlimited.
+        "events_per_month": -1,
+        "foreign_currency_expenses_per_month": -1,
+        "billetto_imports_per_month": -1,
     },
     "pro": {
         "branches": 3,
@@ -232,6 +252,12 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # MOMS PDF exports — Pro gets unlimited. The Pro upsell narrative
         # is "no caps on the basics, plus SKAT-ready /tax/filing-pdf".
         "moms_pdf_exports_per_month": -1,
+        # Kulturarrangør caps — Pro is unlimited on everything.
+        # Pro differentiation comes from cross_event_analytics feature
+        # flag (not yet built — positioned for Pro killer next sprint).
+        "events_per_month": -1,
+        "foreign_currency_expenses_per_month": -1,
+        "billetto_imports_per_month": -1,
     },
 }
 
@@ -439,6 +465,15 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # first (Pro+, because the extra OCR layer costs more).
         "smart_scan_batch": False,
         "smart_scan_pdf_direct": False,
+        # 2026-05-24 — Kulturarrangør / event-organizer features
+        # (Manoj-confirmed Starter-centric tier strategy). Multi-tier
+        # ticket breakdown on Sale (adult/student/family pricing) is
+        # Starter+; cross-event analytics is a future Pro killer.
+        # Event tracking + foreign currency + Billetto are cap-gated
+        # (see PLAN_CAPS below) — Free gets a taste (1-2/month), Starter
+        # is the workhorse where most customers live.
+        "multi_tier_tickets": False,
+        "cross_event_analytics": False,
         # 2026-05-24 — Accountant Hours Saved widget (Manoj-confirmed).
         # The "Du har sparet revisoren X timer = ~Y kr" tracker that
         # powers the dashboard widget AND the live tagline on the
@@ -489,6 +524,8 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "smart_scan_pdf_direct": False,    # Pro-only — drag PDFs in without photo
         "accountant_hours_widget": True,   # Starter+ — the time-saved tracker
         "accountant_month_end_bundle": False,  # Pro-only — positioned, build pending
+        "multi_tier_tickets": True,        # Starter+ — adult/student/family pricing
+        "cross_event_analytics": False,    # Pro-only — comparison across events
     },
     "trial": {  # = full Pro
         "ai_anomaly_detection": True,
@@ -522,6 +559,8 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "smart_scan_pdf_direct": True,
         "accountant_hours_widget": True,        # Trial mirrors Pro
         "accountant_month_end_bundle": True,    # Trial mirrors Pro
+        "multi_tier_tickets": True,             # Trial mirrors Pro
+        "cross_event_analytics": True,          # Trial mirrors Pro
     },
     "pro": {
         "ai_anomaly_detection": True,
@@ -555,6 +594,8 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "smart_scan_pdf_direct": True,     # Pro killer — drag PDFs in without photo
         "accountant_hours_widget": True,   # Starter+ — time-saved tracker
         "accountant_month_end_bundle": True,  # Pro killer — one-click revisor pack
+        "multi_tier_tickets": True,        # Starter+ — same on Pro
+        "cross_event_analytics": True,     # Pro killer for kulturarrangører
     },
 }
 

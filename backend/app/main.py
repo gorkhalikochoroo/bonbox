@@ -39,7 +39,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, order_channel_config, inventory_smart_import, smart_drift, support, search as search_router, modules as modules_router, ai as ai_router, smart_pricing as smart_pricing_router
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, event_log as event_log_router, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, order_channel_config, inventory_smart_import, smart_drift, support, search as search_router, modules as modules_router, ai as ai_router, smart_pricing as smart_pricing_router
 # Invoicing — Customer/Invoice/Mileage. Gated to Starter+ at the route level.
 from app.routers import customers as customers_router, invoices as invoices_router, mileage as mileage_router
 from app.routers import payment_suggestions as payment_suggestions_router
@@ -226,6 +226,12 @@ _migrations = [
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS voucher_number INTEGER",
     "CREATE INDEX IF NOT EXISTS ix_sales_voucher ON sales (user_id, voucher_number)",
     "CREATE INDEX IF NOT EXISTS ix_expenses_voucher ON expenses (user_id, voucher_number)",
+    # ── Migration 014: foreign-currency capture on expenses ─────────────
+    # Bogføringsloven §10 / SKAT cross-border compliance. Three nullable
+    # columns; existing single-currency rows are unaffected.
+    "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS currency VARCHAR(3)",
+    "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS fx_rate NUMERIC(10,6)",
+    "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS original_amount NUMERIC(14,2)",
     # Error log — observability without external dependencies (Sentry alternative)
     """CREATE TABLE IF NOT EXISTS error_logs (
         id VARCHAR(36) PRIMARY KEY,
@@ -2260,7 +2266,22 @@ app.include_router(staffing.router, prefix="/api/staffing", tags=["Staffing"])
 app.include_router(waste.router, prefix="/api/waste", tags=["Waste"])
 app.include_router(feedback.router, prefix="/api/feedback", tags=["Feedback"])
 app.include_router(cashbook.router, prefix="/api/cashbook", tags=["Cash Book"])
+# ── /api/events vs /api/event-log split (migration 013) ────────────────
+# The cultural-events sprint took over the `/api/events` namespace for
+# the new Event entity CRUD (Sudip-style customers tagging Sales/Expenses
+# with a real-world event). The old analytics-telemetry endpoints moved
+# to `/api/event-log` (router file: app/routers/event_log.py — the
+# telemetry router was just renamed; the DB model EventLog was always
+# its proper name).
+#
+# Legacy clients that still POST to /api/events / /api/events/batch are
+# routed via two tiny back-compat shims registered below. They emit a
+# 308 redirect to /api/event-log so the native-app builds (which can't
+# update their telemetry URL until the next App Store push) keep
+# working without losing the page-view stream. New clients should call
+# /api/event-log directly.
 app.include_router(events.router, prefix="/api/events", tags=["Events"])
+app.include_router(event_log_router.router, prefix="/api/event-log", tags=["Event Log"])
 app.include_router(khata.router, prefix="/api/khata", tags=["Khata"])
 app.include_router(budget.router, prefix="/api/budgets", tags=["Budgets"])
 app.include_router(loan.router, prefix="/api/loans", tags=["Loans"])
