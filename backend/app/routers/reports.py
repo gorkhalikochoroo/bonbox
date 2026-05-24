@@ -4,7 +4,7 @@ from datetime import date, timedelta
 import calendar
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from reportlab.lib.pagesizes import A4
@@ -32,6 +32,9 @@ from app.models.business_profile import BusinessProfile
 from app.services import audit_service
 from app.services.auth import get_current_user
 from app.services.billing import effective_plan, get_cap
+from app.services.tax_filing_pdf import (
+    build_moms_filing_pdf, compute_filing_data, make_bilagsnummer,
+)
 from pydantic import BaseModel
 from typing import List
 
@@ -1040,14 +1043,35 @@ def vat_export_pdf(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Generate localized VAT/Tax PDF report.
+    """Generate the MOMS-angivelse PDF for a chosen period.
 
-    Tier-capped — Free=2/mo, Starter=100/mo, Pro+Trial=unlimited. Per
-    Manoj's "yes just limit cap" decision on #148 CRIT-4: keep the
-    surface reachable for every tier (the Pro upsell is /tax/filing-pdf,
-    the SKAT-ready filing artifact) but bound Free usage so abusive
-    scripts can't grind the renderer. The JSON sibling `/vat-export`
-    stays uncapped — that's the data the VAT page reads to render.
+    **Accountant-grade output** — this endpoint now delegates the
+    rendering to `build_moms_filing_pdf` (the SAME builder used by
+    the Pro `/tax/filing-pdf` SKAT-ready endpoint). Both surfaces
+    emit byte-identical PDFs for the same period, eliminating
+    drift between the Free-tier "view-any-period" PDF and the
+    Pro "filing PDF". The single source of truth for the MOMS
+    math is `_calc_vat()` in tax_service.py (same function the
+    Tax Autopilot overview consumes).
+
+    Differentiation by tier is NOT in the rendered PDF itself —
+    it's in the monthly cap (Free=2, Starter=100, Pro+Trial=-1)
+    and in the gated endpoint `/tax/filing-pdf` (Pro-only,
+    pre-fills the user's current filing period). A Free user
+    generating a Q1 MOMS view here gets the same accountant-grade
+    bilagsnummer + Doc-hash + signature line + Bogføringsloven
+    §10 retention notice + source reconciliation that the Pro
+    endpoint produces.
+
+    Per Manoj's mandate ("we reducing accountant hrs saving
+    money"): every MOMS PDF leaving BonBox must be usable by a
+    revisor. Anything less makes the accountant-hours-saved
+    claim hollow.
+
+    Tier cap (commit efd26ac): Free=2/mo, Starter=100/mo,
+    Pro+Trial=unlimited. Counter = audit_logs rows of
+    `reports.vat_export_pdf_generated` for current calendar
+    month. The JSON sibling `/vat-export` stays uncapped.
     """
     # ── Tier cap — count this month's audit rows, deny at the cap ──
     cap = get_cap(user, "moms_pdf_exports_per_month")
@@ -1076,163 +1100,65 @@ def vat_export_pdf(
                 },
             )
 
-    tax_name = get_vat_terms(user.currency or "DKK")["name"]
+    # ── Period resolution — convert query params to (inclusive_start,
+    # inclusive_end). build_moms_filing_pdf accepts inclusive end. The
+    # old code used exclusive end internally so we subtract one day
+    # before delegating.
     if quarter:
         q_months = {1: (1, 3), 2: (4, 6), 3: (7, 9), 4: (10, 12)}
         m_start, m_end = q_months[quarter]
-        start = date(year, m_start, 1)
-        end = date(year + 1, 1, 1) if m_end == 12 else date(year, m_end + 1, 1)
-        period_label = f"Q{quarter} {year} ({calendar.month_abbr[m_start]}-{calendar.month_abbr[m_end]})"
-        filename = f"{tax_name}_Q{quarter}_{year}.pdf"
+        p_start = date(year, m_start, 1)
+        next_first = date(year + 1, 1, 1) if m_end == 12 else date(year, m_end + 1, 1)
+        p_end = next_first - timedelta(days=1)
     elif month:
-        start = date(year, month, 1)
-        end = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
-        period_label = f"{calendar.month_name[month]} {year}"
-        filename = f"{tax_name}_{calendar.month_name[month]}_{year}.pdf"
+        p_start = date(year, month, 1)
+        next_first = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+        p_end = next_first - timedelta(days=1)
     else:
-        start = date(year, 1, 1)
-        end = date(year + 1, 1, 1)
-        period_label = str(year)
-        filename = f"{tax_name}_{year}.pdf"
+        p_start = date(year, 1, 1)
+        p_end = date(year, 12, 31)
 
-    data = _get_vat_data(db, user, start, end)
-    cur = data["currency"]
-    vat_rate = data["vat_rate"]
-    terms = get_vat_terms(user.currency or "DKK")
-
-    # Build PDF
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=15 * mm, bottomMargin=15 * mm, leftMargin=15 * mm, rightMargin=15 * mm)
-    styles = getSampleStyleSheet()
-
-    title_style = ParagraphStyle("VTitle", parent=styles["Title"], fontSize=22, spaceAfter=2, textColor=DARK)
-    subtitle_style = ParagraphStyle("VSub", parent=styles["Normal"], fontSize=11, textColor=colors.grey, spaceAfter=4)
-    section_style = ParagraphStyle("VSection", parent=styles["Heading2"], fontSize=14, spaceBefore=16, spaceAfter=8, textColor=DARK)
-    small_style = ParagraphStyle("VSmall", parent=styles["Normal"], fontSize=8, textColor=colors.grey)
-
-    elements = []
-
-    # Header (with business profile for official tax reporting)
-    bp = _get_business_profile(db, user.id)
-    _pdf_business_header(
-        elements, bp, user, title_style, subtitle_style, small_style,
-        terms["report"], period_label,
-        extra_line=f"{terms['name']} Rate: {data['vat_rate_pct']}% | Currency: {cur} | Generated: {date.today().strftime('%d %B %Y')}",
+    # ── BusinessProfile + display name (matches tax.py:tax_filing_pdf) ──
+    profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == user.id)
+        .first()
     )
-    elements.append(Spacer(1, 3 * mm))
-    elements.append(HRFlowable(width="100%", thickness=1.5, color=PURPLE, spaceAfter=10))
+    business_name = (
+        (getattr(profile, "company_name", None) if profile else None)
+        or getattr(user, "business_name", None)
+        or "MOMS-angivelse"
+    )
 
-    # Sales VAT (Output)
-    elements.append(Paragraph(terms["output"], section_style))
-    sales_data = [
-        ["", "Amount"],
-        [terms["sales_incl"], f"{data['sales_incl_vat']:,.2f} {cur}"],
-        [terms["sales_excl"], f"{data['sales_excl_vat']:,.2f} {cur}"],
-        [terms["output"], f"{data['output_vat']:,.2f} {cur}"],
-    ]
-    t = Table(sales_data, colWidths=[95 * mm, 70 * mm])
-    t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), BLUE),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
-        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 10),
-        ("PADDING", (0, 0), (-1, -1), 8),
-        ("GRID", (0, 0), (-1, -1), 0.5, BORDER),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT_BG]),
-        ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
-        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#eff6ff")),
-    ]))
-    elements.append(t)
-
-    # Expenses VAT (Input)
-    elements.append(Paragraph(terms["input"], section_style))
-    exp_data = [
-        ["", "Amount"],
-        [terms["exp_incl"], f"{data['expenses_incl_vat']:,.2f} {cur}"],
-        [terms["exp_excl"], f"{data['expenses_excl_vat']:,.2f} {cur}"],
-        [terms["input"], f"{data['input_vat']:,.2f} {cur}"],
-    ]
-    t2 = Table(exp_data, colWidths=[95 * mm, 70 * mm])
-    t2.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), GREEN),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
-        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 10),
-        ("PADDING", (0, 0), (-1, -1), 8),
-        ("GRID", (0, 0), (-1, -1), 0.5, BORDER),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT_BG]),
-        ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
-        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#f0fdf4")),
-    ]))
-    elements.append(t2)
-
-    # Expense breakdown
-    if data["expense_breakdown"]:
-        elements.append(Paragraph("Expense Breakdown by Category", section_style))
-        bd = [["Category", "Incl. VAT", "VAT Amount"]]
-        for name, total in data["expense_breakdown"]:
-            cat_vat = round(total * vat_rate / (1 + vat_rate), 2) if vat_rate > 0 else 0
-            bd.append([name, f"{total:,.2f} {cur}", f"{cat_vat:,.2f} {cur}"])
-        bd.append(["TOTAL", f"{data['expenses_incl_vat']:,.2f} {cur}", f"{data['input_vat']:,.2f} {cur}"])
-        tb = Table(bd, colWidths=[65 * mm, 50 * mm, 50 * mm])
-        tb.setStyle(_header_table_style())
-        tb.setStyle(TableStyle([
-            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-            ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#f1f5f9")),
-        ]))
-        elements.append(tb)
-
-    # NET VAT PAYABLE
-    elements.append(Spacer(1, 5 * mm))
-    elements.append(Paragraph(terms["net"], section_style))
-    payable_color = RED if data["vat_payable"] >= 0 else GREEN
-    net_data = [
-        [terms["output"], f"{data['output_vat']:,.2f} {cur}"],
-        [terms["input"], f"- {data['input_vat']:,.2f} {cur}"],
-        [terms["net"].upper(), f"{data['vat_payable']:,.2f} {cur}"],
-    ]
-    tn = Table(net_data, colWidths=[95 * mm, 70 * mm])
-    tn.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
-        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 11),
-        ("FONTSIZE", (0, -1), (-1, -1), 13),
-        ("PADDING", (0, 0), (-1, -1), 10),
-        ("GRID", (0, 0), (-1, -1), 0.5, BORDER),
-        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#fef2f2") if data["vat_payable"] >= 0 else colors.HexColor("#f0fdf4")),
-        ("TEXTCOLOR", (1, -1), (1, -1), payable_color),
-        ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
-    ]))
-    elements.append(tn)
-
-    status_text = terms["owe"] if data["vat_payable"] >= 0 else terms["refund"]
-    elements.append(Spacer(1, 2 * mm))
-    elements.append(Paragraph(f"<b>{status_text}</b>", ParagraphStyle("VStatus", parent=small_style, fontSize=10, textColor=payable_color)))
-
-    # Disclaimer
-    elements.append(Spacer(1, 10 * mm))
-    elements.append(HRFlowable(width="100%", thickness=0.5, color=BORDER))
-    elements.append(Spacer(1, 3 * mm))
-    elements.append(Paragraph(
-        f"<b>Disclaimer:</b> This report is generated by BonBox for informational purposes only. "
-        f"It is NOT official tax documentation. Always consult your accountant "
-        f"before submitting to {terms['authority']}. BonBox is not responsible for any errors in tax filings.",
-        ParagraphStyle("VDisclaim", parent=small_style, fontSize=7, textColor=colors.grey),
-    ))
-    elements.append(Paragraph("bonbox.dk", ParagraphStyle("VFoot", parent=small_style, textColor=PURPLE)))
-
-    doc.build(elements)
-    buf.seek(0)
-
-    # Audit log — Bogføringsloven §10: every financial-PDF egress writes
-    # an audit row. Mirrors tax.py:307. Failure logs but never blocks
-    # the download (user has a right to their own MOMS data).
-    pdf_bytes_len = buf.getbuffer().nbytes
+    # ── L4 — fail soft on render failure (never raise to user) ────
     try:
+        pdf_bytes = build_moms_filing_pdf(
+            db, user, p_start, p_end,
+            profile=profile, business_name=business_name,
+        )
+    except Exception as e:  # noqa: BLE001
+        log.exception("vat_export_pdf build failed for user=%s: %s", user.id, e)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "pdf_generation_failed",
+                "message": "Kunne ikke generere MOMS-PDF'en. Prøv igen.",
+                "message_en": "Could not generate the MOMS PDF. Please try again.",
+            },
+        )
+
+    # ── Filename: align with the Pro filing PDF convention
+    # (MA-YYYYMMDD-YYYYMMDD.pdf). A revisor receiving a folder of these
+    # can sort by name and see them in chronological order.
+    bilagsnummer = make_bilagsnummer(p_start, p_end)
+    filename = f"{bilagsnummer}.pdf"
+
+    # ── L7 — Bogføringsloven §10 audit log ────────────────────────
+    # Pull totals from the canonical computer (same source the PDF
+    # rendered) so the audit row reconciles to the øre with the PDF
+    # the user just downloaded. NEVER blocks the response.
+    try:
+        data = compute_filing_data(db, user, p_start, p_end)
         audit_service.record(
             db, user=user,
             action="reports.vat_export_pdf_generated",
@@ -1240,16 +1166,18 @@ def vat_export_pdf(
             entity_id=None,
             before=None,
             after={
-                "period": period_label,
-                "period_start": start.isoformat(),
-                "period_end": end.isoformat(),
-                "currency": cur,
-                "vat_rate_pct": data.get("vat_rate_pct"),
-                "output_vat": float(data.get("output_vat") or 0),
-                "input_vat": float(data.get("input_vat") or 0),
-                "vat_payable": float(data.get("vat_payable") or 0),
+                "bilagsnummer": bilagsnummer,
+                "period_start": p_start.isoformat(),
+                "period_end": p_end.isoformat(),
+                "currency": data["currency"],
+                "vat_rate_pct": data["vat_rate_pct"],
+                "moms_af_salg": data["moms_af_salg"],
+                "moms_af_kob": data["moms_af_kob"],
+                "moms_til_skat": data["moms_til_skat"],
+                "sales_count": data["sales_count"],
+                "expense_count": data["expense_count"],
                 "filename": filename,
-                "pdf_size_bytes": pdf_bytes_len,
+                "pdf_size_bytes": len(pdf_bytes),
                 "format": "pdf",
             },
             ip_address=_client_ip(request),
@@ -1259,10 +1187,13 @@ def vat_export_pdf(
         log.warning("reports.vat_export_pdf_generated audit log failed: %s", e)
         db.rollback()
 
-    return StreamingResponse(
-        buf,
+    return Response(
+        content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(pdf_bytes)),
+        },
     )
 
 
