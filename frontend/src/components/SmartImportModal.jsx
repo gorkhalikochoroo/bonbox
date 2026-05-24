@@ -28,16 +28,26 @@ import { resizeImageIfLarge } from "../utils/resizeImage";
  *   • All bounds (200-item cap, 200-char name max, 12MB image cap, etc.)
  *     come back as 422 from Pydantic — toasted clearly.
  */
-export default function SmartImportModal({ open, onClose, onCommitted, smartScanPrefill = null }) {
-  // Smart Scan handoff (Inventory invoice path): when InventoryPage
-  // opens us with a smartScanPrefill, we auto-select the "image" mode
-  // (the typical input for invoices) and surface a banner explaining
-  // why we asked the owner to re-upload. The Smart Scan classifier
-  // already extracted the data once, but the smart-import commit flow
-  // requires a draft id only the /smart-import/file endpoint creates.
-  // Auto-selecting image mode + a clear banner is honest: we don't
-  // pretend the data is already imported.
-  const [mode, setMode] = useState(smartScanPrefill ? "image" : "text"); // text | csv | excel | image | history
+export default function SmartImportModal({
+  open, onClose, onCommitted, smartScanPrefill = null, draftId = null,
+}) {
+  // Smart Scan handoff — two flavors:
+  //
+  //   1. Direct handoff (Q2, May 2026) — `draftId` is set. The backend
+  //      already promoted the smart-scan extraction into a real draft;
+  //      we skip the entire file-pick step and load directly into the
+  //      review step via GET /inventory/smart-import/{id}.
+  //
+  //   2. Legacy fallback — only `smartScanPrefill` is set. The handoff
+  //      endpoint failed (or wasn't available); we surface a banner
+  //      explaining why we asked the owner to re-upload.
+  //
+  // The two paths share the review UI; they only differ in WHERE the
+  // draft came from. This keeps the SmartImportModal a single source
+  // of truth for the review experience.
+  const [mode, setMode] = useState(
+    draftId || smartScanPrefill ? "image" : "text",
+  ); // text | csv | excel | image | history
   const [textInput, setTextInput] = useState("");
   const [fileInput, setFileInput] = useState(null);
   const [draft, setDraft] = useState(null);
@@ -65,12 +75,46 @@ export default function SmartImportModal({ open, onClose, onCommitted, smartScan
       setDraft(null);
       setError("");
       setHistory(null);
-    } else if (smartScanPrefill) {
+    } else if (smartScanPrefill || draftId) {
       // Re-opened with a Smart Scan handoff — force image mode so the
-      // owner sees the right picker immediately.
+      // owner sees the right picker immediately. (For draftId we go
+      // straight to the review step below; the mode is just defensive
+      // in case the load fails and we fall back to the picker.)
       setMode("image");
     }
-  }, [open, smartScanPrefill]);
+  }, [open, smartScanPrefill, draftId]);
+
+  // Direct handoff (Q2) — when a draftId is provided, load the
+  // existing draft and jump to the review step. This skips the entire
+  // file-picker flow.
+  useEffect(() => {
+    if (!open || !draftId) return;
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    api.get(`/inventory/smart-import/${draftId}`)
+      .then((r) => {
+        if (cancelled) return;
+        setDraft(r.data);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        // L9 graceful — if the draft fetch fails (e.g. race with a
+        // cleanup job), drop the owner back into the regular file
+        // picker rather than blanking the modal.
+        const detail = e?.response?.data?.detail;
+        setError(
+          typeof detail === "string"
+            ? detail
+            : t(
+                "smartScan.invoiceLoadFailed",
+                "Kunne ikke åbne tidligere registreret faktura — vælg billede igen.",
+              ),
+        );
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [open, draftId, t]);
 
   // Lazy-load history when the user picks the History tab. Re-fetches on
   // re-entry so the list reflects any imports just committed during this
@@ -216,10 +260,11 @@ export default function SmartImportModal({ open, onClose, onCommitted, smartScan
         {/* Body */}
         <div className="flex-1 overflow-auto px-6 py-4">
           {/* Smart Scan handoff banner — fires when InventoryPage opened
-              us with a smart-scan invoice prefill. Honest copy: the
+              us with a smart-scan invoice prefill BUT no live draft was
+              available (handoff endpoint failed). Honest copy: the
               classifier already extracted the data once, but we need
               to re-upload to create a committable draft. */}
-          {smartScanPrefill && !draft && (
+          {smartScanPrefill && !draftId && !draft && (
             <div className="mb-4 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 p-3 text-sm text-emerald-900 dark:text-emerald-100">
               <div className="font-medium flex items-center gap-2 mb-0.5">
                 <span aria-hidden="true">✨</span>
@@ -233,7 +278,20 @@ export default function SmartImportModal({ open, onClose, onCommitted, smartScan
               </div>
             </div>
           )}
-          {!draft ? (
+          {/* Direct-handoff loading state — only fires when InventoryPage
+              opened us with a draftId and we're fetching the row. The
+              file-pick step is skipped entirely. */}
+          {draftId && loading && !draft ? (
+            <div className="py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+              <div className="inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+              <p>{t("smartScan.invoiceLoadingDraft", "Åbner faktura…")}</p>
+              {error && (
+                <p className="mt-2 text-red-600 dark:text-red-400 text-xs">
+                  {error}
+                </p>
+              )}
+            </div>
+          ) : !draft ? (
             <ExtractStep
               mode={mode}
               setMode={setMode}

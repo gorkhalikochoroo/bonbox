@@ -2831,9 +2831,10 @@ const translations = {
     "smartScan.upgrade.smart_imports_per_day": "Higher daily limit for Smart Inventory Import",
     // Q3 (#155) — native camera permission denial fallback.
     "smartScan.cameraDenied": "Camera permission denied — pick image",
-    // Direct handoff load state in SmartImportModal.
-    "smartImport.loadingDraft": "Opening faktura…",
-    "smartImport.draftLoadFailed": "Couldn't open the registered faktura — pick the image again.",
+    // Direct handoff load state in SmartImportModal — namespaced under
+    // smartScan.* because the trigger is the Smart Scan integration.
+    "smartScan.invoiceLoadingDraft": "Opening faktura…",
+    "smartScan.invoiceLoadFailed": "Couldn't open the registered faktura — pick the image again.",
   },
   da: {
     dashboard: "Oversigt", sales: "Salg", expenses: "Udgifter", inventory: "Lager",
@@ -5484,9 +5485,10 @@ const translations = {
     "smartScan.upgrade.smart_imports_per_day": "Højere daglig grænse for Smart lager-import",
     // Q3 (#155) — fallback når kameraadgang er nægtet.
     "smartScan.cameraDenied": "Kamera-tilladelse nægtet — vælg billede",
-    // Direkte handoff load state i SmartImportModal.
-    "smartImport.loadingDraft": "Åbner faktura…",
-    "smartImport.draftLoadFailed": "Kunne ikke åbne tidligere registreret faktura — vælg billede igen.",
+    // Direkte handoff load state i SmartImportModal — under smartScan.*
+    // fordi udløseren er Smart Scan-integrationen.
+    "smartScan.invoiceLoadingDraft": "Åbner faktura…",
+    "smartScan.invoiceLoadFailed": "Kunne ikke åbne tidligere registreret faktura — vælg billede igen.",
   },
   np: {
     dashboard: "ड्यासबोर्ड", sales: "बिक्री", expenses: "खर्च", inventory: "स्टक",

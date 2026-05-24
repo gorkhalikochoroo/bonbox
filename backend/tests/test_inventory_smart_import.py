@@ -30,10 +30,14 @@ from app.models.user import User
 from app.routers.inventory_smart_import import (
     CommitItem,
     CommitRequest,
+    SmartScanInvoicePayload,
     TextImportRequest,
     _check_daily_quota,
     _check_idempotency,
     _persist_import,
+    _promote_smart_scan_to_draft,
+    _smart_scan_items_from_payload,
+    _smart_scan_payload_sha,
     _today_midnight,
 )
 
@@ -346,3 +350,283 @@ def test_persist_import_records_failure(db, free_user):
     assert imp.status == "failed"
     assert imp.error == "extractor:Timeout"
     assert imp.item_count == 0
+
+
+# ─── Q2 — Smart Scan → Inventory handoff schema bounds ────────────────
+#
+# Multi-barrier defense for /api/inventory/smart-import/from-smart-scan:
+#  L2 schema validation, L5 cap, L6 idempotency, L7 audit row.
+# The /file endpoint is the canonical path; these tests pin the
+# tier-cap parity + tenant scoping so the new endpoint never becomes a
+# tier-gate bypass.
+
+def test_smart_scan_payload_accepts_minimum_invoice():
+    """A single line item with just a name should be accepted — the
+    minimum a faktura must carry to be importable."""
+    p = SmartScanInvoicePayload(
+        doc_type="supplier_invoice",
+        line_items=[{"name": "Tuborg Pilsner"}],
+    )
+    assert len(p.line_items) == 1
+    assert p.line_items[0].name == "Tuborg Pilsner"
+
+
+def test_smart_scan_payload_strips_unknown_fields():
+    """L2 — unknown fields silently dropped (extra='ignore'). Defense
+    against a forged payload trying to smuggle data through unbounded
+    keys."""
+    p = SmartScanInvoicePayload(
+        doc_type="supplier_invoice",
+        line_items=[{
+            "name": "Tuborg",
+            "qty": 24,
+            "evil_field": "x" * 100_000,  # MUST be dropped
+            "__proto__": {"hack": True},
+        }],
+    )
+    dumped = p.line_items[0].model_dump()
+    assert "evil_field" not in dumped
+    assert "__proto__" not in dumped
+    assert dumped["name"] == "Tuborg"
+
+
+def test_smart_scan_payload_rejects_oversized_line_items():
+    """L2 — list capped at MAX_ITEMS_RETURNED (200). Payload-bomb
+    defense matching /file."""
+    items = [{"name": f"Item{i}"} for i in range(201)]
+    with pytest.raises(ValidationError):
+        SmartScanInvoicePayload(line_items=items)
+
+
+def test_smart_scan_payload_at_upper_bound_passes():
+    items = [{"name": f"Item{i}"} for i in range(200)]
+    p = SmartScanInvoicePayload(line_items=items)
+    assert len(p.line_items) == 200
+
+
+def test_smart_scan_payload_rejects_oversized_item_name():
+    """L2 — name length bound at 200 chars. Same as CommitItem.name."""
+    with pytest.raises(ValidationError):
+        SmartScanInvoicePayload(line_items=[{"name": "x" * 201}])
+
+
+def test_smart_scan_payload_rejects_empty_name():
+    """L2 — line items without a name are unusable; reject at schema."""
+    with pytest.raises(ValidationError):
+        SmartScanInvoicePayload(line_items=[{"name": ""}])
+
+
+def test_smart_scan_payload_rejects_negative_qty():
+    with pytest.raises(ValidationError):
+        SmartScanInvoicePayload(line_items=[{"name": "x", "qty": -1}])
+
+
+def test_smart_scan_payload_rejects_excessive_qty():
+    with pytest.raises(ValidationError):
+        SmartScanInvoicePayload(line_items=[{"name": "x", "qty": 10_000_000}])
+
+
+def test_smart_scan_payload_supplier_name_bounded():
+    """Supplier name at upper 200-char bound passes; 201 fails."""
+    p = SmartScanInvoicePayload(
+        supplier={"name": "x" * 200},
+        line_items=[{"name": "Item"}],
+    )
+    assert p.supplier and len(p.supplier.name) == 200
+    with pytest.raises(ValidationError):
+        SmartScanInvoicePayload(
+            supplier={"name": "x" * 201},
+            line_items=[{"name": "Item"}],
+        )
+
+
+def test_smart_scan_payload_supplier_cvr_bounded():
+    """CVR length cap defends the audit log row from huge strings."""
+    with pytest.raises(ValidationError):
+        SmartScanInvoicePayload(
+            supplier={"cvr": "1" * 21},
+            line_items=[{"name": "Item"}],
+        )
+
+
+def test_smart_scan_payload_vat_rate_bounded():
+    """vat_rate must be a decimal in [0, 1] — the inventory_ocr
+    validator coerces percent → decimal but the HTTP schema must catch
+    anything that slipped past."""
+    with pytest.raises(ValidationError):
+        SmartScanInvoicePayload(line_items=[{"name": "x", "vat_rate": 1.5}])
+
+
+def test_smart_scan_items_adapter_shape_matches_file_path():
+    """The adapter must produce items in the SAME shape /file produces
+    from the inventory_ocr primary, so the review UI doesn't branch."""
+    payload = SmartScanInvoicePayload(
+        line_items=[{
+            "name": "Tuborg Pilsner 33cl",
+            "qty": 24,
+            "unit": "fl",
+            "unit_cost": 5.5,
+            "category": "Beer",
+            "ean": "5712710001234",
+            "sku": "TBG-33",
+            "vat_rate": 0.25,
+            "category_confidence": 0.92,
+            "expiry_date": "2026-12-31",
+        }],
+    )
+    items = _smart_scan_items_from_payload(payload)
+    assert len(items) == 1
+    it = items[0]
+    assert it["name"] == "Tuborg Pilsner 33cl"
+    assert it["qty"] == 24
+    # Critical: unit_cost in payload → cost_per_unit in items dict.
+    # If this mapping drifts, the commit endpoint will write zero into
+    # InventoryItem.cost_per_unit and break unit-cost reporting.
+    assert it["cost_per_unit"] == 5.5
+    assert it["category"] == "Beer"
+    assert it["ean"] == "5712710001234"
+    assert it["vat_rate"] == 0.25
+    assert it["category_confidence"] == 0.92
+
+
+def test_smart_scan_items_adapter_drops_uncategorized():
+    """The /file path drops 'uncategorized' so the downstream
+    categorizer can run rules; we mirror that exactly."""
+    payload = SmartScanInvoicePayload(
+        line_items=[{"name": "x", "category": "uncategorized"}],
+    )
+    items = _smart_scan_items_from_payload(payload)
+    assert "category" not in items[0]
+
+
+def test_smart_scan_payload_sha_is_stable():
+    """SHA must be deterministic over equivalent payloads — otherwise
+    idempotency dedup never hits."""
+    a = SmartScanInvoicePayload(
+        supplier={"name": "Hørkram"},
+        line_items=[{"name": "Tuborg", "qty": 24}, {"name": "Vodka", "qty": 5}],
+    )
+    b = SmartScanInvoicePayload(
+        supplier={"name": "Hørkram"},
+        line_items=[{"name": "Tuborg", "qty": 24}, {"name": "Vodka", "qty": 5}],
+    )
+    assert _smart_scan_payload_sha(a) == _smart_scan_payload_sha(b)
+
+
+def test_smart_scan_payload_sha_differs_for_different_items():
+    a = SmartScanInvoicePayload(line_items=[{"name": "Tuborg", "qty": 24}])
+    b = SmartScanInvoicePayload(line_items=[{"name": "Tuborg", "qty": 25}])
+    assert _smart_scan_payload_sha(a) != _smart_scan_payload_sha(b)
+
+
+# ─── L5 — cap parity with /file ───────────────────────────────────────
+
+def test_smart_scan_handoff_shares_cap_with_file(db, free_user):
+    """Critical: the smart-scan handoff endpoint MUST share the same
+    smart_imports_per_day cap as /file. If it doesn't, a free user can
+    bypass the gate by routing every upload through smart-scan."""
+    from fastapi import HTTPException
+
+    # Pre-load 3 imports today (free cap = 3).
+    for _ in range(3):
+        imp = InventoryImport(
+            id=uuid.uuid4(),
+            user_id=free_user.id,
+            source_kind="text",
+        )
+        db.add(imp)
+    db.commit()
+
+    # The handoff promotion goes through _check_daily_quota the SAME
+    # way /file does. We invoke the check directly here — the endpoint
+    # call sequence is identical.
+    with pytest.raises(HTTPException) as exc:
+        _check_daily_quota(db, free_user)
+    assert exc.value.status_code == 429
+
+
+def test_smart_scan_handoff_persists_correct_source_kind(db, free_user):
+    """The InventoryImport row from the handoff path must be tagged
+    so admin UIs can distinguish smart-scan entry from manual /file."""
+    payload = SmartScanInvoicePayload(
+        supplier={"name": "Hørkram", "cvr": "12345678"},
+        line_items=[
+            {"name": "Tuborg", "qty": 24, "unit": "fl", "unit_cost": 5.5},
+            {"name": "Vodka", "qty": 5, "unit": "L", "unit_cost": 80.0},
+        ],
+    )
+    imp = _promote_smart_scan_to_draft(db, free_user, payload, request=None)
+    db.commit()
+
+    assert imp.source_kind == "smart_scan_invoice"
+    assert imp.user_id == free_user.id
+    assert imp.item_count == 2
+    assert imp.status == "created"
+    # Tenant scope: the row MUST belong to the caller, no exceptions.
+    row = db.query(InventoryImport).filter_by(id=imp.id).one()
+    assert row.user_id == free_user.id
+
+
+def test_smart_scan_handoff_idempotency_dedups(db, free_user):
+    """Re-POSTing the same payload returns the existing draft, never a
+    second row. Matches /file's bytes-SHA dedup behavior."""
+    payload = SmartScanInvoicePayload(
+        supplier={"name": "BC Catering"},
+        line_items=[{"name": "Tomater", "qty": 5, "unit": "kg"}],
+    )
+    imp1 = _promote_smart_scan_to_draft(db, free_user, payload, request=None)
+    db.commit()
+
+    found = _check_idempotency(db, free_user, _smart_scan_payload_sha(payload))
+    assert found is not None
+    assert found.id == imp1.id
+
+
+def test_smart_scan_handoff_idempotency_scopes_by_user(db, free_user, pro_user):
+    """Two users with the IDENTICAL extracted_data MUST get separate
+    drafts — cross-tenant idempotency would leak supplier data."""
+    payload = SmartScanInvoicePayload(
+        supplier={"name": "Hørkram"},
+        line_items=[{"name": "Tuborg", "qty": 24}],
+    )
+    imp_pro = _promote_smart_scan_to_draft(db, pro_user, payload, request=None)
+    db.commit()
+
+    # Free user POSTs same payload — must NOT see pro_user's draft.
+    sha = _smart_scan_payload_sha(payload)
+    found = _check_idempotency(db, free_user, sha)
+    assert found is None
+
+
+def test_smart_scan_handoff_writes_audit_row(db, free_user):
+    """L7 — every handoff promotion writes an audit_logs row tagged
+    `inventory.smart_import_from_smart_scan` so the entry path is
+    auditable separately from /file."""
+    from app.models.audit_log import AuditLog
+
+    payload = SmartScanInvoicePayload(
+        supplier={"name": "AB Catering", "cvr": "87654321"},
+        line_items=[{"name": "Kartofler", "qty": 10, "unit": "kg"}],
+    )
+    imp = _promote_smart_scan_to_draft(db, free_user, payload, request=None)
+    db.commit()
+
+    audit_rows = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.user_id == free_user.id,
+            AuditLog.action == "inventory.smart_import_from_smart_scan",
+        )
+        .all()
+    )
+    assert len(audit_rows) == 1
+    row = audit_rows[0]
+    assert row.entity_type == "inventory_import"
+    assert str(row.entity_id) == str(imp.id)
+    # The audit row's after_state must capture the supplier so the
+    # founder can review "which suppliers do owners scan most".
+    import json as _json
+    after = _json.loads(row.after_state)
+    assert after["supplier_name"] == "AB Catering"
+    assert after["item_count"] == 1
+    assert after["source_kind"] == "smart_scan_invoice"

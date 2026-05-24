@@ -147,25 +147,38 @@ export default function InventoryPage() {
   useEffect(() => { fetchData(); }, []);
 
   // ─── Smart Scan prefill consumer (invoice → Inventory) ───────────
-  // SmartScanModal navigates here when the classifier recognizes a
-  // supplier invoice. The backend already runs the invoice OCR
-  // extractor and returns extracted_data — but the committable draft
-  // lives behind /inventory/smart-import/file (it needs a draft id
-  // server-side, so the owner uploads the same image to the smart-
-  // import endpoint to get a draft they can review + commit).
   //
-  // UX: we drop them straight into the SmartImportModal with the
-  // "image" mode pre-selected so they only have to re-pick the file.
-  // A banner inside the modal lets them know why we asked again.
-  // (Building a "promote extracted_data → draft" backend endpoint
-  // would be the next iteration; not in scope per the brief.)
+  // Two entry shapes possible from SmartScanModal:
+  //
+  //   1. NEW (Q2, May 2026) — direct handoff: SmartScanModal called
+  //      `POST /inventory/smart-import/from-smart-scan` and got back a
+  //      live draft_id. We open SmartImportModal directly into the
+  //      review step (no re-pick of the same image). state shape:
+  //        { draft_id: <uuid>, source: 'smart_scan' }
+  //
+  //   2. LEGACY fallback — when the new endpoint failed (network /
+  //      schema / 5xx) the modal still navigates with `prefill` so the
+  //      owner can re-pick the file. state shape:
+  //        { prefill: <extracted_data | null>, source: 'smart_scan' }
+  //
+  // Manual-picker source ('smart_scan_manual') also falls into the
+  // legacy branch — no prefill, owner enters fresh data.
   const location = useLocation();
   const navigate = useNavigate();
   const [smartScanInvoicePrefill, setSmartScanInvoicePrefill] = useState(null);
+  const [smartScanDraftId, setSmartScanDraftId] = useState(null);
   useEffect(() => {
     const st = location.state;
     if (!st || (st.source !== "smart_scan" && st.source !== "smart_scan_manual")) return;
-    setSmartScanInvoicePrefill(st.prefill || { _empty: true });
+    if (st.draft_id) {
+      // Direct handoff — skip the file-pick step entirely.
+      setSmartScanDraftId(st.draft_id);
+      setSmartScanInvoicePrefill(null);
+    } else {
+      // Legacy fallback — owner re-picks the file with prefill context.
+      setSmartScanDraftId(null);
+      setSmartScanInvoicePrefill(st.prefill || { _empty: true });
+    }
     setShowSmartImport(true);
     navigate(location.pathname, { replace: true, state: null });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -503,12 +516,18 @@ export default function InventoryPage() {
 
       <SmartImportModal
         open={showSmartImport}
-        onClose={() => { setShowSmartImport(false); setSmartScanInvoicePrefill(null); }}
+        onClose={() => {
+          setShowSmartImport(false);
+          setSmartScanInvoicePrefill(null);
+          setSmartScanDraftId(null);
+        }}
         smartScanPrefill={smartScanInvoicePrefill}
+        draftId={smartScanDraftId}
         onCommitted={() => {
           // Refresh the items list so the new rows appear immediately.
           fetchData();
           setSmartScanInvoicePrefill(null);
+          setSmartScanDraftId(null);
         }}
       />
 

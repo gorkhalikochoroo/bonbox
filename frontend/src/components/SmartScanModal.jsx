@@ -33,6 +33,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ScanLine, Camera, Receipt, FileText, Moon } from "lucide-react";
+import { Capacitor } from "@capacitor/core";
+import {
+  Camera as CapCamera, CameraResultType, CameraSource,
+} from "@capacitor/camera";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
@@ -112,10 +116,21 @@ export default function SmartScanModal({ open, onClose }) {
   }, [open]);
 
   // ─── File handling ────────────────────────────────────────────────
-  // Web fallback only. Native (Capacitor) camera support can be wired
-  // later — for v1 the <input type="file" capture="environment"> path
-  // is plenty: iOS Safari opens the camera directly, Android Chrome
-  // does the same, and desktop falls through to the file picker.
+  //
+  // Two camera paths:
+  //
+  //   Native (Capacitor.isNativePlatform()):
+  //     Use @capacitor/camera's Camera.getPhoto with resultType=Uri.
+  //     The Uri is a webPath we fetch as a Blob and adapt to a File
+  //     before flowing into the existing classifyFile pipeline. This
+  //     gives owners the native iOS / Android permission dialog (much
+  //     nicer than the WebView's). Permission denied falls back to the
+  //     file picker so the owner is never stuck.
+  //
+  //   Web (everything else — iOS Safari, Android Chrome, desktop):
+  //     The existing `<input type="file" capture="environment">` works
+  //     fine and we keep it as-is. EXACT zero change to that path per
+  //     the brief: "Native is an enhancement, not a replacement."
   const handleFile = async (e) => {
     const rawFile = e.target.files?.[0];
     // Clear input.value so picking the same file twice still fires
@@ -123,6 +138,66 @@ export default function SmartScanModal({ open, onClose }) {
     if (e.target) e.target.value = "";
     if (!rawFile) return;
     await classifyFile(rawFile);
+  };
+
+  // Native camera helper. Surfaces the OS permission UX, returns a File
+  // ready for the upload pipeline. Returns null when the owner cancels
+  // OR permission was denied — caller falls back to the file picker.
+  const captureWithNativeCamera = async () => {
+    try {
+      const photo = await CapCamera.getPhoto({
+        resultType: CameraResultType.Uri,
+        source: CameraSource.Camera,
+        quality: 85,
+        correctOrientation: true,
+        // saveToGallery=false: don't pollute the owner's camera roll
+        // with receipts / invoices they're scanning. GDPR-friendly.
+        saveToGallery: false,
+      });
+      if (!photo?.webPath) return null;
+      // Fetch the local webPath → Blob → File for the existing pipeline.
+      const res = await fetch(photo.webPath);
+      const blob = await res.blob();
+      const ext = (photo.format || "jpg").toLowerCase();
+      const mime = blob.type || `image/${ext === "jpeg" ? "jpeg" : ext}`;
+      const filename = `smart-scan-${Date.now()}.${ext === "jpeg" ? "jpg" : ext}`;
+      return new File([blob], filename, { type: mime });
+    } catch (err) {
+      // Permission denied OR owner cancelled. Capacitor's error.message
+      // contains "denied" / "cancelled" / "permission" — we normalize
+      // to two cases: cancel (silent) vs denied (toast + fallback).
+      const msg = String(err?.message || "").toLowerCase();
+      const isCancel = msg.includes("cancel") || msg.includes("cancelled");
+      const isDenied = msg.includes("denied") || msg.includes("permission");
+      if (isCancel) {
+        // Owner pressed Back / Cancel on the system camera. Don't toast.
+        return null;
+      }
+      if (isDenied) {
+        trackEvent("smart_scan_camera_permission_denied", "smart_scan", "native");
+        // L1 — graceful fallback to file picker. Notify the owner once,
+        // then bubble null so the calling click handler opens <input>.
+        try {
+          window.dispatchEvent(
+            new CustomEvent("bonbox:soft-error", {
+              detail: {
+                message: t(
+                  "smartScan.cameraDenied",
+                  "Kamera-tilladelse nægtet — vælg billede",
+                ),
+                recoverable: true,
+              },
+            }),
+          );
+        } catch { /* SSR — fine */ }
+        return null;
+      }
+      // Some other native error (no camera hardware, etc.) — log and
+      // fall back. Never let a native quirk soft-lock the modal.
+      console.warn("[smart-scan] native camera failed; falling back", err);
+      trackEvent("smart_scan_camera_native_error", "smart_scan", msg.slice(0, 80));
+      return null;
+    }
   };
 
   const classifyFile = async (rawFile) => {
@@ -215,11 +290,104 @@ export default function SmartScanModal({ open, onClose }) {
   }, [stage]);
 
   // ─── Navigation helpers ───────────────────────────────────────────
-  const proceed = (overrideRoute = null, overridePrefill = null, source = "smart_scan") => {
+  //
+  // Inventory direct-handoff branch (Q2, May 2026): when the classifier
+  // returned `doc_type === "invoice"` with a non-null `extracted_data`,
+  // we promote that dict into a real smart-import draft BEFORE
+  // navigating. The InventoryPage then opens SmartImportModal directly
+  // into the review step (no re-pick of the same image).
+  //
+  // Fallback chain:
+  //   200 → navigate with { draft_id, source: 'smart_scan' } → review screen
+  //   429 → render UpgradeNudge with cap info, owner re-evaluates
+  //   other → fall through to current "navigate with extracted_data,
+  //           owner re-picks" behavior. Never blank the modal.
+  const tryInventoryHandoff = async () => {
+    if (!result || result.doc_type !== "invoice" || !result.extracted_data) {
+      return null;
+    }
+    try {
+      const r = await api.post(
+        "/inventory/smart-import/from-smart-scan",
+        result.extracted_data,
+        { timeout: 30000 },
+      );
+      return { ok: true, data: r.data };
+    } catch (e) {
+      const status = e?.response?.status;
+      const detail = e?.response?.data?.detail;
+      if (status === 429) {
+        // L5 — daily smart-imports cap hit. Surface as an UpgradeNudge
+        // path; same shape the existing upgrade flow already handles.
+        return {
+          ok: false,
+          cap: true,
+          detail: typeof detail === "string"
+            ? detail
+            : t("smartScan.invoiceCapHit",
+                "Daglig grænse for smart-import er nået"),
+        };
+      }
+      // Any other failure (422 schema, 5xx, network) — log + fall
+      // through to the legacy behavior (navigate with extracted_data,
+      // owner re-picks the file). NEVER throw to the caller — that
+      // would soft-lock the modal.
+      console.warn("[smart-scan] inventory handoff failed; falling back", e);
+      trackEvent(
+        "smart_scan_handoff_failed",
+        "smart_scan",
+        `${status || "net"}:${typeof detail === "string" ? detail.slice(0, 40) : ""}`,
+      );
+      return { ok: false, cap: false };
+    }
+  };
+
+  const proceed = async (overrideRoute = null, overridePrefill = null, source = "smart_scan") => {
     if (!result) {
       onClose?.();
       return;
     }
+
+    // Inventory direct-handoff path. Only when the caller didn't supply
+    // an explicit override (manual picker uses overrideRoute and a null
+    // prefill — we trust their intent and skip the promotion).
+    if (overrideRoute === null && overridePrefill === null) {
+      const handoff = await tryInventoryHandoff();
+      if (handoff?.ok) {
+        // Draft was created server-side; navigate with the draft_id
+        // so InventoryPage opens SmartImportModal in review mode.
+        trackEvent(
+          "smart_scan_inventory_handoff",
+          "smart_scan",
+          String(handoff.data?.id || "").slice(0, 36),
+        );
+        navigate("/inventory", {
+          state: {
+            draft_id: handoff.data?.id,
+            source: "smart_scan",
+            doc_type: result.doc_type,
+          },
+        });
+        onClose?.();
+        return;
+      }
+      if (handoff && handoff.cap) {
+        // L5 — cap hit. Render the existing upgrade-nudge stage with
+        // the inventory-specific feature; owner can review the limit.
+        setResult((prev) => ({
+          ...prev,
+          upgrade_hint: {
+            feature: "smart_imports_per_day",
+            min_plan: "starter",
+            detail: handoff.detail,
+          },
+        }));
+        setStage("upgrade");
+        return;
+      }
+      // handoff returned ok=false with cap=false → silent fallback below.
+    }
+
     const route = overrideRoute || result.route_to;
     const prefill = overridePrefill !== null ? overridePrefill : (result.extracted_data || null);
     const verifyHints = result.verify_hints || [];
@@ -320,7 +488,21 @@ export default function SmartScanModal({ open, onClose }) {
               </p>
               <div className="grid grid-cols-2 gap-3">
                 <button
-                  onClick={() => {
+                  onClick={async () => {
+                    // Native path first — gives owners the OS-level
+                    // permission dialog. Falls through to the web
+                    // <input capture="environment"> on any failure
+                    // (incl. permission denied) — the file input is
+                    // the universal fallback.
+                    if (Capacitor.isNativePlatform?.()) {
+                      const nativeFile = await captureWithNativeCamera();
+                      if (nativeFile) {
+                        await classifyFile(nativeFile);
+                        return;
+                      }
+                      // Native cancel / denial / error — surface fallback
+                      // picker so the owner stays unblocked.
+                    }
                     if (!fileRef.current) return;
                     fileRef.current.setAttribute("capture", "environment");
                     fileRef.current.click();
