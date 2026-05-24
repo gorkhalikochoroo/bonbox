@@ -28,7 +28,7 @@ from app.database import get_db
 from app.models.kasserapport import KasserapportExtraction
 from app.models.user import User
 from app.services.auth import get_current_user
-from app.services.billing import effective_plan, get_cap
+from app.services.billing import effective_plan, enforce_feature, get_cap
 from app.services.kasserapport_extractor import (
     extract_kasserapport_full,
     image_sha256,
@@ -473,10 +473,17 @@ def aggregate(
     further computation.
 
     Defense:
+      • Tier gate (P5) — Pro-only feature. The multi-POS consolidated
+        close anchors the "manage up to 3 branches" Pro promise; Free
+        + Starter close ONE terminal via the regular daily-close flow.
       • Each extraction_id verified to belong to this user (no cross-
         tenant leak via forged IDs)
       • Aggregator is pure-Python; no LLM cost
     """
+    # P5 — Pro-only gate. Multi-terminal consolidated close is the
+    # canonical Pro entitlement; Free/Starter must upgrade.
+    enforce_feature(user, "multi_terminal_close")
+
     from app.services.kasserapport_aggregator import (
         DEFAULT_CASH_DIFF_THRESHOLD,
         aggregate_terminals,
@@ -632,10 +639,18 @@ def close_pdf(
 
     Defense:
       • Auth gate (per-user — no public PDF surface)
+      • Tier gate (P5) — Pro-only. The render endpoint is gated for the
+        same reason as /aggregate: the multi-POS workflow only makes
+        sense for the chain-operator tier; Free/Starter download single-
+        terminal closes via the regular daily-close PDF endpoint.
       • Pure render — no DB writes, no LLM, no external network
       • render_close_pdf() never raises; falls back to a minimal
         error PDF so caller's UX flow continues
     """
+    # P5 — Pro-only gate. Mirrors /aggregate so the render path can't
+    # be hit independently by a Free user crafting an `aggregated` body.
+    enforce_feature(user, "multi_terminal_close")
+
     from fastapi.responses import Response
     from app.services.kasserapport_pdf import render_close_pdf
 
@@ -734,10 +749,18 @@ def close_excel(
 
     Defense:
       • Auth gate (per-user — no public Excel surface)
+      • Tier gate (P5) — Pro-only. Same reasoning as /close-pdf: the
+        multi-POS render is a Pro entitlement; the gate prevents the
+        Excel mirror from being downloaded by Free/Starter even with a
+        crafted `aggregated` body.
       • Pure render — no DB writes, no LLM, no external network
       • render_close_xlsx() never raises; falls back to a minimal error
         workbook so the caller's UX flow continues
     """
+    # P5 — Pro-only gate. Mirrors /aggregate + /close-pdf so the .xlsx
+    # surface stays consistent with the rest of the multi-terminal flow.
+    enforce_feature(user, "multi_terminal_close")
+
     from fastapi.responses import Response
     from app.services.kasserapport_excel import render_close_xlsx
 

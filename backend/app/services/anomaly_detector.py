@@ -338,6 +338,155 @@ def detect_candidates(
     except Exception:  # noqa: BLE001
         logger.debug("anomaly_detector: khata query failed, skipping rule")
 
+    # ── Wages / labor cost anomalies (S10) ──────────────────────────────
+    # Two rules fire here, each producing an independent candidate:
+    #
+    #   Rule A — Labor share blowout. Trailing-week labor cost (sum of
+    #            HoursLogged.earned, with rate × hours fallback) divided
+    #            by trailing-week revenue (sum of Sale.amount). If the
+    #            share exceeds 45% it's the canonical Danish-café "watch
+    #            this" threshold (well above the 25–35% healthy band but
+    #            below what counts as data error). Severity tunes up at
+    #            60%.
+    #
+    #   Rule B — Trailing-week labor cost > 30% above the 8-week median.
+    #            Catches *spikes* that don't necessarily blow the labor
+    #            share (a flat revenue week with a 30% wages surge) so
+    #            the owner notices before payroll month-end.
+    #
+    # Gated on the `ai_anomaly_detection` feature flag so the marketing
+    # claim "AI anomaly detection on sales AND wages" (Starter+) is
+    # backed by a real entitlement — Free users don't see these wages
+    # candidates in their Daily Brief.
+    #
+    # Pure SQL aggregation + a constant; no LLM in this layer. Wrapped in
+    # try/except so a missing column on an old DB never breaks the scan.
+    from app.services.billing import has_feature as _has_feature
+    if _has_feature(user, "ai_anomaly_detection"):
+        try:
+            from app.models.staff import HoursLogged
+            week_end = yesterday
+            week_start = week_end - timedelta(days=6)
+
+            # Trailing-week labor cost — prefer pre-computed `earned`
+            # (set by /hours endpoint at log time); fall back to
+            # total_hours × rate_applied when `earned` is NULL (legacy
+            # rows).
+            wk_hours = (
+                db.query(HoursLogged)
+                .filter(
+                    HoursLogged.user_id == user.id,
+                    HoursLogged.date >= week_start,
+                    HoursLogged.date <= week_end,
+                )
+                .all()
+            )
+            labor_this_week = 0.0
+            for h in wk_hours:
+                earned = float(h.earned or 0) if h.earned is not None else 0.0
+                if earned <= 0 and h.rate_applied is not None:
+                    earned = float(h.total_hours or 0) * float(h.rate_applied or 0)
+                labor_this_week += earned
+
+            # Trailing-week revenue — same window, sales sum.
+            revenue_this_week = float(
+                db.query(sa_func.coalesce(sa_func.sum(Sale.amount), 0))
+                .filter(
+                    Sale.user_id == user.id,
+                    Sale.is_deleted.isnot(True),
+                    Sale.date >= week_start,
+                    Sale.date <= week_end,
+                )
+                .scalar()
+                or 0
+            )
+
+            # Rule A — Labor cost % of revenue beyond the watchdog
+            # threshold. Only fires when there's meaningful revenue
+            # (>= 1000 to suppress division-by-near-zero on a quiet
+            # week) AND non-zero labor.
+            if labor_this_week > 0 and revenue_this_week >= 1000:
+                labor_pct = labor_this_week / revenue_this_week * 100
+                if labor_pct > 45:
+                    sev = "high" if labor_pct > 60 else "medium"
+                    candidates.append(_Candidate(
+                        kind="labor_share_high",
+                        severity=sev,
+                        title=f"Labor cost {int(round(labor_pct))}% of revenue last week",
+                        detail=(
+                            f"In the 7 days ending {week_end.isoformat()}, payroll cost "
+                            f"({int(round(labor_this_week)):,} {user.currency or 'DKK'}) was "
+                            f"{int(round(labor_pct))}% of revenue "
+                            f"({int(round(revenue_this_week)):,} {user.currency or 'DKK'}). "
+                            f"Above 45% is the watchdog band for Danish cafés — review the "
+                            f"schedule or look for missing sales before payroll month-end."
+                        ),
+                        reference_type="wages_week",
+                        numeric_facts=[labor_this_week, revenue_this_week, labor_pct],
+                    ))
+
+            # Rule B — Trailing-week labor cost is >30% above the 8-week
+            # median. Computes the baseline from the 8 PREVIOUS weeks
+            # (i.e. weeks -8 … -1 relative to this week). Requires 4+
+            # weeks of history to avoid noise on brand-new tenants.
+            baseline_start = week_start - timedelta(weeks=8)
+            baseline_end = week_start - timedelta(days=1)
+            baseline_rows = (
+                db.query(HoursLogged)
+                .filter(
+                    HoursLogged.user_id == user.id,
+                    HoursLogged.date >= baseline_start,
+                    HoursLogged.date <= baseline_end,
+                )
+                .all()
+            )
+            # Bucket into 7-day windows ending on the same weekday as
+            # week_end so the comparison is apples-to-apples (Mon-Sun
+            # vs Mon-Sun, etc.).
+            from collections import defaultdict
+            buckets: dict[int, float] = defaultdict(float)
+            for h in baseline_rows:
+                if not h.date:
+                    continue
+                # Week index: integer division of days-from-baseline_start
+                # by 7.
+                idx = (h.date - baseline_start).days // 7
+                earned = float(h.earned or 0) if h.earned is not None else 0.0
+                if earned <= 0 and h.rate_applied is not None:
+                    earned = float(h.total_hours or 0) * float(h.rate_applied or 0)
+                buckets[idx] += earned
+
+            weekly_totals = [v for v in buckets.values() if v > 0]
+            if len(weekly_totals) >= 4 and labor_this_week > 0:
+                sorted_totals = sorted(weekly_totals)
+                mid = len(sorted_totals) // 2
+                if len(sorted_totals) % 2:
+                    median = sorted_totals[mid]
+                else:
+                    median = (sorted_totals[mid - 1] + sorted_totals[mid]) / 2
+                if median > 0 and labor_this_week > median * 1.30:
+                    pct_over = (labor_this_week / median - 1) * 100
+                    sev = "high" if pct_over > 60 else "medium"
+                    # Suppress noise if Rule A already fired for the
+                    # same window — they'd describe overlapping symptoms.
+                    if not any(c.kind == "labor_share_high" for c in candidates):
+                        candidates.append(_Candidate(
+                            kind="labor_spike",
+                            severity=sev,
+                            title=f"Payroll spike: {int(round(pct_over))}% above your 8-week normal",
+                            detail=(
+                                f"Wages for the week ending {week_end.isoformat()} were "
+                                f"{int(round(labor_this_week)):,} {user.currency or 'DKK'} — "
+                                f"{int(round(pct_over))}% above the 8-week median of "
+                                f"{int(round(median)):,} {user.currency or 'DKK'}. Verify the "
+                                f"logged hours and rates before approving the next payroll."
+                            ),
+                            reference_type="wages_week",
+                            numeric_facts=[labor_this_week, median, pct_over],
+                        ))
+        except Exception:  # noqa: BLE001
+            logger.debug("anomaly_detector: wages query failed, skipping rule")
+
     return candidates
 
 

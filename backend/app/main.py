@@ -1175,6 +1175,15 @@ _migrations = [
     # "DANSKEBANK_DABADKKK"). Aiia uses bank_slug for the same purpose;
     # we keep both so each provider's native id stays addressable.
     "ALTER TABLE bank_connections ADD COLUMN IF NOT EXISTS provider_institution_id VARCHAR(100)",
+    # ── Migration 052: Priority support flag (P10 honesty fix) ───────────
+    # Pro-tier tickets get is_priority=true at submit-time so the founder's
+    # triage queue can sort priority-first regardless of the ticket's
+    # subject prefix. Backfill default = FALSE: pre-existing tickets are
+    # treated as standard until/unless the founder edits them, which
+    # matches the "started priority on the day the Pro flag landed"
+    # contract — we don't retroactively re-tier closed tickets.
+    "ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS is_priority BOOLEAN NOT NULL DEFAULT FALSE",
+    "CREATE INDEX IF NOT EXISTS ix_support_priority_status ON support_tickets (is_priority, status, created_at)",
 ]
 
 

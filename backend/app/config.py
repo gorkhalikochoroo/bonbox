@@ -187,6 +187,22 @@ class Settings(BaseSettings):
     # inbox so we never silently mint claims with the wrong shape.
     VAPID_SUBJECT: str = "mailto:hello@bonbox.dk"
 
+    # ── Priority support routing (P10) ─────────────────────────────────
+    # When a Pro user submits a /support/tickets request, we tag the row
+    # with is_priority + prefix the subject [PRIORITY]. If these env vars
+    # are set we ALSO route to:
+    #   • PRIORITY_SUPPORT_EMAIL — a dedicated inbox CC'd on the founder
+    #     notification, so the Pro queue is separable from the general
+    #     /support firehose. Empty = no CC (fallback to current behavior).
+    #   • PRIORITY_SUPPORT_SLACK_WEBHOOK — optional Slack incoming-webhook
+    #     URL for the Pro-tickets channel. Empty = no Slack push. Posts
+    #     are best-effort; a Slack outage never blocks ticket creation.
+    # Both flags are operator-configurable so the marketing claim
+    # ("Priority email support — Pro") becomes a real, opt-in routing
+    # difference rather than just a subject prefix.
+    PRIORITY_SUPPORT_EMAIL: str = ""
+    PRIORITY_SUPPORT_SLACK_WEBHOOK: str = ""
+
 
 settings = Settings()
 

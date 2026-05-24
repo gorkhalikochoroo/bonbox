@@ -191,7 +191,35 @@ export default function BonBoxAgent() {
           }),
         });
 
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          // S12 + P9 — surface the daily-cap 402 as a calm "you've hit
+          // today's limit, upgrade for more" message instead of the
+          // generic SSE error path. The backend returns a structured
+          // detail with cap/limit/upgrade_to so we can render copy that
+          // matches the rest of the upgrade UX.
+          if (res.status === 402) {
+            let detail = null;
+            try {
+              const body = await res.json();
+              detail = body?.detail || null;
+            } catch {
+              /* fall through to default copy */
+            }
+            const limit = detail?.limit;
+            const upgradeTo = detail?.upgrade_to || "pro";
+            const planLabel = upgradeTo === "pro" ? "Pro" : "Starter";
+            const msg =
+              limit != null
+                ? `You've used today's ${limit} BonBox AI messages. ${planLabel} unlocks more — see /subscription.`
+                : `Today's BonBox AI message limit reached. ${planLabel} unlocks more — see /subscription.`;
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: msg, isUpgradeNudge: true },
+            ]);
+            return;
+          }
+          throw new Error(`HTTP ${res.status}`);
+        }
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();

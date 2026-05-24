@@ -120,7 +120,24 @@ export default function TerminalsPage() {
       await fetchTerminals();
       cancel();
     } catch (err) {
-      setError(err?.response?.data?.detail || t("terminalSaveFailed") || "Could not save terminal");
+      // P5 — Free tier is capped at 1 terminal; backend returns a
+      // structured 402 with upgrade_to. Surface a calm "upgrade for
+      // multi-POS" message instead of [object Object].
+      const status = err?.response?.status;
+      const detail = err?.response?.data?.detail;
+      if (status === 402 && detail && typeof detail === "object") {
+        const upgradeTo = detail.upgrade_to || "pro";
+        const planLabel = upgradeTo === "pro" ? "Pro" : "Starter";
+        setError(
+          t(
+            "terminalsFreeOneCap",
+            `Free includes 1 POS terminal. ${planLabel} unlocks multi-terminal close — see /subscription.`,
+          ),
+        );
+      } else {
+        const detailMsg = typeof detail === "string" ? detail : null;
+        setError(detailMsg || t("terminalSaveFailed") || "Could not save terminal");
+      }
     } finally {
       setSaving(false);
     }

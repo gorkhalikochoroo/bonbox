@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.services.auth import get_current_user
+from app.services.billing import enforce_feature
 from app.services.bookkeeping_export import FORMATS
 
 router = APIRouter()
@@ -70,12 +71,20 @@ def export_bookkeeping(
     Defaults: start = first of last month, end = today.
 
     Multi-layer defense:
+      - Tier gate (S8) — custom_export_templates entitlement. Starter+
+        unlocks all bookkeeping formats (Dinero / Billy / e-conomic /
+        generic). Free users get a structured 402 so the frontend can
+        render UpgradeNudge — matches the pricing page claim.
       - Validates format_id, date order, and range cap before touching DB.
       - Wraps the exporter in try/except — if the CSV writer hits a bad row,
         we return a structured 422 with a recoverable message instead of 503.
       - Errors return JSON, success returns binary CSV — frontend distinguishes
         by content-type.
     """
+    # S8 — Starter+ gate. Returns structured 402 with upgrade_to so the
+    # frontend can render UpgradeNudge instead of a generic error toast.
+    enforce_feature(user, "custom_export_templates")
+
     fmt = FORMATS.get(format_id)
     if not fmt:
         raise HTTPException(status_code=404, detail="Unknown format")

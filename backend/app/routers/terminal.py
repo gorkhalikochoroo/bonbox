@@ -28,6 +28,7 @@ from app.models.terminal import Terminal
 from app.models.user import User
 from app.schemas.terminal import TerminalCreate, TerminalResponse, TerminalUpdate
 from app.services.auth import get_current_user
+from app.services.billing import effective_plan
 from app.services.terminal_inference import (
     TerminalInferenceError,
     bulk_create_terminals,
@@ -44,6 +45,15 @@ router = APIRouter()
 # terminals; setting at 20 leaves headroom for chains while preventing
 # a misbehaving client from creating 10K rows.
 DEFAULT_TERMINAL_LIMIT = 20
+
+# Free-tier terminal cap (P5 — matches the "1 branch" claim). Multi-POS
+# management is a Pro entitlement; Free owners get one terminal so they
+# can still scan + close a single till. The /aggregate + render endpoints
+# on the kasserapport router are tier-gated on `multi_terminal_close`,
+# but capping the terminal COUNT here closes the front-door: a Free user
+# can't even build the multi-terminal data set they would need to hit
+# the aggregator. Trial = full Pro so trials get the chain headroom.
+_FREE_TIER_TERMINAL_CAP = 1
 
 
 def _validate_branch_owned(db: Session, user_id: uuid.UUID, branch_id: uuid.UUID | None):
@@ -113,6 +123,17 @@ def create_terminal(
         raise HTTPException(
             status_code=400,
             detail=f"Terminal limit reached ({DEFAULT_TERMINAL_LIMIT}). Delete unused ones first.",
+        )
+
+    # Tier gate (P5) — Free is capped at 1 terminal so the "1 branch"
+    # marketing claim is enforced at the data layer, not just the
+    # multi-terminal close endpoint. Returns a structured 402 so the
+    # frontend can render UpgradeNudge instead of a generic error.
+    if effective_plan(user) == "free" and count >= _FREE_TIER_TERMINAL_CAP:
+        from app.services.billing import feature_locked_detail
+        raise HTTPException(
+            status_code=402,
+            detail=feature_locked_detail(user, "multi_terminal_close"),
         )
 
     _validate_branch_owned(db, user.id, data.branch_id)
@@ -278,7 +299,29 @@ def bulk_create(
     Translation:
       Service raises TerminalInferenceError → 422 with the reason.
       Anything else → 500 (logged).
+
+    Tier gate (P5):
+      Free is capped at 1 terminal. If creating N terminals would push
+      the user past the Free cap, return a structured 402 so the
+      frontend can render UpgradeNudge.
     """
+    # P5 — bulk path mirrors the single-create gate. We check the
+    # resulting count, not just the current count, because a Free user
+    # could otherwise drive past the cap in one request.
+    if effective_plan(user) == "free":
+        existing = (
+            db.query(func.count(Terminal.id))
+            .filter(Terminal.user_id == user.id, Terminal.is_deleted.isnot(True))
+            .scalar()
+            or 0
+        )
+        if existing + len(body.terminals) > _FREE_TIER_TERMINAL_CAP:
+            from app.services.billing import feature_locked_detail
+            raise HTTPException(
+                status_code=402,
+                detail=feature_locked_detail(user, "multi_terminal_close"),
+            )
+
     try:
         created = bulk_create_terminals(
             db,

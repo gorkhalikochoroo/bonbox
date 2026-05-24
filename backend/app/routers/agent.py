@@ -483,6 +483,58 @@ async def agent_chat(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    # ── S12 + P9 — Per-day chat message cap ──────────────────────────
+    # PLAN_CAPS.ai_chat_messages_per_day previously existed in
+    # services/billing.py but was never enforced — Free could chat
+    # unlimited times. Now: count today's `agent.chat` events in the
+    # user's LOCAL timezone (Copenhagen midnight, not UTC) and refuse
+    # with a structured 402 once the cap is reached. We log the event
+    # FIRST so a successful chat AND any failure both consume one
+    # turn — otherwise a user could spam the endpoint with malformed
+    # bodies and never get counted. The frontend ChatPanel reads the
+    # 402 detail to render UpgradeNudge.
+    from app.services.billing import enforce_cap
+    from app.services.tz_utils import utc_window_for_local_day, today_local
+    from app.models.event_log import EventLog
+    from sqlalchemy import func as _sa_func
+
+    _today = today_local(user)
+    _day_start_utc, _day_end_utc = utc_window_for_local_day(user, _today)
+    used_today = (
+        db.query(_sa_func.count(EventLog.id))
+        .filter(
+            EventLog.user_id == user.id,
+            EventLog.event == "agent.chat",
+            EventLog.created_at >= _day_start_utc,
+            EventLog.created_at < _day_end_utc,
+        )
+        .scalar()
+        or 0
+    )
+    # enforce_cap raises HTTPException(402, ...structured...) if the
+    # user is at or over their daily entitlement. We pass `used_today`
+    # so the upgrade-prompt payload shows the right "X of Y used".
+    enforce_cap(user, "ai_chat_messages_per_day", int(used_today))
+
+    # Below the cap — record this chat turn BEFORE running the model so
+    # the counter is honest even if the LLM call later errors out.
+    try:
+        ev = EventLog(
+            user_id=user.id,
+            event="agent.chat",
+            page="agent",
+        )
+        db.add(ev)
+        db.commit()
+    except Exception:  # noqa: BLE001
+        # Logging failure should never block a paying user's chat.
+        # The cap will simply not advance for THIS turn (worst case
+        # the user gets one extra chat). Defensive rollback for SQLite.
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+
     # Set USE_CLAUDE_API=true in env vars to enable Claude mode (requires API credits)
     use_claude = settings.ANTHROPIC_API_KEY and getattr(settings, "USE_CLAUDE_API", False)
     currency = user.currency or "DKK"

@@ -325,6 +325,15 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # outreach launcher + brief CTA are Pro-only — the action is
         # what makes loyalty real.
         "customer_outreach": False,
+        # 2026-05-24 — Multi-terminal consolidated close (P5 honesty fix).
+        # The Mirabelle-format multi-POS aggregator + PDF/XLSX render is
+        # the canonical "manage up to 3 branches" Pro promise: a chain
+        # operator scans every terminal's kasserapport into a single
+        # consolidated close in under 90 seconds. Free + Starter still
+        # close ONE terminal via the regular daily-close flow; the
+        # aggregator endpoints are gated here so Free can't bypass the
+        # tier boundary by hitting /api/kasserapport/aggregate directly.
+        "multi_terminal_close": False,
     },
     "starter": {
         "ai_anomaly_detection": True,
@@ -347,6 +356,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "inventory_autopilot": False,      # Pro-only — Task #63 Pro killer
         "smart_pricing": True,             # Task #64 — same on all tiers, retention
         "customer_outreach": False,        # Pro-only — Task #69 Pro killer
+        "multi_terminal_close": False,     # Pro-only — P5 honesty fix
     },
     "trial": {  # = full Pro
         "ai_anomaly_detection": True,
@@ -369,6 +379,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "inventory_autopilot": True,
         "smart_pricing": True,
         "customer_outreach": True,
+        "multi_terminal_close": True,
     },
     "pro": {
         "ai_anomaly_detection": True,
@@ -391,6 +402,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "inventory_autopilot": True,
         "smart_pricing": True,
         "customer_outreach": True,        # Pro killer — Task #69
+        "multi_terminal_close": True,     # P5 honesty fix — multi-POS consolidated close
     },
 }
 

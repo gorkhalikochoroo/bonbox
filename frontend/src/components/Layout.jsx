@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useDarkMode } from "../hooks/useDarkMode";
 import { useLanguage } from "../hooks/useLanguage";
+import { useEntitlements } from "../hooks/useEntitlements";
 import { getVatTerms } from "../utils/currency";
 import { usePageTracking } from "../hooks/useEventLog";
 import NotificationCenter from "./NotificationCenter";
@@ -111,11 +112,14 @@ const navGroups = [
       { to: "/daily-report", icon: "Utensils", labelKey: "navTodaysFloor" },
       { to: "/reports", icon: "ClipboardList", labelKey: "navReportsTax" },
       { to: "/daily-close", icon: "Moon", labelKey: "navEndOfDayClose" },
-      // Multi-terminal close — only relevant when the owner has >1 POS
-      // terminal configured. Most single-location cafés have one, so we
-      // hide this entry behind the `multi_terminal` module flag to avoid
-      // sidebar bloat. Owners enable it via /modules when needed.
-      { to: "/daily-close/multi", icon: "Store", labelKey: "multiClose", requiresModule: "multi_terminal" },
+      // Multi-terminal close — Pro entitlement (P5 honesty fix).
+      // Previously hidden behind a `multi_terminal` module flag that
+      // wasn't in the modules allowlist (services/modules.py) — i.e.
+      // the entry was effectively dead for everyone. Now gated on the
+      // canonical `multi_terminal_close` feature flag so it appears
+      // for Pro/Trial users (matching the "manage up to 3 branches"
+      // marketing claim) and stays hidden for Free + Starter.
+      { to: "/daily-close/multi", icon: "Store", labelKey: "multiClose", requiresFeature: "multi_terminal_close" },
       { to: "/tax", icon: "Calculator", labelKey: "taxAutopilot" },
       { to: "/bookkeeping-export", icon: "Send", labelKey: "sendToAccountant" },
     ],
@@ -213,9 +217,14 @@ const navGroups = [
  *  with just core + general inventory. The /modules picker is the
  *  single explicit place to opt in.
  */
-function filterNavGroups(groups, branchType, businessTypes, enabledModules) {
+function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasFeature) {
   const activeTypes = branchType ? [branchType] : businessTypes;
   const enabled = enabledModules instanceof Set ? enabledModules : new Set();
+  // Default to a fail-closed `hasFeature` when none is provided (e.g.
+  // tests rendering Layout without an EntitlementsProvider). Mirrors
+  // the backend's fail-closed semantics: unknown feature → false →
+  // sidebar entry stays hidden.
+  const hasFeat = typeof hasFeature === "function" ? hasFeature : () => false;
 
   // Helper — does this nav element pass both filters?
   const passesType = (vf) => {
@@ -231,14 +240,28 @@ function filterNavGroups(groups, branchType, businessTypes, enabledModules) {
     if (reqAny && !reqAny.some((m) => enabled.has(m))) return false;
     return true;
   };
+  // P5 — entitlement-level visibility. Used by the multi-terminal close
+  // entry (and any future Pro-only nav). Cosmetic gate only — the
+  // backend re-checks via enforce_feature() on every call. Frontend
+  // cache changes can only HIDE links, never grant access.
+  const passesFeature = (feat) => {
+    if (!feat) return true;
+    return hasFeat(feat);
+  };
 
   return groups
-    .filter((g) => passesType(g.visibleFor) && passesModule(g.requiresModule, g.requiresAnyModule))
+    .filter(
+      (g) =>
+        passesType(g.visibleFor) &&
+        passesModule(g.requiresModule, g.requiresAnyModule) &&
+        passesFeature(g.requiresFeature),
+    )
     .map((g) => {
       const filteredItems = g.items.filter(
         (item) =>
           passesType(item.visibleFor) &&
-          passesModule(item.requiresModule, item.requiresAnyModule),
+          passesModule(item.requiresModule, item.requiresAnyModule) &&
+          passesFeature(item.requiresFeature),
       );
       return filteredItems.length > 0 ? { ...g, items: filteredItems } : null;
     })
@@ -425,10 +448,16 @@ export default function Layout() {
   // UX hygiene (no half-functional links to /modules / /branches).
   const isAccountant = (user?.role || "").toLowerCase() === "accountant";
 
+  // P5 — pull the entitlement helper so the sidebar filter can hide
+  // Pro-only entries (multi-terminal close) for Free/Starter users.
+  // Cosmetic only; backend enforcement is what actually keeps the
+  // feature locked.
+  const { hasFeature } = useEntitlements();
+
   // Filter sidebar groups by both business_type (branch) and enabled modules
   const baseVisible = isAccountant
     ? accountantNavGroups
-    : filterNavGroups(navGroups, branchType, businessTypes, enabledModules);
+    : filterNavGroups(navGroups, branchType, businessTypes, enabledModules, hasFeature);
   // For super_admin owners, show an extra "Platform" group with the admin
   // dashboard. Frontend gating is cosmetic — real enforcement is server-side
   // (services/admin_security.py). A non-admin clicking this link sees an empty

@@ -24,7 +24,7 @@ Multi-layer:
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base, GUID
@@ -59,6 +59,15 @@ class SupportTicket(Base):
     status: Mapped[str] = mapped_column(String(20), default="open")
     response_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # P10 — Pro tier priority flag. Set TRUE when has_feature(user,
+    # "priority_support") is true at submit-time. Independent of the
+    # current effective_plan() because we want the triage queue to
+    # honor the priority tag even if the user downgrades AFTER
+    # submitting (a Pro user's open ticket stays priority). Indexed
+    # alongside status for the founder's "open priority tickets first"
+    # query.
+    is_priority: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, index=True)
     responded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -66,4 +75,8 @@ class SupportTicket(Base):
     __table_args__ = (
         Index("ix_support_user_created", "user_id", "created_at"),
         Index("ix_support_open_status", "status", "created_at"),
+        # P10 — priority-first triage. Composite index so the founder's
+        # admin queue can list open priority tickets ahead of regular
+        # ones with no extra scan cost.
+        Index("ix_support_priority_status", "is_priority", "status", "created_at"),
     )

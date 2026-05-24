@@ -4,9 +4,10 @@
 import { useEffect, useState } from "react";
 import api from "../services/api";
 import { trackEvent } from "../hooks/useEventLog";
+import { useEntitlements } from "../hooks/useEntitlements";
 import { sendBundleToAccountant } from "../utils/shareDailyCloseRange";
 import { localIso } from "../utils/dateFormat";
-import { PageHeader, Button, SectionBanner, Icon } from "../components/ui";
+import { PageHeader, Button, SectionBanner, Icon, UpgradeNudge } from "../components/ui";
 
 /**
  * Bookkeeping Export — push BonBox data into the user's existing
@@ -20,6 +21,14 @@ import { PageHeader, Button, SectionBanner, Icon } from "../components/ui";
  * the CSV through their bookkeeping platform's importer.
  */
 export default function BookkeepingExportPage() {
+  // S8 — Starter+ entitlement. Backend returns a structured 402 on the
+  // /api/exports/{format_id} download endpoint; we additionally render
+  // a calm UpgradeNudge for Free users so they don't have to wait for
+  // the 402 to discover the gate. The /formats listing endpoint is
+  // unchanged (no PII) so the picker can still preview what's available.
+  const { hasFeature, loading: entLoading } = useEntitlements();
+  const exportsUnlocked = hasFeature("custom_export_templates");
+
   const [formats, setFormats] = useState([]);
   const [selected, setSelected] = useState("dinero");
   const [start, setStart] = useState(() => {
@@ -200,6 +209,27 @@ export default function BookkeepingExportPage() {
       setSending(false);
     }
   };
+
+  // S8 — Free-tier UpgradeNudge fallback. Renders before the form so a
+  // Free user sees the upgrade story instead of getting a 402 mid-click.
+  // Backend still enforces; this is the calm UX layer.
+  if (!entLoading && !exportsUnlocked) {
+    return (
+      <div className="px-4 sm:px-6 py-6 sm:py-8 max-w-3xl mx-auto">
+        <PageHeader
+          eyebrow="REPORTS"
+          title="Send to your accountant"
+          subtitle="Clean CSVs for Dinero, Billy, e-conomic, or generic — built so your accountant imports in one click."
+        />
+        <UpgradeNudge
+          intent="card"
+          tier="starter"
+          benefit="Export to Dinero / Billy / e-conomic / generic CSV — your accountant imports without re-typing a number."
+          ctaLabel="See plans"
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="px-4 sm:px-6 py-6 sm:py-8 max-w-3xl mx-auto">

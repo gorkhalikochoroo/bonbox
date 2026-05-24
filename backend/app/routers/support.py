@@ -61,10 +61,95 @@ def _serialise(t: SupportTicket) -> dict:
         "body": t.body,
         "status": t.status,
         "response_text": t.response_text,
+        "is_priority": bool(getattr(t, "is_priority", False)),
         "created_at": t.created_at.isoformat() if t.created_at else None,
         "responded_at": t.responded_at.isoformat() if t.responded_at else None,
         "closed_at": t.closed_at.isoformat() if t.closed_at else None,
     }
+
+
+def _post_to_priority_slack(*, ticket: SupportTicket, owner: User) -> None:
+    """P10 — best-effort post of a priority ticket to a Slack incoming
+    webhook. Never raises: a Slack outage MUST NOT block the founder's
+    in-app triage. Silently no-ops when no webhook is configured.
+
+    Posts a compact Slack message with subject, kind, owner email, and
+    a link back to the admin triage UI. The webhook URL itself is the
+    auth boundary — Slack signs the channel on the receiving side, so
+    we don't include any signing/secret here.
+    """
+    from app.config import settings  # local import — avoids cycles
+    webhook = (getattr(settings, "PRIORITY_SUPPORT_SLACK_WEBHOOK", "") or "").strip()
+    if not webhook:
+        return
+    try:
+        import json as _json
+        import urllib.request as _urlreq
+        payload = {
+            "text": (
+                f":star2: *Pro priority ticket* — {ticket.subject}\n"
+                f"From: {owner.email or 'unknown'} · Kind: {ticket.kind}\n"
+                f"```{(ticket.body or '')[:500]}```"
+            )
+        }
+        req = _urlreq.Request(
+            webhook,
+            data=_json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        # 4 second timeout — Slack normally responds in < 200ms; a
+        # multi-second hang means an outage and we'd rather skip than
+        # block the request thread.
+        _urlreq.urlopen(req, timeout=4).close()
+    except Exception as _exc:  # noqa: BLE001
+        logger.warning("priority Slack post failed: %s", _exc)
+
+
+def _send_priority_email(*, ticket: SupportTicket, owner: User) -> None:
+    """P10 — best-effort email notification for a priority ticket.
+
+    Pro tickets get routed to the dedicated PRIORITY_SUPPORT_EMAIL inbox
+    in addition to the regular triage flow (which today reads tickets
+    directly from the DB via /support/admin). Without the env var set,
+    this is a no-op so the marketing claim degrades gracefully to the
+    in-app behavior (DB row tagged + [PRIORITY] subject).
+
+    Why a CC + dedicated inbox rather than only the in-app queue:
+      • Email is the founder's notification surface today (Render alerts,
+        Stripe receipts) — a separate Pro inbox means Pro tickets cannot
+        get buried in the general support firehose.
+      • The owner's email is set as Reply-To so a one-tap reply lands
+        back in their inbox directly (skipping the in-app loop on
+        first-response).
+    """
+    from app.config import settings  # local import — avoids cycles
+    priority_to = (getattr(settings, "PRIORITY_SUPPORT_EMAIL", "") or "").strip()
+    if not priority_to:
+        return
+    try:
+        from app.services.email_service import send_email
+        subject = f"[PRIORITY] {ticket.subject}" if not ticket.subject.startswith("[PRIORITY]") else ticket.subject
+        # Plain-text body wrapped in <pre> — same minimal shape as the
+        # other internal admin notifications. No markdown / HTML in the
+        # body to avoid surprising the recipient client.
+        html = (
+            "<p>New Pro priority ticket:</p>"
+            f"<p><b>From:</b> {owner.email or 'unknown'}<br/>"
+            f"<b>Kind:</b> {ticket.kind}<br/>"
+            f"<b>Subject:</b> {ticket.subject}</p>"
+            "<pre style=\"white-space:pre-wrap;font-family:inherit\">"
+            f"{(ticket.body or '')[:5000]}"
+            "</pre>"
+        )
+        send_email(
+            to=priority_to,
+            subject=subject,
+            html=html,
+            reply_to=owner.email or None,
+        )
+    except Exception as _exc:  # noqa: BLE001
+        logger.warning("priority email send failed: %s", _exc)
 
 
 @router.post("/tickets", status_code=201)
@@ -100,12 +185,25 @@ def create_ticket(
     if kind not in ALLOWED_KINDS:
         kind = "other"
 
-    # Pro tier → priority subject prefix for founder's triage queue.
+    # P10 — Pro tier priority routing.
+    # Three things happen for a Pro user (or anyone with the
+    # `priority_support` flag): subject is prefixed [PRIORITY] for the
+    # founder's eyeballs in the in-app queue, the DB row is tagged
+    # `is_priority=true` for sortable triage, and (if env vars are set)
+    # the ticket is mirrored to a dedicated Pro inbox + Slack webhook.
+    # The structured side-channels are best-effort — a Resend/Slack
+    # outage MUST NOT block ticket creation. If env vars are empty,
+    # behavior degrades to the in-app prefix + DB tag (the marketing
+    # claim still holds: priority IS a separable lane, even when the
+    # external side-channels aren't yet wired).
     subject = body.subject.strip()
+    is_priority = False
     try:
         from app.services.billing import has_feature
-        if has_feature(user, "priority_support") and not subject.startswith("[PRIORITY]"):
-            subject = f"[PRIORITY] {subject}"[:140]
+        if has_feature(user, "priority_support"):
+            is_priority = True
+            if not subject.startswith("[PRIORITY]"):
+                subject = f"[PRIORITY] {subject}"[:140]
     except Exception:  # noqa: BLE001
         # Never block ticket creation on entitlement check failure.
         pass
@@ -118,10 +216,24 @@ def create_ticket(
         body=body.body.strip(),
         context=(body.context or "").strip() or None,
         status="open",
+        is_priority=is_priority,
     )
     db.add(t)
     db.commit()
     db.refresh(t)
+
+    # P10 — out-of-band priority routing, best-effort. Both helpers no-op
+    # silently when their env var is empty. Wrapped in a top-level
+    # try/except so a network blip cannot turn a 201 into a 500 (the
+    # ticket has already been committed — surfacing the email/Slack
+    # error to the user would be misleading).
+    if is_priority:
+        try:
+            _send_priority_email(ticket=t, owner=user)
+            _post_to_priority_slack(ticket=t, owner=user)
+        except Exception as _exc:  # noqa: BLE001
+            logger.warning("priority routing best-effort failed: %s", _exc)
+
     return _serialise(t)
 
 
@@ -160,7 +272,16 @@ def admin_list(
     q = db.query(SupportTicket)
     if status:
         q = q.filter(SupportTicket.status == status)
-    rows = q.order_by(SupportTicket.created_at.desc()).limit(200).all()
+    # P10 — priority-first triage ordering. Pro tickets surface above
+    # standard ones inside the same created_at window so the founder's
+    # SLA promise is mechanically enforced, not just a subject-line
+    # convention. Falls back gracefully on older rows where the column
+    # defaults to FALSE (= sorts below new priority rows).
+    rows = (
+        q.order_by(SupportTicket.is_priority.desc(), SupportTicket.created_at.desc())
+        .limit(200)
+        .all()
+    )
     return {"tickets": [_serialise(t) for t in rows], "count": len(rows)}
 
 

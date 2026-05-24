@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
+import { useEntitlements } from "../hooks/useEntitlements";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
 import SmartTerminalsCard from "../components/SmartTerminalsCard";
+import { UpgradeNudge } from "../components/ui";
 import {
   buildShareMessage,
   buildShareTitle,
@@ -33,7 +35,13 @@ const _STEPS = ["scan", "manual", "review", "done"];
 export default function MultiTerminalClosePage() {
   const { user } = useAuth();
   const { t } = useLanguage();
+  const { hasFeature, loading: entLoading } = useEntitlements();
   const currency = displayCurrency(user?.currency);
+  // P5 — entitlement gate. The aggregate / close-pdf / close-excel
+  // endpoints already return 402 for non-Pro plans, but checking here
+  // saves the user a 402 round-trip and renders a calm UpgradeNudge
+  // instead of an inline error after they've started scanning.
+  const isUnlocked = hasFeature("multi_terminal_close");
 
   const [terminals, setTerminals] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -203,7 +211,36 @@ export default function MultiTerminalClosePage() {
 
   /* ─── Render ──────────────────────────────────────────────────── */
 
-  if (loading) {
+  // P5 — Pro entitlement gate. Renders BEFORE the loading spinner so a
+  // Free user who deep-links straight to /daily-close/multi (no sidebar
+  // entry) lands on the UpgradeNudge instead of the scan UI. The backend
+  // re-checks every endpoint anyway — this is just the UX surface.
+  if (!entLoading && !isUnlocked) {
+    return (
+      <div className="px-4 sm:px-6 py-10 max-w-2xl mx-auto">
+        <h1 className="text-xl font-semibold text-stone-900 dark:text-stone-100 mb-2">
+          {t("multiClose", "Multi-terminal close")}
+        </h1>
+        <p className="text-sm text-stone-500 dark:text-stone-400 mb-5">
+          {t(
+            "multiCloseProIntro",
+            "Consolidate every POS terminal into one daily close in under 90 seconds — built for chain operators.",
+          )}
+        </p>
+        <UpgradeNudge
+          intent="card"
+          tier="pro"
+          benefit={t(
+            "multiCloseUpgradeBenefit",
+            "Scan each terminal, hit send: BonBox builds the Mirabelle-format close for every branch.",
+          )}
+          ctaLabel={t("seePlans", "See plans")}
+        />
+      </div>
+    );
+  }
+
+  if (loading || entLoading) {
     return (
       <div className="px-4 sm:px-6 py-12 max-w-3xl mx-auto text-center">
         <div className="text-3xl mb-3 animate-pulse">💳</div>
