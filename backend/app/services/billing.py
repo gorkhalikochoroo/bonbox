@@ -130,10 +130,27 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # Faktura is Starter+ entirely (via require_invoicing_plan)
         # so Free is hard-blocked, not metered. 0 = no quota at all.
         "invoices_per_month": 0,
-        # Expense-receipt OCR — 30/month is plenty for a solo owner
-        # who actually scans regularly (~1/day). Hit the cap = strong
-        # signal "I rely on this" → upgrade to Starter for unlimited.
-        "expense_receipt_scans_per_month": 30,
+        # Expense-receipt OCR — recalibrated 2026-05-24 for Claude Vision
+        # OCR.
+        #
+        # Previously unlimited on Starter+ and 30/mo on Free, when the OCR
+        # backend was OCR.space / Google Vision (both free tiers, capped
+        # only by quota leaks). Now the primary OCR is Claude Vision
+        # (~$0.003/receipt ≈ ~0.02 DKK), so every call has real marginal
+        # cost. Bounded caps now because:
+        #   • Paid-per-call API → a bug or abuser could rack up real cost.
+        #   • "10 / 200 / 500 per month" is a measurable promise, more
+        #     honest than the old "unlimited" claim.
+        #
+        # Cost-per-user math (Claude Sonnet 4.5 vision):
+        #   Free    10/mo  = ~0.20 DKK/user
+        #   Starter 200/mo = ~4 DKK/user  (vs 129 DKK rev)
+        #   Pro     500/mo = ~10 DKK/user (vs 249 DKK rev)
+        #
+        # All three caps fit inside healthy margins. Free's 10 covers the
+        # serious solo evaluator (a few scans/week); hitting it is a
+        # strong "upgrade to Starter" signal.
+        "expense_receipt_scans_per_month": 10,
     },
     "starter": {
         "branches": 1,
@@ -151,9 +168,12 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # bite normal users — but B2B-heavy or busier tenants will
         # bump into it and have a clear "I need Pro" moment.
         "invoices_per_month": 30,
-        # Unlimited expense receipt OCR — Starter promise is "stop
-        # typing receipts" so capping here would be self-defeating.
-        "expense_receipt_scans_per_month": -1,
+        # Expense receipt OCR — 200/mo on Starter (was: unlimited).
+        # Recalibrated 2026-05-24 when Claude Vision became the primary
+        # OCR (~$0.003/receipt). 200/mo covers a busy café (≈7/day) at
+        # a marginal cost of ~4 DKK/user vs 129 DKK rev. See the Free
+        # tier comment above for the full math.
+        "expense_receipt_scans_per_month": 200,
     },
     "trial": {  # = full Pro for 14 days
         "branches": 3,
@@ -167,7 +187,8 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "ai_brief_refreshes_per_day": 5,
         "ai_chat_messages_per_day": 200,
         "invoices_per_month": -1,  # unlimited
-        "expense_receipt_scans_per_month": -1,
+        # Trial mirrors Pro — see pro's comment for the recalibration math.
+        "expense_receipt_scans_per_month": 500,
     },
     "pro": {
         "branches": 3,
@@ -181,7 +202,12 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "ai_brief_refreshes_per_day": 5,
         "ai_chat_messages_per_day": 200,
         "invoices_per_month": -1,  # unlimited
-        "expense_receipt_scans_per_month": -1,
+        # Expense receipt OCR — 500/mo on Pro (was: unlimited).
+        # Recalibrated 2026-05-24 with Claude Vision (~$0.003/receipt).
+        # 500/mo covers a 3-branch chain at ~5 scans/day/branch with
+        # headroom; marginal cost ~10 DKK/user vs 249 DKK rev. See the
+        # Free tier comment above for the full cost-per-tier math.
+        "expense_receipt_scans_per_month": 500,
     },
 }
 

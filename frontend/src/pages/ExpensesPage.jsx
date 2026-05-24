@@ -19,6 +19,7 @@ import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit
 import ReceiptCapture from "../components/ReceiptCapture";
 import ReceiptViewer from "../components/ReceiptViewer";
 import DismissibleTip from "../components/DismissibleTip";
+import { safeImageUrl } from "../utils/safeUrl";
 import RecurringExpensesPanel from "../components/RecurringExpensesPanel";
 import { PageHeader, TabPills, StatCard } from "../components/ui";
 
@@ -79,7 +80,17 @@ export default function ExpensesPage() {
   const [expandedStat, setExpandedStat] = useState(null); // "today" | "total" | "avg" | null
 
   const filtered = expenses.filter(e => {
-    if (search && !(e.description?.toLowerCase().includes(search.toLowerCase()) || e.notes?.toLowerCase().includes(search.toLowerCase()) || e.payment_method?.toLowerCase().includes(search.toLowerCase()) || String(e.amount).includes(search))) return false;
+    if (search) {
+      // Searchable surface: vendor (stored as description), notes,
+      // payment method, amount, AND the ISO date string so owners can
+      // type "2026-05" to filter to a month without using the date
+      // range inputs above.
+      const needle = search.toLowerCase();
+      const haystack = [
+        e.description, e.notes, e.payment_method, String(e.amount), e.date,
+      ].filter(Boolean).map(s => String(s).toLowerCase()).join(" | ");
+      if (!haystack.includes(needle)) return false;
+    }
     if (showFilter === "personal" && !e.is_personal) return false;
     if (showFilter === "business" && e.is_personal) return false;
     return true;
@@ -1011,23 +1022,48 @@ export default function ExpensesPage() {
                       <span className="inline-flex items-center gap-1.5">
                         {exp.description}
                         {exp.is_personal && <span className="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 text-xs rounded font-medium">{t("personalMode")}</span>}
-                        {/* Receipt-photo chip — visible only on rows
+                        {/* Receipt-photo thumbnail — visible only on rows
                             created via Snap Receipt OCR (which now
                             persists receipt_photo since the schema
-                            change). Click → ReceiptViewer modal so
-                            owner can verify the saved amount against
-                            the photo. */}
-                        {exp.receipt_photo && (
-                          <button
-                            type="button"
-                            onClick={() => setReceiptViewing(exp)}
-                            title={t("receiptViewerOpen") || "View receipt"}
-                            aria-label={t("receiptViewerOpen") || "View receipt"}
-                            className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-800/30 text-amber-600 dark:text-amber-300 text-sm transition"
-                          >
-                            🧾
-                          </button>
-                        )}
+                            change). Click → ReceiptViewer modal so the
+                            owner can verify the saved amount against the
+                            photo at full size.
+                            Renders a real 40×40 thumbnail when we can
+                            sign the URL; falls back to the legacy 🧾
+                            chip when the signed URL is missing (e.g.
+                            local dev / signing failure). Lazy-load + onError
+                            fallback to chip so a 404 doesn't show a
+                            broken-image icon mid-row. */}
+                        {exp.receipt_photo && (() => {
+                          const thumbUrl = safeImageUrl(exp.receipt_photo);
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => setReceiptViewing(exp)}
+                              title={t("receiptViewerOpen") || "View receipt"}
+                              aria-label={t("receiptViewerOpen") || "View receipt"}
+                              className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-800/30 text-amber-600 dark:text-amber-300 text-sm transition overflow-hidden border border-amber-200 dark:border-amber-800/40"
+                            >
+                              {thumbUrl ? (
+                                <img
+                                  src={thumbUrl}
+                                  alt={t("receiptViewerImageAlt") || "Receipt"}
+                                  loading="lazy"
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    // Signed URL expired or broken — swap
+                                    // to the emoji fallback so the row
+                                    // doesn't render a broken-image icon.
+                                    e.currentTarget.style.display = "none";
+                                    e.currentTarget.parentNode.textContent = "🧾";
+                                  }}
+                                />
+                              ) : (
+                                "🧾"
+                              )}
+                            </button>
+                          );
+                        })()}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{getCatName(exp.category_id)}</td>
@@ -1188,19 +1224,36 @@ export default function ExpensesPage() {
                     </div>
 
                     {(exp.notes || exp.receipt_photo) && (
-                      <div className="text-[12px] pt-2 mt-2 border-t border-gray-100 dark:border-gray-700 space-y-1">
+                      <div className="text-[12px] pt-2 mt-2 border-t border-gray-100 dark:border-gray-700 space-y-2">
                         {exp.notes && (
                           <div className="text-gray-500 dark:text-gray-400">{exp.notes}</div>
                         )}
-                        {exp.receipt_photo && (
-                          <button
-                            type="button"
-                            onClick={() => setReceiptViewing(exp)}
-                            className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 hover:underline text-[12px]"
-                          >
-                            {t("receiptViewerOpen") || "View receipt"}
-                          </button>
-                        )}
+                        {exp.receipt_photo && (() => {
+                          const thumbUrl = safeImageUrl(exp.receipt_photo);
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => setReceiptViewing(exp)}
+                              className="inline-flex items-center gap-2 text-amber-600 dark:text-amber-400 hover:underline text-[12px]"
+                              aria-label={t("receiptViewerOpen") || "View receipt"}
+                            >
+                              {thumbUrl ? (
+                                <img
+                                  src={thumbUrl}
+                                  alt={t("receiptViewerImageAlt") || "Receipt"}
+                                  loading="lazy"
+                                  className="w-10 h-10 rounded-lg object-cover border border-amber-200 dark:border-amber-800/40"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = "none";
+                                  }}
+                                />
+                              ) : (
+                                <span className="text-base" aria-hidden="true">🧾</span>
+                              )}
+                              {t("receiptViewerOpen") || "View receipt"}
+                            </button>
+                          );
+                        })()}
                       </div>
                     )}
 

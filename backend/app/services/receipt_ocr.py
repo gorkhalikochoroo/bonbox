@@ -345,17 +345,85 @@ def _find_amount_near_keyword(lines: list[str], keyword_pattern: str) -> float |
     return None
 
 
+# ─── Confidence mapping helpers ──────────────────────────────────────
+#
+# Claude Vision returns numeric per-field confidence (0..1). The existing
+# return shape uses string buckets ("high"/"medium"/"low"/"none") so the
+# frontend doesn't have to change. Map at the boundary so both layers stay
+# clean.
+#
+# Thresholds (Part B spec):
+#   overall ≥ 0.95 → "high"
+#   0.85-0.95      → "medium"
+#   0.70-0.85      → "low"
+#   < 0.70         → caller falls back to the old regex chain (treat as
+#                     "Claude not confident — use the next OCR")
+_CLAUDE_MIN_USE_OVERALL = 0.70
+
+
+def _claude_confidence_to_bucket(overall: float) -> str:
+    """Map Claude's numeric overall confidence into the legacy
+    "high"|"medium"|"low" string the existing return contract uses."""
+    if overall >= 0.95:
+        return "high"
+    if overall >= 0.85:
+        return "medium"
+    return "low"
+
+
 def parse_z_report(image_path: str) -> dict:
     """Parse a Z-report / kasserapport image using OCR and extract structured fields.
 
     Returns dict with revenue breakdown, payment methods, tips, MOMS, and totals.
+
+    OCR chain (May 2026):
+      1. Claude Vision (claude_vision_ocr) — primary
+      2. OCR.space + regex — fallback
+      3. Google Vision + regex — fallback
+      4. None of the above — return ocr_available=False (manual entry)
     """
-    # Run OCR pipeline (same order as extract_amount_from_image)
+    # ── Layer 1 — Claude Vision (primary) ───────────────────────────
+    # For Z-reports, Claude Vision returns the structured receipt total
+    # which is functionally the revenue_total. Categories (food / drinks /
+    # takeaway) and payment split aren't part of the standard schema so
+    # they stay None — the existing OCR + regex layer below picks them up
+    # if it can. This means Z-report extraction has a hybrid model:
+    # Claude for the headline number, regex for the split.
+    try:
+        from app.services import claude_vision_ocr
+        claude = claude_vision_ocr.extract_receipt_data(image_path)
+    except Exception as e:  # noqa: BLE001
+        print(f"[OCR] Claude Vision call raised, falling back: {e}")
+        claude = None
+
+    claude_revenue_total: float | None = None
+    claude_overall: float = 0.0
+    if claude and isinstance(claude.get("confidence"), dict):
+        claude_overall = float(claude["confidence"].get("overall", 0.0))
+        if claude_overall >= _CLAUDE_MIN_USE_OVERALL:
+            claude_revenue_total = claude.get("total")
+
+    # ── Layer 2/3 — OCR + regex (existing) ──────────────────────────
     raw_text = _ocrspace_ocr(image_path)
     if not raw_text:
         raw_text = _google_vision_ocr(image_path)
 
     if not raw_text:
+        # No raw text — if Claude got SOMETHING usable, return its result
+        # so the user doesn't see "OCR unavailable" when in fact it worked.
+        if claude_revenue_total is not None:
+            return {
+                "revenue": {"food": None, "drinks": None, "takeaway": None},
+                "payments": {"cash": None, "card": None, "mobilepay": None},
+                "tips": None,
+                "moms_total": claude.get("vat_amount") if claude else None,
+                "revenue_total": claude_revenue_total,
+                "raw_text": "",
+                "ocr_available": True,
+                "confidence": _claude_confidence_to_bucket(claude_overall),
+                "confidence_per_field": claude["confidence"] if claude else {},
+                "claude_notes": claude.get("notes") if claude else None,
+            }
         return {
             "revenue": {"food": None, "drinks": None, "takeaway": None},
             "payments": {"cash": None, "card": None, "mobilepay": None},
@@ -406,14 +474,33 @@ def parse_z_report(image_path: str) -> dict:
         lines, r"(?:total|i\s*alt|sum|omsætning|omsaetning|grand\s*total)"
     )
 
+    # ── Merge Claude Vision results — Claude wins on the headline total ──
+    # Claude's per-field confidence is real (model self-report) so we trust
+    # its total when ≥ 0.85 — overriding the regex pick which can hit on a
+    # subtotal line. MOMS likewise. The category + payment split stays with
+    # the regex extractor since Claude's schema doesn't break those out.
+    if claude and isinstance(claude.get("confidence"), dict):
+        total_conf = float(claude["confidence"].get("total", 0.0))
+        vat_conf = float(claude["confidence"].get("vat_amount", 0.0))
+        if claude.get("total") is not None and total_conf >= 0.85:
+            revenue_total = claude["total"]
+        if claude.get("vat_amount") is not None and vat_conf >= 0.85:
+            moms_total = claude["vat_amount"]
+
     # ── Confidence calculation ──
-    fields_found = sum(1 for v in [food, drinks, takeaway, cash, card, mobilepay, tips, moms_total, revenue_total] if v is not None)
-    if fields_found >= 3:
-        confidence = "high"
-    elif fields_found >= 1:
-        confidence = "medium"
+    # If Claude returned a usable overall, prefer its self-report —
+    # bucketed via _claude_confidence_to_bucket. Otherwise fall back to
+    # the legacy "how many fields did regex find" proxy.
+    if claude_overall >= _CLAUDE_MIN_USE_OVERALL:
+        confidence = _claude_confidence_to_bucket(claude_overall)
     else:
-        confidence = "low"
+        fields_found = sum(1 for v in [food, drinks, takeaway, cash, card, mobilepay, tips, moms_total, revenue_total] if v is not None)
+        if fields_found >= 3:
+            confidence = "high"
+        elif fields_found >= 1:
+            confidence = "medium"
+        else:
+            confidence = "low"
 
     return {
         "revenue": {
@@ -432,27 +519,62 @@ def parse_z_report(image_path: str) -> dict:
         "raw_text": raw_text[:1000],
         "ocr_available": True,
         "confidence": confidence,
+        # Per-field confidence + Claude's free-text notes — frontend can
+        # use these to render "verify this" hints on ambiguous fields.
+        # Existing callers ignore unknown keys so this is back-compat.
+        "confidence_per_field": claude["confidence"] if (claude and isinstance(claude.get("confidence"), dict)) else {},
+        "claude_notes": claude.get("notes") if claude else None,
     }
 
 
 def extract_amount_from_image(image_path: str) -> dict:
     """Extract total amount from a receipt photo.
 
-    Tries OCR.space first (fast, reliable, free 25,000/month).
-    Falls back to Google Cloud Vision API (free 1,000/month).
-    Returns manual entry mode if nothing works.
+    OCR chain (May 2026):
+      1. Claude Vision (claude_vision_ocr) — primary
+      2. OCR.space + regex — fallback (free 25,000/month)
+      3. Google Vision API + regex — fallback (free 1,000/month)
+      4. None of the above — return ocr_available=False (manual entry)
+
+    Backward-compat: returns the same dict shape the existing callers
+    expect (suggested_amount + all_amounts_found + ocr_available + raw_text).
+    Adds two new keys (`confidence`, `confidence_per_field`) which existing
+    callers ignore.
     """
-    # Try OCR.space first (faster and more reliable currently)
+    # ── Layer 1 — Claude Vision (primary) ───────────────────────────
+    try:
+        from app.services import claude_vision_ocr
+        claude = claude_vision_ocr.extract_receipt_data(image_path)
+    except Exception as e:  # noqa: BLE001
+        print(f"[OCR] Claude Vision call raised, falling back: {e}")
+        claude = None
+
+    if claude and isinstance(claude.get("confidence"), dict):
+        overall = float(claude["confidence"].get("overall", 0.0))
+        total = claude.get("total")
+        if overall >= _CLAUDE_MIN_USE_OVERALL and total is not None:
+            # Use Claude directly — skip Google Vision + regex chain.
+            return {
+                "raw_text": "",  # Claude doesn't produce raw text by design
+                "suggested_amount": float(total),
+                "all_amounts_found": [float(total)],
+                "ocr_available": True,
+                "confidence": _claude_confidence_to_bucket(overall),
+                "confidence_per_field": claude["confidence"],
+                "claude_notes": claude.get("notes"),
+            }
+
+    # ── Layer 2 — OCR.space (existing) ──────────────────────────────
     text = _ocrspace_ocr(image_path)
     if text:
         return _extract_amounts_from_text(text)
 
-    # Fallback: Try Google Cloud Vision API
+    # ── Layer 3 — Google Vision (existing) ──────────────────────────
     text = _google_vision_ocr(image_path)
     if text:
         return _extract_amounts_from_text(text)
 
-    # No OCR available — user enters amount manually
+    # ── Layer 4 — none worked ──
     return {
         "raw_text": "",
         "suggested_amount": None,
@@ -591,7 +713,46 @@ def parse_expense_receipt(image_path: str) -> dict:
     per vendor, mixed languages, sometimes hand-stamped totals. We
     settle for "amount + date + best-guess vendor" and let the owner
     confirm.
+
+    OCR chain (May 2026):
+      1. Claude Vision (claude_vision_ocr) — primary
+      2. OCR.space + regex — fallback
+      3. Google Vision + regex — fallback
+      4. None of the above — confidence="none", manual entry
     """
+    # ── Layer 1 — Claude Vision (primary) ───────────────────────────
+    try:
+        from app.services import claude_vision_ocr
+        claude = claude_vision_ocr.extract_receipt_data(image_path)
+    except Exception as e:  # noqa: BLE001
+        print(f"[OCR] Claude Vision call raised, falling back: {e}")
+        claude = None
+
+    if claude and isinstance(claude.get("confidence"), dict):
+        overall = float(claude["confidence"].get("overall", 0.0))
+        if overall >= _CLAUDE_MIN_USE_OVERALL:
+            # Use Claude directly. We still set raw_text to "" — Claude
+            # doesn't produce raw OCR text; the UI uses the per-field
+            # confidence + Claude's notes for the "verify this" prompt
+            # instead of dumping raw text the user has to parse.
+            return {
+                "vendor": claude.get("vendor"),
+                "amount": claude.get("total"),
+                "date": claude.get("date"),
+                "currency": claude.get("currency") or "DKK",
+                "raw_text": "",
+                "ocr_available": True,
+                "confidence": _claude_confidence_to_bucket(overall),
+                "confidence_per_field": claude["confidence"],
+                "claude_notes": claude.get("notes"),
+                # Optional extras Claude returns. Frontend can use these to
+                # show VAT breakdown + line items in the receipt-review UI.
+                "vat_amount": claude.get("vat_amount"),
+                "vat_rate": claude.get("vat_rate"),
+                "line_items": claude.get("line_items") or [],
+            }
+
+    # ── Layer 2/3 — OCR + regex (existing) ──────────────────────────
     raw_text = _ocrspace_ocr(image_path)
     if not raw_text:
         raw_text = _google_vision_ocr(image_path)
