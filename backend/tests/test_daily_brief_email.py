@@ -150,8 +150,15 @@ def test_send_brief_happy_path(db_session, monkeypatch):
     _patch_brief_pipeline(monkeypatch)
     sent = []
 
-    def _fake_send_email(to, subject, html):
-        sent.append({"to": to, "subject": subject, "html": html})
+    def _fake_send_email(to, subject, html, *, reply_to=None, headers=None):
+        # Signature mirrors app.services.email_service.send_email exactly
+        # (commit #160 fix). Production code passes `headers=` for
+        # List-Unsubscribe RFC 8058 compliance (task #108); a bare-3-arg
+        # mock raised TypeError before this update.
+        sent.append({
+            "to": to, "subject": subject, "html": html,
+            "reply_to": reply_to, "headers": headers,
+        })
         return True
 
     monkeypatch.setattr(dbe, "send_email", _fake_send_email)
@@ -175,7 +182,11 @@ def test_send_brief_happy_path(db_session, monkeypatch):
     assert "Yesterday beat the week average" in sent[0]["html"]
     assert "/sales" in sent[0]["html"]
     assert "/dashboard" in sent[0]["html"]
-    assert "/profile#notifications" in sent[0]["html"]
+    # GDPR one-click unsubscribe (task #108) — the email body now embeds
+    # a tokenized /api/email/unsubscribe URL instead of the old
+    # /profile#notifications deep link. Verify the token-based URL is
+    # present so we know the RFC 8058 one-click path is wired.
+    assert "/api/email/unsubscribe?token=" in sent[0]["html"]
 
     # Idempotency stamp set
     db_session.expire_all()
