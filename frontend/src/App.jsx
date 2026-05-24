@@ -196,8 +196,12 @@ const AdminTrainingPage = lazyRetry(() => import("./pages/AdminTrainingPage"));
 const SubscriptionPage = lazyRetry(() => import("./pages/SubscriptionPage"));
 const BookkeepingExportPage = lazyRetry(() => import("./pages/BookkeepingExportPage"));
 const InsightsPage = lazyRetry(() => import("./pages/InsightsPage"));
-// Property Financial Report — Danish-restaurant daily close mirror
-const PropertyReportPage = lazyRetry(() => import("./pages/PropertyReportPage"));
+// Property Financial Report — the legacy "Today's Floor" page.
+// Merged into End-of-Day Close (#150); /daily-report now redirects
+// to /daily-close. The component file is kept for back-compat but
+// is no longer routed to, so we drop the lazy import to keep the
+// chunk graph clean. If the file needs to be re-introduced, restore
+// the import + register the route below.
 // Order Channel Settings — user-editable catalogue of order channels
 const ChannelSettingsPage = lazyRetry(() => import("./pages/ChannelSettingsPage"));
 // Connections hub — single page showing all integrations + their status
@@ -368,7 +372,15 @@ function AppRoutes() {
           <Route path="/subscription" element={<SubscriptionPage />} />
           <Route path="/bookkeeping-export" element={<BookkeepingExportPage />} />
           <Route path="/insights" element={<InsightsPage />} />
-          <Route path="/daily-report" element={<PropertyReportPage />} />
+          {/* Today's Floor merged into End-of-Day Close (#150). The
+              page now lives at /daily-close — top of page shows the
+              live KPIs that used to be at /daily-report. We keep the
+              legacy route as a permanent redirect so bookmarks, share
+              links, and any cached push notifications still land on
+              the right page. Search engines / analytics treat
+              <Navigate replace> as a same-tab replace (no history
+              entry), so the back button works the way owners expect. */}
+          <Route path="/daily-report" element={<Navigate to="/daily-close" replace />} />
           <Route path="/channel-settings" element={<ChannelSettingsPage />} />
           <Route path="/connections" element={<ConnectionsPage />} />
           {/* Task #49 — Accountant client picker. Renders for accountants

@@ -73,8 +73,11 @@ export default function GlobalSearchModal({ open, onClose }) {
     { key: "sales",     label: t("sales") || "Sales",                 icon: "💰", to: "/sales" },
     { key: "expenses",  label: t("expenses") || "Expenses",           icon: "💸", to: "/expenses" },
     { key: "inventory", label: t("inventory") || "Inventory",         icon: "📦", to: "/inventory" },
-    { key: "dailyClose",label: t("endOfDayCloseTitle") || "End-of-Day Close", icon: "🌙", to: "/daily-close", aliases: ["daily close", "close", "end of day"] },
-    { key: "dailyReport",label: t("todaysFloor") || "Today's Floor",  icon: "🍽", to: "/daily-report", aliases: ["daily report", "floor", "ops"] },
+    // Today (#150) — the merged daily page. Aliases include the
+    // old "Today's Floor" / "Daily Close" terms so typing either
+    // muscle-memory phrase still surfaces the right page.
+    { key: "today", label: t("navToday") || "Today", icon: "🌙", to: "/daily-close",
+      aliases: ["today", "daily close", "close", "end of day", "today's floor", "daily report", "floor", "ops"] },
     { key: "reports",   label: t("navReportsTax") || "Reports & Tax", icon: "📋", to: "/reports", aliases: ["reports", "tax", "books"] },
     { key: "cashbook",  label: t("cashBook") || "Cash Book",         icon: "📒", to: "/cashbook" },
     { key: "cashflow",  label: t("cashFlow") || "Cash Flow",         icon: "📈", to: "/cashflow" },

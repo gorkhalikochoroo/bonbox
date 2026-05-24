@@ -11,15 +11,15 @@ import { Plus, Menu } from "lucide-react";
  */
 function getTabsForType(branchType) {
   const typeTab = {
-    restaurant: { to: "/daily-close", icon: "Moon", labelKey: "navEndOfDayClose" },
+    restaurant: { to: "/daily-close", icon: "Moon", labelKey: "navToday" },
     bar:        { to: "/wine-list",   icon: "Wine", labelKey: "wineList" },
-    cafe:       { to: "/daily-close", icon: "Moon", labelKey: "navEndOfDayClose" },
+    cafe:       { to: "/daily-close", icon: "Moon", labelKey: "navToday" },
     retail:     { to: "/inventory",   icon: "Package", labelKey: "inventory" },
     workshop:   { to: "/workshop",    icon: "Wrench", labelKey: "workshop" },
     salon:      { to: "/staff/schedule", icon: "Calendar", labelKey: "staffSchedule" },
-    hotel:      { to: "/daily-close", icon: "Moon", labelKey: "navEndOfDayClose" },
+    hotel:      { to: "/daily-close", icon: "Moon", labelKey: "navToday" },
     freelance:  { to: "/cashflow",    icon: "LineChart", labelKey: "cashFlow" },
-    general:    { to: "/daily-close", icon: "Moon", labelKey: "navEndOfDayClose" },
+    general:    { to: "/daily-close", icon: "Moon", labelKey: "navToday" },
   };
 
   return [

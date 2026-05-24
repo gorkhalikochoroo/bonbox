@@ -109,9 +109,13 @@ const navGroups = [
     icon: "BarChart3",
     visibleFor: null,
     items: [
-      { to: "/daily-report", icon: "Utensils", labelKey: "navTodaysFloor" },
+      // Today (#150) — single daily page that lives with the owner
+      // through the shift: live KPIs on top → close wizard in the
+      // middle → locked summary after confirm. The legacy
+      // "Today's Floor" entry was dropped here; /daily-report now
+      // redirects to /daily-close to keep bookmarks working.
+      { to: "/daily-close", icon: "Moon", labelKey: "navToday" },
       { to: "/reports", icon: "ClipboardList", labelKey: "navReportsTax" },
-      { to: "/daily-close", icon: "Moon", labelKey: "navEndOfDayClose" },
       // Multi-terminal close — Pro entitlement (P5 honesty fix).
       // Previously hidden behind a `multi_terminal` module flag that
       // wasn't in the modules allowlist (services/modules.py) — i.e.
@@ -340,9 +344,10 @@ const accountantNavGroups = [
     icon: "BarChart3",
     visibleFor: null,
     items: [
-      { to: "/daily-report", icon: "Utensils", labelKey: "navTodaysFloor" },
+      // Accountant nav mirrors the owner nav (#150) — single "Today"
+      // entry pointing at the merged page.
+      { to: "/daily-close", icon: "Moon", labelKey: "navToday" },
       { to: "/reports", icon: "ClipboardList", labelKey: "navReportsTax" },
-      { to: "/daily-close", icon: "Moon", labelKey: "navEndOfDayClose" },
       { to: "/tax", icon: "Calculator", labelKey: "taxAutopilot" },
     ],
   },

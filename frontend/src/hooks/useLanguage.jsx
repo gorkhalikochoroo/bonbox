@@ -52,6 +52,29 @@ const translations = {
     // short labels).
     navHome: "Home", navTodaysFloor: "Today's Floor", navReportsTax: "Reports & Tax",
     navEndOfDayClose: "End-of-Day", navConnections: "Connections",
+    // navToday (#150) — the merged daily page label. Replaces the
+    // separate navTodaysFloor + navEndOfDayClose entries in the
+    // sidebar; the legacy keys are kept so any non-sidebar callers
+    // (search palette, tooltips, agent suggestions) keep working.
+    navToday: "Today",
+    navTodaySubtitle: "Live KPIs throughout the day · Close ritual at end of shift",
+    // LiveKpisToday — the StatCard row at the top of the merged page.
+    liveKpisLabel: "Live KPIs today",
+    liveRevenueToday: "Revenue so far",
+    liveOrdersToday: "Orders",
+    liveGuestsToday: "Guests",
+    liveTopPayment: "Top payment",
+    liveNoDataYet: "No sales yet today",
+    liveNoPaymentsYet: "No payments yet",
+    liveSinceCutoff: "since",
+    liveAvgPerOrder: "avg / order",
+    liveKpisUnavailable: "Live data unavailable",
+    liveKpisUnavailableHint: "Refresh the page to retry. The close wizard below still works.",
+    // CTA on the merged page — explicit "Close the day" call to action
+    // that auto-scrolls to the wizard. Bottom-of-page lives-with-the-
+    // owner experience instead of "do I navigate to Floor or Close?"
+    closeTheDayCta: "Close the day",
+    closeTheDayCtaHint: "When your shift ends, lock the day's numbers and send to your accountant.",
     todaysFloor: "Today's Floor", todaysBooks: "Today's Books",
     taxBundle: "Tax Bundle", endOfDayCloseTitle: "End-of-Day Close",
     // MOMS countdown widget — Free-tier dashboard hook
@@ -2691,6 +2714,22 @@ const translations = {
     // Sidebar job-to-be-done labels — see EN block for rationale.
     navHome: "Forsiden", navTodaysFloor: "Dagens drift", navReportsTax: "Rapporter & Skat",
     navEndOfDayClose: "Dagsafslutning", navConnections: "Forbindelser",
+    // navToday (#150) — Danish copy for the merged daily page.
+    navToday: "I dag",
+    navTodaySubtitle: "Live KPI'er gennem dagen · Kasserapport ved skiftafslutning",
+    liveKpisLabel: "Live KPI'er i dag",
+    liveRevenueToday: "Omsætning indtil nu",
+    liveOrdersToday: "Ordrer",
+    liveGuestsToday: "Gæster",
+    liveTopPayment: "Mest brugt betaling",
+    liveNoDataYet: "Ingen salg endnu i dag",
+    liveNoPaymentsYet: "Ingen betalinger endnu",
+    liveSinceCutoff: "siden",
+    liveAvgPerOrder: "gns. pr. ordre",
+    liveKpisUnavailable: "Live-data ikke tilgængelig",
+    liveKpisUnavailableHint: "Genindlæs siden for at prøve igen. Kasserapport-flowet nedenfor virker stadig.",
+    closeTheDayCta: "Luk dagen",
+    closeTheDayCtaHint: "Når skiftet slutter, lås dagens tal og send til revisoren.",
     todaysFloor: "Dagens drift", todaysBooks: "Dagens regnskab",
     taxBundle: "Skattepakke", endOfDayCloseTitle: "Dagsafslutning",
     // MOMS countdown widget
@@ -5210,6 +5249,24 @@ const translations = {
   },
   np: {
     dashboard: "ड्यासबोर्ड", sales: "बिक्री", expenses: "खर्च", inventory: "स्टक",
+    // navToday (#150) — Nepali copy. Translated UI chrome only (per
+    // translation-scope rule: jurisdiction-specific tax / lønseddel
+    // / accountant content stays in source language).
+    navToday: "आज",
+    navTodaySubtitle: "दिनभरि लाइभ KPI · पाली अन्त्यमा बन्द गर्नुहोस्",
+    liveKpisLabel: "आजको लाइभ KPI",
+    liveRevenueToday: "अहिलेसम्मको आय",
+    liveOrdersToday: "अर्डरहरू",
+    liveGuestsToday: "ग्राहकहरू",
+    liveTopPayment: "मुख्य भुक्तानी",
+    liveNoDataYet: "आज अहिलेसम्म बिक्री छैन",
+    liveNoPaymentsYet: "अहिलेसम्म भुक्तानी छैन",
+    liveSinceCutoff: "देखि",
+    liveAvgPerOrder: "औसत / अर्डर",
+    liveKpisUnavailable: "लाइभ डाटा उपलब्ध छैन",
+    liveKpisUnavailableHint: "पुन: प्रयास गर्न पृष्ठ पुन: लोड गर्नुहोस्। तलको बन्द फारम अझै काम गर्छ।",
+    closeTheDayCta: "दिन बन्द गर्नुहोस्",
+    closeTheDayCtaHint: "पाली समाप्त भएपछि, दिनको हिसाब लक गरेर एकाउन्टेन्टलाई पठाउनुहोस्।",
     navMoney: "पैसा", navStock: "स्टक", navStaff: "कर्मचारी", navReports: "रिपोर्टहरू",
     navIntel: "इन्टेलिजेन्स", navWorkshop: "कार्यशाला", navManage: "व्यवस्थापन", navAccount: "खाता", navPlatform: "प्लेटफर्म",
     recommendedHeadcount: "सिफारिस गरिएको कर्मचारी", staffShort: "कर्मचारी", peopleAbbrev: "जना", precip: "वर्षा",

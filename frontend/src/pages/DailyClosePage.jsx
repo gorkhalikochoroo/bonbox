@@ -21,6 +21,11 @@ import { sendDailyCloseRangeToAccountant } from "../utils/shareDailyCloseRange";
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
 import { UpgradeNudge, PageHeader, TabPills, Button, Icon } from "../components/ui";
+// LiveKpisToday — extracted from the legacy /daily-report page so
+// the merged daily page (#150) shows the live operational snapshot
+// at the top, then the close wizard below. Keeps a single "Today"
+// experience instead of two competing entries.
+import LiveKpisToday from "../components/LiveKpisToday";
 
 /**
  * Decode an axios error from a blob-typed request.
@@ -258,12 +263,47 @@ export default function DailyClosePage() {
 
   useEffect(() => { fetchHistory(); fetchInsights(); }, []);
 
+  // #150 merge — surface today's confirmed close (if any) at the very top
+  // of the page so an owner who already locked sees the success summary
+  // immediately, regardless of which tab is active. We derive this from
+  // `history` (already fetched above) so no extra API call is needed.
+  // The same JustLockedCard component is used for both the in-session
+  // lock and the cross-visit re-entry case — single source of truth.
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const todaysConfirmedClose = useMemo(
+    () => (history || []).find(
+      (dc) => (dc?.date || "").slice(0, 10) === todayIso && dc?.status === "confirmed",
+    ),
+    [history, todayIso],
+  );
+  // We prefer the *fresh* lockResult from this session (it carries the
+  // close_ritual block with email status / bank-drop / push). If absent
+  // (page reload after a previous lock), we synthesize a minimal close
+  // object from history so the locked banner still renders — without
+  // the email-status row (because that ritual already played out).
+  const lockedBannerClose = lastLockedClose || (todaysConfirmedClose
+    ? { ...todaysConfirmedClose, close_ritual: todaysConfirmedClose.close_ritual || {} }
+    : null);
+  const isLockedToday = Boolean(lockedBannerClose);
+
+  // CTA scroll target — when the owner taps "Close the day" at the top
+  // we auto-scroll to the wizard. ref attached on the wrapper below.
+  const closeWizardRef = useRef(null);
+  const scrollToWizard = () => {
+    setTab("close");
+    // Defer one frame so React has rendered the wizard if we just
+    // switched from History/Insights.
+    requestAnimationFrame(() => {
+      closeWizardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
+
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6">
       <PageHeader
         eyebrow="REPORTS"
-        title={t("endOfDayCloseTitle") || "End-of-Day Close"}
-        subtitle={(CLOSE_CONFIG[branchType] || CLOSE_CONFIG.general).description}
+        title={t("navToday") || "Today"}
+        subtitle={t("navTodaySubtitle") || "Live KPIs throughout the day · Close ritual at end of shift"}
         actions={
           (!isOnline || pendingCount > 0) && (
             <div className="flex items-center gap-2">
@@ -281,6 +321,52 @@ export default function DailyClosePage() {
           )
         }
       />
+
+      {/* ─── Locked-today summary at the TOP of the page (#150) ───
+          When today already has a confirmed close, the JustLockedCard
+          jumps to the top so the owner sees "you're done for tonight"
+          before the live KPIs or the close wizard. Dismissible — same
+          state as the in-History card so it doesn't pop back. */}
+      {isLockedToday && (
+        <JustLockedCard
+          t={t}
+          close={lockedBannerClose}
+          currency={currency}
+          onDismiss={() => setLastLockedClose(null)}
+        />
+      )}
+
+      {/* ─── Live KPIs (always visible) ───
+          The "Today's Floor" snapshot, hoisted to the top of the daily
+          page. Self-contained — its own data fetch, its own fail-closed
+          empty + error states. If it errors, the rest of the page below
+          (close wizard, history, insights) still renders cleanly. */}
+      <LiveKpisToday />
+
+      {/* "Close the day" CTA — the explicit handoff from "I'm running
+          the shift" to "the shift is done, let's lock the books".
+          Hidden once today is locked (no value showing a CTA that
+          would just open an already-confirmed wizard). Emerald is the
+          one DNA-approved money-moment accent. */}
+      {!isLockedToday && (
+        <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/60 dark:from-emerald-900/20 dark:to-emerald-800/10 border border-emerald-200 dark:border-emerald-800/50 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              {t("closeTheDayCta") || "Close the day"}
+            </p>
+            <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5">
+              {t("closeTheDayCtaHint") || "When your shift ends, lock the day's numbers and send to your accountant."}
+            </p>
+          </div>
+          <Button
+            variant="primary"
+            onClick={scrollToWizard}
+            className="w-full sm:w-auto shrink-0"
+          >
+            {t("closeTheDayCta") || "Close the day"}
+          </Button>
+        </div>
+      )}
 
       <DismissibleTip
         id="daily-close-intro-v1"
@@ -303,27 +389,33 @@ export default function DailyClosePage() {
         ariaLabel="Daily close view"
       />
 
-      {tab === "close" && <CloseForm currency={currency} t={t} branchType={branchType} branchId={branchId} isOnline={isOnline}
-        editDraft={editDraft}
-        onEditConsumed={() => setEditDraft(null)}
-        onDone={(lockResult) => {
-          fetchHistory();
-          fetchInsights();
-          // Lane A — surface the lock result on the next view so the
-          // user sees email-status feedback even though the form has
-          // been replaced by the History tab.
-          if (lockResult && lockResult.close_ritual) {
-            setLastLockedClose(lockResult);
-          }
-          setTab("history");
-        }}
-        onQueued={() => { setPendingCount(getOfflineQueue().length); setTab("history"); }} />}
-      {tab === "history" && <HistoryView data={history} currency={currency} t={t} onRefresh={fetchHistory} insights={insights}
-        lastLockedClose={lastLockedClose}
-        onDismissLastLocked={() => setLastLockedClose(null)}
-        onEdit={(dc) => { setEditDraft(dc); setTab("close"); }} />}
-      {tab === "insights" && <InsightsView data={insights} currency={currency} t={t} />}
-      {tab === "branches" && <BranchSummaryView currency={currency} />}
+      <div ref={closeWizardRef}>
+        {tab === "close" && <CloseForm currency={currency} t={t} branchType={branchType} branchId={branchId} isOnline={isOnline}
+          editDraft={editDraft}
+          onEditConsumed={() => setEditDraft(null)}
+          onDone={(lockResult) => {
+            fetchHistory();
+            fetchInsights();
+            // Lane A — surface the lock result on the next view so the
+            // user sees email-status feedback even though the form has
+            // been replaced by the History tab.
+            if (lockResult && lockResult.close_ritual) {
+              setLastLockedClose(lockResult);
+            }
+            setTab("history");
+          }}
+          onQueued={() => { setPendingCount(getOfflineQueue().length); setTab("history"); }} />}
+        {tab === "history" && <HistoryView data={history} currency={currency} t={t} onRefresh={fetchHistory} insights={insights}
+          // #150 — the locked-today card now renders at the top of the
+          // page (above LiveKpisToday). Don't render it inside History
+          // too, otherwise the same banner shows twice. The History
+          // tab keeps showing the in-list per-close summary as before.
+          lastLockedClose={null}
+          onDismissLastLocked={() => setLastLockedClose(null)}
+          onEdit={(dc) => { setEditDraft(dc); setTab("close"); }} />}
+        {tab === "insights" && <InsightsView data={insights} currency={currency} t={t} />}
+        {tab === "branches" && <BranchSummaryView currency={currency} />}
+      </div>
     </div>
   );
 }
