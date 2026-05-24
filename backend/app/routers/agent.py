@@ -554,6 +554,47 @@ async def agent_chat(
     # ------------------------------------------------------------------
     async def local_stream():
         try:
+            # L4 — defensive cap re-check. The outer agent_chat handler
+            # already enforced ai_chat_messages_per_day at the top; we
+            # re-verify here so a future refactor that drops the outer
+            # gate can't silently let Free users chat unlimited (the
+            # primary bug class this layer defends against). Recounts
+            # the SAME EventLog window — at the per-user grain of a
+            # chat turn the SQL overhead is negligible. enforce_cap
+            # raises HTTPException(402, ...); we surface it as a stream
+            # error event so the frontend's existing 402 parser fires.
+            try:
+                _today = today_local(user)
+                _ds, _de = utc_window_for_local_day(user, _today)
+                _used = (
+                    db.query(_sa_func.count(EventLog.id))
+                    .filter(
+                        EventLog.user_id == user.id,
+                        EventLog.event == "agent.chat",
+                        EventLog.created_at >= _ds,
+                        EventLog.created_at < _de,
+                    )
+                    .scalar()
+                    or 0
+                )
+                # used_today was incremented above by the outer handler;
+                # we already-recorded the event so the count is correct
+                # for THIS request. enforce_cap fires only if the user
+                # is actually over their entitlement.
+                enforce_cap(user, "ai_chat_messages_per_day", int(_used) - 1)
+            except Exception as _l4_exc:  # noqa: BLE001
+                # If the L4 recount errored for any reason OTHER than
+                # an HTTPException we want to FAIL OPEN — chat is in
+                # progress and the outer gate already approved this
+                # turn. If it's an HTTPException (402 from enforce_cap)
+                # we propagate it via stream error.
+                from fastapi import HTTPException as _HE
+                if isinstance(_l4_exc, _HE):
+                    yield f"event: error\ndata: {json.dumps({'message': 'cap_exceeded', 'status': _l4_exc.status_code, 'detail': _l4_exc.detail})}\n\n"
+                    return
+                # else: silently continue — L4 observability already
+                # fired via the outer enforce_cap's SecurityEvent write.
+
             msg = req.message.strip()
             tool_name, kwargs = _detect_intent(msg)
 
@@ -625,6 +666,43 @@ async def _claude_chat(req: ChatRequest, db, user):
     from app.services.agent_tool_defs import AGENT_TOOLS
     from app.models import Sale, Expense, InventoryItem, KhataCustomer, KhataTransaction
     from app.models.staff import StaffMember
+
+    # L4 — defensive cap re-check before paying for any Claude API
+    # tokens. The outer agent_chat handler already gated this turn, but
+    # if a future refactor drops that gate, this re-check still refuses
+    # — and crucially avoids billing-event leakage where a malformed
+    # client call could hit the API endpoint with zero metering. Counts
+    # today's `agent.chat` rows in the user's local-tz window (same
+    # logic as the outer gate). On 402 we raise BEFORE constructing the
+    # Anthropic client so we never pay for tokens we then refuse to
+    # serve.
+    try:
+        from fastapi import HTTPException as _HE_l4
+        from app.services.billing import enforce_cap as _enforce_cap_l4
+        from app.services.tz_utils import utc_window_for_local_day as _uwfld, today_local as _tl
+        from app.models.event_log import EventLog as _EL
+        _today_l4 = _tl(user)
+        _ds_l4, _de_l4 = _uwfld(user, _today_l4)
+        _used_l4 = (
+            db.query(sa_func.count(_EL.id))
+            .filter(
+                _EL.user_id == user.id,
+                _EL.event == "agent.chat",
+                _EL.created_at >= _ds_l4,
+                _EL.created_at < _de_l4,
+            )
+            .scalar()
+            or 0
+        )
+        # Outer gate already recorded the EventLog row for THIS turn,
+        # so subtract 1 to test "is the current turn over the cap?".
+        _enforce_cap_l4(user, "ai_chat_messages_per_day", int(_used_l4) - 1)
+    except Exception as _l4_exc:  # noqa: BLE001
+        # Propagate genuine 402s; swallow counting failures (the outer
+        # gate's SecurityEvent already fires for true refusals).
+        from fastapi import HTTPException as _HE_chk
+        if isinstance(_l4_exc, _HE_chk):
+            raise
 
     client = anth.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 

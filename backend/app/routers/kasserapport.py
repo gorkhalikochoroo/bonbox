@@ -543,12 +543,28 @@ def aggregate(
         )
         terminals_meta = [{"id": str(t.id), "name": t.name} for t in terms]
 
-    close = aggregate_terminals(
-        extractions,
-        terminals_meta=terminals_meta,
-        manual=manual,
-        threshold=threshold_f,
-    )
+    # L4 — pass `user` so the aggregator's defensive feature check fires.
+    # Belt-and-braces: the router's enforce_feature above already gated
+    # this request; passing user here means a future refactor that drops
+    # the router gate still hits a refusal inside the service.
+    try:
+        close = aggregate_terminals(
+            extractions,
+            terminals_meta=terminals_meta,
+            manual=manual,
+            threshold=threshold_f,
+            user=user,
+        )
+    except PermissionError:
+        # Service-layer L4 refused — convert to the same structured 402
+        # the router-layer enforce_feature would have raised so the
+        # frontend gets a consistent payload regardless of which barrier
+        # fired.
+        from app.services.billing import feature_locked_detail
+        raise HTTPException(
+            status_code=402,
+            detail=feature_locked_detail(user, "multi_terminal_close"),
+        )
 
     # Live anomaly check — Starter+ only (gated by ai_anomaly_detection
     # entitlement, same flag that gates dashboard anomaly alerts). Free
@@ -691,14 +707,24 @@ def close_pdf(
         if bp_row.company_name and not business_name:
             business_name = bp_row.company_name
 
-    pdf_bytes = render_close_pdf(
-        aggregated=aggregated,
-        business_name=business_name,
-        date_label=date_label,
-        currency=currency,
-        business_profile=business_profile_dict,
-        bilagsnummer=bilagsnummer,
-    )
+    # L4 — pass `user` so render_close_pdf's defensive feature check
+    # fires. Belt-and-braces backup for the enforce_feature gate above.
+    try:
+        pdf_bytes = render_close_pdf(
+            aggregated=aggregated,
+            business_name=business_name,
+            date_label=date_label,
+            currency=currency,
+            business_profile=business_profile_dict,
+            bilagsnummer=bilagsnummer,
+            user=user,
+        )
+    except PermissionError:
+        from app.services.billing import feature_locked_detail
+        raise HTTPException(
+            status_code=402,
+            detail=feature_locked_detail(user, "multi_terminal_close"),
+        )
 
     # Filename: lukning_<businessSlug>_<isoDate>.pdf — predictable, no
     # special chars (closer's email client / WhatsApp don't choke).
@@ -796,14 +822,24 @@ def close_excel(
         if bp_row.company_name and not business_name:
             business_name = bp_row.company_name
 
-    xlsx_bytes = render_close_xlsx(
-        aggregated=aggregated,
-        business_name=business_name,
-        date_label=date_label,
-        currency=currency,
-        business_profile=business_profile_dict,
-        bilagsnummer=bilagsnummer,
-    )
+    # L4 — pass `user` so render_close_xlsx's defensive feature check
+    # fires. Multi-barrier backup for the enforce_feature gate above.
+    try:
+        xlsx_bytes = render_close_xlsx(
+            aggregated=aggregated,
+            business_name=business_name,
+            date_label=date_label,
+            currency=currency,
+            business_profile=business_profile_dict,
+            bilagsnummer=bilagsnummer,
+            user=user,
+        )
+    except PermissionError:
+        from app.services.billing import feature_locked_detail
+        raise HTTPException(
+            status_code=402,
+            detail=feature_locked_detail(user, "multi_terminal_close"),
+        )
 
     # Filename: lukning_<businessSlug>_<isoDate>.xlsx — same scheme as PDF.
     iso_date = (date_label.split(" ")[0] if date_label else "today").replace(".", "-")

@@ -112,6 +112,7 @@ def aggregate_terminals(
     terminals_meta: list[dict] | None = None,
     manual: dict | None = None,
     threshold: float = DEFAULT_CASH_DIFF_THRESHOLD,
+    user: Any = None,
 ) -> AggregatedClose:
     """Sum N per-terminal kasserapport extractions into one consolidated close.
 
@@ -131,11 +132,32 @@ def aggregate_terminals(
       threshold:
         Cash-difference threshold in kr. Above this, the close is flagged
         for manager review. Default 100 kr.
+      user:
+        L4 defense-in-depth — when provided, this function re-checks the
+        `multi_terminal_close` feature entitlement before doing any
+        aggregation. Router gate (enforce_feature) is the primary gate;
+        this is the multi-barrier backup so a future refactor that drops
+        the router gate can't accidentally open the door. Pure unit tests
+        omit `user` to test the math without a billing context.
 
     Returns:
       A populated `AggregatedClose`. Even if `extractions` is empty, the
       function returns a valid zero-filled object (never raises).
+
+    Raises:
+      PermissionError: if `user` is provided and lacks the
+      `multi_terminal_close` feature. Router converts to 402.
     """
+    # L4 — defensive feature check. Router should have caught this, but
+    # we re-verify here so a future refactor that drops the router gate
+    # can't accidentally open the door (multi-barrier defense). Skipped
+    # for pure unit tests that don't supply a user (they call the
+    # function purely for the math).
+    if user is not None:
+        from app.services.billing import has_feature
+        if not has_feature(user, "multi_terminal_close"):
+            raise PermissionError("multi_terminal_close required")
+
     out = AggregatedClose()
     manual = manual or {}
     name_by_id: dict[str, str] = {}

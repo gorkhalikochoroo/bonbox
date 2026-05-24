@@ -324,7 +324,9 @@ def test_proposal_always_has_complete_shape(db):
 
 
 def test_bulk_create_writes_all_or_nothing(db):
+    # multi-terminal flow → needs Pro (Free is capped at 1 terminal by L4).
     user = _user(db, vertical="restaurant")
+    user.plan = "pro"; db.commit()
     proposals = [
         {"name": "Front bar", "display_order": 0,
          "accepts_dankort": True, "accepts_mobilepay": True, "accepts_amex": False},
@@ -339,7 +341,9 @@ def test_bulk_create_writes_all_or_nothing(db):
 
 def test_bulk_create_aborts_if_one_proposal_invalid(db):
     """One bad proposal in the batch → NOTHING is written (atomic)."""
+    # multi-terminal flow → needs Pro (L4 caps Free at 1 terminal).
     user = _user(db, vertical="restaurant")
+    user.plan = "pro"; db.commit()
     proposals = [
         {"name": "Front bar", "display_order": 0,
          "accepts_dankort": True, "accepts_mobilepay": True, "accepts_amex": False},
@@ -354,7 +358,10 @@ def test_bulk_create_aborts_if_one_proposal_invalid(db):
 
 def test_bulk_create_respects_terminal_limit(db):
     """Cap counts existing rows — not just the batch size."""
+    # Tests the hard-ceiling cap; Pro needed so the L4 Free-tier cap
+    # doesn't pre-empt the DEFAULT_TERMINAL_LIMIT check.
     user = _user(db, vertical="restaurant")
+    user.plan = "pro"; db.commit()
     # Pre-fill near the cap
     for i in range(DEFAULT_TERMINAL_LIMIT - 1):
         db.add(Terminal(id=uuid.uuid4(), user_id=user.id, name=f"Old {i}"))
@@ -397,6 +404,23 @@ def test_bulk_create_rejects_forged_branch_id(db):
     ]
     with pytest.raises(TerminalInferenceError, match="Branch not found"):
         bulk_create_terminals(db, user=a, proposals=proposals, branch_id=fake_branch_id)
+
+
+def test_bulk_create_l4_refuses_free_user_past_one_terminal(db):
+    """L4 defense — service refuses a Free user creating >1 terminal even
+    if the router gate is somehow bypassed. Multi-barrier check."""
+    user = _user(db, vertical="restaurant")  # plan="free" (fixture default)
+    proposals = [
+        {"name": "T1", "display_order": 0,
+         "accepts_dankort": True, "accepts_mobilepay": True, "accepts_amex": False},
+        {"name": "T2", "display_order": 1,
+         "accepts_dankort": True, "accepts_mobilepay": True, "accepts_amex": False},
+    ]
+    with pytest.raises(PermissionError, match="multi_terminal_close"):
+        bulk_create_terminals(db, user=user, proposals=proposals)
+    # And nothing was written
+    rows = db.query(Terminal).filter(Terminal.user_id == user.id).all()
+    assert rows == []
 
 
 # ─── find_terminal_for_label — auto-route ─────────────────────────────

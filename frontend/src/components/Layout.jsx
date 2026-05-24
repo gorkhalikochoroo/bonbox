@@ -249,21 +249,48 @@ function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasF
     return hasFeat(feat);
   };
 
+  // L1 — UI Visibility:
+  //   • `visibleFor` (business_type) + `requiresModule` items that don't
+  //     match are HIDDEN — they're a wrong-product-fit signal (a bar
+  //     nav item doesn't belong in a retail-only sidebar).
+  //   • `requiresFeature` items that the user doesn't have access to
+  //     are SHOWN BUT LOCKED. Owners see what their next tier unlocks
+  //     (growth signal). Click navigates to /subscription via the lock
+  //     handler in the render block below.
+  //
+  // The locked-but-visible behavior is the L1 multi-barrier defense
+  // for tier-gated features — if a future refactor accidentally drops
+  // the backend gate, the frontend still pops a polite "Pro feature,
+  // upgrade to unlock" experience instead of letting a Free user click
+  // through to a 402-after-the-fact toast.
   return groups
     .filter(
       (g) =>
         passesType(g.visibleFor) &&
-        passesModule(g.requiresModule, g.requiresAnyModule) &&
-        passesFeature(g.requiresFeature),
+        passesModule(g.requiresModule, g.requiresAnyModule),
+      // NOTE: group-level requiresFeature still hides the whole group —
+      // a locked group with no clickable items would be confusing. We
+      // don't currently use group-level requiresFeature; if we add it
+      // later, decide per-feature whether to hide or lock.
     )
     .map((g) => {
-      const filteredItems = g.items.filter(
-        (item) =>
-          passesType(item.visibleFor) &&
-          passesModule(item.requiresModule, item.requiresAnyModule) &&
-          passesFeature(item.requiresFeature),
-      );
-      return filteredItems.length > 0 ? { ...g, items: filteredItems } : null;
+      const itemsWithLockState = g.items
+        .filter(
+          (item) =>
+            passesType(item.visibleFor) &&
+            passesModule(item.requiresModule, item.requiresAnyModule),
+        )
+        .map((item) => {
+          // L1 — for `requiresFeature` items the user lacks, KEEP the
+          // entry visible but mark it `locked` so the renderer can swap
+          // the icon + click handler. Items without `requiresFeature`
+          // are unchanged.
+          if (item.requiresFeature && !passesFeature(item.requiresFeature)) {
+            return { ...item, locked: true };
+          }
+          return item;
+        });
+      return itemsWithLockState.length > 0 ? { ...g, items: itemsWithLockState } : null;
     })
     .filter(Boolean);
 }
@@ -706,18 +733,36 @@ export default function Layout() {
                   return (
                     <div key={group.id} className="space-y-0.5">
                       {group.items.map((item) => (
-                        <NavLink
-                          key={item.to}
-                          to={item.to}
-                          end={item.to === "/dashboard"}
-                          onClick={closeSidebar}
-                          className={({ isActive }) =>
-                            `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition ${isActive ? activeClass : inactiveClass}`
-                          }
-                        >
-                          <Icon name={item.icon} size={18} className="shrink-0" />
-                          {item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)}
-                        </NavLink>
+                        item.locked ? (
+                          // L1 — visible-but-locked entry (Pro feature
+                          // for non-Pro user). Lock icon replaces the
+                          // normal icon; clicking routes to /subscription
+                          // so the owner sees what their tier unlocks.
+                          <NavLink
+                            key={item.to}
+                            to="/subscription"
+                            onClick={closeSidebar}
+                            title={(t("proFeatureUpgrade") || "Pro feature — upgrade to unlock")}
+                            aria-label={(t("proFeatureUpgrade") || "Pro feature — upgrade to unlock") + " (" + (item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)) + ")"}
+                            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition cursor-not-allowed opacity-60 ${inactiveClass}`}
+                          >
+                            <Icon name="Lock" size={18} className="shrink-0" />
+                            <span className="flex-1 truncate">{item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)}</span>
+                          </NavLink>
+                        ) : (
+                          <NavLink
+                            key={item.to}
+                            to={item.to}
+                            end={item.to === "/dashboard"}
+                            onClick={closeSidebar}
+                            className={({ isActive }) =>
+                              `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition ${isActive ? activeClass : inactiveClass}`
+                            }
+                          >
+                            <Icon name={item.icon} size={18} className="shrink-0" />
+                            {item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)}
+                          </NavLink>
+                        )
                       ))}
                       <div className="h-px bg-gray-100 dark:bg-gray-700 my-1.5" />
                     </div>
@@ -750,17 +795,38 @@ export default function Layout() {
                     {isOpen && (
                       <div className="space-y-0.5 mt-0.5 mb-1">
                         {group.items.map((item) => (
-                          <NavLink
-                            key={item.to}
-                            to={item.to}
-                            onClick={closeSidebar}
-                            className={({ isActive }) =>
-                              `flex items-center gap-2.5 pl-5 pr-3 py-1.5 rounded-lg text-[13px] font-medium transition ${isActive ? activeClass : inactiveClass}`
-                            }
-                          >
-                            <Icon name={item.icon} size={16} className="shrink-0" />
-                            {item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)}
-                          </NavLink>
+                          item.locked ? (
+                            // L1 — visible-but-locked Pro feature entry.
+                            // Lucide Lock icon + opacity-60 + cursor-not-
+                            // allowed; click routes to /subscription so
+                            // the owner sees the upsell path. Multi-
+                            // barrier defense: even if the L3 router
+                            // gate breaks, the frontend stops the click
+                            // from hitting the 402 directly.
+                            <NavLink
+                              key={item.to}
+                              to="/subscription"
+                              onClick={closeSidebar}
+                              title={(t("proFeatureUpgrade") || "Pro feature — upgrade to unlock")}
+                              aria-label={(t("proFeatureUpgrade") || "Pro feature — upgrade to unlock") + " (" + (item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)) + ")"}
+                              className={`flex items-center gap-2.5 pl-5 pr-3 py-1.5 rounded-lg text-[13px] font-medium transition cursor-not-allowed opacity-60 ${inactiveClass}`}
+                            >
+                              <Icon name="Lock" size={16} className="shrink-0" />
+                              <span className="flex-1 truncate">{item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)}</span>
+                            </NavLink>
+                          ) : (
+                            <NavLink
+                              key={item.to}
+                              to={item.to}
+                              onClick={closeSidebar}
+                              className={({ isActive }) =>
+                                `flex items-center gap-2.5 pl-5 pr-3 py-1.5 rounded-lg text-[13px] font-medium transition ${isActive ? activeClass : inactiveClass}`
+                              }
+                            >
+                              <Icon name={item.icon} size={16} className="shrink-0" />
+                              {item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)}
+                            </NavLink>
+                          )
                         ))}
                       </div>
                     )}

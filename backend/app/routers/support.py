@@ -77,7 +77,28 @@ def _post_to_priority_slack(*, ticket: SupportTicket, owner: User) -> None:
     a link back to the admin triage UI. The webhook URL itself is the
     auth boundary — Slack signs the channel on the receiving side, so
     we don't include any signing/secret here.
+
+    L4 — defensive entitlement check. This helper runs OUTSIDE the HTTP
+    enforce_feature surface (post-commit, best-effort side-channel) so
+    if the router's `if has_feature(...)` block is ever refactored away,
+    this guard still ensures only paid users' tickets get routed to the
+    priority Slack channel. Multi-barrier defense: the side-channel is
+    the actual "premium experience", so the gate has to be HERE too.
     """
+    # L4 — never let a non-priority-support user reach the Slack post.
+    # has_feature is the canonical entitlement check; the router-level
+    # decision sits in create_ticket but a refactor could break that
+    # branch without breaking the helper call site.
+    try:
+        from app.services.billing import has_feature as _l4_has_feature
+        if not _l4_has_feature(owner, "priority_support"):
+            return
+    except Exception:  # noqa: BLE001
+        # Fail closed — if the entitlement check can't even RUN, don't
+        # post to the priority channel. Safer to drop a notification
+        # than to leak premium routing to a Free user.
+        return
+
     from app.config import settings  # local import — avoids cycles
     webhook = (getattr(settings, "PRIORITY_SUPPORT_SLACK_WEBHOOK", "") or "").strip()
     if not webhook:
@@ -122,7 +143,23 @@ def _send_priority_email(*, ticket: SupportTicket, owner: User) -> None:
       • The owner's email is set as Reply-To so a one-tap reply lands
         back in their inbox directly (skipping the in-app loop on
         first-response).
+
+    L4 — defensive entitlement check. Same rationale as
+    _post_to_priority_slack: the side-channel email IS the premium
+    experience, so the gate has to be enforced here, not just at the
+    router's `if has_feature` branch. Multi-barrier defense holds even
+    if a future refactor accidentally always-routes tickets through
+    this helper.
     """
+    # L4 — never let a non-priority-support user reach the dedicated
+    # Pro inbox. Fail closed if has_feature itself errors.
+    try:
+        from app.services.billing import has_feature as _l4_has_feature
+        if not _l4_has_feature(owner, "priority_support"):
+            return
+    except Exception:  # noqa: BLE001
+        return
+
     from app.config import settings  # local import — avoids cycles
     priority_to = (getattr(settings, "PRIORITY_SUPPORT_EMAIL", "") or "").strip()
     if not priority_to:

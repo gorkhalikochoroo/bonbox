@@ -43,6 +43,25 @@ log = logging.getLogger("bonbox.bookkeeping_export")
 # ───────── helpers ─────────
 
 
+def _require_custom_templates(user: User) -> None:
+    """L4 — defensive feature check for the custom-template exporters
+    (Dinero / Billy / e-conomic / generic).
+
+    Router-level enforce_feature(user, "custom_export_templates") is the
+    primary gate (exports.py:86). This helper is the multi-barrier
+    backup: if a future refactor accidentally drops the router gate,
+    each format-specific exporter still refuses.
+
+    PermissionError on refusal — router converts to the same structured
+    402 the router gate would have produced. Pure unit tests that don't
+    have a billing context can pass a stub User with plan="pro"; this
+    helper never auto-skips because skipping would defeat the purpose
+    of the defense layer."""
+    from app.services.billing import has_feature
+    if not has_feature(user, "custom_export_templates"):
+        raise PermissionError("custom_export_templates required")
+
+
 def _money(amount) -> str:
     """Format Decimal/float with comma decimal (Danish convention)."""
     if amount is None:
@@ -204,7 +223,12 @@ def export_dinero(user: User, db: Session, start: date, end: date) -> bytes:
     For Dinero, sales go to account 1010 (Salg af varer/ydelser) by default
     and expenses go to a generic 2750 (Andre driftsudgifter). Owners will
     re-categorise inside Dinero — we just provide a clean import.
+
+    L4 — defensive feature check. The exports router already gates this
+    via enforce_feature; we re-verify so a future refactor that drops
+    the router gate can't silently grant Free users Dinero exports.
     """
+    _require_custom_templates(user)
     sales = _query_sales(user, db, start, end)
     expenses = _query_expenses(user, db, start, end)
     cats = _category_lookup(user, db)
@@ -265,7 +289,11 @@ def export_billy(user: User, db: Session, start: date, end: date) -> bytes:
 
     Billy users typically import sales as "income lines" and expenses as
     expense lines. We split into two, each with their preferred column set.
+
+    L4 — defensive feature check. Multi-barrier backup for the
+    router-level enforce_feature gate; see _require_custom_templates.
     """
+    _require_custom_templates(user)
     sales = _query_sales(user, db, start, end)
     expenses = _query_expenses(user, db, start, end)
     cats = _category_lookup(user, db)
@@ -329,7 +357,11 @@ def export_economic(user: User, db: Session, start: date, end: date) -> bytes:
       2750 = generic expenses
     Owners will re-map categories in e-conomic afterward — we just provide
     a clean canonical voucher list.
+
+    L4 — defensive feature check. Multi-barrier backup for the
+    router-level enforce_feature gate; see _require_custom_templates.
     """
+    _require_custom_templates(user)
     sales = _query_sales(user, db, start, end)
     expenses = _query_expenses(user, db, start, end)
     cats = _category_lookup(user, db)
@@ -398,7 +430,11 @@ def export_generic(user: User, db: Session, start: date, end: date) -> bytes:
     VAT % is derived from the user's currency (DK 25%, GBP 20%, NPR 13%, etc.)
     so non-DK users get the correct number on their export. Dinero/Billy/
     e-conomic exports stay at 25% because those are DK-only platforms.
+
+    L4 — defensive feature check. Multi-barrier backup for the
+    router-level enforce_feature gate; see _require_custom_templates.
     """
+    _require_custom_templates(user)
     sales = _query_sales(user, db, start, end)
     expenses = _query_expenses(user, db, start, end)
     cats = _category_lookup(user, db)

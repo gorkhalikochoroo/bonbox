@@ -61,10 +61,25 @@ def render_close_xlsx(
     currency: str = "DKK",
     business_profile: dict | None = None,
     bilagsnummer: str | None = None,
+    user: Any = None,
 ) -> bytes:
     """Build the close as an .xlsx workbook. Returns raw bytes; never
     raises — falls back to a minimal error workbook on any internal
-    failure so the caller's UX flow continues."""
+    failure so the caller's UX flow continues.
+
+    L4 defense-in-depth (multi_terminal_close): when `user` is supplied,
+    re-checks the entitlement before rendering. Router gate is primary;
+    this is the multi-barrier backup. PermissionError on refusal — the
+    router converts to 402. Unit tests omit `user`.
+    """
+    # L4 — defensive feature check. Same multi-barrier rationale as
+    # render_close_pdf; if a future refactor strips the router gate the
+    # service still refuses.
+    if user is not None:
+        from app.services.billing import has_feature
+        if not has_feature(user, "multi_terminal_close"):
+            raise PermissionError("multi_terminal_close required")
+
     try:
         return _render_close_xlsx(
             aggregated=aggregated or {},

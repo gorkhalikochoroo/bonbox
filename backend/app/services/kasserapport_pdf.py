@@ -114,8 +114,25 @@ def render_close_pdf(
     currency: str = "DKK",
     business_profile: dict | None = None,
     bilagsnummer: str | None = None,
+    user: Any = None,
 ) -> bytes:
-    """Build the kasserapport PDF. Returns raw bytes; never raises."""
+    """Build the kasserapport PDF. Returns raw bytes; never raises.
+
+    L4 defense-in-depth (multi_terminal_close): when `user` is supplied,
+    re-checks the entitlement before rendering. Router gate is the
+    primary; this is the backup so a refactor dropping the router gate
+    can't open the door. PermissionError on refusal — router converts
+    to 402. Unit tests omit `user` to test rendering math without a
+    billing context.
+    """
+    # L4 — defensive feature check. Router enforce_feature should have
+    # caught this; we re-verify so multi-barrier defense holds even if
+    # that gate is ever bypassed.
+    if user is not None:
+        from app.services.billing import has_feature
+        if not has_feature(user, "multi_terminal_close"):
+            raise PermissionError("multi_terminal_close required")
+
     try:
         return _render_close_pdf(
             aggregated=aggregated or {},

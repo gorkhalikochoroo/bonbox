@@ -329,6 +329,14 @@ def bulk_create(
             proposals=[p.model_dump() for p in body.terminals],
             branch_id=body.branch_id,
         )
+    except PermissionError:
+        # L4 — service-level Free-tier cap fired. Convert to the same
+        # structured 402 the router gate above would have produced.
+        from app.services.billing import feature_locked_detail
+        raise HTTPException(
+            status_code=402,
+            detail=feature_locked_detail(user, "multi_terminal_close"),
+        )
     except TerminalInferenceError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except HTTPException:

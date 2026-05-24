@@ -432,6 +432,24 @@ def bulk_create_terminals(
             f"Too many terminals in one request (max {DEFAULT_TERMINAL_LIMIT})."
         )
 
+    # L4 — defensive Free-tier cap check. The router (terminal.py
+    # bulk_create) already gates Free users at 1 terminal; we re-verify
+    # here so a future refactor that drops the router gate can't
+    # silently grant a Free user multi-terminal headroom. The Pro promise
+    # ("manage up to 3 branches") is enforced at the data layer, not
+    # just the entry-point. Pro/Trial/Starter skip this check via
+    # effective_plan() != "free".
+    from app.services.billing import effective_plan
+    _FREE_CAP = 1
+    if effective_plan(user) == "free":
+        existing_for_l4 = (
+            db.query(Terminal)
+            .filter(Terminal.user_id == user.id, Terminal.is_deleted.isnot(True))
+            .count()
+        )
+        if existing_for_l4 + len(proposals) > _FREE_CAP:
+            raise PermissionError("multi_terminal_close required")
+
     # Branch ownership re-check (forged branch_id rejected)
     if branch_id is not None:
         b = (

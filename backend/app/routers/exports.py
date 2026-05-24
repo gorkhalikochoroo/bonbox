@@ -113,6 +113,16 @@ def export_bookkeeping(
 
     try:
         body = fmt["exporter"](user, db, start, end)
+    except PermissionError:
+        # L4 — service-level defense fired. Convert to the same
+        # structured 402 the router gate would have produced so the
+        # frontend gets a consistent payload regardless of which layer
+        # refused.
+        from app.services.billing import feature_locked_detail
+        raise HTTPException(
+            status_code=402,
+            detail=feature_locked_detail(user, "custom_export_templates"),
+        )
     except Exception as e:
         log.exception(
             "Export failed for user=%s format=%s range=%s..%s: %s",

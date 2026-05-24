@@ -656,6 +656,68 @@ def feature_locked_detail(user: User, feature: str) -> dict[str, Any]:
 # stays usable from non-FastAPI contexts (e.g. CLI scripts) without
 # pulling FastAPI in transitively at import time.
 
+def _record_gate_refusal(user: User, event_type: str, detail: dict[str, Any]) -> None:
+    """L7 — best-effort SecurityEvent write for every gate refusal.
+
+    Writes a row to `security_events` with:
+      • event_type: "gate_refused.<feature_key>" or "cap_exceeded.<cap_key>"
+      • user_id: the caller whose request was refused
+      • detail: JSON-serialised dict of {plan, required_plan/limit, key}
+
+    The security_events table becomes a real-time observability stream
+    for tier-gate health — Manoj can:
+      • Spot a gate firing 100x more than expected (refactor bug, e.g.
+        a UI loop hammering a locked endpoint).
+      • Spot a gate firing zero times (drift — the gate may have been
+        accidentally bypassed by a refactor; multiple layers should
+        still fire so security_events should show non-zero counts).
+
+    Best-effort by design — a DB hiccup here MUST NOT block the 402
+    being raised back to the caller. Same try/except pattern as
+    audit_service.record and admin_security._record_security_event.
+
+    Sessionless — opens a short-lived SessionLocal so this helper is
+    usable from any context (routers, background jobs, etc.) without
+    requiring the caller to thread a db handle through.
+    """
+    import json as _json
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
+    db = None
+    try:
+        # Local imports — keep billing.py free of top-level DB imports so
+        # non-FastAPI contexts (CLI, tests) can still import this module
+        # without paying the SQLAlchemy startup cost.
+        from app.database import SessionLocal
+        from app.models.security_event import SecurityEvent
+
+        db = SessionLocal()
+        # Detail is a small dict — JSON-encode with str fallback so any
+        # UUID / datetime in there doesn't crash the encoder.
+        detail_str = _json.dumps(detail, default=str, ensure_ascii=False)[:2000]
+        evt = SecurityEvent(
+            user_id=getattr(user, "id", None),
+            event_type=event_type[:64],
+            detail=detail_str,
+        )
+        db.add(evt)
+        db.commit()
+    except Exception as exc:  # noqa: BLE001
+        # NEVER block the gate on observability write failure.
+        _logger.warning("gate refusal SecurityEvent write failed: %s", exc)
+        if db is not None:
+            try:
+                db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+    finally:
+        if db is not None:
+            try:
+                db.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+
 def enforce_cap(user: User, cap_key: str, current: int) -> None:
     """Raise HTTPException(402, structured detail) iff the user has
     reached or exceeded their cap for `cap_key`. Otherwise no-op.
@@ -664,22 +726,38 @@ def enforce_cap(user: User, cap_key: str, current: int) -> None:
     a billing limit, not an access-control denial — the user has
     permission, they just need to upgrade. Frontend reads
     detail.upgrade_to to render the "Upgrade to Starter" CTA.
+
+    L7 — every refusal writes a SecurityEvent row (best-effort) so
+    Manoj can observe whether gates are firing as expected or have
+    drifted to never (refactor-bypass detection).
     """
     if at_cap(user, cap_key, current):
+        detail = cap_exceeded_detail(user, cap_key, current)
+        # L7 — best-effort observability write. Wrapped in try/except
+        # INSIDE the helper itself so a DB failure here can't break
+        # the 402 we're about to raise.
+        _record_gate_refusal(user, f"cap_exceeded.{cap_key}", detail)
         from fastapi import HTTPException
         raise HTTPException(
             status_code=402,
-            detail=cap_exceeded_detail(user, cap_key, current),
+            detail=detail,
         )
 
 
 def enforce_feature(user: User, feature: str) -> None:
     """Raise HTTPException(402, structured detail) iff the user's plan
     doesn't have the boolean feature flag `feature`. Otherwise no-op.
+
+    L7 — every refusal writes a SecurityEvent row (best-effort) so
+    gate-refusal counts become a real-time observability stream for
+    tier-gate health.
     """
     if not has_feature(user, feature):
+        detail = feature_locked_detail(user, feature)
+        # L7 — best-effort observability write. See _record_gate_refusal.
+        _record_gate_refusal(user, f"gate_refused.{feature}", detail)
         from fastapi import HTTPException
         raise HTTPException(
             status_code=402,
-            detail=feature_locked_detail(user, feature),
+            detail=detail,
         )
