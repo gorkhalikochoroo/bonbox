@@ -404,6 +404,17 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # the in-app surfaces; only the daily 6am push fan-out is gated
         # here. Degrades silently when push isn't subscribed (L8).
         "expiry_push_notifications": False,
+        # 2026-05-24 — Smart Scan auto-router (Manoj-confirmed). The
+        # "snap anything" entry point reuses the doc-type classifier and
+        # routes to the right destination page with pre-extracted data.
+        # The basic auto-route is UNIVERSAL — every tier gets the magic
+        # of "snap → recognised → opens right page" because that's the
+        # core value moment. Two gated extensions:
+        # `smart_scan_batch` — multi-doc upload (Starter+).
+        # `smart_scan_pdf_direct` — drag a PDF in without photographing
+        # first (Pro+, because the extra OCR layer costs more).
+        "smart_scan_batch": False,
+        "smart_scan_pdf_direct": False,
     },
     "starter": {
         "ai_anomaly_detection": True,
@@ -433,6 +444,8 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "close_push_notification": False,  # Pro-only — push to owner on lock
         "expiry_alerts": True,             # Phase 1 — Brief insight + Dashboard card + waste-cost
         "expiry_push_notifications": False,  # Pro-only — day-of-expiry push
+        "smart_scan_batch": True,          # Starter+ — batch upload multiple docs
+        "smart_scan_pdf_direct": False,    # Pro-only — drag PDFs in without photo
     },
     "trial": {  # = full Pro
         "ai_anomaly_detection": True,
@@ -462,6 +475,8 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "close_push_notification": True,
         "expiry_alerts": True,
         "expiry_push_notifications": True,
+        "smart_scan_batch": True,
+        "smart_scan_pdf_direct": True,
     },
     "pro": {
         "ai_anomaly_detection": True,
@@ -491,6 +506,8 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "close_push_notification": True,  # Lane A — Pro-only push to owner on lock
         "expiry_alerts": True,            # Phase 1 — Brief + Dashboard card + waste-cost
         "expiry_push_notifications": True,  # Pro-only — day-of-expiry push to owner
+        "smart_scan_batch": True,          # Starter+ — same as Starter, included
+        "smart_scan_pdf_direct": True,     # Pro killer — drag PDFs in without photo
     },
 }
 

@@ -71,6 +71,10 @@ from app.routers import bank_connect as bank_connect_router
 # per-settlement granularity that Aiia's aggregate payout line hides.
 # Mock-mode default until the partner agreement closes for prod creds.
 from app.routers import mobilepay as mobilepay_router
+# Smart Scan — the "snap anything" entry point. Reuses the doc-type
+# classifier (#145) to route to the right destination page with
+# pre-extracted data. Universal feature; batch + PDF-direct are gated.
+from app.routers import smart_scan as smart_scan_router
 # Task #72 — Web Push (VAPID) subscribe / unsubscribe / public-key /
 # test endpoints. Mounted under /api/push. The 8am morning brief
 # delivery cron lives in app.jobs.daily_brief_push_job.
@@ -2295,6 +2299,15 @@ app.include_router(
     inventory_smart_import.router,
     prefix="/api/inventory/smart-import",
     tags=["Smart Inventory Import"],
+)
+# Smart Scan — single "snap anything" entry point that routes to the
+# right destination page (expenses / daily-close / inventory) using the
+# doc-type classifier. The basic auto-route is universal across tiers;
+# batch upload (Starter+) and PDF-direct (Pro+) are gated server-side.
+app.include_router(
+    smart_scan_router.router,
+    prefix="/api/smart-scan",
+    tags=["Smart Scan"],
 )
 # Property Financial Report — Danish-restaurant daily close in the format
 # Aloha / Restwave / Pos+ users already recognize. Sales conversation hook.
