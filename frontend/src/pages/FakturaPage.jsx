@@ -346,32 +346,50 @@ export default function FakturaPage() {
           </Link>
         </div>
       ) : (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-900/40 text-gray-500 dark:text-gray-400 uppercase text-xs">
-              <tr>
-                <th className="text-left px-5 py-3">{t("invoiceNumber") || "Faktura nr."}</th>
-                <th className="text-left px-5 py-3">{t("customer") || "Customer"}</th>
-                <th className="text-left px-5 py-3">{t("issueDate") || "Issued"}</th>
-                <th className="text-left px-5 py-3">{t("dueDate") || "Due"}</th>
-                <th className="text-right px-5 py-3">{t("amount") || "Amount"}</th>
-                <th className="text-center px-5 py-3">{t("status") || "Status"}</th>
-                <th className="text-right px-5 py-3"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-              {invoices.map((inv) => (
-                <InvoiceRow
-                  key={inv.id}
-                  invoice={inv}
-                  customer={customers.find((c) => c.id === inv.customer_id)}
-                  onChanged={fetchAll}
-                  t={t}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          {/* Desktop table — hidden on phone. md+ keeps the 7-column layout. */}
+          <div className="hidden md:block bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 dark:bg-gray-900/40 text-gray-500 dark:text-gray-400 uppercase text-xs">
+                <tr>
+                  <th className="text-left px-5 py-3">{t("invoiceNumber") || "Faktura nr."}</th>
+                  <th className="text-left px-5 py-3">{t("customer") || "Customer"}</th>
+                  <th className="text-left px-5 py-3">{t("issueDate") || "Issued"}</th>
+                  <th className="text-left px-5 py-3">{t("dueDate") || "Due"}</th>
+                  <th className="text-right px-5 py-3">{t("amount") || "Amount"}</th>
+                  <th className="text-center px-5 py-3">{t("status") || "Status"}</th>
+                  <th className="text-right px-5 py-3"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                {invoices.map((inv) => (
+                  <InvoiceRow
+                    key={inv.id}
+                    invoice={inv}
+                    customer={customers.find((c) => c.id === inv.customer_id)}
+                    onChanged={fetchAll}
+                    t={t}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile card-list — same data as the desktop table, stacked for phone-width.
+              Action buttons render full-width with min-h-[44px] tap targets so no
+              horizontal scroll is needed to reach Send / Mark paid / Void / PDF. */}
+          <div className="md:hidden space-y-2">
+            {invoices.map((inv) => (
+              <InvoiceCard
+                key={inv.id}
+                invoice={inv}
+                customer={customers.find((c) => c.id === inv.customer_id)}
+                onChanged={fetchAll}
+                t={t}
+              />
+            ))}
+          </div>
+        </>
       )}
 
       {showForm && (
@@ -422,9 +440,14 @@ export default function FakturaPage() {
   );
 }
 
-// ─── Single row + status actions ──────────────────────────────────
-
-function InvoiceRow({ invoice, customer, onChanged, t }) {
+// ─── Shared invoice actions hook ──────────────────────────────────
+//
+// Both InvoiceRow (desktop table) and InvoiceCard (mobile list) need the
+// exact same handler logic (send / mark-paid / unmark / void / pdf) plus
+// the same Bogføringsloven §7 kreditnota dialog. Lifting the API calls
+// into one hook keeps a single source of truth for the network surface
+// and avoids drift between the two presentations.
+function useInvoiceActions(invoice, customer, onChanged, t) {
   // Kreditnota dialog state — Bogføringsloven §7: a sent invoice can't
   // be deleted, only credited. The dialog explains this gravity so the
   // owner understands the action before they confirm.
@@ -432,13 +455,6 @@ function InvoiceRow({ invoice, customer, onChanged, t }) {
   const [voidReason, setVoidReason] = useState("");
   const [voidSubmitting, setVoidSubmitting] = useState(false);
   const [voidError, setVoidError] = useState("");
-  const statusBadge = {
-    draft: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300",
-    sent: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
-    paid: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
-    overdue: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
-    credited: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
-  }[invoice.status] || "bg-gray-100 text-gray-700";
 
   const handleDownloadPdf = async () => {
     try {
@@ -598,6 +614,140 @@ function InvoiceRow({ invoice, customer, onChanged, t }) {
     invoice.status === "paid" &&
     (invoice.paid_via !== "auto_match" || invoice.auto_match_reversible === true);
 
+  return {
+    handleDownloadPdf,
+    handleSend,
+    handleMarkPaid,
+    handleUnmarkPaid,
+    openVoidDialog,
+    unmarkAvailable,
+    // Void dialog wiring — passed through to <VoidInvoiceModal />.
+    voidOpen,
+    setVoidOpen,
+    voidReason,
+    setVoidReason,
+    voidSubmitting,
+    voidError,
+    submitVoid,
+  };
+}
+
+// Status pill classes — shared between row + card so the badge looks
+// identical on both surfaces. Stays in the existing palette (no new
+// DNA colors introduced; matches the previous InvoiceRow mapping).
+const STATUS_BADGE = {
+  draft: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300",
+  sent: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  paid: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+  overdue: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+  credited: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
+};
+const statusBadgeClass = (status) =>
+  STATUS_BADGE[status] || "bg-gray-100 text-gray-700";
+
+// ─── Void invoice (kreditnota) modal — shared by row + card ───────
+//
+// Extracted so both presentations mount the same dialog. Fixed-position
+// overlay, so its placement in the DOM tree doesn't matter — both
+// callers render it inside their fragment.
+function VoidInvoiceModal({
+  invoice,
+  customer,
+  voidReason,
+  setVoidReason,
+  voidSubmitting,
+  voidError,
+  onCancel,
+  onSubmit,
+  t,
+}) {
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white dark:bg-stone-900 rounded-2xl shadow-xl max-w-md w-full overflow-hidden">
+        <div className="px-5 pt-5 pb-3 border-b border-stone-100 dark:border-stone-800">
+          <h3 className="text-base font-semibold text-stone-900 dark:text-stone-100 flex items-center gap-2">
+            ↩ {t("kreditnotaTitle") || "Create kreditnota"}
+          </h3>
+          <p className="text-xs text-stone-500 dark:text-stone-400 mt-1.5 leading-relaxed">
+            {(t("kreditnotaBody") ||
+              "Sent fakturaer can't be deleted (Bogføringsloven §7). Voiding creates a kreditnota with the next number — the original keeps its number and stays in the ledger. Both records are locked and auditable.")}
+          </p>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <div className="text-xs text-stone-500 dark:text-stone-400">
+            <span className="text-stone-700 dark:text-stone-300 font-medium">
+              {invoice.fakturanummer_formatted}
+            </span>
+            {" · "}
+            {new Intl.NumberFormat("da-DK", { style: "currency", currency: invoice.currency }).format(invoice.total_gross)}
+            {customer?.name ? ` · ${customer.name}` : ""}
+          </div>
+          <label className="block">
+            <span className="block text-xs font-medium text-stone-700 dark:text-stone-300 mb-1.5">
+              {t("kreditnotaReasonLabel") || "Reason (visible to your accountant)"}
+            </span>
+            <textarea
+              value={voidReason}
+              onChange={(e) => setVoidReason(e.target.value)}
+              rows={3}
+              maxLength={200}
+              placeholder={t("kreditnotaReasonPlaceholder") ||
+                "e.g. Customer canceled order — refunded via MobilePay 18/05"}
+              className="w-full px-3 py-2 border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-800 dark:text-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+              autoFocus
+            />
+            <span className="block text-[10.5px] text-stone-400 mt-1">
+              {voidReason.length}/200
+            </span>
+          </label>
+          {voidError && (
+            <p className="text-xs text-red-600 dark:text-red-400">{voidError}</p>
+          )}
+        </div>
+        <div className="px-5 py-4 bg-stone-50 dark:bg-stone-800/40 flex items-center justify-end gap-2 border-t border-stone-100 dark:border-stone-800">
+          <button
+            onClick={onCancel}
+            disabled={voidSubmitting}
+            className="px-3 py-1.5 text-sm text-stone-600 dark:text-stone-300 hover:text-stone-900 dark:hover:text-stone-100 disabled:opacity-50 transition"
+          >
+            {t("cancel") || "Cancel"}
+          </button>
+          <button
+            onClick={onSubmit}
+            disabled={voidSubmitting || voidReason.trim().length < 5}
+            className="px-4 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition"
+          >
+            {voidSubmitting
+              ? (t("kreditnotaSubmitting") || "Creating…")
+              : (t("kreditnotaConfirm") || "Create kreditnota")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Single row + status actions ──────────────────────────────────
+
+function InvoiceRow({ invoice, customer, onChanged, t }) {
+  const {
+    handleDownloadPdf,
+    handleSend,
+    handleMarkPaid,
+    handleUnmarkPaid,
+    openVoidDialog,
+    unmarkAvailable,
+    voidOpen,
+    setVoidOpen,
+    voidReason,
+    setVoidReason,
+    voidSubmitting,
+    voidError,
+    submitVoid,
+  } = useInvoiceActions(invoice, customer, onChanged, t);
+
+  const statusBadge = statusBadgeClass(invoice.status);
+
   return (
     <>
     <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
@@ -661,71 +811,143 @@ function InvoiceRow({ invoice, customer, onChanged, t }) {
     {voidOpen && (
       <tr>
         <td colSpan={7} className="p-0">
-          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-stone-900 rounded-2xl shadow-xl max-w-md w-full overflow-hidden">
-              <div className="px-5 pt-5 pb-3 border-b border-stone-100 dark:border-stone-800">
-                <h3 className="text-base font-semibold text-stone-900 dark:text-stone-100 flex items-center gap-2">
-                  ↩ {t("kreditnotaTitle") || "Create kreditnota"}
-                </h3>
-                <p className="text-xs text-stone-500 dark:text-stone-400 mt-1.5 leading-relaxed">
-                  {(t("kreditnotaBody") ||
-                    "Sent fakturaer can't be deleted (Bogføringsloven §7). Voiding creates a kreditnota with the next number — the original keeps its number and stays in the ledger. Both records are locked and auditable.")}
-                </p>
-              </div>
-              <div className="px-5 py-4 space-y-3">
-                <div className="text-xs text-stone-500 dark:text-stone-400">
-                  <span className="text-stone-700 dark:text-stone-300 font-medium">
-                    {invoice.fakturanummer_formatted}
-                  </span>
-                  {" · "}
-                  {new Intl.NumberFormat("da-DK", { style: "currency", currency: invoice.currency }).format(invoice.total_gross)}
-                  {customer?.name ? ` · ${customer.name}` : ""}
-                </div>
-                <label className="block">
-                  <span className="block text-xs font-medium text-stone-700 dark:text-stone-300 mb-1.5">
-                    {t("kreditnotaReasonLabel") || "Reason (visible to your accountant)"}
-                  </span>
-                  <textarea
-                    value={voidReason}
-                    onChange={(e) => setVoidReason(e.target.value)}
-                    rows={3}
-                    maxLength={200}
-                    placeholder={t("kreditnotaReasonPlaceholder") ||
-                      "e.g. Customer canceled order — refunded via MobilePay 18/05"}
-                    className="w-full px-3 py-2 border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-800 dark:text-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-                    autoFocus
-                  />
-                  <span className="block text-[10.5px] text-stone-400 mt-1">
-                    {voidReason.length}/200
-                  </span>
-                </label>
-                {voidError && (
-                  <p className="text-xs text-red-600 dark:text-red-400">{voidError}</p>
-                )}
-              </div>
-              <div className="px-5 py-4 bg-stone-50 dark:bg-stone-800/40 flex items-center justify-end gap-2 border-t border-stone-100 dark:border-stone-800">
-                <button
-                  onClick={() => setVoidOpen(false)}
-                  disabled={voidSubmitting}
-                  className="px-3 py-1.5 text-sm text-stone-600 dark:text-stone-300 hover:text-stone-900 dark:hover:text-stone-100 disabled:opacity-50 transition"
-                >
-                  {t("cancel") || "Cancel"}
-                </button>
-                <button
-                  onClick={submitVoid}
-                  disabled={voidSubmitting || voidReason.trim().length < 5}
-                  className="px-4 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition"
-                >
-                  {voidSubmitting
-                    ? (t("kreditnotaSubmitting") || "Creating…")
-                    : (t("kreditnotaConfirm") || "Create kreditnota")}
-                </button>
-              </div>
-            </div>
-          </div>
+          <VoidInvoiceModal
+            invoice={invoice}
+            customer={customer}
+            voidReason={voidReason}
+            setVoidReason={setVoidReason}
+            voidSubmitting={voidSubmitting}
+            voidError={voidError}
+            onCancel={() => setVoidOpen(false)}
+            onSubmit={submitVoid}
+            t={t}
+          />
         </td>
       </tr>
     )}
+    </>
+  );
+}
+
+// ─── Mobile card — same data + handlers as InvoiceRow, stacked ────
+//
+// Renders the same fields and actions as InvoiceRow but in a phone-
+// friendly stacked layout with full-width 44px tap targets. Handlers
+// are shared through useInvoiceActions so the API surface stays in one
+// place. Status-conditional actions mirror the desktop row exactly.
+function InvoiceCard({ invoice, customer, onChanged, t }) {
+  const {
+    handleDownloadPdf,
+    handleSend,
+    handleMarkPaid,
+    handleUnmarkPaid,
+    openVoidDialog,
+    unmarkAvailable,
+    voidOpen,
+    setVoidOpen,
+    voidReason,
+    setVoidReason,
+    voidSubmitting,
+    voidError,
+    submitVoid,
+  } = useInvoiceActions(invoice, customer, onChanged, t);
+
+  const statusBadge = statusBadgeClass(invoice.status);
+
+  return (
+    <>
+      <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
+        {/* Header row: number + customer (left) / amount + status (right) */}
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <div className="min-w-0 flex-1">
+            <div className="font-mono text-[13px] text-gray-900 dark:text-white">
+              {invoice.fakturanummer_formatted}
+              {invoice.is_credit_note && <span className="ml-1 text-xs text-purple-600 dark:text-purple-300">↩</span>}
+            </div>
+            <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5 truncate">
+              {customer?.name || "—"}
+            </div>
+          </div>
+          <div className="text-right shrink-0">
+            <div className="font-semibold tabular-nums text-gray-900 dark:text-white text-[14px]">
+              {new Intl.NumberFormat("da-DK", { style: "currency", currency: invoice.currency }).format(invoice.total_gross)}
+            </div>
+            <span className={`inline-block mt-1 text-[11px] px-2 py-0.5 rounded-full font-medium ${statusBadge}`}>
+              {invoice.status}
+            </span>
+          </div>
+        </div>
+
+        {/* Dates — 2-col compact */}
+        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100 dark:border-gray-700 text-[12px]">
+          <div>
+            <div className="text-gray-500 dark:text-gray-400">{t("issueDate") || "Issued"}</div>
+            <div className="font-medium text-gray-900 dark:text-white mt-0.5">{invoice.issue_date}</div>
+          </div>
+          <div>
+            <div className="text-gray-500 dark:text-gray-400">{t("dueDate") || "Due"}</div>
+            <div className="font-medium text-gray-900 dark:text-white mt-0.5">{invoice.due_date}</div>
+          </div>
+        </div>
+
+        {/* Action row — show only the actions that apply to this status.
+            Each button is full-width 44px tap target so no horizontal
+            scrolling is required to reach any action on a phone. */}
+        <div className="flex items-center gap-2 pt-3 mt-3 border-t border-gray-100 dark:border-gray-700">
+          {invoice.status === "draft" && (
+            <button
+              onClick={handleSend}
+              className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-medium"
+            >
+              {t("send") || "Send"}
+            </button>
+          )}
+          {(invoice.status === "sent" || invoice.status === "overdue") && (
+            <button
+              onClick={handleMarkPaid}
+              className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-medium"
+            >
+              ✓ {t("markPaid") || "Mark paid"}
+            </button>
+          )}
+          {unmarkAvailable && (
+            <button
+              onClick={handleUnmarkPaid}
+              className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 text-[13px] font-medium"
+            >
+              ↩ {t("undo") || "Undo"}
+            </button>
+          )}
+          {(invoice.status === "sent" || invoice.status === "overdue" || invoice.status === "paid") && !invoice.is_credit_note && (
+            <button
+              onClick={openVoidDialog}
+              className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-red-200 dark:border-red-700 text-red-600 dark:text-red-400 text-[13px] font-medium"
+            >
+              {t("voidInvoice") || "Void"}
+            </button>
+          )}
+          <button
+            onClick={handleDownloadPdf}
+            className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 text-[13px] font-medium"
+          >
+            {t("downloadPdf") || "PDF"}
+          </button>
+        </div>
+      </div>
+
+      {voidOpen && (
+        <VoidInvoiceModal
+          invoice={invoice}
+          customer={customer}
+          voidReason={voidReason}
+          setVoidReason={setVoidReason}
+          voidSubmitting={voidSubmitting}
+          voidError={voidError}
+          onCancel={() => setVoidOpen(false)}
+          onSubmit={submitVoid}
+          t={t}
+        />
+      )}
     </>
   );
 }
