@@ -293,7 +293,7 @@ export const nl = {
   vatDownloadPdf: "Download PDF",
   vatDownloadFailed: "PDF download mislukt",
   vatMyBusiness: "Mijn bedrijf",
-  vatRateLabel: "Tarief:",
+  vatRateLabel: "Tarief",
   vatBreakdown: "Uitsplitsing",
   vatDisclaimer: "Alleen schattingen. Raadpleeg een accountant voor officiële aangiften.",
   failedToSave: "Opslaan mislukt",

@@ -120,7 +120,7 @@ export default function MomsCountdownCard() {
           <div className="flex items-center gap-2 mb-1.5">
             <Icon name="Calculator" size={16} className={toneText} />
             <span className={`text-[11px] font-semibold uppercase tracking-wider ${toneText}`}>
-              {t("nextMomsFiling", "Next Moms filing")}
+              {t("nextMomsFiling", "Next MOMS filing")}
             </span>
           </div>
           <div className="flex items-baseline gap-3 flex-wrap">

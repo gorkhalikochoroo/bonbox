@@ -111,8 +111,14 @@ export function parseMoney(str) {
  */
 const VAT_TERMS = {
   DKK: {
-    vatName: "Moms",
-    sidebarLabel: "Moms",
+    // DK terminology lock: standalone abbreviation is UPPERCASE `MOMS`
+    // everywhere it appears as a brand-style token (rate labels, file
+    // names, "MOMS Payable", section headers like "Expenses MOMS
+    // Breakdown"). Idiomatic Danish noun phrases below (e.g.
+    // "Salg inkl. moms", "Indgående moms") keep lowercase per Danish
+    // orthography — those are separate fields, not the standalone token.
+    vatName: "MOMS",
+    sidebarLabel: "MOMS",
     reportTitle: "Momsopg\u00f8relse",
     salesSection: "Salg",
     salesInclVat: "Salg inkl. moms",

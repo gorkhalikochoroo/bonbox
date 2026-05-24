@@ -293,7 +293,7 @@ export const pt = {
   vatDownloadPdf: "Baixar PDF",
   vatDownloadFailed: "Falha ao baixar PDF",
   vatMyBusiness: "Meu negócio",
-  vatRateLabel: "Taxa:",
+  vatRateLabel: "Taxa",
   vatBreakdown: "Detalhamento",
   vatDisclaimer: "Apenas estimativas. Consulte um contador para declarações oficiais.",
   failedToSave: "Falha ao salvar",

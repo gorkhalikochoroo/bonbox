@@ -293,7 +293,7 @@ export const sv = {
   vatDownloadPdf: "Ladda ner PDF",
   vatDownloadFailed: "Kunde inte ladda ner PDF",
   vatMyBusiness: "Mitt företag",
-  vatRateLabel: "Sats:",
+  vatRateLabel: "Sats",
   vatBreakdown: "Uppdelning",
   vatDisclaimer: "Endast uppskattningar. Rådgör med en revisor för officiella deklarationer.",
   failedToSave: "Kunde inte spara",

@@ -394,7 +394,7 @@ export default function PropertyReportPage() {
                   {heading}
                 </h2>
                 <p className="text-xs text-gray-400 mb-4">
-                  {t("forSkat") || "For Skat / your accountant"}
+                  {t("forSkat") || "For SKAT / your revisor"}
                 </p>
                 {momsMode === "incl" && (
                   <div className="space-y-2.5">

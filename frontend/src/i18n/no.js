@@ -293,7 +293,7 @@ export const no_ = {
   vatDownloadPdf: "Last ned PDF",
   vatDownloadFailed: "Kunne ikke laste ned PDF",
   vatMyBusiness: "Min bedrift",
-  vatRateLabel: "Sats:",
+  vatRateLabel: "Sats",
   vatBreakdown: "Fordeling",
   vatDisclaimer: "Kun estimater. Konsulter en regnskapsfører for offisielle innleveringer.",
   failedToSave: "Kunne ikke lagre",

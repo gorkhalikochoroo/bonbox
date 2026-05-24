@@ -336,7 +336,7 @@ export default function GlobalSearchModal({ open, onClose }) {
                   { icon: "🧾", label: t("newInvoiceAction", "New faktura"),   to: "/faktura?new=1" },
                   { icon: "📋", label: t("dailyCloseAction", "Close the day"), to: "/daily-close" },
                   { icon: "📦", label: t("scanReceiptAction", "Scan receipt"), to: "/expenses?scan=1" },
-                  { icon: "📤", label: t("sendToAccountantAction", "Send to accountant"), to: "/daily-close" },
+                  { icon: "📤", label: t("sendToAccountantAction", "Send to revisor"), to: "/daily-close" },
                 ].map((qa) => (
                   <button
                     key={qa.to + qa.label}

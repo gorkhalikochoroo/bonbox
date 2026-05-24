@@ -68,7 +68,14 @@ PERIOD_MONTHS = {
 # Mar 1). This was the root of "Tax Autopilot shows wrong amounts".
 TAX_CONFIG = {
     "DKK": {
-        "tax_name": "Moms",
+        # DK terminology lock: `MOMS` is the brand-style standalone term
+        # that drives every DK-context label (Tax Autopilot tiles, alert
+        # titles, "Next MOMS Filing", "Output MOMS" / "Input MOMS" table
+        # headers, etc.). Sentence-case "Moms" stays only inside idiomatic
+        # Danish noun phrases like "Salg inkl. moms" — those live in
+        # `currency.js` VAT_TERMS as separate tokens. SEK keeps lowercase
+        # "Moms" because Swedish convention is sentence-case there.
+        "tax_name": "MOMS",
         "authority": "SKAT (skat.dk)",
         "rate": 0.25,
         # Default frequency for new DK signups. SMBs with rev < 5M kr are

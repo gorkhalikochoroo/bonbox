@@ -293,7 +293,7 @@ export const de = {
   vatDownloadPdf: "PDF herunterladen",
   vatDownloadFailed: "PDF-Download fehlgeschlagen",
   vatMyBusiness: "Mein Geschäft",
-  vatRateLabel: "Satz:",
+  vatRateLabel: "Satz",
   vatBreakdown: "Aufschlüsselung",
   vatDisclaimer: "Nur Schätzungen. Konsultieren Sie einen Steuerberater für offizielle Einreichungen.",
   failedToSave: "Speichern fehlgeschlagen",

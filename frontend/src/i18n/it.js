@@ -293,7 +293,7 @@ export const it = {
   vatDownloadPdf: "Scarica PDF",
   vatDownloadFailed: "Download PDF fallito",
   vatMyBusiness: "La mia attività",
-  vatRateLabel: "Aliquota:",
+  vatRateLabel: "Aliquota",
   vatBreakdown: "Dettaglio",
   vatDisclaimer: "Solo stime. Consultare un commercialista per le dichiarazioni ufficiali.",
   failedToSave: "Salvataggio fallito",

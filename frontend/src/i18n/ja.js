@@ -293,7 +293,7 @@ export const ja = {
   vatDownloadPdf: "PDFダウンロード",
   vatDownloadFailed: "PDFダウンロードに失敗",
   vatMyBusiness: "マイビジネス",
-  vatRateLabel: "税率:",
+  vatRateLabel: "税率",
   vatBreakdown: "内訳",
   vatDisclaimer: "推定のみ。正式な申告については税理士にご相談ください。",
   failedToSave: "保存に失敗",
