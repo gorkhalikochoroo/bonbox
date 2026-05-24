@@ -136,7 +136,7 @@ def test_scan_caps_pinned_per_tier():
 
 def test_today_scan_count_zero_for_new_user(db, lars):
     """Brand-new user, no scans → returns 0."""
-    assert _today_scan_count(db, lars.id) == 0
+    assert _today_scan_count(db, lars) == 0
 
 
 def test_today_scan_count_tracks_close_rows_with_photo(db, lars):
@@ -172,7 +172,7 @@ def test_today_scan_count_tracks_close_rows_with_photo(db, lars):
     )
     db.add_all([no_photo, photo_a, photo_b]); db.commit()
 
-    assert _today_scan_count(db, lars.id) == 2
+    assert _today_scan_count(db, lars) == 2
 
 
 def test_today_scan_count_ignores_yesterday(db, lars):
@@ -189,7 +189,7 @@ def test_today_scan_count_ignores_yesterday(db, lars):
     )
     db.add(old_photo); db.commit()
 
-    assert _today_scan_count(db, lars.id) == 0
+    assert _today_scan_count(db, lars) == 0
 
 
 def test_today_scan_count_isolated_per_user(db, lars):
@@ -214,8 +214,8 @@ def test_today_scan_count_isolated_per_user(db, lars):
     db.add(other_photo); db.commit()
 
     # Lars's count is 0 — other's photo doesn't leak.
-    assert _today_scan_count(db, lars.id) == 0
-    assert _today_scan_count(db, other.id) == 1
+    assert _today_scan_count(db, lars) == 0
+    assert _today_scan_count(db, other) == 1
 
 
 # ─── Layered save logic — max(breakdown_sum, override) regression ────

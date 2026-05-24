@@ -47,6 +47,7 @@ from app.services.daily_close_range_export import (
     build_daily_close_range_xlsx,
 )
 from app.services import audit_service
+from app.services.tz_utils import business_today_local
 from app.utils.time import utc_now
 from app.utils.document_hash import compute_document_hash, short_hash
 
@@ -65,16 +66,23 @@ _limiter = Limiter(key_func=get_remote_address)
 # happen in one place.
 
 
-def _today_scan_count(db: Session, user_id) -> int:
+def _today_scan_count(db: Session, user: User) -> int:
     """How many Z-report scans this user already triggered today.
-    Counted via DailyClose rows with receipt_photo set on today's date —
-    the scan-report endpoint doesn't have its own audit table, but a
-    successful scan that produces a close lands here."""
-    today = date.today()
+    Counted via DailyClose rows with receipt_photo set on today's
+    business date — the scan-report endpoint doesn't have its own
+    audit table, but a successful scan that produces a close lands here.
+
+    Uses `business_today_local(user)` (not `date.today()`) so a 02:00
+    CEST scan still belongs to the shift's business date — same TZ
+    drift class as the Report Coherence audit (#148) CRITs already
+    landed. Without this, an owner closing past midnight could trip
+    the next-day quota an hour after starting their close ritual.
+    """
+    today = business_today_local(user)
     return (
         db.query(func.count(DailyClose.id))
         .filter(
-            DailyClose.user_id == user_id,
+            DailyClose.user_id == user.id,
             DailyClose.date == today,
             DailyClose.receipt_photo.isnot(None),
         )
@@ -170,11 +178,29 @@ def _build_close_email_html(
     Danish for DKK users, English otherwise. Keeps the format tight —
     accountants are glancing at the email body to decide whether to
     open the attachments, not reading prose.
+
+    Jurisdiction-locked DK terms (`Salgsmoms`, `kasserapport`) stay
+    Danish in BOTH languages — the email lands in the revisor's inbox
+    and they expect the Danish bookkeeping vocabulary regardless of
+    which UI language the owner picked. The VAT rate is currency-
+    derived (DKK 25%, NPR 13%, GBP 20%, etc.) via
+    `tax_service._get_vat_rate` — the previous hardcoded 25% gave
+    every non-DK user a wrong percentage in their email body.
     """
     rev = float(dc.revenue_total or 0)
     moms = float(dc.moms_total or 0)
     cash_diff = float(dc.cash_difference or 0) if dc.cash_difference is not None else None
     closer = (closed_by or "").strip() or ("personalet" if is_danish else "staff")
+
+    # Currency-derived VAT rate. Safe fallback to 0.25 if the tax
+    # service import fails — mirrors the same defensive pattern used
+    # in the create_daily_close handler above.
+    try:
+        from app.services.tax_service import _get_vat_rate
+        vat_rate = _get_vat_rate(currency or "DKK")
+    except Exception:  # noqa: BLE001
+        vat_rate = 0.25
+    vat_rate_pct = round(vat_rate * 100)
 
     def _fmt(v: float) -> str:
         if is_danish:
@@ -206,7 +232,7 @@ def _build_close_email_html(
             "</p>"
         )
         kpi_rev = "Omsætning"
-        kpi_moms = "Salgsmoms (25%)"
+        kpi_moms = f"Salgsmoms ({vat_rate_pct}%)"
     else:
         subject = f"Tonight's close — {dc.date.isoformat()} — {business_name}"
         scan_line = (
@@ -232,7 +258,11 @@ def _build_close_email_html(
             "</p>"
         )
         kpi_rev = "Revenue"
-        kpi_moms = "Output VAT (25%)"
+        # DK term `Salgsmoms` stays Danish in BOTH languages — this is
+        # what the Danish accountant (the actual reader of this email)
+        # expects to see on the row label, regardless of which UI
+        # language the owner selected. Jurisdiction lock per #148.
+        kpi_moms = f"Salgsmoms ({vat_rate_pct}%)"
 
     html = (
         "<div style='font-family:system-ui,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;"
@@ -1409,7 +1439,7 @@ async def scan_z_report(
     # L5 — per-tier daily quota (PLAN_CAPS["z_report_scans_per_day"]).
     plan = effective_plan(user) or "free"
     cap = get_cap(user, "z_report_scans_per_day")
-    used = _today_scan_count(db, user.id)
+    used = _today_scan_count(db, user)
     if used >= cap:
         raise HTTPException(
             status_code=429,

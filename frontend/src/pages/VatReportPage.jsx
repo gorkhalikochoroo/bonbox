@@ -197,7 +197,11 @@ export default function VatReportPage() {
             </div>
             <div className="flex justify-between py-2 border-b border-gray-100 dark:border-gray-700">
               <span className="text-sm text-gray-600 dark:text-gray-300">{vat.outputVat}</span>
-              <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">{fmt(report.output_vat)} {report.currency}</span>
+              {/* Revenue-side MOMS — emerald when positive, mirrors the
+                  Dashboard P&L money-moment color (#148 HIGH-6). Falls
+                  back to neutral gray on the zero/empty case so the
+                  empty-state doesn't shout "you owe nothing!" in green. */}
+              <span className={`text-sm font-semibold ${report.output_vat > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-gray-700 dark:text-gray-300"}`}>{fmt(report.output_vat)} {report.currency}</span>
             </div>
           </div>
 
@@ -213,7 +217,12 @@ export default function VatReportPage() {
             </div>
             <div className="flex justify-between py-2 border-b border-gray-100 dark:border-gray-700">
               <span className="text-sm text-gray-600 dark:text-gray-300">{vat.inputVat}</span>
-              <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">{fmt(report.input_vat)} {report.currency}</span>
+              {/* Expense-side MOMS — neutral gray, not blue. This is
+                  ordinary expense data, not a "money moment", so it
+                  shouldn't compete visually with the emerald revenue
+                  row above or the red/emerald payable row below
+                  (#148 HIGH-6 + Dashboard P&L convention). */}
+              <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{fmt(report.input_vat)} {report.currency}</span>
             </div>
           </div>
 
@@ -240,7 +249,12 @@ export default function VatReportPage() {
           <div className="bg-slate-50 dark:bg-gray-700/50 rounded-xl p-4">
             <div className="flex justify-between items-center">
               <span className="text-base font-bold text-gray-800 dark:text-white">{vat.vatPayable}</span>
-              <span className={`text-2xl font-extrabold ${report.vat_payable >= 0 ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}>
+              {/* MOMS payable — red when owed to SKAT (money leaving),
+                  emerald when refundable (money coming in). Aligned with
+                  Dashboard P&L money-moment semantics; the previous
+                  text-green-* was off-palette vs the rest of the app
+                  (#148 HIGH-6). */}
+              <span className={`text-2xl font-extrabold ${report.vat_payable >= 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
                 {fmt(report.vat_payable)} {report.currency}
               </span>
             </div>

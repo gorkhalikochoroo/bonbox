@@ -3,6 +3,7 @@ import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { useAuth } from "../hooks/useAuth";
 import { localIso } from "../utils/dateFormat";
+import { formatMoney } from "../utils/currency";
 import { StatCard, SectionBanner } from "./ui";
 
 /**
@@ -143,7 +144,16 @@ export default function LiveKpisToday() {
     return [...tenders].sort((a, b) => (b.amount || 0) - (a.amount || 0))[0];
   }, [tenders]);
 
-  const fmt = (n) => Number(n || 0).toLocaleString();
+  // Money values go through `formatMoney` so a DK owner sees "15.000 DKK"
+  // regardless of their browser's default locale. The previous
+  // `Number(n).toLocaleString()` rendered "15,000 DKK" on EN-locale
+  // browsers (Vercel preview / TestFlight builds), which drifted from
+  // every other money cell in the app (#148 MEDIUM-12). Counts (orders,
+  // guests) keep `toLocaleString` but pin to da-DK when the currency is
+  // DKK so the grouping separator matches the money values.
+  const moneyFmt = (n) => formatMoney(n || 0, currency, { decimals: 0 });
+  const countLocale = currency === "DKK" ? "da-DK" : undefined;
+  const countFmt = (n) => Number(n || 0).toLocaleString(countLocale);
 
   // Loading skeleton — shows the layout immediately so the page
   // doesn't reflow when data arrives. Mobile-first 2-col grid.
@@ -182,12 +192,14 @@ export default function LiveKpisToday() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatCard
           label={t("liveRevenueToday") || "Revenue so far"}
-          value={`${fmt(revenue)} ${currency}`}
+          // `moneyFmt` returns the value with the currency code appended
+          // (e.g. "15.000 DKK"), so we don't append `currency` separately.
+          value={moneyFmt(revenue)}
           helper={isEmpty ? (t("liveNoDataYet") || "No sales yet today") : null}
         />
         <StatCard
           label={t("liveOrdersToday") || "Orders"}
-          value={fmt(orders)}
+          value={countFmt(orders)}
           helper={
             orders > 0
               ? `${t("liveSinceCutoff") || "since"} ${String(
@@ -198,14 +210,14 @@ export default function LiveKpisToday() {
         />
         <StatCard
           label={t("liveGuestsToday") || "Guests"}
-          value={fmt(guests)}
+          value={countFmt(guests)}
           helper={guests > 0 && orders > 0
             ? `${(guests / Math.max(orders, 1)).toFixed(1)} ${t("liveAvgPerOrder") || "avg / order"}`
             : null}
         />
         <StatCard
           label={t("liveTopPayment") || "Top payment"}
-          value={dominantTender ? fmt(dominantTender.amount) : "—"}
+          value={dominantTender ? moneyFmt(dominantTender.amount) : "—"}
           helper={dominantTender ? dominantTender.label : (t("liveNoPaymentsYet") || "—")}
         />
       </div>

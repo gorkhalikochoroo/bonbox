@@ -31,7 +31,9 @@ from app.models.order_channel_config import OrderChannelConfig
 from app.models.sale import Sale
 from app.models.user import User
 from app.routers.auth import get_current_user
+from app.services import audit_service
 from app.services.channel_defaults import channel_label_map
+from app.services.tax_service import _get_vat_rate
 from app.services.tz_utils import business_day_window, business_today_local
 
 router = APIRouter()
@@ -79,7 +81,19 @@ TENDER_LABELS = {
 }
 
 
-def _safe_empty(start: datetime, end: datetime):
+def _safe_empty(start: datetime, end: datetime, currency: str = "DKK"):
+    """Shape-stable empty payload for the error/degraded path.
+
+    The empty-state `moms_rate_pct` is derived from the user's currency
+    (via `_get_vat_rate`) instead of being hardcoded to 25% — so a
+    Nepali (NPR 13%) or British (GBP 20%) user hitting the degraded
+    path doesn't see a "25%" cell on their otherwise-blank report.
+    Single source of truth for the rate lives in `tax_service` per #148.
+    """
+    try:
+        rate_pct = round(_get_vat_rate(currency or "DKK") * 100)
+    except Exception:  # noqa: BLE001
+        rate_pct = 25
     return {
         "report_date": start.date().isoformat(),
         "start_time": start.isoformat(),
@@ -101,7 +115,7 @@ def _safe_empty(start: datetime, end: datetime):
             "all_sales_net": 0,
             "gross_sales": 0,
             "moms_mode": "none",
-            "moms_rate_pct": 25,
+            "moms_rate_pct": rate_pct,
         },
         "exceptions": {
             "voids": 0,
@@ -182,7 +196,7 @@ def property_financial_report(
         )
     except Exception as e:
         log.exception("property_report: query failed for user=%s: %s", user.id, e)
-        return _safe_empty(start_dt, end_dt)
+        return _safe_empty(start_dt, end_dt, currency=user.currency or "DKK")
 
     # ── Totals ──
     total_revenue = 0.0
@@ -289,14 +303,15 @@ def property_financial_report(
     gross_before = total_revenue + discount_total
     gross_after_discount = total_revenue
     # MOMS / VAT — derived from user's currency AND prices_include_moms
-    # preference. Previously hardcoded /5 (= extract 25%) which gave the
-    # wrong tax for any non-DK user (NPR 13%, GBP 20%, EUR 21%, etc.) and
-    # for B2B users entering net prices.
+    # preference. Centralized: single source of truth for the rate lives
+    # in `tax_service._get_vat_rate` (#148 MEDIUM-13). Per-currency rates:
+    # DKK 25%, NPR 13%, GBP 20%, EUR_DE 19%, EUR_FR 20%, etc. The safe
+    # 0.25 fallback below only runs if `_get_vat_rate` itself raises —
+    # we never re-hardcode a rate as the primary source.
     try:
-        from app.services.tax_service import _get_vat_rate
         vat_rate = _get_vat_rate(user.currency or "DKK")
     except Exception:  # noqa: BLE001
-        vat_rate = 0.25  # safe DK fallback
+        vat_rate = 0.25  # safe DK fallback if tax_service load fails
     prices_incl_moms = bool(getattr(user, "prices_include_moms", True))
 
     # Distinguish "0% rate" (genuine tax-free jurisdiction) from "no sales
@@ -468,6 +483,35 @@ def property_report_pdf(
         )
 
     fname = f"daily-report_{report.get('report_date') or _date.today().isoformat()}.pdf"
+
+    # Audit log — Bogføringsloven §10: track every property-report PDF
+    # generation so the operator has a delivery trail (same shape as
+    # tax.py:307). Audit failure must NEVER block the PDF download —
+    # mirrors the tax.py try/except pattern (multi-barrier: audit is
+    # observability, not gating).
+    try:
+        totals = report.get("totals") or {}
+        audit_service.record(
+            db, user=user,
+            action="reports.property_report_pdf_generated",
+            entity_type="property_report",
+            entity_id=None,
+            before=None,
+            after={
+                "period": report.get("report_date"),
+                "currency": report.get("currency") or (user.currency or "DKK"),
+                "total_revenue": totals.get("total_revenue", 0),
+                "taxable_sales": totals.get("taxable_sales", 0),
+                "moms_total": totals.get("tax_collected", 0),
+                "pdf_size_bytes": len(pdf_bytes),
+            },
+            ip_address=getattr(request.client, "host", None) if request.client else None,
+        )
+        db.commit()
+    except Exception as e:  # noqa: BLE001
+        # Audit write must never break the download — log and proceed.
+        log.warning("reports.property_report_pdf_generated audit log failed: %s", e)
+
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

@@ -992,9 +992,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   📁 Upload Image
                 </button>
               </div>
-              {/* MOMS toggle — owner picks before scan so OCR'd numbers
-                  are interpreted right. Most DK Z-reports are gross
-                  (with MOMS); B2B / Excel exports may be net. */}
+              {/* MOMS / VAT toggle — owner picks before scan so OCR'd
+                  numbers are interpreted right. Most DK Z-reports are
+                  gross (with MOMS); B2B / Excel exports may be net.
+                  Uses currency-aware `vatName` so a Nepali user sees
+                  "with VAT (gross)" and a Danish user sees "with Moms
+                  (gross)" — fixes the #148 MEDIUM-10 mix where this
+                  block hardcoded "MOMS" while siblings used `vatName`. */}
               <div className="mt-4 flex items-center gap-2 justify-center">
                 <span className="text-xs text-green-100">Receipt amounts are:</span>
                 <button
@@ -1004,7 +1008,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       ? "bg-white text-green-700 shadow"
                       : "bg-white/10 text-white hover:bg-white/20"
                   }`}>
-                  with MOMS (gross)
+                  with {vatName} (gross)
                 </button>
                 <button
                   onClick={() => setScanMomsMode("without-moms")}
@@ -1013,7 +1017,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       ? "bg-white text-green-700 shadow"
                       : "bg-white/10 text-white hover:bg-white/20"
                   }`}>
-                  without MOMS (net)
+                  without {vatName} (net)
                 </button>
               </div>
             </div>
@@ -1045,7 +1049,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
           <div className="py-12 text-center space-y-4">
             <div className="inline-block w-10 h-10 border-4 border-green-200 border-t-green-600 rounded-full animate-spin" />
             <p className="text-gray-600 dark:text-gray-300 font-medium">Reading your Z-report...</p>
-            <p className="text-sm text-gray-400">OCR is extracting revenue, payments, and MOMS data</p>
+            <p className="text-sm text-gray-400">OCR is extracting revenue, payments, and {vatName} data</p>
           </div>
         )}
 

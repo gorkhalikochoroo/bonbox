@@ -407,8 +407,8 @@ export default function BookkeepingExportPage() {
         </div>
         <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
           <Icon name="BarChart3" size={20} className="text-gray-500 mb-1" />
-          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">VAT-aware</div>
-          <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">25% Moms by default; tax-exempt items marked correctly.</div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">MOMS-aware</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">25% MOMS by default; tax-exempt items marked correctly.</div>
         </div>
         <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
           <Icon name="FileText" size={20} className="text-gray-500 mb-1" />

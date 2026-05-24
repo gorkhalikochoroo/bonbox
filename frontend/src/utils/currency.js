@@ -7,17 +7,24 @@ export function displayCurrency(code) {
 /* ───────────────────────────── formatMoney ─────────────────────────────
  * Single source of truth for displaying money values across the app.
  *
- *   formatMoney(15000, "DKK")             → "15.000 DKK"   (Danish locale)
+ *   formatMoney(15000, "DKK")             → "15.000,00 DKK"   (Danish locale)
  *   formatMoney(15000.5, "DKK")           → "15.000,50 DKK"
- *   formatMoney(0, "DKK")                 → "0 DKK"
+ *   formatMoney(0, "DKK")                 → "0,00 DKK"
  *   formatMoney(15000, "DKK", { compact: true })  → "15K DKK"
- *   formatMoney(15000, "DKK", { sign: true })     → "+15.000 DKK"
+ *   formatMoney(15000, "DKK", { sign: true })     → "+15.000,00 DKK"
+ *   formatMoney(15000, "DKK", { decimals: 0 })    → "15.000 DKK"
  *   formatMoney(null, "DKK")              → "—"
  *
  * Rules:
  *   - Locale chosen by currency (DKK→da-DK, NOK→nb-NO, etc.)
  *   - Currency code shown after the number (operator-friendly)
- *   - Decimals only when the value isn't a round integer
+ *   - ALWAYS shows two decimals for currency display by default — keeps
+ *     the UI and the server-generated email PDF in sync. Pass
+ *     `{ decimals: 0 }` to opt out for compact display (e.g. KPI cards
+ *     where two decimals add visual noise without information). The old
+ *     `alwaysDecimals` option still works as a backward-compatible
+ *     alias. Fixes the #148 MEDIUM-11 drift where UI rendered
+ *     "1.500 DKK" while the email said "1.500,00 DKK" for the same row.
  *   - null/undefined/NaN → "—"
  * ───────────────────────────────────────────────────────────────────── */
 
@@ -62,10 +69,16 @@ export function formatMoney(amount, currency = "DKK", options = {}) {
     }
   }
 
-  // Decimals only when needed (cleaner for whole-number transactions)
-  const isWhole = Number.isInteger(num) || Math.abs(num - Math.round(num)) < 0.005;
-  const minFrac = options.alwaysDecimals ? 2 : 0;
-  const maxFrac = isWhole && !options.alwaysDecimals ? 0 : 2;
+  // Always show two decimals for currency display by default so the
+  // UI matches the server-generated PDF / email (which always shows
+  // two decimals). Callers wanting compact display pass `decimals: 0`
+  // — e.g. dashboard KPI cards where the cents add noise. The legacy
+  // `alwaysDecimals: false` opt-out is still honored.
+  const explicitDecimals = typeof options.decimals === "number" ? options.decimals : null;
+  const wantsCompactDecimals =
+    explicitDecimals === 0 || options.alwaysDecimals === false;
+  const minFrac = wantsCompactDecimals ? 0 : (explicitDecimals ?? 2);
+  const maxFrac = wantsCompactDecimals ? 0 : (explicitDecimals ?? 2);
 
   let formatted;
   try {
