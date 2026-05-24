@@ -47,6 +47,9 @@ import {
   Sparkles,
   // Personal mode
   User, Banknote, TrendingDown,
+  // Accountant Hours Saved widget (2026-05-24) — Clock pairs with
+  // TrendingDown in the time-saved-money tile on the dashboard.
+  Clock,
   // Profile / settings
   Lock, Bell, Shield, Palette, Download, Image, CheckCircle2, AlertTriangle,
   // Recurring expenses (Task #47)
@@ -93,6 +96,8 @@ const ICONS = {
   Sparkles,
   // Personal mode
   User, Banknote, TrendingDown,
+  // Accountant Hours Saved widget (2026-05-24)
+  Clock,
   // Profile / settings
   Lock, Bell, Shield, Palette, Download, Image, CheckCircle2, AlertTriangle,
   // Recurring expenses (Task #47)

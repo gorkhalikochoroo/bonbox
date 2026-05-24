@@ -30,6 +30,11 @@ import DismissibleTip from "../components/DismissibleTip";
 import CloserPromptCard from "../components/CloserPromptCard";
 import TrialFinalStretchTip from "../components/TrialFinalStretchTip";
 import MomsCountdownCard from "../components/MomsCountdownCard";
+// 2026-05-24 — Accountant Hours Saved widget. Lives in the top row of
+// value tiles right below the MOMS countdown so the "we save you revisor
+// hours" pitch sits next to the "MOMS due in N days" anxiety reducer —
+// the two strongest stress-down tiles travel together.
+import AccountantHoursWidget from "../components/AccountantHoursWidget";
 import ExpiryAlertsCard from "../components/ExpiryAlertsCard";
 import ConnectionsProgressCard from "../components/ConnectionsProgressCard";
 import PushOptInPrompt from "../components/PushOptInPrompt";
@@ -1775,6 +1780,15 @@ export default function DashboardPage() {
             Self-hides on accounts with no tax preferences saved. Tap to
             open Tax Autopilot for the full breakdown. ── */}
         <MomsCountdownCard />
+
+        {/* ── ACCOUNTANT HOURS SAVED — the "we save you revisor hours = kr
+            in your pocket" tracker. Manoj's positioning load-bearing
+            widget. Free tier renders the Starter upsell card in this
+            slot (intentional — the surface is the marketing). Starter+
+            sees the live number with a breakdown drawer on tap. Honest
+            by construction: every hour traces to a real action in
+            /api/accountant-savings/current-month. ── */}
+        <AccountantHoursWidget />
 
         {/* ── CONNECTIONS PROGRESS — surfaces incomplete setup directly
             on the dashboard so new owners don't have to hunt for

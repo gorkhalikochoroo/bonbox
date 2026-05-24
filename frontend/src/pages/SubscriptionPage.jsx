@@ -221,6 +221,57 @@ function daysRemaining(iso) {
   return Math.ceil(ms / 86400000);
 }
 
+/**
+ * renderStarterAcctTagline — live "saves your revisor ~X timer/md = ~Y kr"
+ * line on the Starter pricing card.
+ *
+ * Honesty rules (Manoj's "those claims are big" mandate):
+ *   • The numbers come from /api/accountant-savings/current-month —
+ *     same source as the dashboard widget, so a user who tapped through
+ *     the widget can NEVER see a mismatched number on the pricing card.
+ *   • New accounts (no actions yet) get the generic fallback line, NOT
+ *     "saves you 0 hours" — that would feel either broken or sarcastic.
+ *   • A null acctSavings response (anonymous visitor, /current-month
+ *     errored, Free user with the zero payload) also takes the
+ *     fallback — we never lie about saving someone hours they haven't
+ *     saved.
+ *
+ * Returns a plain string ready to drop into the markup.
+ */
+function renderStarterAcctTagline(t, acctSavings) {
+  const fallback =
+    t(
+      "pricingStarterAcctTaglineFallback",
+      "Saves your revisor hours every month",
+    ) || "Saves your revisor hours every month";
+
+  const hours = Number(acctSavings?.hours_saved) || 0;
+  const money = Number(acctSavings?.money_saved_dkk) || 0;
+  if (hours <= 0 || money <= 0) {
+    return fallback;
+  }
+
+  // Render hours with one decimal (matches the dashboard widget's
+  // formatting), money as integer-floor in the user's currency. The
+  // backend already truncates; this is defense-in-depth so the
+  // pricing card never overstates.
+  const fmtHours = (Math.floor(hours * 10) / 10).toFixed(1).replace(".", ",");
+  const currency = acctSavings?.currency || "DKK";
+  const floored = Math.floor(money).toLocaleString("da-DK", {
+    maximumFractionDigits: 0,
+  });
+  const moneyStr = currency === "DKK" ? `${floored} kr` : `${floored} ${currency}`;
+
+  return (
+    t(
+      "pricingStarterAcctTagline",
+      "Saves your revisor ~{hours} hours/month = ~{money}",
+    )
+      .replace("{hours}", fmtHours)
+      .replace("{money}", moneyStr)
+  );
+}
+
 export default function SubscriptionPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -239,15 +290,30 @@ export default function SubscriptionPage() {
   // Tiers re-build on every render so language changes pick up immediately.
   const TIERS = buildTiers(t);
 
-  // Load current plan + waitlist status in parallel
+  // Live accountant-hours-saved snapshot for the Starter pricing card
+  // tagline. When the user has Starter+ entitlements this returns real
+  // numbers from THIS calendar month; for Free / unauthenticated users
+  // the backend returns the zero payload and the card falls back to the
+  // generic "Saves your revisor hours every month" copy.
+  const [acctSavings, setAcctSavings] = useState(null);
+
+  // Load current plan + waitlist status + acct-savings in parallel.
+  // The acct-savings call is intentionally NOT blocking on auth: the
+  // endpoint returns 401 for anonymous visitors (silent ignore), and
+  // 200 with zero payload for Free users — both render the fallback
+  // tagline correctly.
   useEffect(() => {
     if (!user) return;
     Promise.all([
       api.get("/billing/me").catch(() => ({ data: null })),
       api.get("/waitlist/status").catch(() => ({ data: [] })),
-    ]).then(([b, w]) => {
+      api
+        .get("/accountant-savings/current-month", { _noRetry: true })
+        .catch(() => ({ data: null })),
+    ]).then(([b, w, s]) => {
       setBilling(b.data);
       setJoined(new Set((w.data || []).map((r) => r.tier)));
+      setAcctSavings(s.data);
     });
   }, [user]);
 
@@ -768,6 +834,28 @@ export default function SubscriptionPage() {
                   ))}
                 </ul>
               </div>
+
+              {/* Accountant-hours-saved tagline — bottom-anchored footer.
+                  Starter shows a live "saves your revisor ~X timer/md = ~Y kr"
+                  computed from the current user's actual data when they
+                  have it; falls back to a generic "every month" line for
+                  new accounts and anonymous visitors. Pro positions the
+                  Pro-only one-click month-end revisor pack (the feature
+                  itself is gated by `accountant_month_end_bundle` and
+                  ships in a follow-up build). */}
+              {tier.id === "starter" && (
+                <p className="mt-4 text-[12px] text-emerald-700 dark:text-emerald-400 font-medium leading-snug">
+                  {renderStarterAcctTagline(t, acctSavings)}
+                </p>
+              )}
+              {tier.id === "pro" && (
+                <p className="mt-4 text-[12px] text-emerald-700 dark:text-emerald-400 font-medium leading-snug">
+                  {t(
+                    "pricingProAcctTagline",
+                    "+ one-click revisor pack at month-end",
+                  ) || "+ one-click revisor pack at month-end"}
+                </p>
+              )}
             </Card>
           );
         })}

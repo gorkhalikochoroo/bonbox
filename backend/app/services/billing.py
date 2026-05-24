@@ -415,6 +415,23 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # first (Pro+, because the extra OCR layer costs more).
         "smart_scan_batch": False,
         "smart_scan_pdf_direct": False,
+        # 2026-05-24 — Accountant Hours Saved widget (Manoj-confirmed).
+        # The "Du har sparet revisoren X timer = ~Y kr" tracker that
+        # powers the dashboard widget AND the live tagline on the
+        # Starter pricing card. Free is intentionally locked: the
+        # underlying time-saving is real on Starter+ (auto-email-on-
+        # close, supplier auto-detection, OCR caps lift, bank reconcile)
+        # and showing Free users "0 hours saved" would feel either
+        # broken or like a put-down. Locked state surfaces the upsell
+        # copy "Sparer revisoren timer fra Starter" instead.
+        "accountant_hours_widget": False,
+        # `accountant_month_end_bundle` — Pro-only one-click revisor
+        # package at month-end. Positioned now via the Pro pricing-card
+        # tagline; the actual bundle feature is Manoj's follow-up build
+        # under this same flag. False on every tier today means the
+        # feature is dark until Manoj flips it — no half-built surface
+        # leaks to a user.
+        "accountant_month_end_bundle": False,
     },
     "starter": {
         "ai_anomaly_detection": True,
@@ -446,6 +463,8 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "expiry_push_notifications": False,  # Pro-only — day-of-expiry push
         "smart_scan_batch": True,          # Starter+ — batch upload multiple docs
         "smart_scan_pdf_direct": False,    # Pro-only — drag PDFs in without photo
+        "accountant_hours_widget": True,   # Starter+ — the time-saved tracker
+        "accountant_month_end_bundle": False,  # Pro-only — positioned, build pending
     },
     "trial": {  # = full Pro
         "ai_anomaly_detection": True,
@@ -477,6 +496,8 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "expiry_push_notifications": True,
         "smart_scan_batch": True,
         "smart_scan_pdf_direct": True,
+        "accountant_hours_widget": True,        # Trial mirrors Pro
+        "accountant_month_end_bundle": True,    # Trial mirrors Pro
     },
     "pro": {
         "ai_anomaly_detection": True,
@@ -508,6 +529,8 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "expiry_push_notifications": True,  # Pro-only — day-of-expiry push to owner
         "smart_scan_batch": True,          # Starter+ — same as Starter, included
         "smart_scan_pdf_direct": True,     # Pro killer — drag PDFs in without photo
+        "accountant_hours_widget": True,   # Starter+ — time-saved tracker
+        "accountant_month_end_bundle": True,  # Pro killer — one-click revisor pack
     },
 }
 

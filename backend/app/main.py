@@ -79,6 +79,11 @@ from app.routers import smart_scan as smart_scan_router
 # test endpoints. Mounted under /api/push. The 8am morning brief
 # delivery cron lives in app.jobs.daily_brief_push_job.
 from app.routers import push as push_router
+# 2026-05-24 — Accountant Hours Saved widget. Read-only metric that
+# powers the dashboard "Du har sparet revisoren X timer" tile and the
+# live tagline on the Starter pricing card. Aggregate-only, tier-gated
+# via accountant_hours_widget.
+from app.routers import accountant_savings as accountant_savings_router
 from app.database import engine, Base, get_db
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -2409,6 +2414,15 @@ app.include_router(
     push_router.router,
     prefix="/api/push",
     tags=["Push Notifications"],
+)
+# 2026-05-24 — Accountant Hours Saved. Read-only metric router behind
+# auth + 30/min rate limit + 1-year max range. Tier-gated inside the
+# service (accountant_hours_widget); Free gets a zero payload so the
+# widget renders an upsell instead of "0 hours saved".
+app.include_router(
+    accountant_savings_router.router,
+    prefix="/api/accountant-savings",
+    tags=["Accountant Savings"],
 )
 
 
