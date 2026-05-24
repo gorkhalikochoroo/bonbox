@@ -76,6 +76,11 @@ from app.services.inventory_learning import (
     build_examples_prompt_block, get_examples_for_user,
     promote_corrections, prune_stale_examples,
 )
+from app.services.inventory_ocr import (
+    PROVIDER_TAG as INVENTORY_OCR_PROVIDER,
+    enrich_with_supplier as _enrich_supplier,
+    extract_inventory_data,
+)
 from app.services.inventory_perishable import mark_perishable_if_needed
 from app.services.storage import compose_key, get_storage
 from app.utils.time import utc_now
@@ -126,6 +131,15 @@ class ImportDraftResponse(BaseModel):
     categorizer: dict
     status: str
     duplicate_of: uuid.UUID | None = None  # set when idempotency dedup hits
+    # Supplier-OCR enrichment — populated when the inventory_ocr primary
+    # successfully parsed a supplier header. None when the generic
+    # extract_image fallback fired (no supplier extraction) OR when the
+    # source_kind isn't 'image' (text/CSV/Excel have no header).
+    supplier: dict | None = None        # {name, cvr, address, invoice_number, invoice_date}
+    supplier_match: dict | None = None  # KNOWN_SUPPLIERS entry incl. 'canonical' — None = unknown
+    invoice_totals: dict | None = None  # {subtotal, vat_total, grand_total, currency}
+    ocr_provider: str | None = None     # 'claude_inventory' | 'claude_extract_image' | None
+    notes: str | None = None            # free-text from the model — ambiguity flags
 
 
 # ─── Helpers ───────────────────────────────────────────────────────────
@@ -336,6 +350,15 @@ async def import_file(
     items: list[dict] = []
     media_type = (file.content_type or "image/jpeg").lower()
 
+    # Supplier-OCR side channel — populated by the inventory_ocr primary
+    # on the image path so we can surface header info to the review UI
+    # without persisting columns we don't have yet.
+    supplier_block: dict | None = None
+    supplier_match_block: dict | None = None
+    invoice_totals_block: dict | None = None
+    ocr_provider_tag: str | None = None
+    ocr_notes: str | None = None
+
     try:
         if source_kind == "csv":
             items = extract_csv(raw)
@@ -356,11 +379,68 @@ async def import_file(
                 db, user.id, kind="name_correction", limit=8,
             )
             few_shot = build_examples_prompt_block(owner_examples) or None
-            items, extractor_meta = extract_image(
-                raw, media_type=media_type, few_shot_block=few_shot,
-            )
-            if extractor_meta.get("error"):
-                error_msg = f"extractor:{extractor_meta['error']}"
+
+            # ── Primary: inventory_ocr (supplier-aware) ─────────────────
+            # Pulls structured supplier header + totals + per-line VAT.
+            # Returns None on any failure (no API key, network, parse,
+            # refusal); the fallback below then runs.
+            inv_result = extract_inventory_data(raw)
+            if inv_result is not None:
+                inv_result = _enrich_supplier(inv_result)
+
+            if inv_result and inv_result.get("line_items"):
+                # Adapt the inventory_ocr shape → the generic items shape
+                # the categorizer + commit flow expects. We preserve the
+                # supplier-derived category + EAN / VAT extras so the
+                # downstream commit can use them.
+                items = [
+                    {
+                        "name": li.get("name"),
+                        # Keep qty / unit / cost so commit knows the unit
+                        # cost (downstream uses cost_per_unit).
+                        **({"qty": li["qty"]} if "qty" in li else {}),
+                        **({"unit": li["unit"]} if "unit" in li else {}),
+                        **({"cost_per_unit": li["unit_cost"]}
+                           if "unit_cost" in li else {}),
+                        # Pre-fill category from supplier match — the
+                        # generic categorizer below will respect any
+                        # already-set category (rule_matched path).
+                        **({"category": li["category"]}
+                           if li.get("category") and li["category"] != "uncategorized"
+                           else {}),
+                        # Pass through metadata the UI can render. The
+                        # commit endpoint's Pydantic schema ignores
+                        # unknown keys so this is back-compat.
+                        **({"ean": li["ean"]} if "ean" in li else {}),
+                        **({"sku": li["sku"]} if "sku" in li else {}),
+                        **({"vat_rate": li["vat_rate"]} if "vat_rate" in li else {}),
+                        **({"category_confidence": li["category_confidence"]}
+                           if "category_confidence" in li else {}),
+                    }
+                    for li in inv_result["line_items"]
+                    if li.get("name")
+                ]
+                supplier_block = inv_result.get("supplier")
+                supplier_match_block = inv_result.get("supplier_match")
+                invoice_totals_block = inv_result.get("invoice_totals")
+                ocr_provider_tag = inv_result.get("_provider") or INVENTORY_OCR_PROVIDER
+                ocr_notes = inv_result.get("notes")
+                overall = (inv_result.get("confidence") or {}).get("overall")
+                extractor_meta = {
+                    "confidence": overall,
+                    "model_used": "claude-sonnet-4-5",  # default; inv_ocr overrides via env
+                }
+            else:
+                # ── Fallback: existing generic extract_image ─────────────
+                # Runs when inventory_ocr couldn't extract supplier-shaped
+                # data (no API key, refusal, totally illegible). Same
+                # behaviour as before — keeps the owner unblocked.
+                items, extractor_meta = extract_image(
+                    raw, media_type=media_type, few_shot_block=few_shot,
+                )
+                ocr_provider_tag = "claude_extract_image"
+                if extractor_meta.get("error"):
+                    error_msg = f"extractor:{extractor_meta['error']}"
 
             # Persist the upload bytes to durable storage for review
             # screen + audit. Best-effort — a storage failure does NOT
@@ -416,7 +496,16 @@ async def import_file(
             detail=f"Extraction failed: {error_msg}. The attempt has been logged for review.",
         )
 
-    return _draft_response(imp)
+    resp = _draft_response(imp)
+    # Attach supplier / totals / provider side-channel populated by the
+    # inventory_ocr primary path. These are read-only response fields;
+    # the commit endpoint still receives the standard items list.
+    resp.supplier = supplier_block
+    resp.supplier_match = supplier_match_block
+    resp.invoice_totals = invoice_totals_block
+    resp.ocr_provider = ocr_provider_tag
+    resp.notes = ocr_notes
+    return resp
 
 
 @router.get("/{import_id}", response_model=ImportDraftResponse)

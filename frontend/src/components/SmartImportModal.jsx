@@ -517,6 +517,119 @@ function HistoryList({ history }) {
   );
 }
 
+/* ─── Supplier banner — only renders for image-kind invoice OCR ─────── */
+/*
+ * Three states:
+ *   • Known supplier — green check + canonical name + CVR + industry chip
+ *   • Unknown supplier (name extracted, no dict hit) — amber chip + raw name
+ *   • No supplier (text/CSV/Excel OR OCR didn't find one) — null
+ *
+ * Colors follow DNA: black text on tinted background, no shouty fills.
+ */
+function SupplierBanner({ supplier, supplierMatch, invoiceTotals, ocrProvider }) {
+  if (!supplier && !supplierMatch) return null;
+  const rawName = supplier?.name || null;
+  const cvr = supplier?.cvr || null;
+  const invoiceNo = supplier?.invoice_number || null;
+  const invoiceDate = supplier?.invoice_date || null;
+  const matched = !!supplierMatch?.canonical;
+  const canonical = supplierMatch?.canonical || rawName;
+  const industry = supplierMatch?.industry || null;
+
+  const totals = invoiceTotals || {};
+  const hasTotals = totals.grand_total != null || totals.subtotal != null;
+
+  return (
+    <div className={`rounded-lg border px-3 py-2 text-sm ${
+      matched
+        ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"
+        : "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800"
+    }`}>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className={`text-base leading-none ${
+          matched ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400"
+        }`}>
+          {matched ? "✓" : "?"}
+        </span>
+        <span className="font-semibold text-gray-900 dark:text-gray-100">
+          {matched
+            ? <>Detected: <span className="capitalize">{canonical}</span></>
+            : (rawName ? <>Detected supplier: {rawName}</> : <>Unknown supplier</>)}
+        </span>
+        {cvr && (
+          <span className="text-xs text-gray-600 dark:text-gray-300">
+            CVR {cvr}
+          </span>
+        )}
+        {industry && (
+          <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+            {industry.replace(/_/g, " ")}
+          </span>
+        )}
+        {ocrProvider === "claude_inventory" && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
+            Invoice OCR
+          </span>
+        )}
+      </div>
+      {(invoiceNo || invoiceDate || hasTotals) && (
+        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600 dark:text-gray-400">
+          {invoiceNo && <span>Invoice #{invoiceNo}</span>}
+          {invoiceDate && <span>Date: {invoiceDate}</span>}
+          {totals.grand_total != null && (
+            <span>
+              Total: <span className="font-medium text-gray-800 dark:text-gray-200">
+                {Number(totals.grand_total).toLocaleString(undefined, {
+                  minimumFractionDigits: 2, maximumFractionDigits: 2,
+                })} {totals.currency || "DKK"}
+              </span>
+            </span>
+          )}
+          {totals.vat_total != null && (
+            <span>MOMS: {Number(totals.vat_total).toLocaleString(undefined, {
+              minimumFractionDigits: 2, maximumFractionDigits: 2,
+            })}</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Per-item category pill — DNA-compliant confidence colors ──────── */
+/*
+ * High confidence (>0.85) → neutral gray pill, no extra hint
+ * Medium (0.6 - 0.85)     → gray pill + small "verify" muted hint
+ * Low (<0.6)              → amber pill + "category needed" hint
+ * Always black text per DNA — color signals only via background tint.
+ */
+function CategoryPill({ category, confidence }) {
+  if (!category) return null;
+  const c = typeof confidence === "number" ? confidence : null;
+  let bg = "bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200";
+  let hint = null;
+  if (c != null) {
+    if (c < 0.6) {
+      bg = "bg-amber-100 dark:bg-amber-900/40 text-gray-900 dark:text-amber-100";
+      hint = "category needed";
+    } else if (c < 0.85) {
+      hint = "verify";
+    }
+  }
+  return (
+    <span className="inline-flex items-center gap-1 min-w-0">
+      <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium truncate ${bg}`}>
+        {category}
+      </span>
+      {hint && (
+        <span className="text-[10px] text-amber-600 dark:text-amber-400 shrink-0">
+          {hint}
+        </span>
+      )}
+    </span>
+  );
+}
+
 /* ─── Review step UI ──────────────────────────────────────────────── */
 function ReviewStep({
   draft, updateRow, removeRow, error, committing, onBack, onCommit,
@@ -528,6 +641,15 @@ function ReviewStep({
 
   return (
     <div className="space-y-4">
+      {/* Supplier banner — only present on image imports where the
+          inventory OCR pulled a header. Renders null otherwise. */}
+      <SupplierBanner
+        supplier={draft.supplier}
+        supplierMatch={draft.supplier_match}
+        invoiceTotals={draft.invoice_totals}
+        ocrProvider={draft.ocr_provider}
+      />
+
       {/* Stats banner */}
       <div className="flex flex-wrap gap-3 text-sm items-center">
         <Stat label="Items" value={items.length} color="blue" />
@@ -603,13 +725,26 @@ function ReviewStep({
                 placeholder="—"
                 maxLength={20}
               />
-              <input
-                value={it.category || ""}
-                onChange={(e) => updateRow(idx, "category", e.target.value)}
-                className="col-span-2 px-2 py-1 bg-transparent border border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-gray-900 focus:outline-none rounded text-sm"
-                placeholder="—"
-                maxLength={60}
-              />
+              <div className="col-span-2 min-w-0">
+                <input
+                  value={it.category || ""}
+                  onChange={(e) => updateRow(idx, "category", e.target.value)}
+                  className="w-full px-2 py-1 bg-transparent border border-transparent hover:border-gray-200 dark:hover:border-gray-600 focus:border-gray-900 focus:outline-none rounded text-sm"
+                  placeholder="—"
+                  maxLength={60}
+                />
+                {/* Auto-detected pill shows beneath the editable input
+                    when the supplier match attached a category. The
+                    pill color encodes confidence; black text always. */}
+                {typeof it.category_confidence === "number" && it.category && (
+                  <div className="px-2 -mt-0.5">
+                    <CategoryPill
+                      category={it.category}
+                      confidence={it.category_confidence}
+                    />
+                  </div>
+                )}
+              </div>
               <button
                 onClick={() => removeRow(idx)}
                 className="col-span-1 text-gray-400 hover:text-red-500 text-sm"
