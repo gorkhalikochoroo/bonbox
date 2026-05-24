@@ -3023,6 +3023,8 @@ const translations = {
     inboxCopied: "Copied!",
     inboxCopyFailed: "Couldn't copy — long-press the address to select.",
     inboxDismiss: "Hide receipt inbox tip",
+    inboxExpand: "Show receipt inbox details",
+    inboxCollapse: "Hide receipt inbox details",
     inboxCardTitle: "Receipt forwarding",
     inboxCardDesc:
       "Forward any receipt to your personal BonBox address. We OCR it, draft an Expense, and notify you — stored 5 years per Bogføringsloven §10 so your revisor has a complete audit trail.",
@@ -5864,6 +5866,8 @@ const translations = {
     inboxCopied: "Kopieret!",
     inboxCopyFailed: "Kunne ikke kopiere — hold fingeren på adressen for at markere.",
     inboxDismiss: "Skjul indbakke-tip",
+    inboxExpand: "Vis detaljer om indbakken",
+    inboxCollapse: "Skjul detaljer om indbakken",
     inboxCardTitle: "Videresendelse af kvitteringer",
     inboxCardDesc:
       "Videresend enhver kvittering til din personlige BonBox-adresse. Vi OCR-aflæser den, opretter et bilag og giver dig besked — opbevares i 5 år iht. Bogføringsloven §10, så din revisor får et komplet revisionsspor.",

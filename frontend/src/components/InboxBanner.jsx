@@ -42,12 +42,13 @@
  *   horizontal scroll even at 360px wide. Touch targets are min-44px.
  */
 import { useEffect, useState } from "react";
-import { Mail, Copy, Check, AlertCircle, Send, Loader2 } from "lucide-react";
+import { Mail, Copy, Check, AlertCircle, Send, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 
 const DISMISS_KEY = "bonbox_inbox_banner_dismissed_v1";
+const EXPANDED_KEY = "bonbox_inbox_banner_expanded_v1";
 
 function _isDismissed() {
   try {
@@ -60,6 +61,27 @@ function _isDismissed() {
 function _dismiss() {
   try {
     localStorage.setItem(DISMISS_KEY, "1");
+  } catch {
+    /* private mode — best effort */
+  }
+}
+
+// Collapsed by default — most owners forward receipts weekly at most,
+// so the full card with description + send-test was hogging real estate
+// on every /expenses visit. The slim row keeps the alias + copy + status
+// visible at a glance; the chevron reveals the full context on demand
+// and the choice persists across reloads via localStorage.
+function _isExpanded() {
+  try {
+    return localStorage.getItem(EXPANDED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function _setExpanded(v) {
+  try {
+    localStorage.setItem(EXPANDED_KEY, v ? "1" : "0");
   } catch {
     /* private mode — best effort */
   }
@@ -92,6 +114,19 @@ export default function InboxBanner({
   const [copied, setCopied] = useState(false);
   const [testing, setTesting] = useState(false);
   const [toast, setToast] = useState(null);   // { kind, msg }
+  // Card form (used on /connections) is always full because it lives in
+  // a grid where every tile is the same shape — collapsing one looks
+  // broken. Only the banner form (used on /expenses) is collapsible.
+  const [expanded, setExpandedState] = useState(() =>
+    variant === "card" ? true : _isExpanded(),
+  );
+  const toggleExpanded = () => {
+    setExpandedState((prev) => {
+      const next = !prev;
+      if (variant !== "card") _setExpanded(next);
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (hidden) return;
@@ -209,6 +244,27 @@ export default function InboxBanner({
       role="region"
       aria-label={t("inboxBannerAria", "Receipt-forwarding email inbox")}
     >
+      {/* Collapse/expand toggle (banner-only — the card form on
+          /connections lives in a uniform grid and always stays full). */}
+      {variant !== "card" && (
+        <button
+          type="button"
+          onClick={toggleExpanded}
+          aria-label={expanded
+            ? t("inboxCollapse", "Hide receipt inbox details")
+            : t("inboxExpand", "Show receipt inbox details")}
+          aria-expanded={expanded}
+          className={`absolute top-3 ${dismissable ? "right-12" : "right-3"} w-8 h-8 rounded-full inline-flex items-center justify-center
+                     hover:bg-black/5 dark:hover:bg-white/10 transition
+                     text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200
+                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500`}
+        >
+          {expanded
+            ? <ChevronUp className="w-4 h-4" aria-hidden="true" />
+            : <ChevronDown className="w-4 h-4" aria-hidden="true" />}
+        </button>
+      )}
+
       {/* Dismiss (banner-only — keeps the surface alive on /connections) */}
       {dismissable && (
         <button
@@ -279,17 +335,23 @@ export default function InboxBanner({
             </div>
           )}
 
-          <p className="mt-3 text-[13.5px] text-gray-700 dark:text-gray-300 leading-relaxed">
-            {infraEnabled
-              ? t(
-                  "inboxBannerBody",
-                  "Forward any receipt to this address. We'll OCR it, draft an Expense, and notify you. Stored for 5 years per Bogføringsloven §10 — your revisor sees a complete audit trail.",
-                )
-              : t(
-                  "inboxBannerBodySoon",
-                  "We're wiring up our inbound email provider. You'll get a personal inbox like the preview above — forward any receipt and BonBox drafts the Expense for you. Stored for 5 years per Bogføringsloven §10 so your revisor has a complete audit trail.",
-                )}
-          </p>
+          {/* Description — hidden in collapsed mode to keep the page un-
+              cluttered. The alias + status row above remain visible so the
+              owner can copy + check count at a glance; the explanation
+              shows when they actually want to learn the flow. */}
+          {expanded && (
+            <p className="mt-3 text-[13.5px] text-gray-700 dark:text-gray-300 leading-relaxed">
+              {infraEnabled
+                ? t(
+                    "inboxBannerBody",
+                    "Forward any receipt to this address. We'll OCR it, draft an Expense, and notify you. Stored for 5 years per Bogføringsloven §10 — your revisor sees a complete audit trail.",
+                  )
+                : t(
+                    "inboxBannerBodySoon",
+                    "We're wiring up our inbound email provider. You'll get a personal inbox like the preview above — forward any receipt and BonBox drafts the Expense for you. Stored for 5 years per Bogføringsloven §10 so your revisor has a complete audit trail.",
+                  )}
+            </p>
+          )}
 
           {/* Status row — dot + label, optional CTA on the right. */}
           <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 justify-between">
@@ -323,7 +385,12 @@ export default function InboxBanner({
               )}
             </div>
 
-            {infraEnabled && (
+            {/* Send-test button — only meaningful when the owner has
+                actively expanded the card to engage with the feature.
+                In collapsed mode the status dot + count is enough; the
+                test button would just add visual weight to a row most
+                owners glance past. */}
+            {infraEnabled && expanded && (
               <button
                 type="button"
                 onClick={onSendTest}
