@@ -285,6 +285,30 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
         .scalar()
     )
 
+    # Exempt sales — explicitly marked `is_tax_exempt=true` Sales rows
+    # PLUS invoices with zero MOMS (export to EU reverse-charge, 0%-rated
+    # services, §13 nr. 17 charitable events, gift cards, etc.). These
+    # belong on the SKAT MOMS-angivelse "Salg uden moms" line — NOT
+    # silently dropped, which was the bug in tax_filing_pdf.py before
+    # 2026-05-24 (salg_uden_moms was hardcoded to 0.0 regardless of
+    # actual exempt revenue).
+    pos_exempt_total = float(
+        db.query(func.coalesce(func.sum(Sale.amount), 0))
+        .filter(Sale.user_id == user_id, Sale.date >= start_date, Sale.date < end_date,
+                Sale.is_deleted.isnot(True), Sale.is_tax_exempt.is_(True),
+                Sale.invoice_id.is_(None))
+        .scalar()
+    )
+    invoice_exempt_total = float(
+        db.query(func.coalesce(func.sum(Invoice.total_gross), 0))
+        .filter(Invoice.user_id == user_id,
+                Invoice.issue_date >= start_date, Invoice.issue_date < end_date,
+                Invoice.status.in_(("sent", "paid", "overdue", "credited")),
+                Invoice.moms_total == 0)
+        .scalar()
+    )
+    exempt_sales = round(pos_exempt_total + invoice_exempt_total, 2)
+
     # POS output VAT
     if vat_rate <= 0:
         pos_output_vat = 0.0
@@ -308,6 +332,7 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
         "pos_revenue": round(pos_total, 2),
         "invoice_revenue": round(invoice_total_gross, 2),
         "expenses_total": round(expenses_total, 2),
+        "exempt_sales": exempt_sales,
         "output_vat": output_vat,
         "input_vat": input_vat,
         "vat_payable": round(output_vat - input_vat, 2),

@@ -208,12 +208,16 @@ def compute_filing_data(
     # sales_total is gross when prices_include_moms (B2C), net otherwise (B2B).
     # output_vat is the MOMS portion of sales.
     # salg_med_moms = gross taxable revenue
-    # salg_uden_moms = exempt/zero-rated (we don't track this granularly
-    #   yet — if user marks any sale as is_tax_exempt we skip it in
-    #   _calc_vat. So salg_uden_moms is effectively 0 for now and we
-    #   reserve the line for future expansion.)
+    # salg_uden_moms = exempt/zero-rated revenue. Pulled from `_calc_vat`'s
+    #   `exempt_sales` (added 2026-05-24): sum of Sale rows where
+    #   `is_tax_exempt=true` PLUS Invoice rows where `moms_total=0`
+    #   (EU reverse-charge, exports, §13 nr.17 events, gift cards, etc.).
+    #   Before this fix `salg_uden_moms` was hardcoded to 0.0, which
+    #   meant any user with exempt sales had them SILENTLY DROPPED from
+    #   their SKAT angivelse — a "claim breaker" against the
+    #   accountant-grade promise. Now correct to the øre.
     salg_med_moms = vat["sales_total"]
-    salg_uden_moms = 0.0  # reserved for future use
+    salg_uden_moms = vat.get("exempt_sales", 0.0)
     moms_af_salg = vat["output_vat"]
 
     # ── Section B — Køb (Purchases) ──────────────────────────
