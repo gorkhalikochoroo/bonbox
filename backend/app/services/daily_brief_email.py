@@ -231,6 +231,11 @@ def build_brief_html(brief_payload: dict, user: User) -> str:
     # /profile#notifications anchor that required login (and a hash-
     # scroll that didn't always work).
     unsubscribe_url = _build_unsubscribe_url(user)
+    # Authenticated preferences page — the "Manage email preferences"
+    # link still points here (full control: digest cadence, push, etc.).
+    # The new explicit "Unsubscribe" link below uses unsubscribe_url
+    # for one-click opt-out (no login required) per RFC 8058.
+    preferences_url = f"{app_url}/profile#notifications"
 
     # Headline CTA — same logic as the card
     headline_cta_path = _safe_cta_path(brief_payload.get("headline_cta_url"))
@@ -270,18 +275,31 @@ def build_brief_html(brief_payload: dict, user: User) -> str:
 
     # ── Footer (share + unsubscribe) ────────────────────────────────
     # We keep this minimal — the strategic value is the inbox arrival,
-    # not aggressive CTAs. The unsubscribe deep-link uses a hash so the
-    # profile page can scroll to the notifications section.
+    # not aggressive CTAs. Two explicit links side by side: the literal
+    # word "Unsubscribe" (so scan-readers can find it) plus "Manage
+    # email preferences" for users who want full control. Both are
+    # legally required under CAN-SPAM/GDPR; the explicit word also
+    # raises owner trust ("they made it easy to leave").
+    #   - Unsubscribe → signed one-click URL (RFC 8058, no login needed)
+    #   - Manage email preferences → authenticated /profile#notifications
+    #     (full toggles: digest cadence, push, etc.)
+    # DK terminology lock: "accountant" → "revisor" in the share line.
+    _link_style = (
+        f'color:{_PALETTE["brand_dark"]};text-decoration:underline;'
+    )
     footer = (
         f'<div style="margin-top:24px;padding-top:18px;border-top:1px solid {_PALETTE["border"]};'
         f'font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;'
         f'font-size:12px;line-height:1.6;color:{_PALETTE["muted"]};">'
-        f'<p style="margin:0 0 6px 0;">Forward this to your co-founder or accountant — '
+        f'<p style="margin:0 0 6px 0;">Forward this to your co-founder or revisor — '
         f"it's the same brief you'd see in BonBox this morning.</p>"
         f'<p style="margin:0;">'
-        f'You\'re getting this because you turned on Daily Brief emails. '
+        f"You're getting this because you turned on Daily Brief emails. "
         f'<a href="{_safe(unsubscribe_url)}" target="_blank" '
-        f'style="color:{_PALETTE["brand_dark"]};text-decoration:underline;">Manage email preferences</a>.'
+        f'style="{_link_style}">Unsubscribe</a>'
+        f' &middot; '
+        f'<a href="{_safe(preferences_url)}" target="_blank" '
+        f'style="{_link_style}">Manage email preferences</a>.'
         "</p>"
         "</div>"
     )
