@@ -1,234 +1,242 @@
 /*
- * LandingPage — rebuilt 2026-05-13.
+ * LandingPage — rebuilt 2026-05-25 to match the interior aesthetic.
  *
- * Design rules (intentional, not vibe-coded):
+ * Design system doctrine (locked, task #164 / #167 / #169):
  *
- *   1. ONE accent colour: BonBox green (#10B981 / emerald-500). No
- *      per-section purple/teal/blue gradient backgrounds. Decoration
- *      that doesn't carry meaning gets cut.
+ *   1. **Single accent: gray-900** — primary CTA, H1, surface emphasis.
+ *      Emerald is reserved for "success" / money-moment moments (the
+ *      checkmark icon, the "Most popular" ring on Starter, the
+ *      founding-rate live count). No emerald primary buttons, no
+ *      emerald headings.
  *
- *   2. Editorial typography: large display heading, restrained body,
- *      mono-feel for numbers. Hierarchy does the work, not colour.
+ *   2. **Page background: bg-gray-50** — the same neutral canvas as
+ *      the interior (Layout.jsx + DashboardPage). Cards sit as
+ *      bg-white on top. Severity-tinted sections use bg-gray-50 /
+ *      amber-50 / red-50 per the SectionBanner recipe. No
+ *      `bg-[#fafaf7]` hex.
  *
- *   3. Restrained palette: warm white (#fafaf7) for sections, true
- *      white for cards, charcoal (#0f172a) for the hero band. No
- *      4-colour gradient washes.
+ *   3. **One radius: rounded-xl** — task #169 codemodded out
+ *      rounded-2xl + rounded-3xl across pages. Landing now obeys.
  *
- *   4. 7 sections, max. The previous landing had 16 with heavy
- *      padding — users gave up halfway. Sections that didn't earn
- *      their space (per-vertical spotlights, 27-pill ribbon,
- *      "global reach" with zero users) are gone.
+ *   4. **No rainbow gradients** — `from-* via-* to-*` is banned.
+ *      Each section is a flat surface; emphasis comes from typography
+ *      + spacing + the gray-900 ring on Most-popular, not from glow.
  *
- *   5. Sticky nav with smooth-scroll anchors so the page is
- *      navigable as well as scrollable.
+ *   5. **Lucide outline icons via `Icon`** — same primitive as the
+ *      sidebar. 1.75 stroke, 18px default. No emoji, no hand-rolled
+ *      inline SVG paths.
  *
- *   6. Single fade-in is fine on hero. Below-the-fold sections
- *      render fully — no fade-in-on-scroll theatre that makes the
- *      page look broken until you scroll past it.
+ *   6. **Inter throughout** — never Fraunces (rolled back task #111).
+ *      The H1 ramps via weight (700-800) + tracking, not via family.
  *
- * The HeroPhone component is preserved (it works) but tightened.
- * The LiveDemo / Spotlight components are intentionally NOT carried
- * over — they conflicted with the single-accent rule and added
- * scroll without adding clarity.
+ *   7. **Cards: bg-white + border border-gray-200 + rounded-xl +
+ *      p-5 sm:p-6** — the EntryCard / Card primitive shape. Every
+ *      feature card, pricing card, FAQ row, trust badge, hero
+ *      surface uses this exact recipe so a visitor scrolling from
+ *      landing → /dashboard feels the same product.
+ *
+ *   8. **Eyebrow labels** — 11px font-semibold uppercase
+ *      tracking-wider text-gray-400 (matches PageHeader eyebrow +
+ *      Layout.jsx sidebar group labels like "MONEY" / "STOCK").
+ *
+ *   9. **DK terminology lock** — MOMS uppercase, revisor in EN
+ *      copy, SKAT all-caps, Skat Autopilot mixed-case. No changes
+ *      here — copy is preserved from the previous iteration.
+ *
+ * Content preserved verbatim: every t() key + fallback string is the
+ * same as the May-2026 iteration. We're only reshaping visuals.
+ * Functional hooks (useFounderRateStatus, scroll handler, mobile
+ * menu) are untouched.
  */
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 import FounderRatePill from "../components/FounderRatePill";
 import useFounderRateStatus from "../hooks/useFounderRateStatus";
+import {
+  Clock, Receipt, Sparkles, Landmark, Layers, Calendar, Shield,
+  Check, ArrowRight, Menu, X, ChevronDown, Apple,
+} from "lucide-react";
 
 // tx(t, key, fallback) — wrapper around the i18n t() helper that
 // falls back to the supplied default when the key isn't present in
 // any locale. The shared t() returns the key itself on miss (so the
 // idiomatic `t(k) || fb` never fires), and we don't want to change
-// global i18n behaviour. Pure function, no React hooks — safe to use
-// inside any component (HeroPhone, Counter, the main page itself).
+// global i18n behaviour.
 function tx(t, key, fallback) {
   const v = t(key);
   return (v && v !== key) ? v : fallback;
 }
 
-// ─── HeroPhone ──────────────────────────────────────────────────────
+// ─── Reusable shape primitives ─────────────────────────────────────
 //
-// Compact mock of the BonBox dashboard inside a phone frame. Same
-// component as before — single accent (green), tight layout, no
-// status-bar/notch overkill. Used in the hero, not elsewhere.
-function HeroPhone() {
-  const { t } = useLanguage();
+// These mirror the interior's Card / PageHeader / SectionBanner
+// recipes by hand (we can't import the actual primitives because
+// they reach into i18n + theme contexts the landing page doesn't
+// want to pay for). The CLASSES are identical strings so the visual
+// language is byte-equivalent.
+
+const CARD =
+  "bg-white border border-gray-200 rounded-xl p-5 sm:p-6";
+
+const CARD_HOVER =
+  "bg-white border border-gray-200 rounded-xl p-5 sm:p-6 " +
+  "transition-colors hover:border-gray-300";
+
+// Section wrapper — consistent padding rhythm + max-width.
+// Padding follows the interior's "py-10 / py-14" rhythm rather than
+// the marketing-page "py-24" stretch that made the previous landing
+// feel disconnected from the app.
+function Section({ id, className = "", children }) {
   return (
-    <div className="relative w-full max-w-[280px] sm:max-w-[300px] mx-auto" style={{ animation: "heroFloat 5s ease-in-out infinite" }}>
-      <div className="absolute inset-0 bg-emerald-500/25 rounded-[3rem] blur-[80px] scale-110 pointer-events-none" />
-      <div className="relative bg-gray-900 rounded-[2.25rem] p-2.5 border border-gray-800 shadow-2xl shadow-emerald-500/10">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-5 bg-gray-900 rounded-b-2xl z-10" />
-        <div className="bg-gray-950 rounded-[1.85rem] overflow-hidden p-3.5 pt-7">
-          {/* status row */}
-          <div className="flex items-center justify-between mb-3 px-1">
-            <span className="text-white/80 text-[9px] font-semibold tabular-nums">9:41</span>
-            <div className="flex items-center gap-1 text-white/40">
-              <div className="w-3 h-1.5 border border-white/40 rounded-sm">
-                <div className="h-full bg-emerald-400 rounded-[1px]" style={{ width: "70%" }} />
-              </div>
-            </div>
-          </div>
-          {/* header */}
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <p className="text-white text-[11px] font-bold leading-tight">{tx(t, "dashboard", "Dashboard")}</p>
-              <p className="text-stone-500 text-[8px]">{tx(t, "today", "Today")}</p>
-            </div>
-            <div className="w-5 h-5 bg-emerald-500/20 rounded-full" />
-          </div>
-          {/* KPI cards */}
-          <div className="grid grid-cols-2 gap-1.5 mb-2">
-            <div className="bg-gray-800/70 rounded-md p-2">
-              <p className="text-stone-500 text-[7px] uppercase tracking-wider">{tx(t, "revenue", "Revenue")}</p>
-              <p className="text-white text-[13px] font-bold tabular-nums mt-0.5">24,500 kr</p>
-              <p className="text-emerald-400 text-[7px] mt-0.5">+12%</p>
-            </div>
-            <div className="bg-gray-800/70 rounded-md p-2">
-              <p className="text-stone-500 text-[7px] uppercase tracking-wider">{tx(t, "profit", "Profit")}</p>
-              <p className="text-white text-[13px] font-bold tabular-nums mt-0.5">70,097 kr</p>
-              <p className="text-emerald-400 text-[7px] mt-0.5">57.8%</p>
-            </div>
-          </div>
-          {/* sparkline */}
-          <div className="bg-gray-800/70 rounded-md p-2 mb-2">
-            <p className="text-stone-500 text-[7px] uppercase tracking-wider mb-1">{tx(t, "weeklySales", "Weekly sales")}</p>
-            <svg viewBox="0 0 200 36" className="w-full h-7">
-              <defs>
-                <linearGradient id="hpGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#10b981" stopOpacity="0.35" />
-                  <stop offset="100%" stopColor="#10b981" stopOpacity="0" />
-                </linearGradient>
-              </defs>
-              <path d="M0,28 L30,22 L60,26 L90,14 L120,18 L150,8 L180,12 L200,5 L200,36 L0,36 Z" fill="url(#hpGrad)" />
-              <polyline points="0,28 30,22 60,26 90,14 120,18 150,8 180,12 200,5" fill="none" stroke="#10b981" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </div>
-          {/* recent items — compact */}
-          <div className="bg-gray-800/70 rounded-md p-2">
-            <p className="text-stone-500 text-[7px] uppercase tracking-wider mb-1">{tx(t, "recentSales", "Recent sales")}</p>
-            {[
-              ["Coca-Cola x10", "150"],
-              ["Rice 5kg", "1,350"],
-              ["Vodka 2x", "90"],
-            ].map(([n, p]) => (
-              <div key={n} className="flex items-center justify-between py-0.5">
-                <span className="text-gray-300 text-[8px]">{n}</span>
-                <span className="text-white text-[8px] font-medium tabular-nums">{p} kr</span>
-              </div>
-            ))}
-          </div>
-        </div>
+    <section id={id} className={`relative py-14 sm:py-20 ${className}`}>
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">{children}</div>
+    </section>
+  );
+}
+
+// Eyebrow — matches PageHeader eyebrow + sidebar group labels exactly.
+function Eyebrow({ children }) {
+  return (
+    <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">
+      {children}
+    </p>
+  );
+}
+
+// Heading — H2 default. Inter weight 700, tight tracking, gray-900.
+// Same ramp as the interior PageHeader H1 (28px → 38px → 46px).
+function Heading({ className = "", children }) {
+  return (
+    <h2
+      className={`text-[28px] sm:text-[34px] lg:text-[40px] leading-[1.1] tracking-[-0.025em] text-gray-900 font-bold ${className}`}
+    >
+      {children}
+    </h2>
+  );
+}
+
+// Feature card — interior EntryCard shape with Lucide icon + heading
+// + one-line description. Single layout language reused everywhere.
+// `icon` is passed as a rendered React element (e.g.
+// <Clock size={18} className="..." />) so the eslint config's
+// JSX-blind unused-vars rule doesn't fight us; same call pattern as
+// the interior Card.Header primitive.
+function FeatureCard({ icon, title, body }) {
+  return (
+    <div className={CARD_HOVER}>
+      <div className="flex items-center gap-2.5 mb-2.5">
+        <span className="text-gray-700 shrink-0">{icon}</span>
+        <h3 className="text-[15px] font-semibold text-gray-900 tracking-tight">
+          {title}
+        </h3>
       </div>
+      <p className="text-[14px] text-gray-600 leading-[1.6]">{body}</p>
     </div>
   );
 }
 
-// ─── DailyCloseHero ─────────────────────────────────────────────────
+// Single Lucide icon instances reused across the feature grid + outcomes
+// grid. Defined once so the JSX-blind eslint rule sees them as used,
+// and so the visual weight (size 18, stroke 1.75) is consistent.
+const ICON_CLOCK = <Clock size={18} strokeWidth={1.75} aria-hidden="true" />;
+const ICON_RECEIPT = <Receipt size={18} strokeWidth={1.75} aria-hidden="true" />;
+const ICON_SPARK = <Sparkles size={18} strokeWidth={1.75} aria-hidden="true" />;
+const ICON_BANK = <Landmark size={18} strokeWidth={1.75} aria-hidden="true" />;
+const ICON_LAYERS = <Layers size={18} strokeWidth={1.75} aria-hidden="true" />;
+const ICON_CAL = <Calendar size={18} strokeWidth={1.75} aria-hidden="true" />;
+
+// ─── Hero product surface ──────────────────────────────────────────
 //
-// Task #109 landing redesign — replaces the generic phone mockup that
-// rendered placeholder products ("Coca-Cola x10 / Rice 5kg / Vodka 2x")
-// with a flat, screen-accurate render of the Daily Close surface
-// itself. Per Mercury / Plain aesthetic: no phone frame, no fake
-// status bar — the screen IS the visual. Lives in the page background
-// (no card-on-card chrome).
-//
-// Numbers are illustrative — they look like a real Tuesday at a
-// Danish café (omsætning ~14k, MOMS frist 13 dage, kontant +
-// kort split that adds up).  Hard-coded so there's no API hop;
-// fully static for the marketing surface.
-function DailyCloseHero() {
-  const { t } = useLanguage();
+// Static screen-accurate render of the Daily Close card. Lives in the
+// hero right column. Numbers anchored to a real-feeling Tuesday at a
+// Danish café. No phone frame, no fake status bar — just the screen,
+// using the same Card chrome as the actual app.
+function DailyCloseHero({ tx_ }) {
   return (
     <div className="relative w-full max-w-[520px] mx-auto">
-      {/* One soft emerald glow behind the card — replaces the old
-          double-blur that read 2019-template. Single light source. */}
-      <div className="absolute -inset-8 -z-10 bg-emerald-200/50 blur-[100px] rounded-[3rem] pointer-events-none" />
-
-      <div className="relative bg-white rounded-2xl border border-stone-200/80 shadow-[0_24px_60px_-20px_rgba(15,23,42,0.18)] overflow-hidden">
-        {/* Header strip — date + business name */}
-        <div className="px-6 pt-5 pb-4 border-b border-stone-100">
-          <div className="flex items-baseline justify-between">
+      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+        {/* Header strip — eyebrow + date + business name */}
+        <div className="px-5 sm:px-6 pt-5 pb-4 border-b border-gray-100">
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-emerald-700">
-                {tx(t, "landingDailyCloseEyebrow", "Daily close")}
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                {tx_("landingDailyCloseEyebrow", "Daily close")}
               </p>
-              <p className="text-[17px] font-semibold text-gray-900 mt-1">
-                {tx(t, "landingDailyCloseDate", "Tor. 22. maj")}
+              <p className="text-[16px] font-semibold text-gray-900 mt-1">
+                {tx_("landingDailyCloseDate", "Tor. 22. maj")}
               </p>
             </div>
-            <span className="text-[12px] text-stone-500 tabular-nums">
-              {tx(t, "landingDailyCloseBiz", "Café Bonbo · Vesterbro")}
+            <span className="text-[12px] text-gray-500 tabular-nums text-right">
+              {tx_("landingDailyCloseBiz", "Café Bonbo · Vesterbro")}
             </span>
           </div>
         </div>
 
         {/* Hero number — omsætning */}
-        <div className="px-6 pt-5">
-          <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-stone-500">
-            {tx(t, "landingDailyCloseRevenue", "Omsætning i dag")}
+        <div className="px-5 sm:px-6 pt-5">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500">
+            {tx_("landingDailyCloseRevenue", "Omsætning i dag")}
           </p>
-          <p className="text-[44px] font-semibold text-gray-900 tabular-nums leading-tight tracking-tight">
-            14.230<span className="text-stone-400 ml-1.5 text-[24px] font-medium">kr</span>
+          <p className="text-[40px] sm:text-[44px] font-bold text-gray-900 tabular-nums leading-tight tracking-tight mt-0.5">
+            14.230<span className="text-gray-400 ml-1.5 text-[22px] font-semibold">kr</span>
           </p>
           <p className="text-[12.5px] text-emerald-700 mt-0.5">
-            {tx(t, "landingDailyCloseDelta", "+12% vs. forrige tirsdag")}
+            {tx_("landingDailyCloseDelta", "+12% vs. forrige tirsdag")}
           </p>
         </div>
 
-        {/* Kontant + kort breakdown */}
-        <div className="px-6 mt-5 grid grid-cols-2 gap-3">
-          <div className="rounded-lg bg-stone-50 border border-stone-100 px-3.5 py-3">
-            <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-stone-500">
-              {tx(t, "landingDailyCloseCash", "Kontant")}
-              <svg className="w-3.5 h-3.5 text-emerald-600" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 8.5l3 3 6-7" />
-              </svg>
+        {/* Kontant + kort breakdown — subtle inner cards on gray-50 */}
+        <div className="px-5 sm:px-6 mt-5 grid grid-cols-2 gap-3">
+          <div className="rounded-lg bg-gray-50 border border-gray-200/70 px-3.5 py-3">
+            <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-gray-500">
+              {tx_("landingDailyCloseCash", "Kontant")}
+              <Check size={13} strokeWidth={2.5} className="text-emerald-600" aria-hidden="true" />
             </div>
             <p className="text-[18px] font-semibold text-gray-900 tabular-nums mt-1">3.140 kr</p>
-            <p className="text-[11px] text-emerald-700 mt-0.5">{tx(t, "landingDailyCloseMatched", "matchet i kassen")}</p>
+            <p className="text-[11px] text-emerald-700 mt-0.5">{tx_("landingDailyCloseMatched", "matchet i kassen")}</p>
           </div>
-          <div className="rounded-lg bg-stone-50 border border-stone-100 px-3.5 py-3">
-            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-stone-500">{tx(t, "landingDailyCloseCard", "Kort + MobilePay")}</p>
+          <div className="rounded-lg bg-gray-50 border border-gray-200/70 px-3.5 py-3">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500">{tx_("landingDailyCloseCard", "Kort + MobilePay")}</p>
             <p className="text-[18px] font-semibold text-gray-900 tabular-nums mt-1">11.090 kr</p>
-            <p className="text-[11px] text-stone-500 mt-0.5">{tx(t, "landingDailyCloseTxns", "47 transaktioner")}</p>
+            <p className="text-[11px] text-gray-500 mt-0.5">{tx_("landingDailyCloseTxns", "47 transaktioner")}</p>
           </div>
         </div>
 
-        {/* MOMS row — single line, draws the eye to deadline */}
-        <div className="mx-6 mt-5 rounded-lg bg-emerald-50/60 border border-emerald-200/60 px-4 py-3">
-          <div className="flex items-baseline justify-between">
-            <div>
-              <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-emerald-700">
-                {tx(t, "landingDailyCloseMomsLabel", "MOMS Q2 · Frist 1. juni")}
+        {/* MOMS row — single line, draws the eye to the deadline.
+            Severity-tinted surface recipe per doctrine: bg-amber-50
+            because MOMS deadlines are time-sensitive (not gray-50 /
+            calm, not red-50 / overdue — amber is the right register). */}
+        <div className="mx-5 sm:mx-6 mt-5 rounded-lg bg-amber-50 border border-amber-200/80 px-4 py-3">
+          <div className="flex items-baseline justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-700">
+                {tx_("landingDailyCloseMomsLabel", "MOMS Q2 · Frist 1. juni")}
               </p>
-              <p className="text-[15px] font-semibold text-emerald-900 mt-0.5">
-                {tx(t, "landingDailyCloseMomsAside", "4.230 kr. afsat automatisk")}
+              <p className="text-[14px] font-semibold text-amber-900 mt-0.5">
+                {tx_("landingDailyCloseMomsAside", "4.230 kr. afsat automatisk")}
               </p>
             </div>
-            <p className="text-[24px] font-semibold tabular-nums text-emerald-700">
+            <p className="text-[22px] font-bold tabular-nums text-amber-700 shrink-0">
               13<span className="text-[12px] font-medium ml-1">dage</span>
             </p>
           </div>
         </div>
 
-        {/* Action — the big "Luk dagen" button */}
-        <div className="px-6 pt-5 pb-5">
+        {/* Action — gray-900 primary CTA, matches Button.primary */}
+        <div className="px-5 sm:px-6 pt-5 pb-5">
           <button
             type="button"
             tabIndex={-1}
             aria-hidden="true"
-            className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 bg-emerald-600 text-white text-[14.5px] font-semibold rounded-md shadow-[0_4px_14px_-4px_rgba(16,185,129,0.45)]"
+            className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 bg-gray-900 text-white text-[14.5px] font-semibold rounded-lg"
           >
-            {tx(t, "landingDailyCloseCta", "Luk dagen")}
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M5 12h14M13 6l6 6-6 6" />
-            </svg>
+            {tx_("landingDailyCloseCta", "Luk dagen")}
+            <ArrowRight size={16} strokeWidth={2} aria-hidden="true" />
           </button>
-          <p className="text-[11.5px] text-stone-500 text-center mt-2.5">
-            {tx(t, "landingDailyCloseFooterMicro", "Z-rapport · kasserapport · revisor-eksport · ét tryk")}
+          <p className="text-[11.5px] text-gray-500 text-center mt-2.5">
+            {tx_("landingDailyCloseFooterMicro", "Z-rapport · kasserapport · revisor-eksport · ét tryk")}
           </p>
         </div>
       </div>
@@ -236,61 +244,42 @@ function DailyCloseHero() {
   );
 }
 
-
-// ─── MomsCountdownSpotlight ─────────────────────────────────────────
-//
-// Task #109 — the killer-feature spotlight section.  Renders a
-// big, flat, screen-accurate version of the MOMS countdown widget
-// (the same widget the app shows on the Dashboard).  No competitor
-// in DK has this surface as a deadline-style countdown — Dinero /
-// Billy show MOMS in a report; BonBox makes it a frist you can FEEL.
-//
-// Numbers are illustrative — anchored to a real DK MOMS calendar
-// example (Q2 → frist 1. juni → 13 days out from a late-May visit).
-function MomsCountdownSpotlight() {
-  const { t } = useLanguage();
+// ─── MOMS Countdown — killer-feature spotlight surface ─────────────
+function MomsCountdownSpotlight({ tx_ }) {
   return (
     <div className="relative w-full max-w-[540px] mx-auto">
-      {/* Soft glow — single light source, emerald, behind only. */}
-      <div className="absolute -inset-10 -z-10 bg-emerald-300/40 blur-[120px] rounded-[3rem] pointer-events-none" />
-
-      <div className="relative bg-white rounded-2xl border border-stone-200/80 shadow-[0_28px_60px_-22px_rgba(15,23,42,0.18)] overflow-hidden">
+      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
         {/* Eyebrow strip */}
-        <div className="px-6 pt-5 pb-4 border-b border-stone-100 flex items-baseline justify-between">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-emerald-700">
-            {tx(t, "landingMomsEyebrow", "MOMS Q2 · 2026")}
+        <div className="px-5 sm:px-6 pt-5 pb-4 border-b border-gray-100 flex items-baseline justify-between gap-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+            {tx_("landingMomsEyebrow", "MOMS Q2 · 2026")}
           </p>
-          <p className="text-[12px] text-stone-500">
-            {tx(t, "landingMomsDeadlineLabel", "Frist · 1. juni")}
+          <p className="text-[12px] text-gray-500">
+            {tx_("landingMomsDeadlineLabel", "Frist · 1. juni")}
           </p>
         </div>
 
         {/* Big number */}
-        <div className="px-6 pt-7 pb-4 text-center">
-          <p className="text-[12px] font-medium uppercase tracking-[0.1em] text-stone-500 mb-1">
-            {tx(t, "landingMomsCountdownLabel", "Dage tilbage")}
+        <div className="px-5 sm:px-6 pt-7 pb-4 text-center">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500 mb-1">
+            {tx_("landingMomsCountdownLabel", "Dage tilbage")}
           </p>
-          {/* Giant 13 — Inter Display weight 800 (heaviest), tightest
-              tracking we use anywhere.  Without the serif this could
-              read as bland; the weight + the emerald-700 + the
-              tabular-nums gives it product-grade gravity. */}
+          {/* Gray-900 — not emerald — so the number reads as fact, not
+              promotion. Inter weight 800, tightest tracking we use. */}
           <p
-            className="text-[120px] sm:text-[140px] leading-[0.9] tracking-[-0.06em] text-emerald-700 tabular-nums"
+            className="text-[120px] sm:text-[140px] leading-[0.9] tracking-[-0.06em] text-gray-900 tabular-nums"
             style={{ fontWeight: 800 }}
           >
             13
           </p>
         </div>
 
-        {/* Progress bar — visualizes "you're 71% through the period" */}
-        <div className="px-6">
-          <div className="h-2 rounded-full bg-stone-100 overflow-hidden">
-            <div
-              className="h-full bg-emerald-500 rounded-full"
-              style={{ width: "71%" }}
-            />
+        {/* Progress bar — gray-200 track, gray-900 fill */}
+        <div className="px-5 sm:px-6">
+          <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+            <div className="h-full bg-gray-900 rounded-full" style={{ width: "71%" }} />
           </div>
-          <div className="flex justify-between text-[11px] text-stone-500 mt-1.5 tabular-nums">
+          <div className="flex justify-between text-[11px] text-gray-500 mt-1.5 tabular-nums">
             <span>1. apr.</span>
             <span>22. maj · i dag</span>
             <span>1. juni</span>
@@ -298,198 +287,31 @@ function MomsCountdownSpotlight() {
         </div>
 
         {/* Amount + already set aside */}
-        <div className="px-6 mt-5 grid grid-cols-2 gap-3">
-          <div className="rounded-lg bg-stone-50 border border-stone-100 px-3.5 py-3">
-            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-stone-500">
-              {tx(t, "landingMomsDueLabel", "Skal betales")}
+        <div className="px-5 sm:px-6 mt-5 grid grid-cols-2 gap-3">
+          <div className="rounded-lg bg-gray-50 border border-gray-200/70 px-3.5 py-3">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500">
+              {tx_("landingMomsDueLabel", "Skal betales")}
             </p>
             <p className="text-[20px] font-semibold text-gray-900 tabular-nums mt-1">4.230 kr</p>
           </div>
-          <div className="rounded-lg bg-emerald-50/70 border border-emerald-200/60 px-3.5 py-3">
-            <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-emerald-700">
-              {tx(t, "landingMomsAsideLabel", "Afsat automatisk")}
-              <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 8.5l3 3 6-7" />
-              </svg>
+          <div className="rounded-lg bg-emerald-50 border border-emerald-200/70 px-3.5 py-3">
+            <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-emerald-700">
+              {tx_("landingMomsAsideLabel", "Afsat automatisk")}
+              <Check size={13} strokeWidth={2.5} aria-hidden="true" />
             </div>
             <p className="text-[20px] font-semibold text-emerald-800 tabular-nums mt-1">4.230 kr</p>
           </div>
         </div>
 
-        {/* Footer micro — what BonBox does under the hood */}
-        <div className="px-6 pt-4 pb-5">
-          <p className="text-[12px] text-stone-500 leading-relaxed text-center">
-            {tx(t, "landingMomsFooterMicro", "Beregnet på faktura + kasserapport · Bogføringsloven §7 · indberetning på et tryk")}
+        <div className="px-5 sm:px-6 pt-4 pb-5">
+          <p className="text-[12px] text-gray-500 leading-relaxed text-center">
+            {tx_("landingMomsFooterMicro", "Beregnet på faktura + kasserapport · Bogføringsloven §7 · indberetning på et tryk")}
           </p>
         </div>
       </div>
     </div>
   );
 }
-
-
-// ─── Counter — animates a number once it scrolls into view ──────────
-// Initial value = `end`, so the first paint shows the REAL number, not
-// a "0s · 0+ · 0 min" zero-flash that briefly tells visitors our close
-// takes zero seconds. When the strip scrolls into view we briefly
-// reset to 0 and animate up — but only if motion is allowed and the
-// initial render had time to commit. Belt + braces.
-function Counter({ end, duration = 1400, suffix = "", prefix = "" }) {
-  const [val, setVal] = useState(end);
-  const ref = useRef(null);
-  const started = useRef(false);
-  useEffect(() => {
-    // Respect prefers-reduced-motion → keep the static end value
-    const prefersReduced =
-      typeof window !== "undefined" &&
-      window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
-    if (prefersReduced) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting && !started.current) {
-          started.current = true;
-          setVal(0);
-          const startTime = performance.now();
-          const tick = (now) => {
-            const progress = Math.min((now - startTime) / duration, 1);
-            const eased = 1 - Math.pow(1 - progress, 3);
-            setVal(Math.round(eased * end));
-            if (progress < 1) requestAnimationFrame(tick);
-          };
-          requestAnimationFrame(tick);
-        }
-      },
-      { threshold: 0.4 }
-    );
-    if (ref.current) observer.observe(ref.current);
-    return () => observer.disconnect();
-  }, [end, duration]);
-  return <span ref={ref} className="tabular-nums">{prefix}{val.toLocaleString("da-DK")}{suffix}</span>;
-}
-
-// ─── Section primitive — consistent padding + max-width ─────────────
-function Section({ id, className = "", children }) {
-  return (
-    <section id={id} className={`relative py-16 sm:py-24 ${className}`}>
-      <div className="max-w-6xl mx-auto px-5 sm:px-6 lg:px-8">{children}</div>
-    </section>
-  );
-}
-
-// ─── Eyebrow heading — small uppercase label above section title ────
-function Eyebrow({ children }) {
-  return (
-    <span className="inline-block text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-700 mb-3">
-      {children}
-    </span>
-  );
-}
-
-// ─── Heading — Task #110 update: Inter throughout, no serif.
-//
-// We tried serif first (Fraunces, then variant-restraint).  Manoj's
-// call: skews designer-portfolio for a finance SaaS audience.  Now
-// Inter weight 700 with tight tracking — the Linear / Vercel / Plain
-// default for section titles.  One family, one voice, varying
-// weight + scale + tracking does the work.
-//
-// `variant` prop is kept for backward compatibility with existing
-// callsites that pass variant="serif" — it's now a no-op (both
-// variants render identically as Inter).  Existing call sites work
-// untouched; the prop can be removed in a follow-up clean-up.
-function Heading({
-  as: As = "h2",
-  variant = "sans", // eslint-disable-line no-unused-vars
-  className = "",
-  children,
-}) {
-  return (
-    <As
-      className={`text-[28px] sm:text-[38px] lg:text-[46px] leading-[1.08] tracking-[-0.028em] text-gray-900 ${className}`}
-      style={{ fontWeight: 700 }}
-    >
-      {children}
-    </As>
-  );
-}
-
-// ─── Feature card — Task #109: tighter, denser, less template.
-// Removed: rounded-2xl drop shadow on hover, icon-in-box decoration.
-// Kept: single accent (emerald), restrained palette.  The result is
-// a denser card that reads more like a Mercury / Plain product
-// landing — list of capabilities, not a brochure grid.
-function FeatureCard({ icon, title, body }) {
-  return (
-    <div className="group relative bg-white rounded-xl p-6 border border-stone-200/80 transition-all duration-150 hover:border-stone-300">
-      <div className="flex items-center gap-2.5 mb-3">
-        <span className="text-emerald-700">{icon}</span>
-        <h3 className="text-[16px] font-semibold text-gray-900 tracking-tight">{title}</h3>
-      </div>
-      <p className="text-[14px] text-stone-600 leading-[1.6]">{body}</p>
-    </div>
-  );
-}
-
-// Monochrome line icons — one design language, not a 14-emoji parade.
-// Each is a 20×20 stroke-1.75 icon at currentColor (emerald-700 in
-// the feature card slot).
-const Icons = {
-  Clock: (
-    <svg className="w-5 h-5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
-    </svg>
-  ),
-  Receipt: (
-    <svg className="w-5 h-5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M7 3h10a1 1 0 011 1v17l-3-2-3 2-3-2-3 2V4a1 1 0 011-1z" />
-      <path d="M9 8h6M9 12h6M9 16h3" />
-    </svg>
-  ),
-  Spark: (
-    <svg className="w-5 h-5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
-    </svg>
-  ),
-  Bank: (
-    <svg className="w-5 h-5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 10l9-6 9 6M5 10v8M9 10v8M15 10v8M19 10v8M3 20h18" />
-    </svg>
-  ),
-  Stack: (
-    <svg className="w-5 h-5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 7l9-4 9 4-9 4-9-4zM3 12l9 4 9-4M3 17l9 4 9-4" />
-    </svg>
-  ),
-  Calendar: (
-    <svg className="w-5 h-5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="5" width="18" height="16" rx="2" />
-      <path d="M3 9h18M8 3v4M16 3v4" />
-    </svg>
-  ),
-  Shield: (
-    <svg className="w-5 h-5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3l8 3v5c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6l8-3z" />
-      <path d="M9 12l2 2 4-4" />
-    </svg>
-  ),
-  Apple: (
-    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" />
-    </svg>
-  ),
-  Check: (
-    <svg className="w-4 h-4 text-emerald-600" viewBox="0 0 20 20" fill="currentColor">
-      <path fillRule="evenodd" d="M16.7 5.3a1 1 0 010 1.4l-8 8a1 1 0 01-1.4 0l-4-4a1 1 0 011.4-1.4L8 12.6l7.3-7.3a1 1 0 011.4 0z" clipRule="evenodd" />
-    </svg>
-  ),
-  Cross: (
-    <svg className="w-4 h-4 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
-      <path fillRule="evenodd" d="M4.3 4.3a1 1 0 011.4 0L10 8.6l4.3-4.3a1 1 0 111.4 1.4L11.4 10l4.3 4.3a1 1 0 11-1.4 1.4L10 11.4l-4.3 4.3a1 1 0 11-1.4-1.4L8.6 10 4.3 5.7a1 1 0 010-1.4z" clipRule="evenodd" />
-    </svg>
-  ),
-};
 
 // ═══════════════════════════════════════════════════════════════════
 //                        Main component
@@ -498,21 +320,16 @@ export default function LandingPage() {
   const { t, lang, setLang, LANGUAGES } = useLanguage();
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  // Founder-rate live count, surfaced under the "Founding rate · first
-  // 100 customers" stripe on each paid tier (Task #89 P3-9). Shared
-  // with the FounderRatePill in the hero so the page reads consistent
-  // ("29 / 100 seats taken" stripe pairs with "Founder rate · 29/100
-  // seats taken · 129 DKK locked forever" pill). On fetch failure the
-  // stripe falls back to the static "first 100 customers" copy.
+
+  // Founder-rate live count — feeds the pricing stripe under the
+  // recommended-tier card. Defensive: fetch failure falls back to
+  // the static "first 100 customers" copy.
   const { status: founderStatus, valid: founderStatusValid } = useFounderRateStatus();
 
-  // Bind the module-level tx() helper to this component's t() so call
-  // sites can write `tx_("key", "fallback")` without threading t/
-  // through every prop.
+  // Bind tx() to this component's t() so call sites stay clean.
   const tx_ = (key, fallback) => tx(t, key, fallback);
 
-  // Add a thin shadow to the nav once we've scrolled past the hero so
-  // the floating chrome reads against any background.
+  // Thin shadow on the nav once scrolled past the hero.
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 16);
     onScroll();
@@ -520,11 +337,6 @@ export default function LandingPage() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Nav anchors — these set the navigable shape of the page. Keep
-  // short (3-4 items) so the nav doesn't crowd the brand on mobile.
-  // Anchor links kept intentionally short. We don't link to the
-  // comparison/competitor on the landing — BonBox stands on its own
-  // story, not by sending users to research Dinero.
   const navLinks = [
     { href: "#features", label: tx_("landingNavFeatures", "Features") },
     { href: "#how", label: tx_("landingNavHow", "How it works") },
@@ -532,63 +344,46 @@ export default function LandingPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#fafaf7] text-gray-900 antialiased">
+    <div className="min-h-screen bg-gray-50 text-gray-900 antialiased">
+      {/* Reduce-motion-respecting subtle keyframes — same as the
+          AnimationKit timings used inside the app so the marketing
+          surface inherits the same micro-motion language. */}
       <style>{`
-        @keyframes heroFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
         html { scroll-behavior: smooth; }
-
-        /* Flow demo — staggered fade-in loop. Each step lights up in
-           sequence (snap → merge → PDF) then loops. Reduced motion
-           respected so users who hate animation see all three steady. */
         @keyframes flowFadeIn {
-          0%, 100% { opacity: 0.45; transform: translateY(0); }
-          15%, 85% { opacity: 1; transform: translateY(-3px); }
-        }
-        @keyframes flowArrowPulse {
-          0%, 100% { opacity: 0.35; }
-          50%      { opacity: 1; }
-        }
-        @keyframes flowPulse {
-          0%, 100% { transform: scale(1);   opacity: 0.0; }
-          50%      { transform: scale(1.4); opacity: 0.6; }
+          0%, 100% { opacity: 0.55; transform: translateY(0); }
+          15%, 85% { opacity: 1; transform: translateY(-2px); }
         }
         .flowStep  { animation: flowFadeIn 4.5s ease-in-out infinite; }
         .flowStep1 { animation-delay: 0s; }
         .flowStep2 { animation-delay: 1.5s; }
         .flowStep3 { animation-delay: 3s; }
-        .flowArrow  { animation: flowArrowPulse 4.5s ease-in-out infinite; }
-        .flowArrow1 { animation-delay: 0.75s; }
-        .flowArrow2 { animation-delay: 2.25s; }
-        .flowPulse { animation: flowPulse 1.5s ease-in-out infinite; animation-delay: 1.5s; }
         @media (prefers-reduced-motion: reduce) {
-          .flowStep, .flowArrow, .flowPulse { animation: none; opacity: 1; }
+          .flowStep { animation: none; opacity: 1; }
         }
       `}</style>
 
       {/* ── NAV ──────────────────────────────────────────────────
-          Safe-area aware: nav extends behind the notch / status bar
-          (so the blur covers the whole top edge) but the actual link
-          row sits BELOW the inset, never under the notch. Uses
-          `env(safe-area-inset-top)` which is exposed because we have
-          `viewport-fit=cover` in the viewport meta. Falls back to 0
-          on devices without a notch (Android tablets, desktop). */}
+          Matches the interior app-header rhythm: gray-900 wordmark,
+          gray-700 links, gray-900 primary CTA, ghost sign-in. The
+          safe-area inset keeps the link row clear of the notch. */}
       <nav
-        className={`fixed inset-x-0 top-0 z-50 backdrop-blur-xl transition-shadow ${
+        className={`fixed inset-x-0 top-0 z-50 backdrop-blur-md transition-shadow ${
           scrolled
-            ? "bg-[#fafaf7]/90 border-b border-stone-200 shadow-[0_1px_0_rgba(15,23,42,0.04)]"
-            : "bg-[#fafaf7]/70 border-b border-transparent"
+            ? "bg-gray-50/90 border-b border-gray-200"
+            : "bg-gray-50/70 border-b border-transparent"
         }`}
         style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
       >
-        <div className="max-w-6xl mx-auto px-5 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-emerald-500 rounded-md flex items-center justify-center">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <div className="w-8 h-8 bg-gray-900 rounded-lg flex items-center justify-center">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <rect x="4" y="3" width="16" height="18" rx="2" />
                 <path d="M8 8h8M8 12h8M8 16h5" />
               </svg>
             </div>
-            <span className="text-[16px] font-semibold tracking-tight">BonBox</span>
+            <span className="text-[16px] font-semibold tracking-tight text-gray-900">BonBox</span>
           </Link>
 
           <div className="hidden md:flex items-center gap-1">
@@ -604,17 +399,11 @@ export default function LandingPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Compact 2-letter language switcher (Task #110) — EN /
-                DK / DE / etc. instead of "English"/"Dansk"/"Deutsch".
-                Country-style codes Danes recognize instantly + the
-                navbar stays tight on small viewports.  aria-label
-                still uses the full language name so screen readers
-                announce "Dansk" not "DK". */}
             <select
               value={lang}
               onChange={(e) => setLang(e.target.value)}
               aria-label="Language"
-              className="hidden sm:block text-[12px] font-medium tracking-wider uppercase bg-transparent border border-stone-200 rounded-md px-2 py-1.5 text-gray-700 hover:border-stone-300 focus:outline-none focus:ring-2 focus:ring-gray-900 cursor-pointer"
+              className="hidden sm:block text-[12px] font-medium tracking-wider uppercase bg-transparent border border-gray-200 rounded-md px-2 py-1.5 text-gray-700 hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900 cursor-pointer"
             >
               {LANGUAGES.map((l) => (
                 <option key={l.code} value={l.code} aria-label={l.label}>
@@ -630,7 +419,7 @@ export default function LandingPage() {
             </Link>
             <Link
               to="/register"
-              className="px-4 py-2 text-[14px] font-medium bg-emerald-600 text-white rounded-md hover:bg-emerald-700 transition shadow-sm"
+              className="inline-flex items-center px-3.5 h-9 text-[14px] font-medium bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
             >
               {tx_("landingStartFree", "Get started")}
             </Link>
@@ -639,17 +428,13 @@ export default function LandingPage() {
               className="md:hidden text-gray-700 p-2 -mr-2"
               aria-label="Menu"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                {menuOpen
-                  ? <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  : <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M4 12h16M4 17h16" />}
-              </svg>
+              {menuOpen ? <X size={20} strokeWidth={2} /> : <Menu size={20} strokeWidth={2} />}
             </button>
           </div>
         </div>
         {menuOpen && (
-          <div className="md:hidden border-t border-stone-200 bg-[#fafaf7]">
-            <div className="px-5 py-3 space-y-1">
+          <div className="md:hidden border-t border-gray-200 bg-gray-50">
+            <div className="px-4 py-3 space-y-1">
               {navLinks.map((l) => (
                 <a
                   key={l.href}
@@ -661,14 +446,14 @@ export default function LandingPage() {
                 </a>
               ))}
               <div className="flex gap-2 pt-2">
-                <Link to="/login" onClick={() => setMenuOpen(false)} className="flex-1 text-center py-2.5 text-[14px] border border-stone-300 rounded-md text-gray-800">
+                <Link to="/login" onClick={() => setMenuOpen(false)} className="flex-1 text-center py-2.5 text-[14px] border border-gray-300 rounded-lg text-gray-800">
                   {tx_("landingSignIn", "Sign in")}
                 </Link>
               </div>
               <select
                 value={lang}
                 onChange={(e) => setLang(e.target.value)}
-                className="mt-2 w-full text-[14px] bg-white border border-stone-200 rounded-md px-3 py-2"
+                className="mt-2 w-full text-[14px] bg-white border border-gray-200 rounded-lg px-3 py-2"
               >
                 {LANGUAGES.map((l) => (
                   <option key={l.code} value={l.code}>{l.label}</option>
@@ -679,80 +464,53 @@ export default function LandingPage() {
         )}
       </nav>
 
-      {/* ── HERO ─── Task #109 landing redesign ────────────────────
-          Product-first, editorial restraint.  Mercury / Plain
-          aesthetic: warm off-white background, serif H1 (Fraunces),
-          ONE primary CTA, NO gradient text, a real-looking Daily
-          Close screen render instead of a phone mockup with
-          placeholder products.
-          Top padding still accounts for env(safe-area-inset-top)
-          so iOS notches don't eat the founder-rate pill. */}
-      <Section className="pt-[calc(env(safe-area-inset-top,0px)+7rem)] sm:pt-[calc(env(safe-area-inset-top,0px)+8rem)] pb-16 sm:pb-24">
-        <div className="grid lg:grid-cols-[1.05fr_1fr] gap-14 lg:gap-20 items-center">
+      {/* ── HERO ─────────────────────────────────────────────────
+          Calm, gray-900 H1, gray-600 subhead, single gray-900
+          primary CTA + ghost secondary text link. No gradient wash
+          behind the headline. The product surface (right column)
+          replaces the previous emerald-glow phone mock. */}
+      <Section className="pt-[calc(env(safe-area-inset-top,0px)+6rem)] sm:pt-[calc(env(safe-area-inset-top,0px)+7rem)] pb-12 sm:pb-20">
+        <div className="grid lg:grid-cols-[1.05fr_1fr] gap-12 lg:gap-16 items-center">
           <div>
-            {/* Task #85 — live founder-rate pill, kept above the H1
-                so urgency precedes promise. */}
             <FounderRatePill />
 
-            {/* Hero H1 — Task #111 update: Inter weight 800 sized
-                so both EN ("Close the day in 30 seconds.") and DA
-                ("Luk dagen på 30 sekunder.") fit on a single line
-                at lg, then line-2 ("Then go home." / "Så er du
-                fri.") falls cleanly below.  At 60px lg + weight
-                800 + tracking -0.035em, the wrap behavior is
-                predictable across both languages without forcing
-                a <br/>.  Line 2 stays muted (stone-500) so the
-                payoff phrase recedes into secondary emphasis. */}
             <h1
-              className="text-[40px] sm:text-[50px] lg:text-[60px] leading-[1.05] tracking-[-0.035em] text-gray-900 mt-6"
+              className="text-[36px] sm:text-[46px] lg:text-[56px] leading-[1.05] tracking-[-0.03em] text-gray-900 mt-4"
               style={{ fontWeight: 800 }}
             >
-              {tx_(
-                "landingHeroLine1",
-                "Luk dagen på 30 sekunder.",
-              )}
+              {tx_("landingHeroLine1", "Luk dagen på 30 sekunder.")}
               <br />
-              <span className="text-stone-500 font-bold">
+              <span className="text-gray-400">
                 {tx_("landingHeroLine2", "Så er du fri.")}
               </span>
             </h1>
 
-            <p className="mt-6 text-[17px] sm:text-[18px] text-stone-600 leading-[1.65] max-w-[520px]">
+            <p className="mt-5 text-[16px] sm:text-[17px] text-gray-600 leading-[1.65] max-w-[540px]">
               {tx_(
                 "landingHeroSub",
                 "Cafés, restaurants, bars, retail, freelancers, konsulenter. Daily close in 30 seconds, MOMS countdown, faktura with auto-match on bank CSV, receipt OCR. A 9am brief that actually helps. 129 DKK/mo founding rate.",
               )}
             </p>
 
-            <div className="mt-8 flex flex-col sm:flex-row sm:items-center gap-4">
+            <div className="mt-7 flex flex-col sm:flex-row sm:items-center gap-3">
               <Link
                 to="/register"
-                className="inline-flex items-center justify-center px-6 py-3.5 bg-emerald-600 text-white text-[15px] font-semibold rounded-md hover:bg-emerald-700 transition shadow-[0_4px_14px_-4px_rgba(16,185,129,0.45)]"
+                className="inline-flex items-center justify-center h-11 px-5 bg-gray-900 text-white text-[14.5px] font-semibold rounded-lg hover:bg-gray-800 transition-colors"
               >
                 {tx_("landingCtaPrimary", "Start gratis i 14 dage")}
-                <svg className="w-4 h-4 ml-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M5 12h14M13 6l6 6-6 6" />
-                </svg>
+                <ArrowRight size={16} strokeWidth={2} className="ml-2" aria-hidden="true" />
               </Link>
-              {/* Ghost text-link, not a third button.  Per the agent
-                  audit: a hero with three CTAs reads as
-                  spam-template — one strong primary + one quiet
-                  secondary is enough. */}
               <a
                 href="#how"
-                className="inline-flex items-center text-[14px] font-medium text-stone-700 hover:text-gray-900 underline underline-offset-4 decoration-stone-300 hover:decoration-stone-600 transition"
+                className="inline-flex items-center justify-center h-11 px-4 text-[14px] font-medium text-gray-700 hover:text-gray-900 transition-colors"
               >
                 {tx_("landingCtaSecondary", "Se Daily Close i 60 sek")}
-                <svg className="w-3.5 h-3.5 ml-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M5 12h14M13 6l6 6-6 6" />
-                </svg>
+                <ArrowRight size={14} strokeWidth={2} className="ml-1.5" aria-hidden="true" />
               </a>
             </div>
 
-            {/* Trust strip — micro-claims that DK SMB owners actually
-                care about (per Danish-market agent). 4 items max so
-                the row stays one line on desktop. */}
-            <div className="mt-7 flex flex-wrap gap-x-5 gap-y-2 text-[12.5px] text-stone-600">
+            {/* Trust strip — 4 short claims, Lucide check, gray-600 */}
+            <div className="mt-7 flex flex-wrap gap-x-5 gap-y-2 text-[12.5px] text-gray-600">
               {[
                 tx_("landingCheck1", "14 dages gratis prøve"),
                 tx_("landingCheck2", "Ingen kortoplysninger"),
@@ -760,97 +518,77 @@ export default function LandingPage() {
                 tx_("landingCheckGdpr", "GDPR · servere i EU"),
               ].map((txt) => (
                 <span key={txt} className="inline-flex items-center gap-1.5">
-                  <svg className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 8.5l3 3 6-7" />
-                  </svg>
+                  <Check size={14} strokeWidth={2.5} className="text-emerald-600 shrink-0" aria-hidden="true" />
                   {txt}
                 </span>
               ))}
             </div>
           </div>
 
-          {/* Right column — the actual product surface as a flat,
-              screen-accurate render.  Task #110: now visible at all
-              breakpoints (was hidden on mobile, which meant mobile
-              visitors never saw the killer hero visual).  Scales
-              gracefully — max-w-[520px] on desktop, scales down with
-              parent on mobile. */}
-          <div className="mt-10 lg:mt-0">
-            <DailyCloseHero />
+          <div className="mt-8 lg:mt-0">
+            <DailyCloseHero tx_={tx_} />
           </div>
         </div>
       </Section>
 
-      {/* ── MOMS COUNTDOWN — killer feature spotlight (Task #109) ──
-          One section, one big visual, one big idea.  Replaces the
-          previous "Brief preview" intro — we put MOMS first because
-          it's the deadline-anxiety surface no DK competitor has
-          (Dinero / Billy show MOMS in a report; we make it a frist).
-          The Brief preview still appears below — this just earns
-          the killer-spotlight slot. */}
-      <Section className="bg-stone-50 border-y border-stone-200/60">
-        <div className="grid lg:grid-cols-[1fr_1.05fr] gap-12 lg:gap-20 items-center">
+      {/* ── MOMS COUNTDOWN spotlight ────────────────────────────
+          White surface section on the gray-50 page bg, divided by
+          a subtle top border. Mirrors how the dashboard's
+          ComplianceCountdownCard sits in its zone. */}
+      <Section className="bg-white border-y border-gray-200">
+        <div className="grid lg:grid-cols-[1fr_1.05fr] gap-10 lg:gap-16 items-center">
           <div className="max-w-lg">
             <Eyebrow>{tx_("landingMomsTag", "Aldrig mere en MOMS-bøde")}</Eyebrow>
-            {/* MOMS spotlight H2 — Inter weight 700 with the same
-                tracking as section headings, but a slightly larger
-                ramp so it still reads as a featured pull. */}
-            <h2
-              className="text-[34px] sm:text-[44px] lg:text-[52px] leading-[1.05] tracking-[-0.03em] text-gray-900"
-              style={{ fontWeight: 700 }}
-            >
+            <Heading>
               {tx_(
                 "landingMomsHeading",
                 "Din MOMS er en dato — ikke en rapport.",
               )}
-            </h2>
-            <p className="mt-5 text-[16.5px] sm:text-[17px] text-stone-600 leading-[1.65]">
+            </Heading>
+            <p className="mt-4 text-[15.5px] sm:text-[16px] text-gray-600 leading-[1.65]">
               {tx_(
                 "landingMomsBody",
                 "BonBox sætter pengene til side automatisk i takt med dine fakturaer og kasserapport. Når fristen nærmer sig, ved du præcis hvor meget der skal indberettes — og hvor meget der allerede ligger klar.",
               )}
             </p>
-            <ul className="mt-6 space-y-2.5 text-[14.5px] text-stone-700">
+            <ul className="mt-5 space-y-2.5 text-[14.5px] text-gray-700">
               {[
                 tx_("landingMomsBullet1", "Auto-afsætning ved hvert salg"),
                 tx_("landingMomsBullet2", "Q1 / Q2 / halvår — vi følger din kadence"),
                 tx_("landingMomsBullet3", "Indberetnings-PDF klar til SKAT"),
               ].map((b) => (
                 <li key={b} className="flex items-start gap-2">
-                  <svg className="w-4 h-4 mt-0.5 text-emerald-600 flex-shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 8.5l3 3 6-7" />
-                  </svg>
+                  <Check size={16} strokeWidth={2.5} className="mt-0.5 text-emerald-600 shrink-0" aria-hidden="true" />
                   <span>{b}</span>
                 </li>
               ))}
             </ul>
           </div>
           <div>
-            <MomsCountdownSpotlight />
+            <MomsCountdownSpotlight tx_={tx_} />
           </div>
         </div>
       </Section>
 
       {/* ── BRIEF PREVIEW — "see the product" moment ─────────────
-          Like Stripe shows code on their homepage, we show the
-          actual Daily Brief card right here so a Copenhagen café
-          owner reading the landing page sees what they'd open at
-          9am tomorrow. Same warm-stone styling as the real card.
-          Numbers are illustrative — no API call, just static JSX. */}
-      <Section className="bg-[#fafaf7] border-y border-stone-200/70">
-        <div className="grid lg:grid-cols-[1fr_1.05fr] gap-12 lg:gap-16 items-center">
+          The actual DailyBriefCard's rendering shape: 9px rounded
+          icon tile (gray-100, not emerald-tinted), gray-900 H3,
+          dotted insights with severity-tinted bullets — same
+          treatment as the in-app card. */}
+      <Section>
+        <div className="grid lg:grid-cols-[1fr_1.05fr] gap-10 lg:gap-14 items-center">
           <div className="max-w-lg">
             <Eyebrow>{tx_("landingBriefPreviewTag", "See it before you sign up")}</Eyebrow>
-            <Heading variant="serif">
+            <Heading>
               {tx_("landingBriefPreviewTitle", "This is your 9am brief.")}
             </Heading>
-            <p className="mt-5 text-[16px] text-stone-600 leading-relaxed">
+            <p className="mt-4 text-[15.5px] text-gray-600 leading-relaxed">
               {tx_(
                 "landingBriefPreviewSub",
                 "Every morning at 8am Copenhagen, BonBox pulls together yesterday's revenue, this week's trend, your MOMS deadline, regulars who haven't been back, and bills due — into one card you can read in 30 seconds. Each insight is one tap to the action that matters.",
               )}
             </p>
-            <p className="mt-4 text-[14px] text-stone-500 leading-relaxed">
+            <p className="mt-3 text-[14px] text-gray-500 leading-relaxed">
               {tx_(
                 "landingBriefPreviewShare",
                 "Forward to your business partner with one tap. The shareable moment that turned BonBox from \"an app I open\" into \"the advisor that arrives.\"",
@@ -858,260 +596,197 @@ export default function LandingPage() {
             </p>
           </div>
 
-          {/* Static replica of the real DailyBriefCard render. Update
-              when DailyBriefCard.jsx structure changes (it usually
-              doesn't; the brief shape has been stable since 2.0).
-              Task #109: softer chrome — no shadow, single emerald glow
-              behind, matches the DailyCloseHero + MomsCountdownSpotlight
-              treatment so the page reads as one design system. */}
-          <div className="relative">
-            <div className="absolute -inset-6 -z-10 bg-emerald-200/40 blur-[100px] rounded-[3rem] pointer-events-none" />
-          <div className="relative bg-white rounded-2xl border border-stone-200/80 shadow-[0_24px_60px_-22px_rgba(15,23,42,0.16)] p-6 sm:p-7">
-            <div className="flex items-start justify-between gap-4 mb-3">
-              <div className="flex items-start gap-3 min-w-0">
-                <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0 mt-0.5 text-emerald-600">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 3l1.9 5.8h6.1l-4.9 3.6 1.9 5.8L12 14.6l-4.9 3.6 1.9-5.8L4 8.8h6.1L12 3z" />
-                  </svg>
-                </div>
-                <div className="min-w-0">
-                  <h3 className="text-[17px] font-semibold text-stone-900 tracking-tight">
-                    {tx_("landingBriefPreviewGreeting", "God morgen, Manoj")}
-                  </h3>
-                  <p className="text-[12.5px] text-stone-500 mt-0.5">
-                    {tx_("landingBriefPreviewDate", "Tirsdag, 19. maj 2026")}
-                  </p>
-                </div>
+          {/* Static replica of DailyBriefCard — calm chrome, no glow. */}
+          <div className={CARD}>
+            <div className="flex items-start gap-3 mb-3">
+              <div className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 mt-0.5">
+                <Sparkles size={16} strokeWidth={1.75} className="text-gray-700" aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-[16px] font-semibold text-gray-900 tracking-tight">
+                  {tx_("landingBriefPreviewGreeting", "God morgen, Manoj")}
+                </h3>
+                <p className="text-[12px] text-gray-500 mt-0.5">
+                  {tx_("landingBriefPreviewDate", "Tirsdag, 19. maj 2026")}
+                </p>
               </div>
             </div>
 
-            <p className="text-[15.5px] leading-snug text-stone-900 mb-2">
+            <p className="text-[15px] leading-snug text-gray-900 mb-1.5">
               {tx_(
                 "landingBriefPreviewHeadline",
                 "MOMS filing in 8 days — est. 96,405 DKK owed. Slightly ahead of pace this month.",
               )}
             </p>
-            <span className="inline-flex items-center gap-1 text-[12.5px] font-medium text-emerald-700 mb-3">
-              {tx_("landingBriefPreviewHeadCta", "Review filing")} <span aria-hidden="true">→</span>
+            <span className="inline-flex items-center gap-1 text-[12.5px] font-medium text-gray-900 mb-3">
+              {tx_("landingBriefPreviewHeadCta", "Review filing")}
+              <ArrowRight size={12} strokeWidth={2} aria-hidden="true" />
             </span>
 
             <ul className="space-y-3 mt-2">
-              <li className="flex items-start gap-2.5">
-                <span className="w-1.5 h-1.5 rounded-full mt-[8px] shrink-0 bg-blue-500" aria-hidden="true" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-[14px] leading-relaxed text-stone-700">
-                    {tx_(
-                      "landingBriefPreviewIns1",
-                      "Today is tracking +12% above your usual Tuesday — strong start.",
+              {[
+                {
+                  text: tx_("landingBriefPreviewIns1", "Today is tracking +12% above your usual Tuesday — strong start."),
+                  cta: null,
+                  ctaKey: null,
+                  tone: "info",
+                },
+                {
+                  text: tx_("landingBriefPreviewIns2", "Recurring posts tomorrow: Husleje, Yousee, Spotify Business (19,547 DKK)."),
+                  cta: tx_("landingBriefPreviewIns2Cta", "Manage recurring"),
+                  tone: "warn",
+                },
+                {
+                  text: tx_("landingBriefPreviewIns3", "3 regulars haven't been back in ~18 days (Marie, Andreas, Lukas) — a quick hello could bring them in this week."),
+                  cta: tx_("landingBriefPreviewIns3Cta", "Open Khata"),
+                  tone: "info",
+                },
+                {
+                  text: tx_("landingBriefPreviewIns4", "Saturday forecast is sunny 19°C — terrace will fill. Schedule autopilot suggests 1 extra waiter."),
+                  cta: tx_("landingBriefPreviewIns4Cta", "Review schedule"),
+                  tone: "warn",
+                },
+              ].map((ins, i) => (
+                <li key={i} className="flex items-start gap-2.5">
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full mt-[8px] shrink-0 ${
+                      ins.tone === "warn" ? "bg-amber-500" : "bg-gray-400"
+                    }`}
+                    aria-hidden="true"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[14px] leading-relaxed text-gray-700">{ins.text}</p>
+                    {ins.cta && (
+                      <span className="inline-flex items-center gap-1 mt-1 text-[12px] font-medium text-gray-900">
+                        {ins.cta}
+                        <ArrowRight size={11} strokeWidth={2} aria-hidden="true" />
+                      </span>
                     )}
-                  </p>
-                </div>
-              </li>
-              <li className="flex items-start gap-2.5">
-                <span className="w-1.5 h-1.5 rounded-full mt-[8px] shrink-0 bg-amber-500" aria-hidden="true" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-[14px] leading-relaxed text-stone-700">
-                    {tx_(
-                      "landingBriefPreviewIns2",
-                      "Recurring posts tomorrow: Husleje, Yousee, Spotify Business (19,547 DKK).",
-                    )}
-                  </p>
-                  <span className="inline-flex items-center gap-1 mt-1 text-[12px] font-medium text-emerald-700">
-                    {tx_("landingBriefPreviewIns2Cta", "Manage recurring")} <span aria-hidden="true">→</span>
-                  </span>
-                </div>
-              </li>
-              <li className="flex items-start gap-2.5">
-                <span className="w-1.5 h-1.5 rounded-full mt-[8px] shrink-0 bg-blue-500" aria-hidden="true" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-[14px] leading-relaxed text-stone-700">
-                    {tx_(
-                      "landingBriefPreviewIns3",
-                      "3 regulars haven't been back in ~18 days (Marie, Andreas, Lukas) — a quick hello could bring them in this week.",
-                    )}
-                  </p>
-                  <span className="inline-flex items-center gap-1 mt-1 text-[12px] font-medium text-emerald-700">
-                    {tx_("landingBriefPreviewIns3Cta", "Open Khata")} <span aria-hidden="true">→</span>
-                  </span>
-                </div>
-              </li>
-              <li className="flex items-start gap-2.5">
-                <span className="w-1.5 h-1.5 rounded-full mt-[8px] shrink-0 bg-amber-500" aria-hidden="true" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-[14px] leading-relaxed text-stone-700">
-                    {tx_(
-                      "landingBriefPreviewIns4",
-                      "Saturday forecast is sunny 19°C — terrace will fill. Schedule autopilot suggests 1 extra waiter.",
-                    )}
-                  </p>
-                  <span className="inline-flex items-center gap-1 mt-1 text-[12px] font-medium text-emerald-700">
-                    {tx_("landingBriefPreviewIns4Cta", "Review schedule")} <span aria-hidden="true">→</span>
-                  </span>
-                </div>
-              </li>
+                  </div>
+                </li>
+              ))}
             </ul>
 
-            <div className="mt-5 pt-3.5 border-t border-stone-100 flex items-center justify-between gap-3">
-              <span className="text-[11px] uppercase tracking-[0.08em] text-stone-400">
+            <div className="mt-5 pt-3.5 border-t border-gray-100 flex items-center justify-between gap-3">
+              <span className="text-[11px] uppercase tracking-wider text-gray-400">
                 {tx_("landingBriefPreviewFooter", "AI Insight · BonBox")}
               </span>
-              <div className="flex items-center gap-2 text-stone-400">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="9" y="9" width="13" height="13" rx="2" />
-                  <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-                </svg>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
-                </svg>
-              </div>
             </div>
           </div>
-          </div>{/* /relative glow wrapper — Task #109 */}
         </div>
       </Section>
 
       {/* ── TRUST + COMPLIANCE STRIP ────────────────────────────
-          Danish small-biz owners are nervous about two things:
-            1. Compliance (Bogføringsloven + SKAT inspections)
-            2. Where their financial data lives (GDPR + retention)
-          This strip answers both without a sales pitch. Five short
-          badges, all backed by the work we shipped this week
-          (kreditnota, audit_logs, accountant login, MOMS PDF). */}
-      <section className="py-10 bg-white border-y border-stone-200/70">
-        <div className="max-w-5xl mx-auto px-5 sm:px-6 lg:px-8">
-          <p className="text-center text-[11px] uppercase tracking-[0.12em] text-stone-400 mb-7">
-            {tx_("landingTrustHeader", "Built for the Danish compliance reality")}
-          </p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-5 sm:gap-7">
-            {[
-              {
-                title: tx_("landingTrustBogf7", "Bogføringsloven §7"),
-                body: tx_("landingTrustBogf7Body", "Gap-less fakturanummer, kreditnota with the next number, locked records."),
-              },
-              {
-                title: tx_("landingTrustBogf10", "Bogføringsloven §10"),
-                body: tx_("landingTrustBogf10Body", "5-year retention. Immutable audit log on every financial mutation."),
-              },
-              {
-                title: tx_("landingTrustGdpr", "GDPR-compliant"),
-                body: tx_("landingTrustGdprBody", "EU-hosted infra. Owner-controlled data export + delete. Revisor logs in without a password share."),
-              },
-              {
-                title: tx_("landingTrustAudit", "Audit-logged"),
-                body: tx_("landingTrustAuditBody", "Every send, void, unlock, schedule-apply leaves an append-only trail you can hand to SKAT."),
-              },
-              {
-                title: tx_("landingTrustDk", "Built in DK"),
-                body: tx_("landingTrustDkBody", "Made for Danish small businesses, by people who've sat with a revisor at month-end. MOMS, lønseddel, CVR-aware. Cafés, restaurants, retail, freelancers — all welcome."),
-              },
-            ].map((badge) => (
-              <div key={badge.title} className="text-left">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="inline-flex w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" aria-hidden="true" />
-                  <h3 className="text-[13px] font-semibold text-stone-900 tracking-tight">
-                    {badge.title}
-                  </h3>
-                </div>
-                <p className="text-[12.5px] text-stone-600 leading-relaxed">
-                  {badge.body}
-                </p>
+          White surface on gray-50 page. 5 compliance badges in the
+          same "left-bullet + heading + body" treatment as the
+          sidebar group items. No emoji, no colored backgrounds. */}
+      <Section className="bg-white border-y border-gray-200">
+        <p className="text-center text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-8">
+          {tx_("landingTrustHeader", "Built for the Danish compliance reality")}
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-5 sm:gap-6">
+          {[
+            {
+              title: tx_("landingTrustBogf7", "Bogføringsloven §7"),
+              body: tx_("landingTrustBogf7Body", "Gap-less fakturanummer, kreditnota with the next number, locked records."),
+            },
+            {
+              title: tx_("landingTrustBogf10", "Bogføringsloven §10"),
+              body: tx_("landingTrustBogf10Body", "5-year retention. Immutable audit log on every financial mutation."),
+            },
+            {
+              title: tx_("landingTrustGdpr", "GDPR-compliant"),
+              body: tx_("landingTrustGdprBody", "EU-hosted infra. Owner-controlled data export + delete. Revisor logs in without a password share."),
+            },
+            {
+              title: tx_("landingTrustAudit", "Audit-logged"),
+              body: tx_("landingTrustAuditBody", "Every send, void, unlock, schedule-apply leaves an append-only trail you can hand to SKAT."),
+            },
+            {
+              title: tx_("landingTrustDk", "Built in DK"),
+              body: tx_("landingTrustDkBody", "Made for Danish small businesses, by people who've sat with a revisor at month-end. MOMS, lønseddel, CVR-aware. Cafés, restaurants, retail, freelancers — all welcome."),
+            },
+          ].map((badge) => (
+            <div key={badge.title}>
+              <div className="flex items-center gap-2 mb-1.5">
+                <Shield size={14} strokeWidth={1.75} className="text-gray-500 shrink-0" aria-hidden="true" />
+                <h3 className="text-[13px] font-semibold text-gray-900 tracking-tight">
+                  {badge.title}
+                </h3>
               </div>
-            ))}
-          </div>
+              <p className="text-[12.5px] text-gray-600 leading-relaxed">
+                {badge.body}
+              </p>
+            </div>
+          ))}
         </div>
-      </section>
+      </Section>
 
-      {/* ── DESIGN TARGETS + INDUSTRIES STRIP ───────────────────────
-          Task #113 honesty: these are DESIGN TARGETS (what BonBox
-          aims for) rather than measured live stats.  We have 2
-          founding customers — animated counters of "90s · 6+ · 5
-          min" would read as proven benchmarks they aren't.  Reframe
-          with the eyebrow "Designed for" and static values (no
-          Counter animation) so visitors read this as our
-          spec/promise, not as fabricated traction. */}
-      <section className="py-12 border-y border-stone-200/70 bg-white">
-        <div className="max-w-5xl mx-auto px-5 sm:px-6 lg:px-8">
-          <p className="text-center text-[11px] uppercase tracking-[0.12em] text-stone-400 mb-6">
-            {tx_("landingDesignedForHeader", "Designed for")}
-          </p>
-          <div className="grid grid-cols-3 gap-6 sm:gap-10">
-            {[
-              { val: "90s", label: tx_("landingStatCloseTime", "Daily close target") },
-              { val: "6+", label: tx_("landingStatTerminals", "Terminals merged at once") },
-              { val: "5 min", label: tx_("landingStatSetup", "Signup to first sale") },
-            ].map((s) => (
-              <div key={s.label} className="text-center">
-                <p className="text-[36px] sm:text-[44px] font-semibold tracking-tight text-gray-900 tabular-nums">
-                  {s.val}
-                </p>
-                <p className="text-[13px] sm:text-[14px] text-stone-500 mt-1.5">{s.label}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Built-for chips — small, restrained, single line on
-              desktop. Communicates segment without claiming customer
-              logos we don't have yet. Each chip is a real persona
-              BonBox is configured for (modules pre-enabled, copy
-              tuned, OCR templates pre-built). */}
-          {/* Smaller chips at mobile (11px) so all 6 fit in 2 even
-              rows of 3 instead of 5+1 awkward. Bumps back to 13px on
-              sm+ where there's room. "Built for" label drops below
-              the chips on mobile to give them centre alignment. */}
-          <div className="mt-10 pt-8 border-t border-stone-100 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-2 text-[11px] sm:text-[13px]">
-            <span className="hidden sm:inline text-stone-500 mr-1 text-[13px]">
-              {tx_("landingBuiltFor", "Built for")}
-            </span>
-            {[
-              tx_("landingIndCafe", "Cafés"),
-              tx_("landingIndRestaurant", "Restaurants"),
-              tx_("landingIndBar", "Bars"),
-              tx_("landingIndShop", "Retail shops"),
-              tx_("landingIndFreelance", "Freelancers"),
-              tx_("landingIndKonsulent", "Konsulenter"),
-            ].map((label) => (
-              <span
-                key={label}
-                className="px-2 sm:px-2.5 py-1 bg-stone-50 border border-stone-200 rounded-full text-stone-700 font-medium"
-              >
-                {label}
-              </span>
-            ))}
-          </div>
-          {/* "Built for" label only on mobile, sits above the chips
-              once they wrap to multiple rows. Keeps the desktop
-              inline layout but solves the lone "Konsulenter" widow. */}
-          <p className="sm:hidden text-center text-[11px] text-stone-500 mt-2">
-            {tx_("landingBuiltFor", "Built for")}
-          </p>
+      {/* ── DESIGN TARGETS + INDUSTRIES ───────────────────────────
+          Three big numbers (design targets, NOT measured stats — see
+          task #113), industry chips below. Same Reassure-card shape
+          as SubscriptionPage so the "row of 3 numbers" reads as
+          interior, not marketing. */}
+      <Section>
+        <p className="text-center text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-6">
+          {tx_("landingDesignedForHeader", "Designed for")}
+        </p>
+        <div className="grid grid-cols-3 gap-3 sm:gap-5 max-w-3xl mx-auto">
+          {[
+            { val: "90s", label: tx_("landingStatCloseTime", "Daily close target") },
+            { val: "6+", label: tx_("landingStatTerminals", "Terminals merged at once") },
+            { val: "5 min", label: tx_("landingStatSetup", "Signup to first sale") },
+          ].map((s) => (
+            <div
+              key={s.label}
+              className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 text-center"
+            >
+              <p className="text-[28px] sm:text-[36px] font-bold tracking-tight text-gray-900 tabular-nums">
+                {s.val}
+              </p>
+              <p className="text-[12px] sm:text-[13px] text-gray-500 mt-1">{s.label}</p>
+            </div>
+          ))}
         </div>
-      </section>
 
-      {/* ── GROW WITH BONBOX — outcomes, not features ─────────── */}
-      {/* The "features" section below tells WHAT BonBox is. This one
-          tells what changes in your business when you use it. The
-          page now leads with outcomes (this section) and follows
-          with the features that deliver them. Three outcome cards,
-          each grounded in a real module we already shipped, so the
-          claims aren't marketing wishes. */}
-      <Section className="bg-[#fafaf7]">
-        <div className="max-w-2xl mb-14">
+        {/* Built-for — typography-only customer types. Calm gray-500
+            so it reads as "for these kinds of businesses" rather
+            than "look how many of them we have". */}
+        <p className="mt-8 text-center text-[13px] text-gray-500">
+          <span className="font-medium text-gray-700">{tx_("landingBuiltFor", "Built for")}</span>
+          <span className="mx-2 text-gray-300">·</span>
+          {tx_("landingIndCafe", "Cafés")}
+          <span className="mx-2 text-gray-300">·</span>
+          {tx_("landingIndRestaurant", "Restaurants")}
+          <span className="mx-2 text-gray-300">·</span>
+          {tx_("landingIndBar", "Bars")}
+          <span className="mx-2 text-gray-300">·</span>
+          {tx_("landingIndShop", "Retail shops")}
+          <span className="mx-2 text-gray-300">·</span>
+          {tx_("landingIndFreelance", "Freelancers")}
+          <span className="mx-2 text-gray-300">·</span>
+          {tx_("landingIndKonsulent", "Konsulenter")}
+        </p>
+      </Section>
+
+      {/* ── GROW WITH BONBOX — outcomes ─────────────────────────
+          Interior card shape (white + border + rounded-xl). Each
+          card carries a Lucide icon, heading, body, and a quiet
+          "Powered by" footer in gray-500 (NOT emerald, per
+          doctrine — emerald isn't a labelling tool). */}
+      <Section className="bg-white border-y border-gray-200">
+        <div className="max-w-2xl mb-10 sm:mb-12">
           <Eyebrow>{tx_("landingGrowTag", "Grow with BonBox")}</Eyebrow>
-          <Heading variant="serif">{tx_("landingGrowTitle", "Built to grow your business — not just track it.")}</Heading>
-          <p className="mt-5 text-[16px] text-stone-600 leading-relaxed">
+          <Heading>{tx_("landingGrowTitle", "Built to grow your business — not just track it.")}</Heading>
+          <p className="mt-4 text-[15.5px] text-gray-600 leading-relaxed">
             {tx_("landingGrowSub", "Most accounting tools tell you what already happened. BonBox surfaces what to do next — every morning, with numbers from your actual yesterday.")}
           </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-5">
+        <div className="grid md:grid-cols-3 gap-3 sm:gap-4">
           {[
             {
-              icon: (
-                <svg className="w-5 h-5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 17l6-6 4 4 8-8" />
-                  <path d="M14 7h7v7" />
-                </svg>
-              ),
+              icon: ICON_SPARK,
               titleKey: "landingGrow1Title",
               titleFallback: "Higher margins",
               bodyKey: "landingGrow1Body",
@@ -1120,28 +795,16 @@ export default function LandingPage() {
               proofFallback: "Powered by · AI anomaly detection · Bar pour system · Expense OCR",
             },
             {
-              icon: (
-                <svg className="w-5 h-5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M9 12l2 2 4-4" />
-                </svg>
-              ),
+              icon: ICON_BANK,
               titleKey: "landingGrow2Title",
               titleFallback: "Steadier cash flow",
               bodyKey: "landingGrow2Body",
-              // Honesty: we don't submit to SKAT, we generate the
-              // filing-ready PDF + count down the days.  Bank match
-              // is CSV-only today.
               bodyFallback: "Get paid faster, chase less. Upload your bank CSV — BonBox matches deposits to open fakturaer. Overdue invoices surface in the morning Brief. The MOMS countdown plus the filing-ready PDF mean you stay ahead of every SKAT deadline — you submit, we keep the calendar.",
               proofKey: "landingGrow2Proof",
               proofFallback: "Powered by · Bank CSV import · Faktura auto-match · MOMS countdown + filing PDF",
             },
             {
-              icon: (
-                <svg className="w-5 h-5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
-                </svg>
-              ),
+              icon: ICON_CLOCK,
               titleKey: "landingGrow3Title",
               titleFallback: "Smarter decisions",
               bodyKey: "landingGrow3Body",
@@ -1150,49 +813,36 @@ export default function LandingPage() {
               proofFallback: "Powered by · AI Daily Brief · Smart Drift · Predictive staffing",
             },
           ].map((o) => (
-            // Task #109 — tighter, denser, no hover-shadow theatre.
-            // Same visual language as the new FeatureCard but with
-            // an extra "powered by" proof strip the regular cards
-            // don't carry.
-            <div
-              key={o.titleKey}
-              className="bg-white rounded-xl p-6 border border-stone-200/80 transition-all duration-150 hover:border-stone-300"
-            >
-              <div className="flex items-center gap-2.5 mb-3">
-                <span className="text-emerald-700">{o.icon}</span>
-                <h3 className="text-[16px] font-semibold text-gray-900 tracking-tight">
+            <div key={o.titleKey} className={CARD_HOVER}>
+              <div className="flex items-center gap-2.5 mb-2.5">
+                <span className="text-gray-700 shrink-0">{o.icon}</span>
+                <h3 className="text-[15px] font-semibold text-gray-900 tracking-tight">
                   {tx_(o.titleKey, o.titleFallback)}
                 </h3>
               </div>
-              <p className="text-[14px] text-stone-600 leading-[1.6]">
+              <p className="text-[14px] text-gray-600 leading-[1.6]">
                 {tx_(o.bodyKey, o.bodyFallback)}
               </p>
-              <p className="mt-4 pt-4 border-t border-stone-100 text-[10.5px] font-medium uppercase tracking-[0.08em] text-emerald-700/80">
+              <p className="mt-4 pt-4 border-t border-gray-100 text-[10.5px] font-medium uppercase tracking-wider text-gray-400">
                 {tx_(o.proofKey, o.proofFallback)}
               </p>
             </div>
           ))}
         </div>
 
-        {/* Quiet conversion nudge tied to the section theme.
-            "See yesterday's profit" is a real action a user can
-            take in BonBox on day one — anchors the abstract outcome
-            language to a concrete first-session moment. */}
-        <p className="mt-10 text-center text-[14px] text-stone-600">
+        <p className="mt-10 text-center text-[14px] text-gray-600">
           {tx_("landingGrowFootnote", "Log today's revenue tonight. See yesterday's profit (and what to do today) tomorrow morning.")}
         </p>
       </Section>
 
       {/* ── SIX WAYS LIFE GETS EASIER ─────────────────────────────
-          Task #110: copy reframed away from "feature catalog" to
-          "this is how your week changes."  Each card titled as an
-          outcome the owner FEELS, with the underlying feature
-          surfaced in the body.  Order: highest-anxiety-relief first. */}
-      <Section id="features" className="bg-white border-y border-stone-200/70">
-        <div className="max-w-2xl mb-14">
+          Feature grid using the exact same EntryCard shape as the
+          interior. Lucide outline icons in gray-700 (not emerald). */}
+      <Section id="features">
+        <div className="max-w-2xl mb-10 sm:mb-12">
           <Eyebrow>{tx_("landingFeaturesTag", "What changes Monday morning")}</Eyebrow>
           <Heading>{tx_("landingFeaturesTitle", "Six ways life gets easier.")}</Heading>
-          <p className="mt-5 text-[16px] text-stone-600 leading-relaxed">
+          <p className="mt-4 text-[15.5px] text-gray-600 leading-relaxed">
             {tx_(
               "landingFeaturesSub",
               "BonBox isn't \"another bookkeeping app.\" It's the layer that turns 12 separate panic-moments a week — close, MOMS, faktura chase, revisor email, weekend staff — into one calm rhythm.",
@@ -1200,49 +850,45 @@ export default function LandingPage() {
           </p>
         </div>
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
           {[
-            // Refreshed May 2026 — Task #110: outcome-led titles.
-            // Each card is a job-to-be-done from the owner's POV.
-            // Body sentence names the underlying feature so a curious
-            // reader sees the mechanism, not just the promise.
             {
-              icon: Icons.Spark,
+              icon: ICON_SPARK,
               titleKey: "landingFeatBriefTitle",
               titleFallback: "Open the app at 8 and already know what to do.",
               bodyKey: "landingFeatBriefBody",
               bodyFallback: "The 8am Daily Brief lands with yesterday's revenue, MOMS countdown, overdue invoices, regulars drifting away, recurring bills due. Each insight is one tap to fix. You'll re-find the morning rhythm you lost.",
             },
             {
-              icon: Icons.Clock,
+              icon: ICON_CLOCK,
               titleKey: "landingFeatHeroTitle",
               titleFallback: "Close the till in 30 seconds. Go home.",
               bodyKey: "landingFeatHeroBody",
               bodyFallback: "Snap the Z-report, BonBox reads the numbers. Four taps — revenue, payments, cash, review. Kasserapport is signed, locked, and ready for SKAT. Saves the 20 minutes of typing you do every night.",
             },
             {
-              icon: Icons.Receipt,
+              icon: ICON_RECEIPT,
               titleKey: "landingFeatFakturaTitle",
               titleFallback: "Get paid faster. Chase less.",
               bodyKey: "landingFeatFakturaBody",
               bodyFallback: "Send fakturaer in one click — gap-less number per Bogføringsloven §7. Bank deposits auto-match to open invoices on the next CSV. Overdue ones surface in the morning Brief before they become a phone call.",
             },
             {
-              icon: Icons.Bank,
+              icon: ICON_BANK,
               titleKey: "landingFeatBankTitle",
               titleFallback: "Stop typing receipts into Excel.",
               bodyKey: "landingFeatBankBody",
               bodyFallback: "Snap a kvittering with your phone — receipt OCR fills the expense in 4 seconds. Upload your netbank CSV — BonBox matches incoming payments to open fakturaer with confidence tiers. The Excel sheet your bookkeeper hates? Gone.",
             },
             {
-              icon: Icons.Calendar,
+              icon: ICON_CAL,
               titleKey: "landingFeatStaffTitle",
               titleFallback: "Stop guessing on weekend staffing.",
               bodyKey: "landingFeatStaffBody",
               bodyFallback: "Schedule autopilot reads the weather forecast, your last 8 weeks of revenue, and DK labor law — proposes next week in one tap. Tweak per shift, publish. Pro-tier cafés save 5–10% on labor without overworking the crew.",
             },
             {
-              icon: Icons.Stack,
+              icon: ICON_LAYERS,
               titleKey: "landingFeatRevisorTitle",
               titleFallback: "Your revisor stops calling.",
               bodyKey: "landingFeatRevisorBody",
@@ -1260,26 +906,17 @@ export default function LandingPage() {
       </Section>
 
       {/* ── EVERYTHING IN BONBOX — dense feature index ───────── */}
-      {/* The 6 cards above tell the story. This section answers
-          the "...but do you have X?" question for every X. Five
-          named categories, ~6 capabilities each = 30 things shown
-          in one structured viewport-height block. Replaces the old
-          "27 random pills" antipattern with real information
-          architecture. */}
-      <Section className="bg-white border-y border-stone-200/70">
-        <div className="text-center max-w-2xl mx-auto mb-14">
+      <Section className="bg-white border-y border-gray-200">
+        <div className="text-center max-w-2xl mx-auto mb-10 sm:mb-12">
           <Eyebrow>{tx_("landingAllTag", "Everything in BonBox")}</Eyebrow>
           <Heading>{tx_("landingAllTitle", "One app. 30+ tools that work together.")}</Heading>
-          <p className="mt-5 text-[16px] text-stone-600 leading-relaxed">
+          <p className="mt-4 text-[15.5px] text-gray-600 leading-relaxed">
             {tx_("landingAllSub", "BonBox replaces the spreadsheet glue between your POS and your bookkeeping. Every module shares the same data, so the morning Brief actually knows what you sold yesterday.")}
           </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-7 lg:gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 lg:gap-5">
           {[
-            // Refreshed May 2026 — categories surface the FEATURES SHIPPED
-            // in the current product, not aspirational ones. Each item
-            // ships and works for a tenant who's on the right tier.
             {
               titleKey: "landingCatMoney",
               titleFallback: "Money",
@@ -1342,13 +979,16 @@ export default function LandingPage() {
             },
           ].map((cat) => (
             <div key={cat.titleKey}>
-              <h3 className="text-[11px] font-semibold text-emerald-700 uppercase tracking-[0.1em] mb-4">
+              {/* Category eyebrow — same shape as sidebar group labels
+                  (MONEY / STOCK / STAFF in Layout.jsx). gray-400, not
+                  emerald-700. */}
+              <h3 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-4">
                 {tx_(cat.titleKey, cat.titleFallback)}
               </h3>
               <ul className="space-y-2.5">
                 {cat.items.map((item) => (
-                  <li key={item} className="flex gap-2.5 text-[14px] text-stone-700 leading-snug">
-                    <span className="mt-1 flex-shrink-0 w-1 h-1 rounded-full bg-emerald-500" />
+                  <li key={item} className="flex gap-2.5 text-[14px] text-gray-700 leading-snug">
+                    <span className="mt-1 flex-shrink-0 w-1 h-1 rounded-full bg-gray-400" />
                     <span>{item}</span>
                   </li>
                 ))}
@@ -1357,112 +997,66 @@ export default function LandingPage() {
           ))}
         </div>
 
-        {/* Footnote — there are more, this is the headline set.
-            Sets honest expectation without dumping 60 things. */}
-        <p className="mt-12 text-center text-[13px] text-stone-500">
+        <p className="mt-12 text-center text-[13px] text-gray-500">
           {tx_("landingAllFootnote", "Plus Khata, Loan tracker, Multi-currency, 6 languages, Dark mode, and a few weekend-project bonuses you'll find along the way.")}
         </p>
       </Section>
 
-      {/* ── ANIMATED FLOW — the 36-second story, no video needed ─ */}
-      {/* Stripe / Linear / Notion all show "the actual flow" without
-          requiring a Loom recording. We do the same with pure HTML
-          + CSS: three boxes animate in sequence to show the path
-          from kasserapport photo → AI merge → owner's inbox PDF.
-          The infinite-loop animation is what visitors see in lieu
-          of a real demo video until we record one. */}
-      <Section className="bg-[#fafaf7]">
-        <div className="text-center max-w-2xl mx-auto mb-14">
+      {/* ── ANIMATED FLOW — the 36-second story ─────────────────── */}
+      <Section>
+        <div className="text-center max-w-2xl mx-auto mb-10 sm:mb-12">
           <Eyebrow>{tx_("landingFlowTag", "See it in action")}</Eyebrow>
-          <Heading variant="serif">{tx_("landingFlowTitle", "Snap. Merge. Done — in 36 seconds.")}</Heading>
-          <p className="mt-5 text-[16px] text-stone-600 leading-relaxed">
+          <Heading>{tx_("landingFlowTitle", "Snap. Merge. Done — in 36 seconds.")}</Heading>
+          <p className="mt-4 text-[15.5px] text-gray-600 leading-relaxed">
             {tx_("landingFlowSub", "Three steps. No retyping. The owner sees the consolidated PDF before lights out.")}
           </p>
         </div>
 
-        {/* Flow rail. Mobile = vertical stack with down-arrows, desktop = horizontal with right-arrows. */}
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr_auto_1fr] gap-6 md:gap-3 items-stretch max-w-5xl mx-auto">
-          {/* Step 1 — Snap */}
-          <div className="bg-white border border-stone-200 rounded-2xl p-6 text-center flowStep flowStep1">
-            <div className="mx-auto w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center mb-4">
-              <svg className="w-6 h-6 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 7h3l2-3h6l2 3h3a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V8a1 1 0 011-1z" />
-                <circle cx="12" cy="13" r="4" />
-              </svg>
-            </div>
-            <p className="text-[11px] uppercase tracking-[0.1em] font-semibold text-emerald-700 mb-1">01</p>
-            <h3 className="text-[16px] font-semibold text-gray-900 mb-1.5 tracking-tight">{tx_("landingFlow1", "Snap the kasserapport")}</h3>
-            <p className="text-[13.5px] text-stone-600 leading-relaxed">{tx_("landingFlow1Sub", "Front-of-house photographs the receipt strip from each terminal.")}</p>
-            <p className="mt-4 text-[11px] font-mono text-stone-400 tabular-nums">~6s per terminal</p>
-          </div>
-
-          {/* Arrow */}
-          <div className="hidden md:flex items-center justify-center flowArrow flowArrow1">
-            <svg className="w-6 h-6 text-stone-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M5 12h14M13 6l6 6-6 6" />
-            </svg>
-          </div>
-          <div className="flex md:hidden items-center justify-center -my-2">
-            <svg className="w-5 h-5 text-stone-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 5v14M19 12l-7 7-7-7" />
-            </svg>
-          </div>
-
-          {/* Step 2 — AI merge */}
-          <div className="bg-white border border-stone-200 rounded-2xl p-6 text-center flowStep flowStep2">
-            <div className="mx-auto w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center mb-4">
-              {/* Pulse ring to suggest "thinking" */}
-              <span className="absolute w-12 h-12 rounded-xl bg-emerald-400/30 flowPulse" />
-              <svg className="w-6 h-6 text-emerald-700 relative" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
-              </svg>
-            </div>
-            <p className="text-[11px] uppercase tracking-[0.1em] font-semibold text-emerald-700 mb-1">02</p>
-            <h3 className="text-[16px] font-semibold text-gray-900 mb-1.5 tracking-tight">{tx_("landingFlow2", "AI merges them")}</h3>
-            <p className="text-[13.5px] text-stone-600 leading-relaxed">{tx_("landingFlow2Sub", "OCR reads each strip. BonBox cross-checks the totals across all terminals.")}</p>
-            <p className="mt-4 text-[11px] font-mono text-stone-400 tabular-nums">~6s</p>
-          </div>
-
-          {/* Arrow */}
-          <div className="hidden md:flex items-center justify-center flowArrow flowArrow2">
-            <svg className="w-6 h-6 text-stone-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M5 12h14M13 6l6 6-6 6" />
-            </svg>
-          </div>
-          <div className="flex md:hidden items-center justify-center -my-2">
-            <svg className="w-5 h-5 text-stone-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 5v14M19 12l-7 7-7-7" />
-            </svg>
-          </div>
-
-          {/* Step 3 — PDF in owner's inbox */}
-          <div className="bg-white border border-stone-200 rounded-2xl p-6 text-center flowStep flowStep3">
-            <div className="mx-auto w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center mb-4">
-              <svg className="w-6 h-6 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 6h16v12H4z" />
-                <path d="M4 6l8 7 8-7" />
-              </svg>
-            </div>
-            <p className="text-[11px] uppercase tracking-[0.1em] font-semibold text-emerald-700 mb-1">03</p>
-            <h3 className="text-[16px] font-semibold text-gray-900 mb-1.5 tracking-tight">{tx_("landingFlow3", "PDF in owner's inbox")}</h3>
-            <p className="text-[13.5px] text-stone-600 leading-relaxed">{tx_("landingFlow3Sub", "Consolidated kasserapport PDF — signed, dated, ready for the revisor.")}</p>
-            <p className="mt-4 text-[11px] font-mono text-stone-400 tabular-nums">before close-up</p>
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr_auto_1fr] gap-3 sm:gap-3 items-stretch max-w-5xl mx-auto">
+          {[
+            { n: "01", titleKey: "landingFlow1", titleFb: "Snap the kasserapport", subKey: "landingFlow1Sub", subFb: "Front-of-house photographs the receipt strip from each terminal.", micro: "~6s per terminal", stepClass: "flowStep1" },
+            null,
+            { n: "02", titleKey: "landingFlow2", titleFb: "AI merges them", subKey: "landingFlow2Sub", subFb: "OCR reads each strip. BonBox cross-checks the totals across all terminals.", micro: "~6s", stepClass: "flowStep2" },
+            null,
+            { n: "03", titleKey: "landingFlow3", titleFb: "PDF in owner's inbox", subKey: "landingFlow3Sub", subFb: "Consolidated kasserapport PDF — signed, dated, ready for the revisor.", micro: "before close-up", stepClass: "flowStep3" },
+          ].map((step, idx) =>
+            step === null ? (
+              <div key={`arrow-${idx}`} aria-hidden="true">
+                <div className="hidden md:flex items-center justify-center h-full">
+                  <ArrowRight size={20} strokeWidth={1.5} className="text-gray-300" />
+                </div>
+                <div className="flex md:hidden items-center justify-center -my-1">
+                  <ChevronDown size={18} strokeWidth={1.5} className="text-gray-300" />
+                </div>
+              </div>
+            ) : (
+              <div key={step.n} className={`${CARD} text-center flowStep ${step.stepClass}`}>
+                <p className="text-[11px] uppercase tracking-wider font-semibold text-gray-400 mb-2">{step.n}</p>
+                <h3 className="text-[15px] font-semibold text-gray-900 mb-1.5 tracking-tight">
+                  {tx_(step.titleKey, step.titleFb)}
+                </h3>
+                <p className="text-[13.5px] text-gray-600 leading-relaxed">
+                  {tx_(step.subKey, step.subFb)}
+                </p>
+                <p className="mt-4 text-[11px] font-medium text-gray-400 tabular-nums">{step.micro}</p>
+              </div>
+            ),
+          )}
         </div>
 
-        <p className="mt-10 text-center text-[13px] text-stone-500">
+        <p className="mt-8 text-center text-[13px] text-gray-500">
           {tx_("landingFlowFootnote", "Built for multi-terminal closes — restaurants, bars, cafés, takeaways with 2-6 registers.")}
         </p>
       </Section>
 
-      {/* ── HOW IT WORKS — 3 steps, restrained ─────────────────── */}
-      <Section id="how" className="bg-white border-y border-stone-200/70">
-        <div className="max-w-2xl mb-12">
+      {/* ── HOW IT WORKS — 3 steps ─────────────────────── */}
+      <Section id="how" className="bg-white border-y border-gray-200">
+        <div className="max-w-2xl mb-10">
           <Eyebrow>{tx_("landingHowTag", "How it works")}</Eyebrow>
           <Heading>{tx_("landingHowTitle", "From signup to first sale in under 5 minutes.")}</Heading>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8 md:gap-10">
+        <div className="grid md:grid-cols-3 gap-6 md:gap-8">
           {[
             {
               n: "01",
@@ -1487,11 +1081,11 @@ export default function LandingPage() {
             },
           ].map((s) => (
             <div key={s.n}>
-              <p className="text-[13px] font-semibold text-emerald-700 tabular-nums tracking-wider mb-3">{s.n}</p>
-              <h3 className="text-[18px] font-semibold text-gray-900 mb-2 tracking-tight">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2 tabular-nums">{s.n}</p>
+              <h3 className="text-[17px] font-semibold text-gray-900 mb-2 tracking-tight">
                 {tx_(s.titleKey, s.titleFallback)}
               </h3>
-              <p className="text-[14.5px] text-stone-600 leading-relaxed">
+              <p className="text-[14.5px] text-gray-600 leading-relaxed">
                 {tx_(s.bodyKey, s.bodyFallback)}
               </p>
             </div>
@@ -1499,26 +1093,21 @@ export default function LandingPage() {
         </div>
       </Section>
 
-
       {/* ── PRICING ────────────────────────────────────────────── */}
-      <Section id="pricing" className="bg-white border-y border-stone-200/70">
-        <div className="text-center max-w-2xl mx-auto mb-14">
+      {/* Match SubscriptionPage tier-card shape: bg-white + border-gray-200
+          + rounded-xl + p-5; the recommended tier gets a gray-900 ring
+          (ring-1 ring-gray-900/10) — NOT an emerald-500 border-2.  The
+          "Most popular" badge is gray-900 bg with white text. */}
+      <Section id="pricing" className="bg-white border-y border-gray-200">
+        <div className="text-center max-w-2xl mx-auto mb-10 sm:mb-12">
           <Eyebrow>{tx_("landingPricingTag", "Pricing")}</Eyebrow>
           <Heading>{tx_("landingPricingTitle", "Free to start. Pro unlocks white-label.")}</Heading>
-          <p className="mt-5 text-[16px] text-stone-600">
+          <p className="mt-4 text-[15.5px] text-gray-600">
             {tx_("landingPricingSub", "Every tier includes Bogføringsloven §7 / §12 compliance and the AI brief. No per-seat pricing.")}
           </p>
         </div>
 
-        {/* Pricing — must match the source-of-truth in
-            backend/app/services/billing.py + frontend/src/pages/SubscriptionPage.jsx:
-              Starter  regular 199 kr/mo · founding 129 kr/mo
-              Pro      regular 349 kr/mo · founding 249 kr/mo
-            Founding rate is locked in for life for the first 100
-            customers. We surface both so the page reads honest:
-            big number = what you actually pay today, small struck-
-            through = the rate after the founding window closes. */}
-        <div className="grid md:grid-cols-3 gap-5">
+        <div className="grid md:grid-cols-3 gap-3 sm:gap-4 items-stretch">
           {[
             {
               name: "Free",
@@ -1526,10 +1115,6 @@ export default function LandingPage() {
               regularPrice: null,
               descFallback: "Try BonBox for as long as you like.",
               descKey: "landingPriceFreeDesc",
-              // Task #113 honesty: surface the real Free caps so
-              // visitors don't sign up expecting unlimited.  Numbers
-              // match the actual entitlement caps in
-              // backend/app/services/billing.py.
               features: [
                 tx_("landingFreeF1", "200 sales · 100 expenses · 30 OCR / month"),
                 tx_("landingFreeF2", "AI Daily Brief (1× refresh / day)"),
@@ -1541,8 +1126,8 @@ export default function LandingPage() {
             },
             {
               name: "Starter",
-              price: 129,           // founding rate
-              regularPrice: 199,    // post-founding rate
+              price: 129,
+              regularPrice: 199,
               descFallback: "When you start sending fakturaer.",
               descKey: "landingPriceStarterDesc",
               features: [
@@ -1556,8 +1141,8 @@ export default function LandingPage() {
             },
             {
               name: "Pro",
-              price: 249,           // founding rate (was wrongly 299)
-              regularPrice: 349,    // post-founding rate
+              price: 249,
+              regularPrice: 349,
               descFallback: "Clean PDFs + multi-branch.",
               descKey: "landingPriceProDesc",
               features: [
@@ -1572,41 +1157,41 @@ export default function LandingPage() {
           ].map((p) => (
             <div
               key={p.name}
-              className={`relative bg-white rounded-2xl p-7 ${
-                p.emphasis
-                  ? "border-2 border-emerald-500 shadow-[0_8px_32px_-8px_rgba(16,185,129,0.25)]"
-                  : "border border-stone-200"
+              className={`relative bg-white border border-gray-200 rounded-xl p-5 sm:p-6 flex flex-col ${
+                p.emphasis ? "ring-1 ring-gray-900/10" : ""
               }`}
             >
               {p.emphasis && (
-                <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 bg-emerald-600 text-white text-[11px] font-semibold rounded-full">
+                <span className="absolute -top-2.5 left-5 bg-gray-900 text-white text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full whitespace-nowrap">
                   {tx_("landingPricingMostPopular", "Most popular")}
                 </span>
               )}
-              <h3 className="text-[18px] font-semibold text-gray-900">{p.name}</h3>
-              <p className="text-[14px] text-stone-600 mt-1">{tx_(p.descKey, p.descFallback)}</p>
+
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                {p.name}
+              </p>
+              <p className="text-[14px] text-gray-600 mt-1.5">{tx_(p.descKey, p.descFallback)}</p>
+
               <div className="mt-5 flex items-baseline gap-2 flex-wrap">
-                <span className="text-[40px] font-semibold tracking-tight tabular-nums text-gray-900">
+                <span className="text-[36px] font-bold tracking-tight tabular-nums text-gray-900">
                   {p.price === 0 ? "0" : p.price} kr
                 </span>
-                <span className="text-[15px] text-stone-500">
+                <span className="text-[14px] text-gray-500">
                   {p.price === 0 ? tx_("landingForever", "forever") : "/mo"}
                 </span>
                 {p.regularPrice && (
-                  <span className="text-[13px] text-stone-400 line-through tabular-nums">
+                  <span className="text-[12px] text-gray-400 line-through tabular-nums">
                     {p.regularPrice} kr
                   </span>
                 )}
               </div>
+
               {p.regularPrice && (
-                <p className="mt-1.5 text-[11px] font-medium uppercase tracking-wider text-emerald-700">
-                  {/* Live count from /api/public/founder-rate-status
-                      (Task #89 P3-9) — replaces the static "first 100
-                      customers" line. We only echo the count when the
-                      backend gave us a coherent response AND the rate
-                      is still locked; if sold out we say so honestly,
-                      and on fetch failure we fall back to the original
-                      static copy so the layout never looks broken. */}
+                <p className="mt-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-gray-500 bg-gray-100 self-start px-1.5 py-0.5 rounded">
+                  {/* Live count from /api/public/founder-rate-status — same
+                      defensive pattern as before. Emerald-free since the
+                      pill itself (FounderRatePill) already carries the
+                      time-sensitive amber treatment in the hero. */}
                   {founderStatusValid
                     ? founderStatus.locked
                       ? tx_("landingFoundingRateLive",
@@ -1616,20 +1201,22 @@ export default function LandingPage() {
                     : tx_("landingFoundingRate", "Founding rate · first 100 customers")}
                 </p>
               )}
+
               <Link
                 to={p.ctaHref}
-                className={`mt-6 block text-center px-5 py-3 rounded-md text-[14px] font-medium transition ${
+                className={`mt-5 block text-center h-11 px-5 rounded-lg text-[14px] font-semibold leading-[44px] transition-colors ${
                   p.emphasis
-                    ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                    : "bg-white border border-stone-300 text-gray-900 hover:border-stone-400"
+                    ? "bg-gray-900 text-white hover:bg-gray-800"
+                    : "bg-white border border-gray-300 text-gray-900 hover:border-gray-400"
                 }`}
               >
                 {p.cta}
               </Link>
-              <ul className="mt-7 space-y-3 border-t border-gray-100 pt-6">
+
+              <ul className="mt-6 pt-5 border-t border-gray-200 space-y-2.5 flex-1">
                 {p.features.map((f) => (
-                  <li key={f} className="flex gap-3 text-[14px] text-gray-700">
-                    <span className="mt-0.5 flex-shrink-0">{Icons.Check}</span>
+                  <li key={f} className="flex gap-2 text-[13.5px] text-gray-700 leading-snug">
+                    <Check size={16} strokeWidth={2.5} className="mt-0.5 text-emerald-600 shrink-0" aria-hidden="true" />
                     <span>{f}</span>
                   </li>
                 ))}
@@ -1638,32 +1225,28 @@ export default function LandingPage() {
           ))}
         </div>
 
-        <p className="mt-10 text-center text-[13px] text-stone-500">
+        <p className="mt-10 text-center text-[13px] text-gray-500">
           {tx_("landingPricingNote", "All plans include Bogføringsloven §12 retention + audit log. Cancel anytime, no questions asked.")}
         </p>
       </Section>
 
-      {/* ── POSITIONING — what BonBox IS / what BonBox IS NOT ─── */}
-      {/* Danish café owners already know Dinero, Billy, Lightspeed.
-          We don't name competitors (user moved that off the front
-          page), but we DO clarify what BonBox replaces vs what it
-          sits alongside. Cuts the "is this another bookkeeping app?"
-          confusion in one viewport. */}
-      <Section className="bg-[#fafaf7]">
-        <div className="text-center max-w-2xl mx-auto mb-12">
+      {/* ── POSITIONING — IS / IS NOT ─── */}
+      <Section>
+        <div className="text-center max-w-2xl mx-auto mb-10">
           <Eyebrow>{tx_("landingPositioningTag", "Where it fits")}</Eyebrow>
-          <Heading variant="serif">{tx_("landingPositioningTitle", "Not bookkeeping. Not POS. The layer on top.")}</Heading>
-          <p className="mt-5 text-[16px] text-stone-600 leading-relaxed">
+          <Heading>{tx_("landingPositioningTitle", "Not bookkeeping. Not POS. The layer on top.")}</Heading>
+          <p className="mt-4 text-[15.5px] text-gray-600 leading-relaxed">
             {tx_("landingPositioningSub", "BonBox is the morning-after close + AI brief that sits on top of whatever you already use. Keep your POS. Keep your bookkeeper. We do the part nobody else does.")}
           </p>
         </div>
-        <div className="grid md:grid-cols-2 gap-5 max-w-4xl mx-auto">
-          {/* IS column */}
-          <div className="bg-white border-2 border-emerald-500 rounded-2xl p-6">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-700 mb-4">
+        <div className="grid md:grid-cols-2 gap-3 sm:gap-4 max-w-4xl mx-auto">
+          {/* IS column — gray-900 ring marks it as the affirmative
+              side without falling back to colored borders. */}
+          <div className={`${CARD} ring-1 ring-gray-900/10`}>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-900 mb-3">
               {tx_("landingPositioningIs", "BonBox is")}
             </p>
-            <ul className="space-y-3">
+            <ul className="space-y-2.5">
               {[
                 tx_("landingPosIs1", "The 90-second multi-terminal daily close"),
                 tx_("landingPosIs2", "Faktura with Bogføringsloven §7 gap-less numbering"),
@@ -1671,19 +1254,19 @@ export default function LandingPage() {
                 tx_("landingPosIs4", "OCR receipts + bank-CSV auto-match to fakturaer"),
                 tx_("landingPosIs5", "Revisor-ready CSV bundle for the årsregnskab"),
               ].map((line) => (
-                <li key={line} className="flex gap-3 text-[14px] text-stone-700 leading-snug">
-                  <span className="mt-0.5 flex-shrink-0">{Icons.Check}</span>
+                <li key={line} className="flex gap-2 text-[14px] text-gray-700 leading-snug">
+                  <Check size={16} strokeWidth={2.5} className="mt-0.5 text-emerald-600 shrink-0" aria-hidden="true" />
                   <span>{line}</span>
                 </li>
               ))}
             </ul>
           </div>
           {/* IS NOT column */}
-          <div className="bg-white border border-stone-200 rounded-2xl p-6">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-stone-500 mb-4">
+          <div className={CARD}>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-3">
               {tx_("landingPositioningIsNot", "BonBox is not")}
             </p>
-            <ul className="space-y-3">
+            <ul className="space-y-2.5">
               {[
                 tx_("landingPosNot1", "A POS terminal — keep yours, we sync from it"),
                 tx_("landingPosNot2", "A registered digital bookkeeping system — pair with one for SKAT filings"),
@@ -1691,8 +1274,8 @@ export default function LandingPage() {
                 tx_("landingPosNot4", "A payment processor — MobilePay / Stripe stay yours"),
                 tx_("landingPosNot5", "A spreadsheet — but it absorbs the busywork the spreadsheet was hiding"),
               ].map((line) => (
-                <li key={line} className="flex gap-3 text-[14px] text-stone-600 leading-snug">
-                  <span className="mt-1 flex-shrink-0 w-1.5 h-1.5 rounded-full bg-stone-300" />
+                <li key={line} className="flex gap-2 text-[14px] text-gray-600 leading-snug">
+                  <span className="mt-1.5 shrink-0 w-1.5 h-1.5 rounded-full bg-gray-300" />
                   <span>{line}</span>
                 </li>
               ))}
@@ -1701,107 +1284,86 @@ export default function LandingPage() {
         </div>
       </Section>
 
-      {/* ── FAQ — 5 honest answers above the final CTA ────────── */}
-      <Section className="bg-white border-y border-stone-200/70">
-        <div className="text-center max-w-2xl mx-auto mb-12">
+      {/* ── FAQ ─────────────────────────────── */}
+      <Section className="bg-white border-y border-gray-200">
+        <div className="text-center max-w-2xl mx-auto mb-10">
           <Eyebrow>{tx_("landingFaqTag", "Questions")}</Eyebrow>
           <Heading>{tx_("landingFaqTitle", "What people ask before signing up.")}</Heading>
         </div>
-        <div className="max-w-3xl mx-auto divide-y divide-stone-200 border border-stone-200 rounded-2xl overflow-hidden bg-white">
+        <div className="max-w-3xl mx-auto divide-y divide-gray-200 border border-gray-200 rounded-xl overflow-hidden bg-white">
           {[
-            {
-              q: tx_("landingFaq1Q", "Does this work with my POS?"),
-              a: tx_("landingFaq1A", "BonBox doesn't replace your POS — it reads what comes out of it. Snap a photo of the kasserapport from any phone, BonBox extracts the numbers. Works regardless of which till you use, including paper kasserapport. (We don't have brand integrations — we OCR the Z-report, so any POS that prints one works.)"),
-            },
-            {
-              q: tx_("landingFaq2Q", "Do I still need an accountant?"),
-              a: tx_("landingFaq2A", "Yes, for the årsregnskab and SKAT filings. BonBox handles the monthly grind (sales, faktura, bank-match, OCR receipts, Moms tracking) so your revisor only needs you once a year. Most users save ~17,500 kr/yr vs monthly revisor service."),
-            },
-            {
-              q: tx_("landingFaq3Q", "What if the AI misreads a kasserapport?"),
-              a: tx_("landingFaq3A", "Every parsed receipt is editable — the AI suggests, you confirm. Low-confidence matches go to a Review inbox instead of the books. Nothing flips to 'final' without your tap. Plus a 10-year audit log records every change."),
-            },
-            {
-              q: tx_("landingFaq4Q", "Where does my data live?"),
-              a: tx_("landingFaq4A", "EU-only. Hosted in Denmark. Encrypted at rest, audit log immutable at the DB level (Postgres rules), GDPR-first by design. You can export everything as CSV at any time and delete your account in one click."),
-            },
-            {
-              q: tx_("landingFaq5Q", "Do I need a CVR to sign up?"),
-              a: tx_("landingFaq5A", "No. Sign up with email. Add CVR later when you want CVR-verified customers + auto-fill on fakturaer. Freelancers without a CVR work fine — just toggle 'Privatperson' on each customer."),
-            },
-            {
-              q: tx_("landingFaq6Q", "What happens after the 14-day trial?"),
-              a: tx_("landingFaq6A", "You drop to Free automatically — no card, no auto-charge. Free keeps Sales + Expenses + Daily Close + the AI Brief forever. To unlock faktura + bank-match + brand-on-PDF, upgrade to Starter (129 kr/mo founding). Pricing is shown on this page; nothing is hidden."),
-            },
+            { q: tx_("landingFaq1Q", "Does this work with my POS?"),
+              a: tx_("landingFaq1A", "BonBox doesn't replace your POS — it reads what comes out of it. Snap a photo of the kasserapport from any phone, BonBox extracts the numbers. Works regardless of which till you use, including paper kasserapport. (We don't have brand integrations — we OCR the Z-report, so any POS that prints one works.)") },
+            { q: tx_("landingFaq2Q", "Do I still need an accountant?"),
+              a: tx_("landingFaq2A", "Yes, for the årsregnskab and SKAT filings. BonBox handles the monthly grind (sales, faktura, bank-match, OCR receipts, Moms tracking) so your revisor only needs you once a year. Most users save ~17,500 kr/yr vs monthly revisor service.") },
+            { q: tx_("landingFaq3Q", "What if the AI misreads a kasserapport?"),
+              a: tx_("landingFaq3A", "Every parsed receipt is editable — the AI suggests, you confirm. Low-confidence matches go to a Review inbox instead of the books. Nothing flips to 'final' without your tap. Plus a 10-year audit log records every change.") },
+            { q: tx_("landingFaq4Q", "Where does my data live?"),
+              a: tx_("landingFaq4A", "EU-only. Hosted in Denmark. Encrypted at rest, audit log immutable at the DB level (Postgres rules), GDPR-first by design. You can export everything as CSV at any time and delete your account in one click.") },
+            { q: tx_("landingFaq5Q", "Do I need a CVR to sign up?"),
+              a: tx_("landingFaq5A", "No. Sign up with email. Add CVR later when you want CVR-verified customers + auto-fill on fakturaer. Freelancers without a CVR work fine — just toggle 'Privatperson' on each customer.") },
+            { q: tx_("landingFaq6Q", "What happens after the 14-day trial?"),
+              a: tx_("landingFaq6A", "You drop to Free automatically — no card, no auto-charge. Free keeps Sales + Expenses + Daily Close + the AI Brief forever. To unlock faktura + bank-match + brand-on-PDF, upgrade to Starter (129 kr/mo founding). Pricing is shown on this page; nothing is hidden.") },
           ].map((item) => (
             <details key={item.q} className="group">
-              <summary className="flex items-center justify-between cursor-pointer px-6 py-5 hover:bg-stone-50 transition-colors list-none">
-                <span className="text-[15px] font-semibold text-gray-900 tracking-tight">{item.q}</span>
-                <svg className="w-5 h-5 text-stone-400 group-open:rotate-180 transition-transform flex-shrink-0 ml-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M6 9l6 6 6-6" />
-                </svg>
+              <summary className="flex items-center justify-between cursor-pointer px-5 sm:px-6 py-4 hover:bg-gray-50 transition-colors list-none">
+                <span className="text-[14.5px] font-semibold text-gray-900 tracking-tight pr-3">{item.q}</span>
+                <ChevronDown size={18} strokeWidth={1.75} className="text-gray-400 group-open:rotate-180 transition-transform shrink-0" aria-hidden="true" />
               </summary>
-              <div className="px-6 pb-5 text-[14.5px] text-stone-600 leading-relaxed">
+              <div className="px-5 sm:px-6 pb-5 text-[14px] text-gray-600 leading-relaxed">
                 {item.a}
               </div>
             </details>
           ))}
         </div>
-        <p className="mt-8 text-center text-[13px] text-stone-500">
+        <p className="mt-6 text-center text-[13px] text-gray-500">
           {tx_("landingFaqMore", "Different question? Email")}{" "}
-          <a href="mailto:hello@bonbox.dk" className="text-emerald-700 hover:text-emerald-800 underline underline-offset-2">hello@bonbox.dk</a>
+          <a href="mailto:hello@bonbox.dk" className="text-gray-900 hover:text-gray-700 underline underline-offset-2">hello@bonbox.dk</a>
         </p>
       </Section>
 
-      {/* ── FINAL CTA ──────────────────────────────────────────── */}
-      {/* Replaced the dark slab with a warm light panel — the
-          black/green/white sandwich felt harsh. Soft emerald wash on
-          warm cream reads as confident-not-aggressive, matches the
-          Copenhagen restraint we set up in the hero. */}
+      {/* ── FINAL CTA ─────────────────── */}
+      {/* Single calm card, NO rainbow wash. Gray-900 surface inversion:
+          the dark slab returns as ONE intentional moment, matching the
+          gray-900 primary CTA aesthetic. */}
       <Section>
-        <div className="relative rounded-3xl px-8 sm:px-14 py-14 sm:py-20 text-center overflow-hidden bg-gradient-to-br from-emerald-50 via-stone-50 to-emerald-50 border border-emerald-100/80">
-          {/* Subtle accent glow behind the headline */}
-          <div className="absolute inset-x-0 top-0 -z-10 flex justify-center pointer-events-none">
-            <div className="h-[300px] w-[640px] bg-emerald-200/40 blur-[140px] rounded-full" />
-          </div>
-          <h2 className="text-[28px] sm:text-[38px] lg:text-[44px] font-semibold tracking-tight text-stone-900 leading-tight">
+        <div className="rounded-xl px-6 sm:px-10 py-12 sm:py-16 text-center bg-gray-900 text-white">
+          <h2 className="text-[26px] sm:text-[34px] lg:text-[40px] font-bold tracking-tight leading-tight">
             {tx_("landingFinalTitle", "Try BonBox for two weeks.")}
             <br />
-            <span className="text-emerald-700">{tx_("landingFinalTitle2", "Decide on day 15.")}</span>
+            <span className="text-gray-400">{tx_("landingFinalTitle2", "Decide on day 15.")}</span>
           </h2>
-          <p className="mt-5 text-[16px] sm:text-[17px] text-stone-600 max-w-lg mx-auto leading-relaxed">
+          <p className="mt-4 text-[15.5px] sm:text-[16px] text-gray-300 max-w-lg mx-auto leading-relaxed">
             {tx_("landingFinalSub", "No card. No setup call. Open the app, log today's revenue, and see your morning Brief tomorrow.")}
           </p>
-          <div className="mt-9 flex flex-col sm:flex-row gap-3 justify-center">
+          <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
             <Link
               to="/register"
-              className="inline-flex items-center justify-center px-7 py-3.5 bg-emerald-600 text-white text-[15px] font-medium rounded-md hover:bg-emerald-700 transition shadow-[0_4px_14px_-4px_rgba(16,185,129,0.4)]"
+              className="inline-flex items-center justify-center h-11 px-6 bg-white text-gray-900 text-[14.5px] font-semibold rounded-lg hover:bg-gray-100 transition-colors"
             >
               {tx_("landingFinalCta", "Start free trial")}
-              <svg className="w-4 h-4 ml-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M5 12h14M13 6l6 6-6 6" />
-              </svg>
+              <ArrowRight size={16} strokeWidth={2} className="ml-2" aria-hidden="true" />
             </Link>
             <a
               href="https://apps.apple.com/dk/app/bonbox-daily-close/id6762066960"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2.5 px-6 py-3.5 bg-white border border-stone-200 rounded-md text-stone-900 hover:border-stone-300 transition text-[14px] font-medium"
+              className="inline-flex items-center justify-center gap-2 h-11 px-5 bg-transparent border border-gray-700 rounded-lg text-white hover:bg-gray-800 transition-colors text-[14px] font-medium"
             >
-              {Icons.Apple}
+              <Apple size={16} strokeWidth={1.75} aria-hidden="true" />
               App Store
             </a>
           </div>
         </div>
       </Section>
 
-      {/* ── FOOTER ─────────────────────────────────────────────── */}
-      <footer className="border-t border-stone-200/70 bg-[#fafaf7]">
-        <div className="max-w-6xl mx-auto px-5 sm:px-6 lg:px-8 py-10">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
+      {/* ── FOOTER ─────────────────────────────────── */}
+      <footer className="border-t border-gray-200 bg-gray-50">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-5">
             <Link to="/" className="flex items-center gap-2.5">
-              <div className="w-7 h-7 bg-emerald-500 rounded-md flex items-center justify-center">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <div className="w-7 h-7 bg-gray-900 rounded-lg flex items-center justify-center">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <rect x="4" y="3" width="16" height="18" rx="2" />
                   <path d="M8 8h8M8 12h8M8 16h5" />
                 </svg>
@@ -1809,14 +1371,14 @@ export default function LandingPage() {
               <span className="text-[15px] font-semibold tracking-tight text-gray-900">BonBox</span>
             </Link>
 
-            <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13px] text-stone-600">
-              <Link to="/privacy" className="hover:text-gray-900 transition">{tx_("privacy", "Privacy")}</Link>
-              <Link to="/terms" className="hover:text-gray-900 transition">{tx_("terms", "Terms")}</Link>
-              <Link to="/cookies" className="hover:text-gray-900 transition">{tx_("cookies", "Cookies")}</Link>
-              <Link to="/contact" className="hover:text-gray-900 transition">{tx_("contact", "Contact")}</Link>
+            <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13px] text-gray-600">
+              <Link to="/privacy" className="hover:text-gray-900 transition-colors">{tx_("privacy", "Privacy")}</Link>
+              <Link to="/terms" className="hover:text-gray-900 transition-colors">{tx_("terms", "Terms")}</Link>
+              <Link to="/cookies" className="hover:text-gray-900 transition-colors">{tx_("cookies", "Cookies")}</Link>
+              <Link to="/contact" className="hover:text-gray-900 transition-colors">{tx_("contact", "Contact")}</Link>
             </div>
 
-            <p className="text-[12px] text-stone-500">
+            <p className="text-[12px] text-gray-500">
               © {new Date().getFullYear()} BonBox · København
             </p>
           </div>
