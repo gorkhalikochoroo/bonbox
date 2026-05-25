@@ -213,6 +213,16 @@ export const DASHBOARD_CARD_SET = {
       renderIf: (ctx) =>
         ctx?.trialDaysLeft != null && ctx.trialDaysLeft <= 7,
     },
+    // Task #104: PSD2 bank consent renewal nag (T-14d window).  The
+    // component itself fetches /bank-connections and self-hides when
+    // nothing is expiring, so renderIf can just check feature-gate.
+    // Starter+ only: Free users have no connection rows in the first
+    // place, but be belt-and-brace on the gate.
+    {
+      id: "bankExpiry",
+      component: "BankConsentExpiryBanner",
+      renderIf: (ctx) => !!ctx?.has?.("bank_auto_reconcile"),
+    },
     {
       id: "push",
       component: "PushOptInPrompt",

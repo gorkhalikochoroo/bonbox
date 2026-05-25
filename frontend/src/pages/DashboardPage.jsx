@@ -73,6 +73,7 @@ import AccountantHoursWidget from "../components/AccountantHoursWidget";
 import SmartDriftBanner from "../components/SmartDriftBanner";
 import DemoActiveBanner from "../components/DemoActiveBanner";
 import TrialBanner from "../components/TrialBanner";
+import BankConsentExpiryBanner from "../components/BankConsentExpiryBanner";
 import PushOptInPrompt from "../components/PushOptInPrompt";
 import MonthEndBundleBanner from "../components/MonthEndBundleBanner";
 import CloserPromptCard from "../components/CloserPromptCard";
@@ -97,6 +98,10 @@ const REGISTRY = {
   DemoActiveBanner,
   TrialBanner,
   PushOptInPrompt,
+  // Task #104: surfaces when a connected bank's 90-day SCA consent
+  // window enters its last 14 days.  Self-hides when no bank is at
+  // risk; renders nothing for Free users (no connection rows).
+  BankConsentExpiryBanner,
 
   // ── Zone 1 ──
   OutstandingFakturaCard,

@@ -2870,6 +2870,17 @@ const translations = {
     mpCallbackCancelled: "MobilePay connection cancelled",
     mpCallbackError: "Could not finish MobilePay connection",
     connecting: "Connecting…",
+    // ─── Bank consent expiry (PSD2 / SCA 180-day re-consent) ──────
+    // Task #104.  These render in BankConsentExpiryBanner on /dashboard
+    // when an active bank connection is within 14 days of consent expiry.
+    // We carry the bank label inline (e.g. "Nordea") so the message is
+    // immediate; no separate "which bank?" lookup needed.
+    bankExpiryToday: "Your bank connection expires today. Reconnect to keep syncing.",
+    bankExpiryTomorrow: "Your bank connection expires tomorrow. Reconnect now to avoid a gap.",
+    bankExpiryDays: "Your bank connection expires soon. Reconnect to keep auto-sync running.",
+    bankExpiryReconnect: "Reconnect",
+    bankExpiryReconnecting: "Opening bank…",
+    notNow: "Not now",
     // ─── Smart Scan ("snap anything" entry point) ──────────────────
     // DK terminology rule (memory): `kasserapport`, `faktura`,
     // `revisor`, `MOMS`, `kvittering` stay Danish even in EN — they're
@@ -6027,6 +6038,16 @@ const translations = {
     mpCallbackCancelled: "MobilePay-forbindelsen blev annulleret",
     mpCallbackError: "Kunne ikke fuldføre MobilePay-forbindelsen",
     connecting: "Forbinder…",
+    // ─── Bank-samtykke udløb (PSD2 / SCA 180-dages fornyelse) ──────
+    // Opgave #104.  Vises i BankConsentExpiryBanner på /dashboard når
+    // en aktiv bankforbindelse er inden for 14 dage før udløb.  Vi
+    // sender banknavnet inline (fx "Nordea") så beskeden er konkret.
+    bankExpiryToday: "Din bankforbindelse udløber i dag. Forny for at fortsætte synkronisering.",
+    bankExpiryTomorrow: "Din bankforbindelse udløber i morgen. Forny nu for at undgå et hul.",
+    bankExpiryDays: "Din bankforbindelse udløber snart. Forny for at holde auto-sync kørende.",
+    bankExpiryReconnect: "Forny",
+    bankExpiryReconnecting: "Åbner banken…",
+    notNow: "Ikke nu",
     // ─── Smart skan (DK — primary audience) ─────────────────────────
     "smartScan.title": "Smart skan",
     "smartScan.subtitle": "Tag ét billede — vi finder ud af resten",

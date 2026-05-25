@@ -800,6 +800,38 @@ def at_cap(user: User, key: str, current_count: int) -> bool:
     return current_count >= cap
 
 
+# ─── Feature aliases ──────────────────────────────────────────────────
+#
+# When a feature lands under a new name without us wanting to rename the
+# original (avoid breaking older code paths + tests), we register the new
+# name here.  has_feature() + enforce_feature() resolve aliases up front
+# so both the old and new flag keys gate the same entitlement table.
+#
+# Why an alias map (not just rename PLAN_FEATURES keys):
+#   The original key is referenced from ~30 callsites + several tests.
+#   Renaming would force a wide diff for cosmetic value.  Aliases keep
+#   the diff small while letting new callers use the spec's preferred
+#   name.
+#
+# Current aliases:
+#   bank_auto_sync → bank_auto_reconcile
+#     Task #104: spec asks for `bank_auto_sync`.  The historical key
+#     `bank_auto_reconcile` already encodes Free=False, Starter+Pro=True
+#     for the exact same gate (PSD2 auto-import via GoCardless / Aiia).
+#     Aliasing means new code can use the spec name without us touching
+#     the entitlements matrix.
+_FEATURE_ALIASES: dict[str, str] = {
+    "bank_auto_sync": "bank_auto_reconcile",
+}
+
+
+def _resolve_feature(feature: str) -> str:
+    """Return the canonical feature key for `feature`, applying aliases.
+    Internal helper for has_feature() + enforce_feature().  Public
+    callers can keep using either spelling."""
+    return _FEATURE_ALIASES.get(feature, feature)
+
+
 def has_feature(user: User, feature: str) -> bool:
     """True iff the user's effective plan has the boolean feature flag
     `feature`. Unknown features fail closed (return False). This is the
@@ -809,10 +841,14 @@ def has_feature(user: User, feature: str) -> bool:
 
     Example: if not has_feature(user, "ai_anomaly_detection"):
                 raise upgrade_required("ai_anomaly_detection", user)
+
+    Aliases (see _FEATURE_ALIASES): `bank_auto_sync` resolves to
+    `bank_auto_reconcile` so the spec name + the historical key gate
+    the same thing.
     """
     plan = effective_plan(user)
     plan_features = PLAN_FEATURES.get(plan) or PLAN_FEATURES["free"]
-    return bool(plan_features.get(feature, False))
+    return bool(plan_features.get(_resolve_feature(feature), False))
 
 
 def min_plan_for_feature(feature: str) -> str | None:
@@ -823,10 +859,14 @@ def min_plan_for_feature(feature: str) -> str | None:
 
     Note: 'trial' is intentionally excluded from PLAN_ORDER because it's
     not a purchasable tier — users can't "upgrade to trial".
+
+    Aliases (see _FEATURE_ALIASES) resolve before the lookup so
+    `bank_auto_sync` finds the same plan as `bank_auto_reconcile`.
     """
+    canonical = _resolve_feature(feature)
     for plan in PLAN_ORDER:
         plan_features = PLAN_FEATURES.get(plan) or {}
-        if plan_features.get(feature, False):
+        if plan_features.get(canonical, False):
             return plan
     return None
 

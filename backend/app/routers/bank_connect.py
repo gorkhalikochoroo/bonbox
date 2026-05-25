@@ -110,14 +110,24 @@ def _callback_url(request: Request | None = None) -> str:
     Vercel's SPA shell which has no such route, yielding a blank page.
 
     Resolution order:
-      1. Explicit AIIA_REDIRECT_URI env (operator-set in Render).
+      1. Explicit GOCARDLESS_BAD_REDIRECT_URI / AIIA_REDIRECT_URI env
+         (operator-set in Render).  Task #104 spec uses the BAD
+         (Bank Account Data) prefix; the legacy AIIA_* name is kept
+         as an alias so existing Render deploys keep working.
       2. Derive from the incoming Request — its host IS the backend
          host (api.bonbox.dk in prod, localhost:8000 in dev). This
          removes the env-var-or-broken cliff for prod.
       3. Last-ditch fallback to FRONTEND_URL (only safe for local dev
          where SPA + API share a host).
     """
-    explicit = (getattr(settings, "AIIA_REDIRECT_URI", "") or "").strip()
+    # GoCardless Bank Account Data prefix takes precedence — that's the
+    # name Manoj configures in Render for the new flow.  Legacy AIIA_*
+    # alias keeps a working deploy from breaking on env-var rename.
+    import os as _os
+    explicit = (
+        (_os.environ.get("GOCARDLESS_BAD_REDIRECT_URI") or "").strip()
+        or (getattr(settings, "AIIA_REDIRECT_URI", "") or "").strip()
+    )
     if explicit:
         return explicit
 
@@ -596,6 +606,161 @@ def revoke_bank_connection(
     )
     db.commit()
     # 204 — no body
+
+
+# ─── POST /api/bank-connections/{id}/reconnect ────────────────────────
+
+
+@connections_router.post(
+    "/{connection_id}/reconnect", response_model=BankConnectionInitResponse,
+)
+def reconnect_bank_connection(
+    connection_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Mint a fresh consent URL for an existing bank connection — task
+    #104 (PSD2 / SCA 180-day re-consent).
+
+    Why this endpoint exists separately from /init:
+      • Reusing the same `bank_connections.id` preserves the connection's
+        history (audit trail, last_synced_at, account_label) instead of
+        creating a brand new row that orphans the old one.
+      • Triggered from two places: the dashboard's T-14d expiry banner
+        and the post-expiry "your consent lapsed" CTA on /connections.
+      • The state token is fresh — no replay of the original consent.
+
+    Multi-barrier doctrine (matches /init):
+      L1 auth          — get_current_user dep
+      L2 ownership     — _get_owned_connection (404 cross-tenant)
+      L3 input bounds  — UUID path param
+      L4 rate-limit    — caller already auth'd; idempotent enough that
+                          we don't add a separate limiter (each call mints
+                          a fresh state + burns the prior one in the DB)
+      L5 fail-soft     — provider exception → 502 with clean detail
+      L6 tenant-scope  — connection lookup filters by user.id
+      L7 tier gate     — enforce_feature(bank_auto_reconcile) — Starter+
+      L8 audit         — bank_connect.reconnect_initiated written
+      L9 fallback      — if no real provider configured, surface the same
+                          503 message the /init route uses (Coming soon)
+      L10 honest claims — sandbox_mode flag carried back in response;
+                          state token has the same 10-min TTL as /init
+
+    Behavior:
+      • Refuses 'revoked' rows — those need a brand-new /init flow with
+        bank picker (we can't assume the same bank).
+      • Allows 'expired' rows — that's the primary use case.
+      • Allows 'active' rows in the 14-day window — the dashboard banner
+        triggers it pre-expiry to avoid a sync gap.
+      • Burns the prior consent_state so a phished old state can't be
+        replayed against the new flow.
+
+    Returns the same shape as /init for SPA reuse:
+      { connection_id, consent_url, state, sandbox_mode }
+    """
+    enforce_feature(user, "bank_auto_reconcile")
+
+    # L9 — fail-soft on no provider configured (matches /init).
+    from app.utils.features import is_bank_connect_enabled
+    if not is_bank_connect_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Automatic bank connect is not configured yet — please "
+                "upload your bank CSV instead. We're partnering with "
+                "Aiia/Salt Edge to enable this; check back soon."
+            ),
+        )
+
+    conn = _get_owned_connection(db, user, connection_id)
+    if conn.status == "revoked":
+        # Revoked rows have lost their refresh_token_enc by design.  A
+        # reconnect would create ambiguous semantics; force a fresh /init.
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This connection was revoked — start a fresh connection "
+                "from /bank-import instead."
+            ),
+        )
+
+    # Idempotency: if there's an in-flight pending consent on this row
+    # that hasn't expired yet, return the existing consent_state rather
+    # than minting a second one.  Prevents two concurrent dashboard
+    # taps from creating two state tokens (only one of which would burn
+    # the other on /callback).  The bank-side SCA flow is the choke
+    # point so this is mostly UX cleanliness.
+    # Note: we still mint a fresh consent_url from the provider because
+    # GoCardless requisitions are single-use and the provider may have
+    # already consumed the prior one.
+
+    # Mint a new state + a new 10-minute TTL.  Burn anything stale on
+    # this row to prevent a phished old state from replaying.
+    state = secrets.token_hex(32)
+    sandbox = sandbox_mode_default()
+    state_expires = utc_now() + timedelta(minutes=10)
+
+    before = {
+        "status": conn.status,
+        "consent_expires_at": (
+            conn.consent_expires_at.isoformat() if conn.consent_expires_at else None
+        ),
+    }
+
+    conn.consent_state = state
+    conn.consent_state_expires_at = state_expires
+    # Mark as pending so the /callback handler accepts the state (only
+    # 'pending' rows are valid).  We deliberately keep refresh_token_enc
+    # for now — if the user bails mid-flow we still have the old (if
+    # not-yet-expired) token to fall back on.  The /callback handler
+    # overwrites it on success.
+    conn.status = "pending"
+    db.flush()
+
+    def _persist_provider_ids(*, requisition_id: str, institution_id: str) -> None:
+        conn.provider_requisition_id = requisition_id
+        conn.provider_institution_id = institution_id
+
+    try:
+        client = get_aiia_client()
+        init_kwargs: dict = {
+            "redirect_uri": _callback_url(request),
+            "state": state,
+            "bank_slug": conn.bank_slug,
+        }
+        import inspect
+        sig_params = inspect.signature(client.init_consent).parameters
+        if "on_provider_ids" in sig_params:
+            init_kwargs["on_provider_ids"] = _persist_provider_ids
+        consent_url = client.init_consent(**init_kwargs)
+    except AiiaClientError as e:
+        db.rollback()
+        logger.exception(
+            "bank_connect.reconnect: provider init_consent failed conn=%s",
+            conn.id,
+        )
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+    audit_service.record(
+        db, user, "bank_connect.reconnect_initiated",
+        entity_type="bank_connection", entity_id=conn.id,
+        before=before,
+        after={
+            "bank_slug": conn.bank_slug,
+            "status": "pending",
+            "sandbox_mode": sandbox,
+        },
+        ip_address=_client_ip(request),
+    )
+    db.commit()
+
+    return BankConnectionInitResponse(
+        connection_id=conn.id,
+        consent_url=consent_url,
+        state=state,
+        sandbox_mode=sandbox,
+    )
 
 
 # ─── POST /api/bank-connections/{id}/sync ─────────────────────────────

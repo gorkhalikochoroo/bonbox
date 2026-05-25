@@ -56,11 +56,23 @@ def is_bank_connect_enabled() -> bool:
 
     provider = (os.environ.get("BANK_PROVIDER") or "").strip().lower()
     if provider == "gocardless":
-        return bool(
-            (os.environ.get("GOCARDLESS_BASE_URL") or "").strip()
-            and (os.environ.get("GOCARDLESS_SECRET_ID") or "").strip()
-            and (os.environ.get("GOCARDLESS_SECRET_KEY") or "").strip()
+        # Task #104: accept either env-var family.  GOCARDLESS_BAD_*
+        # is the vendor's official 'Bank Account Data' prefix (what
+        # Manoj configures in Render).  GOCARDLESS_* is the legacy
+        # alias.  Either set of all three suffices.
+        base = (
+            (os.environ.get("GOCARDLESS_BAD_BASE_URL") or "").strip()
+            or (os.environ.get("GOCARDLESS_BASE_URL") or "").strip()
         )
+        sec_id = (
+            (os.environ.get("GOCARDLESS_BAD_SECRET_ID") or "").strip()
+            or (os.environ.get("GOCARDLESS_SECRET_ID") or "").strip()
+        )
+        sec_key = (
+            (os.environ.get("GOCARDLESS_BAD_SECRET_KEY") or "").strip()
+            or (os.environ.get("GOCARDLESS_SECRET_KEY") or "").strip()
+        )
+        return bool(base and sec_id and sec_key)
     if provider == "saltedge":
         return bool(
             (os.environ.get("SALTEDGE_BASE_URL") or "").strip()

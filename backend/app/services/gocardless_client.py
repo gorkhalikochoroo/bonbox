@@ -643,10 +643,32 @@ def get_gocardless_client() -> GoCardlessClient:
     """Construct a GoCardlessClient from settings.  Raises a
     GoCardlessClientError if BANK_PROVIDER=gocardless but creds are
     missing — the factory in `aiia_client.py` falls back to the mock
-    when this fires so the rest of the app stays alive."""
+    when this fires so the rest of the app stays alive.
+
+    Env-var resolution (Task #104):
+      Each setting accepts BOTH a `GOCARDLESS_BAD_*` env name (the
+      vendor's official 'Bank Account Data' prefix — what Manoj sees
+      in the GoCardless portal and pastes into Render) AND the legacy
+      `GOCARDLESS_*` name (kept for backwards compatibility on existing
+      deploys).  BAD takes precedence.
+    """
+    import os as _os
     from app.config import settings
+
+    base_url = (
+        (_os.environ.get("GOCARDLESS_BAD_BASE_URL") or "").strip()
+        or settings.GOCARDLESS_BASE_URL
+    )
+    secret_id = (
+        (_os.environ.get("GOCARDLESS_BAD_SECRET_ID") or "").strip()
+        or settings.GOCARDLESS_SECRET_ID
+    )
+    secret_key = (
+        (_os.environ.get("GOCARDLESS_BAD_SECRET_KEY") or "").strip()
+        or settings.GOCARDLESS_SECRET_KEY
+    )
     return GoCardlessClient(
-        base_url=settings.GOCARDLESS_BASE_URL,
-        secret_id=settings.GOCARDLESS_SECRET_ID,
-        secret_key=settings.GOCARDLESS_SECRET_KEY,
+        base_url=base_url,
+        secret_id=secret_id,
+        secret_key=secret_key,
     )
