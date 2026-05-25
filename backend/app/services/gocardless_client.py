@@ -231,6 +231,12 @@ class GoCardlessClient:
             data = response.json() if response.content else {}
         except ValueError:
             data = {}
+        # Type-guard: GoCardless under incident has been seen returning
+        # bare strings / lists / nulls.  Without this guard `.get()`
+        # raises AttributeError → opaque 500 to the caller.  Same
+        # hardening pattern as saltedge_client._raise_for_response.
+        if not isinstance(data, dict):
+            data = {}
         summary = data.get("summary") or data.get("detail") or body_text[:200]
         # Logged at WARNING — these are upstream errors, not our bug.
         logger.warning(

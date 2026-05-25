@@ -145,14 +145,32 @@ class SaltEdgeClient:
         """Salt Edge error bodies: {"error":{"class":"ConnectionNotFound",
         "message":"…","documentation_url":"…"}}.  Surface class +
         message capped, log at WARNING — these are upstream issues.
+
+        Type-guarded against schema drift.  Salt Edge in 'Pending' mode
+        or under upstream incidents has been observed returning shapes
+        like a bare JSON string `"some error"` (`data` becomes a `str`),
+        or the documented envelope but with `{"error": "string message"}`
+        instead of `{"error": {"class": ..., "message": ...}}`
+        (`error_obj` becomes a `str`).  Without these isinstance checks
+        the bare `.get()` raises AttributeError → opaque 500 to the
+        owner (the May 2026 Connect-bank incident).
         """
         try:
             data = response.json() if response.content else {}
         except ValueError:
             data = {}
-        error_obj = data.get("error") or {}
+        if not isinstance(data, dict):
+            data = {}
+        raw_error = data.get("error")
+        error_obj = raw_error if isinstance(raw_error, dict) else {}
         klass = error_obj.get("class") or ""
-        message = error_obj.get("message") or response.text[:200]
+        # When Salt Edge returns `{"error": "some string"}`, surface that
+        # string as the message rather than discarding it — operators
+        # still need the upstream signal even if the envelope drifted.
+        if not error_obj and isinstance(raw_error, str):
+            message = raw_error[:200]
+        else:
+            message = error_obj.get("message") or response.text[:200]
         logger.warning(
             "saltedge: %d on %s %s class=%s msg=%s",
             response.status_code, method, path, klass,
@@ -552,7 +570,17 @@ class SaltEdgeClient:
             if next_id:
                 page_params["from_id"] = next_id
             data = self._request("GET", "/transactions", params=page_params)
+            # Type-guard: if Salt Edge returns a non-dict body we still
+            # want to bail cleanly rather than AttributeError → 500.
+            if not isinstance(data, dict):
+                raise SaltEdgeClientError(
+                    f"Salt Edge GET /transactions returned non-dict body "
+                    f"(type={type(data).__name__})",
+                    status=502, kind="protocol",
+                )
             rows = data.get("data") or []
+            if not isinstance(rows, list):
+                rows = []
             for raw in rows:
                 try:
                     out.append(self._txn_from_raw(raw))
@@ -562,6 +590,8 @@ class SaltEdgeClient:
                         repr(raw)[:200],
                     )
             meta = data.get("meta") or {}
+            if not isinstance(meta, dict):
+                meta = {}
             next_id = meta.get("next_id")
             if not next_id:
                 break
@@ -571,6 +601,12 @@ class SaltEdgeClient:
         # Salt Edge transaction shape:
         # {id, mode, status, made_on, amount, currency_code, description,
         #  category, duplicated, extra: {original_amount, ...}, ...}
+        # Type-guard the row itself so a string/list row from a drifted
+        # response shape can't crash this with AttributeError — the
+        # list_transactions caller will then log + skip via its
+        # except-Exception malformed-row handler.
+        if not isinstance(raw, dict):
+            raise ValueError(f"saltedge txn row not a dict (type={type(raw).__name__})")
         amount = float(raw.get("amount") or 0.0)
         currency = raw.get("currency_code") or "DKK"
         # v6 returns `transaction_id`; v5 returned `id`. Same drift pattern.
@@ -582,8 +618,11 @@ class SaltEdgeClient:
             booked_date = date.today()
         description = raw.get("description") or ""
         # Salt Edge doesn't always populate counterparty; fall back to
-        # parsing the description's first line.
-        extra = raw.get("extra") or {}
+        # parsing the description's first line.  `extra` has been observed
+        # as null or a string on edge cases — guard so a non-dict can't
+        # crash us with AttributeError.
+        raw_extra = raw.get("extra")
+        extra = raw_extra if isinstance(raw_extra, dict) else {}
         counterparty = (
             extra.get("payee")
             or extra.get("merchant_name")
@@ -613,7 +652,14 @@ class SaltEdgeClient:
         derive it via GET /accounts/{id}.  Idempotent on 404."""
         try:
             data = self._request("GET", f"/accounts/{account_id}")
-            connection_id = (data.get("data") or {}).get("connection_id")
+            # Type-guard against drift — a non-dict body or a string
+            # `data` field would otherwise crash with AttributeError.
+            if not isinstance(data, dict):
+                return
+            payload = data.get("data")
+            if not isinstance(payload, dict):
+                return
+            connection_id = payload.get("connection_id")
             if not connection_id:
                 return
         except SaltEdgeClientError as e:

@@ -295,3 +295,51 @@ def test_auth_failure_does_not_leak_secret(client):
     assert "test_app_id" not in msg
     assert "test_secret" not in msg
     assert exc_info.value.kind == "auth"
+
+
+# ─── Schema-drift hardening (May 2026 incident) ─────────────────────────
+
+
+def test_raise_for_response_handles_string_error_field(client):
+    """Salt Edge in 'Pending' mode has been observed returning bodies
+    shaped `{"error": "some string"}` instead of `{"error": {"class":
+    ..., "message": ...}}`.  Without the isinstance guard in
+    `_raise_for_response`, `error_obj.get("class")` raises
+    AttributeError → opaque 500 to the caller.  Lock in the fix."""
+    def stub(self, method, url, **kwargs):
+        # Drifted shape: top-level dict but `error` is a bare string.
+        return _resp(503, {"error": "Service Unavailable — Pending mode"})
+
+    with patch.object(httpx.Client, "request", new=stub):
+        with pytest.raises(SaltEdgeClientError) as exc_info:
+            client._request("GET", "/anything")
+
+    # Must surface as a clean SaltEdgeClientError, not an AttributeError.
+    assert exc_info.value.kind == "upstream"
+    # The string payload should be visible to the operator.
+    assert "Pending mode" in str(exc_info.value)
+
+
+def test_raise_for_response_handles_non_dict_body(client):
+    """Salt Edge has also been observed returning a bare JSON string as
+    the entire body (not even an object).  `data` becomes a `str` —
+    same AttributeError risk.  Must downgrade to a clean
+    SaltEdgeClientError."""
+    request = httpx.Request("POST", "https://example.test/api/v5/")
+    # Bare JSON string, not a JSON object.
+    response = httpx.Response(
+        status_code=502,
+        content=b'"Bad Gateway"',
+        request=request,
+        headers={"content-type": "application/json"},
+    )
+
+    def stub(self, method, url, **kwargs):
+        return response
+
+    with patch.object(httpx.Client, "request", new=stub):
+        with pytest.raises(SaltEdgeClientError) as exc_info:
+            client._request("GET", "/anything")
+
+    # No AttributeError — clean upstream error instead.
+    assert exc_info.value.status == 502
