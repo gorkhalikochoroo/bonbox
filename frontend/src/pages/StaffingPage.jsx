@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { useEntitlements } from "../hooks/useEntitlements";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, Legend, ComposedChart,
@@ -41,6 +42,16 @@ export default function StaffingPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
+  // Task #204 P2.7 — gate the "Apply this schedule" CTA on
+  // entitlements being ready.  The autopilot endpoint is Pro+; we
+  // don't render the button at all for non-Pro users, but we ALSO
+  // wait until the plan resolves so trial users don't see a flash of
+  // "locked" CTA before their trial status lands.
+  const entitlements = useEntitlements();
+  const entReady = entitlements?.isReady !== false;
+  const hasAutopilot = !!entitlements?.hasFeature?.("schedule_autopilot");
+  const [autopilotApplying, setAutopilotApplying] = useState(false);
+  const [autopilotToast, setAutopilotToast] = useState(""); // "" | "applied" | "failed"
 
   // Forecast state
   const [forecast, setForecast] = useState(null);
@@ -126,6 +137,63 @@ export default function StaffingPage() {
 
   const recs = forecast?.recommendations || [];
   const patterns = forecast?.patterns;
+
+  // Task #204 P2.7 — one-tap "Apply this schedule" CTA.  Generates a
+  // fresh autopilot suggestion for next Monday and immediately
+  // materialises it into draft Schedule rows so the owner gets the
+  // week seeded in one click — they only have to hit Publish later.
+  //
+  // Multi-barrier per Manoj's 10-layer doctrine:
+  //   • Entitlements gate (Pro+) — frontend hides the CTA when missing,
+  //     backend re-enforces in _enforce_autopilot_tier
+  //   • The suggest + apply roundtrip is two requests; we fail loudly
+  //     on either step so the owner sees the real error, not a fake
+  //     "applied" toast
+  const applyNextWeekSchedule = async () => {
+    if (autopilotApplying) return;
+    setAutopilotApplying(true);
+    setAutopilotToast("");
+    try {
+      const today = new Date();
+      // Find next Monday (DK convention — weeks start Monday).
+      const dow = today.getDay(); // 0=Sun..6=Sat
+      const daysUntilMonday = ((1 - dow + 7) % 7) || 7; // never today
+      const monday = new Date(today);
+      monday.setDate(today.getDate() + daysUntilMonday);
+      const yyyy = monday.getFullYear();
+      const mm = String(monday.getMonth() + 1).padStart(2, "0");
+      const dd = String(monday.getDate()).padStart(2, "0");
+      const week_start = `${yyyy}-${mm}-${dd}`;
+
+      const suggestion = await api.post("/staff/schedules/autopilot", {
+        week_start,
+      });
+      const shifts = (suggestion?.data?.shifts || []).map((s) => ({
+        date: s.date,
+        staff_id: s.staff_id,
+        start: s.start,
+        end: s.end,
+        break_minutes: s.break_minutes ?? 0,
+        role: s.role || null,
+        notes: s.notes || null,
+      }));
+      await api.post("/staff/schedules/autopilot/apply", {
+        week_start,
+        shifts,
+      });
+      setAutopilotToast("applied");
+      try {
+        window.dispatchEvent(new Event("bonbox-data-changed"));
+      } catch {
+        /* no-op */
+      }
+    } catch {
+      setAutopilotToast("failed");
+    } finally {
+      setAutopilotApplying(false);
+      setTimeout(() => setAutopilotToast(""), 4500);
+    }
+  };
 
   const chartData = recs.map((r) => ({
     date: r.date.slice(5),
@@ -239,6 +307,48 @@ export default function StaffingPage() {
                 </div>
                 <p className="text-3xl font-bold text-blue-700 dark:text-blue-300">{recs.reduce((sum, r) => sum + (r.recommended_staff || 0), 0)}</p>
               </div>
+
+              {/* Task #204 P2.7 — Apply this schedule (Pro autopilot).
+                  Triggers /staff/schedules/autopilot to generate next
+                  week's shifts then immediately /apply to materialise
+                  them as drafts.  Owner still has to hit Publish later.
+                  Gated on entReady to avoid flashing the button for
+                  trial users mid-resolution. */}
+              {entReady && hasAutopilot && (
+                <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                      {t("staffingApplyWeek") || "Apply this schedule"}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      {t("staffingApplyHint") ||
+                        "Seeds next week as draft shifts. Edit before Publish."}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={applyNextWeekSchedule}
+                    disabled={autopilotApplying}
+                    className="px-3.5 py-2 rounded-lg bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-200 text-sm font-semibold disabled:opacity-50 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900"
+                  >
+                    {autopilotApplying
+                      ? t("staffingApplyingWeek") || "Applying…"
+                      : t("staffingApplyWeek") || "Apply this schedule"}
+                  </button>
+                  {autopilotToast === "applied" && (
+                    <p className="w-full text-xs text-emerald-700 dark:text-emerald-300">
+                      {t("staffingApplyAppliedToast") ||
+                        "Schedule applied — drafts created"}
+                    </p>
+                  )}
+                  {autopilotToast === "failed" && (
+                    <p className="w-full text-xs text-red-600 dark:text-red-400">
+                      {t("staffingApplyFailed") ||
+                        "Could not apply the schedule. Try again."}
+                    </p>
+                  )}
+                </div>
+              )}
 
               <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
                 <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-4">{t("revenueForecast")}</h2>

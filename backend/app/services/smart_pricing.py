@@ -395,10 +395,17 @@ def _attach_user_price(db: Session, user: User, canonical: str, payload: dict) -
         out["your_price"] = None
         out["deviation_pct"] = None
         out["percentile"] = None
+        # No priced item → no apply target.  Frontend hides the
+        # inline [Apply] CTA and falls back to "Open in Inventory".
+        out["inventory_item_id"] = None
         return out
 
     median = float(payload["median"])
     out["your_price"] = round(float(own_price), 2)
+    # Task #204 P2.7 — surface the inventory_item_id the dashboard
+    # Apply CTA will PATCH.  Tenant-safe (lookup is scoped to user.id
+    # in _user_item_id_for_canonical).
+    out["inventory_item_id"] = _user_item_id_for_canonical(db, user.id, canonical)
     if median > 0:
         deviation = (own_price - median) / median * 100.0
         out["deviation_pct"] = round(deviation, 1)
@@ -521,6 +528,38 @@ def _user_price_for_canonical(db: Session, user_id, canonical: str) -> Optional[
         if best is None or p > best:
             best = p
     return best
+
+
+def _user_item_id_for_canonical(db: Session, user_id, canonical: str) -> Optional[str]:
+    """Return the InventoryItem id whose price was picked in
+    `_user_price_for_canonical` (the highest sell_price > 0 that
+    normalises to the canonical bucket).
+
+    Used to wire the dashboard Apply CTA (Task #204 P2.7) — the owner
+    taps "Apply 42 kr" and we PATCH /inventory/{id}/price.  Returns
+    None when no priced item maps to this canonical, which the
+    frontend treats as "open Inventory and pick one yourself".
+    """
+    rows = (
+        db.query(InventoryItem.id, InventoryItem.name, InventoryItem.sell_price)
+        .filter(
+            InventoryItem.user_id == user_id,
+            InventoryItem.sell_price.isnot(None),
+            InventoryItem.sell_price > 0,
+        )
+        .all()
+    )
+    best_id, best_price = None, None
+    for item_id, name, price in rows:
+        if normalize_item_name(name) != canonical:
+            continue
+        try:
+            p = float(price)
+        except (TypeError, ValueError):
+            continue
+        if best_price is None or p > best_price:
+            best_id, best_price = item_id, p
+    return str(best_id) if best_id is not None else None
 
 
 # ──────────────────────────────────────────────────────────────────────

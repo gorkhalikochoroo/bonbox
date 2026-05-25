@@ -275,6 +275,19 @@ export const DASHBOARD_CARD_SET = {
         },
       ],
     },
+
+    // Today on shift — Task #204 P2.6.  Answers the literal #1 question
+    // owners open the app to ask: "who is working RIGHT NOW?".  Sits
+    // between the KPI strip and Revenue Trend so the morning glance
+    // ends on "and here's today's roster, calmly".  Gated on the
+    // staff activation flag — solo owners (no staff_members rows) never
+    // see this surface.  The card also self-vetoes via the /staff/today
+    // empty array path if a stale activation flag slipped through.
+    {
+      id: "todayOnShift",
+      component: "TodayOnShiftCard",
+      renderIf: (ctx) => !!ctx?.activations?.hasStaff,
+    },
   ],
 
   // ── Zone 2 — Growth Levers. Actionable this week. ──

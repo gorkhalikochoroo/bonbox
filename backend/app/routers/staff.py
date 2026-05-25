@@ -48,6 +48,8 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
@@ -86,10 +88,16 @@ from app.services.notification_service import (
     ShiftChange,
 )
 from app.services import audit_service
+from app.services.tz_utils import business_today_local
 from app.database import SessionLocal
 from app.utils.time import utc_now
 
 router = APIRouter()
+
+# Rate-limit shared with the "today on shift" dashboard card.  60/min is
+# permissive (the card refetches on focus + bonbox-data-changed events),
+# but blocks the obvious scrape vector if /today is harvested in a loop.
+_limiter = Limiter(key_func=get_remote_address)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -190,6 +198,92 @@ def _compute_pay_period(config: PayPeriodConfig, ref_date: date) -> dict:
         end = ref_date.replace(day=last_day)
 
     return {"start_date": start.isoformat(), "end_date": end.isoformat()}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  TODAY ON SHIFT (Task #204, P2.6)
+#  Powers the dashboard "Today on shift" card — owners' literal #1 question
+#  when they open the app: "who is working RIGHT NOW?".  Uses
+#  `business_today_local(user)` per the TZ convention so a 02:00 CEST
+#  query (still on yesterday's business day under the 06:00 DK cutoff)
+#  returns yesterday's shifts, not today's empty plan.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@router.get("/today")
+@_limiter.limit("60/minute")
+def list_shifts_today(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Today's shifts for the authenticated owner.
+
+    Returns a small, name-flat payload so the dashboard card can render
+    without join logic on the client:
+
+      {
+        "date": "2026-05-26",
+        "shifts": [
+          {
+            "id": "...",
+            "staff_id": "...",
+            "name": "Anna",
+            "role": "Bartender",
+            "start_time": "17:00",
+            "end_time": "23:00",
+            "status": "published",
+            "confirmed_at": "2026-05-25T18:34:00Z" | null,
+          },
+          ...
+        ]
+      }
+
+    Multi-barrier defense (per Manoj's 10-layer doctrine):
+      L1 — Auth gate (Depends(get_current_user))
+      L2 — Strict tenant scope (Schedule.user_id == user.id)
+      L3 — Tenant cross-check on each row (defensive — staff_member's
+           user_id must also match; never trust a single filter)
+      L4 — SlowAPI rate limit (60/min/IP)
+      L5 — Read-only (no audit row needed; this is a GET that mutates
+           nothing — per Manoj's audit-row convention)
+      L6 — Fail-soft: empty list when no shifts (the card handles the
+           empty state in copy, no 404)
+    """
+    today = business_today_local(user)
+
+    # Inner join — only rows where staff_member.user_id matches the
+    # caller AND staff_member.is_deleted is not True.  Belt-and-braces
+    # tenant filter on top of the schedule.user_id filter below.
+    shifts = (
+        db.query(Schedule, StaffMember)
+        .join(StaffMember, Schedule.staff_id == StaffMember.id)
+        .filter(
+            Schedule.user_id == user.id,
+            StaffMember.user_id == user.id,
+            StaffMember.is_deleted.isnot(True),
+            Schedule.date == today,
+        )
+        .order_by(Schedule.start_time)
+        .all()
+    )
+
+    payload = []
+    for shift, staff in shifts:
+        payload.append(
+            {
+                "id": str(shift.id),
+                "staff_id": str(staff.id),
+                "name": staff.name,
+                "role": shift.role_on_shift or staff.role or "",
+                "start_time": shift.start_time,
+                "end_time": shift.end_time,
+                "status": shift.status,
+                "confirmed_at": shift.confirmed_at.isoformat() if shift.confirmed_at else None,
+            }
+        )
+
+    return {"date": today.isoformat(), "shifts": payload}
 
 
 # ═══════════════════════════════════════════════════════════════════════════

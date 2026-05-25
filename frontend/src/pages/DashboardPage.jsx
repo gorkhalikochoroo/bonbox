@@ -61,6 +61,7 @@ import PaymentBreakdownCard from "../components/dashboard/PaymentBreakdownCard";
 import TopSellersCard from "../components/dashboard/TopSellersCard";
 import InventoryPanel from "../components/dashboard/InventoryPanel";
 import AlertsPanel from "../components/dashboard/AlertsPanel";
+import TodayOnShiftCard from "../components/dashboard/TodayOnShiftCard";
 import {
   DASHBOARD_CARD_SET,
   getArchetype,
@@ -110,6 +111,7 @@ const REGISTRY = {
   KpiStrip,
   AccountantHoursWidget,
   ComplianceCountdownCard,
+  TodayOnShiftCard,
 
   // ── Zone 2 ──
   RevenueTrendChart,

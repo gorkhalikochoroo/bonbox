@@ -3439,6 +3439,44 @@ const translations = {
     revenueTrendWindow: "Last {n} days",
     avgShort: "Avg",
     active: "active",
+    // Task #204 P2.6 — "Today on shift" Zone 1 card.  Empty state uses
+    // `vagtplan` and the "føj en til vagtplanen" copy in BOTH locales
+    // per the DK terminology lock — `vagtplan` is jurisdiction-locked
+    // and never gets an English alternative.
+    todayOnShiftTitle: "Today on shift",
+    todayOnShiftViewPlan: "Vagtplan",
+    todayOnShiftEmpty: "Ingen vagter i dag — føj en til vagtplanen.",
+    todayOnShiftEmptyCta: "Åbn vagtplan",
+    // Task #204 P2.7 — Apply / Snooze CTAs on Smart Pricing + Staffing.
+    // Inline "Apply X kr" wording uses {price} + {currency} placeholders
+    // so we never bake DKK-only copy into the strings.
+    smartPricingApply: "Apply {price} {currency}",
+    smartPricingApplying: "Applying…",
+    smartPricingApplied: "Price updated",
+    smartPricingApplyFailed: "Could not update the price.",
+    smartPricingSnooze: "Snooze 30d",
+    smartPricingSnoozed: "Snoozed for 30 days",
+    smartPricingNoApplyTarget: "Open the item in Inventory to edit the price.",
+    smartPricingNoApplyTargetCta: "Open in Inventory",
+    staffingApplyWeek: "Apply this schedule",
+    staffingApplyingWeek: "Applying…",
+    staffingApplyAppliedToast: "Schedule applied — drafts created",
+    staffingApplyFailed: "Could not apply the schedule. Try again.",
+    staffingApplyHint: "Seeds next week as draft shifts. Edit before Publish.",
+    // Task #204 P2.8 — Revisor section moved to /team.  The Profile
+    // breadcrumb tells the owner where the section went without
+    // duplicating the form.
+    profileRevisorMovedNotice: "Revisor adgang er flyttet til Hold.",
+    profileRevisorMovedCta: "Åbn Hold",
+    teamRevisorSectionTitle: "Revisor",
+    teamRevisorSectionSubtitle:
+      "Free read-only login for your accountant. They see fakturaer, daily closes, expenses, MOMS overview — they can't change a single thing.",
+    teamRevisorChipActive: "Revisor — read-only · since {date}",
+    teamRevisorChipPending: "Revisor — invited · awaiting accept",
+    // Task #204 P2.9 — /insights orphan → sidebar.
+    insightsInbox: "Insights inbox",
+    // Task #204 P2.10 — honest bank connection state.
+    connBankIbanHint: "We don't yet have direct access to this account.",
     // ── Public event-booking surface (EventPublicPage / BookingCheckoutPage
     // /  BookingSuccessPage / TicketPage). EN translations of DK primary.
     // DK terminology lock applies: revisor / MOMS / faktura / kreditnota /
@@ -6791,6 +6829,37 @@ const translations = {
     revenueTrendWindow: "Sidste {n} dage",
     avgShort: "Gns.",
     active: "aktive",
+    // Task #204 P2.6 — "Today on shift" card (DK strings).
+    todayOnShiftTitle: "På vagt i dag",
+    todayOnShiftViewPlan: "Vagtplan",
+    todayOnShiftEmpty: "Ingen vagter i dag — føj en til vagtplanen.",
+    todayOnShiftEmptyCta: "Åbn vagtplan",
+    // Task #204 P2.7 — Apply / Snooze CTAs (DK).
+    smartPricingApply: "Anvend {price} {currency}",
+    smartPricingApplying: "Anvender…",
+    smartPricingApplied: "Pris opdateret",
+    smartPricingApplyFailed: "Kunne ikke opdatere prisen.",
+    smartPricingSnooze: "Udskyd 30d",
+    smartPricingSnoozed: "Udskudt i 30 dage",
+    smartPricingNoApplyTarget: "Åbn varen i Lager for at ændre prisen.",
+    smartPricingNoApplyTargetCta: "Åbn i Lager",
+    staffingApplyWeek: "Anvend denne plan",
+    staffingApplyingWeek: "Anvender…",
+    staffingApplyAppliedToast: "Plan anvendt — vagter oprettet som kladde",
+    staffingApplyFailed: "Kunne ikke anvende planen. Prøv igen.",
+    staffingApplyHint: "Næste uge oprettes som kladde-vagter. Rediger før Publicér.",
+    // Task #204 P2.8 — Revisor flyttet til Hold (DK).
+    profileRevisorMovedNotice: "Revisor adgang er flyttet til Hold.",
+    profileRevisorMovedCta: "Åbn Hold",
+    teamRevisorSectionTitle: "Revisor",
+    teamRevisorSectionSubtitle:
+      "Gratis read-only login til din revisor. Han ser fakturaer, dagsafslutninger, udgifter og MOMS-overblik — han kan ikke ændre noget.",
+    teamRevisorChipActive: "Revisor — read-only · siden {date}",
+    teamRevisorChipPending: "Revisor — inviteret · afventer accept",
+    // Task #204 P2.9 — /insights orphan → sidebar (DK).
+    insightsInbox: "Indsigtsindbakke",
+    // Task #204 P2.10 — bank IBAN honesty hint (DK).
+    connBankIbanHint: "Vi har endnu ikke direkte adgang til denne konto.",
     // ── Public event-booking surface (Danish primary copy). Public-page
     // primary language is Danish — these strings are the source of truth.
     // DK terminology lock: revisor / MOMS / faktura / kreditnota /

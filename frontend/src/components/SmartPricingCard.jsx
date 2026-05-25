@@ -15,8 +15,41 @@
  * passes available=false, we render the empty state with the gating
  * reason, never any aggregates.
  */
+import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
+import { useEntitlements } from "../hooks/useEntitlements";
 import { displayCurrency } from "../utils/currency";
+import api from "../services/api";
+
+// Snooze key — stored on localStorage keyed by canonical name so the
+// owner can dismiss a "you're 8% below median" prompt for 30 days
+// without us needing a backend column.  A DB migration adds risk to
+// this PR; localStorage is honest about the scope (this device only).
+const SNOOZE_PREFIX = "bonbox.smartPricing.snooze.";
+const SNOOZE_DAYS = 30;
+
+function isSnoozed(canonical) {
+  if (!canonical || typeof window === "undefined") return false;
+  try {
+    const raw = window.localStorage.getItem(SNOOZE_PREFIX + canonical);
+    if (!raw) return false;
+    const until = parseInt(raw, 10);
+    return Number.isFinite(until) && until > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+function setSnooze(canonical) {
+  if (!canonical || typeof window === "undefined") return;
+  try {
+    const until = Date.now() + SNOOZE_DAYS * 24 * 60 * 60 * 1000;
+    window.localStorage.setItem(SNOOZE_PREFIX + canonical, String(until));
+  } catch {
+    /* localStorage unavailable (private mode) — just no-op */
+  }
+}
 
 // Translation keys for each canonical bucket — kept in the component so
 // we don't have to register 26 separate translations in useLanguage for
@@ -87,9 +120,23 @@ function markerPercent(value, min, max) {
   return Math.max(0, Math.min(100, pct));
 }
 
-export default function SmartPricingCard({ comparison, currencyCode }) {
+export default function SmartPricingCard({ comparison, currencyCode, onApplied }) {
   const { t } = useLanguage();
+  // Task #204 P2.7 — gate the inline Apply CTA on entitlements being
+  // ready.  Without `isReady`, the button briefly renders for trial
+  // users while their plan resolves — same trial-flicker bug we
+  // squashed in commit ee80e93.
+  const entitlements = useEntitlements();
+  const entReady = entitlements?.isReady !== false;
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState("");
+  const [appliedAt, setAppliedAt] = useState(0);
+  const [snoozed, setSnoozed] = useState(
+    () => !!comparison && isSnoozed(comparison.canonical_name),
+  );
+
   if (!comparison) return null;
+  if (snoozed) return null;
 
   const canonical = comparison.canonical_name;
   const currency = displayCurrency(currencyCode || comparison.currency);
@@ -123,8 +170,51 @@ export default function SmartPricingCard({ comparison, currencyCode }) {
   // ── Available branch ───────────────────────────────────────────────
   const {
     min, median, max, count, postal_code, cuisine,
-    your_price, deviation_pct,
+    your_price, deviation_pct, inventory_item_id,
   } = comparison;
+
+  // Apply CTA target price — round the cohort median to the nearest
+  // whole unit so the owner sees "Apply 42 kr" not "Apply 41.73 kr".
+  // Honest about the rounding: we PATCH the rounded number, not the
+  // exact median.
+  const suggested = median != null ? Math.round(Number(median)) : null;
+  const canApply =
+    suggested != null &&
+    your_price != null &&
+    suggested !== Math.round(Number(your_price));
+
+  const handleApply = async () => {
+    if (!canApply || !inventory_item_id || applying) return;
+    setApplying(true);
+    setApplyError("");
+    try {
+      await api.patch(`/inventory/${inventory_item_id}`, {
+        sell_price: suggested,
+      });
+      // Stamp the "applied" state so the row renders the confirmation
+      // copy until the parent refetches the comparison.
+      setAppliedAt(Date.now());
+      if (typeof onApplied === "function") onApplied();
+      try {
+        window.dispatchEvent(new Event("bonbox-data-changed"));
+      } catch {
+        /* no-op */
+      }
+    } catch (err) {
+      setApplyError(
+        err?.response?.data?.detail ||
+          t("smartPricingApplyFailed") ||
+          "Could not update the price.",
+      );
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const handleSnooze = () => {
+    setSnooze(canonical);
+    setSnoozed(true);
+  };
 
   const marker = markerPercent(your_price, min, max);
 
@@ -212,6 +302,53 @@ export default function SmartPricingCard({ comparison, currencyCode }) {
         </p>
       )}
       <p className="text-xs text-gray-400 dark:text-gray-500">{footer}</p>
+
+      {/* Task #204 P2.7 — Apply / Snooze CTAs.  Only render when the
+          backend gave us an actionable suggestion (median != your price)
+          AND entitlements are loaded.  Don't flash the button for trial
+          users mid-resolution. */}
+      {entReady && canApply && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {appliedAt ? (
+            <span className="inline-flex items-center text-[12px] font-semibold text-emerald-700 dark:text-emerald-300">
+              {t("smartPricingApplied") || "Price updated"}
+            </span>
+          ) : inventory_item_id ? (
+            <>
+              <button
+                type="button"
+                onClick={handleApply}
+                disabled={applying}
+                className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-200 disabled:opacity-50 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900"
+              >
+                {applying
+                  ? t("smartPricingApplying") || "Applying…"
+                  : (t("smartPricingApply") || "Apply {price} {currency}")
+                      .replace("{price}", String(suggested))
+                      .replace("{currency}", currency)}
+              </button>
+              <button
+                type="button"
+                onClick={handleSnooze}
+                disabled={applying}
+                className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-[12px] font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg"
+              >
+                {t("smartPricingSnooze") || "Snooze 30d"}
+              </button>
+            </>
+          ) : (
+            <Link
+              to="/inventory"
+              className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-[12px] font-semibold text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100 underline"
+            >
+              {t("smartPricingNoApplyTargetCta") || "Open in Inventory"}
+            </Link>
+          )}
+        </div>
+      )}
+      {applyError && (
+        <p className="text-xs text-red-600 dark:text-red-400 mt-2">{applyError}</p>
+      )}
     </div>
   );
 }
