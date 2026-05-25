@@ -225,20 +225,29 @@ class SaltEdgeClient:
                         "Salt Edge: CustomerAlreadyExists but lookup empty",
                         status=502, kind="protocol",
                     ) from e
-                return items[0]["id"]
+                # v6 returns `customer_id`; v5 returned `id`. Defensive read.
+                first = items[0]
+                cust_id = first.get("customer_id") or first.get("id")
+                if not cust_id:
+                    raise SaltEdgeClientError(
+                        f"Salt Edge: lookup hit but no customer_id. row={str(first)[:200]}",
+                        status=502, kind="protocol",
+                    ) from e
+                return cust_id
             raise
-        customer_id = (data.get("data") or {}).get("id")
+        # v6 returns `data.customer_id`; v5 returned `data.id`. Verified from
+        # a live response on 2026-05-25 — root cause of the original "returned
+        # no id" error. Defensive: try v6 name first, fall back to legacy `id`.
+        payload = data.get("data") or {}
+        customer_id = payload.get("customer_id") or payload.get("id")
         if not customer_id:
-            # Diagnostic: include the actual Salt Edge response body so we
-            # can tell whether this is Pending-mode gating, a v6 schema
-            # change, or an empty `data` array. Body is capped at 400 chars.
             body_str = str(data)[:400] if data else "empty"
             logger.warning(
-                "saltedge._ensure_customer: 2xx but no data.id. body=%s",
+                "saltedge._ensure_customer: 2xx but no customer_id. body=%s",
                 body_str,
             )
             raise SaltEdgeClientError(
-                f"Salt Edge POST /customers returned no id. "
+                f"Salt Edge POST /customers returned no customer_id. "
                 f"Response body: {body_str}",
                 status=502, kind="protocol",
             )
@@ -358,8 +367,11 @@ class SaltEdgeClient:
                 status=502, kind="protocol",
             )
         primary = accounts[0]
+        # v6 returns `account_id`; v5 returned `id`. Same drift pattern as
+        # /customers — defensive read.
+        acc_id = primary.get("account_id") or primary.get("id") or ""
         return {
-            "account_id": primary.get("id") or "",
+            "account_id": acc_id,
             "account_label": primary.get("name") or "Erhverv driftskonto",
             # Same trick as GoCardless: requisition_id slot holds the
             # long-lived consent identifier (connection_id here).  At
@@ -411,7 +423,8 @@ class SaltEdgeClient:
         #  category, duplicated, extra: {original_amount, ...}, ...}
         amount = float(raw.get("amount") or 0.0)
         currency = raw.get("currency_code") or "DKK"
-        txn_id = raw.get("id") or ""
+        # v6 returns `transaction_id`; v5 returned `id`. Same drift pattern.
+        txn_id = raw.get("transaction_id") or raw.get("id") or ""
         made_on = raw.get("made_on") or ""
         try:
             booked_date = date.fromisoformat(made_on) if made_on else date.today()
