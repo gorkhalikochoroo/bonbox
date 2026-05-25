@@ -317,7 +317,12 @@ export default function DashboardPage() {
         invoices: { overdueCount: outstandingInvoices?.length || 0 },
         compliance: { daysToNext: momsCountdownDays ?? 999 },
         now: { daysToMonthEnd: computeDaysToMonthEnd() },
-        summary: { totalSales: summary?.lifetime_sale_count || 0 },
+        // First-run gate: require summary to be LOADED before treating
+        // a zero sale count as first-run. Otherwise existing users see
+        // "Welcome to BonBox" during the 600ms cold-start fetch.
+        // Backend returns `total_sales` (see dashboard.py:300) — NOT
+        // `lifetime_sale_count` (that field doesn't exist).
+        summary: { totalSales: summary ? (summary.total_sales ?? summary.sale_count ?? 0) : -1 },
       },
       archetype,
     );
@@ -356,7 +361,7 @@ export default function DashboardPage() {
         ...(summary || {}),
         // KpiStrip + BusinessHealthCard look at these specific keys.
         currency,
-        totalSales: summary?.lifetime_sale_count || 0,
+        totalSales: summary?.total_sales ?? summary?.sale_count ?? 0,
         todaySales: summary?.today_sale_count || 0,
         todayRevenue: summary?.today_revenue || 0,
         weekRevenue: summary?.week_revenue || 0,
@@ -578,7 +583,9 @@ export default function DashboardPage() {
   );
 
   // ── First-run state — replaces the whole zone tree ──
-  if (ctx.activations.isFirstRun) {
+  // Belt-and-braces: never render first-run if we don't yet have a
+  // summary object, regardless of what isFirstRun computed.
+  if (summary && ctx.activations.isFirstRun) {
     return (
       <PageShell width="wide">
         <ToastContainer />

@@ -179,7 +179,12 @@ export function deriveActivations(ctx, archetype) {
     hasOutstandingInvoices: overdueCount > 0,
     hasUpcomingCompliance: complianceDays <= 30,
     isMonthEnd: daysToMonthEnd <= 5,
+    // Only mark first-run when summary is LOADED and confirms zero sales.
+    // DashboardPage passes totalSales = -1 during cold-start fetch — that
+    // prevents the "Welcome to BonBox" screen flicker for existing users
+    // while their dashboard data is still in flight.
     isFirstRun: totalSales === 0,
+    isLoadingSummary: totalSales < 0,
   };
 }
 
