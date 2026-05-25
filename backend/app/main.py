@@ -2090,6 +2090,18 @@ async def db_readiness_gate(request: Request, call_next):
 # Non-production: also allow vercel.app preview alias + localhost for dev
 # This stops attackers using a stale or malicious preview origin to send
 # authenticated XHR with allow_credentials=True.
+#
+# IMPORTANT: the actual `app.add_middleware(CORSMiddleware, ...)` call lives
+# at the BOTTOM of this middleware block (after every other middleware) so
+# the CORS layer is the OUTERMOST wrap in the stack. In Starlette, the LAST
+# middleware added becomes the OUTERMOST — meaning it sees every response
+# leaving the app, including JSONResponses returned directly by inner
+# middlewares (CSRF rejection, request-size limit, db-readiness 503, the
+# accountant-write guard). Without that ordering, an inner middleware that
+# `return JSONResponse(...)`s its own response skips the CORS layer
+# entirely → the browser sees a 4xx/5xx response with NO Access-Control-
+# Allow-Origin header and JS reads it as "Failed to fetch" instead of the
+# real status/body. Don't move this call back up the file.
 _PROD_ORIGINS = [
     "https://bonbox.dk",
     "https://www.bonbox.dk",
@@ -2107,15 +2119,9 @@ else:
     origins = _PROD_ORIGINS + _DEV_ORIGINS + ([settings.FRONTEND_URL] if settings.FRONTEND_URL else [])
 # Dedup while preserving order
 origins = list(dict.fromkeys([o for o in origins if o]))
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-BonBox-Platform", "Stripe-Signature", "X-CSRF-Token"],
-    max_age=600,  # cache preflights for 10min — fewer OPTIONS roundtrips
-)
+# NOTE: `app.add_middleware(CORSMiddleware, ...)` is intentionally NOT
+# placed here. See the comment above + the actual call at the end of the
+# middleware block (search for "CORS layer registration — keep last").
 
 
 # --- Admin path scan-blocker ---
@@ -2446,6 +2452,31 @@ async def enforce_request_size(request: Request, call_next):
             },
         )
     return await call_next(request)
+
+
+# --- CORS layer registration — keep last (outermost) ---
+# Starlette's `app.add_middleware(...)` inserts at the FRONT of the
+# user-middleware list, then the stack is built by iterating that list in
+# REVERSE — so the LAST `add_middleware` call becomes the OUTERMOST wrap.
+# Registering CORSMiddleware here (after every `@app.middleware("http")`
+# decorator above) guarantees it sees every response on the way out,
+# including 4xx/5xx responses that inner middlewares return directly
+# (CSRF reject, request-size cap, db-readiness 503, accountant-write
+# block). Without that wrap, the browser sees those responses without
+# Access-Control-Allow-Origin and JS reads them as "Failed to fetch"
+# instead of the real status — the bank-connect "Network Error in 157ms"
+# regression that motivated this ordering was exactly that pattern.
+# Origin list + allow_credentials + allow_headers were already defined
+# above next to the `_PROD_ORIGINS` block — we just defer the actual
+# registration to the bottom of the file.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-BonBox-Platform", "Stripe-Signature", "X-CSRF-Token"],
+    max_age=600,  # cache preflights for 10min — fewer OPTIONS roundtrips
+)
 
 
 # --- JWT secret strength check on startup ---
