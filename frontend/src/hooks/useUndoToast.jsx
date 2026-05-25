@@ -67,7 +67,7 @@ export function useUndoToast() {
     <div
       role="status"
       aria-live="polite"
-      className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 max-w-md w-[90vw] sm:w-auto px-4 py-3 rounded-xl bg-gray-900 text-white shadow-lg flex items-center gap-3"
+      className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 max-w-md w-[90vw] sm:w-auto px-4 py-3 rounded-xl bg-gray-900 text-white shadow-sm flex items-center gap-3"
     >
       <span className="text-sm flex-1 min-w-0">
         {toast.error
@@ -79,7 +79,7 @@ export function useUndoToast() {
           type="button"
           onClick={handleUndo}
           disabled={toast.undoing}
-          className="text-sm font-semibold text-emerald-300 hover:text-emerald-200 disabled:opacity-50 underline-offset-2 hover:underline"
+          className="text-sm font-semibold text-gray-300 hover:text-gray-200 disabled:opacity-50 underline-offset-2 hover:underline"
         >
           {toast.undoing ? "…" : "Undo"}
         </button>
