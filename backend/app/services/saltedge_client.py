@@ -229,8 +229,17 @@ class SaltEdgeClient:
             raise
         customer_id = (data.get("data") or {}).get("id")
         if not customer_id:
+            # Diagnostic: include the actual Salt Edge response body so we
+            # can tell whether this is Pending-mode gating, a v6 schema
+            # change, or an empty `data` array. Body is capped at 400 chars.
+            body_str = str(data)[:400] if data else "empty"
+            logger.warning(
+                "saltedge._ensure_customer: 2xx but no data.id. body=%s",
+                body_str,
+            )
             raise SaltEdgeClientError(
-                "Salt Edge POST /customers returned no id",
+                f"Salt Edge POST /customers returned no id. "
+                f"Response body: {body_str}",
                 status=502, kind="protocol",
             )
         return customer_id
