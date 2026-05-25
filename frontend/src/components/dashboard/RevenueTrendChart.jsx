@@ -94,17 +94,37 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
             tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
           />
           <Tooltip
+            cursor={{ stroke: "#9CA3AF", strokeWidth: 1, strokeDasharray: "3 3" }}
             contentStyle={{
-              background: "rgba(17,24,39,0.95)",
-              border: "1px solid rgba(255,255,255,0.1)",
-              borderRadius: 10,
-              color: "#f1f1f1",
+              background: "#ffffff",
+              border: "1px solid #E5E7EB",
+              borderRadius: 8,
+              boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+              padding: "8px 12px",
+            }}
+            labelStyle={{
+              color: "#6B7280",            // gray-500 — muted secondary
+              fontSize: 11,
+              fontWeight: 500,
+              marginBottom: 2,
+              textTransform: "none",
+            }}
+            itemStyle={{
+              color: "#111827",            // gray-900 — primary value
               fontSize: 13,
+              fontWeight: 600,
+              padding: 0,
             }}
             formatter={(v) => [
               `${v.toLocaleString()} ${currency}`,
               t("revenue", "Revenue"),
             ]}
+            labelFormatter={(label) => {
+              try {
+                const d = new Date(label + "T00:00:00");
+                return d.toLocaleDateString("da-DK", { day: "numeric", month: "short", year: "numeric" });
+              } catch { return label; }
+            }}
           />
           <Area
             type="monotone"
