@@ -31,6 +31,12 @@ const PAYMENT_METHOD_FOR_BANK = {
 
 // Banks that support direct Aiia connection (Task #67). Matches the
 // SUPPORTED_BANKS allowlist on the backend Pydantic schema.
+//
+// `sandbox` is exposed as the last option so operators can validate the
+// full PSD2 callback round-trip against Salt Edge's `fakebank_simple_xf`
+// provider while waiting for Salt Edge to approve Test access for real
+// banks (Pending mode returns ProviderDisabled on real-bank slugs even
+// though the picker UI shows them).
 const AIIA_BANKS = [
   { slug: "danske_bank", label: "Danske Bank" },
   { slug: "nordea", label: "Nordea" },
@@ -39,6 +45,7 @@ const AIIA_BANKS = [
   { slug: "lunar", label: "Lunar" },
   { slug: "sydbank", label: "Sydbank" },
   { slug: "arbejdernes_landsbank", label: "Arbejdernes Landsbank" },
+  { slug: "sandbox", label: "Sandbox / fake bank (testing only)" },
 ];
 
 export default function BankImportPage() {

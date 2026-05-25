@@ -20,6 +20,13 @@ from pydantic import BaseModel, Field, field_validator
 # Banks we promise direct connection for in v0.1 (matches the spec's
 # bank picker list). Adding a new bank → add here + add to the
 # frontend BANK_LABELS map. Anything else 422s at init time.
+#
+# `sandbox` is intentionally on the allowlist so operators can walk
+# the full PSD2 round-trip (init → SCA → callback → exchange_code →
+# account discovery → status=active → nightly sync) against Salt Edge's
+# `fakebank_simple_xf` provider while waiting for Salt Edge to approve
+# Test access for real-bank providers.  Once Test access lands, the
+# sandbox option stays available for QA + UAT.
 SUPPORTED_BANKS = {
     "danske_bank",
     "nordea",
@@ -28,6 +35,7 @@ SUPPORTED_BANKS = {
     "lunar",
     "sydbank",
     "arbejdernes_landsbank",
+    "sandbox",
 }
 
 _BANK_SLUG_PATTERN = re.compile(r"^[a-z0-9_]{2,40}$")
