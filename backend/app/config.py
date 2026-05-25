@@ -162,7 +162,11 @@ class Settings(BaseSettings):
     # use it for the free Customer plan).
     SALTEDGE_APP_ID: str = ""
     SALTEDGE_SECRET: str = ""
-    SALTEDGE_BASE_URL: str = "https://www.saltedge.com/api/v5"
+    # v6 base URL.  v5 was retired and the v6 path layout is incompatible
+    # (notably `POST /connect_sessions/create` → `POST /connections/connect`).
+    # The same host serves sandbox + real-bank providers; no separate
+    # sandbox subdomain.  Render must keep this on v6.
+    SALTEDGE_BASE_URL: str = "https://www.saltedge.com/api/v6"
 
     # ── Web Push (VAPID) — Task #72 ─────────────────────────────────────
     # VAPID identifies BonBox to the push providers (FCM / Apple Push /

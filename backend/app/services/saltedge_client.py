@@ -13,13 +13,42 @@ is wired in.  Selection happens via `BANK_PROVIDER=saltedge`.
 Flow differences vs Aiia / GoCardless:
 
   /init   → POST /customers (idempotent via our state as identifier)
-            POST /connect_sessions/create → returns connect_url
+            POST /connections/connect → returns connect_url
             Salt Edge's UI walks the owner through bank + MitID SCA.
   /cb     → Salt Edge appends `?connection_id=<uuid>&customer_id=<uuid>`
             to our return_to.  We also pre-set ?state=<our state> in
             return_to so CSRF validation works regardless.
   exchange→ Salt Edge connection_id arrives via URL.  We GET
             /accounts?connection_id=… to discover linked accounts.
+
+API version: v6.  Salt Edge renamed several endpoints in v6
+(see https://docs.saltedge.com/v6/#migration-guide):
+
+  v5 path                       → v6 path
+  POST /connect_sessions/create → POST /connections/connect
+  POST /connect_sessions/reconnect → POST /connections/{id}/reconnect
+  POST /connect_sessions/refresh   → POST /connections/{id}/refresh
+
+  /customers, /connections, /accounts, /transactions paths unchanged.
+
+Required env vars on Render:
+
+  SALTEDGE_BASE_URL = https://www.saltedge.com/api/v6
+                      (no trailing slash; the v5 default in config.py
+                       is wrong — Render must override to v6 or POST
+                       /customers AND POST /connections/connect both
+                       404)
+  SALTEDGE_APP_ID
+  SALTEDGE_SECRET
+
+Salt Edge 'Pending' mode note: a freshly-registered Salt Edge app
+sits in 'Pending' until Salt Edge approves Test access.  In Pending
+mode only the sandbox `fakebank_simple_xf` provider is reachable;
+real-bank `provider_code`s return ProviderDisabled.  The router
+forces sandbox via `sandbox_mode_default()` so this works end-to-end
+without waiting for approval — the same API host (www.saltedge.com)
+serves both sandbox and production providers, there is NO separate
+sandbox subdomain.
 
 Security: same posture as the GoCardless client.  Secrets in env
 only, never logged.  HTTPS-only with verify=True + 10s timeout.
@@ -415,8 +444,12 @@ class SaltEdgeClient:
                 "country_code": self._COUNTRY,
             },
         }
+        # v6: POST /connections/connect (was /connect_sessions/create in v5).
+        # The v5 path returns 404 on a v6 base URL; the v6 path is the only
+        # one that exists on `https://www.saltedge.com/api/v6`.  See the
+        # migration guide at https://docs.saltedge.com/v6/#migration-guide.
         result = self._request(
-            "POST", "/connect_sessions/create", json_body=body,
+            "POST", "/connections/connect", json_body=body,
         )
         # Type-guard the response shape.  Salt Edge in 'Pending' mode rejects
         # real-bank providers (anything other than the fake-bank slug) and has
@@ -426,7 +459,7 @@ class SaltEdgeClient:
         # actionable message.
         if not isinstance(result, dict):
             raise SaltEdgeClientError(
-                f"Salt Edge POST /connect_sessions/create returned non-dict "
+                f"Salt Edge POST /connections/connect returned non-dict "
                 f"body (type={type(result).__name__}). Likely the app is "
                 f"still in 'Pending' mode and rejects real-bank providers — "
                 f"request Test access in the Salt Edge dashboard, or pass "
@@ -436,7 +469,7 @@ class SaltEdgeClient:
         session = result.get("data") or {}
         if not isinstance(session, dict):
             raise SaltEdgeClientError(
-                f"Salt Edge POST /connect_sessions/create data field is "
+                f"Salt Edge POST /connections/connect data field is "
                 f"not a dict (type={type(session).__name__})",
                 status=502, kind="protocol",
             )
@@ -445,7 +478,7 @@ class SaltEdgeClient:
         # connection_id will arrive on the callback URL once SCA completes.
         if not connect_url:
             raise SaltEdgeClientError(
-                "Salt Edge POST /connect_sessions returned no connect_url",
+                "Salt Edge POST /connections/connect returned no connect_url",
                 status=502, kind="protocol",
             )
         if callable(on_provider_ids):

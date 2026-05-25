@@ -16,14 +16,14 @@ from app.services.saltedge_client import (
 @pytest.fixture
 def client():
     return SaltEdgeClient(
-        base_url="https://example.test/api/v5",
+        base_url="https://example.test/api/v6",
         app_id="test_app_id",
         secret="test_secret",
     )
 
 
 def _resp(status_code: int, body: dict | None = None) -> httpx.Response:
-    request = httpx.Request("POST", "https://example.test/api/v5/")
+    request = httpx.Request("POST", "https://example.test/api/v6/")
     content = json.dumps(body or {}).encode() if body is not None else b""
     return httpx.Response(
         status_code=status_code,
@@ -83,11 +83,13 @@ def test_init_consent_returns_connect_url_and_callbacks_ids(client):
     captured: dict = {}
 
     def stub(self, method, url, **kwargs):
-        if method == "POST" and "/customers" in url:
+        if method == "POST" and url.endswith("/customers"):
             return _resp(200, {"data": {"id": "cust_456"}})
-        if method == "POST" and "/connect_sessions/create" in url:
+        # v6: /connections/connect (was /connect_sessions/create in v5).
+        if method == "POST" and url.endswith("/connections/connect"):
             body = kwargs.get("json") or {}
             captured["body"] = body
+            captured["url"] = url
             return _resp(200, {
                 "data": {
                     "session_id": "sess_uuid",
@@ -117,6 +119,11 @@ def test_init_consent_returns_connect_url_and_callbacks_ids(client):
     assert "state=csrf_state_xyz" in sess_body["attempt"]["return_to"]
     assert sess_body["provider_code"] == "danske_bank_dk"
     assert sess_body["country_code"] == "DK"
+    # Lock the v6 path: regression of the May 2026 404 incident where the
+    # client kept calling the retired v5 path /connect_sessions/create.
+    assert captured["url"].endswith("/api/v6/connections/connect"), (
+        f"expected /api/v6/connections/connect, got {captured['url']}"
+    )
     # Callback got the customer_id + provider_code for persistence.
     assert captured_cb["req"] == "cust_456"
     assert captured_cb["inst"] == "danske_bank_dk"
@@ -137,9 +144,10 @@ def test_init_consent_sandbox_routes_to_fakebank(client):
     captured: dict = {}
 
     def stub(self, method, url, **kwargs):
-        if "/customers" in url:
+        if url.endswith("/customers"):
             return _resp(200, {"data": {"id": "cust_x"}})
-        if "/connect_sessions/create" in url:
+        # v6: /connections/connect (renamed from /connect_sessions/create).
+        if url.endswith("/connections/connect"):
             captured["body"] = kwargs.get("json")
             return _resp(200, {"data": {"connect_url": "https://sandbox/c"}})
         return _resp(500)
@@ -295,6 +303,53 @@ def test_auth_failure_does_not_leak_secret(client):
     assert "test_app_id" not in msg
     assert "test_secret" not in msg
     assert exc_info.value.kind == "auth"
+
+
+# ─── v6 path regression (May 2026 404 incident) ─────────────────────────
+
+
+def test_init_consent_uses_v6_connections_connect_not_v5_path(client):
+    """Lock the v6 endpoint path.  Salt Edge renamed
+    `POST /connect_sessions/create` → `POST /connections/connect` in v6
+    (see https://docs.saltedge.com/v6/#migration-guide).  The v5 path
+    returns 404 on the v6 base URL, which is what the May 2026
+    Connect-bank incident hit: POST /customers worked (path unchanged),
+    POST /connect_sessions/create 404'd (path renamed).
+
+    Regression: if anyone ever renames it back, this test fires.
+    """
+    seen_paths: list[str] = []
+
+    def stub(self, method, url, **kwargs):
+        seen_paths.append(f"{method} {url}")
+        if url.endswith("/customers"):
+            return _resp(200, {"data": {"customer_id": "cust_v6"}})
+        if url.endswith("/connections/connect"):
+            return _resp(200, {"data": {
+                "connect_url": "https://www.saltedge.com/connect?token=v6ok",
+            }})
+        # v5 retired path — if the client ever calls it again the
+        # mock returns 404 like real Salt Edge does on a v6 host.
+        if url.endswith("/connect_sessions/create"):
+            return _resp(404, {"error": {
+                "class": "RouteNotFound",
+                "message": "Not Found",
+            }})
+        return _resp(500)
+
+    with patch.object(httpx.Client, "request", new=stub):
+        url = client.init_consent(
+            redirect_uri="https://example.test/cb",
+            state="state_v6",
+            sandbox=True,
+        )
+
+    assert url == "https://www.saltedge.com/connect?token=v6ok"
+    # No v5 path should ever be called.
+    assert not any("/connect_sessions/create" in p for p in seen_paths), (
+        f"client still calls retired v5 path: {seen_paths}"
+    )
+    assert any("/connections/connect" in p for p in seen_paths)
 
 
 # ─── Schema-drift hardening (May 2026 incident) ─────────────────────────
