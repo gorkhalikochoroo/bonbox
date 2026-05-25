@@ -1,67 +1,31 @@
 const CACHE_NAME = "bonbox-v3";
-const API_CACHE_NAME = "bonbox-api-v1";
-const API_CACHE_TTL = 5 * 60 * 1000; // 5 minutes in milliseconds
+// 2026-05-25 — API cache key bumped (was bonbox-api-v1). The previous
+// SW served /api/dashboard/* via stale-while-revalidate with a 5-min
+// TTL, which meant after an optimistic-add on Sales/Expenses the very
+// next dashboard read returned yesterday's KPI for up to 5 minutes.
+// For a financial app where dashboard counters feed MOMS-aware mental
+// models, that's not acceptable. This SW now treats ALL /api/* as
+// NetworkOnly (no cache, ever). Bumping the cache key forces any
+// previously-installed SW to nuke its stale dashboard cache on the
+// next activation. See companion React-side fixes in 78e2d6e / ee80e93.
+const API_CACHE_NAME = "bonbox-api-v2";
 const STATIC_ASSETS = ["/manifest.json", "/icon-192.png", "/icon-512.png", "/favicon.svg"];
 
 // --- API cache helpers ---
-
-// Check if a URL is a cacheable dashboard endpoint
-function isDashboardApi(url) {
-  return url.includes("/api/dashboard/batch") || url.includes("/api/dashboard/");
-}
 
 // Auth endpoints must NEVER be cached (security)
 function isAuthApi(url) {
   return url.includes("/api/auth/");
 }
 
-// Store a response with a timestamp so we can check TTL later
-async function putWithTimestamp(cache, request, response) {
-  // Store the actual response
-  await cache.put(request, response.clone());
-  // Store the timestamp in a parallel key
-  const tsResponse = new Response(JSON.stringify({ timestamp: Date.now() }));
-  await cache.put(request.url + "__ts", tsResponse);
-}
-
-// Check whether a cached entry has expired
-async function isCacheExpired(cache, request) {
-  const tsResponse = await cache.match(request.url + "__ts");
-  if (!tsResponse) return true;
-  try {
-    const { timestamp } = await tsResponse.json();
-    return Date.now() - timestamp > API_CACHE_TTL;
-  } catch {
-    return true;
-  }
-}
-
-// Remove all expired entries from the API cache
-async function cleanExpiredApiEntries() {
+// Purge any leftover entries from the previous API cache version.
+// The old SW stored /api/dashboard/* responses with parallel "__ts"
+// timestamp entries. We blow the whole cache away on activation so
+// existing installed users don't read yesterday's KPI on next load.
+async function purgeApiCache() {
   const cache = await caches.open(API_CACHE_NAME);
   const keys = await cache.keys();
-  const deletions = [];
-  for (const key of keys) {
-    // Skip timestamp meta-entries (they are cleaned with their parent)
-    if (key.url.endsWith("__ts")) continue;
-    const tsResponse = await cache.match(key.url + "__ts");
-    if (!tsResponse) {
-      // No timestamp found — stale orphan, delete both
-      deletions.push(cache.delete(key));
-      continue;
-    }
-    try {
-      const { timestamp } = await tsResponse.json();
-      if (Date.now() - timestamp > API_CACHE_TTL) {
-        deletions.push(cache.delete(key));
-        deletions.push(cache.delete(key.url + "__ts"));
-      }
-    } catch {
-      deletions.push(cache.delete(key));
-      deletions.push(cache.delete(key.url + "__ts"));
-    }
-  }
-  return Promise.all(deletions);
+  return Promise.all(keys.map((key) => cache.delete(key)));
 }
 
 // Install: cache static assets, skip waiting to activate immediately
@@ -72,11 +36,15 @@ self.addEventListener("install", (event) => {
   self.skipWaiting();
 });
 
-// Activate: delete old caches and clean expired API cache entries
+// Activate: delete old caches and purge the API cache entirely so any
+// /api/dashboard/* entries left behind by the previous SW version
+// (bonbox-api-v1) cannot be served.
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     Promise.all([
-      // Delete old static caches (but keep current + API cache)
+      // Delete old static caches (but keep current + API cache name).
+      // The previous API cache key (bonbox-api-v1) is NOT in this
+      // allowlist, so it gets deleted here too.
       caches.keys().then((keys) =>
         Promise.all(
           keys
@@ -84,8 +52,10 @@ self.addEventListener("activate", (event) => {
             .map((k) => caches.delete(k))
         )
       ),
-      // Purge expired entries from the API cache
-      cleanExpiredApiEntries(),
+      // Belt + braces: even if the cache name didn't change, blow away
+      // anything left in the current API cache. Cheap on first activate
+      // (the cache is empty) and protects against partial deploys.
+      purgeApiCache(),
     ])
   );
   self.clients.claim();
@@ -183,51 +153,20 @@ self.addEventListener("fetch", (event) => {
   // Auth endpoints: NEVER cache (security — tokens, credentials, PII)
   if (isAuthApi(request.url)) return;
 
-  // Dashboard API endpoints: stale-while-revalidate with 5-min TTL
-  if (isDashboardApi(request.url)) {
-    event.respondWith(
-      (async () => {
-        const cache = await caches.open(API_CACHE_NAME);
-        const cached = await cache.match(request);
-
-        // Background revalidation: fetch from network and update cache
-        const revalidate = fetch(request)
-          .then(async (networkResponse) => {
-            if (networkResponse.ok) {
-              await putWithTimestamp(cache, request, networkResponse);
-            }
-            return networkResponse;
-          })
-          .catch(() => null); // swallow network errors silently
-
-        // If we have a cached response and it's within TTL, return it immediately
-        // and let the background fetch update the cache for next time
-        if (cached) {
-          const expired = await isCacheExpired(cache, request);
-          if (!expired) {
-            // Fresh cache — return it, revalidate in background
-            revalidate; // fire-and-forget
-            return cached;
-          }
-          // Expired cache — try network first, fall back to stale cache
-          const networkResponse = await revalidate;
-          return networkResponse && networkResponse.ok ? networkResponse : cached;
-        }
-
-        // No cache at all — must go to network (offline = failure)
-        const networkResponse = await revalidate;
-        if (networkResponse && networkResponse.ok) return networkResponse;
-        // Network failed and no cache — return a proper error response
-        return new Response(JSON.stringify({ error: "offline", message: "No cached data available" }), {
-          status: 503,
-          headers: { "Content-Type": "application/json" },
-        });
-      })()
-    );
-    return;
-  }
-
-  // All other API requests: network only (always fresh data)
+  // ALL /api/* GETs: NetworkOnly. BonBox is a financial app — every
+  // dashboard / sales / expenses / faktura / inventory / billing /
+  // bank-connect / dashboard-batch response is mutable, and serving a
+  // stale value (even by a few minutes) produces wrong MOMS totals,
+  // wrong daily summaries, and wrong accountant-bound artifacts.
+  //
+  // We deliberately do NOT add a stale-while-revalidate path for any
+  // /api/* endpoint here. If a future immutable endpoint shows up
+  // (e.g. /api/config/features, /api/app-version), allowlist it
+  // explicitly above this guard — don't widen the cache by default.
+  //
+  // Companion React-side fixes for the same freshness invariant:
+  //   - 78e2d6e  optimistic-add + focus-refetch on SalesPage/ExpensesPage
+  //   - ee80e93  trial-Starter+ nudge flicker on cold load
   if (request.url.includes("/api/")) return;
 
   // HTML navigation: network-first, cache fallback
