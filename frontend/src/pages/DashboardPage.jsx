@@ -219,11 +219,32 @@ export default function DashboardPage() {
       if (data.moms_countdown_days != null) setMomsCountdownDays(data.moms_countdown_days);
       if (data.moms_date) setMomsDate(data.moms_date);
     } catch {
-      // Fallback to per-endpoint calls if the batch endpoint is down.
-      // Same defensive pattern the previous version used.
+      // batch failed — per-endpoint fallbacks (same defensive pattern
+      // as the previous DashboardPage version)
       api.get("/dashboard/summary").then((r) => setSummary(r.data)).catch(() => {});
       api.get("/dashboard/top-sellers").then((r) => setTopSellers(r.data)).catch(() => {});
       api.get("/dashboard/action-items").then((r) => setActionItems(r.data)).catch(() => {});
+    }
+
+    // MOMS countdown lives on /tax/overview (not in /dashboard/batch).
+    // Always runs — independent of batch success.
+    try {
+      const taxRes = await api.get("/tax/overview");
+      const deadlines = taxRes?.data?.upcoming_deadlines || [];
+      const next = deadlines.find((d) => d?.type === "vat" || d?.type === "moms") || deadlines[0];
+      if (next?.date) {
+        const due = new Date(next.date + "T00:00:00");
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const days = Math.ceil((due - today) / 86400000);
+        setMomsCountdownDays(days);
+        setMomsDate(next.date);
+      }
+    } catch {
+      // /tax/overview unavailable — KpiStrip will hide the tile cleanly
+    }
+
+    try {
+      // no-op preserved so the surrounding finally still fires
     } finally {
       setLoading(false);
     }
