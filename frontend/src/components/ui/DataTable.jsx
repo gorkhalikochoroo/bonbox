@@ -111,11 +111,21 @@ function resolveKey(row, rowKey, idx) {
   return idx;
 }
 
-function actionButtonVariant(v) {
-  // Action cells use Button's ghost variant for visual weight (they live
-  // in a dense row), and danger when the action is destructive.
-  if (v === "danger") return "danger";
-  return "ghost";
+function actionIconClasses(v) {
+  // Row actions render as icon-only buttons. Color is the SIGNAL:
+  // destructive = red on hover. Everything else stays neutral gray
+  // because actions appear on every row — a bright red pill in every
+  // row would dominate the page (Linear/Notion/Stripe pattern).
+  if (v === "danger") {
+    return (
+      "text-gray-500 hover:text-red-600 hover:bg-red-50 " +
+      "dark:text-gray-400 dark:hover:text-red-400 dark:hover:bg-red-950/30"
+    );
+  }
+  return (
+    "text-gray-500 hover:text-gray-900 hover:bg-gray-100 " +
+    "dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800"
+  );
 }
 
 export default function DataTable({
@@ -148,22 +158,28 @@ export default function DataTable({
     const actions = rowActions(row) || [];
     if (actions.length === 0) return null;
     return (
-      <div className="flex items-center justify-end gap-1">
+      <div className="flex items-center justify-end gap-0.5">
         {actions.map((a, i) => (
-          <Button
+          <button
             key={a.id || a.label || i}
-            variant={actionButtonVariant(a.variant)}
-            size="sm"
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               if (typeof a.onClick === "function") a.onClick(row);
             }}
-            iconLeft={a.icon || null}
+            title={a.label /* native tooltip on hover */}
             aria-label={a.ariaLabel || a.label}
             disabled={a.disabled}
+            className={
+              "inline-flex items-center justify-center h-8 w-8 rounded-lg " +
+              "transition-colors focus-visible:outline-none focus-visible:ring-2 " +
+              "focus-visible:ring-gray-400 disabled:opacity-40 " +
+              "disabled:cursor-not-allowed " +
+              actionIconClasses(a.variant)
+            }
           >
-            {a.label}
-          </Button>
+            {a.icon}
+          </button>
         ))}
       </div>
     );
