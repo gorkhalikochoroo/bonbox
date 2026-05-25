@@ -323,11 +323,15 @@ def test_feature_alias_bank_auto_sync_matches_bank_auto_reconcile(db):
     assert min_plan_for_feature("bank_auto_reconcile") == "starter"
 
 
-# ─── Test 10: State expires after 10 minutes (carries TTL) ───────────
+# ─── Test 10: State expires after 30 minutes (carries TTL) ───────────
 
 
-def test_reconnect_state_carries_ten_minute_ttl(client, db):
-    """Same 10-min CSRF window as /init (Audit P1 / Task #75)."""
+def test_reconnect_state_carries_thirty_minute_ttl(client, db):
+    """30-min CSRF window matches /init.  Bumped from 10 → 30 min on
+    2026-05-25 after a real Nordea MitID flow blew past 10 min (opening
+    the MitID app on the phone + first-time setup pushes wall-clock
+    over the original 10-min budget).  See bank_connect.py at the
+    state_expires assignment for the security rationale."""
     user = _user(db, plan="starter")
     conn = _make_active_connection(db, user)
     _override_user(user)
@@ -338,9 +342,9 @@ def test_reconnect_state_carries_ten_minute_ttl(client, db):
 
     db.expire_all()
     row = db.query(BankConnection).filter(BankConnection.id == conn.id).first()
-    # Window is between 9:55 and 10:05 minutes from now to allow for
+    # Window is between 29:50 and 30:10 minutes from now to allow for
     # tiny clock drift inside the test (utc_now() called twice).
     delta = (row.consent_state_expires_at - before).total_seconds()
-    assert 9 * 60 + 50 <= delta <= 10 * 60 + 10, (
-        f"State TTL drifted from 10 min: {delta}s"
+    assert 29 * 60 + 50 <= delta <= 30 * 60 + 10, (
+        f"State TTL drifted from 30 min: {delta}s"
     )

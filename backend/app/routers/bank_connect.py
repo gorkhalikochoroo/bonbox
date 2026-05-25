@@ -231,9 +231,18 @@ def init_bank_connection(
     # then. If the owner never completes consent, a sweeper can purge
     # pending rows older than 1 hour (out of scope for v0.1).
     # Audit P1 (Task #75): consent_state TTL — refuse exchange on
-    # callback if the state was minted more than 10 minutes ago.
-    # Prevents replay of phished state values days/weeks later.
-    state_expires = utc_now() + timedelta(minutes=10)
+    # callback if the state was minted more than the TTL ago.  Bumped
+    # from 10 min → 30 min on 2026-05-25 after a real Nordea MitID flow
+    # blew past the 10-minute window (owner clicks Connect bank → Salt
+    # Edge Connect → Nordea online banking → opens MitID app on phone
+    # → approves on phone → bounces back; first-time MitID setup on a
+    # new device can take 12+ minutes).  30 min still bounds phishing-
+    # replay exposure tightly — state is single-use (cleared on success)
+    # so the only attack window is "phished state stolen, victim hasn't
+    # finished SCA yet, attacker races to redeem".  PSD2 itself doesn't
+    # bound SCA wall-clock time; 30 min matches the typical bank-side
+    # session limit.
+    state_expires = utc_now() + timedelta(minutes=30)
     conn = BankConnection(
         id=uuid.uuid4(),
         user_id=user.id,
@@ -391,7 +400,11 @@ def bank_callback(
         db.commit()
         raise HTTPException(
             status_code=400,
-            detail="Consent expired — please start a new connection",
+            detail=(
+                "Bank consent session timed out before SCA completed. "
+                "Click Connect bank to start again — the next attempt "
+                "has 30 minutes to finish."
+            ),
         )
 
     # Re-fetch the user so the audit trail has a real User object.
@@ -735,7 +748,9 @@ def reconnect_bank_connection(
     # this row to prevent a phished old state from replaying.
     state = secrets.token_hex(32)
     sandbox = sandbox_mode_default()
-    state_expires = utc_now() + timedelta(minutes=10)
+    # TTL matches /init — see comment there.  30 min covers real MitID
+    # SCA flows where the owner has to open the MitID app on their phone.
+    state_expires = utc_now() + timedelta(minutes=30)
 
     before = {
         "status": conn.status,
