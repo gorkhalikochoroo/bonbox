@@ -228,16 +228,18 @@ export default function DashboardPage() {
 
     // MOMS countdown lives on /tax/overview (not in /dashboard/batch).
     // Always runs — independent of batch success.
+    // Response shape (verified 2026-05-25 against api.bonbox.dk):
+    //   upcoming_deadlines: [{ deadline: "2026-09-01", days_until: 99,
+    //                          period_label, estimated_amount, ... }]
+    // No `type` field — the endpoint only returns MOMS/VAT deadlines so
+    // the first entry IS the next MOMS deadline.
     try {
       const taxRes = await api.get("/tax/overview");
       const deadlines = taxRes?.data?.upcoming_deadlines || [];
-      const next = deadlines.find((d) => d?.type === "vat" || d?.type === "moms") || deadlines[0];
-      if (next?.date) {
-        const due = new Date(next.date + "T00:00:00");
-        const today = new Date(); today.setHours(0, 0, 0, 0);
-        const days = Math.ceil((due - today) / 86400000);
-        setMomsCountdownDays(days);
-        setMomsDate(next.date);
+      const next = deadlines[0];
+      if (next?.deadline && next?.days_until != null) {
+        setMomsCountdownDays(Number(next.days_until));
+        setMomsDate(next.deadline);
       }
     } catch {
       // /tax/overview unavailable — KpiStrip will hide the tile cleanly
