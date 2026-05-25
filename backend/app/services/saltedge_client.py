@@ -430,7 +430,15 @@ class SaltEdgeClient:
             "data": {
                 "customer_id": customer_id,
                 "consent": {
-                    "scopes": ["account_details", "transactions_details"],
+                    # v6 renamed the consent scope tokens (verified live
+                    # 2026-05-25 via WrongRequestFormat from Salt Edge):
+                    #   v5 "account_details"      → v6 "accounts"
+                    #   v5 "transactions_details" → v6 "transactions"
+                    # Salt Edge v6 also accepts "holder_info" for the
+                    # account-owner identity surface; we don't need it
+                    # for invoice/MOMS reconciliation so leave it off
+                    # (smaller consent ask = better UX on the SCA page).
+                    "scopes": ["accounts", "transactions"],
                     # 90-day SCA window — matches DK PSD2 max.
                     "from_date": None,  # Salt Edge defaults to provider's max history
                     "period_days": 90,
