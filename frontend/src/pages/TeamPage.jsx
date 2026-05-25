@@ -3,6 +3,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
+import Modal from "../components/Modal";
 
 const ROLE_COLORS = {
   owner: "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400",
@@ -22,6 +23,7 @@ export default function TeamPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
   const [members, setMembers] = useState([]);
+  const [pendingInvites, setPendingInvites] = useState([]);
   const [permissions, setPermissions] = useState(null);
   const [loading, setLoading] = useState(true);
   // Plan caps from /billing/me — drives the seat counter + the upgrade
@@ -34,8 +36,22 @@ export default function TeamPage() {
   const [name, setName] = useState("");
   const [role, setRole] = useState("cashier");
   const [inviting, setInviting] = useState(false);
+  // Toast-style result. NEVER carries a plaintext password or magic link.
   const [inviteResult, setInviteResult] = useState(null);
   const [error, setError] = useState("");
+
+  // Confirm dialog — replaces native window.confirm().
+  const [confirmState, setConfirmState] = useState(null);
+  // { title, body, confirmLabel, onConfirm }
+
+  const reloadAll = () =>
+    Promise.all([
+      api.get("/team/members"),
+      api.get("/team/pending-invites").catch(() => ({ data: [] })),
+    ]).then(([memRes, pendingRes]) => {
+      setMembers(memRes.data || []);
+      setPendingInvites(pendingRes.data || []);
+    });
 
   // Fetch team + billing in parallel
   useEffect(() => {
@@ -43,16 +59,23 @@ export default function TeamPage() {
       api.get("/team/members"),
       api.get("/team/permissions"),
       api.get("/billing/me").catch(() => ({ data: null })),
-    ]).then(([memRes, permRes, billingRes]) => {
-      setMembers(memRes.data);
-      setPermissions(permRes.data);
-      setBilling(billingRes.data);
-    }).catch(() => {}).finally(() => setLoading(false));
+      api.get("/team/pending-invites").catch(() => ({ data: [] })),
+    ])
+      .then(([memRes, permRes, billingRes, pendingRes]) => {
+        setMembers(memRes.data || []);
+        setPermissions(permRes.data);
+        setBilling(billingRes.data);
+        setPendingInvites(pendingRes.data || []);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
-  // Seat math — owner counts as 1 seat (matches backend gate)
+  // Seat math — owner counts as 1 seat (matches backend gate). Pending
+  // invites also count so seat-aware UI stays honest.
   const teamCap = billing?.caps?.team_users ?? null;
-  const seatsUsed = members.length + 1; // +1 for the owner
+  const seatsUsed = members.length + pendingInvites.length;
+  // members already includes the owner; do not double-count
   const teamUnlimited = teamCap !== null && teamCap < 0;
   const teamAtCap = teamCap !== null && !teamUnlimited && seatsUsed >= teamCap;
 
@@ -64,33 +87,68 @@ export default function TeamPage() {
     setError("");
     try {
       const res = await api.post("/team/invite", { email: email.trim(), role, name: name.trim() });
+      // res.data is { status, email, role, email_sent, expires_at, invite_token_sent }
+      // It NEVER carries a plaintext password or the magic-link token.
       setInviteResult(res.data);
-      // Refresh members
-      const memRes = await api.get("/team/members");
-      setMembers(memRes.data);
+      await reloadAll();
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to invite");
     }
     setInviting(false);
   };
 
+  const handleResend = async (memberId) => {
+    setError("");
+    try {
+      const res = await api.post(`/team/${memberId}/resend-invite`);
+      setInviteResult(res.data);
+      await reloadAll();
+    } catch (err) {
+      setError(err.response?.data?.detail || "Failed to resend");
+    }
+  };
+
+  const handleRevokeInvite = (memberId, emailAddr) => {
+    setConfirmState({
+      title: "Revoke invitation?",
+      body: `${emailAddr} won't be able to use this invite link anymore. You can always invite them again later.`,
+      confirmLabel: "Revoke",
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          await api.post(`/team/${memberId}/revoke-invite`);
+          await reloadAll();
+        } catch (err) {
+          setError(err.response?.data?.detail || "Failed to revoke");
+        }
+      },
+    });
+  };
+
   const changeRole = async (memberId, newRole) => {
     try {
       await api.patch(`/team/${memberId}/role`, { role: newRole });
-      setMembers((prev) => prev.map((m) => m.id === memberId ? { ...m, role: newRole } : m));
+      setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, role: newRole } : m)));
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to update role");
     }
   };
 
-  const removeMember = async (memberId) => {
-    if (!confirm("Remove this team member? They will lose access to your business data.")) return;
-    try {
-      await api.delete(`/team/${memberId}`);
-      setMembers((prev) => prev.filter((m) => m.id !== memberId));
-    } catch (err) {
-      setError(err.response?.data?.detail || "Failed to remove");
-    }
+  const removeMember = (memberId, emailAddr) => {
+    setConfirmState({
+      title: "Remove team member?",
+      body: `${emailAddr} will lose access to your business data immediately. Existing data they entered stays with the business.`,
+      confirmLabel: "Remove",
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          await api.delete(`/team/${memberId}`);
+          setMembers((prev) => prev.filter((m) => m.id !== memberId));
+        } catch (err) {
+          setError(err.response?.data?.detail || "Failed to remove");
+        }
+      },
+    });
   };
 
   const resetInvite = () => {
@@ -164,7 +222,7 @@ export default function TeamPage() {
           <div className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center text-lg">
-                {isOwner ? "👑" : "👤"}
+                {isOwner ? "Owner" : "Staff"}
               </div>
               <div>
                 <p className="text-sm font-semibold text-gray-800 dark:text-white">
@@ -184,15 +242,20 @@ export default function TeamPage() {
             <h3 className="text-base font-semibold text-gray-700 dark:text-gray-300">Invite a team member</h3>
 
             {inviteResult ? (
-              <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4 space-y-2">
-                <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">Invitation sent!</p>
-                <p className="text-sm text-gray-600 dark:text-gray-400">Share these credentials with {inviteResult.email}:</p>
-                <div className="bg-white dark:bg-gray-700 rounded-lg p-3 text-sm font-mono space-y-1">
-                  <p className="text-gray-800 dark:text-gray-200">Email: <strong>{inviteResult.email}</strong></p>
-                  <p className="text-gray-800 dark:text-gray-200">Password: <strong>{inviteResult.temp_password}</strong></p>
-                  <p className="text-gray-800 dark:text-gray-200">Role: <strong>{inviteResult.role}</strong></p>
-                </div>
-                <p className="text-xs text-gray-400">They should change their password after first login.</p>
+              <div className="bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800/50 rounded-xl p-4 space-y-2">
+                <p className="text-sm font-semibold text-green-800 dark:text-green-200">
+                  {inviteResult.email_sent
+                    ? `Invitation sent to ${inviteResult.email}.`
+                    : `Invitation created for ${inviteResult.email}.`}
+                </p>
+                <p className="text-sm text-green-700 dark:text-green-300">
+                  {inviteResult.email_sent
+                    ? `They have 7 days to choose a password and accept. The link is in their email.`
+                    : `Email delivery failed — see the Pending invites list below to resend.`}
+                </p>
+                <p className="text-xs text-green-700/70 dark:text-green-300/70">
+                  For security, the invitation link is sent only to the invitee's email — it is never shown on screen.
+                </p>
                 <button onClick={resetInvite} className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition">
                   Done
                 </button>
@@ -241,10 +304,53 @@ export default function TeamPage() {
                   disabled={!email.trim() || inviting}
                   className="w-full py-2.5 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-700 disabled:opacity-40 transition"
                 >
-                  {inviting ? "Inviting..." : "Send Invite"}
+                  {inviting ? "Sending invite..." : "Send Invite"}
                 </button>
               </>
             )}
+          </div>
+        </FadeIn>
+      )}
+
+      {/* Pending invites — visible above active members so the owner sees
+          what's in-flight. Only the owner sees this section. */}
+      {isOwner && pendingInvites.length > 0 && (
+        <FadeIn>
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+              Pending invites
+              <span className="ml-2 text-xs font-normal text-gray-400">{pendingInvites.length}</span>
+            </h3>
+            <div className="space-y-2">
+              {pendingInvites.map((p) => (
+                <div key={p.id} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg bg-gray-50 dark:bg-gray-700/40">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{p.email}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      <span className="capitalize">{p.role}</span>
+                      {" · "}
+                      {p.expired
+                        ? <span className="text-red-500">Expired — resend to revive</span>
+                        : <span>{p.days_remaining} day{p.days_remaining === 1 ? "" : "s"} left</span>}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => handleResend(p.id)}
+                      className="px-2.5 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition"
+                    >
+                      Resend
+                    </button>
+                    <button
+                      onClick={() => handleRevokeInvite(p.id, p.email)}
+                      className="px-2.5 py-1.5 text-xs font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 transition"
+                    >
+                      Revoke
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </FadeIn>
       )}
@@ -259,8 +365,8 @@ export default function TeamPage() {
           <div className="space-y-3">
             {members.map((m) => (
               <div key={m.id} className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm flex items-center gap-4">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg bg-gray-100 dark:bg-gray-700">
-                  {m.role === "owner" ? "👑" : m.role === "manager" ? "📋" : m.role === "cashier" ? "💰" : "👁"}
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xs font-semibold text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 uppercase">
+                  {(m.business_name || m.email).slice(0, 2)}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-gray-800 dark:text-white truncate">{m.business_name || m.email}</p>
@@ -281,9 +387,10 @@ export default function TeamPage() {
                       <option value="viewer">Viewer</option>
                     </select>
                     <button
-                      onClick={() => removeMember(m.id)}
+                      onClick={() => removeMember(m.id, m.email)}
                       className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition"
                       title="Remove"
+                      aria-label={`Remove ${m.email}`}
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -298,7 +405,6 @@ export default function TeamPage() {
       ) : (
         <FadeIn>
           <div className="bg-white dark:bg-gray-800 rounded-xl p-10 border border-gray-100 dark:border-gray-700 text-center">
-            <div className="text-4xl mb-3">👥</div>
             <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">Just you for now</h3>
             <p className="text-sm text-gray-400 mb-4">Invite staff members to give them limited access to your BonBox.</p>
             {isOwner && (
@@ -327,6 +433,39 @@ export default function TeamPage() {
           </div>
         </div>
       </FadeIn>
+
+      {/* In-app confirm dialog — replaces native window.confirm() */}
+      <Modal
+        open={!!confirmState}
+        onClose={() => setConfirmState(null)}
+        title={confirmState?.title || ""}
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600 dark:text-gray-300">{confirmState?.body}</p>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setConfirmState(null)}
+              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={async () => {
+                const fn = confirmState?.onConfirm;
+                setConfirmState(null);
+                if (fn) await fn();
+              }}
+              className={`px-4 py-2 text-sm font-semibold text-white rounded-lg transition ${
+                confirmState?.destructive
+                  ? "bg-red-600 hover:bg-red-700"
+                  : "bg-gray-900 hover:bg-gray-700"
+              }`}
+            >
+              {confirmState?.confirmLabel || "Confirm"}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

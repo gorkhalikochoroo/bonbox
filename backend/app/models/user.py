@@ -88,6 +88,24 @@ class User(Base):
     owner_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True)  # NULL for owners
     reset_token: Mapped[str | None] = mapped_column(String(100), nullable=True)
     reset_token_expires: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # ── Migration 017 — team magic-link invite tokens ──
+    # Replaces the old plaintext temp_password flow on POST /api/team/invite.
+    # `invite_token_hash` is sha256(raw_token); the raw 32-byte url-safe
+    # token is sent ONLY in the invite email link and never persisted.
+    # `invite_expires_at` is utc_now() + 7 days at mint time. The accept
+    # endpoint refuses tokens past TTL (410 invite_expired).
+    # `invited_by_user_id` records the owner who minted the invite — used
+    # for tenant scoping at accept time and to wire owner_id when the
+    # User row is materialized lazily on first acceptance.
+    # All three are NULL on existing rows (additive nullable migration);
+    # NULL means "this row was created via the legacy plaintext flow or
+    # the user has never been invited via magic link". Only NEW invites
+    # write these columns.
+    invite_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    invite_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    invited_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("users.id"), nullable=True,
+    )
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     verification_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
     verification_code_expires: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

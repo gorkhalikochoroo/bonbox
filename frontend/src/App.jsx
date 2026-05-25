@@ -220,6 +220,12 @@ const ConnectionsPage = lazyRetry(() => import("./pages/ConnectionsPage"));
 // Task #49 — Accountant read-only login (stickiness moat)
 const AcceptInvitePage = lazyRetry(() => import("./pages/AcceptInvitePage"));
 const AccountantClientsPage = lazyRetry(() => import("./pages/AccountantClientsPage"));
+// Task #202 — Team magic-link invite (P0 security; replaces the
+// plaintext temp_password flow). Separate page from the accountant
+// invite because the role chip + welcome copy + post-accept landing
+// page are different (team members land on /dashboard with full
+// app chrome; revisors land on /clients with their picker).
+const TeamAcceptInvitePage = lazyRetry(() => import("./pages/TeamAcceptInvitePage"));
 
 function ProtectedRoute({ children }) {
   const { user, loading, needsEmailVerification } = useAuth();
@@ -324,6 +330,10 @@ function AppRoutes() {
             Token in URL is the only credential; the page collects
             password + name and POSTs to /accountants/signup. */}
         <Route path="/accept-invite/:token" element={<AcceptInvitePage />} />
+        {/* Task #202 — Team magic-link landing. Token is the only
+            credential; the page collects a NEW password (no plaintext
+            temp_password roundtrip) and POSTs to /team/accept-invite. */}
+        <Route path="/accept-invite/team/:token" element={<TeamAcceptInvitePage />} />
         {/* Event-booking public surface — no auth required (guest checkout).
             Visitors land here from FB/Messenger clicks on the organizer's
             shared link. Mobile-first; cover image is the only color moment. */}
