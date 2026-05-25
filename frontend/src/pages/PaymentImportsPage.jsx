@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { CreditCard, FileText, ArrowRight } from "lucide-react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { useAuth } from "../hooks/useAuth";
@@ -951,13 +952,16 @@ export default function PaymentImportsPage() {
     );
   }
 
-  // Group providers by country
+  // Group providers by country — Denmark-first lock (2026-05-25):
+  // we only surface DK providers. Non-DK providers stay supported in the
+  // backend for any users that already connected them, but new connections
+  // are DK-only. Per Manoj: "only dk focus".
   const providersByCountry = {};
   for (const p of providers) {
-    for (const c of p.countries) {
-      if (!providersByCountry[c]) providersByCountry[c] = [];
-      providersByCountry[c].push(p);
-    }
+    if (!Array.isArray(p.countries)) continue;
+    if (!p.countries.includes("DK")) continue;
+    if (!providersByCountry.DK) providersByCountry.DK = [];
+    providersByCountry.DK.push(p);
   }
 
   return (
@@ -968,7 +972,7 @@ export default function PaymentImportsPage() {
           {t("paymentImports") || "Payment Imports"}
         </h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-          Automatically fetch your sales from MobilePay, eSewa, and Khalti
+          {t("paymentImportsSubtitle", "Auto-fetch your MobilePay sales — or use Bank CSV import for everything else.")}
         </p>
       </div>
 
@@ -1039,29 +1043,26 @@ export default function PaymentImportsPage() {
                   return (
                     <div
                       key={`${countryCode}-${p.id}`}
-                      className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 p-4 flex items-center gap-4"
+                      className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 flex items-center gap-4"
                     >
-                      <div className="w-11 h-11 rounded-xl bg-gray-50 dark:bg-gray-700 flex items-center justify-center text-2xl shrink-0">
-                        {p.logo_emoji}
+                      <div className="w-11 h-11 rounded-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0">
+                        <CreditCard className="w-5 h-5 text-gray-500 dark:text-gray-400" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-gray-800 dark:text-white">{p.name}</p>
-                        <p className="text-xs text-gray-400 truncate">{p.description}</p>
+                        <p className="text-sm font-semibold text-gray-900 dark:text-white">{p.name}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{p.description}</p>
                       </div>
                       {isConnected ? (
-                        <span className="text-xs font-medium text-emerald-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded-full flex items-center gap-1 shrink-0">
+                        <span className="text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-3 py-1.5 rounded-full flex items-center gap-1.5 shrink-0">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
-                          {t("connected") || "Connected"}
+                          {t("connected", "Connected")}
                         </span>
                       ) : (
                         <button
                           onClick={() => setConnectingProvider(p)}
-                          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition shrink-0 flex items-center gap-1.5"
+                          className="px-4 py-2 bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white rounded-lg text-sm font-medium transition shrink-0"
                         >
-                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                          </svg>
-                          {t("connect") || "Connect"}
+                          {t("connect", "Connect")}
                         </button>
                       )}
                     </div>
@@ -1071,20 +1072,45 @@ export default function PaymentImportsPage() {
             </div>
           ))}
 
-          {/* UPI note for India */}
-          <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200/60 dark:border-amber-800/50 rounded-xl p-4">
-            <p className="text-sm text-amber-800 dark:text-amber-300 font-medium">
-              {t("upiNote") || "UPI, Google Pay, PhonePe (India)"}
-            </p>
-            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-              {t("upiNoteDesc") || "UPI transactions appear in your bank statement. Use Bank CSV Import to import them."}
-            </p>
+          {/* CSV escape hatch — most users don't have Vipps developer API
+              access. Their realistic path is to export their MobilePay
+              CSV (from the app or web portal) and run it through Bank
+              Import. We surface that path PROMINENTLY so the page is
+              actually useful for the 80% of small organizers. */}
+          <div className="bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-800 rounded-xl p-5">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 flex items-center justify-center shrink-0">
+                <FileText className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                  {t("dontHaveApiKeys", "Don't have API keys?")}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+                  {t(
+                    "dontHaveApiKeysBody",
+                    "Most organizers export their MobilePay CSV from the app and upload it. Takes 30 seconds — no developer setup needed.",
+                  )}
+                </p>
+                <Link
+                  to="/bank-import"
+                  className="inline-flex items-center gap-1.5 mt-3 text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-gray-700 dark:hover:text-white"
+                >
+                  {t("uploadCsvInstead", "Upload CSV instead")}
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+            </div>
           </div>
 
           {/* Help CTA */}
           <div className="text-center py-3">
-            <p className="text-xs text-gray-400 dark:text-gray-500">
-              Need help connecting? <a href="/contact" className="text-blue-500 hover:underline">Contact us</a> and we'll walk you through it.
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {t("needHelpConnecting", "Need help connecting?")}{" "}
+              <a href="/contact" className="text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white underline underline-offset-2">
+                {t("contactUs", "Contact us")}
+              </a>{" "}
+              {t("needHelpConnectingTail", "and we'll walk you through it.")}
             </p>
           </div>
         </div>
