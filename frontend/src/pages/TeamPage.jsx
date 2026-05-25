@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
 import Modal from "../components/Modal";
+import { Icon } from "../components/ui";
 
 const ROLE_COLORS = {
   owner: "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400",
@@ -12,11 +13,30 @@ const ROLE_COLORS = {
   viewer: "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400",
 };
 
-const ROLE_DESCRIPTIONS = {
-  owner: "Full access to everything",
-  manager: "Sales, expenses, inventory, reports, cashbook, budgets, waste",
-  cashier: "Sales and cashbook only",
-  viewer: "View reports only",
+// DK i18n leak fix — role icons are Lucide names (resolved by <Icon name />),
+// not emoji. Crown=owner, ClipboardList=manager, Wallet=cashier, Eye=viewer.
+// Localized descriptions/labels live on the t() side; this map only controls
+// the visual glyph next to each role badge.
+const ROLE_ICON_NAME = {
+  owner: "Crown",
+  manager: "ClipboardList",
+  cashier: "Wallet",
+  viewer: "Eye",
+};
+
+// Keys for localized role labels + descriptions. The labels render via t()
+// at the call-site so locale switching is live (no re-mount needed).
+const ROLE_LABEL_KEY = {
+  owner: "teamRoleOwner",
+  manager: "teamRoleManager",
+  cashier: "teamRoleCashier",
+  viewer: "teamRoleViewer",
+};
+const ROLE_DESC_KEY = {
+  owner: "teamRoleDescOwner",
+  manager: "teamRoleDescManager",
+  cashier: "teamRoleDescCashier",
+  viewer: "teamRoleDescViewer",
 };
 
 export default function TeamPage() {
@@ -92,7 +112,7 @@ export default function TeamPage() {
       setInviteResult(res.data);
       await reloadAll();
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to invite");
+      setError(err.response?.data?.detail || t("teamInviteFailed"));
     }
     setInviting(false);
   };
@@ -104,22 +124,22 @@ export default function TeamPage() {
       setInviteResult(res.data);
       await reloadAll();
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to resend");
+      setError(err.response?.data?.detail || t("teamResendFailed"));
     }
   };
 
   const handleRevokeInvite = (memberId, emailAddr) => {
     setConfirmState({
-      title: "Revoke invitation?",
-      body: `${emailAddr} won't be able to use this invite link anymore. You can always invite them again later.`,
-      confirmLabel: "Revoke",
+      title: t("teamConfirmRevokeTitle"),
+      body: t("teamConfirmRevokeBody", { email: emailAddr }),
+      confirmLabel: t("teamConfirmRevokeCta"),
       destructive: true,
       onConfirm: async () => {
         try {
           await api.post(`/team/${memberId}/revoke-invite`);
           await reloadAll();
         } catch (err) {
-          setError(err.response?.data?.detail || "Failed to revoke");
+          setError(err.response?.data?.detail || t("teamRevokeFailed"));
         }
       },
     });
@@ -130,22 +150,22 @@ export default function TeamPage() {
       await api.patch(`/team/${memberId}/role`, { role: newRole });
       setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, role: newRole } : m)));
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to update role");
+      setError(err.response?.data?.detail || t("teamUpdateRoleFailed"));
     }
   };
 
   const removeMember = (memberId, emailAddr) => {
     setConfirmState({
-      title: "Remove team member?",
-      body: `${emailAddr} will lose access to your business data immediately. Existing data they entered stays with the business.`,
-      confirmLabel: "Remove",
+      title: t("teamConfirmRemoveTitle"),
+      body: t("teamConfirmRemoveBody", { email: emailAddr }),
+      confirmLabel: t("teamConfirmRemoveCta"),
       destructive: true,
       onConfirm: async () => {
         try {
           await api.delete(`/team/${memberId}`);
           setMembers((prev) => prev.filter((m) => m.id !== memberId));
         } catch (err) {
-          setError(err.response?.data?.detail || "Failed to remove");
+          setError(err.response?.data?.detail || t("teamRemoveFailed"));
         }
       },
     });
@@ -165,18 +185,16 @@ export default function TeamPage() {
       <FadeIn>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("team") || "Team"}</h1>
+            <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("team")}</h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              {t("teamSubtitle") || "Manage who has access to your business on BonBox"}
+              {t("teamSubtitle")}
             </p>
             {/* Cap-aware seat counter — visible only when we have billing data */}
             {teamCap !== null && (
               <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5">
                 {teamUnlimited
-                  ? (t("teamSeatsUnlimited") || "Unlimited team seats on your plan")
-                  : (t("teamSeatsUsedOfCap") || "{used} of {cap} seats used (owner + staff)")
-                      .replace("{used}", seatsUsed)
-                      .replace("{cap}", teamCap)}
+                  ? t("teamSeatsUnlimited")
+                  : t("teamSeatsUsedOfCap", { used: seatsUsed, cap: teamCap })}
               </p>
             )}
           </div>
@@ -184,10 +202,10 @@ export default function TeamPage() {
             <button
               onClick={() => setShowInvite(!showInvite)}
               disabled={teamAtCap}
-              title={teamAtCap ? (t("teamAtCapHint") || "Seat limit reached on your plan — upgrade for more") : ""}
+              title={teamAtCap ? t("teamAtCapHint") : ""}
               className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
             >
-              + Invite Staff
+              {t("teamInviteCta")}
             </button>
           )}
         </div>
@@ -198,13 +216,13 @@ export default function TeamPage() {
         <FadeIn>
           <div className="px-4 py-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 text-[13px] text-amber-800 dark:text-amber-200 flex items-center gap-3 flex-wrap">
             <span className="font-semibold">
-              {(t("teamCapHitTitle") || "{cap} seats on your plan").replace("{cap}", teamCap)}
+              {t("teamCapHitTitle", { cap: teamCap })}
             </span>
             <span>
-              {t("teamCapHitBody") || "Upgrade to Pro for 5 seats, or to Business for unlimited."}
+              {t("teamCapHitBody")}
             </span>
             <a href="/subscription" className="font-semibold text-amber-900 dark:text-amber-100 underline whitespace-nowrap">
-              {t("seePlans") || "See plans →"}
+              {t("seePlans")}
             </a>
           </div>
         </FadeIn>
@@ -221,14 +239,14 @@ export default function TeamPage() {
         <FadeIn>
           <div className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center text-lg">
-                {isOwner ? "Owner" : "Staff"}
+              <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center text-blue-600 dark:text-blue-300">
+                <Icon name={ROLE_ICON_NAME[permissions.role] || "Users"} size={18} />
               </div>
               <div>
                 <p className="text-sm font-semibold text-gray-800 dark:text-white">
-                  Your role: <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${ROLE_COLORS[permissions.role]}`}>{permissions.role}</span>
+                  {t("teamYourRole")} <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${ROLE_COLORS[permissions.role]}`}>{t(ROLE_LABEL_KEY[permissions.role]) || permissions.role}</span>
                 </p>
-                <p className="text-xs text-gray-400 mt-0.5">{ROLE_DESCRIPTIONS[permissions.role]}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{t(ROLE_DESC_KEY[permissions.role])}</p>
               </div>
             </div>
           </div>
@@ -239,25 +257,25 @@ export default function TeamPage() {
       {showInvite && (
         <FadeIn>
           <div className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm space-y-4">
-            <h3 className="text-base font-semibold text-gray-700 dark:text-gray-300">Invite a team member</h3>
+            <h3 className="text-base font-semibold text-gray-700 dark:text-gray-300">{t("teamInviteHeader")}</h3>
 
             {inviteResult ? (
               <div className="bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800/50 rounded-xl p-4 space-y-2">
                 <p className="text-sm font-semibold text-green-800 dark:text-green-200">
                   {inviteResult.email_sent
-                    ? `Invitation sent to ${inviteResult.email}.`
-                    : `Invitation created for ${inviteResult.email}.`}
+                    ? t("teamInvitationSent", { email: inviteResult.email })
+                    : t("teamInvitationCreated", { email: inviteResult.email })}
                 </p>
                 <p className="text-sm text-green-700 dark:text-green-300">
                   {inviteResult.email_sent
-                    ? `They have 7 days to choose a password and accept. The link is in their email.`
-                    : `Email delivery failed — see the Pending invites list below to resend.`}
+                    ? t("teamInvitationHelp")
+                    : t("teamInvitationEmailFailed")}
                 </p>
                 <p className="text-xs text-green-700/70 dark:text-green-300/70">
-                  For security, the invitation link is sent only to the invitee's email — it is never shown on screen.
+                  {t("teamInvitationSecurity")}
                 </p>
                 <button onClick={resetInvite} className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition">
-                  Done
+                  {t("teamInviteDone")}
                 </button>
               </div>
             ) : (
@@ -267,20 +285,20 @@ export default function TeamPage() {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="Email address"
+                    placeholder={t("teamFieldEmail")}
                     className="px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200"
                   />
                   <input
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Name (optional)"
+                    placeholder={t("teamFieldName")}
                     className="px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200"
                   />
                 </div>
 
                 <div>
-                  <label className="text-xs text-gray-500 dark:text-gray-400 mb-1.5 block">Role</label>
+                  <label className="text-xs text-gray-500 dark:text-gray-400 mb-1.5 block">{t("teamFieldRole")}</label>
                   <div className="flex gap-2">
                     {["manager", "cashier", "viewer"].map((r) => (
                       <button
@@ -292,8 +310,8 @@ export default function TeamPage() {
                             : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
                         }`}
                       >
-                        <span className="block capitalize">{r}</span>
-                        <span className="block text-[10px] mt-0.5 opacity-60">{ROLE_DESCRIPTIONS[r]}</span>
+                        <span className="block">{t(ROLE_LABEL_KEY[r])}</span>
+                        <span className="block text-[10px] mt-0.5 opacity-60">{t(ROLE_DESC_KEY[r])}</span>
                       </button>
                     ))}
                   </div>
@@ -304,7 +322,7 @@ export default function TeamPage() {
                   disabled={!email.trim() || inviting}
                   className="w-full py-2.5 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-700 disabled:opacity-40 transition"
                 >
-                  {inviting ? "Sending invite..." : "Send Invite"}
+                  {inviting ? t("teamInviteSending") : t("teamInviteSend")}
                 </button>
               </>
             )}
@@ -318,7 +336,7 @@ export default function TeamPage() {
         <FadeIn>
           <div className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
             <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
-              Pending invites
+              {t("teamPendingInvitesHeader")}
               <span className="ml-2 text-xs font-normal text-gray-400">{pendingInvites.length}</span>
             </h3>
             <div className="space-y-2">
@@ -327,11 +345,11 @@ export default function TeamPage() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{p.email}</p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      <span className="capitalize">{p.role}</span>
+                      <span>{t(ROLE_LABEL_KEY[p.role]) || p.role}</span>
                       {" · "}
                       {p.expired
-                        ? <span className="text-red-500">Expired — resend to revive</span>
-                        : <span>{p.days_remaining} day{p.days_remaining === 1 ? "" : "s"} left</span>}
+                        ? <span className="text-red-500">{t("teamPendingExpired")}</span>
+                        : <span>{t("teamPendingDaysLeft", { n: p.days_remaining, s: p.days_remaining === 1 ? "" : "s" })}</span>}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -339,13 +357,13 @@ export default function TeamPage() {
                       onClick={() => handleResend(p.id)}
                       className="px-2.5 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition"
                     >
-                      Resend
+                      {t("teamPendingResend")}
                     </button>
                     <button
                       onClick={() => handleRevokeInvite(p.id, p.email)}
                       className="px-2.5 py-1.5 text-xs font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 transition"
                     >
-                      Revoke
+                      {t("teamPendingRevoke")}
                     </button>
                   </div>
                 </div>
@@ -372,8 +390,8 @@ export default function TeamPage() {
                   <p className="text-sm font-semibold text-gray-800 dark:text-white truncate">{m.business_name || m.email}</p>
                   <p className="text-xs text-gray-400 truncate">{m.email}</p>
                 </div>
-                <span className={`px-2.5 py-1 rounded-full text-xs font-bold capitalize ${ROLE_COLORS[m.role]}`}>
-                  {m.role}
+                <span className={`px-2.5 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1 ${ROLE_COLORS[m.role]}`}>
+                  <Icon name={ROLE_ICON_NAME[m.role] || "Users"} size={11} /> {t(ROLE_LABEL_KEY[m.role]) || m.role}
                 </span>
                 {isOwner && m.role !== "owner" && (
                   <div className="flex items-center gap-1">
@@ -382,19 +400,17 @@ export default function TeamPage() {
                       onChange={(e) => changeRole(m.id, e.target.value)}
                       className="px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-xs text-gray-700 dark:text-gray-300"
                     >
-                      <option value="manager">Manager</option>
-                      <option value="cashier">Cashier</option>
-                      <option value="viewer">Viewer</option>
+                      <option value="manager">{t("teamRoleManager")}</option>
+                      <option value="cashier">{t("teamRoleCashier")}</option>
+                      <option value="viewer">{t("teamRoleViewer")}</option>
                     </select>
                     <button
                       onClick={() => removeMember(m.id, m.email)}
                       className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition"
-                      title="Remove"
-                      aria-label={`Remove ${m.email}`}
+                      title={t("teamRemoveTitle")}
+                      aria-label={t("teamRemoveAria", { email: m.email })}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
+                      <Icon name="Trash2" size={16} className="text-red-400" />
                     </button>
                   </div>
                 )}
@@ -405,14 +421,14 @@ export default function TeamPage() {
       ) : (
         <FadeIn>
           <div className="bg-white dark:bg-gray-800 rounded-xl p-10 border border-gray-100 dark:border-gray-700 text-center">
-            <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">Just you for now</h3>
-            <p className="text-sm text-gray-400 mb-4">Invite staff members to give them limited access to your BonBox.</p>
+            <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">{t("teamEmptyTitle")}</h3>
+            <p className="text-sm text-gray-400 mb-4">{t("teamEmptyBody")}</p>
             {isOwner && (
               <button
                 onClick={() => setShowInvite(true)}
                 className="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition"
               >
-                + Invite Staff
+                {t("teamInviteCta")}
               </button>
             )}
           </div>
@@ -422,12 +438,14 @@ export default function TeamPage() {
       {/* Role reference */}
       <FadeIn>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
-          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Role Permissions</h3>
+          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">{t("teamRolePermissions")}</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {Object.entries(ROLE_DESCRIPTIONS).map(([r, desc]) => (
+            {["owner", "manager", "cashier", "viewer"].map((r) => (
               <div key={r} className="flex items-start gap-2 p-2 rounded-lg">
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold capitalize mt-0.5 ${ROLE_COLORS[r]}`}>{r}</span>
-                <span className="text-xs text-gray-500 dark:text-gray-400">{desc}</span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold mt-0.5 inline-flex items-center gap-1 ${ROLE_COLORS[r]}`}>
+                  <Icon name={ROLE_ICON_NAME[r]} size={10} /> {t(ROLE_LABEL_KEY[r])}
+                </span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">{t(ROLE_DESC_KEY[r])}</span>
               </div>
             ))}
           </div>
@@ -447,7 +465,7 @@ export default function TeamPage() {
               onClick={() => setConfirmState(null)}
               className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition"
             >
-              Cancel
+              {t("teamConfirmCancel")}
             </button>
             <button
               onClick={async () => {
@@ -461,7 +479,7 @@ export default function TeamPage() {
                   : "bg-gray-900 hover:bg-gray-700"
               }`}
             >
-              {confirmState?.confirmLabel || "Confirm"}
+              {confirmState?.confirmLabel || t("teamConfirmDefault")}
             </button>
           </div>
         </div>

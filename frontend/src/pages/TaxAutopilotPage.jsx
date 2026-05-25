@@ -66,7 +66,7 @@ export default function TaxAutopilotPage() {
       if (ovRes.status === "fulfilled") setData(ovRes.value.data);
       else throw new Error("overview failed");
       if (auditRes.status === "fulfilled") setAudit(auditRes.value.data);
-    } catch { setError("Could not load tax data"); }
+    } catch { setError(t("taxCouldNotLoad")); }
     setLoading(false);
   };
 
@@ -79,12 +79,12 @@ export default function TaxAutopilotPage() {
         prices_include_moms: tax.prices_include_moms,
         has_employees: tax.has_employees,
       });
-      setTaxMsg("Saved — deadlines will refresh.");
+      setTaxMsg(t("taxCutoffMonthSavingsDeadlines"));
       // Re-fetch so the page reflects the new frequency immediately.
       fetchData();
       setTimeout(() => setTaxMsg(""), 3500);
     } catch (e) {
-      setTaxMsg(e?.response?.data?.detail || "Couldn't save.");
+      setTaxMsg(e?.response?.data?.detail || t("taxCutoffCouldntSave"));
     } finally {
       setTaxSaving(false);
     }
@@ -97,7 +97,7 @@ export default function TaxAutopilotPage() {
           <div className="mb-3 animate-pulse text-gray-400">
             <Icon name="Receipt" size={36} className="mx-auto" />
           </div>
-          <p className="text-gray-500 dark:text-gray-400">Loading tax data...</p>
+          <p className="text-gray-500 dark:text-gray-400">{t("taxLoadingData")}</p>
         </div>
       </div>
     );
@@ -120,9 +120,9 @@ export default function TaxAutopilotPage() {
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
       {/* Header */}
       <PageHeader
-        eyebrow="REPORTS"
-        title="Tax Autopilot"
-        subtitle={`Generates filing-ready PDF — you upload to ${authority}. We watch every sale and expense and surface the next deadline.`}
+        eyebrow={t("taxAutopilotEyebrow")}
+        title={t("taxAutopilotTitle")}
+        subtitle={t("taxAutopilotSubtitle", { authority })}
         actions={
           <div className="text-right">
             <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{tax_name} ({rate_pct}%)</p>
@@ -134,16 +134,14 @@ export default function TaxAutopilotPage() {
       {/* ─── HOW IT WORKS (dismissible) ─── */}
       <DismissibleTip
         id="tax-autopilot-intro-v1"
-        icon="🧭"
-        title="How Tax Autopilot works"
+        iconName="Receipt"
+        title={t("taxHowItWorksTitle")}
       >
         <p className="mb-1.5">
-          We watch every Sale and Expense, calculate the {tax_name} you owe, and generate a
-          filing-ready PDF — you upload it to {authority} (or hand it to your revisor).
+          {t("taxHowItWorksLine1", { taxName: tax_name, authority })}
         </p>
         <p>
-          Set your <strong>filing frequency</strong> below — it&rsquo;s the single setting
-          that controls everything. DK cafés &amp; small retail are usually <em>half-yearly</em>.
+          {t("taxHowItWorksLine2Prefix")}<strong>{t("taxHowItWorksLine2FilingFrequency")}</strong>{t("taxHowItWorksLine2Suffix")}
         </p>
       </DismissibleTip>
 
@@ -169,14 +167,16 @@ export default function TaxAutopilotPage() {
         }`}>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm opacity-80">Next {tax_name} Filing</p>
+              <p className="text-sm opacity-80">{t("taxNextFiling", { taxName: tax_name })}</p>
               <p className="text-4xl font-bold mt-1">
-                {nextDeadline.days_until < 0 ? `${Math.abs(nextDeadline.days_until)} days overdue!` :
-                 nextDeadline.days_until === 0 ? "Due TODAY!" :
-                 `${nextDeadline.days_until} days`}
+                {nextDeadline.days_until < 0
+                  ? t("taxDaysOverdue", { n: Math.abs(nextDeadline.days_until) })
+                  : nextDeadline.days_until === 0
+                  ? t("taxDueToday")
+                  : t("taxDaysLabel", { n: nextDeadline.days_until })}
               </p>
               <p className="text-sm opacity-80 mt-1">
-                Deadline: {nextDeadline.deadline} • {nextDeadline.period_label}
+                {t("taxDeadlineLine", { deadline: nextDeadline.deadline, period: nextDeadline.period_label })}
               </p>
             </div>
             <div className="text-right">
@@ -185,7 +185,7 @@ export default function TaxAutopilotPage() {
                 {fmt(nextDeadline.estimated_amount)} <span className="text-lg opacity-80">{currency}</span>
               </p>
               <p className="text-xs opacity-70 mt-1">
-                Output: {fmt(nextDeadline.output_vat)} • Input: {fmt(nextDeadline.input_vat)}
+                {t("taxOutputLabel")}: {fmt(nextDeadline.output_vat)} • {t("taxInputLabel")}: {fmt(nextDeadline.input_vat)}
               </p>
             </div>
           </div>
@@ -241,23 +241,23 @@ export default function TaxAutopilotPage() {
       {/* ─── KEY METRICS ─── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard
-          label={`This Month ${tax_name}`}
+          label={t("taxThisMonthLabel", { taxName: tax_name })}
           value={`${fmt(current_month.vat_payable)} ${currency}`}
           helper={current_month.month}
           accent={current_month.vat_payable > 0 ? "warn" : "success"}
         />
         <StatCard
-          label="Month Sales"
+          label={t("taxMonthSales")}
           value={`${fmt(current_month.sales_total)} ${currency}`}
-          helper={`Output: ${fmt(current_month.output_vat)}`}
+          helper={`${t("taxOutputLabel")}: ${fmt(current_month.output_vat)}`}
         />
         <StatCard
-          label="Month Expenses"
+          label={t("taxMonthExpenses")}
           value={`${fmt(current_month.expenses_total)} ${currency}`}
-          helper={`Input: ${fmt(current_month.input_vat)}`}
+          helper={`${t("taxInputLabel")}: ${fmt(current_month.input_vat)}`}
         />
         <StatCard
-          label={`YTD ${tax_name}`}
+          label={t("taxYtdLabel", { taxName: tax_name })}
           value={`${fmt(ytd.vat_payable)} ${currency}`}
           helper={`${ytd.year}`}
           accent={ytd.vat_payable > 0 ? "warn" : "success"}
@@ -278,7 +278,7 @@ export default function TaxAutopilotPage() {
       {upcoming_deadlines?.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
           <h2 className="font-bold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
-            <Icon name="Calendar" size={18} className="text-gray-500" /> Upcoming Deadlines
+            <Icon name="Calendar" size={18} className="text-gray-500" /> {t("taxUpcomingDeadlines")}
           </h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -287,8 +287,8 @@ export default function TaxAutopilotPage() {
                   <th className="text-left py-2 px-2">{t("period")}</th>
                   <th className="text-left py-2 px-2">{t("deadline")}</th>
                   <th className="text-right py-2 px-2">{t("sales")}</th>
-                  <th className="text-right py-2 px-2">Output {tax_name}</th>
-                  <th className="text-right py-2 px-2">Input {tax_name}</th>
+                  <th className="text-right py-2 px-2">{t("taxOutputLabel")} {tax_name}</th>
+                  <th className="text-right py-2 px-2">{t("taxInputLabel")} {tax_name}</th>
                   <th className="text-right py-2 px-2">{t("payable")}</th>
                   <th className="text-center py-2 px-2">{t("status")}</th>
                 </tr>
@@ -315,11 +315,11 @@ export default function TaxAutopilotPage() {
                         dl.status === "approaching" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" :
                         "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
                       }`}>
-                        {dl.status === "overdue" ? "🚨 Overdue" :
-                         dl.status === "urgent" ? "⏰ Urgent" :
-                         dl.status === "soon" ? "📅 Soon" :
-                         dl.status === "approaching" ? "📋 Coming" :
-                         "✅ Upcoming"}
+                        {dl.status === "overdue" ? t("taxStatusOverdue") :
+                         dl.status === "urgent" ? t("taxStatusUrgent") :
+                         dl.status === "soon" ? t("taxStatusSoon") :
+                         dl.status === "approaching" ? t("taxStatusComing") :
+                         t("taxStatusUpcoming")}
                       </span>
                     </td>
                   </tr>
@@ -333,48 +333,48 @@ export default function TaxAutopilotPage() {
       {/* ─── YTD BREAKDOWN ─── */}
       <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
         <h2 className="font-bold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
-          <Icon name="BarChart3" size={18} className="text-gray-500" /> Year-to-Date Summary ({ytd.year})
+          <Icon name="BarChart3" size={18} className="text-gray-500" /> {t("taxYtdSummary", { year: ytd.year })}
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <h3 className="text-sm font-medium text-gray-500 mb-3">Sales ({tax_name} collected)</h3>
+            <h3 className="text-sm font-medium text-gray-500 mb-3">{t("taxYtdSales", { taxName: tax_name })}</h3>
             <div className="space-y-2">
               <div className="flex justify-between">
                 <span className="text-sm text-gray-600 dark:text-gray-400">{t("totalSales")}</span>
                 <span className="text-sm font-medium text-gray-800 dark:text-white">{fmt(ytd.sales_total)} {currency}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-sm text-gray-600 dark:text-gray-400">Output {tax_name}</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">{t("taxOutputLabel")} {tax_name}</span>
                 <span className="text-sm font-bold text-orange-600">{fmt(ytd.output_vat)} {currency}</span>
               </div>
             </div>
           </div>
           <div>
-            <h3 className="text-sm font-medium text-gray-500 mb-3">Expenses ({tax_name} deductible)</h3>
+            <h3 className="text-sm font-medium text-gray-500 mb-3">{t("taxYtdExpenses", { taxName: tax_name })}</h3>
             <div className="space-y-2">
               <div className="flex justify-between">
                 <span className="text-sm text-gray-600 dark:text-gray-400">{t("totalExpenses")}</span>
                 <span className="text-sm font-medium text-gray-800 dark:text-white">{fmt(ytd.expenses_total)} {currency}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-sm text-gray-600 dark:text-gray-400">Input {tax_name}</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">{t("taxInputLabel")} {tax_name}</span>
                 <span className="text-sm font-bold text-emerald-600">{fmt(ytd.input_vat)} {currency}</span>
               </div>
             </div>
           </div>
         </div>
         <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center">
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Net {tax_name} Payable</span>
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("taxYtdNetPayable", { taxName: tax_name })}</span>
           <span className={`text-xl font-bold ${ytd.vat_payable >= 0 ? "text-orange-600" : "text-emerald-600"}`}>
-            {ytd.vat_payable >= 0 ? "" : "Refund: "}{fmt(Math.abs(ytd.vat_payable))} {currency}
+            {ytd.vat_payable >= 0 ? "" : t("taxYtdRefundPrefix")}{fmt(Math.abs(ytd.vat_payable))} {currency}
           </span>
         </div>
       </div>
 
-      {/* Link to VAT report */}
+      {/* Link to detailed MOMS-rapport */}
       <div className="flex justify-center">
         <a href="/vat-report" className="text-sm text-emerald-600 dark:text-gray-300 hover:underline">
-          View detailed VAT report & export PDF →
+          {t("taxViewVatReport")} →
         </a>
       </div>
     </div>
@@ -435,15 +435,14 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
       a.download = `MA-${periodStart?.replace(/-/g, "")}-${periodEnd?.replace(/-/g, "")}.pdf`;
       a.click();
       window.URL.revokeObjectURL(objectUrl);
-      setStatus(t("filingPdfDownloaded") || "PDF downloaded.");
+      setStatus(t("filingPdfDownloaded"));
       setTimeout(() => setStatus(""), 5000);
     } catch (e) {
       if (e?.response?.status === 402) {
         setShow402(true);
       } else {
         setError(
-          e?.response?.data?.detail?.message ||
-          (t("filingPdfDownloadFailed") || "Couldn't generate the PDF — try again."),
+          e?.response?.data?.detail?.message || t("filingPdfDownloadFailed"),
         );
         setTimeout(() => setError(""), 6000);
       }
@@ -454,7 +453,7 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
 
   const sendToAccountant = async () => {
     if (!accountantEmail) {
-      setError(t("filingPdfNeedsAccountantEmail") || "Set your accountant's email on Profile first.");
+      setError(t("filingPdfNeedsAccountantEmail"));
       setTimeout(() => setError(""), 6000);
       return;
     }
@@ -465,19 +464,18 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
       const url = `/tax/filing-pdf/send-to-accountant?period_start=${periodStart}&period_end=${periodEnd}`;
       const r = await api.post(url, { cc_self: true });
       if (r.data?.ok) {
-        setStatus(`✓ ${t("filingPdfSent") || "Sent to"} ${r.data.sent_to}`);
+        setStatus(`${t("filingPdfSent")} ${r.data.sent_to}`);
         setTimeout(() => setStatus(""), 6000);
       }
     } catch (e) {
       if (e?.response?.status === 402) {
         setShow402(true);
       } else if (e?.response?.status === 400 && e?.response?.data?.detail?.code === "no_accountant_email") {
-        setError(t("filingPdfNeedsAccountantEmail") || "Set your accountant's email on Profile first.");
+        setError(t("filingPdfNeedsAccountantEmail"));
         setTimeout(() => setError(""), 6000);
       } else {
         setError(
-          e?.response?.data?.detail?.message ||
-          (t("filingPdfSendFailed") || "Couldn't send the email — try again."),
+          e?.response?.data?.detail?.message || t("filingPdfSendFailed"),
         );
         setTimeout(() => setError(""), 6000);
       }
@@ -502,23 +500,25 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
         <div className="flex items-start justify-between gap-3 mb-4">
           <div className="flex-1 min-w-0">
             <p className="text-[10px] font-semibold tracking-wider uppercase text-gray-700 dark:text-emerald-400">
-              {unlocked ? "Pro" : "Pro · Låst"} · {t("filingPdfPro") || "Filing-ready PDF"}
+              {unlocked ? t("taxPdfPro") : t("taxPdfProLocked")} · {t("taxPdfFilingReadyShort")}
             </p>
             <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1">
-              {t("filingPdfReady") || "Klar til at indberette?"} · {periodLabel}
+              {t("taxReadyToFile")} · {periodLabel}
             </h3>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              {t("filingPdfSubtitle") || "Pre-filled MOMS-angivelse — download, sign, upload to SKAT.dk."}
+              {t("filingPdfSubtitle")}
             </p>
           </div>
-          <div className="text-2xl shrink-0" aria-hidden="true">📑</div>
+          <div className="shrink-0 text-gray-500 dark:text-gray-400" aria-hidden="true">
+            <Icon name="FileText" size={22} />
+          </div>
         </div>
 
         {/* The three numbers (always visible — even on Free, so they feel the gap) */}
         <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
           <div className="rounded-lg bg-white/70 dark:bg-gray-800/50 px-3 py-2.5 border border-gray-100 dark:border-gray-700/50">
             <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
-              Output {taxName}
+              {t("taxOutputLabel")} {taxName}
             </p>
             <p className="text-sm sm:text-base font-bold text-orange-600 mt-0.5">
               {fmtNum(output)} <span className="text-[10px] font-normal text-gray-400">{currency}</span>
@@ -526,7 +526,7 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
           </div>
           <div className="rounded-lg bg-white/70 dark:bg-gray-800/50 px-3 py-2.5 border border-gray-100 dark:border-gray-700/50">
             <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
-              Input {taxName}
+              {t("taxInputLabel")} {taxName}
             </p>
             <p className="text-sm sm:text-base font-bold text-blue-600 mt-0.5">
               {fmtNum(input)} <span className="text-[10px] font-normal text-gray-400">{currency}</span>
@@ -534,7 +534,7 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
           </div>
           <div className="rounded-lg bg-white/70 dark:bg-gray-800/50 px-3 py-2.5 border border-gray-100 dark:border-gray-700/50">
             <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
-              {t("filingPdfNet") || "Net til SKAT"}
+              {t("taxPdfNetToSkat")}
             </p>
             <p className={`text-sm sm:text-base font-bold mt-0.5 ${net >= 0 ? "text-gray-700 dark:text-emerald-400" : "text-gray-600 dark:text-gray-300"}`}>
               {fmtNum(net)} <span className="text-[10px] font-normal text-gray-400">{currency}</span>
@@ -565,10 +565,10 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
                 ? "inline-flex items-center justify-center gap-2 px-4 h-10 rounded-lg bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-medium transition-colors disabled:opacity-60"
                 : "inline-flex items-center justify-center gap-2 px-4 h-10 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 text-sm font-medium cursor-not-allowed"
             }
-            aria-label={t("filingPdfDownload") || "Download filing PDF"}
+            aria-label={t("taxPdfDownloadAria")}
           >
-            <span aria-hidden="true">{unlocked ? "⬇️" : "🔒"}</span>
-            {downloading ? (t("filingPdfDownloading") || "Generating…") : (t("filingPdfDownload") || "Download PDF")}
+            <Icon name={unlocked ? "Download" : "Lock"} size={14} className={unlocked ? "text-white dark:text-gray-900" : "text-gray-500 dark:text-gray-400"} />
+            {downloading ? t("filingPdfDownloading") : t("filingPdfDownload")}
           </button>
 
           <button
@@ -580,22 +580,21 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
                 ? "inline-flex items-center justify-center gap-2 px-4 h-10 rounded-lg bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium border border-gray-200 dark:border-gray-700 transition-colors disabled:opacity-60"
                 : "inline-flex items-center justify-center gap-2 px-4 h-10 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 text-sm font-medium border border-gray-200 dark:border-gray-700 cursor-not-allowed"
             }
-            aria-label={t("filingPdfEmailRevisor") || "Email to my revisor"}
+            aria-label={t("taxPdfEmailRevisorAria")}
           >
-            <span aria-hidden="true">{unlocked ? "✉️" : "🔒"}</span>
+            <Icon name={unlocked ? "Send" : "Lock"} size={14} className={unlocked ? "text-gray-700 dark:text-gray-200" : "text-gray-400 dark:text-gray-500"} />
             {sending
-              ? (t("filingPdfSending") || "Sending…")
+              ? t("filingPdfSending")
               : accountantEmail
-                ? (t("filingPdfEmailRevisor") || "Email to my revisor")
-                : (t("filingPdfSetRevisorEmail") || "Add revisor's email")
+                ? t("filingPdfEmailRevisor")
+                : t("filingPdfSetRevisorEmail")
             }
           </button>
         </div>
 
         {!unlocked && (
           <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-3 leading-relaxed">
-            {t("filingPdfUpsell") ||
-              "Download a pre-filled MOMS-angivelse — saves ~30 min per filing. Sign, then upload to SKAT.dk or forward to your revisor."}
+            {t("filingPdfUpsell")}
           </p>
         )}
       </div>
@@ -605,9 +604,9 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
         <UpgradeNudge
           intent="dialog"
           tier="pro"
-          icon="📑"
-          benefit={t("filingPdfUpgradeBenefit") || "Pre-filled MOMS-angivelse — file in 90 seconds, not 30 minutes."}
-          ctaLabel={t("seePlans") || "See plans"}
+          icon={<Icon name="FileText" size={20} />}
+          benefit={t("filingPdfUpgradeBenefit")}
+          ctaLabel={t("seePlans")}
           onTry={() => setShow402(false)}
         />
       )}
@@ -627,14 +626,14 @@ function TaxPrefsCard({ tax, setTax, saving, msg, onSave }) {
       <div className="mb-4">
         <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t("taxPreferences")}</p>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-          Controls deadlines and Moms calculations across every report.
+          {t("taxPrefsControlsHelp")}
         </p>
       </div>
 
       <div className="space-y-3">
         <div>
           <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">
-            Filing frequency
+            {t("taxFilingFrequencyLabel")}
           </label>
           <select
             value={tax.filing_frequency}
@@ -642,10 +641,10 @@ function TaxPrefsCard({ tax, setTax, saving, msg, onSave }) {
             className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
           >
             <option value="">{t("useDefaultForCountry")}</option>
-            <option value="half_yearly">Half-yearly (DK SMBs &lt; 5M kr — most cafés / retail)</option>
-            <option value="quarterly">Quarterly (DK businesses 5–50M kr)</option>
-            <option value="monthly">Monthly (DK businesses &gt; 50M kr / NPR / INR)</option>
-            <option value="bimonthly">Bimonthly (NOK only)</option>
+            <option value="half_yearly">{t("taxFreqHalfYearly")}</option>
+            <option value="quarterly">{t("taxFreqQuarterly")}</option>
+            <option value="monthly">{t("taxFreqMonthly")}</option>
+            <option value="bimonthly">{t("taxFreqBimonthly")}</option>
           </select>
         </div>
 
@@ -659,7 +658,7 @@ function TaxPrefsCard({ tax, setTax, saving, msg, onSave }) {
           <div className="text-sm">
             <div className="font-medium text-gray-800 dark:text-gray-100">{t("myPricesIncludeMoms")}</div>
             <div className="text-xs text-gray-500 dark:text-gray-400">
-              Default for B2C (cafés, retail) — you enter what the customer pays. Uncheck if you invoice B2B with net prices.
+              {t("taxPricesIncludeMomsHelp")}
             </div>
           </div>
         </label>
@@ -672,9 +671,9 @@ function TaxPrefsCard({ tax, setTax, saving, msg, onSave }) {
             className="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-gray-600 accent-green-600"
           />
           <div className="text-sm">
-            <div className="font-medium text-gray-800 dark:text-gray-100">I have employees</div>
+            <div className="font-medium text-gray-800 dark:text-gray-100">{t("taxHasEmployees")}</div>
             <div className="text-xs text-gray-500 dark:text-gray-400">
-              Surfaces A-skat + AM-bidrag deadlines (10th of next month) here.
+              {t("taxHasEmployeesHelp")}
             </div>
           </div>
         </label>
@@ -688,7 +687,7 @@ function TaxPrefsCard({ tax, setTax, saving, msg, onSave }) {
           busy={saving}
           onClick={onSave}
         >
-          {saving ? "Saving…" : "Save tax preferences"}
+          {saving ? t("taxSaving") : t("taxSavePrefs")}
         </Button>
       </div>
     </div>
@@ -702,10 +701,11 @@ function ReconCard({ recon, taxName, currency }) {
   const yt = recon.ytd;
 
   const statusStyles = {
-    matched:             { bg: "bg-gray-50 dark:bg-gray-800/50",  border: "border-gray-100 dark:border-gray-800", badge: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300", icon: "\u2705", label: "Matched" },
-    minor_discrepancy:   { bg: "bg-amber-50 dark:bg-amber-900/20",  border: "border-amber-200 dark:border-amber-800", badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300", icon: "\u26a0\ufe0f", label: "Minor Diff" },
-    major_discrepancy:   { bg: "bg-red-50 dark:bg-red-900/20",      border: "border-red-200 dark:border-red-800",     badge: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",       icon: "\ud83d\udea8", label: "Mismatch" },
-    no_data:             { bg: "bg-gray-50 dark:bg-gray-800",       border: "border-gray-200 dark:border-gray-700",   badge: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400",     icon: "\u2014",  label: "No Closes" },
+    // DK i18n leak fix \u2014 emoji icons swapped for Lucide names + localized labels.
+    matched:             { bg: "bg-gray-50 dark:bg-gray-800/50",  border: "border-gray-100 dark:border-gray-800", badge: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300", iconName: "CheckCircle2", label: t("taxReconBadgeMatched") },
+    minor_discrepancy:   { bg: "bg-amber-50 dark:bg-amber-900/20",  border: "border-amber-200 dark:border-amber-800", badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300", iconName: "AlertTriangle", label: t("taxReconBadgeMinorDiff") },
+    major_discrepancy:   { bg: "bg-red-50 dark:bg-red-900/20",      border: "border-red-200 dark:border-red-800",     badge: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",       iconName: "AlertTriangle", label: t("taxReconBadgeMismatch") },
+    no_data:             { bg: "bg-gray-50 dark:bg-gray-800",       border: "border-gray-200 dark:border-gray-700",   badge: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400",     iconName: "Minus",  label: t("taxReconBadgeNoCloses") },
   };
 
   const s = statusStyles[cm.status] || statusStyles.no_data;
@@ -714,18 +714,18 @@ function ReconCard({ recon, taxName, currency }) {
     <div className={`rounded-xl p-5 border ${s.border} ${s.bg} shadow-sm`}>
       <div className="flex items-center justify-between mb-4">
         <h2 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
-          <span>📋</span> Daily Close Reconciliation
+          <Icon name="ClipboardList" size={18} className="text-gray-500" /> {t("taxReconTitle")}
         </h2>
-        <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${s.badge}`}>
-          {s.icon} {s.label}
+        <span className={`text-xs px-2.5 py-1 rounded-full font-semibold inline-flex items-center gap-1 ${s.badge}`}>
+          <Icon name={s.iconName} size={12} /> {s.label}
         </span>
       </div>
 
       {cm.status === "no_data" ? (
         <div className="text-center py-3">
-          <p className="text-sm text-gray-500 dark:text-gray-400">No confirmed daily closes this month yet.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t("taxReconNoData")}</p>
           <a href="/daily-close" className="text-sm text-emerald-600 dark:text-gray-300 hover:underline mt-1 inline-block">
-            Go to Daily Close &rarr;
+            {t("taxReconGoToDailyClose")} &rarr;
           </a>
         </div>
       ) : (
@@ -736,8 +736,8 @@ function ReconCard({ recon, taxName, currency }) {
               <p className="text-[11px] text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">{t("fromDailyCloses")}</p>
               <p className="text-xl font-bold text-gray-800 dark:text-white">{fmt(cm.moms_from_closes)} <span className="text-sm font-normal text-gray-400">{currency}</span></p>
               <p className="text-xs text-gray-400 mt-0.5">
-                {cm.closes_count} close{cm.closes_count !== 1 ? "s" : ""}
-                {cm.manual_count > 0 && <> &middot; {cm.manual_count} from receipt</>}
+                {t("taxReconClosesCount", { n: cm.closes_count, s: cm.closes_count !== 1 ? "s" : "" })}
+                {cm.manual_count > 0 && <> &middot; {t("taxReconFromReceipt", { n: cm.manual_count })}</>}
               </p>
             </div>
             <div>
@@ -765,15 +765,15 @@ function ReconCard({ recon, taxName, currency }) {
           {/* YTD line */}
           {yt && yt.closes_count > 0 && (
             <div className="mt-2 pt-2 border-t border-gray-200/40 dark:border-gray-700/40 flex items-center justify-between text-xs text-gray-400">
-              <span>YTD: {yt.closes_count} closes &rarr; {fmt(yt.moms_from_closes)} {taxName}</span>
-              <span>Sales &rarr; {fmt(yt.moms_from_sales)} {taxName}</span>
+              <span>{t("taxReconYtdLine", { n: yt.closes_count, amount: fmt(yt.moms_from_closes), taxName })}</span>
+              <span>{t("taxReconYtdSalesLine", { amount: fmt(yt.moms_from_sales), taxName })}</span>
             </div>
           )}
 
           {/* Link */}
           <div className="mt-3 text-center">
             <a href="/daily-close" className="text-xs text-emerald-600 dark:text-gray-300 hover:underline">
-              View Daily Close History &rarr;
+              {t("taxReconHistoryLink")} &rarr;
             </a>
           </div>
         </>
@@ -788,6 +788,7 @@ function ReconCard({ recon, taxName, currency }) {
    Green badge if no gaps; red list if missing voucher numbers.
    ────────────────────────────────────────────────────────────── */
 function ComplianceCard({ audit }) {
+  const { t } = useLanguage();
   const { year, sales = {}, expenses = {}, is_compliant, regulation } = audit;
   const okSales = sales.is_compliant !== false;
   const okExp = expenses.is_compliant !== false;
@@ -805,44 +806,41 @@ function ComplianceCard({ audit }) {
             ? "bg-emerald-500 text-white"
             : "bg-amber-500 text-white"
         }`}>
-          {is_compliant ? "✓" : "!"}
+          <Icon name={is_compliant ? "Check" : "AlertTriangle"} size={16} className="text-white" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <h2 className="font-bold text-gray-800 dark:text-white">
-              {is_compliant
-                ? "Books are SKAT-compliant"
-                : "Voucher gaps detected"}
+              {is_compliant ? t("taxComplianceBooksOk") : t("taxComplianceGaps")}
             </h2>
             <span className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold">
               {year}
             </span>
           </div>
           <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-            {regulation || "Bogføringsloven 2024 — sequential bilagsnummer"}
+            {regulation || t("taxComplianceRegulation")}
           </p>
 
           <div className="grid grid-cols-2 gap-3 mt-4">
-            <ComplianceCol label="Sales (bilag)" data={sales} ok={okSales} />
-            <ComplianceCol label="Expenses (bilag)" data={expenses} ok={okExp} />
+            <ComplianceCol label={t("taxComplianceSales")} data={sales} ok={okSales} />
+            <ComplianceCol label={t("taxComplianceExpenses")} data={expenses} ok={okExp} />
           </div>
 
           {!is_compliant && (
             <div className="mt-4 text-xs text-amber-800 dark:text-amber-300">
-              <strong>Missing numbers:</strong>
+              <strong>{t("taxComplianceMissing")}</strong>
               {sales.missing?.length > 0 && (
-                <span className="ml-1">Sales: {sales.missing.slice(0, 10).join(", ")}{sales.missing.length > 10 ? "…" : ""}</span>
+                <span className="ml-1">{t("taxComplianceMissingSales", { list: sales.missing.slice(0, 10).join(", ") + (sales.missing.length > 10 ? "…" : "") })}</span>
               )}
               {expenses.missing?.length > 0 && (
-                <span className="ml-2">Expenses: {expenses.missing.slice(0, 10).join(", ")}{expenses.missing.length > 10 ? "…" : ""}</span>
+                <span className="ml-2">{t("taxComplianceMissingExpenses", { list: expenses.missing.slice(0, 10).join(", ") + (expenses.missing.length > 10 ? "…" : "") })}</span>
               )}
             </div>
           )}
 
           {totalCount > 0 && (
             <p className="mt-3 text-[11px] text-gray-500 dark:text-gray-500">
-              {totalCount} voucher{totalCount === 1 ? "" : "s"} this year, traceable end-to-end.
-              SKAT auditors check sequence integrity — gaps trigger reviews.
+              {t("taxComplianceFooter", { n: totalCount, s: totalCount === 1 ? "" : "s" })}
             </p>
           )}
         </div>
@@ -852,6 +850,7 @@ function ComplianceCard({ audit }) {
 }
 
 function ComplianceCol({ label, data, ok }) {
+  const { t } = useLanguage();
   return (
     <div className={`rounded-lg p-3 border ${
       ok
@@ -862,8 +861,10 @@ function ComplianceCol({ label, data, ok }) {
       <div className="mt-1 text-lg font-bold text-gray-900 dark:text-white">
         #{data.count || 0}
       </div>
-      <div className="text-[11px] text-gray-500 dark:text-gray-400">
-        Latest: #{data.max || 0} {ok ? "· no gaps ✓" : `· ${data.missing?.length || 0} missing`}
+      <div className="text-[11px] text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
+        {t("taxComplianceLatest", { n: data.max || 0 })} · {ok
+          ? (<><span>{t("taxComplianceNoGaps")}</span> <Icon name="Check" size={11} /></>)
+          : t("taxComplianceNMissing", { n: data.missing?.length || 0 })}
       </div>
     </div>
   );

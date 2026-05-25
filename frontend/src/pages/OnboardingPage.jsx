@@ -57,13 +57,17 @@ import { useEntitlements } from "../hooks/useEntitlements";
 // Mirrors the verticals registered on User.business_type — names + a
 // short hint shown under each tile. Six options keeps the chooser to
 // a single 2x3 grid on mobile (no scroll) and 3x2 on desktop.
+//
+// DK i18n leak fix — `emoji` swapped for `iconName` (Lucide). Owners see
+// outline icons that match the rest of the app instead of cross-platform
+// emoji drift (Apple vs Windows vs Android render very differently).
 const BRANCH_TYPES = [
-  { id: "restaurant", emoji: "🍽️", labelKey: "branchRestaurant", labelFallback: "Restaurant" },
-  { id: "cafe",       emoji: "☕", labelKey: "branchCafe",       labelFallback: "Café" },
-  { id: "bar",        emoji: "🍺", labelKey: "branchBar",        labelFallback: "Bar" },
-  { id: "retail",     emoji: "🛍️", labelKey: "branchRetail",     labelFallback: "Retail" },
-  { id: "workshop",   emoji: "🔧", labelKey: "branchWorkshop",   labelFallback: "Workshop" },
-  { id: "general",    emoji: "📦", labelKey: "branchGeneral",    labelFallback: "Other" },
+  { id: "restaurant", iconName: "UtensilsCrossed", labelKey: "branchRestaurant", labelFallback: "Restaurant" },
+  { id: "cafe",       iconName: "Coffee",          labelKey: "branchCafe",       labelFallback: "Café" },
+  { id: "bar",        iconName: "Beer",            labelKey: "branchBar",        labelFallback: "Bar" },
+  { id: "retail",     iconName: "ShoppingBag",     labelKey: "branchRetail",     labelFallback: "Retail" },
+  { id: "workshop",   iconName: "Wrench",          labelKey: "branchWorkshop",   labelFallback: "Workshop" },
+  { id: "general",    iconName: "Package",         labelKey: "branchGeneral",    labelFallback: "Other" },
 ];
 
 // ── Tax filing frequency presets ────────────────────────────────────
@@ -143,7 +147,11 @@ function ProgressDots({ step, total }) {
 
 export default function OnboardingPage() {
   const { user, refreshUser } = useAuth();
-  const { t, lang } = useLanguage();
+  // `lang` was previously used to inline a fallback for `onbStep1Headline`
+  // ("Velkommen til BonBox" / "Welcome to BonBox"). After the DK i18n leak
+  // fix that key is sourced from useLanguage.jsx, so `lang` is no longer
+  // referenced here.
+  const { t } = useLanguage();
   const { plan: currentPlan, isReady: entReady } = useEntitlements();
   const navigate = useNavigate();
 
@@ -231,10 +239,7 @@ export default function OnboardingPage() {
     setCvrError("");
     const digits = String(biz.org_number || "").replace(/\D/g, "");
     if (digits.length !== 8) {
-      setCvrError(
-        t("onbCvrInvalidLength") ||
-          "CVR-numre er 8 cifre — tjek nummeret.",
-      );
+      setCvrError(t("onbCvrInvalidLength"));
       return;
     }
     setCvrSearching(true);
@@ -244,10 +249,7 @@ export default function OnboardingPage() {
       });
       const top = (res.data || [])[0];
       if (!top) {
-        setCvrError(
-          t("onbCvrNoMatch") ||
-            "No company found for that CVR. You can still type the details by hand.",
-        );
+        setCvrError(t("onbCvrNoMatch"));
         return;
       }
       // Auto-fill — preserve any non-empty user edits so we don't
@@ -270,12 +272,7 @@ export default function OnboardingPage() {
       setCvrSource(top.source || "cvrapi.dk");
     } catch (err) {
       const msg = err?.response?.data?.detail;
-      setCvrError(
-        typeof msg === "string"
-          ? msg
-          : t("onbCvrLookupFailed") ||
-              "Couldn't reach the CVR register. Type the details manually for now.",
-      );
+      setCvrError(typeof msg === "string" ? msg : t("onbCvrLookupFailed"));
     } finally {
       setCvrSearching(false);
     }
@@ -289,9 +286,7 @@ export default function OnboardingPage() {
   const saveBusinessAndNext = async () => {
     const name = (biz.company_name || "").trim();
     if (!name) {
-      setStepError(
-        t("onbBusinessNameRequired") || "Add a business name to continue.",
-      );
+      setStepError(t("onbBusinessNameRequired"));
       return;
     }
     setSavingBusiness(true);
@@ -318,11 +313,7 @@ export default function OnboardingPage() {
       await api.put("/business", payload);
       goNext();
     } catch (err) {
-      setStepError(
-        err?.response?.data?.detail ||
-          t("onbBusinessSaveFailed") ||
-          "Couldn't save business profile. Try again.",
-      );
+      setStepError(err?.response?.data?.detail || t("onbBusinessSaveFailed"));
     } finally {
       setSavingBusiness(false);
     }
@@ -347,7 +338,7 @@ export default function OnboardingPage() {
       const email = (tax.accountant_email || "").trim().toLowerCase();
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         // Light client-side validation (server has the real validator)
-        setStepError(t("onbAccountantEmailInvalid") || "Enter a valid accountant email.");
+        setStepError(t("onbAccountantEmailInvalid"));
         setSavingTax(false);
         return;
       }
@@ -361,11 +352,7 @@ export default function OnboardingPage() {
       await api.put("/business", bizPayload);
       goNext();
     } catch (err) {
-      setStepError(
-        err?.response?.data?.detail ||
-          t("onbTaxSaveFailed") ||
-          "Couldn't save tax preferences. Try again.",
-      );
+      setStepError(err?.response?.data?.detail || t("onbTaxSaveFailed"));
     } finally {
       setSavingTax(false);
     }
@@ -377,14 +364,11 @@ export default function OnboardingPage() {
     if (email) {
       if (!canInviteRevisor) {
         // UI already shows the UpgradeNudge — never silently swallow.
-        setRevisorError(
-          t("onbRevisorStarterRequired") ||
-            "Inviting a revisor needs Starter or higher. Upgrade or skip for now.",
-        );
+        setRevisorError(t("onbRevisorStarterRequired"));
         return;
       }
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        setRevisorError(t("onbRevisorEmailInvalid") || "Enter a valid revisor email.");
+        setRevisorError(t("onbRevisorEmailInvalid"));
         return;
       }
       setRevisorSending(true);
@@ -394,32 +378,18 @@ export default function OnboardingPage() {
           email,
           name: (revisor.name || "").trim() || null,
         });
-        setRevisorMsg(
-          (t("onbRevisorInviteSent") ||
-            "Invite sent to {email}. They have 7 days to accept.").replace(
-            "{email}",
-            email,
-          ),
-        );
+        setRevisorMsg(t("onbRevisorInviteSent", { email }));
       } catch (err) {
         const detail = err?.response?.data?.detail;
         const code = detail && typeof detail === "object" ? detail.code : null;
         if (code === "plan_required") {
-          setRevisorError(
-            t("onbRevisorStarterRequired") ||
-              "Inviting a revisor needs Starter or higher.",
-          );
+          setRevisorError(t("onbRevisorStarterRequired"));
         } else if (code === "already_active_grant") {
           // Treat as success — they already share with this revisor
-          setRevisorMsg(
-            t("onbRevisorAlreadyActive") ||
-              "That revisor already has access.",
-          );
+          setRevisorMsg(t("onbRevisorAlreadyActive"));
         } else {
           setRevisorError(
-            (detail && (detail.message || detail)) ||
-              t("onbRevisorInviteFailed") ||
-              "Couldn't send the invite. You can do it later from Profile.",
+            (detail && (detail.message || detail)) || t("onbRevisorInviteFailed"),
           );
           setRevisorSending(false);
           return;
@@ -480,9 +450,7 @@ export default function OnboardingPage() {
           </div>
           <div className="flex items-center gap-4">
             <span className="text-xs text-gray-500 dark:text-gray-400 hidden sm:inline">
-              {(t("onbStepCounter") || "Step {n} of {total}")
-                .replace("{n}", step)
-                .replace("{total}", totalSteps)}
+              {t("onbStepCounter", { n: step, total: totalSteps })}
             </span>
             <ProgressDots step={step} total={totalSteps} />
             <button
@@ -491,7 +459,7 @@ export default function OnboardingPage() {
               disabled={finishing}
               className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline-offset-2 hover:underline disabled:opacity-50"
             >
-              {t("onbSkipExplore") || "Skip and explore"}
+              {t("onbSkipExplore")}
             </button>
           </div>
         </div>
@@ -501,48 +469,48 @@ export default function OnboardingPage() {
         {/* ─── Step 1 — Welcome ──────────────────────────────────── */}
         {step === 1 && (
           <Card className="text-center">
-            <div className="text-5xl mb-4" aria-hidden="true">👋</div>
+            <div className="mb-4 flex justify-center text-emerald-600" aria-hidden="true">
+              <Icon name="Sparkles" size={36} />
+            </div>
             <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight mb-2">
-              {(t("onbStep1Headline") ||
-                (lang === "da" ? "Velkommen til BonBox" : "Welcome to BonBox"))}
+              {t("onbStep1Headline")}
             </h1>
             <p className="text-gray-600 dark:text-gray-300 mb-6 max-w-md mx-auto leading-relaxed">
-              {(t("onbStep1Subhead") ||
-                "Your morning brief, your books, your revisor — one app. Let's get you set up in about 90 seconds.")}
+              {t("onbStep1Subhead")}
             </p>
 
             <div className="grid sm:grid-cols-3 gap-3 mb-8 text-left">
               <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-3">
                 <Icon name="ShoppingBag" size={20} className="text-emerald-600 mb-1.5" />
                 <p className="text-xs font-semibold text-gray-900 dark:text-gray-100">
-                  {t("onbStep1Card1Title") || "One quick close"}
+                  {t("onbStep1Card1Title")}
                 </p>
                 <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                  {t("onbStep1Card1Body") || "Snap your kasserapport — we file the numbers."}
+                  {t("onbStep1Card1Body")}
                 </p>
               </div>
               <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-3">
                 <Icon name="Calculator" size={20} className="text-emerald-600 mb-1.5" />
                 <p className="text-xs font-semibold text-gray-900 dark:text-gray-100">
-                  {t("onbStep1Card2Title") || "Tax on autopilot"}
+                  {t("onbStep1Card2Title")}
                 </p>
                 <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                  {t("onbStep1Card2Body") || "Pre-filled MOMS, always ready for SKAT."}
+                  {t("onbStep1Card2Body")}
                 </p>
               </div>
               <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-3">
                 <Icon name="Send" size={20} className="text-emerald-600 mb-1.5" />
                 <p className="text-xs font-semibold text-gray-900 dark:text-gray-100">
-                  {t("onbStep1Card3Title") || "One-tap to revisor"}
+                  {t("onbStep1Card3Title")}
                 </p>
                 <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                  {t("onbStep1Card3Body") || "Share a clean export with your accountant."}
+                  {t("onbStep1Card3Body")}
                 </p>
               </div>
             </div>
 
             <Button variant="accent" size="lg" onClick={goNext}>
-              {t("onbStep1Cta") || "Get started"}
+              {t("onbStep1Cta")}
               <Icon name="ChevronDown" size={16} className="-rotate-90 ml-1" />
             </Button>
           </Card>
@@ -553,18 +521,17 @@ export default function OnboardingPage() {
           <Card>
             <div className="mb-5">
               <h2 className="text-lg font-semibold tracking-tight">
-                {t("onbStep2Title") || "Tell us about your business"}
+                {t("onbStep2Title")}
               </h2>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                {t("onbStep2Subtitle") ||
-                  "Drop in your CVR and we'll fill the rest. No CVR? Type the basics by hand."}
+                {t("onbStep2Subtitle")}
               </p>
             </div>
 
             {/* CVR with one-click lookup */}
             <div className="mb-4">
               <label htmlFor="onb-cvr" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                {t("onbStep2CvrLabel") || "CVR number"}
+                {t("onbStep2CvrLabel")}
               </label>
               <div className="flex gap-2">
                 <input
@@ -593,16 +560,13 @@ export default function OnboardingPage() {
                   busy={cvrSearching}
                   disabled={cvrSearching}
                 >
-                  {t("onbStep2CvrLookup") || "Auto-fill"}
+                  {t("onbStep2CvrLookup")}
                 </Button>
               </div>
               {cvrSource && (
                 <p className="text-[11px] text-gray-700 dark:text-emerald-400 mt-1.5 flex items-center gap-1">
                   <Icon name="CheckCircle2" size={12} />
-                  {(t("onbStep2CvrLoaded") || "Loaded from {source}").replace(
-                    "{source}",
-                    cvrSource,
-                  )}
+                  {t("onbStep2CvrLoaded", { source: cvrSource })}
                 </p>
               )}
               {cvrError && (
@@ -615,7 +579,7 @@ export default function OnboardingPage() {
             {/* Business name (required) */}
             <div className="mb-4">
               <label htmlFor="onb-biz-name" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                {t("onbStep2NameLabel") || "Business name"}
+                {t("onbStep2NameLabel")}
                 <span className="text-red-600 ml-0.5" aria-hidden="true">*</span>
                 <span className="sr-only"> (required)</span>
               </label>
@@ -628,7 +592,7 @@ export default function OnboardingPage() {
                 onChange={(e) =>
                   setBiz({ ...biz, company_name: e.target.value })
                 }
-                placeholder={t("onbStep2NamePlaceholder") || "e.g. Café Mirabelle ApS"}
+                placeholder={t("onbStep2NamePlaceholder")}
                 className="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
               />
             </div>
@@ -636,12 +600,12 @@ export default function OnboardingPage() {
             {/* Branch type — chooser */}
             <fieldset className="mb-2">
               <legend className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {t("onbStep2BranchLabel") || "What kind of business?"}
+                {t("onbStep2BranchLabel")}
               </legend>
               <div
                 className="grid grid-cols-2 sm:grid-cols-3 gap-2"
                 role="radiogroup"
-                aria-label={t("onbStep2BranchLabel") || "Business type"}
+                aria-label={t("onbStep2BranchLabel")}
               >
                 {BRANCH_TYPES.map((b) => {
                   const active = biz.branch_type === b.id;
@@ -659,7 +623,9 @@ export default function OnboardingPage() {
                           : "border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700")
                       }
                     >
-                      <span className="text-xl" aria-hidden="true">{b.emoji}</span>
+                      <span className="text-gray-600 dark:text-gray-300" aria-hidden="true">
+                        <Icon name={b.iconName} size={20} />
+                      </span>
                       <span className="text-sm font-medium">
                         {t(b.labelKey) || b.labelFallback}
                       </span>
@@ -675,14 +641,14 @@ export default function OnboardingPage() {
 
             <div className="flex items-center justify-between gap-3 mt-6 pt-5 border-t border-gray-200 dark:border-gray-800">
               <Button variant="ghost" onClick={() => setStep(1)}>
-                {t("onbBack") || "Back"}
+                {t("onbBack")}
               </Button>
               <Button
                 variant="accent"
                 onClick={saveBusinessAndNext}
                 busy={savingBusiness}
               >
-                {t("onbNext") || "Next"}
+                {t("onbNext")}
               </Button>
             </div>
           </Card>
@@ -693,20 +659,19 @@ export default function OnboardingPage() {
           <Card>
             <div className="mb-5">
               <h2 className="text-lg font-semibold tracking-tight">
-                {t("onbStep3Title") || "Tax preferences"}
+                {t("onbStep3Title")}
               </h2>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                {t("onbStep3Subtitle") ||
-                  "Defaults are right for most small Danish businesses. You can change any of this in Tax Autopilot later."}
+                {t("onbStep3Subtitle")}
               </p>
             </div>
 
             {/* Filing frequency */}
             <fieldset className="mb-5">
               <legend className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {t("onbStep3FilingLabel") || "How often do you file MOMS?"}
+                {t("onbStep3FilingLabel")}
               </legend>
-              <div className="space-y-2" role="radiogroup" aria-label={t("onbStep3FilingLabel") || "Filing frequency"}>
+              <div className="space-y-2" role="radiogroup" aria-label={t("onbStep3FilingLabel")}>
                 {FILING_OPTIONS.map((opt) => {
                   const active = tax.tax_filing_frequency === opt.id;
                   return (
@@ -747,11 +712,10 @@ export default function OnboardingPage() {
             <div className="mb-5 flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-800 p-3.5">
               <div className="min-w-0">
                 <p id="onb-vat-toggle-label" className="text-sm font-medium">
-                  {t("onbStep3VatToggle") || "Prices include MOMS (25%)"}
+                  {t("onbStep3VatToggle")}
                 </p>
                 <p id="onb-vat-toggle-hint" className="text-[11px] text-gray-600 dark:text-gray-400 mt-0.5">
-                  {t("onbStep3VatToggleHint") ||
-                    "On for B2C (cafés, retail). Off for B2B businesses that price net."}
+                  {t("onbStep3VatToggleHint")}
                 </p>
               </div>
               <button
@@ -784,19 +748,18 @@ export default function OnboardingPage() {
                 Drives kasserapport / daily-close / live-KPI windows. */}
             <fieldset className="mb-5">
               <legend className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                {t("onbStep3CutoffLabel") || "When does your business day roll over?"}
+                {t("onbStep3CutoffLabel")}
               </legend>
               <p
                 id="onb-cutoff-hint"
                 className="text-[11px] text-gray-600 dark:text-gray-400 mb-2 leading-relaxed"
               >
-                {t("onbStep3CutoffHint") ||
-                  "A 02:00 sale belongs to YESTERDAY's shift — restaurant convention. You can change this later in Profile."}
+                {t("onbStep3CutoffHint")}
               </p>
               <div
                 className="space-y-2"
                 role="radiogroup"
-                aria-label={t("onbStep3CutoffLabel") || "Day rollover"}
+                aria-label={t("onbStep3CutoffLabel")}
                 aria-describedby="onb-cutoff-hint"
               >
                 {CUTOFF_PRESETS.map((opt) => {
@@ -867,7 +830,7 @@ export default function OnboardingPage() {
                       }
                     />
                     <span className="text-sm font-medium">
-                      {t("onbStep3CutoffCustom") || "Custom hour"}
+                      {t("onbStep3CutoffCustom")}
                     </span>
                   </button>
                   <input
@@ -886,11 +849,11 @@ export default function OnboardingPage() {
                     onFocus={() =>
                       setTax((tx) => ({ ...tx, day_cutoff_mode: "custom" }))
                     }
-                    aria-label={t("onbStep3CutoffCustomAria") || "Custom rollover hour (0-23)"}
+                    aria-label={t("onbStep3CutoffCustomAria")}
                     className="w-16 px-2 py-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-center focus:outline-none focus:ring-2 focus:ring-gray-400"
                   />
                   <span className="text-[11px] text-gray-500 dark:text-gray-400 shrink-0">
-                    {t("onbStep3CutoffCustomSuffix") || ":00 local time (0–23)"}
+                    {t("onbStep3CutoffCustomSuffix")}
                   </span>
                 </div>
               </div>
@@ -899,7 +862,7 @@ export default function OnboardingPage() {
             {/* Accountant email (optional) */}
             <div className="mb-2">
               <label htmlFor="onb-acct-email" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                {t("onbStep3AccountantLabel") || "Accountant's email (optional)"}
+                {t("onbStep3AccountantLabel")}
               </label>
               <input
                 id="onb-acct-email"
@@ -914,8 +877,7 @@ export default function OnboardingPage() {
                 className="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
               />
               <p id="onb-acct-email-hint" className="text-[11px] text-gray-600 dark:text-gray-400 mt-1.5">
-                {t("onbStep3AccountantHint") ||
-                  "Used as the To: address when you tap 'Email kasserapport'. We never email anyone without your action."}
+                {t("onbStep3AccountantHint")}
               </p>
               {/* Task #89 P3-8 — disambiguation note: Step 3 asks for
                   the "send-to" address used by the Email kasserapport
@@ -924,8 +886,7 @@ export default function OnboardingPage() {
                   channels — explicit copy here saves a support ticket
                   ("Why does it ask for the same email twice?"). */}
               <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 italic">
-                {t("onbStep3AccountantDisambig") ||
-                  "Different from the read-only revisor login in the next step — that one's for accountants who want to log in and see your books directly."}
+                {t("onbStep3AccountantDisambig")}
               </p>
             </div>
 
@@ -935,14 +896,14 @@ export default function OnboardingPage() {
 
             <div className="flex items-center justify-between gap-3 mt-6 pt-5 border-t border-gray-200 dark:border-gray-800">
               <Button variant="ghost" onClick={() => setStep(2)}>
-                {t("onbBack") || "Back"}
+                {t("onbBack")}
               </Button>
               <Button
                 variant="accent"
                 onClick={saveTaxAndNext}
                 busy={savingTax}
               >
-                {t("onbNext") || "Next"}
+                {t("onbNext")}
               </Button>
             </div>
           </Card>
@@ -953,11 +914,10 @@ export default function OnboardingPage() {
           <Card>
             <div className="mb-5">
               <h2 className="text-lg font-semibold tracking-tight">
-                {t("onbStep4Title") || "Share with your revisor"}
+                {t("onbStep4Title")}
               </h2>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                {t("onbStep4Subtitle") ||
-                  "Most Danish small businesses share their books with a revisor. Invite yours now — they'll get read-only access to your reports."}
+                {t("onbStep4Subtitle")}
               </p>
             </div>
 
@@ -972,24 +932,20 @@ export default function OnboardingPage() {
                 <UpgradeNudge
                   intent="card"
                   tier="starter"
-                  icon="👥"
-                  benefit={
-                    t("onbStep4Upsell") ||
-                    "Give your revisor read-only access — they pull reports without messaging you."
-                  }
-                  ctaLabel={t("onbStep4SeeStarter") || "See Starter"}
+                  icon={<Icon name="Users" size={20} />}
+                  benefit={t("onbStep4Upsell")}
+                  ctaLabel={t("onbStep4SeeStarter")}
                   cta="/subscription"
                 />
                 <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-3">
-                  {t("onbStep4SkipForNow") ||
-                    "Or skip — you can invite from Profile anytime."}
+                  {t("onbStep4SkipForNow")}
                 </p>
               </div>
             ) : (
               <>
                 <div className="mb-4">
                   <label htmlFor="onb-revisor-email" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                    {t("onbStep4EmailLabel") || "Revisor's email"}
+                    {t("onbStep4EmailLabel")}
                   </label>
                   <input
                     id="onb-revisor-email"
@@ -1007,7 +963,7 @@ export default function OnboardingPage() {
                 </div>
                 <div className="mb-2">
                   <label htmlFor="onb-revisor-name" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                    {t("onbStep4NameLabel") || "Revisor's name (optional)"}
+                    {t("onbStep4NameLabel")}
                   </label>
                   <input
                     id="onb-revisor-name"
@@ -1016,13 +972,12 @@ export default function OnboardingPage() {
                     onChange={(e) =>
                       setRevisor({ ...revisor, name: e.target.value })
                     }
-                    placeholder={t("onbStep4NamePlaceholder") || "Anna Hansen"}
+                    placeholder={t("onbStep4NamePlaceholder")}
                     aria-describedby="onb-revisor-name-hint"
                     className="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
                   />
                   <p id="onb-revisor-name-hint" className="text-[11px] text-gray-600 dark:text-gray-400 mt-1.5">
-                    {t("onbStep4NameHint") ||
-                      "Shown in the greeting (\"Hej Anna,\") of the invite email."}
+                    {t("onbStep4NameHint")}
                   </p>
                 </div>
               </>
@@ -1046,7 +1001,7 @@ export default function OnboardingPage() {
                 onClick={() => setStep(3)}
                 disabled={revisorSending || finishing}
               >
-                {t("onbBack") || "Back"}
+                {t("onbBack")}
               </Button>
               <div className="flex items-center gap-2">
                 <Button
@@ -1054,7 +1009,7 @@ export default function OnboardingPage() {
                   onClick={finishOnboarding}
                   disabled={revisorSending || finishing}
                 >
-                  {t("onbStep4SkipBtn") || "Skip"}
+                  {t("onbStep4SkipBtn")}
                 </Button>
                 <Button
                   variant="accent"
@@ -1062,8 +1017,8 @@ export default function OnboardingPage() {
                   busy={revisorSending || finishing}
                 >
                   {revisor.email && canInviteRevisor
-                    ? (t("onbStep4Finish") || "Send invite & finish")
-                    : (t("onbStep4FinishNoInvite") || "Finish setup")}
+                    ? t("onbStep4Finish")
+                    : t("onbStep4FinishNoInvite")}
                 </Button>
               </div>
             </div>

@@ -69,6 +69,11 @@ import {
   // Receipt-forwarding inbox (v0.1) — Copy + AlertCircle pair with
   // the existing Mail icon on the InboxBanner / Connections card.
   Copy, AlertCircle,
+  // DK i18n leak fix — Onboarding branch-type tiles + Team role badges.
+  // Coffee/UtensilsCrossed/Beer replace the emoji-on-tile chooser; Crown +
+  // Eye round out the role catalog (Crown=owner, ClipboardList=manager
+  // already imported, Wallet=cashier already imported, Eye=viewer).
+  Coffee, UtensilsCrossed, Beer, Crown, Eye,
   // Misc / fallback
   Circle, ChevronDown,
 } from "lucide-react";
@@ -120,6 +125,8 @@ const ICONS = {
   ThumbsUp, ThumbsDown,
   // Receipt-forwarding inbox (v0.1)
   Copy, AlertCircle,
+  // DK i18n leak fix — Onboarding branch-type tiles + Team role badges
+  Coffee, UtensilsCrossed, Beer, Crown, Eye,
   // Utility
   ChevronDown,
 };

@@ -9,17 +9,20 @@ import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit
 import { Button, Card, Icon, UpgradeNudge } from "../components/ui";
 import { useToast } from "../components/BonBoxPolishKit";
 
+// Bank picker labels are proper nouns per Manoj's DK terminology lock — they
+// stay literal across locales. The legacy `icon` emoji is dropped; all bank
+// chips now render with the shared <Icon name="Landmark" /> Lucide outline.
 const BANK_LABELS = {
-  danske_bank: { label: "Danske Bank", icon: "🏦" },
-  nordea: { label: "Nordea", icon: "🏦" },
-  jyske_bank: { label: "Jyske Bank", icon: "🏦" },
-  lunar: { label: "Lunar", icon: "🌙" },
-  revolut: { label: "Revolut", icon: "💳" },
+  danske_bank: { label: "Danske Bank" },
+  nordea: { label: "Nordea" },
+  jyske_bank: { label: "Jyske Bank" },
+  lunar: { label: "Lunar" },
+  revolut: { label: "Revolut" },
   // MobilePay Erhverv CSV — same engine, different payment_method
   // tag so booking_match + cashbook downstream see "mobilepay" not
   // "bank_transfer". The 80% of DK organizers who export from the
   // MobilePay Business app land here.
-  mobilepay_erhverv: { label: "MobilePay Erhverv", icon: "📱" },
+  mobilepay_erhverv: { label: "MobilePay Erhverv" },
 };
 
 // payment_method per detected format. Banks → bank_transfer.
@@ -37,6 +40,9 @@ const PAYMENT_METHOD_FOR_BANK = {
 // provider while waiting for Salt Edge to approve Test access for real
 // banks (Pending mode returns ProviderDisabled on real-bank slugs even
 // though the picker UI shows them).
+// Proper bank names are literal (proper nouns); only the sandbox row gets
+// a labelKey for localized "test-bank" copy. Per Manoj's DK terminology
+// lock, bank names render unchanged across locales.
 const AIIA_BANKS = [
   { slug: "danske_bank", label: "Danske Bank" },
   { slug: "nordea", label: "Nordea" },
@@ -45,7 +51,7 @@ const AIIA_BANKS = [
   { slug: "lunar", label: "Lunar" },
   { slug: "sydbank", label: "Sydbank" },
   { slug: "arbejdernes_landsbank", label: "Arbejdernes Landsbank" },
-  { slug: "sandbox", label: "Sandbox / fake bank (testing only)" },
+  { slug: "sandbox", labelKey: "bankSandboxLabel" },
 ];
 
 export default function BankImportPage() {
@@ -107,7 +113,7 @@ export default function BankImportPage() {
         err?.response?.data?.detail?.message ||
           err?.response?.data?.detail ||
           err?.message ||
-          "Couldn't start bank connection — try again",
+          t("bankConnectError"),
       );
       setAiiaLoading(false);
     }
@@ -138,11 +144,11 @@ export default function BankImportPage() {
   const handleFile = (f) => {
     if (!f) return;
     if (!f.name.toLowerCase().endsWith(".csv")) {
-      setError("Please select a .csv file");
+      setError(t("bankFileSelectCsv"));
       return;
     }
     if (f.size > 5 * 1024 * 1024) {
-      setError("File too large (max 5 MB)");
+      setError(t("bankFileTooLarge"));
       return;
     }
     setFile(f);
@@ -179,7 +185,7 @@ export default function BankImportPage() {
       const data = res.data;
 
       if (!data.transactions || data.transactions.length === 0) {
-        setError("No transactions found in file. Check the file format.");
+        setError(t("bankNoTransactions"));
         setLoading(false);
         return;
       }
@@ -195,7 +201,7 @@ export default function BankImportPage() {
       setCategories(cats);
       setStep("preview");
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to parse CSV. Try selecting your bank manually.");
+      setError(err.response?.data?.detail || t("bankParseFailed"));
     }
     setLoading(false);
   };
@@ -233,7 +239,7 @@ export default function BankImportPage() {
       setResult(res.data);
       setStep("done");
     } catch (err) {
-      setError(err.response?.data?.detail || "Import failed");
+      setError(err.response?.data?.detail || t("bankImportFailed"));
     }
     setLoading(false);
   };
@@ -266,9 +272,9 @@ export default function BankImportPage() {
       if (err.response?.status === 402) {
         // Defensive — should be caught by canAutoReconcile, but
         // if entitlements cache is stale, the server tells us the truth.
-        setError("Auto-reconcile is a Starter+ feature.");
+        setError(t("bankReconStarterRequired"));
       } else {
-        setError(detail?.message || detail || "Could not load suggestions");
+        setError(detail?.message || detail || t("bankReconCouldNotLoad"));
       }
     }
     setLoading(false);
@@ -327,7 +333,7 @@ export default function BankImportPage() {
       });
     });
     if (matches.length === 0) {
-      setError("Nothing selected. Choose at least one match or skip the row.");
+      setError(t("bankReconNothingSelected"));
       return;
     }
     setLoading(true);
@@ -342,14 +348,14 @@ export default function BankImportPage() {
       const inv = matches.filter((m) => m.target_type === "invoice").length;
       const exp = matches.filter((m) => m.target_type === "expense").length;
       showToast(
-        `${res.data.confirmed} confirmed (${inv} invoices marked paid, ${exp} expenses linked)`,
+        t("bankReconConfirmedToast", { n: res.data.confirmed, inv, exp }),
         res.data.errors?.length ? "warning" : "success",
         4000,
       );
       // Refresh suggestions — confirmed rows drop out of the list.
       await loadSuggestions(importId);
     } catch (err) {
-      setError(err.response?.data?.detail?.message || err.response?.data?.detail || "Confirm failed");
+      setError(err.response?.data?.detail?.message || err.response?.data?.detail || t("bankReconConfirmFailed"));
     }
     setLoading(false);
   };
@@ -380,9 +386,9 @@ export default function BankImportPage() {
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-[1200px] mx-auto">
       <FadeIn>
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Bank Import</h1>
+        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("bankImportTitle")}</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-          Upload your bank CSV to auto-import transactions into BonBox
+          {t("bankImportSubtitle")}
         </p>
       </FadeIn>
 
@@ -401,13 +407,15 @@ export default function BankImportPage() {
         <FadeIn>
           <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-6 border border-gray-100 dark:border-gray-800 shadow-sm space-y-4 mb-6">
             <div className="flex items-start gap-3">
-              <div className="text-3xl">🔗</div>
+              <div className="shrink-0 text-gray-500 dark:text-gray-400">
+                <Icon name="Link2" size={24} />
+              </div>
               <div className="flex-1">
                 <h2 className="text-lg font-bold text-gray-800 dark:text-white mb-1">
-                  Connect bank automatically
+                  {t("bankConnectAutoTitle")}
                 </h2>
                 <p className="text-sm text-gray-600 dark:text-gray-300">
-                  One-time MitID login at your bank — no more CSV uploads. BonBox auto-pulls transactions nightly and matches them to your fakturaer.
+                  {t("bankConnectAutoSubtitle")}
                 </p>
               </div>
               {/* Tier-flicker fix: canAutoReconcile is `null` while
@@ -417,7 +425,7 @@ export default function BankImportPage() {
                   their billing payload yet. */}
               {canAutoReconcile === false && (
                 <span className="px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300">
-                  Starter+
+                  {t("bankConnectAutoStarterPill")}
                 </span>
               )}
             </div>
@@ -430,14 +438,14 @@ export default function BankImportPage() {
             ) : canAutoReconcile ? (
               <div className="flex flex-wrap items-end gap-3">
                 <div className="flex-1 min-w-[180px]">
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Choose your bank</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">{t("bankConnectChooseBank")}</label>
                   <select
                     value={aiiaBank}
                     onChange={(e) => setAiiaBank(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-200"
                   >
                     {AIIA_BANKS.map((b) => (
-                      <option key={b.slug} value={b.slug}>{b.label}</option>
+                      <option key={b.slug} value={b.slug}>{b.labelKey ? t(b.labelKey) : b.label}</option>
                     ))}
                   </select>
                 </div>
@@ -446,19 +454,22 @@ export default function BankImportPage() {
                   disabled={aiiaLoading}
                   className="px-5 py-2.5 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  {aiiaLoading ? "Opening bank…" : "Connect bank"}
+                  {aiiaLoading ? t("bankConnectOpening") : t("bankConnectCta")}
                 </button>
               </div>
             ) : (
               <UpgradeNudge
                 feature="bank_auto_reconcile"
-                title="Auto-connect your bank with Starter"
-                description="Skip CSV upload — direct PSD2 connection to Danish banks. Nightly auto-sync + reconciliation."
+                title={t("bankConnectUpsellTitle")}
+                description={t("bankConnectUpsellBody")}
               />
             )}
 
+            {/* Honest copy — we connect through Mastercard Open Banking;
+                provider details (Salt Edge / GoCardless / Aiia) are
+                internal implementation and not exposed to the user. */}
             <p className="text-xs text-gray-400 dark:text-gray-500 italic">
-              Read-only access via Mastercard Open Banking (Aiia). Renews every 90 days under DK SCA rules.
+              {t("bankConnectReadOnly")}
             </p>
           </div>
         </FadeIn>
@@ -471,8 +482,8 @@ export default function BankImportPage() {
         <FadeIn>
           <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-100 dark:border-gray-700 shadow-sm space-y-5">
             <div className="flex items-baseline justify-between">
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Or upload CSV manually</h3>
-              <span className="text-xs text-gray-400">Free tier &amp; unsupported banks</span>
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t("bankOrUploadCsv")}</h3>
+              <span className="text-xs text-gray-400">{t("bankOrUploadFreeHint")}</span>
             </div>
             {/* Drop zone */}
             <div
@@ -490,31 +501,33 @@ export default function BankImportPage() {
                 className="hidden"
                 onChange={(e) => handleFile(e.target.files?.[0])}
               />
-              <div className="text-4xl mb-3">📄</div>
+              <div className="mb-3 flex justify-center text-gray-400">
+                <Icon name="FileText" size={32} />
+              </div>
               {file ? (
                 <div>
                   <p className="text-base font-semibold text-gray-800 dark:text-white">{file.name}</p>
-                  <p className="text-sm text-gray-400 mt-1">{(file.size / 1024).toFixed(0)} KB — Click to change</p>
+                  <p className="text-sm text-gray-400 mt-1">{t("bankFileClickToChange", { kb: (file.size / 1024).toFixed(0) })}</p>
                 </div>
               ) : (
                 <div>
                   <p className="text-base font-medium text-gray-600 dark:text-gray-300">
-                    Drop your bank CSV here or click to browse
+                    {t("bankDropZoneEmpty")}
                   </p>
-                  <p className="text-sm text-gray-400 mt-1">Supports Danske Bank, Nordea, Jyske Bank, Lunar, Revolut, MobilePay Erhverv</p>
+                  <p className="text-sm text-gray-400 mt-1">{t("bankDropZoneSupported")}</p>
                 </div>
               )}
             </div>
 
             {/* Bank override (optional) */}
             <div className="flex flex-wrap items-center gap-3">
-              <label className="text-sm text-gray-500 dark:text-gray-400">Bank (auto-detect):</label>
+              <label className="text-sm text-gray-500 dark:text-gray-400">{t("bankAutoDetectLabel")}</label>
               <select
                 value={bankOverride}
                 onChange={(e) => setBankOverride(e.target.value)}
                 className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-sm text-gray-700 dark:text-gray-200"
               >
-                <option value="">Auto-detect</option>
+                <option value="">{t("bankAutoDetectOption")}</option>
                 {Object.entries(BANK_LABELS).map(([id, { label }]) => (
                   <option key={id} value={id}>{label}</option>
                 ))}
@@ -528,23 +541,20 @@ export default function BankImportPage() {
             >
               {loading ? (
                 <span className="flex items-center gap-2">
-                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Parsing...
+                  <Icon name="Loader" size={16} className="animate-spin text-white" />
+                  {t("bankParsingState")}
                 </span>
-              ) : "Upload & Preview"}
+              ) : t("bankUploadAndPreview")}
             </button>
           </div>
 
           {/* Supported banks */}
           <div className="mt-4">
-            <p className="text-xs text-gray-400 dark:text-gray-500 mb-2 font-medium uppercase tracking-wider">Supported banks</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mb-2 font-medium uppercase tracking-wider">{t("bankSupportedBanksLabel")}</p>
             <div className="flex flex-wrap gap-2">
-              {Object.entries(BANK_LABELS).map(([id, { label, icon }]) => (
-                <span key={id} className="px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-lg text-xs font-medium">
-                  {icon} {label}
+              {Object.entries(BANK_LABELS).map(([id, { label }]) => (
+                <span key={id} className="px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-lg text-xs font-medium inline-flex items-center gap-1.5">
+                  <Icon name="Landmark" size={12} /> {label}
                 </span>
               ))}
             </div>
@@ -560,7 +570,7 @@ export default function BankImportPage() {
           {/* Summary bar */}
           <div className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
             <div className="flex flex-wrap items-center gap-3 mb-4">
-              <span className="text-lg">{BANK_LABELS[preview.bank]?.icon || "🏦"}</span>
+              <Icon name="Landmark" size={20} className="text-gray-500" />
               <span className="font-semibold text-gray-800 dark:text-white">{preview.bank_label}</span>
               <span className="text-sm text-gray-400">
                 {preview.summary.date_from} — {preview.summary.date_to}
@@ -570,25 +580,25 @@ export default function BankImportPage() {
               <StaggerGridItem>
                 <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-3 text-center">
                   <p className="text-2xl font-bold text-gray-800 dark:text-white">{preview.summary.total_rows}</p>
-                  <p className="text-xs text-gray-400">Transactions</p>
+                  <p className="text-xs text-gray-400">{t("bankPreviewKpiTxns")}</p>
                 </div>
               </StaggerGridItem>
               <StaggerGridItem>
                 <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3 text-center">
                   <p className="text-2xl font-bold text-emerald-600 dark:text-gray-300">+{preview.summary.income_total?.toLocaleString()}</p>
-                  <p className="text-xs text-gray-400">{preview.summary.income_count} income</p>
+                  <p className="text-xs text-gray-400">{t("bankPreviewKpiIncome", { n: preview.summary.income_count })}</p>
                 </div>
               </StaggerGridItem>
               <StaggerGridItem>
                 <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-3 text-center">
                   <p className="text-2xl font-bold text-red-600 dark:text-red-400">{preview.summary.expense_total?.toLocaleString()}</p>
-                  <p className="text-xs text-gray-400">{preview.summary.expense_count} expenses</p>
+                  <p className="text-xs text-gray-400">{t("bankPreviewKpiExpenses", { n: preview.summary.expense_count })}</p>
                 </div>
               </StaggerGridItem>
               <StaggerGridItem>
                 <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 text-center">
                   <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{selected.size}</p>
-                  <p className="text-xs text-gray-400">Selected</p>
+                  <p className="text-xs text-gray-400">{t("bankPreviewKpiSelected")}</p>
                 </div>
               </StaggerGridItem>
             </StaggerGrid>
@@ -608,11 +618,11 @@ export default function BankImportPage() {
                         className="rounded border-gray-300 dark:border-gray-600"
                       />
                     </th>
-                    <th className="px-3 py-3 text-left">Date</th>
-                    <th className="px-3 py-3 text-left">Description</th>
-                    <th className="px-3 py-3 text-right">Amount</th>
-                    <th className="px-3 py-3 text-left">Type</th>
-                    <th className="px-3 py-3 text-left">Category</th>
+                    <th className="px-3 py-3 text-left">{t("bankTxColDate")}</th>
+                    <th className="px-3 py-3 text-left">{t("bankTxColDescription")}</th>
+                    <th className="px-3 py-3 text-right">{t("bankTxColAmount")}</th>
+                    <th className="px-3 py-3 text-left">{t("bankTxColType")}</th>
+                    <th className="px-3 py-3 text-left">{t("bankTxColCategory")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -649,7 +659,7 @@ export default function BankImportPage() {
                               ? "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                               : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
                           }`}>
-                            {isIncome ? "Income" : "Expense"}
+                            {isIncome ? t("bankTxTypeIncome") : t("bankTxTypeExpense")}
                           </span>
                         </td>
                         <td className="px-3 py-2.5">
@@ -679,18 +689,18 @@ export default function BankImportPage() {
                 onClick={() => { setStep("upload"); setPreview(null); setFile(null); }}
                 className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white transition"
               >
-                &larr; Back
+                &larr; {t("bankPreviewBack")}
               </button>
               <div className="flex items-center gap-3">
                 <span className="text-sm text-gray-500 dark:text-gray-400">
-                  {selected.size} of {preview.transactions.length} selected
+                  {t("bankPreviewSelectedOf", { selected: selected.size, total: preview.transactions.length })}
                 </span>
                 <button
                   onClick={confirmImport}
                   disabled={selected.size === 0 || loading}
                   className="px-6 py-2.5 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
-                  {loading ? "Importing..." : `Import ${selected.size} transactions`}
+                  {loading ? t("bankPreviewImporting") : t("bankPreviewImportBtn", { n: selected.size })}
                 </button>
               </div>
             </div>
@@ -704,17 +714,19 @@ export default function BankImportPage() {
       {step === "done" && result && (
         <FadeIn>
           <div className="bg-white dark:bg-gray-800 rounded-xl p-8 border border-gray-100 dark:border-gray-700 shadow-sm text-center space-y-4">
-            <div className="text-5xl">✅</div>
+            <div className="flex justify-center text-emerald-600">
+              <Icon name="CheckCircle2" size={48} />
+            </div>
             <h2 className="text-xl font-bold text-gray-800 dark:text-white">
-              Imported {result.imported} transactions
+              {t("bankDoneImportedN", { n: result.imported })}
             </h2>
             {result.skipped > 0 && (
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                {result.skipped} duplicates skipped
+                {t("bankDoneSkipped", { n: result.skipped })}
               </p>
             )}
             {result.errors.length > 0 && (
-              <p className="text-sm text-red-500">{result.errors.length} errors</p>
+              <p className="text-sm text-red-500">{t("bankDoneErrors", { n: result.errors.length })}</p>
             )}
 
             {/* Starter killer feature: match against open invoices.
@@ -734,16 +746,16 @@ export default function BankImportPage() {
                   busy={loading}
                   iconLeft={<Icon name="Wallet" size={16} className="text-white" />}
                 >
-                  Match against open invoices
+                  {t("bankDoneMatchInvoices")}
                 </Button>
               ) : (
                 <div className="flex justify-center">
                   <UpgradeNudge
                     intent="card"
                     tier="starter"
-                    benefit="Auto-match bank lines to open fakturaer + expenses, then bulk-confirm in one tap."
+                    benefit={t("bankDoneUpsellBenefit")}
                     icon={<Icon name="Wallet" size={20} />}
-                    ctaLabel="See Starter"
+                    ctaLabel={t("bankDoneUpsellCta")}
                   />
                 </div>
               )}
@@ -751,19 +763,19 @@ export default function BankImportPage() {
 
             <div className="flex flex-wrap justify-center gap-3 pt-4">
               <a href="/expenses" className="px-5 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition">
-                View Expenses
+                {t("bankDoneViewExpenses")}
               </a>
               <a href="/sales" className="px-5 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition">
-                View Sales
+                {t("bankDoneViewSales")}
               </a>
               <a href="/cashbook" className="px-5 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition">
-                View Cashbook
+                {t("bankDoneViewCashbook")}
               </a>
               <button
                 onClick={() => { setStep("upload"); setPreview(null); setFile(null); setResult(null); }}
                 className="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition"
               >
-                Import Another
+                {t("bankDoneImportAnother")}
               </button>
             </div>
           </div>
@@ -779,15 +791,21 @@ export default function BankImportPage() {
           <Card variant="default" className="space-y-4">
             <Card.Header
               icon={<Icon name="Wallet" size={18} />}
-              title="Reconcile bank lines"
-              subtitle={`${suggestions.transactions.length} transactions · ${suggestions.counts.high} high · ${suggestions.counts.medium} medium · ${suggestions.counts.low} low · ${suggestions.counts.none} unmatched`}
+              title={t("bankReconHeader")}
+              subtitle={t("bankReconSubtitle", {
+                n: suggestions.transactions.length,
+                high: suggestions.counts.high,
+                medium: suggestions.counts.medium,
+                low: suggestions.counts.low,
+                none: suggestions.counts.none,
+              })}
               action={
                 <Button
                   variant="secondary"
                   size="sm"
                   onClick={() => { setStep("done"); setSuggestions(null); }}
                 >
-                  Back
+                  {t("bankReconBack")}
                 </Button>
               }
             />
@@ -799,11 +817,11 @@ export default function BankImportPage() {
                 size="sm"
                 onClick={() => {
                   const n = confirmAllHighConfidence();
-                  showToast(`${n || 0} high-confidence matches selected`, "info", 2000);
+                  showToast(t("bankReconHighSelectedToast", { n: n || 0 }), "info", 2000);
                 }}
                 iconLeft={<Icon name="Sparkles" size={14} className="text-white dark:text-gray-900" />}
               >
-                Select all high-confidence
+                {t("bankReconSelectAllHigh")}
               </Button>
               <Button
                 variant="accent"
@@ -812,7 +830,7 @@ export default function BankImportPage() {
                 busy={loading}
                 iconLeft={<Icon name="Send" size={14} className="text-white" />}
               >
-                Confirm {Object.keys(chosen).filter((id) => !skipped.has(id) && chosen[id]).length} matches
+                {t("bankReconConfirmN", { n: Object.keys(chosen).filter((id) => !skipped.has(id) && chosen[id]).length })}
               </Button>
             </div>
 
@@ -820,16 +838,20 @@ export default function BankImportPage() {
             <div className="space-y-2">
               {suggestions.transactions.length === 0 && (
                 <div className="text-center text-sm text-gray-500 dark:text-gray-400 py-10">
-                  Nothing to reconcile — all bank lines are already matched or no candidates were found.
+                  {t("bankReconNothingTitle")}
                 </div>
               )}
-              {suggestions.transactions.map((t) => {
-                const c = chosen[t.txn_id];
-                const isSkipped = skipped.has(t.txn_id);
-                const isIncome = t.txn_type === "income";
+              {suggestions.transactions.map((txn) => {
+                // Note: this map iterator was previously named `t`, which
+                // shadowed the i18n `t()` helper. Renamed to `txn` so DK
+                // i18n leak-fix calls (`t("bankReconRowIncome")`, etc.)
+                // resolve to the language hook, not the transaction object.
+                const c = chosen[txn.txn_id];
+                const isSkipped = skipped.has(txn.txn_id);
+                const isIncome = txn.txn_type === "income";
                 return (
                   <div
-                    key={t.txn_id}
+                    key={txn.txn_id}
                     className={
                       "rounded-lg border p-3 sm:p-4 transition-colors " +
                       (isSkipped
@@ -843,45 +865,45 @@ export default function BankImportPage() {
                     <div className="flex items-start justify-between gap-3 mb-2">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                          <span>{t.date}</span>
+                          <span>{txn.date}</span>
                           <span className={
                             "px-1.5 py-0.5 rounded text-[10px] font-medium " +
                             (isIncome
                               ? "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                               : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400")
                           }>
-                            {isIncome ? "income" : "expense"}
+                            {isIncome ? t("bankReconRowIncome") : t("bankReconRowExpense")}
                           </span>
                         </div>
-                        <p className="text-sm text-gray-800 dark:text-gray-100 mt-1 truncate" title={t.description}>
-                          {t.description || <span className="text-gray-400">No description</span>}
+                        <p className="text-sm text-gray-800 dark:text-gray-100 mt-1 truncate" title={txn.description}>
+                          {txn.description || <span className="text-gray-400">{t("bankReconRowNoDescription")}</span>}
                         </p>
                       </div>
                       <div className={
                         "text-right font-semibold whitespace-nowrap shrink-0 " +
                         (isIncome ? "text-gray-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400")
                       }>
-                        {isIncome ? "+" : ""}{Number(t.amount).toLocaleString()} {currency}
+                        {isIncome ? "+" : ""}{Number(txn.amount).toLocaleString()} {currency}
                       </div>
                     </div>
 
                     {/* Suggestions + action */}
-                    {t.suggestions.length === 0 ? (
+                    {txn.suggestions.length === 0 ? (
                       <div className="text-xs text-gray-500 dark:text-gray-400 italic">
-                        No matching invoice/expense found within ±2 DKK / ±7 days.
+                        {t("bankReconNoMatch")}
                       </div>
                     ) : (
                       <div className="flex flex-wrap items-center gap-2">
                         <select
                           value={c?.target_id || ""}
                           onChange={(e) => {
-                            const sel = t.suggestions.find((s) => s.target_id === e.target.value);
-                            if (sel) toggleChosen(t.txn_id, sel);
+                            const sel = txn.suggestions.find((s) => s.target_id === e.target.value);
+                            if (sel) toggleChosen(txn.txn_id, sel);
                           }}
                           disabled={isSkipped}
                           className="flex-1 min-w-0 px-2.5 py-1.5 text-xs sm:text-sm rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 disabled:opacity-50"
                         >
-                          {t.suggestions.map((s) => (
+                          {txn.suggestions.map((s) => (
                             <option key={s.target_id} value={s.target_id}>
                               {s.target_label} · {s.confidence}
                             </option>
@@ -905,9 +927,9 @@ export default function BankImportPage() {
                         <Button
                           variant={isSkipped ? "secondary" : "ghost"}
                           size="sm"
-                          onClick={() => toggleSkipped(t.txn_id)}
+                          onClick={() => toggleSkipped(txn.txn_id)}
                         >
-                          {isSkipped ? "Undo skip" : "Skip"}
+                          {isSkipped ? t("bankReconUndoSkip") : t("bankReconSkip")}
                         </Button>
                       </div>
                     )}
@@ -918,7 +940,7 @@ export default function BankImportPage() {
 
             {reconcileResult && reconcileResult.errors?.length > 0 && (
               <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/60 rounded-lg px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
-                <strong>{reconcileResult.errors.length}</strong> issues:
+                <strong>{t("bankReconIssues", { n: reconcileResult.errors.length })}</strong>
                 <ul className="list-disc list-inside mt-1">
                   {reconcileResult.errors.slice(0, 5).map((e, i) => (
                     <li key={i}>{e}</li>
