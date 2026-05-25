@@ -219,7 +219,12 @@ export default function SalesPage() {
     }
   };
 
+  // Mount fetch is gated on `user?.id` so the GET fires only AFTER auth has
+  // hydrated. ProtectedRoute already waits for `loading`, but threading the
+  // user id through here gives us a clean re-fetch on hot account switches
+  // (rare, but it happens during impersonation / accountant view).
   useEffect(() => {
+    if (!user?.id) return;
     let initialEvent = "";
     try {
       const params = new URLSearchParams(window.location.search);
@@ -231,16 +236,55 @@ export default function SalesPage() {
     fetchInventory();
     fetchReturnSummary();
     fetchEventOptions();
-    const onDataChanged = () => { fetchSales(filterFrom, filterTo); fetchInventory(); fetchReturnSummary(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  // Cross-page sync — when any other surface mutates sales data (Daily
+  // Close, Smart Scan, ReceiptCapture, returns) we refetch. Separated
+  // from the mount effect so the listener is wired exactly once and reads
+  // the latest filter values via refs.
+  const filterRef = useRef({ from: "", to: "" });
+  filterRef.current = { from: filterFrom, to: filterTo };
+  useEffect(() => {
+    const onDataChanged = () => {
+      fetchSales(filterRef.current.from, filterRef.current.to);
+      fetchInventory();
+      fetchReturnSummary();
+    };
     window.addEventListener("bonbox-data-changed", onDataChanged);
     return () => window.removeEventListener("bonbox-data-changed", onDataChanged);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Snap-refresh on tab/window focus. The "stale after login" case happens
+  // when the user logs in on another tab / completes magic-link / comes
+  // back from a Stripe checkout — the SalesPage instance is still mounted
+  // but its data is from before the trip. visibilitychange covers iOS
+  // Safari (where focus/blur don't fire reliably during Home Indicator
+  // drags) and matches the existing pattern in LiveKpisToday.jsx.
   useEffect(() => {
+    if (!user?.id) return;
+    const onVisible = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        fetchSales(filterRef.current.from, filterRef.current.to);
+      }
+    };
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", onVisible);
+    }
+    return () => {
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", onVisible);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
     fetchSales(filterFrom, filterTo);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventFilter]);
+  }, [eventFilter, user?.id]);
 
   const submit = async (amt) => {
     const value = amt || parseFloat(amount);
@@ -250,25 +294,63 @@ export default function SalesPage() {
       return;
     }
     setError("");
+    // Optimistic insert — the new row shows up at the top of the list
+    // immediately so the page feels instant even on Render cold-start
+    // (where the POST round-trip can be 2-15s). The temp row carries
+    // _pending=true so we can dim it / replace it deterministically.
+    // On success the server row replaces it; on failure we roll back.
+    const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const optimisticRow = {
+      id: tempId,
+      date: saleDate,
+      amount: value,
+      payment_method: method,
+      notes: notes || null,
+      is_tax_exempt: isTaxExempt,
+      status: "completed",
+      created_at: new Date().toISOString(),
+      _pending: true,
+    };
+    setSales(prev => [optimisticRow, ...prev]);
+    // Reset form straight away so the owner can log the next sale while
+    // the POST is in flight. Booking values into locals first so the
+    // catch block can roll back to them if needed.
+    const submittedSnapshot = { amount, notes, isTaxExempt, saleDate };
+    setAmount("");
+    setNotes("");
+    setIsTaxExempt(false);
+    setSaleDate(localIso());
     try {
-      await api.post("/sales", {
-        date: saleDate,
+      const res = await api.post("/sales", {
+        date: submittedSnapshot.saleDate,
         amount: value,
         payment_method: method,
-        notes: notes || null,
-        is_tax_exempt: isTaxExempt,
+        notes: submittedSnapshot.notes || null,
+        is_tax_exempt: submittedSnapshot.isTaxExempt,
       });
-      const isBackdated = saleDate !== localIso();
-      setAmount("");
-      setNotes("");
-      setIsTaxExempt(false);
-      setSaleDate(localIso());
+      // Replace the temp row with the canonical server row (carries the
+      // real id, bilagsnummer, created_at, MOMS calc, etc).
+      if (res?.data && res.data.id) {
+        setSales(prev => prev.map(s => s.id === tempId ? res.data : s));
+      } else {
+        // Defensive fallback — server didn't return a row, refetch.
+        fetchSales(filterFrom, filterTo);
+      }
+      const isBackdated = submittedSnapshot.saleDate !== localIso();
       trackEvent("sale_logged", "sales", `${value} ${currency} via ${method}`);
-      setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${formatDate(saleDate)})` : ""}!`);
-      fetchSales(filterFrom, filterTo);
+      setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${formatDate(submittedSnapshot.saleDate)})` : ""}!`);
+      // Refresh inventory / aggregates / cross-page subscribers — but
+      // don't block the UI on it.
       window.dispatchEvent(new Event("bonbox-data-changed"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
+      // Roll back the optimistic insert + restore the form so the owner
+      // can retry without retyping.
+      setSales(prev => prev.filter(s => s.id !== tempId));
+      setAmount(submittedSnapshot.amount);
+      setNotes(submittedSnapshot.notes);
+      setIsTaxExempt(submittedSnapshot.isTaxExempt);
+      setSaleDate(submittedSnapshot.saleDate);
       setError(err.response?.data?.detail || t("failedToAddSale"));
     }
   };

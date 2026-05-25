@@ -345,12 +345,50 @@ export default function ExpensesPage() {
       .catch((err) => setError(err.response?.data?.detail || t("failedToLoadCategories")));
   };
 
+  // Mount fetch gated on user?.id so we don't fire a GET before auth has
+  // hydrated. ProtectedRoute already waits for the /auth/me probe, but
+  // threading user.id through here also handles hot account switches
+  // (impersonation / accountant view) without an extra full reload.
   useEffect(() => {
+    if (!user?.id) return;
     fetchData();
-    const onDataChanged = () => fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  // Cross-page sync (Smart Scan, ReceiptCapture, recurring runner, etc.)
+  // Filter values are read via a ref so we always pull the current range
+  // without re-binding the listener on every keystroke.
+  const filterRef = useRef({ from: "", to: "" });
+  filterRef.current = { from: filterFrom, to: filterTo };
+  useEffect(() => {
+    const onDataChanged = () => fetchData(filterRef.current.from, filterRef.current.to);
     window.addEventListener("bonbox-data-changed", onDataChanged);
     return () => window.removeEventListener("bonbox-data-changed", onDataChanged);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Snap-refresh on tab focus. The "stale after login" case happens when
+  // the owner logs in on another tab / completes magic-link and comes
+  // back — the page instance is still mounted but its data is from
+  // before the trip. visibilitychange covers iOS Safari where focus/blur
+  // don't fire reliably (matches the LiveKpisToday pattern).
+  useEffect(() => {
+    if (!user?.id) return;
+    const onVisible = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        fetchData(filterRef.current.from, filterRef.current.to);
+      }
+    };
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", onVisible);
+    }
+    return () => {
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", onVisible);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   // ─── Smart Scan prefill consumer ─────────────────────────────────
   const location = useLocation();
@@ -483,8 +521,22 @@ export default function ExpensesPage() {
         payload.fx_rate = Number(fxEffectiveRate.toFixed(6));
         payload.original_amount = parseFloat(fxOriginalAmount);
       }
-      await api.post("/expenses", payload);
-      const isBackdated = expDate !== localIso();
+      // Optimistic insert so the new row appears at the top of the
+      // table instantly, even on a slow POST (Render cold-start can be
+      // 2-15s). The temp row carries _pending=true and gets replaced by
+      // the canonical server response on success / rolled back on
+      // failure.
+      const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const optimisticRow = {
+        id: tempId,
+        ...payload,
+        created_at: new Date().toISOString(),
+        _pending: true,
+      };
+      setExpenses(prev => [optimisticRow, ...prev]);
+      const submittedSnapshot = {
+        amount, desc, method, notes, customCat, isPersonal, isTaxExempt, expDate,
+      };
       setAmount("");
       setDesc("");
       setMethod("card");
@@ -498,6 +550,28 @@ export default function ExpensesPage() {
       setFxRate("");
       setFxLiveRate(null);
       setFxError("");
+      try {
+        const res = await api.post("/expenses", payload);
+        if (res?.data && res.data.id) {
+          setExpenses(prev => prev.map(e => e.id === tempId ? res.data : e));
+        } else {
+          fetchData(filterFrom, filterTo);
+        }
+      } catch (postErr) {
+        // Roll back optimistic insert + restore the form values so the
+        // owner can retry without retyping.
+        setExpenses(prev => prev.filter(e => e.id !== tempId));
+        setAmount(submittedSnapshot.amount);
+        setDesc(submittedSnapshot.desc);
+        setMethod(submittedSnapshot.method);
+        setNotes(submittedSnapshot.notes);
+        setCustomCat(submittedSnapshot.customCat);
+        setIsPersonal(submittedSnapshot.isPersonal);
+        setIsTaxExempt(submittedSnapshot.isTaxExempt);
+        setExpDate(submittedSnapshot.expDate);
+        throw postErr;
+      }
+      const isBackdated = submittedSnapshot.expDate !== localIso();
       trackEvent(
         isForeign ? "expense_logged_fx" : "expense_logged",
         "expenses",
@@ -505,8 +579,8 @@ export default function ExpensesPage() {
           ? `${parseFloat(fxOriginalAmount)} ${fxCurrency} → ${value} ${currency}`
           : `${value} ${currency}`,
       );
-      setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${formatDate(expDate)})` : ""}!`);
-      fetchData(filterFrom, filterTo);
+      setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${formatDate(submittedSnapshot.expDate)})` : ""}!`);
+      window.dispatchEvent(new Event("bonbox-data-changed"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
       setError(err.response?.data?.detail || t("failedToAddExpense"));
