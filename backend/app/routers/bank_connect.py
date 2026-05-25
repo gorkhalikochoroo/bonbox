@@ -409,22 +409,45 @@ def bank_callback(
         if "connection_id" in exch_params:
             exch_kwargs["connection_id"] = connection_id
         result = client.exchange_code(code or "", **exch_kwargs)
-    except AiiaClientError as e:
-        logger.exception(
-            "bank_connect.callback: provider exchange_code failed conn_id=%s "
-            "kind=%s",
-            conn.id, getattr(e, "kind", "?"),
-        )
-        # We don't 500 — friendlier to bounce the owner back with an
-        # error flag so the UI can show "Bank connection failed, try
-        # again". State token is still consumed below to prevent replay.
+    except Exception as e:  # noqa: BLE001
+        # Audit P-callback (2026-05-25): broadened from `AiiaClientError`
+        # to `Exception` so a non-Aiia exception (JSON decode failure,
+        # AttributeError from a provider client schema drift, etc.) can
+        # never leave `conn.consent_state` set, which would allow a
+        # phished state to be replayed within its 10-minute TTL.  We
+        # still burn the row + redirect with the same `bank_error=1`
+        # flag.  AiiaClientError keeps a dedicated log line so ops can
+        # distinguish upstream issues from client-side bugs.
+        is_provider_error = isinstance(e, AiiaClientError)
+        if is_provider_error:
+            logger.exception(
+                "bank_connect.callback: provider exchange_code failed "
+                "conn_id=%s kind=%s",
+                conn.id, getattr(e, "kind", "?"),
+            )
+        else:
+            logger.exception(
+                "bank_connect.callback: unexpected exception during "
+                "exchange_code conn_id=%s type=%s",
+                conn.id, type(e).__name__,
+            )
+        # State token is consumed regardless of error class to prevent
+        # replay.  We don't 500 — friendlier to bounce the owner back
+        # with an error flag so the UI can show "Bank connection failed,
+        # try again".
         conn.status = "revoked"
         conn.consent_state = None
         conn.consent_state_expires_at = None
         audit_service.record(
             db, user, "bank_connect.callback_failed",
             entity_type="bank_connection", entity_id=conn.id,
-            after={"error": str(e)[:200]},
+            after={
+                # Cap + class-name so a future raw-message change can't
+                # silently widen log lines.  No raw exception details
+                # land in audit_logs payload.
+                "error_kind": getattr(e, "kind", None) if is_provider_error else type(e).__name__,
+                "error": str(e)[:200],
+            },
             ip_address=_client_ip(request),
         )
         db.commit()

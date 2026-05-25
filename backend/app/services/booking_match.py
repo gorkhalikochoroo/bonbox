@@ -75,6 +75,16 @@ LOW_DATE_WINDOW_DAYS = 7
 #   "Sita Sharma" vs "Anders Andersen" → 0.18 (fail)
 FUZZY_RATIO_THRESHOLD = 0.80
 
+# Hard upper bound on any string we run through fuzzy compare or
+# substring search.  Defends against a hostile CSV row containing a
+# 10MB sender_name / besked that would burn CPU in rapidfuzz's
+# Levenshtein loop or in the fallback containment check.  The visitor-
+# side Pydantic schema caps customer_name at 160 chars; we mirror a
+# generous-but-bounded 512-char cap on the CSV-derived sides so a
+# legitimate "Sita Sharma · Faktura 2026-0042 — tak for sidste gang"
+# besked still fits, but a megabyte ReDoS payload can't.
+_FUZZY_INPUT_MAX_LEN = 512
+
 
 # ─── Public dataclasses (caller imports these) ───────────────────────
 
@@ -133,9 +143,20 @@ def _strip_diacritics(s: str) -> str:
 
 def _normalize_name(s: str | None) -> str:
     """Lowercase + diacritic-strip + collapse whitespace. Used on both
-    sides of the fuzzy compare."""
+    sides of the fuzzy compare.
+
+    Bounded — input is truncated to `_FUZZY_INPUT_MAX_LEN` BEFORE any
+    O(n) work runs, so a hostile multi-MB sender_name can't trigger a
+    ReDoS in rapidfuzz / fallback containment check.  Real CSV rows
+    are well under 200 chars.
+    """
     if not s:
         return ""
+    # L2 — hard input cap before O(n²) Levenshtein / O(n) substring
+    # work.  Slicing a Python str is O(k) where k = limit, so this
+    # itself can't be abused.
+    if len(s) > _FUZZY_INPUT_MAX_LEN:
+        s = s[:_FUZZY_INPUT_MAX_LEN]
     return " ".join(_strip_diacritics(s).lower().split())
 
 
@@ -144,9 +165,18 @@ def _normalize_comment(s: str | None) -> str:
     around reference tokens. The reference itself is alphanumeric +
     hyphen, so we just lowercase + diacritic-strip and leave the
     structure intact. We compare with a substring check, not a token
-    split, so 'paid for NMN14-A47B, thanks!' matches 'NMN14-A47B'."""
+    split, so 'paid for NMN14-A47B, thanks!' matches 'NMN14-A47B'.
+
+    Bounded — same `_FUZZY_INPUT_MAX_LEN` truncation as `_normalize_name`.
+    The MobilePay "besked" field is bank-limited to ~280 chars, and
+    legit Danske/Nordea memo lines max out around 140; 512 leaves
+    ample headroom for a "Pickup hos Sita · Faktura 2026-0042 — tak"
+    while killing any DoS payload.
+    """
     if not s:
         return ""
+    if len(s) > _FUZZY_INPUT_MAX_LEN:
+        s = s[:_FUZZY_INPUT_MAX_LEN]
     return _strip_diacritics(s).lower()
 
 
@@ -400,6 +430,9 @@ def find_booking_matches(
         # ── MEDIUM: amount + fuzzy name ───────────────────────────
         if _amount_matches(line, booking):
             customer_name = getattr(booking, "customer_name", None)
+            # _normalize_name truncates internally; this is defense-
+            # in-depth in case a future Booking column type drifts to
+            # an uncapped TEXT.
             customer_norm = _normalize_name(customer_name)
             if customer_norm and sender_norm:
                 ratio = _fuzzy_ratio(sender_norm, customer_norm)

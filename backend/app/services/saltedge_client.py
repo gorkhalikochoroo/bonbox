@@ -199,6 +199,41 @@ class SaltEdgeClient:
 
     # ─── Customer (idempotent) ─────────────────────────────────────────
 
+    # Keys we redact when diagnostically logging Salt Edge response
+    # bodies.  Salt Edge POST /customers returns a per-customer `secret`
+    # field; logging or surfacing it in an HTTPException would leak it
+    # to operators (logs) AND to the HTTP caller (router maps the
+    # exception message into a 502 response body).
+    _SE_REDACT_KEYS = ("secret", "access_token", "refresh_token", "token")
+
+    @classmethod
+    def _redact_body_for_logs(cls, data: Any) -> str:
+        """Render a tiny, secrets-redacted diagnostic string of a
+        Salt Edge response.  Never includes raw `secret` fields, never
+        embeds the response body verbatim.  Capped length so a hostile
+        response can't bloat a log line.
+
+        We intentionally do NOT json-serialise the redacted dict back —
+        we emit a tag-style summary (`keys=[...] id_present=False`) so
+        even a future Salt Edge response shape change can't sneak a new
+        secret-bearing field into our logs.
+        """
+        if not isinstance(data, dict):
+            return f"non_dict_type={type(data).__name__}"
+        payload = data.get("data")
+        if isinstance(payload, dict):
+            keys = sorted(payload.keys())
+            keys_redacted = [
+                f"{k}=<redacted>" if k in cls._SE_REDACT_KEYS else k
+                for k in keys
+            ]
+            id_present = bool(payload.get("customer_id") or payload.get("id"))
+            return f"data.keys=[{','.join(keys_redacted)}] id_present={id_present}"
+        if isinstance(payload, list):
+            return f"data=list(len={len(payload)})"
+        top_keys = sorted(data.keys())
+        return f"top_keys=[{','.join(top_keys)}]"
+
     def _ensure_customer(self, identifier: str) -> str:
         """Find-or-create a Salt Edge customer keyed by our identifier.
 
@@ -207,6 +242,14 @@ class SaltEdgeClient:
         We use our consent_state token as the identifier so each
         consent flow can be traced back without ever exposing user_id
         to Salt Edge.
+
+        Security: Salt Edge's success response carries a per-customer
+        `secret` field.  We never echo the raw response body into logs
+        or exception messages — diagnostic info is summarised via
+        `_redact_body_for_logs` so a future "no id returned" bug can be
+        debugged without leaking the secret to ops dashboards or to the
+        HTTP caller (the router maps our exception message into a 502
+        response body).
         """
         try:
             data = self._request(
@@ -229,8 +272,14 @@ class SaltEdgeClient:
                 first = items[0]
                 cust_id = first.get("customer_id") or first.get("id")
                 if not cust_id:
+                    # Don't echo the lookup row — it may contain a secret.
+                    logger.warning(
+                        "saltedge._ensure_customer: lookup row missing "
+                        "customer_id (keys=%s)",
+                        sorted(first.keys()) if isinstance(first, dict) else "?",
+                    )
                     raise SaltEdgeClientError(
-                        f"Salt Edge: lookup hit but no customer_id. row={str(first)[:200]}",
+                        "Salt Edge: lookup hit but no customer_id",
                         status=502, kind="protocol",
                     ) from e
                 return cust_id
@@ -241,14 +290,18 @@ class SaltEdgeClient:
         payload = data.get("data") or {}
         customer_id = payload.get("customer_id") or payload.get("id")
         if not customer_id:
-            body_str = str(data)[:400] if data else "empty"
+            # Redact before logging — Salt Edge's 2xx response body
+            # contains a per-customer `secret` field we must not surface.
             logger.warning(
-                "saltedge._ensure_customer: 2xx but no customer_id. body=%s",
-                body_str,
+                "saltedge._ensure_customer: 2xx but no customer_id. shape=%s",
+                self._redact_body_for_logs(data),
             )
+            # Generic exception message — the redacted shape stays in
+            # logs only.  Router re-raises this as a 502 HTTP response
+            # so the response body must NOT carry the raw body.
             raise SaltEdgeClientError(
-                f"Salt Edge POST /customers returned no customer_id. "
-                f"Response body: {body_str}",
+                "Salt Edge POST /customers returned no customer_id "
+                "(see server logs for redacted response shape)",
                 status=502, kind="protocol",
             )
         return customer_id

@@ -29,8 +29,10 @@ Multi-barrier (spec §7):
        when capacity_total is set + sold ≥ 25% (spec §4 layout).
 """
 import html as html_lib
+import json as _json
 import logging
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -187,6 +189,30 @@ def event_ssr_page(
     )
 
 
+def _is_safe_image_url(url: str | None) -> bool:
+    """Allowlist check for og:image / twitter:image URLs.
+
+    Even though the og:image meta is consumed by social scrapers (FB,
+    LinkedIn, Twitter) and never JS-evaluated by a browser, defense-
+    in-depth says we shouldn't blindly accept any scheme.  A future
+    refactor might inline the URL into <img src=…> on the SSR page,
+    at which point a `javascript:` payload could fire.  Reject anything
+    that isn't an absolute https:// (or http:// for dev) URL with a
+    non-empty host.
+    """
+    if not url or not isinstance(url, str):
+        return False
+    try:
+        parsed = urlparse(url.strip())
+    except Exception:  # noqa: BLE001
+        return False
+    if parsed.scheme.lower() not in ("https", "http"):
+        return False
+    if not parsed.netloc:
+        return False
+    return True
+
+
 def _ssr_html(
     *,
     title: str,
@@ -202,13 +228,28 @@ def _ssr_html(
     function never directly inserts unescaped strings into attribute
     or text contexts. Even an organizer with a hostile event.name
     can't break out of the meta tags.
+
+    Two extra defense-in-depth layers added 2026-05-25:
+      • `cover_image_url` is allowlisted to https://|http:// schemes
+        before being embedded in og:image / twitter:image.  Stops a
+        future refactor from accidentally turning og:image into an
+        XSS vector if its content ever feeds an <img src=…> on the
+        page itself.
+      • The redirect script no longer interpolates the slug via HTML
+        escape (which is the WRONG encoding for a JS string context —
+        HTML-escape leaves \\, /, etc unchanged).  We `_json.dumps` the
+        slug instead so the value becomes a properly-quoted JS string
+        literal.  Slug regex already restricts to [a-z0-9-] so this is
+        belt-and-braces, but it removes a foot-gun for the next dev
+        who relaxes the regex.
     """
     safe_title = html_lib.escape(title, quote=True)
     safe_desc = html_lib.escape(description, quote=True)
     safe_canonical = html_lib.escape(canonical, quote=True)
-    safe_slug = html_lib.escape(slug, quote=True)
-    if cover_image_url:
-        safe_image = html_lib.escape(cover_image_url, quote=True)
+    if _is_safe_image_url(cover_image_url):
+        # safe_image is for HTML attribute context — HTML-escape is
+        # the right encoding here.
+        safe_image = html_lib.escape(cover_image_url, quote=True)  # type: ignore[arg-type]
         og_image = f'<meta property="og:image" content="{safe_image}">'
         twitter_image = f'<meta name="twitter:image" content="{safe_image}">'
     else:
@@ -216,8 +257,21 @@ def _ssr_html(
         twitter_image = ""
 
     if not noscript_visible:
+        # JS string context — use JSON encoding so the slug becomes a
+        # properly-quoted JS string literal regardless of the slug
+        # alphabet.  Slug regex already restricts to [a-z0-9-] so this
+        # is belt-and-braces, but it removes a foot-gun for the next
+        # dev who relaxes the regex.
+        slug_js_literal = _json.dumps(slug)
+        # json.dumps doesn't escape '/'; replace '</' with '<\\/' so a
+        # future change that allows '/' in slugs can't break out of the
+        # <script> tag with a synthesised </script> sequence.
+        slug_js_literal = slug_js_literal.replace("</", "<\\/")
+        # Compose the redirect as a JS string concatenation so the slug
+        # value stays inside the JS string literal context end-to-end.
         body_redirect = (
-            f'<script>window.location.replace("/e/{safe_slug}#booking");</script>'
+            f'<script>window.location.replace("/e/" + {slug_js_literal} '
+            f'+ "#booking");</script>'
         )
     else:
         body_redirect = ""
