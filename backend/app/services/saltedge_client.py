@@ -262,7 +262,27 @@ class SaltEdgeClient:
                 lookup = self._request(
                     "GET", "/customers", params={"identifier": identifier},
                 )
-                items = (lookup.get("data") or [])
+                # Type-guard: Salt Edge in non-standard states (Pending mode,
+                # account-locked, etc.) can return shapes other than the
+                # documented `{"data": [...]}` envelope.  Without these
+                # isinstance checks, `lookup.get(...)` or `first.get(...)`
+                # raises a bare AttributeError that the global exception
+                # handler turns into an opaque 500 — the May 2026 incident
+                # that took the Connect-bank button down.
+                if not isinstance(lookup, dict):
+                    raise SaltEdgeClientError(
+                        f"Salt Edge GET /customers returned non-dict body "
+                        f"(type={type(lookup).__name__}). Likely an upstream "
+                        f"outage or app-permission downgrade.",
+                        status=502, kind="protocol",
+                    ) from e
+                items = lookup.get("data") or []
+                if not isinstance(items, list):
+                    raise SaltEdgeClientError(
+                        f"Salt Edge GET /customers data field has "
+                        f"unexpected type ({type(items).__name__})",
+                        status=502, kind="protocol",
+                    ) from e
                 if not items:
                     raise SaltEdgeClientError(
                         "Salt Edge: CustomerAlreadyExists but lookup empty",
@@ -270,13 +290,19 @@ class SaltEdgeClient:
                     ) from e
                 # v6 returns `customer_id`; v5 returned `id`. Defensive read.
                 first = items[0]
+                if not isinstance(first, dict):
+                    raise SaltEdgeClientError(
+                        f"Salt Edge GET /customers row 0 is not a dict "
+                        f"(type={type(first).__name__})",
+                        status=502, kind="protocol",
+                    ) from e
                 cust_id = first.get("customer_id") or first.get("id")
                 if not cust_id:
                     # Don't echo the lookup row — it may contain a secret.
                     logger.warning(
                         "saltedge._ensure_customer: lookup row missing "
                         "customer_id (keys=%s)",
-                        sorted(first.keys()) if isinstance(first, dict) else "?",
+                        sorted(first.keys()),
                     )
                     raise SaltEdgeClientError(
                         "Salt Edge: lookup hit but no customer_id",
@@ -287,7 +313,27 @@ class SaltEdgeClient:
         # v6 returns `data.customer_id`; v5 returned `data.id`. Verified from
         # a live response on 2026-05-25 — root cause of the original "returned
         # no id" error. Defensive: try v6 name first, fall back to legacy `id`.
+        if not isinstance(data, dict):
+            # Salt Edge in Pending mode (or during an upstream incident) has
+            # been observed returning bare strings instead of the documented
+            # JSON envelope.  Without this guard, `data.get(...)` raises a
+            # bare AttributeError and the user sees an opaque 500.
+            raise SaltEdgeClientError(
+                f"Salt Edge POST /customers returned non-dict body "
+                f"(type={type(data).__name__}). Likely the app is still in "
+                f"'Pending' mode — request Test access in the Salt Edge "
+                f"dashboard to enable real-bank providers.",
+                status=502, kind="protocol",
+            )
         payload = data.get("data") or {}
+        if not isinstance(payload, dict):
+            raise SaltEdgeClientError(
+                f"Salt Edge POST /customers data field is not a dict "
+                f"(type={type(payload).__name__}). Likely Salt Edge is "
+                f"returning an error envelope rather than the customer "
+                f"object — check the Salt Edge dashboard for app status.",
+                status=502, kind="protocol",
+            )
         customer_id = payload.get("customer_id") or payload.get("id")
         if not customer_id:
             # Redact before logging — Salt Edge's 2xx response body
@@ -354,7 +400,28 @@ class SaltEdgeClient:
         result = self._request(
             "POST", "/connect_sessions/create", json_body=body,
         )
+        # Type-guard the response shape.  Salt Edge in 'Pending' mode rejects
+        # real-bank providers (anything other than the fake-bank slug) and has
+        # been observed returning non-standard shapes that crash a naive
+        # `result.get(...)` with AttributeError.  Replace any such crash with
+        # a clean SaltEdgeClientError so the router maps it to 502 with an
+        # actionable message.
+        if not isinstance(result, dict):
+            raise SaltEdgeClientError(
+                f"Salt Edge POST /connect_sessions/create returned non-dict "
+                f"body (type={type(result).__name__}). Likely the app is "
+                f"still in 'Pending' mode and rejects real-bank providers — "
+                f"request Test access in the Salt Edge dashboard, or pass "
+                f"sandbox=True to use the fakebank provider.",
+                status=502, kind="protocol",
+            )
         session = result.get("data") or {}
+        if not isinstance(session, dict):
+            raise SaltEdgeClientError(
+                f"Salt Edge POST /connect_sessions/create data field is "
+                f"not a dict (type={type(session).__name__})",
+                status=502, kind="protocol",
+            )
         connect_url = session.get("connect_url")
         # session_id and expires_at exist too but we don't need them —
         # connection_id will arrive on the callback URL once SCA completes.
@@ -401,7 +468,19 @@ class SaltEdgeClient:
 
         # Verify the connection actually authenticated successfully.
         conn_data = self._request("GET", f"/connections/{connection_id}")
+        if not isinstance(conn_data, dict):
+            raise SaltEdgeClientError(
+                f"Salt Edge GET /connections returned non-dict body "
+                f"(type={type(conn_data).__name__})",
+                status=502, kind="protocol",
+            )
         conn = conn_data.get("data") or {}
+        if not isinstance(conn, dict):
+            raise SaltEdgeClientError(
+                f"Salt Edge GET /connections data field is not a dict "
+                f"(type={type(conn).__name__})",
+                status=502, kind="protocol",
+            )
         status = (conn.get("status") or "").lower()
         if status != "active":
             raise SaltEdgeClientError(
@@ -413,13 +492,31 @@ class SaltEdgeClient:
         accounts_data = self._request(
             "GET", "/accounts", params={"connection_id": connection_id},
         )
+        if not isinstance(accounts_data, dict):
+            raise SaltEdgeClientError(
+                f"Salt Edge GET /accounts returned non-dict body "
+                f"(type={type(accounts_data).__name__})",
+                status=502, kind="protocol",
+            )
         accounts = accounts_data.get("data") or []
+        if not isinstance(accounts, list):
+            raise SaltEdgeClientError(
+                f"Salt Edge GET /accounts data field is not a list "
+                f"(type={type(accounts).__name__})",
+                status=502, kind="protocol",
+            )
         if not accounts:
             raise SaltEdgeClientError(
                 "Salt Edge connection is active but lists no accounts",
                 status=502, kind="protocol",
             )
         primary = accounts[0]
+        if not isinstance(primary, dict):
+            raise SaltEdgeClientError(
+                f"Salt Edge GET /accounts row 0 is not a dict "
+                f"(type={type(primary).__name__})",
+                status=502, kind="protocol",
+            )
         # v6 returns `account_id`; v5 returned `id`. Same drift pattern as
         # /customers — defensive read.
         acc_id = primary.get("account_id") or primary.get("id") or ""
