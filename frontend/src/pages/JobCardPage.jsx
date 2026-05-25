@@ -95,7 +95,7 @@ export function NewJobPage() {
       </FadeIn>
 
       {/* Vehicle Search */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-100 dark:border-gray-700">
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700">
         <h2 className="font-bold dark:text-white mb-3">Vehicle</h2>
 
         {!selectedVehicle && !showNewVehicle && (
@@ -177,7 +177,7 @@ export function NewJobPage() {
       </div>
 
       {/* Job Details */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-100 dark:border-gray-700 space-y-4">
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700 space-y-4">
         <h2 className="font-bold dark:text-white">Job Details</h2>
         <div>
           <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Complaint / Issue</label>
@@ -293,7 +293,7 @@ export default function JobCardPage() {
             {job.vehicle?.customer_name && <p className="text-sm text-gray-400">{job.vehicle.customer_name} · {job.vehicle?.customer_phone}</p>}
           </div>
           <div className="text-right">
-            <p className="text-2xl font-bold text-green-600 dark:text-green-400">{job.grand_total?.toLocaleString()} {currency}</p>
+            <p className="text-2xl font-bold text-emerald-600 dark:text-gray-300">{job.grand_total?.toLocaleString()} {currency}</p>
             <p className="text-xs text-gray-400">Parts: {job.parts_total?.toLocaleString()} + Labor: {job.labor_total?.toLocaleString()}</p>
           </div>
         </div>
@@ -333,7 +333,7 @@ export default function JobCardPage() {
       )}
 
       {/* Parts & Labor Tabs */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 overflow-hidden">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 overflow-hidden">
         <div className="flex border-b dark:border-gray-700">
           <button onClick={() => setActiveTab("parts")}
             className={`flex-1 py-3 text-sm font-medium ${activeTab === "parts" ? "border-b-2 border-blue-600 text-blue-600" : "text-gray-400"}`}>

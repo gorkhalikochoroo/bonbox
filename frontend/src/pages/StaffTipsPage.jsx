@@ -99,7 +99,7 @@ export default function StaffTipsPage() {
 
       {loading && (
         <div className="text-center py-12 text-gray-400 dark:text-gray-500">
-          <div className="animate-spin inline-block w-6 h-6 border-2 border-green-500 border-t-transparent rounded-full mb-3" />
+          <div className="animate-spin inline-block w-6 h-6 border-2 border-gray-300 border-t-transparent rounded-full mb-3" />
           <p className="text-sm">Loading...</p>
         </div>
       )}
@@ -317,13 +317,13 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
     }
   };
 
-  const inputClass = "w-full px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 text-right text-lg";
+  const inputClass = "w-full px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-400 text-right text-lg";
   const labelClass = "text-sm font-medium text-gray-600 dark:text-gray-300";
 
   return (
     <div className="space-y-4">
       {/* Date & Amount Card */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-5 sm:p-6 space-y-4">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5 sm:p-6 space-y-4">
         <h2 className="text-lg font-bold dark:text-white">{"\uD83D\uDCDD"} Tip Details</h2>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -334,7 +334,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
               value={date}
               onChange={e => setDate(e.target.value)}
               max={today()}
-              className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-400"
             />
           </div>
           <div>
@@ -352,7 +352,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
       </div>
 
       {/* Split Method Card */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-5 sm:p-6 space-y-4">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5 sm:p-6 space-y-4">
         <h2 className="text-lg font-bold dark:text-white">{"\u2696\uFE0F"} Split Method</h2>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -362,7 +362,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
               onClick={() => setSplitMethod(method.id)}
               className={`p-3 rounded-xl border-2 text-left transition-all ${
                 splitMethod === method.id
-                  ? "border-green-500 bg-green-50 dark:bg-green-900/20"
+                  ? "border-gray-300 bg-gray-50 dark:bg-gray-800/50"
                   : "border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500"
               }`}
             >
@@ -370,7 +370,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                 <span className="text-lg">{method.icon}</span>
                 <span className={`text-sm font-semibold ${
                   splitMethod === method.id
-                    ? "text-green-700 dark:text-green-300"
+                    ? "text-gray-700 dark:text-gray-300"
                     : "dark:text-white"
                 }`}>
                   {method.label}
@@ -385,12 +385,12 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
       </div>
 
       {/* Staff Distribution Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         <div className="p-5 sm:p-6 pb-0">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-bold dark:text-white">{"\uD83D\uDC65"} Staff Distribution</h2>
             {amount > 0 && (
-              <span className="text-sm font-semibold text-green-600 dark:text-green-400">
+              <span className="text-sm font-semibold text-emerald-600 dark:text-gray-300">
                 {amount.toLocaleString()} {currency}
               </span>
             )}
@@ -398,7 +398,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
 
           {hoursLoading && (
             <div className="text-center py-8 text-gray-400">
-              <div className="animate-spin inline-block w-5 h-5 border-2 border-green-500 border-t-transparent rounded-full mb-2" />
+              <div className="animate-spin inline-block w-5 h-5 border-2 border-gray-300 border-t-transparent rounded-full mb-2" />
               <p className="text-sm">Loading staff hours...</p>
             </div>
           )}
@@ -455,7 +455,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                         min="0"
                         value={row.hours || ""}
                         onChange={e => updateStaffHours(row.staff_id, e.target.value)}
-                        className="w-20 px-2 py-1.5 text-sm text-right border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-1 focus:ring-green-500"
+                        className="w-20 px-2 py-1.5 text-sm text-right border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400"
                         placeholder="0"
                       />
                     </td>
@@ -476,7 +476,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                           max="100"
                           value={customRatios[row.staff_id] || ""}
                           onChange={e => updateCustomRatio(row.staff_id, e.target.value)}
-                          className="w-20 px-2 py-1.5 text-sm text-right border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-1 focus:ring-green-500"
+                          className="w-20 px-2 py-1.5 text-sm text-right border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400"
                           placeholder="0"
                         />
                       ) : (
@@ -486,7 +486,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                       )}
                     </td>
                     <td className="px-5 py-3 text-right">
-                      <span className="text-sm font-bold text-green-600 dark:text-green-400">
+                      <span className="text-sm font-bold text-emerald-600 dark:text-gray-300">
                         {row.share_amount > 0 ? row.share_amount.toLocaleString() : "\u2014"} {row.share_amount > 0 ? currency : ""}
                       </span>
                     </td>
@@ -512,7 +512,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                       }
                     </span>
                   </td>
-                  <td className="px-5 py-3 text-right text-sm font-bold text-green-600 dark:text-green-400">
+                  <td className="px-5 py-3 text-right text-sm font-bold text-emerald-600 dark:text-gray-300">
                     {distributionTotal > 0 ? `${distributionTotal.toLocaleString()} ${currency}` : "\u2014"}
                   </td>
                 </tr>
@@ -542,7 +542,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
           {!showPreview && (
             <button
               onClick={() => setShowPreview(true)}
-              className="w-full py-3 text-sm font-medium text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 rounded-xl hover:bg-green-100 dark:hover:bg-green-900/30 transition"
+              className="w-full py-3 text-sm font-medium text-emerald-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800/50 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
             >
               {"\uD83D\uDD0D"} Preview Distribution
             </button>
@@ -550,7 +550,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
 
           {showPreview && (
             <FadeIn>
-              <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-5 sm:p-6 space-y-4">
+              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5 sm:p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-bold dark:text-white">{"\u2705"} Distribution Preview</h2>
                   <button
@@ -574,18 +574,18 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                   </div>
                   <div className="flex justify-between text-sm font-bold pt-2 border-t dark:border-gray-600 dark:text-white">
                     <span>Total Tips</span>
-                    <span className="text-green-600 dark:text-green-400">{amount.toLocaleString()} {currency}</span>
+                    <span className="text-emerald-600 dark:text-gray-300">{amount.toLocaleString()} {currency}</span>
                   </div>
                 </div>
 
                 <div className="space-y-2">
                   {distribution.filter(d => d.share_amount > 0).map(d => (
-                    <div key={d.staff_id} className="flex items-center justify-between py-2 px-3 bg-green-50 dark:bg-green-900/15 rounded-xl">
+                    <div key={d.staff_id} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl">
                       <div>
                         <p className="text-sm font-medium dark:text-white">{d.name}</p>
                         <p className="text-xs text-gray-400">{d.share_pct.toFixed(1)}% share</p>
                       </div>
-                      <span className="text-lg font-bold text-green-600 dark:text-green-400">
+                      <span className="text-lg font-bold text-emerald-600 dark:text-gray-300">
                         {d.share_amount.toLocaleString()} {currency}
                       </span>
                     </div>
@@ -609,7 +609,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
             </div>
           )}
           {success && (
-            <div className="bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 px-4 py-3 rounded-xl text-sm font-medium text-center">
+            <div className="bg-gray-50 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 px-4 py-3 rounded-xl text-sm font-medium text-center">
               {"\u2705"} {success}
             </div>
           )}
@@ -618,7 +618,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
           <button
             onClick={handleSubmit}
             disabled={saving || amount <= 0}
-            className="w-full py-3.5 bg-green-600 text-white rounded-xl hover:bg-green-700 font-semibold transition disabled:opacity-50 text-base"
+            className="w-full py-3.5 bg-gray-900 text-white rounded-xl hover:bg-gray-700 font-semibold transition disabled:opacity-50 text-base"
           >
             {saving ? "Distributing..." : `\uD83D\uDCB0 Distribute ${amount > 0 ? amount.toLocaleString() + " " + currency : "Tips"}`}
           </button>
@@ -655,7 +655,7 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
 
   if (!data || data.length === 0) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 text-center border border-gray-100 dark:border-gray-700">
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-100 dark:border-gray-700">
         <p className="text-4xl mb-3">{"\uD83D\uDCB0"}</p>
         <p className="font-semibold dark:text-white">No tip distributions yet</p>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
@@ -678,7 +678,7 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700">
           <p className="text-xs text-gray-500 dark:text-gray-400">Total Distributed</p>
-          <p className="text-lg font-bold text-green-600 dark:text-green-400 mt-1">
+          <p className="text-lg font-bold text-emerald-600 dark:text-gray-300 mt-1">
             {totalTips.toLocaleString()} {currency}
           </p>
         </div>
@@ -704,7 +704,7 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
 
           return (
             <StaggerItem key={tip.id}>
-              <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
                 {/* Card Header */}
                 <button
                   onClick={() => setExpandedId(isExpanded ? null : tip.id)}
@@ -729,11 +729,11 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
                       </div>
                     </div>
                     <div className="text-right flex flex-col items-end gap-2">
-                      <p className="text-lg font-bold text-green-600 dark:text-green-400">
+                      <p className="text-lg font-bold text-emerald-600 dark:text-gray-300">
                         {(parseFloat(tip.total_amount) || 0).toLocaleString()} {currency}
                       </p>
                       {isConfirmed ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">
                           {"\u2713"} Confirmed
                         </span>
                       ) : (
@@ -748,7 +748,7 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
                   {!isExpanded && distributions.length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-3">
                       {distributions.slice(0, 3).map((d, i) => (
-                        <span key={i} className="px-2 py-1 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 rounded-lg text-xs font-medium">
+                        <span key={i} className="px-2 py-1 bg-gray-50 dark:bg-gray-800/50 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-medium">
                           {d.staff_name || d.name || `Staff #${d.staff_id}`}: {(parseFloat(d.amount) || 0).toLocaleString()}
                         </span>
                       ))}
@@ -776,7 +776,7 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
                               {d.percentage ? `${parseFloat(d.percentage).toFixed(1)}%` : ""}
                             </p>
                           </div>
-                          <span className="text-sm font-bold text-green-600 dark:text-green-400">
+                          <span className="text-sm font-bold text-emerald-600 dark:text-gray-300">
                             {(parseFloat(d.amount) || 0).toLocaleString()} {currency}
                           </span>
                         </div>
@@ -788,14 +788,14 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
                       <button
                         onClick={(e) => { e.stopPropagation(); handleConfirm(tip.id); }}
                         disabled={confirmingId === tip.id}
-                        className="mt-4 w-full py-2.5 bg-green-600 text-white rounded-xl hover:bg-green-700 font-semibold text-sm transition disabled:opacity-50"
+                        className="mt-4 w-full py-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-700 font-semibold text-sm transition disabled:opacity-50"
                       >
                         {confirmingId === tip.id ? "Confirming..." : "\u2705 Confirm Distribution"}
                       </button>
                     )}
 
                     {isConfirmed && (
-                      <div className="mt-4 px-4 py-2.5 bg-green-50 dark:bg-green-900/20 rounded-xl text-center text-sm text-green-600 dark:text-green-400 font-medium">
+                      <div className="mt-4 px-4 py-2.5 bg-gray-50 dark:bg-gray-800/50 rounded-xl text-center text-sm text-emerald-600 dark:text-gray-300 font-medium">
                         {"\uD83D\uDD12"} Locked \u2014 This distribution has been confirmed
                       </div>
                     )}

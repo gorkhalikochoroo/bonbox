@@ -54,15 +54,15 @@ import { Button, Card, Icon, PageHeader } from "../components/ui";
    class strings drifted between sections (e.g. rounded-lg vs
    rounded-xl) which made the page feel inconsistent at a glance. */
 const INPUT_CLASS =
-  "w-full px-3 py-2.5 rounded-lg border border-stone-300 dark:border-stone-700 " +
-  "bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 text-sm " +
-  "placeholder:text-stone-400 dark:placeholder:text-stone-500 " +
+  "w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 " +
+  "bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 text-sm " +
+  "placeholder:text-gray-400 dark:placeholder:text-gray-500 " +
   "focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent " +
   "disabled:opacity-50";
 const LABEL_CLASS =
-  "block text-xs font-medium text-stone-700 dark:text-stone-300 mb-1.5";
+  "block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5";
 const HINT_CLASS =
-  "text-[11px] text-stone-500 dark:text-stone-400 mt-1.5";
+  "text-[11px] text-gray-500 dark:text-gray-400 mt-1.5";
 
 /** The eight Card sections rendered on this page. The TOC reads from
  *  this list so adding a section in one place automatically gets the
@@ -682,7 +682,7 @@ export default function ProfilePage() {
     return PRESETS[form.business_type] || PRESETS.restaurant;
   }, [form.business_type]);
 
-  if (!user) return <div className="p-6 text-center text-stone-500">{t("loading")}</div>;
+  if (!user) return <div className="p-6 text-center text-gray-500">{t("loading")}</div>;
 
   return (
     <div className="p-4 sm:p-6 max-w-6xl mx-auto">
@@ -885,8 +885,8 @@ export default function ProfilePage() {
                         className={
                           "px-2.5 py-1 rounded-full text-xs font-medium border transition " +
                           (active
-                            ? "bg-emerald-600 text-white border-emerald-600"
-                            : "bg-stone-50 dark:bg-stone-800 text-stone-700 dark:text-stone-200 border-stone-200 dark:border-stone-700 hover:bg-stone-100 dark:hover:bg-stone-700")
+                            ? "bg-gray-900 text-white border-gray-900"
+                            : "bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700")
                         }
                       >
                         {p}
@@ -969,14 +969,14 @@ export default function ProfilePage() {
               {editorExpanded ? (
                 <div id="operating-profile-editor">
                   <div className="flex items-center justify-between mb-2 px-1">
-                    <span className="text-xs text-stone-500 dark:text-stone-400">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
                       {t("smartStaffingFineTune") ||
                         "Fine-tune individual values below — these save independently from the card above."}
                     </span>
                     <button
                       type="button"
                       onClick={() => setEditorExpanded(false)}
-                      className="text-xs text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-200"
+                      className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                     >
                       {t("smartStaffingHideAdvanced") || "Hide advanced editor"}
                     </button>
@@ -988,7 +988,7 @@ export default function ProfilePage() {
                   <button
                     type="button"
                     onClick={() => setEditorExpanded(true)}
-                    className="text-xs text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-200"
+                    className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                   >
                     {t("smartStaffingShowAdvanced") || "Show advanced operating-profile editor"}
                   </button>
@@ -1055,7 +1055,7 @@ export default function ProfilePage() {
                 </Field>
 
                 <details className="text-sm">
-                  <summary className="cursor-pointer text-stone-600 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200">
+                  <summary className="cursor-pointer text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200">
                     {t("ibanShowToggle") || "International (IBAN/BIC)"}
                   </summary>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
@@ -1204,16 +1204,16 @@ export default function ProfilePage() {
               </form>
 
               {/* Existing grants list */}
-              <div className="mt-6 border-t border-stone-200 dark:border-stone-700 pt-4">
-                <div className="text-xs font-medium text-stone-700 dark:text-stone-300 mb-2">
+              <div className="mt-6 border-t border-gray-200 dark:border-gray-700 pt-4">
+                <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
                   {t("revisorListTitle") || "Active and recent invites"}
                 </div>
                 {grantsLoading && grants.length === 0 ? (
-                  <div className="text-xs text-stone-500 dark:text-stone-400 py-2">
+                  <div className="text-xs text-gray-500 dark:text-gray-400 py-2">
                     {t("loading") || "Loading…"}
                   </div>
                 ) : grants.length === 0 ? (
-                  <div className="text-xs text-stone-500 dark:text-stone-400 py-2">
+                  <div className="text-xs text-gray-500 dark:text-gray-400 py-2">
                     {t("revisorEmptyState") ||
                       "No revisor invites yet. Send one above to give your accountant their own login."}
                   </div>
@@ -1222,22 +1222,22 @@ export default function ProfilePage() {
                     {grants.map((g) => (
                       <li
                         key={g.id}
-                        className="flex flex-wrap items-center justify-between gap-2 py-2 px-3 rounded-lg bg-stone-50 dark:bg-stone-800/50 border border-stone-100 dark:border-stone-700"
+                        className="flex flex-wrap items-center justify-between gap-2 py-2 px-3 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700"
                       >
                         <div className="min-w-0">
-                          <div className="text-sm text-stone-900 dark:text-stone-100 truncate">
+                          <div className="text-sm text-gray-900 dark:text-gray-100 truncate">
                             {g.accountant_name ? `${g.accountant_name} · ` : ""}
                             {g.accountant_email}
                           </div>
-                          <div className="text-[11px] text-stone-500 dark:text-stone-400 mt-0.5">
+                          <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
                             <span
                               className={
                                 "inline-block px-1.5 py-0.5 rounded text-[10px] font-medium mr-2 " +
                                 (g.status === "active"
-                                  ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"
+                                  ? "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                                   : g.status === "pending"
                                   ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"
-                                  : "bg-stone-200 dark:bg-stone-700 text-stone-600 dark:text-stone-300")
+                                  : "bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300")
                               }
                             >
                               {g.status === "active"
@@ -1294,16 +1294,16 @@ export default function ProfilePage() {
                       <img
                         src={brand.logo_url}
                         alt="Current logo"
-                        className="w-20 h-20 object-contain border border-stone-200 dark:border-stone-700 rounded-lg bg-white p-2"
+                        className="w-20 h-20 object-contain border border-gray-200 dark:border-gray-700 rounded-lg bg-white p-2"
                       />
                     ) : (
-                      <div className="w-20 h-20 border border-dashed border-stone-300 dark:border-stone-700 rounded-lg flex items-center justify-center text-stone-400 dark:text-stone-600">
+                      <div className="w-20 h-20 border border-dashed border-gray-300 dark:border-gray-700 rounded-lg flex items-center justify-center text-gray-400 dark:text-gray-600">
                         <Icon name="Image" size={24} />
                       </div>
                     )}
                     <div className="flex flex-col gap-2">
                       <label className="cursor-pointer">
-                        <span className="inline-flex items-center gap-2 px-3.5 py-2 h-9 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-100 text-sm font-medium rounded-lg transition">
+                        <span className="inline-flex items-center gap-2 px-3.5 py-2 h-9 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-100 text-sm font-medium rounded-lg transition">
                           {logoUploading
                             ? (t("uploading") || "Uploading…")
                             : (brand.logo_url ? (t("brandReplaceLogo") || "Replace") : (t("brandUploadLogo") || "Upload logo"))}
@@ -1342,8 +1342,8 @@ export default function ProfilePage() {
                         className={
                           "px-3.5 py-2 h-9 rounded-lg text-sm font-medium border transition " +
                           (brand.logo_position === opt.value
-                            ? "bg-stone-900 dark:bg-stone-100 border-stone-900 dark:border-stone-100 text-white dark:text-stone-900"
-                            : "bg-white dark:bg-stone-900 border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:bg-stone-50 dark:hover:bg-stone-800")
+                            ? "bg-gray-900 dark:bg-gray-100 border-gray-900 dark:border-gray-100 text-white dark:text-gray-900"
+                            : "bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800")
                         }
                       >
                         {opt.label}
@@ -1362,14 +1362,14 @@ export default function ProfilePage() {
                       aria-label={t("brandColorDefault") || "Default (no accent color)"}
                       onClick={() => saveBrand({ accent_color: null })}
                       className={
-                        "w-10 h-10 rounded-lg border-2 transition inline-flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
+                        "w-10 h-10 rounded-lg border-2 transition inline-flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
                         (!brand.accent_color
-                          ? "border-stone-900 dark:border-stone-100"
-                          : "border-stone-200 dark:border-stone-700")
+                          ? "border-gray-900 dark:border-gray-100"
+                          : "border-gray-200 dark:border-gray-700")
                       }
                       title="Default (no color)"
                     >
-                      <span className="text-stone-500 text-xs" aria-hidden="true">×</span>
+                      <span className="text-gray-500 text-xs" aria-hidden="true">×</span>
                     </button>
                     {Object.entries(brand.accent_palette || {}).map(([name, hex]) => (
                       <button
@@ -1380,10 +1380,10 @@ export default function ProfilePage() {
                         aria-label={name}
                         onClick={() => saveBrand({ accent_color: name })}
                         className={
-                          "w-10 h-10 rounded-lg border-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
+                          "w-10 h-10 rounded-lg border-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
                           ((brand.accent_color || "").toUpperCase() === hex.toUpperCase()
-                            ? "border-stone-900 dark:border-stone-100 scale-105"
-                            : "border-stone-200 dark:border-stone-700")
+                            ? "border-gray-900 dark:border-gray-100 scale-105"
+                            : "border-gray-200 dark:border-gray-700")
                         }
                         style={{ backgroundColor: hex }}
                         title={name}
@@ -1416,8 +1416,8 @@ export default function ProfilePage() {
                       className={
                         "flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition " +
                         (active
-                          ? "bg-white dark:bg-stone-900 border-2 border-stone-900 dark:border-stone-100 text-stone-900 dark:text-stone-100"
-                          : "bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300 hover:border-stone-400 dark:hover:border-stone-600")
+                          ? "bg-white dark:bg-gray-900 border-2 border-gray-900 dark:border-gray-100 text-gray-900 dark:text-gray-100"
+                          : "bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-400 dark:hover:border-gray-600")
                       }
                     >
                       <span
@@ -1440,7 +1440,7 @@ export default function ProfilePage() {
                 subtitle={t("dailyDigestDesc")}
                 icon={<Icon name="Bell" size={18} />}
               />
-              <div className="divide-y divide-stone-200 dark:divide-stone-800 -mx-1">
+              <div className="divide-y divide-gray-200 dark:divide-gray-800 -mx-1">
                 {/* Task #54 — Daily Brief 8am email. Sits at the TOP of the
                     notifications list because it's the headline product
                     experience: owners get the same /dashboard brief in their
@@ -1464,7 +1464,7 @@ export default function ProfilePage() {
                   }
                 />
                 {briefTestMsg && (
-                  <div className="py-1.5 px-1 text-xs text-emerald-700 dark:text-emerald-400">
+                  <div className="py-1.5 px-1 text-xs text-gray-700 dark:text-emerald-400">
                     {briefTestMsg}
                   </div>
                 )}
@@ -1484,15 +1484,15 @@ export default function ProfilePage() {
                   <div className="py-4 px-1">
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex-1 pr-2">
-                        <p className="text-sm font-medium text-stone-800 dark:text-stone-100">
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
                           {t("pushPhoneTitle") || t("pushNotificationsLabel")}
                         </p>
-                        <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                           {t("pushPhoneDesc") || t("pushNotificationsDesc")}
                         </p>
                       </div>
                       {pushPerm === "denied" ? (
-                        <span className="text-xs text-stone-500">{t("pushDenied") || t("blockedInBrowser")}</span>
+                        <span className="text-xs text-gray-500">{t("pushDenied") || t("blockedInBrowser")}</span>
                       ) : pushSubscribed ? (
                         <Button
                           size="sm"
@@ -1555,21 +1555,21 @@ export default function ProfilePage() {
                           {pushTestBusy ? (t("sending") || "Sending...") : (t("pushTest") || "Send test push")}
                         </Button>
                         {pushMsg && (
-                          <span className="text-xs text-emerald-700 dark:text-emerald-400">{pushMsg}</span>
+                          <span className="text-xs text-gray-700 dark:text-emerald-400">{pushMsg}</span>
                         )}
                       </div>
                     )}
                     {!pushSubscribed && pushMsg && (
-                      <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-400">{pushMsg}</p>
+                      <p className="mt-2 text-xs text-gray-700 dark:text-emerald-400">{pushMsg}</p>
                     )}
                   </div>
                 )}
               </div>
-              <div className="pt-4 mt-2 border-t border-stone-200 dark:border-stone-800 flex items-center gap-3 flex-wrap">
+              <div className="pt-4 mt-2 border-t border-gray-200 dark:border-gray-800 flex items-center gap-3 flex-wrap">
                 <Button variant="secondary" size="sm" busy={sendingTest} onClick={sendTestDigest}>
                   {sendingTest ? t("sending") : t("sendTestDigest")}
                 </Button>
-                {emailMsg && <span className="text-sm text-emerald-700 dark:text-emerald-400">{emailMsg}</span>}
+                {emailMsg && <span className="text-sm text-gray-700 dark:text-emerald-400">{emailMsg}</span>}
               </div>
             </Card>
 
@@ -1609,7 +1609,7 @@ export default function ProfilePage() {
                   onChange={toggleAnalyticsOptOut}
                 />
                 {privacyMsg && <Message tone="info">{privacyMsg}</Message>}
-                <p className="text-[11px] text-stone-500 dark:text-stone-400 pt-3 border-t border-stone-200 dark:border-stone-800">
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 pt-3 border-t border-gray-200 dark:border-gray-800">
                   GDPR: BonBox processes analytics under legitimate-interest basis. Your right to opt
                   out is respected here. To delete all your data, see the Danger Zone below.
                 </p>
@@ -1652,16 +1652,16 @@ export default function ProfilePage() {
               to="/tax"
             >
               <div className="flex items-center gap-3">
-                <Icon name="Calculator" size={18} className="text-stone-500 shrink-0" />
+                <Icon name="Calculator" size={18} className="text-gray-500 shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                     {t("profileTaxLinkTitle")}
                   </p>
-                  <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                     {t("profileTaxLinkBody")}
                   </p>
                 </div>
-                <span className="text-sm text-stone-400 shrink-0">→</span>
+                <span className="text-sm text-gray-400 shrink-0">→</span>
               </div>
             </Card>
 
@@ -1711,7 +1711,7 @@ export default function ProfilePage() {
                   }
                 />
                 {demoClearMsg && (
-                  <p className="text-xs text-stone-600 dark:text-stone-300 mt-2">
+                  <p className="text-xs text-gray-600 dark:text-gray-300 mt-2">
                     {demoClearMsg}
                   </p>
                 )}
@@ -1755,18 +1755,18 @@ export default function ProfilePage() {
               />
               <dl className="text-sm space-y-2">
                 <div className="flex items-center justify-between gap-3">
-                  <dt className="text-stone-500 dark:text-stone-400">
+                  <dt className="text-gray-500 dark:text-gray-400">
                     {t("profileAccountIdLabel")}
                   </dt>
-                  <dd className="font-mono text-xs text-stone-700 dark:text-stone-300 truncate">
+                  <dd className="font-mono text-xs text-gray-700 dark:text-gray-300 truncate">
                     {user.id}
                   </dd>
                 </div>
                 <div className="flex items-center justify-between gap-3">
-                  <dt className="text-stone-500 dark:text-stone-400">
+                  <dt className="text-gray-500 dark:text-gray-400">
                     {t("profileDailyGoalLabel")}
                   </dt>
-                  <dd className="text-stone-700 dark:text-stone-300">
+                  <dd className="text-gray-700 dark:text-gray-300">
                     {user.daily_goal > 0
                       ? `${Number(user.daily_goal).toLocaleString()} ${form.currency}`
                       : t("notSetLabel")}
@@ -1818,7 +1818,7 @@ export default function ProfilePage() {
                       placeholder={t("enterPassword") || "Enter your password"}
                       className={
                         "flex-1 px-3 py-2 rounded-lg border border-red-300 dark:border-red-800 " +
-                        "bg-white dark:bg-stone-900 text-sm text-stone-800 dark:text-stone-100 " +
+                        "bg-white dark:bg-gray-900 text-sm text-gray-800 dark:text-gray-100 " +
                         "focus:outline-none focus:ring-2 focus:ring-red-500"
                       }
                       autoComplete="current-password"
@@ -1909,7 +1909,7 @@ function TableOfContents({ t }) {
   return (
     <aside className="hidden md:block">
       <nav className="sticky top-20" aria-label={t("profileNavOnThisPage")}>
-        <p className="text-xs font-medium text-stone-500 dark:text-stone-400 uppercase tracking-wide mb-3">
+        <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
           {t("profileNavOnThisPage")}
         </p>
         <ul className="space-y-0.5">
@@ -1922,8 +1922,8 @@ function TableOfContents({ t }) {
                   className={
                     "flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm transition " +
                     (isActive
-                      ? "bg-stone-100 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-medium"
-                      : "text-stone-600 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-800/60 hover:text-stone-900 dark:hover:text-stone-100")
+                      ? "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-medium"
+                      : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/60 hover:text-gray-900 dark:hover:text-gray-100")
                   }
                 >
                   <Icon name={s.icon} size={15} className="shrink-0" />
@@ -1943,19 +1943,19 @@ function TableOfContents({ t }) {
  *  tells you whose settings you're looking at). */
 function ProfileIdentity({ user, t }) {
   return (
-    <div className="flex items-center gap-3 mb-4 pb-4 border-b border-stone-200 dark:border-stone-800">
-      <div className="w-10 h-10 rounded-full bg-stone-100 dark:bg-stone-800 flex items-center justify-center text-base font-semibold text-stone-700 dark:text-stone-200">
+    <div className="flex items-center gap-3 mb-4 pb-4 border-b border-gray-200 dark:border-gray-800">
+      <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-base font-semibold text-gray-700 dark:text-gray-200">
         {user.business_name?.charAt(0)?.toUpperCase() || "B"}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-stone-900 dark:text-stone-100 truncate">
+        <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
           {user.business_name}
         </p>
-        <p className="text-xs text-stone-500 dark:text-stone-400 flex items-center gap-1.5 truncate">
+        <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5 truncate">
           <span className="truncate">{user.email}</span>
           {user.email_verified ? (
             <span
-              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 rounded-full text-[10px] font-medium shrink-0"
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-full text-[10px] font-medium shrink-0"
               title="Email verified"
             >
               <Icon name="CheckCircle2" size={10} />
@@ -1994,9 +1994,9 @@ function Field({ label, hint, children }) {
  *  these inline confirmations / errors as they appear (WCAG 4.1.3). */
 function Message({ tone = "info", children }) {
   const TONE = {
-    success: "text-emerald-700 dark:text-emerald-400",
+    success: "text-gray-700 dark:text-emerald-400",
     error: "text-red-700 dark:text-red-400",
-    info: "text-stone-700 dark:text-stone-300",
+    info: "text-gray-700 dark:text-gray-300",
   };
   // Errors are assertive — interrupt the screen reader. Success/info are polite.
   const live = tone === "error" ? "assertive" : "polite";
@@ -2016,8 +2016,8 @@ function ToggleRow({ label, desc, checked, onChange, rightSlot = null }) {
   return (
     <div className="flex items-start justify-between gap-4 py-4 px-1">
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-stone-800 dark:text-stone-100">{label}</p>
-        {desc && <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">{desc}</p>}
+        <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{label}</p>
+        {desc && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{desc}</p>}
       </div>
       {rightSlot ? <div className="shrink-0 self-center">{rightSlot}</div> : null}
       <button
@@ -2026,8 +2026,8 @@ function ToggleRow({ label, desc, checked, onChange, rightSlot = null }) {
         aria-checked={checked}
         onClick={onChange}
         className={
-          "shrink-0 mt-0.5 relative w-11 h-6 rounded-full transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
-          (checked ? "bg-emerald-600" : "bg-stone-300 dark:bg-stone-700")
+          "shrink-0 mt-0.5 relative w-11 h-6 rounded-full transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
+          (checked ? "bg-gray-900" : "bg-gray-300 dark:bg-gray-700")
         }
       >
         <span
@@ -2098,7 +2098,7 @@ function LaborTargetStepper() {
           t("laborTargetSubtitle") ||
           "What share of revenue should go to wages? The schedule autopilot uses this when suggesting next week's shifts."
         }
-        icon={<Icon name="Target" size={16} className="text-stone-500" />}
+        icon={<Icon name="Target" size={16} className="text-gray-500" />}
       />
       <div className="flex items-center gap-4 py-2">
         <input
@@ -2111,18 +2111,18 @@ function LaborTargetStepper() {
           className="flex-1 accent-emerald-600"
           aria-label="Labor target percentage"
         />
-        <span className="text-xl font-semibold text-stone-900 dark:text-stone-100 w-14 text-right">
+        <span className="text-xl font-semibold text-gray-900 dark:text-gray-100 w-14 text-right">
           {pct}%
         </span>
       </div>
       <div className="flex items-center justify-between gap-3 pt-2">
-        <p className="text-[11px] text-stone-500 dark:text-stone-400">
+        <p className="text-[11px] text-gray-500 dark:text-gray-400">
           {t("laborTargetHint") ||
             "Most Danish cafés target 25–35%. Tighter operations run lower."}
         </p>
         <div className="flex items-center gap-3 shrink-0">
           {toast && (
-            <span className="text-xs text-emerald-700 dark:text-emerald-400">
+            <span className="text-xs text-gray-700 dark:text-emerald-400">
               {toast}
             </span>
           )}
@@ -2203,7 +2203,7 @@ function DayCutoffStepper() {
           t("dayCutoffSubtitle") ||
           "When does today's books close and tomorrow's open? Restaurants usually pick 06:00 so late-night service still counts toward last night's shift."
         }
-        icon={<Icon name="Clock" size={16} className="text-stone-500" />}
+        icon={<Icon name="Clock" size={16} className="text-gray-500" />}
       />
       <div className="flex items-center gap-4 py-2">
         <input
@@ -2216,18 +2216,18 @@ function DayCutoffStepper() {
           className="flex-1 accent-emerald-600"
           aria-label={t("dayCutoffSliderAria") || "Day rollover hour (0-23)"}
         />
-        <span className="text-xl font-semibold text-stone-900 dark:text-stone-100 w-16 text-right tabular-nums">
+        <span className="text-xl font-semibold text-gray-900 dark:text-gray-100 w-16 text-right tabular-nums">
           {hourLabel}
         </span>
       </div>
       <div className="flex items-center justify-between gap-3 pt-2">
-        <p className="text-[11px] text-stone-500 dark:text-stone-400">
+        <p className="text-[11px] text-gray-500 dark:text-gray-400">
           {t("dayCutoffHint") ||
             "06:00 = Danish restaurant convention (02:00 sale → yesterday). 00:00 = midnight rollover (office hours)."}
         </p>
         <div className="flex items-center gap-3 shrink-0">
           {toast && (
-            <span className="text-xs text-emerald-700 dark:text-emerald-400">
+            <span className="text-xs text-gray-700 dark:text-emerald-400">
               {toast}
             </span>
           )}
@@ -2247,23 +2247,23 @@ function WhatsAppBlock({ t, waStatus, waPhone, setWaPhone, waCode, waMsg, waLink
   if (waStatus?.verified) {
     return (
       <div className="space-y-3">
-        <div className="flex items-center gap-2 px-3 py-2.5 bg-emerald-50 dark:bg-emerald-950/30 rounded-lg border border-emerald-200/70 dark:border-emerald-900/50">
+        <div className="flex items-center gap-2 px-3 py-2.5 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-100/70 dark:border-gray-700">
           <span className="w-2 h-2 bg-emerald-500 rounded-full" />
-          <span className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
+          <span className="text-sm font-medium text-gray-800 dark:text-gray-300">
             {t("connectedLabel")}: {waStatus.phone}
           </span>
         </div>
-        <div className="bg-stone-50 dark:bg-stone-800/50 rounded-lg p-3 border border-stone-200/70 dark:border-stone-700/50">
-          <p className="text-xs font-medium text-stone-500 dark:text-stone-400 mb-2">
+        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3 border border-gray-200/70 dark:border-gray-700/50">
+          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
             {t("quickCommandsLabel")}:
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 text-xs text-stone-600 dark:text-stone-300">
-            <span><code className="bg-stone-200 dark:bg-stone-700 px-1 rounded">14500</code> Log revenue</span>
-            <span><code className="bg-stone-200 dark:bg-stone-700 px-1 rounded">expense 2500 food</code> Log expense</span>
-            <span><code className="bg-stone-200 dark:bg-stone-700 px-1 rounded">summary</code> Today's stats</span>
-            <span><code className="bg-stone-200 dark:bg-stone-700 px-1 rounded">profit</code> Monthly profit</span>
-            <span><code className="bg-stone-200 dark:bg-stone-700 px-1 rounded">inventory</code> Stock alerts</span>
-            <span><code className="bg-stone-200 dark:bg-stone-700 px-1 rounded">help</code> All commands</span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 text-xs text-gray-600 dark:text-gray-300">
+            <span><code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">14500</code> Log revenue</span>
+            <span><code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">expense 2500 food</code> Log expense</span>
+            <span><code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">summary</code> Today's stats</span>
+            <span><code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">profit</code> Monthly profit</span>
+            <span><code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">inventory</code> Stock alerts</span>
+            <span><code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">help</code> All commands</span>
           </div>
         </div>
         <button onClick={onUnlink} className="text-xs text-red-600 dark:text-red-400 hover:underline">
@@ -2282,17 +2282,17 @@ function WhatsAppBlock({ t, waStatus, waPhone, setWaPhone, waCode, waMsg, waLink
           </span>
         </div>
         {waCode && (
-          <div className="bg-stone-50 dark:bg-stone-800/50 rounded-lg p-4 text-center border border-stone-200/70 dark:border-stone-700/50">
-            <p className="text-xs text-stone-500 dark:text-stone-400 mb-1">
+          <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4 text-center border border-gray-200/70 dark:border-gray-700/50">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
               {t("yourVerificationCode")}:
             </p>
-            <p className="text-2xl font-bold tracking-widest text-stone-900 dark:text-stone-100">
+            <p className="text-2xl font-bold tracking-widest text-gray-900 dark:text-gray-100">
               {waCode}
             </p>
-            <p className="text-xs text-stone-500 dark:text-stone-400 mt-2">{t("sendCodeToBonbox")}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">{t("sendCodeToBonbox")}</p>
           </div>
         )}
-        {!waCode && <p className="text-xs text-stone-500">{t("sendCodeToBonbox")}</p>}
+        {!waCode && <p className="text-xs text-gray-500">{t("sendCodeToBonbox")}</p>}
         <button onClick={onUnlink} className="text-xs text-red-600 dark:text-red-400 hover:underline">
           {t("unlinkWhatsapp")}
         </button>
@@ -2301,7 +2301,7 @@ function WhatsAppBlock({ t, waStatus, waPhone, setWaPhone, waCode, waMsg, waLink
   }
   return (
     <div className="space-y-3">
-      <p className="text-sm text-stone-600 dark:text-stone-300">{t("linkPhoneDesc")}</p>
+      <p className="text-sm text-gray-600 dark:text-gray-300">{t("linkPhoneDesc")}</p>
       <div className="flex flex-col sm:flex-row gap-2">
         <input
           type="tel"
@@ -2351,23 +2351,23 @@ function VerifiedBusinessBanner({ profile, reverifying, reverifyMsg, onReverify 
     : `${Math.floor(ageDays / 365)} years ago`;
 
   const surfaceClass = isVerified
-    ? "bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-200/70 dark:border-emerald-900/50"
+    ? "bg-gray-50/60 dark:bg-gray-800/50 border-gray-100/70 dark:border-gray-700"
     : isStale
       ? "bg-amber-50/60 dark:bg-amber-950/20 border-amber-200/70 dark:border-amber-900/50"
-      : "bg-stone-50 dark:bg-stone-800/50 border-stone-200 dark:border-stone-700";
+      : "bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700";
 
   const titleColor = isVerified
-    ? "text-emerald-800 dark:text-emerald-300"
+    ? "text-gray-800 dark:text-gray-300"
     : isStale
       ? "text-amber-800 dark:text-amber-300"
-      : "text-stone-700 dark:text-stone-200";
+      : "text-gray-700 dark:text-gray-200";
 
   const StatusIcon = isVerified ? (
     <Icon name="CheckCircle2" size={16} className="text-emerald-600 dark:text-emerald-400" />
   ) : isStale ? (
     <Icon name="AlertTriangle" size={16} className="text-amber-600 dark:text-amber-400" />
   ) : (
-    <Icon name="Building" size={16} className="text-stone-500" />
+    <Icon name="Building" size={16} className="text-gray-500" />
   );
 
   return (
@@ -2382,7 +2382,7 @@ function VerifiedBusinessBanner({ profile, reverifying, reverifyMsg, onReverify 
                 <span className="font-normal opacity-70 ml-2">({profile.org_number})</span>
               )}
             </p>
-            <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-0.5">
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
               {isVerified
                 ? `Verified · ${profile.cvr_verified_source || "register"} · ${ageLabel}`
                 : isStale
@@ -2390,7 +2390,7 @@ function VerifiedBusinessBanner({ profile, reverifying, reverifyMsg, onReverify 
                   : "Manual entry — not verified against any register"}
             </p>
             {profile.dawa_address_id && (
-              <p className="text-[10px] text-stone-500 dark:text-stone-500 mt-0.5">
+              <p className="text-[10px] text-gray-500 dark:text-gray-500 mt-0.5">
                 Address cross-checked with DAWA postal register
               </p>
             )}
@@ -2410,7 +2410,7 @@ function VerifiedBusinessBanner({ profile, reverifying, reverifyMsg, onReverify 
       </div>
 
       {flags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-stone-200/70 dark:border-stone-700/50">
+        <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-gray-200/70 dark:border-gray-700/50">
           {flags.includes("konkurs") && (
             <span className="text-[10px] px-2 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300 font-semibold">
               Under konkurs
@@ -2427,7 +2427,7 @@ function VerifiedBusinessBanner({ profile, reverifying, reverifyMsg, onReverify 
             </span>
           )}
           {flags.includes("no_vat") && (
-            <span className="text-[10px] px-2 py-0.5 rounded bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300 font-semibold">
+            <span className="text-[10px] px-2 py-0.5 rounded bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 font-semibold">
               Ikke MOMS-registreret
             </span>
           )}
@@ -2435,7 +2435,7 @@ function VerifiedBusinessBanner({ profile, reverifying, reverifyMsg, onReverify 
       )}
 
       {reverifyMsg && (
-        <p className="text-[11px] text-stone-600 dark:text-stone-300 mt-2 pt-2 border-t border-stone-200/70 dark:border-stone-700/50">
+        <p className="text-[11px] text-gray-600 dark:text-gray-300 mt-2 pt-2 border-t border-gray-200/70 dark:border-gray-700/50">
           {reverifyMsg}
         </p>
       )}

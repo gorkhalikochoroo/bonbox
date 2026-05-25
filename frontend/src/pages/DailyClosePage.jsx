@@ -380,7 +380,7 @@ export default function DailyClosePage() {
           would just open an already-confirmed wizard). Emerald is the
           one DNA-approved money-moment accent. */}
       {!isLockedToday && (
-        <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/60 dark:from-emerald-900/20 dark:to-emerald-800/10 border border-emerald-200 dark:border-emerald-800/50 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/50 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="min-w-0">
             <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               {t("closeTheDayCta") || "Close the day"}
@@ -989,7 +989,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     }
   };
 
-  const inputClass = "w-full px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 text-right text-lg";
+  const inputClass = "w-full px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-400 text-right text-lg";
   const labelClass = "text-sm font-medium text-gray-600 dark:text-gray-300";
 
   const showScanUI = scanMode === "idle" || scanMode === "scanning" || scanMode === "result";
@@ -1008,14 +1008,14 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   const scanFieldsTotal = defaultRevCats.length + defaultPayMethods.length + (config.hasTips ? 1 : 0);
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       {/* Progress bar */}
       <div className="flex">
         {showScanUI ? (
-          <div className="flex-1 h-1.5 bg-gradient-to-r from-green-400 to-green-600 animate-pulse" />
+          <div className="flex-1 h-1.5 bg-gray-50 dark:bg-gray-800/50 animate-pulse" />
         ) : (
           Array.from({ length: totalSteps }, (_, i) => i + 1).map(s => (
-            <div key={s} className={`flex-1 h-1.5 ${s <= step ? "bg-green-500" : "bg-gray-200 dark:bg-gray-700"} transition-colors`} />
+            <div key={s} className={`flex-1 h-1.5 ${s <= step ? "bg-emerald-500" : "bg-gray-200 dark:bg-gray-700"} transition-colors`} />
           ))
         )}
       </div>
@@ -1032,17 +1032,17 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {/* ─── SCAN BANNER (Step 0) ─── */}
         {scanMode === "idle" && (
           <div className="space-y-4">
-            <div className="rounded-2xl p-6 text-center"
+            <div className="rounded-xl p-6 text-center"
               style={{ background: "linear-gradient(135deg, #059669 0%, #10b981 50%, #34d399 100%)" }}>
               <div className="text-4xl mb-3">📷</div>
               <h2 className="text-xl font-bold text-white mb-1">Scan your Z-Report / Kasserapport</h2>
-              <p className="text-green-100 text-sm mb-5">
+              <p className="text-gray-100 text-sm mb-5">
                 Take photos or upload images of your Z-report — add multiple pages and we'll merge the results.
               </p>
               <div className="flex gap-3 justify-center">
                 <button
                   onClick={() => { if (fileInputRef.current) { fileInputRef.current.setAttribute("capture", "environment"); fileInputRef.current.click(); } }}
-                  className="px-5 py-2.5 bg-white text-green-700 rounded-xl font-semibold shadow-md hover:shadow-lg transition text-sm">
+                  className="px-5 py-2.5 bg-white text-gray-700 rounded-xl font-semibold shadow-sm hover:shadow-sm transition text-sm">
                   📸 Take Photo
                 </button>
                 <button
@@ -1059,12 +1059,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   (gross)" — fixes the #148 MEDIUM-10 mix where this
                   block hardcoded "MOMS" while siblings used `vatName`. */}
               <div className="mt-4 flex items-center gap-2 justify-center">
-                <span className="text-xs text-green-100">Receipt amounts are:</span>
+                <span className="text-xs text-gray-100">Receipt amounts are:</span>
                 <button
                   onClick={() => setScanMomsMode("with-moms")}
                   className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
                     scanMomsMode === "with-moms"
-                      ? "bg-white text-green-700 shadow"
+                      ? "bg-white text-gray-700 shadow"
                       : "bg-white/10 text-white hover:bg-white/20"
                   }`}>
                   with {vatName} (gross)
@@ -1073,7 +1073,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   onClick={() => setScanMomsMode("without-moms")}
                   className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
                     scanMomsMode === "without-moms"
-                      ? "bg-white text-green-700 shadow"
+                      ? "bg-white text-gray-700 shadow"
                       : "bg-white/10 text-white hover:bg-white/20"
                   }`}>
                   without {vatName} (net)
@@ -1081,7 +1081,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               </div>
             </div>
             {/* Upload zone */}
-            <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-6 text-center cursor-pointer hover:border-green-400 dark:hover:border-green-500 transition-colors"
+            <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-6 text-center cursor-pointer hover:border-gray-300 dark:hover:border-gray-300 transition-colors"
               onClick={() => { if (fileInputRef.current) { fileInputRef.current.removeAttribute("capture"); fileInputRef.current.click(); } }}
               onDragOver={e => e.preventDefault()}
               onDrop={async e => { e.preventDefault(); const files = Array.from(e.dataTransfer.files || []); for (const f of files) await handleFileSelect(f); }}>
@@ -1106,7 +1106,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {/* ─── SCANNING SPINNER ─── */}
         {scanMode === "scanning" && (
           <div className="py-12 text-center space-y-4">
-            <div className="inline-block w-10 h-10 border-4 border-green-200 border-t-green-600 rounded-full animate-spin" />
+            <div className="inline-block w-10 h-10 border-4 border-gray-100 border-t-green-600 rounded-full animate-spin" />
             <p className="text-gray-600 dark:text-gray-300 font-medium">Reading your Z-report...</p>
             <p className="text-sm text-gray-400">OCR is extracting revenue, payments, and {vatName} data</p>
           </div>
@@ -1121,7 +1121,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 already has values, and lists the fields the classifier
                 flagged as needing verification. */}
             {smartScanVerifyState.length > 0 && (
-              <div className="rounded-xl p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 text-sm text-emerald-900 dark:text-emerald-100 space-y-1">
+              <div className="rounded-xl p-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/40 text-sm text-gray-900 dark:text-gray-100 space-y-1">
                 <div className="font-medium flex items-center gap-1.5">
                   <span className="inline-block w-2 h-2 rounded-full bg-amber-500" aria-hidden="true" />
                   {t("smartScan.verifyHint", "Bekræft venligst")}
@@ -1139,7 +1139,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold dark:text-white">{t("scanResults")}</h2>
               <span className={`text-sm font-medium px-3 py-1 rounded-full ${
-                scanFieldsDetected >= 5 ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+                scanFieldsDetected >= 5 ? "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                   : scanFieldsDetected >= 3 ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300"
                     : "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
               }`}>
@@ -1194,9 +1194,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 return (
                   <div key={c.key} className="flex items-center gap-3">
                     <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
-                      {val ? <span className="text-green-500">✓</span> : <span className="text-gray-300 dark:text-gray-600">—</span>}
+                      {val ? <span className="text-emerald-600">✓</span> : <span className="text-gray-300 dark:text-gray-600">—</span>}
                       {c.icon} {c.label}
-                      {val && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 rounded">OCR</span>}
+                      {val && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded">OCR</span>}
                       {isEmpty && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded">missing</span>}
                     </span>
                     <input type="number" inputMode="decimal"
@@ -1255,9 +1255,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 return (
                   <div key={m.key} className="flex items-center gap-3">
                     <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
-                      {val ? <span className="text-green-500">✓</span> : <span className="text-gray-300 dark:text-gray-600">—</span>}
+                      {val ? <span className="text-emerald-600">✓</span> : <span className="text-gray-300 dark:text-gray-600">—</span>}
                       {m.icon} {m.label}
-                      {val && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 rounded">OCR</span>}
+                      {val && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded">OCR</span>}
                       {isEmpty && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded">missing</span>}
                     </span>
                     <input type="number" inputMode="decimal"
@@ -1280,9 +1280,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
               <div className="flex items-center gap-3">
                 <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
-                  {scanResult.tips ? <span className="text-green-500">✓</span> : <span className="text-gray-300 dark:text-gray-600">—</span>}
+                  {scanResult.tips ? <span className="text-emerald-600">✓</span> : <span className="text-gray-300 dark:text-gray-600">—</span>}
                   💰 Tips
-                  {scanResult.tips && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 rounded">OCR</span>}
+                  {scanResult.tips && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded">OCR</span>}
                   {!scanResult.tips && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded">missing</span>}
                 </span>
                 <input type="number" inputMode="decimal"
@@ -1318,7 +1318,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       <a key={i} href={safe} target="_blank" rel="noreferrer"
                         className="shrink-0 group">
                         <img src={safe} alt={p.name}
-                          className="w-24 h-24 rounded-lg object-cover border-2 border-green-500/50 group-hover:border-green-500 transition" />
+                          className="w-24 h-24 rounded-lg object-cover border-2 border-gray-300/50 group-hover:border-gray-300 transition" />
                       </a>
                     ) : null;
                   })}
@@ -1329,7 +1329,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             {/* Action buttons */}
             <div className="flex flex-col sm:flex-row gap-3">
               <button onClick={() => applyScanValues(true)}
-                className="flex-1 px-6 py-3 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 transition text-sm">
+                className="flex-1 px-6 py-3 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-700 transition text-sm">
                 ✅ Use these values — jump to review
               </button>
               <button onClick={() => applyScanValues(false)}
@@ -1339,7 +1339,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             </div>
             <div className="flex justify-center gap-4">
               <button onClick={() => { if (fileInputRef.current) { fileInputRef.current.removeAttribute("capture"); fileInputRef.current.click(); } }}
-                className="text-sm text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 font-medium">
+                className="text-sm text-emerald-600 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-300 font-medium">
                 + Add another photo
               </button>
               <button onClick={() => { setScanResult(null); setScanPhotos([]); setScanMode("idle"); }}
@@ -1360,7 +1360,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
           <input type="date" value={businessDate}
             max={getBusinessDate(cutoffHour)}
             onChange={e => { if (e.target.value) setBusinessDate(e.target.value); }}
-            className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+            className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-400" />
           {businessDate !== getBusinessDate(cutoffHour) && (
             <span className="text-[10px] px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-full font-semibold">
               Past date
@@ -1377,7 +1377,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {/* Draft auto-save indicator */}
         {draftSaved && (
           <div className="mb-3 px-3 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-center text-xs text-gray-400 flex items-center justify-center gap-1.5">
-            <span className="w-1.5 h-1.5 bg-green-400 rounded-full" /> Draft saved — you can leave and resume later
+            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" /> Draft saved — you can leave and resume later
           </div>
         )}
 
@@ -1437,9 +1437,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 If the owner enters numbers manually and they diverge >10% from
                 sales, we flash a warning below the inputs. */}
             {prefill && prefill.sales.total > 0 && (
-              <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/50 rounded-xl p-3 text-sm">
+              <div className="bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/50 rounded-xl p-3 text-sm">
                 <div className="flex items-start gap-3 justify-between">
-                  <div className="text-emerald-700 dark:text-emerald-300">
+                  <div className="text-gray-700 dark:text-gray-300">
                     <div>POS sales register for this date:
                       <strong className="ml-1">{prefill.sales.total.toLocaleString()} {currency}</strong>
                       <span className="text-emerald-600/70 dark:text-emerald-400/70 ml-1">
@@ -1449,7 +1449,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                     {Object.keys(prefill.sales.by_item).length > 0 && (
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
                         {Object.entries(prefill.sales.by_item).slice(0, 6).map(([name, val]) => (
-                          <span key={name} className="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/40 rounded text-xs">
+                          <span key={name} className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-xs">
                             {name}: {val.toLocaleString()}
                           </span>
                         ))}
@@ -1489,7 +1489,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                         }
                         setRevAmounts(next);
                       }}
-                      className="shrink-0 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium rounded-lg transition-colors"
+                      className="shrink-0 px-3 py-1.5 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-xs font-medium rounded-lg transition-colors"
                     >
                       Use these numbers
                     </button>
@@ -1554,7 +1554,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               </div>
               {revenueTotal > 0 && (
                 <div className={`mt-2 px-3 py-2 rounded-lg text-sm font-medium ${
-                  Math.abs(balanceDiff) < 1 ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+                  Math.abs(balanceDiff) < 1 ? "bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                     : "bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400"
                 }`}>
                   {Math.abs(balanceDiff) < 1 ? "✅ Balanced!" : `⚠️ Difference: ${balanceDiff > 0 ? "+" : ""}${balanceDiff.toLocaleString()} ${currency}`}
@@ -1583,7 +1583,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             </div>
             {cashDiff !== null && (
               <div className={`px-4 py-3 rounded-xl text-center font-bold text-lg ${
-                Math.abs(cashDiff) <= 100 ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+                Math.abs(cashDiff) <= 100 ? "bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                   : "bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400"
               }`}>
                 Difference: {cashDiff > 0 ? "+" : ""}{cashDiff.toLocaleString()} {currency}
@@ -1610,9 +1610,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 value={staffCount} onChange={e => setStaffCount(e.target.value)} />
             </div>
             {tipsPP !== null && (
-              <div className="bg-green-50 dark:bg-green-900/30 rounded-xl p-4 text-center">
-                <p className="text-sm text-green-600 dark:text-green-400">{t("perPerson")}</p>
-                <p className="text-2xl font-bold text-green-700 dark:text-green-300">{tipsPP.toLocaleString()} {currency}</p>
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 text-center">
+                <p className="text-sm text-emerald-600 dark:text-gray-300">{t("perPerson")}</p>
+                <p className="text-2xl font-bold text-gray-700 dark:text-gray-300">{tipsPP.toLocaleString()} {currency}</p>
               </div>
             )}
             <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 text-xs text-amber-700 dark:text-amber-300">
@@ -1748,7 +1748,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 <div className="flex justify-between font-bold pt-2 border-t border-red-200 dark:border-red-800 mt-2 text-red-700 dark:text-red-300">
                   <span>{t("totalExpenses")}</span><span>-{prefill.expenses.total.toLocaleString()} {currency}</span>
                 </div>
-                <div className="flex justify-between font-bold pt-2 mt-1 text-green-700 dark:text-green-300">
+                <div className="flex justify-between font-bold pt-2 mt-1 text-gray-700 dark:text-gray-300">
                   <span>{t("netProfit")}</span><span>{(revenueTotal - prefill.expenses.total).toLocaleString()} {currency}</span>
                 </div>
               </div>
@@ -1786,7 +1786,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 the email to fire (router enforces). */}
             <div className={`rounded-xl p-4 ${
               closeAutoEmailEntitled
-                ? "bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800"
+                ? "bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800"
                 : "bg-gray-50 dark:bg-gray-800/50 border border-dashed border-gray-300 dark:border-gray-700"
             }`}>
               {closeAutoEmailEntitled ? (
@@ -1795,7 +1795,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                     type="checkbox"
                     checked={autoEmailPref}
                     onChange={toggleAutoEmail}
-                    className="mt-1 h-4 w-4 rounded text-green-600 focus:ring-green-500"
+                    className="mt-1 h-4 w-4 rounded text-emerald-600 focus:ring-gray-400"
                   />
                   <div className="flex-1">
                     <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
@@ -1818,7 +1818,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                     </p>
                     <a
                       href="/subscription"
-                      className="inline-block mt-2 text-xs font-semibold text-green-600 dark:text-green-400 hover:underline"
+                      className="inline-block mt-2 text-xs font-semibold text-emerald-600 dark:text-gray-300 hover:underline"
                     >
                       {t("pricingUpgradeStarter") || "Upgrade to Starter"} →
                     </a>
@@ -1847,7 +1847,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
 
           {step < totalSteps ? (
             <button onClick={() => setStep(step + 1)}
-              className="px-6 py-2.5 bg-green-600 text-white rounded-xl hover:bg-green-700 font-semibold transition">
+              className="px-6 py-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-700 font-semibold transition">
               Next →
             </button>
           ) : (() => {
@@ -1863,7 +1863,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               return (
                 <div className="flex flex-col items-end gap-1">
                   <button onClick={handleSubmit} disabled={saving || willSave === 0}
-                    className="px-6 py-2.5 bg-green-600 text-white rounded-xl hover:bg-green-700 font-semibold transition disabled:opacity-50">
+                    className="px-6 py-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-700 font-semibold transition disabled:opacity-50">
                     {saving ? "Saving..." : !isOnline ? "📤 Queue & Lock (offline)" : "🔒 Confirm & Lock"}
                   </button>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -2009,7 +2009,7 @@ function JustLockedCard({ t, close, currency, onDismiss }) {
 
   return (
     <FadeIn>
-      <div className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border border-green-200 dark:border-green-800 rounded-2xl p-4 sm:p-5 shadow-sm relative">
+      <div className="bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 rounded-xl p-4 sm:p-5 shadow-sm relative">
         <button
           onClick={onDismiss}
           aria-label="Dismiss"
@@ -2052,7 +2052,7 @@ function JustLockedCard({ t, close, currency, onDismiss }) {
               </div>
             )}
             {bankDropDone && (
-              <p className="text-xs text-green-700 dark:text-green-300">
+              <p className="text-xs text-gray-700 dark:text-gray-300">
                 {t("bankDropDone") || "✓ In safe"}
               </p>
             )}
@@ -2443,7 +2443,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
 
   if (!data.length) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 text-center border border-gray-100 dark:border-gray-700">
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-100 dark:border-gray-700">
         <p className="text-4xl mb-3">📋</p>
         <p className="font-semibold dark:text-white">{t("noDailyClosesYet")}</p>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("noDailyClosesYetHint") || "Submit your first end-of-day close to see history here."}</p>
@@ -2457,7 +2457,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           Floats above the list rather than inline so the closer's eye
           isn't pulled away from where they were tapping. */}
       {shareToast && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-xs font-semibold rounded-full shadow-lg">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-xs font-semibold rounded-full shadow-sm">
           {shareToast}
         </div>
       )}
@@ -2499,7 +2499,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           and pull a multi-day PDF or CSV in one click. Distinct from
           the per-close PDF on each row below — this is the
           "send the whole month to my bookkeeper" format. */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
         <div className="flex items-center gap-2 mb-3">
           <span className="text-lg">📦</span>
           <h3 className="font-bold dark:text-white text-sm">
@@ -2542,8 +2542,8 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                   locked
                     ? "bg-gray-50 dark:bg-gray-800 text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-700 cursor-not-allowed"
                     : isActive
-                      ? "bg-green-600 text-white border-green-600"
-                      : "bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:border-green-400"
+                      ? "bg-gray-900 text-white border-gray-900"
+                      : "bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:border-gray-300"
                 }`}
               >
                 {locked && <span className="mr-1">🔒</span>}
@@ -2634,7 +2634,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             <button
               onClick={() => downloadRange("xlsx")}
               disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
-              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition"
+              className="px-3 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition"
               title={t("excelTooltip", "Best for your accountant — sortable, filterable, pivotable")}
             >
               {exportingFmt === "xlsx"
@@ -2708,7 +2708,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         )}
 
         {sendStatus && (
-          <p className="mt-2 text-xs text-green-600 dark:text-green-400">✅ {sendStatus}</p>
+          <p className="mt-2 text-xs text-emerald-600 dark:text-gray-300">✅ {sendStatus}</p>
         )}
 
         {exportError && (
@@ -2742,7 +2742,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         const tipsChange = prev && prev.tips_total > 0 && dc.tips_total > 0
           ? Math.round(((dc.tips_total - prev.tips_total) / prev.tips_total) * 100) : null;
         return (
-          <div key={dc.id} className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
+          <div key={dc.id} className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
             <div className="flex items-start justify-between">
               <div>
                 <div className="flex items-center gap-2">
@@ -2750,7 +2750,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                     {new Date(dc.date).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
                   </h3>
                   {(dc.status || "confirmed") === "confirmed" ? (
-                    <span className="text-[10px] px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded font-semibold">🔒 Locked</span>
+                    <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded font-semibold">🔒 Locked</span>
                   ) : (
                     <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded font-semibold">📝 Draft</span>
                   )}
@@ -2761,9 +2761,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 )}
               </div>
               <div className="text-right">
-                <p className="text-lg font-bold text-green-600 dark:text-green-400">{dc.revenue_total?.toLocaleString()} {currency}</p>
+                <p className="text-lg font-bold text-emerald-600 dark:text-gray-300">{dc.revenue_total?.toLocaleString()} {currency}</p>
                 {revChange !== null && Math.abs(revChange) >= 1 && (
-                  <p className={`text-[11px] font-semibold ${revChange > 0 ? "text-green-500" : "text-red-500"}`}>
+                  <p className={`text-[11px] font-semibold ${revChange > 0 ? "text-emerald-600" : "text-red-500"}`}>
                     {revChange > 0 ? "↑" : "↓"} {Math.abs(revChange)}% vs prev
                   </p>
                 )}
@@ -2773,7 +2773,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             {/* Revenue chips */}
             <div className="flex flex-wrap gap-2 mt-3">
               {Object.entries(rev).map(([k, v]) => (
-                <span key={k} className="px-2 py-1 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 rounded-lg text-xs font-medium">
+                <span key={k} className="px-2 py-1 bg-gray-50 dark:bg-gray-800/50 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-medium">
                   {k}: {v.toLocaleString()}
                 </span>
               ))}
@@ -2799,7 +2799,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 {dc.tips_total > 0 && (
                   <span>Tips: {dc.tips_total?.toLocaleString()} ({dc.tips_staff_count} staff)
                     {tipsChange !== null && Math.abs(tipsChange) >= 1 && (
-                      <span className={`ml-1 font-semibold ${tipsChange > 0 ? "text-green-500" : "text-red-500"}`}>
+                      <span className={`ml-1 font-semibold ${tipsChange > 0 ? "text-emerald-600" : "text-red-500"}`}>
                         {tipsChange > 0 ? "↑" : "↓"}{Math.abs(tipsChange)}%
                       </span>
                     )}
@@ -2837,7 +2837,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                   </button>
                 )}
                 <button onClick={() => shareDc(dc)} disabled={sharing === dc.id}
-                  className="text-xs px-3 py-1.5 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/50 font-medium disabled:opacity-50">
+                  className="text-xs px-3 py-1.5 bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 font-medium disabled:opacity-50">
                   {sharing === dc.id ? "..." : `📨 ${t("send") || "Send"}`}
                 </button>
                 <button onClick={() => downloadPdf(dc.id, dc.date)} disabled={downloading === dc.id}
@@ -2853,7 +2853,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       {/* Unlock modal */}
       {unlockId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setUnlockId(null)}>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-md shadow-xl" onClick={e => e.stopPropagation()}>
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-md shadow-sm" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-bold dark:text-white mb-1">🔓 Unlock Daily Close</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
               This will allow editing. Enter a reason for the audit trail.
@@ -2920,7 +2920,7 @@ function BranchSummaryView({ currency }) {
 
   if (loading) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 text-center border border-gray-100 dark:border-gray-700">
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-100 dark:border-gray-700">
         <p className="text-4xl mb-3 animate-pulse">🏢</p>
         <p className="text-sm text-gray-500 dark:text-gray-400">Loading branch data...</p>
       </div>
@@ -2929,7 +2929,7 @@ function BranchSummaryView({ currency }) {
 
   if (!data || !data.branches?.length) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 text-center border border-gray-100 dark:border-gray-700">
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-100 dark:border-gray-700">
         <p className="text-4xl mb-3">🏢</p>
         <p className="font-semibold dark:text-white">{t("noBranchData")}</p>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("noBranchDataHint") || "Submit daily closes for multiple branches to see comparisons."}</p>
@@ -2963,7 +2963,7 @@ function BranchSummaryView({ currency }) {
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700 text-center">
           <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase">{t("totalRevenue")}</p>
-          <p className="text-lg font-bold text-green-600 dark:text-green-400 mt-0.5">{grand_total.revenue_total?.toLocaleString()}</p>
+          <p className="text-lg font-bold text-emerald-600 dark:text-gray-300 mt-0.5">{grand_total.revenue_total?.toLocaleString()}</p>
           <p className="text-[10px] text-gray-400">{currency}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700 text-center">
@@ -2984,26 +2984,26 @@ function BranchSummaryView({ currency }) {
       {branches.map((b, i) => {
         const revShare = grand_total.revenue_total > 0 ? Math.round((b.revenue_total / grand_total.revenue_total) * 100) : 0;
         return (
-          <div key={b.branch_id || i} className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
+          <div key={b.branch_id || i} className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
             <div className="flex items-start justify-between">
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="font-bold dark:text-white">{b.branch_name}</h3>
                   {i === 0 && branches.length > 1 && (
-                    <span className="text-[10px] px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded font-semibold">Top</span>
+                    <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded font-semibold">Top</span>
                   )}
                 </div>
                 <p className="text-xs text-gray-400 mt-0.5">{b.days_count} close{b.days_count !== 1 ? "s" : ""} &middot; avg {b.avg_daily_revenue?.toLocaleString()}/day</p>
               </div>
               <div className="text-right">
-                <p className="text-lg font-bold text-green-600 dark:text-green-400">{b.revenue_total?.toLocaleString()} <span className="text-xs font-normal text-gray-400">{currency}</span></p>
+                <p className="text-lg font-bold text-emerald-600 dark:text-gray-300">{b.revenue_total?.toLocaleString()} <span className="text-xs font-normal text-gray-400">{currency}</span></p>
                 <p className="text-[10px] text-gray-400">{revShare}% of total</p>
               </div>
             </div>
 
             {/* Revenue share bar */}
             <div className="mt-3 h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-              <div className="h-full bg-green-500 dark:bg-green-400 rounded-full transition-all" style={{ width: `${revShare}%` }} />
+              <div className="h-full bg-emerald-500 dark:bg-emerald-500 rounded-full transition-all" style={{ width: `${revShare}%` }} />
             </div>
 
             {/* Metrics row */}
@@ -3067,10 +3067,10 @@ function CalendarHeatMap({ data, currency }) {
         if (!dc) return "bg-gray-100 dark:bg-gray-800";
         const v = dc.revenue_total;
         if (!v || v <= 0) return "bg-gray-200 dark:bg-gray-700";
-        if (v <= p25) return "bg-green-200 dark:bg-green-900/60";
-        if (v <= p50) return "bg-green-300 dark:bg-green-700";
-        if (v <= p75) return "bg-green-500 dark:bg-green-600";
-        return "bg-green-700 dark:bg-green-400";
+        if (v <= p25) return "bg-gray-200 dark:bg-gray-800";
+        if (v <= p50) return "bg-emerald-300 dark:bg-gray-800";
+        if (v <= p75) return "bg-emerald-500 dark:bg-gray-900";
+        return "bg-gray-800 dark:bg-emerald-500";
       };
     }
     // Cash variance mode
@@ -3078,7 +3078,7 @@ function CalendarHeatMap({ data, currency }) {
       if (!dc) return "bg-gray-100 dark:bg-gray-800";
       const diff = dc.cash_difference;
       if (diff === null || diff === undefined) return "bg-gray-200 dark:bg-gray-700";
-      if (diff >= 0) return "bg-green-300 dark:bg-green-700";
+      if (diff >= 0) return "bg-emerald-300 dark:bg-gray-800";
       if (diff >= -100) return "bg-amber-300 dark:bg-amber-700";
       if (diff >= -300) return "bg-orange-400 dark:bg-orange-600";
       return "bg-red-500 dark:bg-red-500";
@@ -3088,19 +3088,19 @@ function CalendarHeatMap({ data, currency }) {
   const legendItems = mode === "revenue"
     ? [
         { color: "bg-gray-200 dark:bg-gray-700", label: "None" },
-        { color: "bg-green-200 dark:bg-green-900/60", label: "Low" },
-        { color: "bg-green-500 dark:bg-green-600", label: "Mid" },
-        { color: "bg-green-700 dark:bg-green-400", label: "High" },
+        { color: "bg-gray-200 dark:bg-gray-800", label: "Low" },
+        { color: "bg-emerald-500 dark:bg-gray-900", label: "Mid" },
+        { color: "bg-gray-800 dark:bg-emerald-500", label: "High" },
       ]
     : [
         { color: "bg-gray-200 dark:bg-gray-700", label: "N/A" },
-        { color: "bg-green-300 dark:bg-green-700", label: "Even/+" },
+        { color: "bg-emerald-300 dark:bg-gray-800", label: "Even/+" },
         { color: "bg-amber-300 dark:bg-amber-700", label: "-100" },
         { color: "bg-red-500 dark:bg-red-500", label: "Short" },
       ];
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
+    <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
       {/* Header + mode toggle */}
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-semibold text-sm dark:text-white flex items-center gap-1.5">
@@ -3184,7 +3184,7 @@ function CalendarHeatMap({ data, currency }) {
 function InsightsView({ data, currency, t }) {
   if (!data || !data.has_data) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 text-center border border-gray-100 dark:border-gray-700">
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-100 dark:border-gray-700">
         <p className="text-4xl mb-3">💡</p>
         <p className="font-semibold dark:text-white">{t("notEnoughDataYet")}</p>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("notEnoughDataHint") || "Submit a few daily closes to unlock insights about your revenue, tips, and cash handling."}</p>
@@ -3213,7 +3213,7 @@ function InsightsView({ data, currency, t }) {
 
       {/* Regular insight cards */}
       {regularInsights.map((ins, i) => (
-        <div key={i} className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
+        <div key={i} className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
           <div className="flex items-start gap-3">
             <span className="text-2xl">{ins.icon}</span>
             <div>
@@ -3267,7 +3267,7 @@ function StreakAlertCard({ alert, currency }) {
   const s = styles[alert.severity] || styles.info;
 
   return (
-    <div className={`rounded-2xl p-5 border-2 ${s.border} ${s.bg} shadow-sm`}>
+    <div className={`rounded-xl p-5 border-2 ${s.border} ${s.bg} shadow-sm`}>
       <div className="flex items-start gap-3">
         <span className="text-2xl">{alert.icon}</span>
         <div className="flex-1 min-w-0">
@@ -3303,7 +3303,7 @@ function StreakAlertCard({ alert, currency }) {
 }
 
 function SummaryCard({ label, value, color }) {
-  const c = color === "red" ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400";
+  const c = color === "red" ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-gray-300";
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700">
       <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>

@@ -244,7 +244,7 @@ export default function InboxBanner({
 
   return (
     <div
-      className="relative rounded-2xl border bg-white dark:bg-gray-800
+      className="relative rounded-xl border bg-white dark:bg-gray-800
                  border-gray-200 dark:border-gray-700 p-4 sm:p-5 shadow-sm"
       role="region"
       aria-label={t("inboxBannerAria", "Receipt-forwarding email inbox")}
@@ -265,7 +265,7 @@ export default function InboxBanner({
         className="absolute top-3 right-3 w-8 h-8 rounded-full inline-flex items-center justify-center
                    hover:bg-black/5 dark:hover:bg-white/10 transition
                    text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200
-                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
       >
         {expanded
           ? <ChevronUp className="w-4 h-4" aria-hidden="true" />
@@ -273,8 +273,8 @@ export default function InboxBanner({
       </button>
 
       <div className="flex items-start gap-3 pr-8 sm:pr-10">
-        <div className="shrink-0 p-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/20">
-          <Mail className="w-5 h-5 text-emerald-600 dark:text-emerald-400"
+        <div className="shrink-0 p-2 rounded-xl bg-gray-50 dark:bg-gray-800/50">
+          <Mail className="w-5 h-5 text-gray-700 dark:text-gray-300"
                 strokeWidth={1.75} aria-hidden="true" />
         </div>
         <div className="flex-1 min-w-0">
@@ -306,7 +306,7 @@ export default function InboxBanner({
                            bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900
                            hover:bg-gray-700 dark:hover:bg-gray-200 transition
                            focus-visible:outline-none focus-visible:ring-2
-                           focus-visible:ring-emerald-500 focus-visible:ring-offset-2
+                           focus-visible:ring-gray-400 focus-visible:ring-offset-2
                            focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800"
               >
                 {copied
@@ -358,7 +358,7 @@ export default function InboxBanner({
                 infraEnabled
                   ? (isAtCap
                       ? "text-amber-700 dark:text-amber-300"
-                      : "text-emerald-700 dark:text-emerald-300")
+                      : "text-gray-700 dark:text-gray-300")
                   : "text-amber-700 dark:text-amber-300"
               }`}>
                 {infraEnabled
@@ -390,11 +390,11 @@ export default function InboxBanner({
                   : undefined}
                 className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 py-1.5
                            rounded-lg text-[12.5px] font-semibold
-                           bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800
+                           bg-gray-900 hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white active:bg-gray-800
                            text-white shadow-sm transition
                            disabled:opacity-50 disabled:cursor-not-allowed
                            focus-visible:outline-none focus-visible:ring-2
-                           focus-visible:ring-emerald-500 focus-visible:ring-offset-2
+                           focus-visible:ring-gray-400 focus-visible:ring-offset-2
                            focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800"
               >
                 {testing
@@ -438,7 +438,7 @@ export default function InboxBanner({
           role="status"
           className={`mt-3 text-[12.5px] rounded-lg px-3 py-2 ${
             toast.kind === "success"
-              ? "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-800/40"
+              ? "bg-gray-50 dark:bg-gray-800/50 text-gray-800 dark:text-gray-200 border border-gray-100 dark:border-gray-800/40"
               : "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800/40"
           }`}
         >

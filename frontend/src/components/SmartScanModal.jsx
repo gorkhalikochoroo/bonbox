@@ -458,7 +458,7 @@ export default function SmartScanModal({ open, onClose }) {
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center" role="dialog" aria-modal="true" aria-label={t("smartScan.title", "Smart skan")}>
       <div className="absolute inset-0 bg-black/40" onClick={onClose} aria-hidden="true" />
-      <div className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md mx-4 p-6 max-h-[90vh] flex flex-col">
+      <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-sm w-full max-w-md mx-4 p-6 max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between mb-5 shrink-0">
           <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
             <ScanLine size={20} strokeWidth={1.75} aria-hidden="true" />
@@ -466,7 +466,7 @@ export default function SmartScanModal({ open, onClose }) {
           </h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-2xl leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded-md w-8 h-8 flex items-center justify-center"
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-2xl leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-md w-8 h-8 flex items-center justify-center"
             aria-label={t("close", "Close")}
           >
             <span aria-hidden="true">&times;</span>
@@ -507,7 +507,7 @@ export default function SmartScanModal({ open, onClose }) {
                     fileRef.current.setAttribute("capture", "environment");
                     fileRef.current.click();
                   }}
-                  className="border-2 border-dashed border-gray-200 dark:border-gray-600 rounded-xl p-6 text-center hover:border-emerald-400 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/10 transition group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                  className="border-2 border-dashed border-gray-200 dark:border-gray-600 rounded-xl p-6 text-center hover:border-gray-300 hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
                 >
                   <Camera size={28} strokeWidth={1.75} className="mx-auto mb-1 text-gray-700 dark:text-gray-200 group-hover:scale-110 transition" aria-hidden="true" />
                   <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">
@@ -523,7 +523,7 @@ export default function SmartScanModal({ open, onClose }) {
                     fileRef.current.removeAttribute("capture");
                     fileRef.current.click();
                   }}
-                  className="border-2 border-dashed border-gray-200 dark:border-gray-600 rounded-xl p-6 text-center hover:border-emerald-400 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/10 transition group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                  className="border-2 border-dashed border-gray-200 dark:border-gray-600 rounded-xl p-6 text-center hover:border-gray-300 hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
                 >
                   <FileText size={28} strokeWidth={1.75} className="mx-auto mb-1 text-gray-700 dark:text-gray-200 group-hover:scale-110 transition" aria-hidden="true" />
                   <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">
@@ -559,8 +559,8 @@ export default function SmartScanModal({ open, onClose }) {
                   <img src={preview} alt="" className="max-h-32 w-auto object-contain opacity-70" />
                 </div>
               )}
-              <div className="inline-block w-8 h-8 border-[3px] border-emerald-600 border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-sm text-emerald-700 dark:text-emerald-400 font-medium">
+              <div className="inline-block w-8 h-8 border-[3px] border-gray-900 border-t-transparent rounded-full animate-spin"></div>
+              <p className="text-sm text-gray-700 dark:text-gray-300 font-medium">
                 {t("smartScan.detecting", "Kigger på billedet…")}
               </p>
               <p className="text-xs text-gray-400 dark:text-gray-500">
@@ -572,16 +572,16 @@ export default function SmartScanModal({ open, onClose }) {
           {/* ── Stage: result ─────────────────────────────────────── */}
           {stage === "result" && result && (
             <div className="space-y-4">
-              <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 rounded-xl p-4">
+              <div className="bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/40 rounded-xl p-4">
                 <div className="flex items-center gap-3 mb-1">
-                  <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center shrink-0">
-                    <TypeIcon size={20} strokeWidth={1.75} className="text-emerald-700 dark:text-emerald-300" aria-hidden="true" />
+                  <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0">
+                    <TypeIcon size={20} strokeWidth={1.75} className="text-gray-700 dark:text-gray-300" aria-hidden="true" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-emerald-900 dark:text-emerald-200">
+                    <p className="font-semibold text-gray-900 dark:text-gray-200">
                       {detectedKey ? t(detectedKey, result.route_label) : result.route_label}
                     </p>
-                    <p className="text-xs text-emerald-700/80 dark:text-emerald-300/80">
+                    <p className="text-xs text-gray-700/80 dark:text-gray-300/80">
                       {t("smartScan.openingIn", "Åbner om {seconds} sek").replace(
                         "{seconds}",
                         String(countdown),
@@ -606,13 +606,13 @@ export default function SmartScanModal({ open, onClose }) {
               <div className="flex gap-2">
                 <button
                   onClick={() => proceed()}
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-semibold text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+                  className="flex-1 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white py-2.5 rounded-xl font-semibold text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2"
                 >
                   {t("smartScan.openNow", "Åbn nu")}
                 </button>
                 <button
                   onClick={beginOverride}
-                  className="px-4 py-2.5 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-xl font-medium text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                  className="px-4 py-2.5 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-xl font-medium text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
                 >
                   {t("smartScan.override", "Vælg manuelt")}
                 </button>
@@ -636,7 +636,7 @@ export default function SmartScanModal({ open, onClose }) {
               <div className="space-y-2">
                 <button
                   onClick={() => pickManual("receipt", "/expenses")}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/10 hover:border-emerald-300 transition text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:border-gray-200 transition text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
                 >
                   <Receipt size={20} strokeWidth={1.75} className="text-gray-700 dark:text-gray-200 shrink-0" aria-hidden="true" />
                   <div className="min-w-0 flex-1">
@@ -650,7 +650,7 @@ export default function SmartScanModal({ open, onClose }) {
                 </button>
                 <button
                   onClick={() => pickManual("z_report", "/daily-close")}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/10 hover:border-emerald-300 transition text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:border-gray-200 transition text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
                 >
                   <Moon size={20} strokeWidth={1.75} className="text-gray-700 dark:text-gray-200 shrink-0" aria-hidden="true" />
                   <div className="min-w-0 flex-1">
@@ -664,7 +664,7 @@ export default function SmartScanModal({ open, onClose }) {
                 </button>
                 <button
                   onClick={() => pickManual("invoice", "/inventory")}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/10 hover:border-emerald-300 transition text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:border-gray-200 transition text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
                 >
                   <FileText size={20} strokeWidth={1.75} className="text-gray-700 dark:text-gray-200 shrink-0" aria-hidden="true" />
                   <div className="min-w-0 flex-1">
@@ -703,7 +703,7 @@ export default function SmartScanModal({ open, onClose }) {
               />
               <button
                 onClick={() => setStage("manual")}
-                className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-xl font-medium text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-xl font-medium text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
               >
                 {t("smartScan.continueManual", "Fortsæt manuelt")}
               </button>

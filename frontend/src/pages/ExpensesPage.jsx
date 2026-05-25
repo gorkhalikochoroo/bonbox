@@ -24,6 +24,8 @@ import InboxBanner from "../components/InboxBanner";
 import { safeImageUrl } from "../utils/safeUrl";
 import RecurringExpensesPanel from "../components/RecurringExpensesPanel";
 import { PageHeader, TabPills, StatCard } from "../components/ui";
+import EntryCard from "../components/ui/EntryCard";
+import { Mic } from "lucide-react";
 
 const QUICK_AMOUNTS = [100, 250, 500, 1000, 2500, 5000];
 const DEFAULT_CATEGORIES = ["Ingredients", "Rent", "Wages", "Utilities", "Supplies", "Other"];
@@ -623,15 +625,13 @@ export default function ExpensesPage() {
       <>
       {/* Form + Stats side by side */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-      <div className="lg:col-span-3 bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-        <div className="max-w-md">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">{t("addExpense")}</h2>
-            <button onClick={() => setReceiptOpen(true)} className="px-2.5 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 rounded-lg text-xs font-medium hover:bg-purple-200 dark:hover:bg-purple-800/40 transition" title="Scan receipt">
-              📷 Scan
-            </button>
-          </div>
+      <div className="lg:col-span-3 space-y-3">
+        {/* Header row: Scan trigger + Detailed/Quick toggle. The "Add Expense"
+            title itself lives inside the EntryCard primitive's Card.Header. */}
+        <div className="flex items-center justify-between">
+          <button onClick={() => setReceiptOpen(true)} className="px-2.5 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 rounded-lg text-xs font-medium hover:bg-purple-200 dark:hover:bg-purple-800/40 transition" title="Scan receipt">
+            📷 Scan
+          </button>
           <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
             <button
               onClick={() => setQuickMode(false)}
@@ -649,360 +649,291 @@ export default function ExpensesPage() {
         </div>
 
         {quickMode ? (
-          <div>
-            <p className="text-xs text-gray-400 dark:text-gray-400 mb-3">{t("quickAmountAndGo")}</p>
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {QUICK_AMOUNTS.map((amt) => (
-                <button
-                  key={amt}
-                  onClick={() => submitQuick(amt)}
-                  className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-green-50 dark:hover:bg-green-900/30 hover:border-green-300 dark:hover:border-green-500 hover:text-green-700 dark:hover:text-green-300 transition"
-                >
-                  {amt.toLocaleString()} {currency}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-2 mb-2">
-              <input
-                type="number"
-                value={quickAmount}
-                onChange={(e) => setQuickAmount(e.target.value)}
-                placeholder={t("customAmount")}
-                className="flex-1 px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
-                onKeyDown={(e) => e.key === "Enter" && submitQuick()}
-              />
-              <button
-                onClick={() => submitQuick()}
-                disabled={!quickAmount}
-                className="px-4 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold text-sm disabled:opacity-40"
-              >
-                {t("add")}
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-1.5 mb-2">
-              {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
-                <button key={m} type="button" onClick={() => setQuickMethod(m)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition ${
-                    quickMethod === m ? "bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-500 text-green-700 dark:text-green-300" : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50"
-                  }`}>{t(m)}</button>
-              ))}
-            </div>
-            <div className="flex items-center gap-2">
-              <input type="text" value={quickNotes} onChange={(e) => setQuickNotes(e.target.value)}
-                placeholder={t("notesOptional")} className="flex-1 px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
-              <input
-                type="date"
-                value={quickDate}
-                max={localIso()}
-                onChange={(e) => setQuickDate(e.target.value)}
-                className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
-              />
-            </div>
-            {quickDate !== localIso() && (
-              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 font-medium">{t("backdated")}</p>
-            )}
-          </div>
-        ) : (
-          <div>
-        <p className="text-xs text-gray-400 dark:text-gray-400 mb-3">{t("pickCategory")}</p>
-
-        <div className="flex flex-wrap gap-1.5 mb-2">
-          {categories
-            .filter((c) => !PERSONAL_ONLY_CATS.has(c.name))
-            .map((c) => (
-            <button
-              key={c.id}
-              onClick={() => {
-                if (c.name === "Other") {
-                  setCatId("");
-                  setCustomCat("");
-                  setDesc("");
-                  setTimeout(() => customCatRef.current?.focus(), 0);
-                } else {
-                  setCatId(c.id);
-                  setCustomCat("");
-                  setDesc(c.name);
-                }
-              }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
-                catId === c.id
-                  ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300"
-                  : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50"
-              }`}
-            >
-              {c.name}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-2 mb-2 relative">
-          <span className="text-xs text-gray-400 dark:text-gray-500">{t("or")}</span>
-          <div className="flex-1 relative">
-            <input
-              ref={customCatRef}
-              type="text"
-              value={customCat}
-              onChange={(e) => { setCustomCat(e.target.value); if (e.target.value) setCatId(""); }}
-              placeholder={t("customCategoryPlaceholder")}
-              className="w-full px-2.5 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:bg-gray-700 dark:text-white"
-            />
-            {customCat.length >= 1 && (() => {
-              const matches = categories.filter(c => c.name.toLowerCase().includes(customCat.toLowerCase()) && c.name.toLowerCase() !== customCat.toLowerCase());
-              if (matches.length === 0) return null;
-              return (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg z-20 max-h-32 overflow-y-auto">
-                  {matches.slice(0, 5).map(c => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => { setCatId(c.id); setCustomCat(""); setDesc(c.name); }}
-                      className="w-full text-left px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition"
-                    >
-                      {c.name}
-                    </button>
-                  ))}
-                </div>
-              );
-            })()}
-          </div>
-        </div>
-
-        {/* Smart Scan verify chip — shown above the field when the
-            classifier flagged this field as needing double-check. Hides
-            itself once the owner edits the field. */}
-        {showVerifyChip("vendor") && (
-          <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300 mb-1 flex items-center gap-1">
-            <span className="inline-block w-2 h-2 rounded-full bg-amber-500" aria-hidden="true" />
-            {t("smartScan.verifyHint", "Bekræft venligst")} — {t("vendor", "Vendor")}
-          </p>
-        )}
-        <div className="relative mb-2">
-          <input
-            type="text"
-            value={desc}
-            onChange={(e) => { setDesc(e.target.value); fetchSuggestion(e.target.value); markTouched("vendor"); }}
-            placeholder={t("whatWasIt")}
-            className={`w-full px-2.5 py-1 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:bg-gray-700 dark:text-white ${
-              showVerifyChip("vendor")
-                ? "border-amber-300 dark:border-amber-600 bg-amber-50/50 dark:bg-amber-900/10"
-                : "border-gray-200 dark:border-gray-600"
-            }`}
-          />
-          {suggestion && !catId && (
-            <button
-              onClick={applySuggestion}
-              className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg text-xs font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition"
-            >
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-              {suggestion.category_name}
-            </button>
-          )}
-        </div>
-
-        <div className="flex flex-wrap gap-1.5 mb-2">
-          {QUICK_AMOUNTS.map((amt) => (
-            <button
-              key={amt}
-              onClick={() => submit(amt)}
-              disabled={!catId && !customCat.trim()}
-              className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-700 dark:hover:text-blue-300 transition disabled:opacity-30"
-            >
-              {amt.toLocaleString()} {currency}
-            </button>
-          ))}
-        </div>
-
-        {(showVerifyChip("amount") || showVerifyChip("total")) && (
-          <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300 mb-1 flex items-center gap-1">
-            <span className="inline-block w-2 h-2 rounded-full bg-amber-500" aria-hidden="true" />
-            {t("smartScan.verifyHint", "Bekræft venligst")} — {t("amount", "Amount")}
-          </p>
-        )}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={startVoice}
-            className={`p-2 rounded-lg border transition flex-shrink-0 ${
-              listening
-                ? "bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-600 text-red-600 dark:text-red-400 animate-pulse"
-                : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600"
-            }`}
-            title={t("voiceInput")}
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-            </svg>
-          </button>
-          <input
-            type="number"
-            value={amount}
-            onChange={(e) => { setAmount(e.target.value); markTouched("amount"); markTouched("total"); }}
-            placeholder={`${t("customAmount")} ${getTaxConfig(user?.currency).rate > 0 ? `(${getTaxConfig(user?.currency).label})` : ""}`}
-            className={`flex-1 px-3 py-1.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:bg-gray-700 dark:text-white ${
-              (showVerifyChip("amount") || showVerifyChip("total"))
-                ? "border-amber-300 dark:border-amber-600 bg-amber-50/50 dark:bg-amber-900/10"
-                : "border-gray-200 dark:border-gray-600"
-            }`}
-            onKeyDown={(e) => e.key === "Enter" && submit()}
-          />
-          <button
-            onClick={() => submit()}
-            disabled={
-              (!amount && !(fxOpen && fxConvertedAccount != null && fxConvertedAccount > 0))
-              || (!catId && !customCat.trim())
+          <EntryCard
+            title={t("addExpense")}
+            hint={t("quickAmountAndGo")}
+            amountPresets={QUICK_AMOUNTS}
+            amount={quickAmount}
+            onAmountChange={setQuickAmount}
+            amountPlaceholder={t("customAmount")}
+            amountSuffix={currency}
+            paymentMethods={["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => ({ id: m, label: t(m) }))}
+            paymentMethod={quickMethod}
+            onPaymentChange={setQuickMethod}
+            notes={quickNotes}
+            onNotesChange={setQuickNotes}
+            notesPlaceholder={t("notesOptional")}
+            date={quickDate}
+            onDateChange={setQuickDate}
+            submitLabel={t("add")}
+            onSubmit={() => submitQuick()}
+            extras={
+              quickDate !== localIso() ? (
+                <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">{t("backdated")}</p>
+              ) : null
             }
-            className="px-4 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold text-sm disabled:opacity-40"
-          >
-            {t("add")}
-          </button>
-        </div>
+          />
+        ) : (
+          <>
+            {/* Category + description live ABOVE the EntryCard — they're
+                Expense-specific and don't belong inside the shared primitive. */}
+            <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 sm:p-5 space-y-2">
+              <p className="text-xs text-gray-400 dark:text-gray-400">{t("pickCategory")}</p>
 
-        {/* ── Foreign-currency capture ─────────────────────────────────
-            Sudip Sam (Nepali-DK event organizer) pays his Nepali film
-            distributor in NPR/USD. Bogføringsloven §10 requires the
-            original-currency record alongside the DKK conversion.
-            Hidden by default to keep the form lean for the 95%
-            single-currency case. */}
-        <div className="mt-2">
-          <button
-            type="button"
-            onClick={() => setFxOpen(!fxOpen)}
-            className={`text-xs font-medium inline-flex items-center gap-1 ${
-              fxOpen
-                ? "text-amber-700 dark:text-amber-300"
-                : "text-gray-500 dark:text-gray-400 hover:text-blue-600"
-            }`}
-          >
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-current" aria-hidden="true" />
-            {fxOpen
-              ? t("fx.hide", "Hide foreign currency")
-              : t("fx.show", "Foreign currency")}
-          </button>
-          {fxOpen && (
-            <div className="mt-2 p-3 rounded-lg border border-amber-200 dark:border-amber-700/40 bg-amber-50/40 dark:bg-amber-900/10 space-y-2">
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={fxOriginalAmount}
-                  onChange={(e) => setFxOriginalAmount(e.target.value)}
-                  placeholder={t("fx.originalAmountPlaceholder", "Original amount")}
-                  className="flex-1 px-2.5 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
-                />
-                <select
-                  value={fxCurrency}
-                  onChange={(e) => setFxCurrency(e.target.value.toUpperCase())}
-                  className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
-                >
-                  {FX_CURRENCIES.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
+              <div className="flex flex-wrap gap-1.5">
+                {categories
+                  .filter((c) => !PERSONAL_ONLY_CATS.has(c.name))
+                  .map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => {
+                      if (c.name === "Other") {
+                        setCatId("");
+                        setCustomCat("");
+                        setDesc("");
+                        setTimeout(() => customCatRef.current?.focus(), 0);
+                      } else {
+                        setCatId(c.id);
+                        setCustomCat("");
+                        setDesc(c.name);
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
+                      catId === c.id
+                        ? "bg-gray-900 dark:bg-gray-50 border-gray-900 dark:border-gray-50 text-white dark:text-gray-900"
+                        : "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800/60"
+                    }`}
+                  >
+                    {c.name}
+                  </button>
+                ))}
               </div>
-              <div className="flex items-center gap-2 text-xs">
-                <label className="text-gray-500 dark:text-gray-400 flex-shrink-0">
-                  {t("fx.rateLabel", "Rate")} 1 {fxCurrency} =
-                </label>
-                <input
-                  type="number"
-                  step="0.000001"
-                  min="0"
-                  value={fxRate}
-                  onChange={(e) => setFxRate(e.target.value)}
-                  placeholder={fxLoading ? "…" : (fxLiveRate || "—")}
-                  className="w-28 px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white text-xs"
-                />
-                <span className="text-gray-500 dark:text-gray-400">{accountCcy}</span>
-                {fxLoading && (
-                  <span className="text-gray-400 dark:text-gray-500 italic">
-                    {t("fx.fetching", "fetching ECB…")}
-                  </span>
-                )}
+              <div className="flex items-center gap-2 relative">
+                <span className="text-xs text-gray-400 dark:text-gray-500">{t("or")}</span>
+                <div className="flex-1 relative">
+                  <input
+                    ref={customCatRef}
+                    type="text"
+                    value={customCat}
+                    onChange={(e) => { setCustomCat(e.target.value); if (e.target.value) setCatId(""); }}
+                    placeholder={t("customCategoryPlaceholder")}
+                    className="w-full px-2.5 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:bg-gray-700 dark:text-white"
+                  />
+                  {customCat.length >= 1 && (() => {
+                    const matches = categories.filter(c => c.name.toLowerCase().includes(customCat.toLowerCase()) && c.name.toLowerCase() !== customCat.toLowerCase());
+                    if (matches.length === 0) return null;
+                    return (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg z-20 max-h-32 overflow-y-auto">
+                        {matches.slice(0, 5).map(c => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => { setCatId(c.id); setCustomCat(""); setDesc(c.name); }}
+                            className="w-full text-left px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition"
+                          >
+                            {c.name}
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
-              {fxError && (
-                <p className="text-[11px] text-amber-700 dark:text-amber-300">{fxError}</p>
-              )}
-              {fxConvertedAccount != null && (
-                <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                  ≈ {fxConvertedAccount.toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
-                  {currency}
-                  <span className="ml-1 text-xs font-normal text-gray-500 dark:text-gray-400">
-                    ({parseFloat(fxOriginalAmount || 0)} {fxCurrency} ×{" "}
-                    {typeof fxEffectiveRate === "number"
-                      ? fxEffectiveRate.toLocaleString(undefined, { maximumFractionDigits: 6 })
-                      : "—"})
-                  </span>
+
+              {/* Smart Scan verify chip — shown above the field when the
+                  classifier flagged this field as needing double-check. Hides
+                  itself once the owner edits the field. */}
+              {showVerifyChip("vendor") && (
+                <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300 flex items-center gap-1">
+                  <span className="inline-block w-2 h-2 rounded-full bg-amber-500" aria-hidden="true" />
+                  {t("smartScan.verifyHint", "Bekræft venligst")} — {t("vendor", "Vendor")}
                 </p>
               )}
-              <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                {t(
-                  "fx.bogforingNote",
-                  "Original amount + rate are saved alongside the DKK figure for revisor reconciliation (Bogføringsloven §10).",
+              <div className="relative">
+                <input
+                  type="text"
+                  value={desc}
+                  onChange={(e) => { setDesc(e.target.value); fetchSuggestion(e.target.value); markTouched("vendor"); }}
+                  placeholder={t("whatWasIt")}
+                  className={`w-full px-2.5 py-1 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:bg-gray-700 dark:text-white ${
+                    showVerifyChip("vendor")
+                      ? "border-amber-300 dark:border-amber-600 bg-amber-50/50 dark:bg-amber-900/10"
+                      : "border-gray-200 dark:border-gray-600"
+                  }`}
+                />
+                {suggestion && !catId && (
+                  <button
+                    onClick={applySuggestion}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg text-xs font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition"
+                  >
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                    {suggestion.category_name}
+                  </button>
                 )}
-              </p>
+              </div>
             </div>
-          )}
-        </div>
 
-        {/* Tax breakdown */}
-        <TaxBreakdown amount={amount} currencyCode={user?.currency} type="expenses" isTaxExempt={isTaxExempt} onTaxExemptChange={setIsTaxExempt} />
+            {/* Amount + payment + notes + date + submit — the shared primitive.
+                Tax breakdown, FX panel, and Smart-Scan amount-verify chip ride
+                in the `extras` slot so they stay visually tied to the amount. */}
+            <EntryCard
+              title={t("addExpense")}
+              amountPresets={QUICK_AMOUNTS}
+              amount={amount}
+              onAmountChange={(v) => { setAmount(v); markTouched("amount"); markTouched("total"); }}
+              amountPlaceholder={`${t("customAmount")} ${getTaxConfig(user?.currency).rate > 0 ? `(${getTaxConfig(user?.currency).label})` : ""}`}
+              amountSuffix={currency}
+              paymentMethods={["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => ({ id: m, label: t(m) }))}
+              paymentMethod={method}
+              onPaymentChange={setMethod}
+              voiceInput={true}
+              onVoiceClick={startVoice}
+              voiceIcon={<Mic className={`w-4 h-4 ${listening ? "text-red-600 dark:text-red-400 animate-pulse" : ""}`} />}
+              notes={notes}
+              onNotesChange={setNotes}
+              notesPlaceholder={t("notesOptional")}
+              date={expDate}
+              onDateChange={(v) => { setExpDate(v); markTouched("date"); }}
+              submitLabel={t("add")}
+              onSubmit={() => submit()}
+              disabled={
+                (!amount && !(fxOpen && fxConvertedAccount != null && fxConvertedAccount > 0))
+                || (!catId && !customCat.trim())
+              }
+              extras={
+                <>
+                  {(showVerifyChip("amount") || showVerifyChip("total")) && (
+                    <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300 flex items-center gap-1">
+                      <span className="inline-block w-2 h-2 rounded-full bg-amber-500" aria-hidden="true" />
+                      {t("smartScan.verifyHint", "Bekræft venligst")} — {t("amount", "Amount")}
+                    </p>
+                  )}
 
-        {/* Payment method */}
-        <div className="flex flex-wrap gap-1.5 mt-2">
-          {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
-            <button key={m} type="button" onClick={() => setMethod(m)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition ${
-                method === m ? "bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-500 text-green-700 dark:text-green-300" : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50"
-              }`}>{t(m)}</button>
-          ))}
-        </div>
+                  {/* ── Foreign-currency capture ─────────────────────────
+                      Sudip Sam (Nepali-DK event organizer) pays his Nepali
+                      film distributor in NPR/USD. Bogføringsloven §10
+                      requires the original-currency record alongside the DKK
+                      conversion. Hidden by default to keep the form lean for
+                      the 95% single-currency case. */}
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setFxOpen(!fxOpen)}
+                      className={`text-xs font-medium inline-flex items-center gap-1 ${
+                        fxOpen
+                          ? "text-amber-700 dark:text-amber-300"
+                          : "text-gray-500 dark:text-gray-400 hover:text-blue-600"
+                      }`}
+                    >
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-current" aria-hidden="true" />
+                      {fxOpen
+                        ? t("fx.hide", "Hide foreign currency")
+                        : t("fx.show", "Foreign currency")}
+                    </button>
+                    {fxOpen && (
+                      <div className="mt-2 p-3 rounded-lg border border-amber-200 dark:border-amber-700/40 bg-amber-50/40 dark:bg-amber-900/10 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={fxOriginalAmount}
+                            onChange={(e) => setFxOriginalAmount(e.target.value)}
+                            placeholder={t("fx.originalAmountPlaceholder", "Original amount")}
+                            className="flex-1 px-2.5 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
+                          />
+                          <select
+                            value={fxCurrency}
+                            onChange={(e) => setFxCurrency(e.target.value.toUpperCase())}
+                            className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
+                          >
+                            {FX_CURRENCIES.map((c) => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs">
+                          <label className="text-gray-500 dark:text-gray-400 flex-shrink-0">
+                            {t("fx.rateLabel", "Rate")} 1 {fxCurrency} =
+                          </label>
+                          <input
+                            type="number"
+                            step="0.000001"
+                            min="0"
+                            value={fxRate}
+                            onChange={(e) => setFxRate(e.target.value)}
+                            placeholder={fxLoading ? "…" : (fxLiveRate || "—")}
+                            className="w-28 px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white text-xs"
+                          />
+                          <span className="text-gray-500 dark:text-gray-400">{accountCcy}</span>
+                          {fxLoading && (
+                            <span className="text-gray-400 dark:text-gray-500 italic">
+                              {t("fx.fetching", "fetching ECB…")}
+                            </span>
+                          )}
+                        </div>
+                        {fxError && (
+                          <p className="text-[11px] text-amber-700 dark:text-amber-300">{fxError}</p>
+                        )}
+                        {fxConvertedAccount != null && (
+                          <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                            ≈ {fxConvertedAccount.toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
+                            {currency}
+                            <span className="ml-1 text-xs font-normal text-gray-500 dark:text-gray-400">
+                              ({parseFloat(fxOriginalAmount || 0)} {fxCurrency} ×{" "}
+                              {typeof fxEffectiveRate === "number"
+                                ? fxEffectiveRate.toLocaleString(undefined, { maximumFractionDigits: 6 })
+                                : "—"})
+                            </span>
+                          </p>
+                        )}
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                          {t(
+                            "fx.bogforingNote",
+                            "Original amount + rate are saved alongside the DKK figure for revisor reconciliation (Bogføringsloven §10).",
+                          )}
+                        </p>
+                      </div>
+                    )}
+                  </div>
 
-        {/* Notes + Date row */}
-        {showVerifyChip("date") && (
-          <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300 mt-2 flex items-center gap-1">
-            <span className="inline-block w-2 h-2 rounded-full bg-amber-500" aria-hidden="true" />
-            {t("smartScan.verifyHint", "Bekræft venligst")} — {t("date", "Date")}
-          </p>
+                  {/* Tax breakdown */}
+                  <TaxBreakdown amount={amount} currencyCode={user?.currency} type="expenses" isTaxExempt={isTaxExempt} onTaxExemptChange={setIsTaxExempt} />
+
+                  {showVerifyChip("date") && (
+                    <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300 flex items-center gap-1">
+                      <span className="inline-block w-2 h-2 rounded-full bg-amber-500" aria-hidden="true" />
+                      {t("smartScan.verifyHint", "Bekræft venligst")} — {t("date", "Date")}
+                    </p>
+                  )}
+
+                  {expDate !== localIso() && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">{t("backdatedEntry")}</p>
+                  )}
+                </>
+              }
+            />
+
+            {/* Personal toggle — BELOW EntryCard, expense-specific */}
+            <div className="flex items-center gap-3 px-1">
+              <button
+                type="button"
+                onClick={() => setIsPersonal(!isPersonal)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
+                  isPersonal ? "bg-purple-600" : "bg-gray-200 dark:bg-gray-600"
+                }`}
+              >
+                <span className={`inline-block h-4 w-4 rounded-full bg-white transition transform ${isPersonal ? "translate-x-6" : "translate-x-1"}`} />
+              </button>
+              <span className={`text-sm font-medium ${isPersonal ? "text-purple-600 dark:text-purple-400" : "text-gray-500 dark:text-gray-400"}`}>
+                {isPersonal ? t("personalExpense") : t("businessExpense")}
+              </span>
+              {isPersonal && (
+                <span className="text-xs text-purple-500 dark:text-purple-400">{t("excludedFromReports")}</span>
+              )}
+            </div>
+          </>
         )}
-        <div className="mt-2 flex items-center gap-2">
-          <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)}
-            placeholder={t("notesOptional")} className="flex-1 px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
-          <input
-            type="date"
-            value={expDate}
-            max={localIso()}
-            onChange={(e) => { setExpDate(e.target.value); markTouched("date"); }}
-            className={`px-2 py-1 border rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900 ${
-              showVerifyChip("date")
-                ? "border-amber-300 dark:border-amber-600 bg-amber-50/50 dark:bg-amber-900/10"
-                : "border-gray-200 dark:border-gray-600"
-            }`}
-          />
-        </div>
-        {expDate !== localIso() && (
-          <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 font-medium">{t("backdatedEntry")}</p>
-        )}
-
-        {/* Personal toggle */}
-        <div className="mt-2 flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setIsPersonal(!isPersonal)}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
-              isPersonal ? "bg-purple-600" : "bg-gray-200 dark:bg-gray-600"
-            }`}
-          >
-            <span className={`inline-block h-4 w-4 rounded-full bg-white transition transform ${isPersonal ? "translate-x-6" : "translate-x-1"}`} />
-          </button>
-          <span className={`text-sm font-medium ${isPersonal ? "text-purple-600 dark:text-purple-400" : "text-gray-500 dark:text-gray-400"}`}>
-            {isPersonal ? t("personalExpense") : t("businessExpense")}
-          </span>
-          {isPersonal && (
-            <span className="text-xs text-purple-500 dark:text-purple-400">{t("excludedFromReports")}</span>
-          )}
-        </div>
-          </div>
-        )}
-        </div>
       </div>
 
       {/* Summary Stats - right side, Inventory Monitor style */}

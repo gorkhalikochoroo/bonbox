@@ -96,7 +96,7 @@ export default function TrialBanner() {
         </div>
         <Link
           to="/subscription"
-          className="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-md bg-green-600 hover:bg-green-700 text-white whitespace-nowrap"
+          className="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-md bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white whitespace-nowrap"
         >
           {t("upgrade") || "Upgrade"}
         </Link>

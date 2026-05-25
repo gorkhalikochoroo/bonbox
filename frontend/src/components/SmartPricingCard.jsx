@@ -110,7 +110,7 @@ export default function SmartPricingCard({ comparison, currencyCode }) {
       msg = t("smartPricingTempUnavailable") || "Couldn't load right now.";
     }
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm border border-dashed border-gray-200 dark:border-gray-700">
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-dashed border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-3 mb-2">
           <span className="text-2xl opacity-50">{emoji}</span>
           <h3 className="font-bold text-gray-700 dark:text-gray-300">{label}</h3>
@@ -148,7 +148,7 @@ export default function SmartPricingCard({ comparison, currencyCode }) {
     .replace("{cuisine}", cuisine || "—");
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+    <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
       <div className="flex items-center gap-3 mb-3">
         <span className="text-2xl">{emoji}</span>
         <h3 className="font-bold text-gray-800 dark:text-white">{label}</h3>
@@ -171,7 +171,7 @@ export default function SmartPricingCard({ comparison, currencyCode }) {
 
       {/* Percentile bar — min · p25 · median · p75 · max. The user's
           marker is overlaid as a darker tick. */}
-      <div className="relative h-3 rounded-full bg-gradient-to-r from-emerald-200 via-yellow-200 to-rose-200 dark:from-emerald-900/40 dark:via-yellow-900/40 dark:to-rose-900/40 mb-3">
+      <div className="relative h-3 rounded-full bg-gray-50 dark:bg-gray-800/50 mb-3">
         {/* Median tick at the visual midpoint (50%) for orientation. */}
         <div
           className="absolute top-0 bottom-0 w-px bg-gray-500 dark:bg-gray-400"

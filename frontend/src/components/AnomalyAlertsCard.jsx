@@ -82,7 +82,7 @@ export default function AnomalyAlertsCard() {
 
   return (
     <div
-      className="bg-white dark:bg-gray-800 rounded-2xl border shadow-sm p-5 sm:p-6"
+      className="bg-white dark:bg-gray-800 rounded-xl border shadow-sm p-5 sm:p-6"
       style={{ borderColor: hasHigh ? "rgba(220,38,38,0.25)" : "rgba(245,158,11,0.25)" }}
     >
       <div className="flex items-center justify-between gap-3 mb-3">

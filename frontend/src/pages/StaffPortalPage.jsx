@@ -114,7 +114,7 @@ function PinGate({ onVerified, token, staffName }) {
   return (
     <div className="min-h-screen bg-gray-950 flex items-center justify-center p-6">
       <div className="w-full max-w-xs text-center">
-        <div className="w-16 h-16 bg-green-500/15 rounded-2xl flex items-center justify-center mx-auto mb-4">
+        <div className="w-16 h-16 bg-gray-800 border border-gray-700 rounded-xl flex items-center justify-center mx-auto mb-4">
           <span className="text-3xl">🔐</span>
         </div>
         <h1 className="text-xl font-bold text-white mb-1">Enter PIN</h1>
@@ -130,7 +130,7 @@ function PinGate({ onVerified, token, staffName }) {
               value={d}
               onChange={(e) => handleDigit(i, e.target.value)}
               onKeyDown={(e) => handleKeyDown(i, e)}
-              className="w-14 h-14 text-center text-2xl font-bold bg-white/5 border border-white/10 rounded-xl text-white focus:border-green-500 focus:ring-2 focus:ring-green-500/30 outline-none"
+              className="w-14 h-14 text-center text-2xl font-bold bg-white/5 border border-white/10 rounded-xl text-white focus:border-gray-300 focus:ring-2 focus:ring-gray-400/30 outline-none"
               autoFocus={i === 0}
             />
           ))}
@@ -337,8 +337,8 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed }) {
 
   if (allConfirmed) {
     return (
-      <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300 flex items-center gap-2">
-        <span aria-hidden>✓</span>
+      <div className="rounded-xl border border-gray-700 bg-gray-800/60 px-4 py-3 text-sm text-gray-300 flex items-center gap-2">
+        <span aria-hidden className="text-emerald-400">✓</span>
         <span className="font-medium">You've confirmed this schedule. Thanks!</span>
       </div>
     );
@@ -360,7 +360,7 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed }) {
           type="button"
           onClick={submit}
           disabled={submitting}
-          className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold disabled:opacity-50 transition"
+          className="px-3 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold disabled:opacity-50 transition"
         >
           {submitting ? "…" : "I've got it"}
         </button>
@@ -522,10 +522,10 @@ function ShiftRow({ date: d, shift }) {
   const role = getRoleStyle(shift.role_on_shift);
 
   return (
-    <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] ${past && !today ? "opacity-50" : ""} ${today ? "border-green-500/30 bg-green-500/[0.06]" : ""}`}>
+    <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] ${past && !today ? "opacity-50" : ""} ${today ? "border-gray-500/40 bg-white/[0.06]" : ""}`}>
       <div className="w-10 text-center">
         <div className="text-[10px] font-semibold text-gray-500">{dayName}</div>
-        <div className={`text-sm font-bold ${today ? "text-green-400" : "text-white"}`}>{dayNum}</div>
+        <div className={`text-sm font-bold ${today ? "text-gray-300" : "text-white"}`}>{dayNum}</div>
       </div>
       <div className="flex-1 min-w-0">
         <div className="text-sm font-semibold text-white">{shift.start_time} – {shift.end_time}</div>
@@ -533,9 +533,13 @@ function ShiftRow({ date: d, shift }) {
       </div>
       <div>
         {today ? (
-          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-green-500/15 text-green-400">Today</span>
+          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-gray-800 border border-gray-700 text-gray-300">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Today
+          </span>
         ) : past ? (
-          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-green-500/10 text-green-600">Done</span>
+          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-gray-800 border border-gray-700 text-gray-300">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Done
+          </span>
         ) : (
           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-white/[0.06] text-gray-400">{shift.net_hours}h</span>
         )}
@@ -571,7 +575,7 @@ function HoursTab({ data, maxHours }) {
             <>
               <div className="h-1.5 bg-white/[0.06] rounded-full mt-2 overflow-hidden">
                 <div
-                  className={`h-full rounded-full ${pct >= 90 ? "bg-red-500" : pct >= 75 ? "bg-amber-500" : "bg-green-500"}`}
+                  className={`h-full rounded-full ${pct >= 90 ? "bg-red-500" : pct >= 75 ? "bg-amber-500" : "bg-emerald-500"}`}
                   style={{ width: `${pct}%` }}
                 />
               </div>
@@ -634,7 +638,7 @@ function TipsTab({ data }) {
       <div className="grid grid-cols-3 gap-2">
         <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3">
           <div className="text-[10px] text-gray-500 mb-1">Last 30 days</div>
-          <div className="text-lg font-bold text-green-400">{Math.round(data.total_tips_30d).toLocaleString()}</div>
+          <div className="text-lg font-bold text-gray-300">{Math.round(data.total_tips_30d).toLocaleString()}</div>
         </div>
         <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3">
           <div className="text-[10px] text-gray-500 mb-1">Last shift</div>
@@ -657,7 +661,7 @@ function TipsTab({ data }) {
             <div key={i} className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06]">
               <span className="text-sm text-gray-400">{fmtDate(t.date)}</span>
               {t.share_pct && <span className="text-[11px] text-gray-600">{t.share_pct.toFixed(1)}% share</span>}
-              <span className="text-sm font-semibold text-green-400">{Math.round(t.amount)} DKK</span>
+              <span className="text-sm font-semibold text-gray-300">{Math.round(t.amount)} DKK</span>
             </div>
           ))}
         </div>
@@ -786,7 +790,7 @@ function SwapRow({ swap, token, onChanged }) {
   const statusPill = swap.status === "proposed"
     ? "bg-amber-500/20 text-amber-300"
     : swap.status === "accepted"
-      ? "bg-emerald-500/20 text-emerald-300"
+      ? "bg-gray-800 border border-gray-700 text-gray-300"
       : "bg-gray-500/20 text-gray-400";
 
   return (
@@ -831,7 +835,7 @@ function SwapRow({ swap, token, onChanged }) {
           <button
             onClick={() => respond(true)}
             disabled={busy}
-            className="text-xs font-medium px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50"
+            className="text-xs font-medium px-2.5 py-1 rounded bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:opacity-50"
           >
             Accept
           </button>
@@ -856,7 +860,7 @@ function SwapRow({ swap, token, onChanged }) {
         </div>
       )}
       {swap.status === "accepted" && (
-        <div className="text-[11px] text-emerald-300 pt-1">
+        <div className="text-[11px] text-gray-300 pt-1">
           ✓ Both staff agreed — awaiting owner approval
         </div>
       )}
@@ -1189,7 +1193,7 @@ export default function StaffPortalPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-        <div className="animate-spin w-8 h-8 border-2 border-green-500 border-t-transparent rounded-full" />
+        <div className="animate-spin w-8 h-8 border-2 border-gray-300 border-t-transparent rounded-full" />
       </div>
     );
   }
@@ -1232,7 +1236,7 @@ export default function StaffPortalPage() {
           </div>
           <button
             onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setEmailMsg(""); }}
-            className="w-9 h-9 rounded-full bg-green-500/15 flex items-center justify-center text-sm font-bold text-green-400"
+            className="w-9 h-9 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center text-sm font-bold text-gray-300"
             title="Edit email"
           >
             {info?.staff_name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
@@ -1250,7 +1254,7 @@ export default function StaffPortalPage() {
                   value={emailInput}
                   onChange={(e) => setEmailInput(e.target.value)}
                   placeholder="your@email.com"
-                  className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white placeholder:text-gray-600 outline-none focus:border-green-500/40"
+                  className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white placeholder:text-gray-600 outline-none focus:border-gray-300/40"
                 />
               </div>
               <div>
@@ -1260,18 +1264,18 @@ export default function StaffPortalPage() {
                   value={phoneInput}
                   onChange={(e) => setPhoneInput(e.target.value)}
                   placeholder="+45 12 34 56 78"
-                  className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white placeholder:text-gray-600 outline-none focus:border-green-500/40"
+                  className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white placeholder:text-gray-600 outline-none focus:border-gray-300/40"
                 />
               </div>
               <button
                 onClick={handleContactSave}
                 disabled={emailSaving}
-                className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition disabled:opacity-50"
+                className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50"
               >
                 {emailSaving ? "Saving..." : "Save"}
               </button>
               {emailMsg && (
-                <div className={`text-xs ${emailMsg === "Saved!" ? "text-green-400" : "text-red-400"}`}>{emailMsg}</div>
+                <div className={`text-xs ${emailMsg === "Saved!" ? "text-gray-300" : "text-red-400"}`}>{emailMsg}</div>
               )}
               <div className="text-[10px] text-gray-600">
                 {info?.email || info?.phone
@@ -1309,7 +1313,7 @@ export default function StaffPortalPage() {
               key={t.key}
               onClick={() => setTab(t.key)}
               className={`flex flex-col items-center gap-0.5 px-4 py-1 rounded-lg transition-colors ${
-                tab === t.key ? "text-green-400" : "text-gray-600"
+                tab === t.key ? "text-gray-300" : "text-gray-600"
               }`}
             >
               <span className="text-lg">{t.icon}</span>

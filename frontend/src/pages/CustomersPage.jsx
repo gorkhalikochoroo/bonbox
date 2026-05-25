@@ -61,7 +61,7 @@ export default function CustomersPage() {
   if (!hasAccess) {
     return (
       <div className="p-4 md:p-8 max-w-2xl mx-auto">
-        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl p-6 text-center">
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-6 text-center">
           <div className="text-4xl mb-3">🔒</div>
           <h1 className="text-xl font-bold mb-2 text-amber-900 dark:text-amber-200">
             {t("invoicingStarterRequired") || "Customers & Invoicing — Starter plan required"}
@@ -97,7 +97,7 @@ export default function CustomersPage() {
             setEditingId(null);
             setShowForm(true);
           }}
-          className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition"
+          className="px-4 py-2 bg-gray-900 text-white rounded-xl text-sm font-semibold hover:bg-gray-700 transition"
         >
           + {t("addCustomer") || "Add customer"}
         </button>
@@ -157,7 +157,7 @@ export default function CustomersPage() {
       {loading ? (
         <div className="text-center py-12 text-gray-500">{t("loading") || "Loading…"}</div>
       ) : filtered.length === 0 ? (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-12 text-center border border-gray-100 dark:border-gray-700">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-12 text-center border border-gray-100 dark:border-gray-700">
           <p className="text-4xl mb-3">👥</p>
           <p className="text-gray-600 dark:text-gray-300 font-medium">
             {q
@@ -166,7 +166,7 @@ export default function CustomersPage() {
           </p>
         </div>
       ) : (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 dark:bg-gray-900/40 text-gray-500 dark:text-gray-400 uppercase text-xs">
               <tr>
@@ -335,7 +335,7 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="p-5 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
           <h2 className="text-lg font-bold text-gray-800 dark:text-white">
             {isEdit ? (t("editCustomer") || "Edit customer") : (t("addCustomer") || "Add customer")}
@@ -382,7 +382,7 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
                   </p>
                 )}
                 {cvrLookup.status === "ok" && (
-                  <p className="mt-1 text-[11px] text-green-600 dark:text-green-400">
+                  <p className="mt-1 text-[11px] text-emerald-600 dark:text-gray-300">
                     {t("cvrAutofilled") || "Auto-filled from CVR register"} ({cvrLookup.hit?.source || "cvrapi.dk"})
                   </p>
                 )}
@@ -553,7 +553,7 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition disabled:opacity-50"
+              className="px-4 py-2 bg-gray-900 text-white rounded-xl text-sm font-semibold hover:bg-gray-700 transition disabled:opacity-50"
             >
               {saving ? (t("saving") || "Saving…") : (t("save") || "Save")}
             </button>

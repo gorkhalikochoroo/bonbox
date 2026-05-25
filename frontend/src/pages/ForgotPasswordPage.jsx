@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 
-const inputCls = "w-full pl-11 pr-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent text-base text-gray-800 dark:text-gray-200 placeholder:text-gray-400 transition";
+const inputCls = "w-full pl-11 pr-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent text-base text-gray-800 dark:text-gray-200 placeholder:text-gray-400 transition";
 
 export default function ForgotPasswordPage() {
   const { t } = useLanguage();
@@ -66,7 +66,7 @@ export default function ForgotPasswordPage() {
 
       <div className="min-h-screen flex bg-white dark:bg-gray-900">
         {/* Left panel — lock illustration */}
-        <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-gray-800 dark:via-gray-800 dark:to-gray-800 items-center justify-center p-12 relative overflow-hidden">
+        <div className="hidden lg:flex lg:w-1/2 bg-gray-50 dark:bg-gray-800/50 items-center justify-center p-12 relative overflow-hidden">
           <div className="absolute top-10 left-10 w-64 h-64 bg-blue-200/30 dark:bg-blue-900/20 rounded-full blur-3xl" />
           <div className="absolute bottom-20 right-10 w-48 h-48 bg-indigo-200/40 dark:bg-indigo-900/20 rounded-full blur-3xl" />
           <div className="relative z-10 text-center">
@@ -112,7 +112,7 @@ export default function ForgotPasswordPage() {
             {/* Logo + heading */}
             <div className="mb-8">
               <div className="flex items-center gap-3 mb-6">
-                <div className="w-11 h-11 bg-green-600 rounded-xl flex items-center justify-center shadow-lg shadow-green-600/20">
+                <div className="w-11 h-11 bg-gray-900 rounded-xl flex items-center justify-center shadow-sm">
                   <svg width="22" height="22" viewBox="0 0 28 28" fill="none">
                     <rect x="4" y="2" width="20" height="24" rx="3" stroke="white" strokeWidth="2.5"/>
                     <path d="M9 8h10M9 12h10M9 16h6" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
@@ -135,14 +135,14 @@ export default function ForgotPasswordPage() {
                 <div key={s} className="flex items-center gap-2 flex-1">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
                     step >= s
-                      ? "bg-green-600 text-white shadow-lg shadow-green-600/20"
+                      ? "bg-gray-900 text-white shadow-sm"
                       : "bg-gray-100 dark:bg-gray-700 text-gray-400"
                   }`}>
                     {step > s ? (
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
                     ) : s}
                   </div>
-                  {s < 3 && <div className={`flex-1 h-0.5 rounded ${step > s ? "bg-green-500" : "bg-gray-200 dark:bg-gray-700"}`} />}
+                  {s < 3 && <div className={`flex-1 h-0.5 rounded ${step > s ? "bg-emerald-500" : "bg-gray-200 dark:bg-gray-700"}`} />}
                 </div>
               ))}
             </div>
@@ -175,11 +175,11 @@ export default function ForgotPasswordPage() {
                   </div>
                 </div>
                 <button type="submit" disabled={loading}
-                  className="w-full bg-green-600 text-white py-3.5 rounded-xl hover:bg-green-700 active:scale-[0.98] transition-all font-semibold text-base disabled:opacity-50 shadow-lg shadow-green-600/20">
+                  className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 active:scale-[0.98] transition-all font-semibold text-base disabled:opacity-50 shadow-sm">
                   {loading ? t("sending") : t("sendResetCode")}
                 </button>
                 <p className="text-center text-sm text-gray-500 dark:text-gray-400">
-                  <Link to="/login" className="text-green-600 dark:text-green-400 hover:underline font-medium">Back to sign in</Link>
+                  <Link to="/login" className="text-emerald-600 dark:text-gray-300 hover:underline font-medium">Back to sign in</Link>
                 </p>
               </form>
             )}
@@ -201,7 +201,7 @@ export default function ForgotPasswordPage() {
                       maxLength={6}
                       value={code}
                       onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                      className="w-full px-4 py-3.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-green-500 text-center text-2xl font-bold tracking-[0.5em] text-gray-800 dark:text-gray-200"
+                      className="w-full px-4 py-3.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-400 text-center text-2xl font-bold tracking-[0.5em] text-gray-800 dark:text-gray-200"
                       placeholder="------"
                       required
                     />
@@ -227,12 +227,12 @@ export default function ForgotPasswordPage() {
                     </div>
                   </div>
                   <button type="submit" disabled={loading || code.length !== 6}
-                    className="w-full bg-green-600 text-white py-3.5 rounded-xl hover:bg-green-700 active:scale-[0.98] transition-all font-semibold text-base disabled:opacity-50 shadow-lg shadow-green-600/20">
+                    className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 active:scale-[0.98] transition-all font-semibold text-base disabled:opacity-50 shadow-sm">
                     {loading ? t("resettingDots") : t("resetPasswordBtn")}
                   </button>
                   <div className="flex justify-between text-sm">
                     <button type="button" onClick={() => { setStep(1); setError(""); setCode(""); }}
-                      className="text-green-600 dark:text-green-400 hover:underline font-medium">
+                      className="text-emerald-600 dark:text-gray-300 hover:underline font-medium">
                       Try different email
                     </button>
                     <button type="button" onClick={handleRequestReset}
@@ -246,14 +246,14 @@ export default function ForgotPasswordPage() {
 
             {step === 3 && (
               <div className="text-center space-y-5" style={{ animation: "slideUp 0.3s ease-out" }}>
-                <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto">
-                  <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto">
+                  <svg className="w-8 h-8 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
                 </div>
-                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 p-4 rounded-xl">
-                  <p className="text-green-700 dark:text-green-400 font-medium">{success}</p>
+                <div className="bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700 p-4 rounded-xl">
+                  <p className="text-gray-700 dark:text-gray-300 font-medium">{success}</p>
                 </div>
                 <Link to="/login"
-                  className="inline-block w-full bg-green-600 text-white py-3.5 rounded-xl hover:bg-green-700 active:scale-[0.98] transition-all font-semibold text-center shadow-lg shadow-green-600/20">
+                  className="inline-block w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 active:scale-[0.98] transition-all font-semibold text-center shadow-sm">
                   Sign in with new password
                 </Link>
               </div>

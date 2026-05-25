@@ -63,8 +63,8 @@ function planClasses(plan) {
       };
     case "pro":
       return {
-        badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
-        button: "bg-emerald-600 hover:bg-emerald-700",
+        badge: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+        button: "bg-gray-900 hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white",
       };
     case "trial":
       return {
@@ -151,7 +151,7 @@ export function UpgradePrompt({ feature, forCap = false, open = true, onClose })
       onClick={onClose}
     >
       <div
-        className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full shadow-xl overflow-hidden"
+        className="bg-white dark:bg-gray-800 rounded-xl max-w-md w-full shadow-sm overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className={`p-5 sm:p-6 ${c.badge.split(" ")[0]} bg-opacity-50 dark:bg-opacity-20`}>
@@ -190,7 +190,7 @@ export function UpgradePrompt({ feature, forCap = false, open = true, onClose })
               {/* Pull a few highlights — full matrix lives on /subscription. */}
               {snapshot.caps?.branches !== undefined && (
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-500">✓</span>
+                  <span className="text-emerald-600">✓</span>
                   <span>{snapshot.caps.branches === -1
                     ? (t("upgradeUnlimitedBranches") || "Unlimited businesses")
                     : (t("upgradeNumBranches") || "{n} businesses").replace("{n}", snapshot.caps.branches)}
@@ -199,7 +199,7 @@ export function UpgradePrompt({ feature, forCap = false, open = true, onClose })
               )}
               {snapshot.caps?.team_users !== undefined && (
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-500">✓</span>
+                  <span className="text-emerald-600">✓</span>
                   <span>{snapshot.caps.team_users === -1
                     ? (t("upgradeUnlimitedTeam") || "Unlimited team members")
                     : (t("upgradeNumTeam") || "{n} team members").replace("{n}", snapshot.caps.team_users)}
@@ -208,7 +208,7 @@ export function UpgradePrompt({ feature, forCap = false, open = true, onClose })
               )}
               {snapshot.caps?.daily_close_export_days !== undefined && (
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-500">✓</span>
+                  <span className="text-emerald-600">✓</span>
                   <span>
                     {snapshot.caps.daily_close_export_days >= 366
                       ? (t("upgradeFullYearExport") || "Full-year accountant export")
@@ -218,19 +218,19 @@ export function UpgradePrompt({ feature, forCap = false, open = true, onClose })
               )}
               {snapshot.features?.ai_anomaly_detection && (
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-500">✓</span>
+                  <span className="text-emerald-600">✓</span>
                   <span>{t("upgradeAIAnomaly") || "AI anomaly detection"}</span>
                 </li>
               )}
               {snapshot.features?.white_label_pdf && (
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-500">✓</span>
+                  <span className="text-emerald-600">✓</span>
                   <span>{t("upgradeWhiteLabelPdf") || "White-label PDFs (no BonBox branding)"}</span>
                 </li>
               )}
               {snapshot.features?.priority_support && (
                 <li className="flex items-center gap-2">
-                  <span className="text-emerald-500">✓</span>
+                  <span className="text-emerald-600">✓</span>
                   <span>{t("upgradePrioritySupport") || "Priority support"}</span>
                 </li>
               )}

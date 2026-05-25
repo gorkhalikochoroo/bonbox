@@ -43,7 +43,7 @@ const COLOR_SWATCH = {
   "emerald-500": "bg-emerald-500",
   "orange-500":  "bg-orange-500",
   "cyan-500":    "bg-cyan-500",
-  "stone-900":   "bg-stone-900",
+  "stone-900":   "bg-gray-900",
   "pink-500":    "bg-pink-500",
   "blue-500":    "bg-blue-500",
   "violet-500":  "bg-violet-500",
@@ -54,7 +54,7 @@ const COLOR_SWATCH = {
   "lime-500":    "bg-lime-500",
   "slate-500":   "bg-slate-500",
   "gray-500":    "bg-gray-500",
-  "stone-400":   "bg-stone-400",
+  "stone-400":   "bg-gray-400",
 };
 
 function swatchClass(c) {
@@ -224,7 +224,7 @@ export default function ChannelSettingsPage() {
       {/* Inline editor */}
       {editing && (
         <FadeIn>
-          <div className="mt-5 mb-6 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 sm:p-6 shadow-sm">
+          <div className="mt-5 mb-6 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 sm:p-6 shadow-sm">
             <h2 className="text-base font-bold text-gray-900 dark:text-white mb-4">
               {editing === "new"
                 ? (t("addChannel") || "Add channel")
@@ -244,7 +244,7 @@ export default function ChannelSettingsPage() {
                     onChange={(e) => setForm({ ...form, slug: e.target.value })}
                     placeholder={t("channelSlugExample") || "e.g. foodpanda, hungry_dk"}
                     maxLength={50}
-                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200 font-mono focus:ring-2 focus:ring-green-300 dark:focus:ring-green-700 outline-none"
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200 font-mono focus:ring-2 focus:ring-gray-200 dark:focus:ring-green-700 outline-none"
                   />
                   <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
                     {t("channelSlugHint") ||
@@ -269,7 +269,7 @@ export default function ChannelSettingsPage() {
                   onChange={(e) => setForm({ ...form, label: e.target.value })}
                   placeholder={t("channelLabelExample") || "e.g. Foodpanda, Take-Away Pickup"}
                   maxLength={100}
-                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-green-300 dark:focus:ring-green-700 outline-none"
+                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-gray-200 dark:focus:ring-green-700 outline-none"
                 />
               </div>
 
@@ -461,7 +461,7 @@ function ChannelRow({ ch, onEdit, onArchive, onUnarchive, t }) {
         {onUnarchive && (
           <button
             onClick={onUnarchive}
-            className="px-3 py-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition"
+            className="px-3 py-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-lg transition"
           >
             {t("restore") || "Restore"}
           </button>

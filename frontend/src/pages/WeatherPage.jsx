@@ -150,7 +150,7 @@ export default function WeatherPage() {
   if (!hasLocation) {
     return (
       <div className="p-4 md:p-8 max-w-lg mx-auto">
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-lg text-center">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-8 shadow-sm text-center">
           <div className="text-6xl mb-4">🌦️</div>
           <h1 className="text-2xl font-bold text-gray-800 dark:text-white mb-2">{t("weatherSmart")}</h1>
           <p className="text-gray-500 dark:text-gray-400 mb-6">
@@ -160,7 +160,7 @@ export default function WeatherPage() {
           <button
             onClick={useMyLocation}
             disabled={locationLoading}
-            className="w-full bg-green-600 text-white py-3 rounded-xl hover:bg-green-700 transition font-semibold mb-3 disabled:opacity-50"
+            className="w-full bg-gray-900 text-white py-3 rounded-xl hover:bg-gray-700 transition font-semibold mb-3 disabled:opacity-50"
           >
             {locationLoading ? t("detecting") : t("useMyLocation")}
           </button>
@@ -243,7 +243,7 @@ export default function WeatherPage() {
 
       {/* ─── REVENUE PREDICTIONS (Hero Card) ─── */}
       {preds.length > 0 && prediction?.available && (
-        <div className="bg-gradient-to-br from-green-600 to-emerald-700 rounded-2xl p-6 text-white shadow-lg">
+        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-6 text-white shadow-sm">
           <h2 className="font-bold text-lg mb-4 flex items-center gap-2">
             <span>🔮</span> Revenue Predictions
           </h2>
@@ -258,7 +258,7 @@ export default function WeatherPage() {
                   </div>
                   <p className="text-3xl font-bold">{Math.round(p.predicted_revenue)} <span className="text-lg opacity-80">{currency}</span></p>
                   <div className="flex items-center gap-2 mt-1">
-                    <span className={`text-sm font-semibold px-2 py-0.5 rounded-full ${isUp ? "bg-green-400/30" : "bg-red-400/30"}`}>
+                    <span className={`text-sm font-semibold px-2 py-0.5 rounded-full ${isUp ? "bg-emerald-500/15" : "bg-red-400/30"}`}>
                       {isUp ? "▲" : "▼"} {Math.abs(p.impact_pct)}%
                     </span>
                     <span className="text-xs opacity-70">vs avg {Math.round(p.overall_average)} {currency}</span>
@@ -271,7 +271,7 @@ export default function WeatherPage() {
                   </div>
                   <div className="mt-2">
                     <span className={`text-[10px] px-2 py-0.5 rounded-full ${
-                      p.confidence === "high" ? "bg-green-400/30" :
+                      p.confidence === "high" ? "bg-emerald-500/15" :
                       p.confidence === "medium" ? "bg-yellow-400/30" : "bg-gray-400/30"
                     }`}>
                       {p.confidence === "high" ? "🎯" : p.confidence === "medium" ? "📊" : "🔄"} {p.confidence} confidence ({p.sample_days} days)
@@ -286,7 +286,7 @@ export default function WeatherPage() {
 
       {/* ─── INTELLIGENCE SYNC & PROGRESS ─── */}
       {intelStatus && !intelStatus.correlation_ready && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
               <span>📊</span> Intelligence Progress
@@ -294,7 +294,7 @@ export default function WeatherPage() {
             <button
               onClick={syncWeather}
               disabled={syncing}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition disabled:opacity-50"
+              className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition disabled:opacity-50"
             >
               {syncing ? "Syncing..." : "⚡ Sync Weather Data"}
             </button>
@@ -304,11 +304,11 @@ export default function WeatherPage() {
               <span className="text-gray-600 dark:text-gray-400">
                 {intelStatus.paired_days || 0} / 30 days paired
               </span>
-              <span className="text-green-600 font-medium">{progressPct}%</span>
+              <span className="text-emerald-600 font-medium">{progressPct}%</span>
             </div>
             <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
               <div
-                className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full transition-all duration-500"
+                className="h-full bg-gray-50 dark:bg-gray-800/50 rounded-full transition-all duration-500"
                 style={{ width: `${progressPct}%` }}
               />
             </div>
@@ -317,7 +317,7 @@ export default function WeatherPage() {
             {intelStatus.sales_days || 0} sales days logged • {intelStatus.weather_days || 0} weather days stored
           </p>
           {syncResult && (
-            <div className={`mt-3 p-3 rounded-lg text-sm ${syncResult.error ? "bg-red-50 dark:bg-red-900/20 text-red-600" : "bg-green-50 dark:bg-green-900/20 text-green-600"}`}>
+            <div className={`mt-3 p-3 rounded-lg text-sm ${syncResult.error ? "bg-red-50 dark:bg-red-900/20 text-red-600" : "bg-gray-50 dark:bg-gray-800/50 text-emerald-600"}`}>
               {syncResult.error || `✅ Synced ${syncResult.synced} new days! (${syncResult.skipped} already existed)`}
             </div>
           )}
@@ -326,15 +326,15 @@ export default function WeatherPage() {
 
       {/* Sync button even when ready (for refreshing) */}
       {intelStatus && intelStatus.correlation_ready && (
-        <div className="flex items-center justify-between bg-green-50 dark:bg-green-900/20 rounded-xl p-3">
-          <div className="flex items-center gap-2 text-sm text-green-700 dark:text-green-400">
+        <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3">
+          <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
             <span>✅</span>
             <span>Intelligence active — {intelStatus.paired_days} days of data</span>
           </div>
           <button
             onClick={syncWeather}
             disabled={syncing}
-            className="px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50"
+            className="px-3 py-1.5 text-xs bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition disabled:opacity-50"
           >
             {syncing ? "..." : "↻ Sync"}
           </button>
@@ -343,7 +343,7 @@ export default function WeatherPage() {
 
       {/* ─── TODAY'S WEATHER ─── */}
       {(current || todayForecast) && (
-        <div className="bg-gradient-to-r from-slate-800 to-slate-900 rounded-2xl p-6 text-white">
+        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-6 text-white">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-300">{t("rightNow")}</p>
@@ -380,7 +380,7 @@ export default function WeatherPage() {
 
       {/* ─── 7-DAY FORECAST ─── */}
       {days.length > 1 && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
           <h2 className="font-bold text-gray-800 dark:text-white mb-4">{t("sevenDayOutlook")}</h2>
           <div className="grid grid-cols-7 gap-2 text-center">
             {days.slice(0, 7).map((d, i) => {
@@ -403,7 +403,7 @@ export default function WeatherPage() {
 
       {/* ─── WEATHER × REVENUE CORRELATION (Intelligence Tab) ─── */}
       {corrReady && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-lg">🧠</span>
             <h2 className="font-bold text-gray-800 dark:text-white">Weather × Revenue Intelligence</h2>
@@ -434,14 +434,14 @@ export default function WeatherPage() {
                 .map(([cond, data], i) => {
                   const pct = data.impact_pct;
                   const barWidth = Math.min(100, Math.max(10, data.multiplier * 100));
-                  const color = pct >= 0 ? "bg-green-500" : pct > -15 ? "bg-yellow-500" : "bg-red-500";
+                  const color = pct >= 0 ? "bg-emerald-500" : pct > -15 ? "bg-yellow-500" : "bg-red-500";
                   return (
                     <div key={i} className="flex items-center gap-3">
                       <span className="text-2xl w-8">{WEATHER_ICONS[cond] || "🌡️"}</span>
                       <div className="flex-1">
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-sm font-medium capitalize text-gray-700 dark:text-gray-300">{cond}</span>
-                          <span className={`text-sm font-bold ${pct >= 0 ? "text-green-600" : pct > -15 ? "text-yellow-600" : "text-red-600"}`}>
+                          <span className={`text-sm font-bold ${pct >= 0 ? "text-emerald-600" : pct > -15 ? "text-yellow-600" : "text-red-600"}`}>
                             {pct >= 0 ? "+" : ""}{pct}%
                           </span>
                         </div>
@@ -481,7 +481,7 @@ export default function WeatherPage() {
                     <span className="text-3xl">{icon}</span>
                     <p className="text-sm font-medium mt-2 text-gray-700 dark:text-gray-300">{label}</p>
                     <p className="text-2xl font-bold text-gray-800 dark:text-white mt-1">{Math.round(d.avg_revenue)} {currency}</p>
-                    <p className={`text-sm font-semibold mt-1 ${pct >= 0 ? "text-green-600" : "text-red-600"}`}>
+                    <p className={`text-sm font-semibold mt-1 ${pct >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                       {pct >= 0 ? "+" : ""}{pct}% vs avg
                     </p>
                     <p className="text-xs text-gray-400 mt-1">{d.days} days analyzed</p>
@@ -498,7 +498,7 @@ export default function WeatherPage() {
           {intelTab === "rain" && correlation.rain_analysis && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {[
-                { key: "dry", label: "Dry (<1mm)", icon: "☀️", bg: "bg-green-50 dark:bg-green-900/20" },
+                { key: "dry", label: "Dry (<1mm)", icon: "☀️", bg: "bg-gray-50 dark:bg-gray-800/50" },
                 { key: "light_rain", label: "Light (1-5mm)", icon: "🌦️", bg: "bg-yellow-50 dark:bg-yellow-900/20" },
                 { key: "heavy_rain", label: "Heavy (>5mm)", icon: "🌧️", bg: "bg-red-50 dark:bg-red-900/20" },
               ].map(({ key, label, icon, bg }) => {
@@ -511,7 +511,7 @@ export default function WeatherPage() {
                     <span className="text-3xl">{icon}</span>
                     <p className="text-sm font-medium mt-2 text-gray-700 dark:text-gray-300">{label}</p>
                     <p className="text-2xl font-bold text-gray-800 dark:text-white mt-1">{Math.round(d.avg_revenue)} {currency}</p>
-                    <p className={`text-sm font-semibold mt-1 ${pct >= 0 ? "text-green-600" : "text-red-600"}`}>
+                    <p className={`text-sm font-semibold mt-1 ${pct >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                       {pct >= 0 ? "+" : ""}{pct}% vs avg
                     </p>
                     <p className="text-xs text-gray-400 mt-1">{d.days} days analyzed</p>
@@ -528,12 +528,12 @@ export default function WeatherPage() {
 
       {/* ─── SMART INSIGHTS (Legacy — still useful when no intelligence) ─── */}
       {insights.length > 0 && !corrReady && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
           <h2 className="font-bold text-gray-800 dark:text-white mb-4">{t("smartInsights")}</h2>
           <div className="space-y-3">
             {insights.map((ins, i) => (
               <div key={i} className={`p-4 rounded-xl border-l-4 ${
-                ins.severity === "low" ? "border-green-500 bg-green-50 dark:bg-green-900/20" :
+                ins.severity === "low" ? "border-gray-300 bg-gray-50 dark:bg-gray-800/50" :
                 ins.severity === "medium" ? "border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20" :
                 ins.severity === "high" ? "border-red-500 bg-red-50 dark:bg-red-900/20" :
                 "border-gray-300 bg-gray-50 dark:bg-gray-700/30"
@@ -548,21 +548,21 @@ export default function WeatherPage() {
 
       {/* ─── WEATHER IMPACT PROFILE (Legacy fallback) ─── */}
       {conditions.length > 0 && !corrReady && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
           <h2 className="font-bold text-gray-800 dark:text-white mb-1">{t("weatherImpactProfile")}</h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">{t("weatherImpactDesc")}</p>
           <div className="space-y-3">
             {conditions.map((c, i) => {
               const pct = Math.round((c.multiplier - 1) * 100);
               const barWidth = Math.min(100, Math.max(10, c.multiplier * 100));
-              const color = pct >= 0 ? "bg-green-500" : pct > -15 ? "bg-yellow-500" : "bg-red-500";
+              const color = pct >= 0 ? "bg-emerald-500" : pct > -15 ? "bg-yellow-500" : "bg-red-500";
               return (
                 <div key={i} className="flex items-center gap-3">
                   <span className="text-2xl w-8">{WEATHER_ICONS[c.condition] || "🌡️"}</span>
                   <div className="flex-1">
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-sm font-medium capitalize text-gray-700 dark:text-gray-300">{c.condition}</span>
-                      <span className={`text-sm font-bold ${pct >= 0 ? "text-green-600" : pct > -15 ? "text-yellow-600" : "text-red-600"}`}>
+                      <span className={`text-sm font-bold ${pct >= 0 ? "text-emerald-600" : pct > -15 ? "text-yellow-600" : "text-red-600"}`}>
                         {pct >= 0 ? "+" : ""}{pct}%
                       </span>
                     </div>
@@ -587,7 +587,7 @@ export default function WeatherPage() {
 
       {/* ─── SEASONAL PATTERNS ─── */}
       {hasSeasonalData && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
           <h2 className="font-bold text-gray-800 dark:text-white mb-4">{t("seasonalPatterns")}</h2>
           <div className="grid grid-cols-6 md:grid-cols-12 gap-1 text-center">
             {months.map((m, i) => {
@@ -596,7 +596,7 @@ export default function WeatherPage() {
               return (
                 <div key={i} className="flex flex-col items-center justify-end" style={{ minHeight: 100 }}>
                   <div
-                    className="w-full bg-green-500/80 rounded-t transition-all"
+                    className="w-full bg-emerald-500/15 rounded-t transition-all"
                     style={{ height }}
                     title={`${Math.round(m.average)} ${currency} avg (${m.transactions} sales)`}
                   />

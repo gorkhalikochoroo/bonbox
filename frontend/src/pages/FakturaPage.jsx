@@ -153,16 +153,16 @@ export default function FakturaPage() {
           (Starter). Pro / Trial = unlimited → no chip. Free can't
           reach this page because hasAccess gates everything. */}
       {usage && !usage.unlimited && typeof usage.monthly_cap === "number" && (
-        <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-900/40 border border-stone-200 dark:border-stone-800 text-xs">
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-800 text-xs">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-stone-500 dark:text-stone-400">
+            <span className="text-gray-500 dark:text-gray-400">
               {t("fakturaMonthlyUsage", "This month")}
             </span>
-            <span className="font-semibold text-stone-800 dark:text-stone-100">
+            <span className="font-semibold text-gray-800 dark:text-gray-100">
               {usage.used_this_month} / {usage.monthly_cap}
             </span>
             {/* Progress bar */}
-            <div className="hidden sm:block flex-1 max-w-[160px] h-1.5 bg-stone-200 dark:bg-stone-700 rounded-full overflow-hidden ml-2">
+            <div className="hidden sm:block flex-1 max-w-[160px] h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden ml-2">
               <div
                 className={
                   "h-full transition-all " +
@@ -243,7 +243,7 @@ export default function FakturaPage() {
           click. Manual date inputs available for precise range work.
           Defaults to all-time (both empty) so the page shows everything
           on first load — preset chips narrow when needed. */}
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 space-y-3">
+      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 space-y-3">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2 flex-wrap text-xs">
             <span className="text-gray-500 dark:text-gray-400 font-medium">
@@ -329,18 +329,18 @@ export default function FakturaPage() {
       {loading ? (
         <div className="text-center py-12 text-gray-500">{t("loading") || "Loading…"}</div>
       ) : invoices.length === 0 ? (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-10 sm:p-12 text-center border border-gray-100 dark:border-gray-700">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-10 sm:p-12 text-center border border-gray-100 dark:border-gray-700">
           <p className="text-4xl mb-3">🧾</p>
-          <p className="text-stone-800 dark:text-stone-100 font-semibold text-base mb-1.5">
+          <p className="text-gray-800 dark:text-gray-100 font-semibold text-base mb-1.5">
             {t("noInvoicesYet") || "No invoices yet"}
           </p>
-          <p className="text-stone-500 dark:text-stone-400 text-sm max-w-md mx-auto leading-relaxed mb-5">
+          <p className="text-gray-500 dark:text-gray-400 text-sm max-w-md mx-auto leading-relaxed mb-5">
             {t("noInvoicesYetHint") ||
               "Tap + New invoice above to create your first. Customers can be auto-filled from CVR — no manual typing of address or company name."}
           </p>
           <Link
             to="/connections"
-            className="inline-flex items-center gap-1 text-[12.5px] font-medium text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 transition"
+            className="inline-flex items-center gap-1 text-[12.5px] font-medium text-gray-700 dark:text-emerald-400 hover:text-gray-800 dark:hover:text-gray-300 transition"
           >
             {t("noInvoicesConnHint") || "Or finish your setup first"} <span aria-hidden="true">→</span>
           </Link>
@@ -638,7 +638,7 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
 const STATUS_BADGE = {
   draft: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300",
   sent: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
-  paid: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+  paid: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
   overdue: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
   credited: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
 };
@@ -663,19 +663,19 @@ function VoidInvoiceModal({
 }) {
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-stone-900 rounded-2xl shadow-xl max-w-md w-full overflow-hidden">
-        <div className="px-5 pt-5 pb-3 border-b border-stone-100 dark:border-stone-800">
-          <h3 className="text-base font-semibold text-stone-900 dark:text-stone-100 flex items-center gap-2">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm max-w-md w-full overflow-hidden">
+        <div className="px-5 pt-5 pb-3 border-b border-gray-100 dark:border-gray-800">
+          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
             ↩ {t("kreditnotaTitle") || "Create kreditnota"}
           </h3>
-          <p className="text-xs text-stone-500 dark:text-stone-400 mt-1.5 leading-relaxed">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
             {(t("kreditnotaBody") ||
               "Sent fakturaer can't be deleted (Bogføringsloven §7). Voiding creates a kreditnota with the next number — the original keeps its number and stays in the ledger. Both records are locked and auditable.")}
           </p>
         </div>
         <div className="px-5 py-4 space-y-3">
-          <div className="text-xs text-stone-500 dark:text-stone-400">
-            <span className="text-stone-700 dark:text-stone-300 font-medium">
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            <span className="text-gray-700 dark:text-gray-300 font-medium">
               {invoice.fakturanummer_formatted}
             </span>
             {" · "}
@@ -683,7 +683,7 @@ function VoidInvoiceModal({
             {customer?.name ? ` · ${customer.name}` : ""}
           </div>
           <label className="block">
-            <span className="block text-xs font-medium text-stone-700 dark:text-stone-300 mb-1.5">
+            <span className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
               {t("kreditnotaReasonLabel") || "Reason (visible to your accountant)"}
             </span>
             <textarea
@@ -693,10 +693,10 @@ function VoidInvoiceModal({
               maxLength={200}
               placeholder={t("kreditnotaReasonPlaceholder") ||
                 "e.g. Customer canceled order — refunded via MobilePay 18/05"}
-              className="w-full px-3 py-2 border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-800 dark:text-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
               autoFocus
             />
-            <span className="block text-[10.5px] text-stone-400 mt-1">
+            <span className="block text-[10.5px] text-gray-400 mt-1">
               {voidReason.length}/200
             </span>
           </label>
@@ -704,11 +704,11 @@ function VoidInvoiceModal({
             <p className="text-xs text-red-600 dark:text-red-400">{voidError}</p>
           )}
         </div>
-        <div className="px-5 py-4 bg-stone-50 dark:bg-stone-800/40 flex items-center justify-end gap-2 border-t border-stone-100 dark:border-stone-800">
+        <div className="px-5 py-4 bg-gray-50 dark:bg-gray-800/40 flex items-center justify-end gap-2 border-t border-gray-100 dark:border-gray-800">
           <button
             onClick={onCancel}
             disabled={voidSubmitting}
-            className="px-3 py-1.5 text-sm text-stone-600 dark:text-stone-300 hover:text-stone-900 dark:hover:text-stone-100 disabled:opacity-50 transition"
+            className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-50 transition"
           >
             {t("cancel") || "Cancel"}
           </button>
@@ -778,7 +778,7 @@ function InvoiceRow({ invoice, customer, onChanged, t }) {
           {(invoice.status === "sent" || invoice.status === "overdue") && (
             <button
               onClick={handleMarkPaid}
-              className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold rounded-lg transition"
+              className="px-3 py-1.5 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-xs font-semibold rounded-lg transition"
               title={t("markPaidHint") || "Click when customer's payment lands in your bank"}
             >
               ✓ {t("markPaid") || "Mark paid"}
@@ -897,7 +897,7 @@ function InvoiceCard({ invoice, customer, onChanged, t }) {
           {invoice.status === "draft" && (
             <button
               onClick={handleSend}
-              className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-medium"
+              className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-[13px] font-medium"
             >
               {t("send") || "Send"}
             </button>
@@ -905,7 +905,7 @@ function InvoiceCard({ invoice, customer, onChanged, t }) {
           {(invoice.status === "sent" || invoice.status === "overdue") && (
             <button
               onClick={handleMarkPaid}
-              className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-medium"
+              className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-[13px] font-medium"
             >
               ✓ {t("markPaid") || "Mark paid"}
             </button>
@@ -1116,7 +1116,7 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm max-w-3xl w-full max-h-[90vh] overflow-y-auto">
         <div className="p-5 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
           <h2 className="text-lg font-bold text-gray-800 dark:text-white">
             {t("newInvoice") || "New invoice"}
@@ -1190,7 +1190,7 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
                     setShowNewPrivate(false);
                     setNewCustomerError("");
                   }}
-                  className="text-xs text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-200"
+                  className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                 >
                   {t("cancel") || "Cancel"}
                 </button>
@@ -1409,7 +1409,7 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition disabled:opacity-50"
+              className="px-4 py-2 bg-gray-900 text-white rounded-xl text-sm font-semibold hover:bg-gray-700 transition disabled:opacity-50"
             >
               {saving ? (t("creating") || "Creating…") : (t("createDraft") || "Create draft")}
             </button>

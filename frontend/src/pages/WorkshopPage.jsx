@@ -12,9 +12,9 @@ const STATUS_COLORS = {
   diagnosing: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
   waiting_parts: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
   in_progress: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300",
-  completed: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+  completed: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
   delivered: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300",
-  invoiced: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+  invoiced: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
 };
 const STATUS_LABELS = {
   received: "Received", diagnosing: "Diagnosing", waiting_parts: "Waiting Parts",
@@ -135,7 +135,7 @@ function JobBoard({ jobs, currency, nav }) {
             <div className="bg-gray-50 dark:bg-gray-800/50 rounded-b-lg p-2 space-y-2 min-h-[120px]">
               {byStatus[status].map(j => (
                 <div key={j.id} onClick={() => nav(`/workshop/job/${j.id}`)}
-                  className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700 cursor-pointer hover:shadow-md transition text-xs">
+                  className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700 cursor-pointer hover:shadow-sm transition text-xs">
                   <p className="font-bold text-blue-600 dark:text-blue-400">{j.job_number}</p>
                   <p className="font-semibold dark:text-white mt-0.5">{j.vehicle?.plate_number}</p>
                   <p className="text-gray-500 dark:text-gray-400">{j.vehicle?.make} {j.vehicle?.model}</p>
@@ -165,7 +165,7 @@ function JobBoard({ jobs, currency, nav }) {
    ═══════════════════════════════════════════════════════════ */
 function JobList({ jobs, currency, nav }) {
   if (!jobs.length) {
-    return <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 text-center border dark:border-gray-700">
+    return <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border dark:border-gray-700">
       <p className="text-4xl mb-3">🔧</p>
       <p className="font-semibold dark:text-white">No job cards yet</p>
       <p className="text-sm text-gray-400 mt-1">Create your first job card to get started.</p>
@@ -176,7 +176,7 @@ function JobList({ jobs, currency, nav }) {
     <div className="space-y-3">
       {jobs.map(j => (
         <div key={j.id} onClick={() => nav(`/workshop/job/${j.id}`)}
-          className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700 shadow-sm cursor-pointer hover:shadow-md transition">
+          className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700 shadow-sm cursor-pointer hover:shadow-sm transition">
           <div className="flex items-start justify-between">
             <div>
               <div className="flex items-center gap-2">
@@ -189,7 +189,7 @@ function JobList({ jobs, currency, nav }) {
               {j.vehicle?.customer_name && <p className="text-sm text-gray-500 dark:text-gray-400">{j.vehicle.customer_name}</p>}
             </div>
             <div className="text-right">
-              {j.grand_total > 0 && <p className="font-bold text-green-600 dark:text-green-400">{j.grand_total?.toLocaleString()} {currency}</p>}
+              {j.grand_total > 0 && <p className="font-bold text-emerald-600 dark:text-gray-300">{j.grand_total?.toLocaleString()} {currency}</p>}
               {j.assigned_mechanic && <p className="text-xs text-gray-400">🔧 {j.assigned_mechanic}</p>}
             </div>
           </div>
@@ -208,7 +208,7 @@ function JobList({ jobs, currency, nav }) {
    ═══════════════════════════════════════════════════════════ */
 function MechanicView({ data, currency }) {
   if (!data?.mechanics?.length) {
-    return <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 text-center border dark:border-gray-700">
+    return <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border dark:border-gray-700">
       <p className="text-4xl mb-3">👨‍🔧</p>
       <p className="font-semibold dark:text-white">No mechanic data yet</p>
       <p className="text-sm text-gray-400 mt-1">Add labor entries to job cards to see mechanic performance.</p>
@@ -232,7 +232,7 @@ function MechanicView({ data, currency }) {
               <span className="text-lg font-bold dark:text-white">#{i + 1}</span>
               <span className="font-semibold dark:text-white">{m.name}</span>
             </div>
-            <span className="font-bold text-green-600 dark:text-green-400">{m.total_revenue.toLocaleString()} {currency}</span>
+            <span className="font-bold text-emerald-600 dark:text-gray-300">{m.total_revenue.toLocaleString()} {currency}</span>
           </div>
           {/* Revenue bar */}
           <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-2 mb-3">

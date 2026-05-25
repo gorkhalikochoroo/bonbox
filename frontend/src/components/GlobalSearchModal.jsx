@@ -254,7 +254,7 @@ export default function GlobalSearchModal({ open, onClose }) {
           the toggle feels like a deliberate UI affordance, not a
           jarring jump. */}
       <div
-        className={`w-full bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-200 ease-out ${
+        className={`w-full bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-200 ease-out ${
           expanded
             ? "max-w-3xl max-h-[85vh]"
             : "max-w-md max-h-[55vh]"
@@ -341,7 +341,7 @@ export default function GlobalSearchModal({ open, onClose }) {
                   <button
                     key={qa.to + qa.label}
                     onClick={() => { onClose(); navigate(qa.to); }}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700/40 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 hover:text-emerald-700 dark:hover:text-emerald-300 text-xs sm:text-sm text-gray-700 dark:text-gray-200 transition text-left"
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700/40 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-700 dark:hover:text-gray-300 text-xs sm:text-sm text-gray-700 dark:text-gray-200 transition text-left"
                   >
                     <span className="text-base shrink-0">{qa.icon}</span>
                     <span className="truncate">{qa.label}</span>
@@ -393,7 +393,7 @@ export default function GlobalSearchModal({ open, onClose }) {
                   onMouseEnter={() => setSelectedIdx(item._idx)}
                   className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition ${
                     item._idx === selectedIdx
-                      ? "bg-green-50 dark:bg-green-900/20"
+                      ? "bg-gray-50 dark:bg-gray-800/50"
                       : "hover:bg-gray-50 dark:hover:bg-gray-700/40"
                   }`}
                 >

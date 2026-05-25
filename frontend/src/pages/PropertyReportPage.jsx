@@ -243,7 +243,7 @@ export default function PropertyReportPage() {
             onClick={() => setCutoffHour(opt.hr)}
             className={`px-3 py-1.5 text-xs font-medium rounded-full transition ${
               cutoffHour === opt.hr
-                ? "bg-emerald-600 text-white"
+                ? "bg-gray-900 text-white"
                 : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
             }`}
           >
@@ -254,7 +254,7 @@ export default function PropertyReportPage() {
 
       {/* Loading state */}
       {loading && (
-        <div className="rounded-2xl border border-gray-200 dark:border-gray-700 p-12 text-center text-gray-400">
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700 p-12 text-center text-gray-400">
           {t("loading") || "Loading…"}
         </div>
       )}
@@ -263,9 +263,9 @@ export default function PropertyReportPage() {
         <>
           {/* HEADLINE — plain-English instant gut check */}
           {headline && (
-            <div className={`rounded-2xl px-5 py-4 mb-4 border flex items-center gap-3 ${
+            <div className={`rounded-xl px-5 py-4 mb-4 border flex items-center gap-3 ${
               headline.tone === "good"
-                ? "bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800"
+                ? "bg-gray-50 dark:bg-gray-800/50 border-gray-100 dark:border-gray-800"
                 : headline.tone === "warn"
                 ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800"
                 : "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700"
@@ -278,8 +278,8 @@ export default function PropertyReportPage() {
           )}
 
           {/* HERO — total revenue, big and proud */}
-          <div className="bg-gradient-to-br from-emerald-50 to-blue-50 dark:from-emerald-900/30 dark:to-blue-900/30 rounded-2xl p-6 sm:p-8 border border-emerald-200/60 dark:border-emerald-800/40 mb-4">
-            <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 tracking-widest uppercase">
+          <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-6 sm:p-8 border border-gray-100/60 dark:border-gray-800/40 mb-4">
+            <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 tracking-widest uppercase">
               {t("totalRevenue") || "Total Revenue"}
             </p>
             <p className="text-4xl sm:text-5xl font-extrabold text-gray-900 dark:text-white mt-1">
@@ -294,7 +294,7 @@ export default function PropertyReportPage() {
 
           {/* CHANNELS — visual bars, not a table */}
           {channels.length > 0 && (
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm mb-4">
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm mb-4">
               <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100 mb-1">
                 {t("whereMoneyCameFrom") || "Where the money came from"}
               </h2>
@@ -345,7 +345,7 @@ export default function PropertyReportPage() {
 
           {/* TENDER MEDIA — payment-method pills */}
           {tenders.length > 0 && (
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm mb-4">
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm mb-4">
               <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100 mb-1">
                 {t("howCustomersPaid") || "How customers paid"}
               </h2>
@@ -389,7 +389,7 @@ export default function PropertyReportPage() {
               ? (t("taxSummaryNoVat") || "Tax breakdown")
               : `${t("taxSummaryPrefix") || "Tax breakdown"} (${t("moms") || "Moms"} ${ratePct}%)`;
             return (
-              <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm mb-4">
+              <div className="bg-white dark:bg-gray-800 rounded-xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm mb-4">
                 <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100 mb-1">
                   {heading}
                 </h2>
@@ -495,7 +495,7 @@ export default function PropertyReportPage() {
           {/* EXCEPTIONS — only show if non-zero so we don't clutter quiet days */}
           {(exceptions.voids > 0 || exceptions.manager_voids > 0 ||
             exceptions.error_correct > 0 || totals.returns_count > 0) && (
-            <div className="bg-amber-50 dark:bg-amber-900/15 rounded-2xl p-5 sm:p-6 border border-amber-200 dark:border-amber-800/40 mb-4">
+            <div className="bg-amber-50 dark:bg-amber-900/15 rounded-xl p-5 sm:p-6 border border-amber-200 dark:border-amber-800/40 mb-4">
               <h2 className="text-base font-semibold text-amber-800 dark:text-amber-300 mb-1">
                 {t("staffExceptions") || "Things to look at"}
               </h2>
@@ -532,7 +532,7 @@ export default function PropertyReportPage() {
             </button>
             <button
               onClick={handleEmailAccountant}
-              className="flex-1 sm:flex-none px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-semibold transition"
+              className="flex-1 sm:flex-none px-5 py-3 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white rounded-xl text-sm font-semibold transition"
             >
               ✉️ {t("emailAccountant") || "Email to accountant"}
             </button>
@@ -580,11 +580,11 @@ function Stat({ label, value, amount, currency }) {
  */
 
 const CHANNEL_PALETTE_BY_COLOR = {
-  "emerald-500": { bg: "bg-emerald-500", chip: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" },
+  "emerald-500": { bg: "bg-emerald-500", chip: "bg-gray-50 text-gray-700 dark:bg-gray-800 dark:text-gray-300" },
   "orange-500":  { bg: "bg-orange-500",  chip: "bg-orange-50 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300" },
   "cyan-500":    { bg: "bg-cyan-500",    chip: "bg-cyan-50 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300" },
-  "stone-900":   { bg: "bg-stone-900",   chip: "bg-stone-100 text-stone-900 dark:bg-stone-800 dark:text-stone-100" },
-  "stone-400":   { bg: "bg-stone-400",   chip: "bg-stone-100 text-stone-600 dark:bg-stone-800/60 dark:text-stone-400" },
+  "stone-900":   { bg: "bg-gray-900",   chip: "bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100" },
+  "stone-400":   { bg: "bg-gray-400",   chip: "bg-gray-100 text-gray-600 dark:bg-gray-800/60 dark:text-gray-400" },
   "pink-500":    { bg: "bg-pink-500",    chip: "bg-pink-50 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300" },
   "blue-500":    { bg: "bg-blue-500",    chip: "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" },
   "violet-500":  { bg: "bg-violet-500",  chip: "bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300" },

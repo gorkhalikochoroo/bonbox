@@ -165,7 +165,7 @@ export default function TaxAutopilotPage() {
             ? "bg-red-600 border-red-700"
             : nextDeadline.status === "soon"
             ? "bg-amber-600 border-amber-700"
-            : "bg-emerald-600 border-emerald-700"
+            : "bg-gray-900 border-gray-700"
         }`}>
           <div className="flex items-center justify-between">
             <div>
@@ -303,8 +303,8 @@ export default function TaxAutopilotPage() {
                     <td className="py-3 px-2 text-gray-500">{dl.deadline}</td>
                     <td className="py-3 px-2 text-right text-gray-600 dark:text-gray-400">{fmt(dl.sales_total)}</td>
                     <td className="py-3 px-2 text-right text-orange-500">{fmt(dl.output_vat)}</td>
-                    <td className="py-3 px-2 text-right text-green-500">{fmt(dl.input_vat)}</td>
-                    <td className={`py-3 px-2 text-right font-bold ${dl.estimated_amount >= 0 ? "text-orange-600" : "text-green-600"}`}>
+                    <td className="py-3 px-2 text-right text-emerald-600">{fmt(dl.input_vat)}</td>
+                    <td className={`py-3 px-2 text-right font-bold ${dl.estimated_amount >= 0 ? "text-orange-600" : "text-emerald-600"}`}>
                       {fmt(dl.estimated_amount)} {currency}
                     </td>
                     <td className="py-3 px-2 text-center">
@@ -358,14 +358,14 @@ export default function TaxAutopilotPage() {
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-gray-600 dark:text-gray-400">Input {tax_name}</span>
-                <span className="text-sm font-bold text-green-600">{fmt(ytd.input_vat)} {currency}</span>
+                <span className="text-sm font-bold text-emerald-600">{fmt(ytd.input_vat)} {currency}</span>
               </div>
             </div>
           </div>
         </div>
         <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center">
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Net {tax_name} Payable</span>
-          <span className={`text-xl font-bold ${ytd.vat_payable >= 0 ? "text-orange-600" : "text-green-600"}`}>
+          <span className={`text-xl font-bold ${ytd.vat_payable >= 0 ? "text-orange-600" : "text-emerald-600"}`}>
             {ytd.vat_payable >= 0 ? "" : "Refund: "}{fmt(Math.abs(ytd.vat_payable))} {currency}
           </span>
         </div>
@@ -373,7 +373,7 @@ export default function TaxAutopilotPage() {
 
       {/* Link to VAT report */}
       <div className="flex justify-center">
-        <a href="/vat-report" className="text-sm text-green-600 dark:text-green-400 hover:underline">
+        <a href="/vat-report" className="text-sm text-emerald-600 dark:text-gray-300 hover:underline">
           View detailed VAT report & export PDF →
         </a>
       </div>
@@ -383,7 +383,7 @@ export default function TaxAutopilotPage() {
 
 function MetricCard({ label, value, sub, color, currency }) {
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm text-center">
+    <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm text-center">
       <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
       <p className={`text-2xl font-bold mt-1 ${color}`}>{value}</p>
       <p className="text-xs text-gray-400 mt-0.5">{sub}</p>
@@ -493,21 +493,21 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
 
   return (
     <>
-      <div className={`relative rounded-2xl p-5 sm:p-6 shadow-sm border ${
+      <div className={`relative rounded-xl p-5 sm:p-6 shadow-sm border ${
         unlocked
-          ? "bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-900/20 dark:to-stone-900 border-emerald-200/70 dark:border-emerald-800/60"
-          : "bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-700"
+          ? "bg-gray-50 dark:bg-gray-800/50 border-gray-100/70 dark:border-gray-800/60"
+          : "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700"
       }`}>
         {/* Header */}
         <div className="flex items-start justify-between gap-3 mb-4">
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-semibold tracking-wider uppercase text-emerald-700 dark:text-emerald-400">
+            <p className="text-[10px] font-semibold tracking-wider uppercase text-gray-700 dark:text-emerald-400">
               {unlocked ? "Pro" : "Pro · Låst"} · {t("filingPdfPro") || "Filing-ready PDF"}
             </p>
-            <h3 className="text-base sm:text-lg font-semibold text-stone-900 dark:text-stone-100 mt-1">
+            <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1">
               {t("filingPdfReady") || "Klar til at indberette?"} · {periodLabel}
             </h3>
-            <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
               {t("filingPdfSubtitle") || "Pre-filled MOMS-angivelse — download, sign, upload to SKAT.dk."}
             </p>
           </div>
@@ -516,35 +516,35 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
 
         {/* The three numbers (always visible — even on Free, so they feel the gap) */}
         <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
-          <div className="rounded-lg bg-white/70 dark:bg-stone-800/50 px-3 py-2.5 border border-stone-100 dark:border-stone-700/50">
-            <p className="text-[10px] uppercase tracking-wide text-stone-500 dark:text-stone-400">
+          <div className="rounded-lg bg-white/70 dark:bg-gray-800/50 px-3 py-2.5 border border-gray-100 dark:border-gray-700/50">
+            <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
               Output {taxName}
             </p>
             <p className="text-sm sm:text-base font-bold text-orange-600 mt-0.5">
-              {fmtNum(output)} <span className="text-[10px] font-normal text-stone-400">{currency}</span>
+              {fmtNum(output)} <span className="text-[10px] font-normal text-gray-400">{currency}</span>
             </p>
           </div>
-          <div className="rounded-lg bg-white/70 dark:bg-stone-800/50 px-3 py-2.5 border border-stone-100 dark:border-stone-700/50">
-            <p className="text-[10px] uppercase tracking-wide text-stone-500 dark:text-stone-400">
+          <div className="rounded-lg bg-white/70 dark:bg-gray-800/50 px-3 py-2.5 border border-gray-100 dark:border-gray-700/50">
+            <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
               Input {taxName}
             </p>
             <p className="text-sm sm:text-base font-bold text-blue-600 mt-0.5">
-              {fmtNum(input)} <span className="text-[10px] font-normal text-stone-400">{currency}</span>
+              {fmtNum(input)} <span className="text-[10px] font-normal text-gray-400">{currency}</span>
             </p>
           </div>
-          <div className="rounded-lg bg-white/70 dark:bg-stone-800/50 px-3 py-2.5 border border-stone-100 dark:border-stone-700/50">
-            <p className="text-[10px] uppercase tracking-wide text-stone-500 dark:text-stone-400">
+          <div className="rounded-lg bg-white/70 dark:bg-gray-800/50 px-3 py-2.5 border border-gray-100 dark:border-gray-700/50">
+            <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
               {t("filingPdfNet") || "Net til SKAT"}
             </p>
-            <p className={`text-sm sm:text-base font-bold mt-0.5 ${net >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-stone-600 dark:text-stone-300"}`}>
-              {fmtNum(net)} <span className="text-[10px] font-normal text-stone-400">{currency}</span>
+            <p className={`text-sm sm:text-base font-bold mt-0.5 ${net >= 0 ? "text-gray-700 dark:text-emerald-400" : "text-gray-600 dark:text-gray-300"}`}>
+              {fmtNum(net)} <span className="text-[10px] font-normal text-gray-400">{currency}</span>
             </p>
           </div>
         </div>
 
         {/* Status / error banners */}
         {status && (
-          <div className="mb-3 text-xs px-3 py-2 rounded-md bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200/70 dark:border-emerald-800/60">
+          <div className="mb-3 text-xs px-3 py-2 rounded-md bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-100/70 dark:border-gray-800/60">
             {status}
           </div>
         )}
@@ -562,8 +562,8 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
             onClick={unlocked ? downloadPdf : () => setShow402(true)}
             className={
               unlocked
-                ? "inline-flex items-center justify-center gap-2 px-4 h-10 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium transition-colors disabled:opacity-60"
-                : "inline-flex items-center justify-center gap-2 px-4 h-10 rounded-lg bg-stone-200 dark:bg-stone-700 text-stone-500 dark:text-stone-400 text-sm font-medium cursor-not-allowed"
+                ? "inline-flex items-center justify-center gap-2 px-4 h-10 rounded-lg bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-medium transition-colors disabled:opacity-60"
+                : "inline-flex items-center justify-center gap-2 px-4 h-10 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 text-sm font-medium cursor-not-allowed"
             }
             aria-label={t("filingPdfDownload") || "Download filing PDF"}
           >
@@ -577,8 +577,8 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
             onClick={unlocked ? sendToAccountant : () => setShow402(true)}
             className={
               unlocked
-                ? "inline-flex items-center justify-center gap-2 px-4 h-10 rounded-lg bg-white dark:bg-stone-800 hover:bg-stone-50 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-200 text-sm font-medium border border-stone-200 dark:border-stone-700 transition-colors disabled:opacity-60"
-                : "inline-flex items-center justify-center gap-2 px-4 h-10 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-400 dark:text-stone-500 text-sm font-medium border border-stone-200 dark:border-stone-700 cursor-not-allowed"
+                ? "inline-flex items-center justify-center gap-2 px-4 h-10 rounded-lg bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium border border-gray-200 dark:border-gray-700 transition-colors disabled:opacity-60"
+                : "inline-flex items-center justify-center gap-2 px-4 h-10 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 text-sm font-medium border border-gray-200 dark:border-gray-700 cursor-not-allowed"
             }
             aria-label={t("filingPdfEmailRevisor") || "Email to my revisor"}
           >
@@ -593,7 +593,7 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
         </div>
 
         {!unlocked && (
-          <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-3 leading-relaxed">
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-3 leading-relaxed">
             {t("filingPdfUpsell") ||
               "Download a pre-filled MOMS-angivelse — saves ~30 min per filing. Sign, then upload to SKAT.dk or forward to your revisor."}
           </p>
@@ -639,7 +639,7 @@ function TaxPrefsCard({ tax, setTax, saving, msg, onSave }) {
           <select
             value={tax.filing_frequency}
             onChange={(e) => setTax({ ...tax, filing_frequency: e.target.value })}
-            className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+            className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
           >
             <option value="">{t("useDefaultForCountry")}</option>
             <option value="half_yearly">Half-yearly (DK SMBs &lt; 5M kr — most cafés / retail)</option>
@@ -679,7 +679,7 @@ function TaxPrefsCard({ tax, setTax, saving, msg, onSave }) {
           </div>
         </label>
 
-        {msg && <p className="text-xs text-emerald-700 dark:text-emerald-400">{msg}</p>}
+        {msg && <p className="text-xs text-gray-700 dark:text-emerald-400">{msg}</p>}
 
         <Button
           variant="primary"
@@ -702,7 +702,7 @@ function ReconCard({ recon, taxName, currency }) {
   const yt = recon.ytd;
 
   const statusStyles = {
-    matched:             { bg: "bg-green-50 dark:bg-green-900/20",  border: "border-green-200 dark:border-green-800", badge: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300", icon: "\u2705", label: "Matched" },
+    matched:             { bg: "bg-gray-50 dark:bg-gray-800/50",  border: "border-gray-100 dark:border-gray-800", badge: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300", icon: "\u2705", label: "Matched" },
     minor_discrepancy:   { bg: "bg-amber-50 dark:bg-amber-900/20",  border: "border-amber-200 dark:border-amber-800", badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300", icon: "\u26a0\ufe0f", label: "Minor Diff" },
     major_discrepancy:   { bg: "bg-red-50 dark:bg-red-900/20",      border: "border-red-200 dark:border-red-800",     badge: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",       icon: "\ud83d\udea8", label: "Mismatch" },
     no_data:             { bg: "bg-gray-50 dark:bg-gray-800",       border: "border-gray-200 dark:border-gray-700",   badge: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400",     icon: "\u2014",  label: "No Closes" },
@@ -711,7 +711,7 @@ function ReconCard({ recon, taxName, currency }) {
   const s = statusStyles[cm.status] || statusStyles.no_data;
 
   return (
-    <div className={`rounded-2xl p-5 border ${s.border} ${s.bg} shadow-sm`}>
+    <div className={`rounded-xl p-5 border ${s.border} ${s.bg} shadow-sm`}>
       <div className="flex items-center justify-between mb-4">
         <h2 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
           <span>📋</span> Daily Close Reconciliation
@@ -724,7 +724,7 @@ function ReconCard({ recon, taxName, currency }) {
       {cm.status === "no_data" ? (
         <div className="text-center py-3">
           <p className="text-sm text-gray-500 dark:text-gray-400">No confirmed daily closes this month yet.</p>
-          <a href="/daily-close" className="text-sm text-green-600 dark:text-green-400 hover:underline mt-1 inline-block">
+          <a href="/daily-close" className="text-sm text-emerald-600 dark:text-gray-300 hover:underline mt-1 inline-block">
             Go to Daily Close &rarr;
           </a>
         </div>
@@ -753,7 +753,7 @@ function ReconCard({ recon, taxName, currency }) {
               <span className="text-sm text-gray-600 dark:text-gray-300">{t("difference")}</span>
               <span className={`text-sm font-bold ${
                 Math.abs(cm.discrepancy) <= cm.moms_from_sales * 0.02
-                  ? "text-green-600" : Math.abs(cm.discrepancy) <= cm.moms_from_sales * 0.1
+                  ? "text-emerald-600" : Math.abs(cm.discrepancy) <= cm.moms_from_sales * 0.1
                   ? "text-amber-600" : "text-red-600"
               }`}>
                 {cm.discrepancy > 0 ? "+" : ""}{fmt(cm.discrepancy)} {currency}
@@ -772,7 +772,7 @@ function ReconCard({ recon, taxName, currency }) {
 
           {/* Link */}
           <div className="mt-3 text-center">
-            <a href="/daily-close" className="text-xs text-green-600 dark:text-green-400 hover:underline">
+            <a href="/daily-close" className="text-xs text-emerald-600 dark:text-gray-300 hover:underline">
               View Daily Close History &rarr;
             </a>
           </div>
@@ -794,9 +794,9 @@ function ComplianceCard({ audit }) {
   const totalCount = (sales.count || 0) + (expenses.count || 0);
 
   return (
-    <div className={`rounded-2xl p-5 shadow-sm border ${
+    <div className={`rounded-xl p-5 shadow-sm border ${
       is_compliant
-        ? "bg-emerald-50/60 dark:bg-emerald-900/10 border-emerald-200/60 dark:border-emerald-800/40"
+        ? "bg-gray-50/60 dark:bg-gray-800/50 border-gray-100/60 dark:border-gray-800/40"
         : "bg-amber-50/70 dark:bg-amber-900/10 border-amber-200/60 dark:border-amber-800/40"
     }`}>
       <div className="flex items-start gap-3">
@@ -855,7 +855,7 @@ function ComplianceCol({ label, data, ok }) {
   return (
     <div className={`rounded-lg p-3 border ${
       ok
-        ? "bg-white/60 dark:bg-gray-800/40 border-emerald-200/40 dark:border-emerald-800/30"
+        ? "bg-white/60 dark:bg-gray-800/40 border-gray-100/40 dark:border-gray-800/30"
         : "bg-white/60 dark:bg-gray-800/40 border-amber-200/60 dark:border-amber-800/40"
     }`}>
       <div className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold">{label}</div>

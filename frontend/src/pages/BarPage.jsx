@@ -208,7 +208,7 @@ export default function BarPage() {
               cta={
                 <Link
                   to="/inventory"
-                  className="inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors h-9 px-3.5 text-sm bg-emerald-600 text-white hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors h-9 px-3.5 text-sm bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2"
                 >
                   {t("barEmptyCta") || "Add bottles in Inventory"}
                 </Link>
@@ -256,7 +256,7 @@ export default function BarPage() {
                       </button>
                       <button
                         onClick={() => { setRestockItem(item); setRestockBottles(1); }}
-                        className="bg-green-500 hover:bg-green-600 text-white text-xs font-bold px-2 py-1.5 rounded-lg transition"
+                        className="bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-xs font-bold px-2 py-1.5 rounded-lg transition"
                       >
                         +
                       </button>
@@ -298,7 +298,7 @@ export default function BarPage() {
                   </p>
                   <button
                     onClick={() => { setRestockItem(item); setRestockBottles(1); }}
-                    className="w-full mt-2 bg-green-500 hover:bg-green-600 text-white text-xs font-bold py-1.5 rounded-lg transition"
+                    className="w-full mt-2 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-xs font-bold py-1.5 rounded-lg transition"
                   >
                     + {t("restock") || "Restock"}
                   </button>
@@ -312,7 +312,7 @@ export default function BarPage() {
       {/* Pour Modal — same UX pattern as InventoryPage so muscle memory transfers */}
       {pourModal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setPourModal(null)}>
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl p-6 w-full max-w-sm border border-gray-200 dark:border-gray-800" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-6 w-full max-w-sm border border-gray-200 dark:border-gray-800" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-1">
               {t("pour") || "Pour"} — {pourModal.name}
             </h3>
@@ -352,7 +352,7 @@ export default function BarPage() {
       {/* Restock Modal */}
       {restockItem && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setRestockItem(null)}>
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl p-6 w-full max-w-sm border border-gray-200 dark:border-gray-800" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-6 w-full max-w-sm border border-gray-200 dark:border-gray-800" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-1">
               {t("restock") || "Restock"} — {restockItem.name}
             </h3>
@@ -367,7 +367,7 @@ export default function BarPage() {
             <div className="flex gap-2 flex-wrap justify-center mb-4">
               {[1, 2, 3, 6, 12].map((n) => (
                 <button key={n} onClick={() => setRestockBottles(n)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition ${restockBottles === n ? "bg-green-100 dark:bg-green-900/30 border-green-400 text-green-700 dark:text-green-400" : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"}`}>
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition ${restockBottles === n ? "bg-gray-100 dark:bg-gray-800 border-gray-300 text-gray-700 dark:text-gray-300" : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"}`}>
                   {n}
                 </button>
               ))}
@@ -379,7 +379,7 @@ export default function BarPage() {
               <button onClick={() => setRestockItem(null)} className="flex-1 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm text-gray-600 dark:text-gray-300">
                 {t("cancel") || "Cancel"}
               </button>
-              <button onClick={restockBottle} autoFocus className="flex-1 py-2.5 bg-green-500 hover:bg-green-600 text-white rounded-xl font-semibold text-sm transition">
+              <button onClick={restockBottle} autoFocus className="flex-1 py-2.5 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white rounded-xl font-semibold text-sm transition">
                 {t("add") || "Add"} {restockBottles} {t("bottles") || "bottles"}
               </button>
             </div>

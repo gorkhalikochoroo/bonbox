@@ -95,7 +95,7 @@ export default function AccountantClientsPage() {
         )}
 
         {clients && clients.length === 0 && (
-          <div className="bg-white dark:bg-gray-800 border border-stone-200 dark:border-stone-700 rounded-xl p-8 text-center">
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-8 text-center">
             <p className="text-gray-700 dark:text-gray-200 mb-2">No active client grants.</p>
             <p className="text-sm text-gray-500 dark:text-gray-400">
               Ask one of your client businesses to invite you from their BonBox
@@ -111,7 +111,7 @@ export default function AccountantClientsPage() {
                 key={c.owner_user_id}
                 onClick={() => handlePick(c.owner_user_id)}
                 disabled={!!switching}
-                className="text-left bg-white dark:bg-gray-800 border border-stone-200 dark:border-stone-700 rounded-xl p-5 hover:border-green-500 hover:shadow-sm transition disabled:opacity-60"
+                className="text-left bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5 hover:border-gray-300 hover:shadow-sm transition disabled:opacity-60"
               >
                 <div className="text-base font-semibold text-gray-900 dark:text-white mb-1 truncate">
                   {c.business_name}
@@ -123,7 +123,7 @@ export default function AccountantClientsPage() {
                     : "Never opened"}
                 </div>
                 {switching === c.owner_user_id && (
-                  <div className="text-xs text-green-700 dark:text-green-300 mt-2">
+                  <div className="text-xs text-gray-700 dark:text-gray-300 mt-2">
                     Opening…
                   </div>
                 )}

@@ -44,7 +44,7 @@ function PaymentMethodSelect({ value, onChange, t }) {
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="w-full h-10 px-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-stone-800 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-gray-900"
+      className="w-full h-10 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900"
     >
       {PAYMENT_METHODS.map((m) => (
         <option key={m.value} value={m.value}>
@@ -113,7 +113,7 @@ function RuleForm({ initial, categories, currency, onSubmit, onCancel, t }) {
       )}
 
       <div>
-        <label className="block text-xs font-medium text-stone-600 dark:text-stone-400 mb-1">
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
           {t("recurringNameLabel", "Name")}
         </label>
         <input
@@ -122,14 +122,14 @@ function RuleForm({ initial, categories, currency, onSubmit, onCancel, t }) {
           onChange={(e) => setName(e.target.value)}
           maxLength={100}
           placeholder={t("recurringNamePlaceholder", "e.g. Rent — Nørrebrogade")}
-          className="w-full h-10 px-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+          className="w-full h-10 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
           autoFocus
         />
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-medium text-stone-600 dark:text-stone-400 mb-1">
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
             {t("amount", "Amount")} ({currency})
           </label>
           <input
@@ -140,23 +140,23 @@ function RuleForm({ initial, categories, currency, onSubmit, onCancel, t }) {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="18000"
-            className="w-full h-10 px-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+            className="w-full h-10 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-stone-600 dark:text-stone-400 mb-1">
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
             {t("dayOfMonth", "Day of month")}
           </label>
           <select
             value={dayOfMonth}
             onChange={(e) => setDayOfMonth(e.target.value)}
-            className="w-full h-10 px-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+            className="w-full h-10 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
           >
             {DAY_OPTIONS.map((d) => (
               <option key={d} value={d}>{d}</option>
             ))}
           </select>
-          <p className="mt-1 text-[11px] text-stone-500 dark:text-stone-400">
+          <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
             {t("dayOfMonthHint", "1–28 (caps at 28 so February always works)")}
           </p>
         </div>
@@ -164,13 +164,13 @@ function RuleForm({ initial, categories, currency, onSubmit, onCancel, t }) {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-medium text-stone-600 dark:text-stone-400 mb-1">
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
             {t("category", "Category")}
           </label>
           <select
             value={categoryId}
             onChange={(e) => setCategoryId(e.target.value)}
-            className="w-full h-10 px-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+            className="w-full h-10 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
           >
             <option value="">—</option>
             {categories.map((c) => (
@@ -179,7 +179,7 @@ function RuleForm({ initial, categories, currency, onSubmit, onCancel, t }) {
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-stone-600 dark:text-stone-400 mb-1">
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
             {t("paymentMethod", "Payment method")}
           </label>
           <PaymentMethodSelect
@@ -191,7 +191,7 @@ function RuleForm({ initial, categories, currency, onSubmit, onCancel, t }) {
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-stone-600 dark:text-stone-400 mb-1">
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
           {t("recurringDescLabel", "Description (shows on the expense)")}
         </label>
         <input
@@ -200,19 +200,19 @@ function RuleForm({ initial, categories, currency, onSubmit, onCancel, t }) {
           onChange={(e) => setDescription(e.target.value)}
           maxLength={200}
           placeholder={t("recurringDescPlaceholder", "e.g. Monthly rent")}
-          className="w-full h-10 px-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+          className="w-full h-10 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
         />
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-stone-600 dark:text-stone-400 mb-1">
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
           {t("notesOptional", "Notes (optional)")}
         </label>
         <textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={2}
-          className="w-full px-3 py-2 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+          className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
         />
       </div>
 
@@ -235,20 +235,20 @@ function RuleRow({ rule, currency, onRunNow, onPauseResume, onEdit, onDelete, t 
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <h4 className="text-base font-semibold text-stone-900 dark:text-stone-100 truncate">
+            <h4 className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">
               {rule.name}
             </h4>
             {isPaused && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 text-[10px] font-medium uppercase tracking-wide">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[10px] font-medium uppercase tracking-wide">
                 <Icon name="Pause" size={10} />
                 {t("paused", "Paused")}
               </span>
             )}
           </div>
-          <p className="text-sm text-stone-600 dark:text-stone-400 mt-0.5">
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5">
             {Number(rule.amount).toLocaleString()} {currency} · {t("monthly", "Monthly")} · {t("dayOfMonth", "Day of month")} {rule.day_of_month}
           </p>
-          <p className="text-xs text-stone-500 dark:text-stone-400 mt-1">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {isPaused
               ? t("recurringPaused", "Paused — won't post until you resume")
               : `${t("nextRun", "Next")}: ${formatDateClearFull(rule.next_run_date)}`}
@@ -413,10 +413,10 @@ export default function RecurringExpensesPanel({ categories, currency }) {
     return (
       <Card>
         <div className="mb-3">
-          <h2 className="text-base font-semibold text-stone-900 dark:text-stone-100">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
             {t("recurringExpensesHeading", "Recurring expenses")}
           </h2>
-          <p className="text-sm text-stone-500 dark:text-stone-400 mt-1">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             {t(
               "recurringExpensesIntro",
               "Set up rent, internet, subscriptions once. BonBox posts them automatically each month.",
@@ -441,10 +441,10 @@ export default function RecurringExpensesPanel({ categories, currency }) {
     <Card>
       <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
         <div className="min-w-0">
-          <h2 className="text-base font-semibold text-stone-900 dark:text-stone-100">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
             {t("recurringExpensesHeading", "Recurring expenses")}
           </h2>
-          <p className="text-sm text-stone-500 dark:text-stone-400 mt-1 max-w-md">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-md">
             {t(
               "recurringExpensesIntro",
               "Set up rent, internet, subscriptions once. BonBox posts them automatically each month.",
@@ -462,7 +462,7 @@ export default function RecurringExpensesPanel({ categories, currency }) {
       </div>
 
       {success && (
-        <div className="mb-3 text-sm bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-300 px-3 py-2 rounded-lg">
+        <div className="mb-3 text-sm bg-gray-50 dark:bg-gray-800/50 text-gray-800 dark:text-gray-300 px-3 py-2 rounded-lg">
           {success}
         </div>
       )}
@@ -473,7 +473,7 @@ export default function RecurringExpensesPanel({ categories, currency }) {
       )}
 
       {loading && rules.length === 0 ? (
-        <p className="text-sm text-stone-500 py-6 text-center">
+        <p className="text-sm text-gray-500 py-6 text-center">
           {t("loading", "Loading...")}
         </p>
       ) : rules.length === 0 ? (
@@ -514,16 +514,16 @@ export default function RecurringExpensesPanel({ categories, currency }) {
       {/* Modal form — same backdrop pattern UpgradeNudge dialog uses */}
       {showForm && (
         <div
-          className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-sm"
+          className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-gray-900/50 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
           onClick={() => { setShowForm(false); setEditing(null); }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-2xl shadow-xl max-w-md w-full p-5 sm:p-6"
+            className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-sm max-w-md w-full p-5 sm:p-6"
           >
-            <h3 className="text-base font-semibold text-stone-900 dark:text-stone-100 mb-4">
+            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">
               {editing
                 ? t("editRecurring", "Edit recurring expense")
                 : t("addRecurring", "Add recurring expense")}

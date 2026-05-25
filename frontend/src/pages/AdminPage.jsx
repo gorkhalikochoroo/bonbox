@@ -117,7 +117,7 @@ export default function AdminPage() {
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6 pb-24">
       {/* Admin-mode banner — visual reminder this is privileged */}
-      <div className="bg-gradient-to-r from-red-50 to-orange-50 dark:from-red-900/20 dark:to-orange-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 flex items-center justify-between flex-wrap gap-3">
+      <div className="bg-gray-50 dark:bg-gray-800/50 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 flex items-center justify-between flex-wrap gap-3">
         <div>
           <div className="text-xs uppercase tracking-wide text-red-700 dark:text-red-400 font-bold">
             🛡️ Super Admin Mode
@@ -266,7 +266,7 @@ export default function AdminPage() {
                 const minsSince = lastActive ? (Date.now() - lastActive.getTime()) / 60000 : Infinity;
                 let dotClass = "bg-gray-300 dark:bg-gray-600";  // offline / never
                 let dotTitle = "Offline";
-                if (minsSince < 5) { dotClass = "bg-green-500"; dotTitle = "Online (active in last 5 min)"; }
+                if (minsSince < 5) { dotClass = "bg-emerald-500"; dotTitle = "Online (active in last 5 min)"; }
                 else if (minsSince < 60) { dotClass = "bg-yellow-500"; dotTitle = "Recently active (within an hour)"; }
                 else if (minsSince < 60 * 24) { dotClass = "bg-blue-400"; dotTitle = "Active today"; }
                 return (
@@ -296,7 +296,7 @@ export default function AdminPage() {
                     <td className="px-2 py-2 text-xs text-gray-600 dark:text-gray-300">{u.business_type}</td>
                     <td className="px-2 py-2 text-right font-mono">
                       {u.sale_count}
-                      {u.is_activated && <span className="ml-1 text-green-500" title="Activated">✓</span>}
+                      {u.is_activated && <span className="ml-1 text-emerald-600" title="Activated">✓</span>}
                     </td>
                     <td className="px-2 py-2 text-right font-mono">{u.event_count}</td>
                     <td className="px-2 py-2 text-right font-mono">{u.active_days}</td>
@@ -333,7 +333,7 @@ export default function AdminPage() {
                   <tr key={s.id} className={`border-b border-gray-100 dark:border-gray-800 ${denied ? "bg-red-50/40 dark:bg-red-900/10" : ""}`}>
                     <td className="px-2 py-1.5 text-gray-600 dark:text-gray-300">{relativeTime(s.created_at)}</td>
                     <td className="px-2 py-1.5">
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${denied ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300" : "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"}`}>
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${denied ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300" : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"}`}>
                         {s.event_type}
                       </span>
                     </td>
@@ -463,12 +463,12 @@ function UserIdResolver({ userId, userById }) {
         <span className="ml-2 inline-flex items-center gap-1 text-xs">
           {loading && <span className="text-gray-400">resolving…</span>}
           {!loading && display && (
-            <span className="px-1.5 py-0.5 bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 rounded text-emerald-700 dark:text-emerald-300">
+            <span className="px-1.5 py-0.5 bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-800 rounded text-gray-700 dark:text-gray-300">
               {display.email}
               {display.business_name && <span className="text-emerald-600/70 dark:text-emerald-400/70"> · {display.business_name}</span>}
               {display.role === "super_admin" && <span title="Super admin" className="ml-1">🛡️</span>}
               {display.email_verified ? (
-                <span title="Email verified" className="ml-1 text-emerald-700 dark:text-emerald-300">✓</span>
+                <span title="Email verified" className="ml-1 text-gray-700 dark:text-gray-300">✓</span>
               ) : (
                 <span title="Email not verified" className="ml-1 text-red-500">⚠</span>
               )}
@@ -543,7 +543,7 @@ function LockToggle({ user, onChange }) {
         disabled={busy}
         className={`px-2 py-0.5 rounded text-[11px] font-semibold transition ${
           user.is_locked
-            ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/60"
+            ? "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-800/50"
             : "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/60"
         } ${busy ? "opacity-50 cursor-wait" : "cursor-pointer"}`}
         title={user.is_locked ? "Click to unlock" : "Click to lock this account"}
@@ -556,12 +556,10 @@ function LockToggle({ user, onChange }) {
 }
 
 function KpiCard({ label, value, sub, accent }) {
-  const accentClass =
-    accent === "green" ? "from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border-green-200/60 dark:border-green-800/40" :
-    accent === "blue" ? "from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 border-blue-200/60 dark:border-blue-800/40" :
-    "from-gray-50 to-gray-100/50 dark:from-gray-800/40 dark:to-gray-700/30 border-gray-200/60 dark:border-gray-700/40";
+  // Per doctrine: tiles are neutral. Accent (dot/icon) carries signal, not the surface.
+  const accentClass = "border-gray-100 dark:border-gray-700";
   return (
-    <div className={`bg-gradient-to-br ${accentClass} border rounded-xl p-3`}>
+    <div className={`bg-white dark:bg-gray-900 ${accentClass} border rounded-xl p-3`}>
       <div className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 font-medium">{label}</div>
       <div className="text-2xl font-bold text-gray-800 dark:text-gray-100 mt-1">{value}</div>
       {sub && <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{sub}</div>}
@@ -689,7 +687,7 @@ function SpamCleanupBar({ onCleaned }) {
       )}
 
       {result?.deleted >= 0 && (
-        <span className="text-xs text-green-700 dark:text-green-400 font-medium">
+        <span className="text-xs text-gray-700 dark:text-gray-300 font-medium">
           ✓ Deleted {result.deleted} accounts. {result.skipped_with_data > 0 && `Skipped ${result.skipped_with_data} with data.`}
         </span>
       )}

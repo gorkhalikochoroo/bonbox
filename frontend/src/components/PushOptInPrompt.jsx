@@ -151,17 +151,17 @@ export default function PushOptInPrompt() {
   };
 
   return (
-    <div className="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200 dark:border-stone-700 shadow-sm p-5 sm:p-6">
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-5 sm:p-6">
       <div className="flex items-start justify-between gap-4 mb-3">
         <div className="flex items-start gap-3 min-w-0">
-          <div className="w-9 h-9 rounded-lg bg-emerald-500/10 dark:bg-emerald-500/15 flex items-center justify-center shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400">
+          <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0 mt-0.5 text-gray-700 dark:text-gray-300">
             <Icon name="Bell" size={16} strokeWidth={1.75} />
           </div>
           <div className="min-w-0">
-            <h2 className="text-[15.5px] font-semibold text-stone-900 dark:text-stone-100 tracking-tight">
+            <h2 className="text-[15.5px] font-semibold text-gray-900 dark:text-gray-100 tracking-tight">
               {t("pushOptInTitle") || "Get the morning brief as a push"}
             </h2>
-            <p className="text-[12.5px] text-stone-500 dark:text-stone-400 mt-0.5 leading-snug">
+            <p className="text-[12.5px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">
               {iosInstallFirst
                 ? (t("pushIosInstallFirst") ||
                    "On iPhone, add BonBox to your Home Screen first (Share → Add to Home Screen). Then push works.")
@@ -175,7 +175,7 @@ export default function PushOptInPrompt() {
           onClick={onDismiss}
           aria-label={t("pushDismiss") || "Dismiss for 30 days"}
           title={t("pushDismiss") || "Dismiss for 30 days"}
-          className="w-7 h-7 -mr-1 -mt-1 rounded-md text-stone-500 hover:text-stone-700 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-700/60 dark:hover:text-stone-200 transition flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+          className="w-7 h-7 -mr-1 -mt-1 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/60 dark:hover:text-gray-200 transition flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M18 6L6 18M6 6l12 12" />
@@ -197,7 +197,7 @@ export default function PushOptInPrompt() {
 
       <div className="flex items-center gap-2 flex-wrap">
         {iosInstallFirst ? (
-          <span className="text-[12px] text-stone-500 dark:text-stone-400 italic">
+          <span className="text-[12px] text-gray-500 dark:text-gray-400 italic">
             {t("pushIosHint") || "Tap Share, then Add to Home Screen, then re-open BonBox from your icon."}
           </span>
         ) : (
@@ -213,7 +213,7 @@ export default function PushOptInPrompt() {
         <button
           type="button"
           onClick={onDismiss}
-          className="text-[13px] text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 transition px-2"
+          className="text-[13px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition px-2"
         >
           {t("pushOptInNotNow") || "Not now"}
         </button>

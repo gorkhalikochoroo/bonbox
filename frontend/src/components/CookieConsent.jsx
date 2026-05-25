@@ -192,7 +192,7 @@ export default function CookieConsent() {
         locked
           ? "bg-gray-300 dark:bg-gray-600 cursor-not-allowed opacity-70"
           : checked
-            ? "bg-emerald-600"
+            ? "bg-gray-900"
             : "bg-gray-200 dark:bg-gray-700"
       }`}
     >
@@ -236,7 +236,7 @@ export default function CookieConsent() {
         data-cookie-consent="banner"
         className="fixed left-0 right-0 bottom-0 z-[60] px-3 sm:px-4 pb-3 sm:pb-4"
       >
-        <div className="max-w-3xl mx-auto bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-xl overflow-hidden">
+        <div className="max-w-3xl mx-auto bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
           {/* Banner content */}
           {!drawer ? (
             <div className="p-4 sm:p-5">
@@ -255,7 +255,7 @@ export default function CookieConsent() {
               <div className="flex flex-col sm:flex-row gap-2 mt-3">
                 <button
                   onClick={acceptAll}
-                  className="flex-1 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-lg transition"
+                  className="flex-1 px-4 py-2.5 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold rounded-lg transition"
                 >
                   {t("cookieAcceptAll") || "Accept all"}
                 </button>
@@ -335,7 +335,7 @@ export default function CookieConsent() {
               <div className="p-4 sm:p-5 border-t border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row gap-2">
                 <button
                   onClick={saveCustom}
-                  className="flex-1 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-lg transition"
+                  className="flex-1 px-4 py-2.5 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold rounded-lg transition"
                 >
                   {t("cookieSaveChoices") || "Save my choices"}
                 </button>

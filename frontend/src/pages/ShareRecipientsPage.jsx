@@ -161,7 +161,7 @@ export default function ShareRecipientsPage() {
 
       {editing && (
         <FadeIn>
-          <div className="mt-5 mb-6 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 sm:p-6 shadow-sm">
+          <div className="mt-5 mb-6 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 sm:p-6 shadow-sm">
             <h2 className="text-base font-bold text-gray-900 dark:text-white mb-4">
               {editing === "new"
                 ? (t("addRecipient") || "Add recipient")
@@ -256,7 +256,7 @@ export default function ShareRecipientsPage() {
             {error}
           </div>
         ) : channels.length === 0 ? (
-          <div className="mt-6 bg-white dark:bg-gray-800 border border-dashed border-gray-200 dark:border-gray-700 rounded-2xl p-8 text-center">
+          <div className="mt-6 bg-white dark:bg-gray-800 border border-dashed border-gray-200 dark:border-gray-700 rounded-xl p-8 text-center">
             <div className="text-4xl mb-2">📨</div>
             <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-1">
               {t("noRecipientsYet") || "No recipients yet"}

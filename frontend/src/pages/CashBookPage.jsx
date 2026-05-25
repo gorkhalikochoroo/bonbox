@@ -127,7 +127,7 @@ export default function CashBookPage() {
         <PageHeader eyebrow="MONEY" title={t("cashBook")} />
       </FadeIn>
 
-      {success && <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
+      {success && <div className="bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
       {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">{error}</div>}
 
       {/* Balance Summary — value accent only when it's data-true
@@ -158,7 +158,7 @@ export default function CashBookPage() {
           <button
             onClick={() => { setTab("cash_in"); setCategory(""); }}
             className={`px-5 py-2 rounded-md text-sm font-medium transition ${
-              tab === "cash_in" ? "bg-green-600 text-white" : "text-gray-600 dark:text-gray-300"
+              tab === "cash_in" ? "bg-gray-900 text-white" : "text-gray-600 dark:text-gray-300"
             }`}
           >
             {t("cashIn")}
@@ -183,7 +183,7 @@ export default function CashBookPage() {
               className={`px-4 py-2 rounded-xl text-sm font-medium border transition ${
                 category === c
                   ? tab === "cash_in"
-                    ? "bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-600 text-green-700 dark:text-green-300"
+                    ? "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-900 text-gray-700 dark:text-gray-300"
                     : "bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-600 text-red-700 dark:text-red-300"
                   : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50"
               }`}
@@ -211,7 +211,7 @@ export default function CashBookPage() {
               disabled={!desc}
               className={`px-5 py-3 rounded-xl border text-sm font-semibold transition disabled:opacity-30 ${
                 tab === "cash_in"
-                  ? "border-green-200 dark:border-green-700 text-green-700 dark:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/30"
+                  ? "border-gray-100 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50"
                   : "border-red-200 dark:border-red-700 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30"
               }`}
             >
@@ -234,7 +234,7 @@ export default function CashBookPage() {
             onClick={() => submit()}
             disabled={!amount || !desc}
             className={`px-6 py-3 text-white rounded-xl font-semibold transition disabled:opacity-40 ${
-              tab === "cash_in" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"
+              tab === "cash_in" ? "bg-gray-900 hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white" : "bg-red-600 hover:bg-red-700"
             }`}
           >
             {tab === "cash_in" ? t("addIn") : t("addOut")}
@@ -347,7 +347,7 @@ export default function CashBookPage() {
                       </td>
                       <td className="px-4 py-3"></td>
                       <td className="px-4 py-3 text-right space-x-2">
-                        <button onClick={saveEdit} className="text-green-600 dark:text-green-400 text-sm font-medium hover:underline">{t("save")}</button>
+                        <button onClick={saveEdit} className="text-emerald-600 dark:text-gray-300 text-sm font-medium hover:underline">{t("save")}</button>
                         <button onClick={() => setEditId(null)} className="text-gray-400 text-sm hover:underline">{t("cancel")}</button>
                       </td>
                     </>
@@ -359,7 +359,7 @@ export default function CashBookPage() {
                         {txn.reference_id && <span className="ml-1.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded">({t("autoTag")})</span>}
                       </td>
                       <td className={`px-4 py-3 text-sm ${txn.reference_id ? "text-gray-400 dark:text-gray-500" : "text-gray-500 dark:text-gray-400"}`}>{txn.category || "-"}</td>
-                      <td className={`px-4 py-3 text-sm text-right font-semibold ${txn.reference_id ? "text-green-400 dark:text-green-600" : "text-green-600 dark:text-green-400"}`}>
+                      <td className={`px-4 py-3 text-sm text-right font-semibold ${txn.reference_id ? "text-gray-300 dark:text-emerald-600" : "text-emerald-600 dark:text-gray-300"}`}>
                         {txn.type === "cash_in" ? `+${parseFloat(txn.amount).toLocaleString()}` : ""}
                       </td>
                       <td className={`px-4 py-3 text-sm text-right font-semibold ${txn.reference_id ? "text-red-400 dark:text-red-600" : "text-red-600 dark:text-red-400"}`}>

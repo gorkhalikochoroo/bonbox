@@ -582,7 +582,7 @@ export default function Layout() {
           appear only when tabbed to. */}
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-4 focus:py-2 focus:bg-emerald-600 focus:text-white focus:rounded-lg focus:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-4 focus:py-2 focus:bg-gray-900 focus:text-white focus:rounded-lg focus:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
       >
         Skip to main content
       </a>
@@ -600,18 +600,18 @@ export default function Layout() {
           aria-label={t("openMenu") || "Open menu"}
           aria-expanded={sidebarOpen}
           aria-controls="primary-navigation"
-          className="text-gray-600 dark:text-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800 rounded-md p-1"
+          className="text-gray-600 dark:text-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800 rounded-md p-1"
         >
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-        <h1 className="text-base font-bold text-green-600 dark:text-green-400">BonBox</h1>
+        <h1 className="text-base font-bold text-gray-900 dark:text-gray-100">BonBox</h1>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setSearchOpen(true)}
             aria-label={t("search") || "Search"}
-            className="text-gray-600 dark:text-gray-300 hover:text-green-600 dark:hover:text-green-400 transition"
+            className="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 transition"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
@@ -642,7 +642,7 @@ export default function Layout() {
         {/* Header */}
         <div className="px-4 pt-4 pb-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <h1 className="text-lg font-bold text-green-600 dark:text-green-400">BonBox</h1>
+            <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100">BonBox</h1>
             <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">{user?.business_name}</p>
             <BranchSelector compact />
           </div>
@@ -663,7 +663,7 @@ export default function Layout() {
             <button
               onClick={closeSidebar}
               aria-label={t("closeMenu") || "Close menu"}
-              className="md:hidden text-gray-400 hover:text-gray-600 text-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800 rounded-md w-8 h-8 flex items-center justify-center"
+              className="md:hidden text-gray-400 hover:text-gray-600 text-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800 rounded-md w-8 h-8 flex items-center justify-center"
             >
               <span aria-hidden="true">&times;</span>
             </button>
@@ -791,14 +791,14 @@ export default function Layout() {
                       onClick={() => toggleGroup(group.id)}
                       className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-semibold uppercase tracking-wider transition ${
                         hasActiveChild
-                          ? "text-green-600 dark:text-green-400"
+                          ? "text-gray-900 dark:text-gray-100"
                           : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
                       }`}
                     >
                       <Icon name={group.icon} size={14} className="shrink-0 opacity-70" />
                       <span>{t(group.labelKey)}</span>
                       {hasActiveChild && !isOpen && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 ml-0.5" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 ml-0.5" />
                       )}
                       <svg
                         className={`w-3 h-3 ml-auto transition-transform ${isOpen ? "rotate-180" : ""}`}

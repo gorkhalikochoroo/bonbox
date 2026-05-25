@@ -367,7 +367,7 @@ export default function BankImportPage() {
          ═══════════════════════════════════════════ */}
       {step === "upload" && bankConnectEnabled && (
         <FadeIn>
-          <div className="bg-gradient-to-br from-emerald-50 to-blue-50 dark:from-emerald-900/20 dark:to-blue-900/20 rounded-2xl p-6 border border-emerald-200 dark:border-emerald-800 shadow-sm space-y-4 mb-6">
+          <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-6 border border-gray-100 dark:border-gray-800 shadow-sm space-y-4 mb-6">
             <div className="flex items-start gap-3">
               <div className="text-3xl">🔗</div>
               <div className="flex-1">
@@ -402,7 +402,7 @@ export default function BankImportPage() {
                 <button
                   onClick={startAiiaConnect}
                   disabled={aiiaLoading}
-                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="px-5 py-2.5 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {aiiaLoading ? "Opening bank…" : "Connect bank"}
                 </button>
@@ -427,7 +427,7 @@ export default function BankImportPage() {
          ═══════════════════════════════════════════ */}
       {step === "upload" && (
         <FadeIn>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-gray-100 dark:border-gray-700 shadow-sm space-y-5">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-100 dark:border-gray-700 shadow-sm space-y-5">
             <div className="flex items-baseline justify-between">
               <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Or upload CSV manually</h3>
               <span className="text-xs text-gray-400">Free tier &amp; unsupported banks</span>
@@ -516,7 +516,7 @@ export default function BankImportPage() {
       {step === "preview" && preview && (
         <FadeIn>
           {/* Summary bar */}
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
             <div className="flex flex-wrap items-center gap-3 mb-4">
               <span className="text-lg">{BANK_LABELS[preview.bank]?.icon || "🏦"}</span>
               <span className="font-semibold text-gray-800 dark:text-white">{preview.bank_label}</span>
@@ -532,8 +532,8 @@ export default function BankImportPage() {
                 </div>
               </StaggerGridItem>
               <StaggerGridItem>
-                <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-3 text-center">
-                  <p className="text-2xl font-bold text-green-600 dark:text-green-400">+{preview.summary.income_total?.toLocaleString()}</p>
+                <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold text-emerald-600 dark:text-gray-300">+{preview.summary.income_total?.toLocaleString()}</p>
                   <p className="text-xs text-gray-400">{preview.summary.income_count} income</p>
                 </div>
               </StaggerGridItem>
@@ -553,7 +553,7 @@ export default function BankImportPage() {
           </div>
 
           {/* Transaction table */}
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 dark:bg-gray-700/50 text-gray-600 dark:text-gray-400">
@@ -597,14 +597,14 @@ export default function BankImportPage() {
                           {txn.description}
                         </td>
                         <td className={`px-3 py-2.5 text-right font-semibold whitespace-nowrap ${
-                          isIncome ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                          isIncome ? "text-emerald-600 dark:text-gray-300" : "text-red-600 dark:text-red-400"
                         }`}>
                           {isIncome ? "+" : ""}{txn.amount.toLocaleString()} {currency}
                         </td>
                         <td className="px-3 py-2.5">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                             isIncome
-                              ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+                              ? "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                               : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
                           }`}>
                             {isIncome ? "Income" : "Expense"}
@@ -646,7 +646,7 @@ export default function BankImportPage() {
                 <button
                   onClick={confirmImport}
                   disabled={selected.size === 0 || loading}
-                  className="px-6 py-2.5 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  className="px-6 py-2.5 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   {loading ? "Importing..." : `Import ${selected.size} transactions`}
                 </button>
@@ -661,7 +661,7 @@ export default function BankImportPage() {
          ═══════════════════════════════════════════ */}
       {step === "done" && result && (
         <FadeIn>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 border border-gray-100 dark:border-gray-700 shadow-sm text-center space-y-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-8 border border-gray-100 dark:border-gray-700 shadow-sm text-center space-y-4">
             <div className="text-5xl">✅</div>
             <h2 className="text-xl font-bold text-gray-800 dark:text-white">
               Imported {result.imported} transactions
@@ -754,7 +754,7 @@ export default function BankImportPage() {
                   const n = confirmAllHighConfidence();
                   showToast(`${n || 0} high-confidence matches selected`, "info", 2000);
                 }}
-                iconLeft={<Icon name="Sparkles" size={14} className="text-white dark:text-stone-900" />}
+                iconLeft={<Icon name="Sparkles" size={14} className="text-white dark:text-gray-900" />}
               >
                 Select all high-confidence
               </Button>
@@ -772,7 +772,7 @@ export default function BankImportPage() {
             {/* Mobile-friendly table — collapses to a card list under sm: */}
             <div className="space-y-2">
               {suggestions.transactions.length === 0 && (
-                <div className="text-center text-sm text-stone-500 dark:text-stone-400 py-10">
+                <div className="text-center text-sm text-gray-500 dark:text-gray-400 py-10">
                   Nothing to reconcile — all bank lines are already matched or no candidates were found.
                 </div>
               )}
@@ -786,33 +786,33 @@ export default function BankImportPage() {
                     className={
                       "rounded-lg border p-3 sm:p-4 transition-colors " +
                       (isSkipped
-                        ? "border-stone-200 dark:border-stone-800 bg-stone-50/60 dark:bg-stone-900/40 opacity-60"
+                        ? "border-gray-200 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-900/40 opacity-60"
                         : c
-                        ? "border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/40 dark:bg-emerald-900/10"
-                        : "border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900")
+                        ? "border-gray-100 dark:border-gray-800/60 bg-gray-50/40 dark:bg-gray-800/50"
+                        : "border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900")
                     }
                   >
                     {/* Row header */}
                     <div className="flex items-start justify-between gap-3 mb-2">
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2 text-xs text-stone-500 dark:text-stone-400">
+                        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                           <span>{t.date}</span>
                           <span className={
                             "px-1.5 py-0.5 rounded text-[10px] font-medium " +
                             (isIncome
-                              ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300"
+                              ? "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                               : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400")
                           }>
                             {isIncome ? "income" : "expense"}
                           </span>
                         </div>
-                        <p className="text-sm text-stone-800 dark:text-stone-100 mt-1 truncate" title={t.description}>
-                          {t.description || <span className="text-stone-400">No description</span>}
+                        <p className="text-sm text-gray-800 dark:text-gray-100 mt-1 truncate" title={t.description}>
+                          {t.description || <span className="text-gray-400">No description</span>}
                         </p>
                       </div>
                       <div className={
                         "text-right font-semibold whitespace-nowrap shrink-0 " +
-                        (isIncome ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400")
+                        (isIncome ? "text-gray-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400")
                       }>
                         {isIncome ? "+" : ""}{Number(t.amount).toLocaleString()} {currency}
                       </div>
@@ -820,7 +820,7 @@ export default function BankImportPage() {
 
                     {/* Suggestions + action */}
                     {t.suggestions.length === 0 ? (
-                      <div className="text-xs text-stone-500 dark:text-stone-400 italic">
+                      <div className="text-xs text-gray-500 dark:text-gray-400 italic">
                         No matching invoice/expense found within ±2 DKK / ±7 days.
                       </div>
                     ) : (
@@ -832,7 +832,7 @@ export default function BankImportPage() {
                             if (sel) toggleChosen(t.txn_id, sel);
                           }}
                           disabled={isSkipped}
-                          className="flex-1 min-w-0 px-2.5 py-1.5 text-xs sm:text-sm rounded-md border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-800 dark:text-stone-200 disabled:opacity-50"
+                          className="flex-1 min-w-0 px-2.5 py-1.5 text-xs sm:text-sm rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 disabled:opacity-50"
                         >
                           {t.suggestions.map((s) => (
                             <option key={s.target_id} value={s.target_id}>
@@ -845,10 +845,10 @@ export default function BankImportPage() {
                             className={
                               "text-[10px] font-medium px-2 py-1 rounded-full uppercase tracking-wide " +
                               (c.confidence === "high"
-                                ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300"
+                                ? "bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-300"
                                 : c.confidence === "medium"
                                 ? "bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300"
-                                : "bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300")
+                                : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300")
                             }
                             title={c.reason}
                           >

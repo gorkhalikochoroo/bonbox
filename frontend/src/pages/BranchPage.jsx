@@ -154,7 +154,7 @@ export default function BranchPage() {
 
       {/* ─── CREATE BRANCH ─── */}
       {showCreate && (
-        <form onSubmit={handleCreate} className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm space-y-3">
+        <form onSubmit={handleCreate} className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm space-y-3">
           <h3 className="font-bold text-gray-700 dark:text-gray-200">{t("createBranch")}</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder={t("branchNamePlaceholder")}
@@ -176,7 +176,7 @@ export default function BranchPage() {
             </div>
           )}
           <div className="flex gap-2">
-            <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium">{t("create")}</button>
+            <button type="submit" className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium">{t("create")}</button>
             <button type="button" onClick={() => setShowCreate(false)} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg text-sm">{t("cancel")}</button>
           </div>
         </form>
@@ -184,7 +184,7 @@ export default function BranchPage() {
 
       {/* ─── CONSOLIDATED SUMMARY ─── */}
       {summary?.has_branches && (
-        <div className="bg-gradient-to-br from-green-600 to-emerald-700 rounded-2xl p-6 text-white shadow-lg">
+        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-6 text-white shadow-sm">
           <h2 className="font-bold text-lg mb-1">📊 Consolidated View — This Month</h2>
           <p className="text-sm opacity-80 mb-4">{t("allBranchesCombined")}</p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
@@ -230,7 +230,7 @@ export default function BranchPage() {
         <div className="space-y-6">
           {/* Comparison chart */}
           {chartData.length > 0 && (
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
               <h2 className="font-bold text-gray-800 dark:text-white mb-4">📊 Branch Comparison — This Month</h2>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
@@ -257,12 +257,12 @@ export default function BranchPage() {
             {summary?.branches?.map((b) => {
               const margin = b.month_revenue > 0 ? Math.round(b.month_profit / b.month_revenue * 100) : 0;
               return (
-                <div key={b.id} className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+                <div key={b.id} className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <p className="font-bold text-gray-800 dark:text-white">{b.name}</p>
                       {b.is_default && (
-                        <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full">
+                        <span className="text-xs bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-2 py-0.5 rounded-full">
                           {t("defaultLabel")}
                         </span>
                       )}
@@ -272,14 +272,14 @@ export default function BranchPage() {
                         </span>
                       )}
                     </div>
-                    <span className={`text-sm font-bold ${margin >= 20 ? "text-green-600" : margin >= 0 ? "text-yellow-600" : "text-red-600"}`}>
+                    <span className={`text-sm font-bold ${margin >= 20 ? "text-emerald-600" : margin >= 0 ? "text-yellow-600" : "text-red-600"}`}>
                       {margin}% margin
                     </span>
                   </div>
                   <div className="grid grid-cols-3 gap-2 text-center">
                     <div>
                       <p className="text-xs text-gray-500">{t("revenue")}</p>
-                      <p className="text-base sm:text-lg font-bold text-green-600">{fmt(b.month_revenue)}</p>
+                      <p className="text-base sm:text-lg font-bold text-emerald-600">{fmt(b.month_revenue)}</p>
                     </div>
                     <div>
                       <p className="text-xs text-gray-500">{t("expenses")}</p>
@@ -301,13 +301,13 @@ export default function BranchPage() {
       {tab === "branches" && (
         <div className="space-y-4">
           {branches.map((b) => (
-            <div key={b.id} className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+            <div key={b.id} className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
               <div className="flex items-start justify-between">
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-lg font-bold text-gray-800 dark:text-white">{b.name}</p>
                     {b.is_default && (
-                      <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full">{t("defaultLabel")}</span>
+                      <span className="text-xs bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-2 py-0.5 rounded-full">{t("defaultLabel")}</span>
                     )}
                     {b.business_type && b.business_type !== "general" && (
                       <span className="text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 px-2 py-0.5 rounded-full">
@@ -320,13 +320,13 @@ export default function BranchPage() {
                 </div>
                 {!b.is_default && (
                   <button onClick={() => handleSetDefault(b.id)}
-                    className="text-xs text-green-600 hover:underline">{t("setAsDefault")}</button>
+                    className="text-xs text-emerald-600 hover:underline">{t("setAsDefault")}</button>
                 )}
               </div>
               <div className="grid grid-cols-3 gap-2 sm:gap-3 mt-4">
                 <div className="bg-gray-50 dark:bg-gray-700/30 rounded-xl p-2 sm:p-3 text-center">
                   <p className="text-[10px] sm:text-xs text-gray-500">{t("revenue")}</p>
-                  <p className="text-sm sm:text-lg font-bold text-green-600">{fmt(b.total_revenue)}</p>
+                  <p className="text-sm sm:text-lg font-bold text-emerald-600">{fmt(b.total_revenue)}</p>
                   <p className="text-[10px] text-gray-400 sm:hidden">{currency}</p>
                 </div>
                 <div className="bg-gray-50 dark:bg-gray-700/30 rounded-xl p-2 sm:p-3 text-center">
@@ -347,7 +347,7 @@ export default function BranchPage() {
 
       {/* ─── EMPTY STATE ─── */}
       {!hasBranches && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-sm text-center">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-8 shadow-sm text-center">
           <div className="text-5xl mb-3">🏢</div>
           <h2 className="text-lg font-bold text-gray-800 dark:text-white mb-2">{t("noBranchesYet")}</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto mb-4">
@@ -355,7 +355,7 @@ export default function BranchPage() {
             Each branch gets its own sales, expenses, inventory, and cashbook.
           </p>
           <button onClick={() => setShowCreate(true)}
-            className="px-6 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition">
+            className="px-6 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition">
             {t("createFirstBranch")}
           </button>
         </div>
@@ -363,7 +363,7 @@ export default function BranchPage() {
 
       {/* ─── HOW IT WORKS ─── */}
       {!hasBranches && (
-        <div className="bg-blue-50 dark:bg-blue-900/20 rounded-2xl p-5">
+        <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-5">
           <h3 className="font-bold text-blue-800 dark:text-blue-200 mb-3">{t("howBranchBookkeeping")}</h3>
           <div className="space-y-2 text-sm text-blue-700 dark:text-blue-300">
             <p>1. <strong>{t("nameYourLocations")}</strong></p>

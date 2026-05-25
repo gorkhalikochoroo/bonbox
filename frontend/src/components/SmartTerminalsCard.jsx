@@ -235,7 +235,7 @@ export default function SmartTerminalsCard({ onComplete }) {
   if (phase === "scan") {
     return (
       <>
-        <div className="rounded-2xl border border-gray-200 dark:border-gray-700/60 bg-white dark:bg-gray-800/40 p-5 sm:p-6 space-y-4">
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700/60 bg-white dark:bg-gray-800/40 p-5 sm:p-6 space-y-4">
           <div>
             <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
               {t("smartTerminalsTitle") || "Set up your terminals — the easy way"}
@@ -255,7 +255,7 @@ export default function SmartTerminalsCard({ onComplete }) {
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={scanning}
-              className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-50 transition"
+              className="px-4 py-2 rounded-lg bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold disabled:opacity-50 transition"
             >
               {scanning
                 ? (t("scanning") || "Scanning…")
@@ -314,7 +314,7 @@ export default function SmartTerminalsCard({ onComplete }) {
               type="button"
               onClick={startInference}
               disabled={scans.length === 0 || scanning}
-              className="px-4 py-2 rounded-lg bg-gray-900 dark:bg-emerald-600 hover:bg-gray-800 dark:hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-40 transition"
+              className="px-4 py-2 rounded-lg bg-gray-900 dark:bg-gray-900 hover:bg-gray-800 dark:hover:bg-gray-700 text-white text-sm font-semibold disabled:opacity-40 transition"
             >
               {t("smartTerminalsContinue") || "Continue"}
             </button>
@@ -337,7 +337,7 @@ export default function SmartTerminalsCard({ onComplete }) {
 
     return (
       <>
-        <div className="rounded-2xl border border-gray-200 dark:border-gray-700/60 bg-white dark:bg-gray-800/40 p-5 sm:p-6 space-y-4">
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700/60 bg-white dark:bg-gray-800/40 p-5 sm:p-6 space-y-4">
           <div>
             <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
               {noLabelsFound
@@ -481,7 +481,7 @@ export default function SmartTerminalsCard({ onComplete }) {
               type="button"
               onClick={() => acceptProposal()}
               disabled={phase === "saving" || (isMultiBranch && !branchId)}
-              className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-50 transition"
+              className="px-4 py-2 rounded-lg bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold disabled:opacity-50 transition"
             >
               {phase === "saving"
                 ? (t("saving") || "Saving…")
@@ -499,7 +499,7 @@ export default function SmartTerminalsCard({ onComplete }) {
   if (phase === "saving" || phase === "done") {
     return (
       <>
-        <div className="rounded-2xl border border-gray-200 dark:border-gray-700/60 p-5 text-center text-sm text-gray-500">
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700/60 p-5 text-center text-sm text-gray-500">
           {phase === "saving" ? (t("saving") || "Saving…") : (t("smartTerminalsSaved") || "Saved.")}
         </div>
         {ToastUI}
@@ -513,7 +513,7 @@ export default function SmartTerminalsCard({ onComplete }) {
 
 function CapPill({ on, onClick, clickable, label }) {
   const cls = on
-    ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-200"
+    ? "bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200"
     : "bg-gray-100 dark:bg-gray-700 text-gray-400 line-through";
   return (
     <button

@@ -107,7 +107,7 @@ export default function InsightsCard({ className = "" }) {
         </div>
         <Link
           to="/insights"
-          className="text-xs text-gray-700 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 font-medium"
+          className="text-xs text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white font-medium"
         >
           View all ({visible.length}) →
         </Link>

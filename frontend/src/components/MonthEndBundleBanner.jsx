@@ -101,16 +101,16 @@ export default function MonthEndBundleBanner() {
   // green for do-it-now (active CTA).
   const wrapStyle =
     phase === "do_it_now"
-      ? "bg-emerald-50/80 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800"
+      ? "bg-gray-50/80 dark:bg-gray-800/50 border-gray-100 dark:border-gray-800"
       : "bg-amber-50/70 dark:bg-amber-900/15 border-amber-200 dark:border-amber-800";
   const btnStyle =
     phase === "do_it_now"
-      ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+      ? "bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white"
       : "bg-amber-600 hover:bg-amber-700 text-white";
 
   return (
     <div
-      className={`relative rounded-2xl border p-5 pr-12 ${wrapStyle}`}
+      className={`relative rounded-xl border p-5 pr-12 ${wrapStyle}`}
       role="note"
     >
       <button

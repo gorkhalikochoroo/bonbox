@@ -16,9 +16,9 @@ import {
 function fmt(n) { return n != null ? Math.round(n).toLocaleString() : "\u2014"; }
 
 const STATUS_CONFIG = {
-  active:  { label: "Active",   color: "#10b981", bg: "bg-green-100 dark:bg-green-900/30", text: "text-green-700 dark:text-green-300" },
-  at_risk: { label: "At Risk",  color: "#f59e0b", bg: "bg-yellow-100 dark:bg-yellow-900/30", text: "text-yellow-700 dark:text-yellow-300" },
-  churned: { label: "Churned",  color: "#ef4444", bg: "bg-red-100 dark:bg-red-900/30", text: "text-red-700 dark:text-red-300" },
+  active:  { label: "Active",   color: "#10b981", bg: "bg-gray-100 dark:bg-gray-800", text: "text-gray-700 dark:text-gray-300", dot: "bg-emerald-500" },
+  at_risk: { label: "At Risk",  color: "#f59e0b", bg: "bg-gray-100 dark:bg-gray-800", text: "text-gray-700 dark:text-gray-300", dot: "bg-amber-500" },
+  churned: { label: "Churned",  color: "#ef4444", bg: "bg-gray-100 dark:bg-gray-800", text: "text-gray-700 dark:text-gray-300", dot: "bg-red-500" },
 };
 
 export default function RetentionPage() {
@@ -176,7 +176,7 @@ export default function RetentionPage() {
         <div className="space-y-6">
           {/* Status pie chart */}
           {pieData.length > 0 && (
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
               <h2 className="font-bold text-gray-800 dark:text-white mb-4">📊 Customer Status</h2>
               <div className="flex flex-col md:flex-row items-center gap-6">
                 <div className="h-48 w-48">
@@ -219,7 +219,7 @@ export default function RetentionPage() {
 
           {/* Monthly cohort chart */}
           {monthly_cohort?.length > 0 && (
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
               <h2 className="font-bold text-gray-800 dark:text-white mb-4">📅 Monthly Customer Activity</h2>
               <div className="h-56">
                 <ResponsiveContainer width="100%" height="100%">
@@ -241,7 +241,7 @@ export default function RetentionPage() {
 
       {/* ─── TOP CUSTOMERS TAB ─── */}
       {tab === "customers" && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
           <h2 className="font-bold text-gray-800 dark:text-white mb-4">👑 Top Customers by CLV</h2>
           {top_customers?.length > 0 ? (
             <div className="space-y-3">
@@ -259,7 +259,7 @@ export default function RetentionPage() {
       {tab === "at_risk" && (
         <div className="space-y-6">
           {at_risk_list?.length > 0 ? (
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm border-l-4 border-yellow-500">
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border-l-4 border-yellow-500">
               <h2 className="font-bold text-gray-800 dark:text-white mb-2">⚠️ At Risk (30-60 days inactive)</h2>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">These customers may be slipping away. Reach out soon!</p>
               <div className="space-y-3">
@@ -269,7 +269,7 @@ export default function RetentionPage() {
               </div>
             </div>
           ) : (
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm text-center">
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm text-center">
               <div className="text-4xl mb-2">🎉</div>
               <p className="text-gray-600 dark:text-gray-300 font-medium">No at-risk customers!</p>
               <p className="text-sm text-gray-400">All your customers are active.</p>
@@ -277,7 +277,7 @@ export default function RetentionPage() {
           )}
 
           {churned_list?.length > 0 && (
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm border-l-4 border-red-500">
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border-l-4 border-red-500">
               <h2 className="font-bold text-gray-800 dark:text-white mb-2">🚨 Churned (60+ days inactive)</h2>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Haven't returned in over 60 days. Win-back campaign recommended.</p>
               <div className="space-y-3">
@@ -306,8 +306,8 @@ function CustomerCard({ customer: c, rank, currency, showUrgency }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{c.name}</p>
-            <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${cfg.bg} ${cfg.text}`}>
-              {cfg.label}
+            <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${cfg.bg} ${cfg.text}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />{cfg.label}
             </span>
           </div>
           <p className="text-xs text-gray-500 mt-0.5">

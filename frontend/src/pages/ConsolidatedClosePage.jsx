@@ -110,7 +110,7 @@ export default function ConsolidatedClosePage() {
         </FadeIn>
 
         <FadeIn delay={0.05}>
-          <div className="mt-6 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/60 p-6 sm:p-8">
+          <div className="mt-6 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/60 p-6 sm:p-8">
             <div className="flex items-start gap-4">
               <div className="text-3xl shrink-0">🔒</div>
               <div className="flex-1">
@@ -155,7 +155,7 @@ export default function ConsolidatedClosePage() {
 
       {/* Date picker + run */}
       <FadeIn delay={0.02}>
-        <div className="mt-5 mb-5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/60 p-5 flex items-end gap-4 flex-wrap">
+        <div className="mt-5 mb-5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/60 p-5 flex items-end gap-4 flex-wrap">
           <div className="flex-1 min-w-[200px]">
             <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1.5">
               {t("consolidatedDate") || "Close date"}
@@ -165,7 +165,7 @@ export default function ConsolidatedClosePage() {
               value={date}
               onChange={(e) => setDate(e.target.value)}
               max={localIso()}
-              className="px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-green-300 dark:focus:ring-green-700"
+              className="px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-gray-200 dark:focus:ring-green-700"
             />
           </div>
           <button
@@ -188,7 +188,7 @@ export default function ConsolidatedClosePage() {
 
       {result && result.branch_count === 0 && (
         <FadeIn delay={0.04}>
-          <div className="rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/40 p-8 text-center">
+          <div className="rounded-xl border border-dashed border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/40 p-8 text-center">
             <div className="text-3xl mb-2">📭</div>
             <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">
               {t("consolidatedNoData") || "No closes for this date"}
@@ -204,7 +204,7 @@ export default function ConsolidatedClosePage() {
       {result && result.branch_count > 0 && (
         <FadeIn delay={0.04}>
           {/* Summary band */}
-          <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/60 p-5 mb-3 grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/60 p-5 mb-3 grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
             <Stat
               label={t("consolidatedStatBranches") || "Branches"}
               value={result.branch_count}
@@ -225,7 +225,7 @@ export default function ConsolidatedClosePage() {
           </div>
 
           {/* Per-branch rows */}
-          <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/60 overflow-hidden">
+          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/60 overflow-hidden">
             <div className="px-5 py-3 border-b border-gray-100 dark:border-gray-700/60 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
               {t("consolidatedPerBranch") || "Per branch"}
             </div>

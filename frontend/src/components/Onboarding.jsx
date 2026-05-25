@@ -136,8 +136,8 @@ function WelcomeModal({ user, onClose, t }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full shadow-xl overflow-hidden">
-        <div className="bg-gradient-to-br from-green-500 via-emerald-500 to-teal-500 p-6 text-white">
+      <div className="bg-white dark:bg-gray-800 rounded-xl max-w-md w-full shadow-sm overflow-hidden">
+        <div className="bg-gray-50 dark:bg-gray-800/50 p-6 text-white">
           <div className="text-5xl mb-2">{intro.icon}</div>
           <h2 className="text-xl font-bold">{intro.headline}</h2>
           <p className="text-sm text-green-50 mt-1 opacity-90">
@@ -148,7 +148,7 @@ function WelcomeModal({ user, onClose, t }) {
         <div className="p-6 space-y-3">
           {intro.bullets.map((b, i) => (
             <div key={i} className="flex items-start gap-3">
-              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 font-bold text-sm shrink-0">
+              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-bold text-sm shrink-0">
                 {i + 1}
               </span>
               <p className="text-sm text-gray-700 dark:text-gray-200 leading-relaxed">{b}</p>
@@ -177,7 +177,7 @@ function WelcomeModal({ user, onClose, t }) {
             </button>
             <button
               onClick={handleStart}
-              className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition shadow-sm"
+              className="flex-1 px-4 py-2 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-medium rounded-lg transition shadow-sm"
             >
               {t("welcomeStart") || "Let's go →"}
             </button>
@@ -307,7 +307,7 @@ export default function Onboarding({ summary }) {
     <>
       {welcomeOpen && <WelcomeModal user={user} onClose={closeWelcome} t={t} />}
       {showChecklist && (
-        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-800/50 rounded-2xl p-5 sm:p-6">
+        <div className="bg-gray-50 dark:bg-gray-800/50 border border-blue-200 dark:border-blue-800/50 rounded-xl p-5 sm:p-6">
           <div className="flex items-start justify-between gap-3 mb-4">
             <div>
               <h2 className="text-lg font-semibold text-blue-900 dark:text-blue-100">
@@ -334,7 +334,7 @@ export default function Onboarding({ summary }) {
           {/* Progress bar */}
           <div className="w-full h-1.5 bg-blue-100 dark:bg-blue-900/40 rounded-full overflow-hidden mb-4">
             <div
-              className="h-full bg-gradient-to-r from-green-400 to-emerald-500 transition-all duration-500"
+              className="h-full bg-gray-50 dark:bg-gray-800/50 transition-all duration-500"
               style={{ width: `${(completedCount / steps.length) * 100}%` }}
             />
           </div>
@@ -343,7 +343,7 @@ export default function Onboarding({ summary }) {
             {steps.map((step) => (
               <li key={step.id} className="flex items-center gap-3">
                 {step.done ? (
-                  <span className="flex items-center justify-center w-6 h-6 rounded-full bg-green-500 text-white text-xs font-bold shrink-0">
+                  <span className="flex items-center justify-center w-6 h-6 rounded-full bg-emerald-500 text-white text-xs font-bold shrink-0">
                     ✓
                   </span>
                 ) : (

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { Camera } from "lucide-react";
 import api from "../services/api";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useLanguage } from "../hooks/useLanguage";
@@ -237,7 +238,7 @@ export default function SmartImportModal({
       className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }}
     >
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
           <div>
@@ -265,7 +266,7 @@ export default function SmartImportModal({
               classifier already extracted the data once, but we need
               to re-upload to create a committable draft. */}
           {smartScanPrefill && !draftId && !draft && (
-            <div className="mb-4 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 p-3 text-sm text-emerald-900 dark:text-emerald-100">
+            <div className="mb-4 rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/40 p-3 text-sm text-gray-900 dark:text-gray-100">
               <div className="font-medium flex items-center gap-2 mb-0.5">
                 <span aria-hidden="true">✨</span>
                 {t("smartScan.invoiceHandoff", "Faktura registreret af Smart skan")}
@@ -338,7 +339,7 @@ function ExtractStep({
           { id: "text",    label: "📝 Paste text" },
           { id: "csv",     label: "📄 CSV" },
           { id: "excel",   label: "📊 Excel" },
-          { id: "image",   label: "📷 Photo" },
+          { id: "image",   label: "Photo", iconKey: "camera" },
           { id: "history", label: "📜 Recent" },
         ].map((m) => (
           <button
@@ -411,8 +412,8 @@ function ExtractStep({
       {isInputMode && mode === "image" && (
         <div>
           {fileInput ? (
-            <div className="border-2 border-blue-300 dark:border-blue-600 rounded-lg p-4 bg-blue-50 dark:bg-blue-900/20 flex items-center gap-3">
-              <span className="text-2xl">📷</span>
+            <div className="border-2 border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-800/50 flex items-center gap-3">
+              <Camera className="w-6 h-6 text-gray-500 dark:text-gray-400 shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                   {fileInput.name}
@@ -543,7 +544,7 @@ function HistoryList({ history }) {
               })
             : "—";
         const statusStyle = {
-          committed: "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300",
+          committed: "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300",
           created:   "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300",
           abandoned: "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400",
           failed:    "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300",
@@ -603,8 +604,9 @@ function HistoryList({ history }) {
                 <button
                   onClick={openPhoto}
                   title="View the original uploaded photo"
-                  className="text-xs px-2 py-1 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/40 font-medium">
-                  📷
+                  aria-label="View original photo"
+                  className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-700 font-medium inline-flex items-center justify-center">
+                  <Camera className="w-3.5 h-3.5" />
                 </button>
               )}
               <span className={`text-[10px] uppercase font-bold px-2 py-1 rounded ${statusStyle}`}>
@@ -685,12 +687,12 @@ function SupplierBanner({ supplier, supplierMatch, invoiceTotals, ocrProvider })
   return (
     <div className={`rounded-lg border px-3 py-2 text-sm ${
       matched
-        ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"
+        ? "bg-gray-50 dark:bg-gray-800/50 border-gray-100 dark:border-gray-800"
         : "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800"
     }`}>
       <div className="flex items-center gap-2 flex-wrap">
         <span className={`text-base leading-none ${
-          matched ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400"
+          matched ? "text-emerald-600 dark:text-gray-300" : "text-amber-600 dark:text-amber-400"
         }`}>
           {matched ? "✓" : "?"}
         </span>
@@ -842,10 +844,10 @@ function ReviewStep({
                 console.error("Failed to load original photo", e);
               }
             }}
-            className="px-2 py-1 rounded bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 text-xs font-medium inline-flex items-center gap-1"
+            className="px-2 py-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 text-xs font-medium inline-flex items-center gap-1"
             title="View the original uploaded photo"
           >
-            📷 View original photo
+            <Camera className="w-3.5 h-3.5" /> View original photo
           </button>
         )}
         {draft.duplicate_of && (
@@ -942,7 +944,7 @@ function ReviewStep({
         <button
           onClick={onCommit}
           disabled={committing || items.length === 0}
-          className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium rounded-lg transition"
+          className="px-4 py-2 bg-gray-900 hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium rounded-lg transition"
         >
           {committing ? "Saving…" : `Save ${items.length} item${items.length === 1 ? "" : "s"}`}
         </button>
@@ -954,7 +956,7 @@ function ReviewStep({
 function Stat({ label, value, color }) {
   const palette = {
     blue:   "bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200",
-    green:  "bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200",
+    green:  "bg-gray-50 dark:bg-gray-800/50 text-gray-800 dark:text-gray-200",
     purple: "bg-purple-50 dark:bg-purple-900/20 text-purple-800 dark:text-purple-200",
     amber:  "bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200",
   }[color] || "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300";

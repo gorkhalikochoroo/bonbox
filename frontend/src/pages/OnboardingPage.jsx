@@ -127,10 +127,10 @@ function ProgressDots({ step, total }) {
           className={
             "h-1.5 rounded-full transition-all " +
             (i + 1 === step
-              ? "w-6 bg-emerald-600"
+              ? "w-6 bg-gray-900"
               : i + 1 < step
-                ? "w-1.5 bg-emerald-500/70"
-                : "w-1.5 bg-stone-300 dark:bg-stone-700")
+                ? "w-1.5 bg-emerald-500/15"
+                : "w-1.5 bg-gray-300 dark:bg-gray-700")
           }
         />
       ))}
@@ -461,18 +461,18 @@ export default function OnboardingPage() {
   const totalSteps = 4;
 
   return (
-    <div className="min-h-screen bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100">
       {/* Top bar — progress + skip */}
-      <header className="sticky top-0 z-10 bg-stone-50/90 dark:bg-stone-950/90 backdrop-blur border-b border-stone-200 dark:border-stone-800">
+      <header className="sticky top-0 z-10 bg-gray-50/90 dark:bg-gray-950/90 backdrop-blur border-b border-gray-200 dark:border-gray-800">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-emerald-600 grid place-items-center text-white font-semibold text-sm">
+            <div className="w-8 h-8 rounded-lg bg-gray-900 grid place-items-center text-white font-semibold text-sm">
               B
             </div>
             <span className="text-sm font-semibold tracking-tight">BonBox</span>
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-xs text-stone-500 dark:text-stone-400 hidden sm:inline">
+            <span className="text-xs text-gray-500 dark:text-gray-400 hidden sm:inline">
               {(t("onbStepCounter") || "Step {n} of {total}")
                 .replace("{n}", step)
                 .replace("{total}", totalSteps)}
@@ -482,7 +482,7 @@ export default function OnboardingPage() {
               type="button"
               onClick={skipWizard}
               disabled={finishing}
-              className="text-xs text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 underline-offset-2 hover:underline disabled:opacity-50"
+              className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline-offset-2 hover:underline disabled:opacity-50"
             >
               {t("onbSkipExplore") || "Skip and explore"}
             </button>
@@ -499,36 +499,36 @@ export default function OnboardingPage() {
               {(t("onbStep1Headline") ||
                 (lang === "da" ? "Velkommen til BonBox" : "Welcome to BonBox"))}
             </h1>
-            <p className="text-stone-600 dark:text-stone-300 mb-6 max-w-md mx-auto leading-relaxed">
+            <p className="text-gray-600 dark:text-gray-300 mb-6 max-w-md mx-auto leading-relaxed">
               {(t("onbStep1Subhead") ||
                 "Your morning brief, your books, your revisor — one app. Let's get you set up in about 90 seconds.")}
             </p>
 
             <div className="grid sm:grid-cols-3 gap-3 mb-8 text-left">
-              <div className="rounded-lg border border-stone-200 dark:border-stone-800 p-3">
+              <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-3">
                 <Icon name="ShoppingBag" size={20} className="text-emerald-600 mb-1.5" />
-                <p className="text-xs font-semibold text-stone-900 dark:text-stone-100">
+                <p className="text-xs font-semibold text-gray-900 dark:text-gray-100">
                   {t("onbStep1Card1Title") || "One quick close"}
                 </p>
-                <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-0.5">
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
                   {t("onbStep1Card1Body") || "Snap your kasserapport — we file the numbers."}
                 </p>
               </div>
-              <div className="rounded-lg border border-stone-200 dark:border-stone-800 p-3">
+              <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-3">
                 <Icon name="Calculator" size={20} className="text-emerald-600 mb-1.5" />
-                <p className="text-xs font-semibold text-stone-900 dark:text-stone-100">
+                <p className="text-xs font-semibold text-gray-900 dark:text-gray-100">
                   {t("onbStep1Card2Title") || "Tax on autopilot"}
                 </p>
-                <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-0.5">
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
                   {t("onbStep1Card2Body") || "Pre-filled MOMS, always ready for SKAT."}
                 </p>
               </div>
-              <div className="rounded-lg border border-stone-200 dark:border-stone-800 p-3">
+              <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-3">
                 <Icon name="Send" size={20} className="text-emerald-600 mb-1.5" />
-                <p className="text-xs font-semibold text-stone-900 dark:text-stone-100">
+                <p className="text-xs font-semibold text-gray-900 dark:text-gray-100">
                   {t("onbStep1Card3Title") || "One-tap to revisor"}
                 </p>
-                <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-0.5">
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
                   {t("onbStep1Card3Body") || "Share a clean export with your accountant."}
                 </p>
               </div>
@@ -548,7 +548,7 @@ export default function OnboardingPage() {
               <h2 className="text-lg font-semibold tracking-tight">
                 {t("onbStep2Title") || "Tell us about your business"}
               </h2>
-              <p className="text-sm text-stone-500 dark:text-stone-400 mt-1">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                 {t("onbStep2Subtitle") ||
                   "Drop in your CVR and we'll fill the rest. No CVR? Type the basics by hand."}
               </p>
@@ -556,7 +556,7 @@ export default function OnboardingPage() {
 
             {/* CVR with one-click lookup */}
             <div className="mb-4">
-              <label htmlFor="onb-cvr" className="block text-xs font-medium text-stone-700 dark:text-stone-300 mb-1.5">
+              <label htmlFor="onb-cvr" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                 {t("onbStep2CvrLabel") || "CVR number"}
               </label>
               <div className="flex gap-2">
@@ -578,7 +578,7 @@ export default function OnboardingPage() {
                   maxLength={11}
                   aria-describedby={cvrError ? "onb-cvr-error" : undefined}
                   aria-invalid={!!cvrError}
-                  className="flex-1 px-3 py-2.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                  className="flex-1 px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
                 />
                 <Button
                   variant="secondary"
@@ -590,7 +590,7 @@ export default function OnboardingPage() {
                 </Button>
               </div>
               {cvrSource && (
-                <p className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-1.5 flex items-center gap-1">
+                <p className="text-[11px] text-gray-700 dark:text-emerald-400 mt-1.5 flex items-center gap-1">
                   <Icon name="CheckCircle2" size={12} />
                   {(t("onbStep2CvrLoaded") || "Loaded from {source}").replace(
                     "{source}",
@@ -607,7 +607,7 @@ export default function OnboardingPage() {
 
             {/* Business name (required) */}
             <div className="mb-4">
-              <label htmlFor="onb-biz-name" className="block text-xs font-medium text-stone-700 dark:text-stone-300 mb-1.5">
+              <label htmlFor="onb-biz-name" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                 {t("onbStep2NameLabel") || "Business name"}
                 <span className="text-red-600 ml-0.5" aria-hidden="true">*</span>
                 <span className="sr-only"> (required)</span>
@@ -622,13 +622,13 @@ export default function OnboardingPage() {
                   setBiz({ ...biz, company_name: e.target.value })
                 }
                 placeholder={t("onbStep2NamePlaceholder") || "e.g. Café Mirabelle ApS"}
-                className="w-full px-3 py-2.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                className="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
               />
             </div>
 
             {/* Branch type — chooser */}
             <fieldset className="mb-2">
-              <legend className="block text-xs font-medium text-stone-700 dark:text-stone-300 mb-2">
+              <legend className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
                 {t("onbStep2BranchLabel") || "What kind of business?"}
               </legend>
               <div
@@ -646,10 +646,10 @@ export default function OnboardingPage() {
                       aria-checked={active}
                       onClick={() => setBiz({ ...biz, branch_type: b.id })}
                       className={
-                        "flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
+                        "flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
                         (active
-                          ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 ring-1 ring-emerald-500/50"
-                          : "border-stone-200 dark:border-stone-800 hover:border-stone-300 dark:hover:border-stone-700")
+                          ? "border-gray-300 bg-gray-50 dark:bg-gray-800/50 ring-1 ring-gray-400"
+                          : "border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700")
                       }
                     >
                       <span className="text-xl" aria-hidden="true">{b.emoji}</span>
@@ -666,7 +666,7 @@ export default function OnboardingPage() {
               <p className="text-xs text-red-700 dark:text-red-400 mt-3" role="alert" aria-live="assertive">{stepError}</p>
             )}
 
-            <div className="flex items-center justify-between gap-3 mt-6 pt-5 border-t border-stone-200 dark:border-stone-800">
+            <div className="flex items-center justify-between gap-3 mt-6 pt-5 border-t border-gray-200 dark:border-gray-800">
               <Button variant="ghost" onClick={() => setStep(1)}>
                 {t("onbBack") || "Back"}
               </Button>
@@ -688,7 +688,7 @@ export default function OnboardingPage() {
               <h2 className="text-lg font-semibold tracking-tight">
                 {t("onbStep3Title") || "Tax preferences"}
               </h2>
-              <p className="text-sm text-stone-500 dark:text-stone-400 mt-1">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                 {t("onbStep3Subtitle") ||
                   "Defaults are right for most small Danish businesses. You can change any of this in Tax Autopilot later."}
               </p>
@@ -696,7 +696,7 @@ export default function OnboardingPage() {
 
             {/* Filing frequency */}
             <fieldset className="mb-5">
-              <legend className="block text-xs font-medium text-stone-700 dark:text-stone-300 mb-2">
+              <legend className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
                 {t("onbStep3FilingLabel") || "How often do you file MOMS?"}
               </legend>
               <div className="space-y-2" role="radiogroup" aria-label={t("onbStep3FilingLabel") || "Filing frequency"}>
@@ -712,10 +712,10 @@ export default function OnboardingPage() {
                         setTax({ ...tax, tax_filing_frequency: opt.id })
                       }
                       className={
-                        "w-full text-left flex items-center gap-3 rounded-lg border p-3 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
+                        "w-full text-left flex items-center gap-3 rounded-lg border p-3 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
                         (active
-                          ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 ring-1 ring-emerald-500/50"
-                          : "border-stone-200 dark:border-stone-800 hover:border-stone-300 dark:hover:border-stone-700")
+                          ? "border-gray-300 bg-gray-50 dark:bg-gray-800/50 ring-1 ring-gray-400"
+                          : "border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700")
                       }
                     >
                       <span
@@ -723,8 +723,8 @@ export default function OnboardingPage() {
                         className={
                           "w-4 h-4 rounded-full border-2 shrink-0 " +
                           (active
-                            ? "bg-emerald-600 border-emerald-600 ring-2 ring-emerald-200 dark:ring-emerald-900/40"
-                            : "border-stone-400 dark:border-stone-600")
+                            ? "bg-gray-900 border-gray-900 ring-2 ring-gray-200 dark:ring-gray-700/40"
+                            : "border-gray-400 dark:border-gray-600")
                         }
                       />
                       <span className="text-sm">
@@ -737,12 +737,12 @@ export default function OnboardingPage() {
             </fieldset>
 
             {/* Prices include VAT toggle */}
-            <div className="mb-5 flex items-center justify-between rounded-lg border border-stone-200 dark:border-stone-800 p-3.5">
+            <div className="mb-5 flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-800 p-3.5">
               <div className="min-w-0">
                 <p id="onb-vat-toggle-label" className="text-sm font-medium">
                   {t("onbStep3VatToggle") || "Prices include MOMS (25%)"}
                 </p>
-                <p id="onb-vat-toggle-hint" className="text-[11px] text-stone-600 dark:text-stone-400 mt-0.5">
+                <p id="onb-vat-toggle-hint" className="text-[11px] text-gray-600 dark:text-gray-400 mt-0.5">
                   {t("onbStep3VatToggleHint") ||
                     "On for B2C (cafés, retail). Off for B2B businesses that price net."}
                 </p>
@@ -757,10 +757,10 @@ export default function OnboardingPage() {
                   setTax({ ...tax, prices_include_moms: !tax.prices_include_moms })
                 }
                 className={
-                  "shrink-0 w-11 h-6 rounded-full relative transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
+                  "shrink-0 w-11 h-6 rounded-full relative transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
                   (tax.prices_include_moms
-                    ? "bg-emerald-600"
-                    : "bg-stone-300 dark:bg-stone-700")
+                    ? "bg-gray-900"
+                    : "bg-gray-300 dark:bg-gray-700")
                 }
               >
                 <span
@@ -776,12 +776,12 @@ export default function OnboardingPage() {
             {/* Day rollover — when does the business day end?
                 Drives kasserapport / daily-close / live-KPI windows. */}
             <fieldset className="mb-5">
-              <legend className="block text-xs font-medium text-stone-700 dark:text-stone-300 mb-1">
+              <legend className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                 {t("onbStep3CutoffLabel") || "When does your business day roll over?"}
               </legend>
               <p
                 id="onb-cutoff-hint"
-                className="text-[11px] text-stone-600 dark:text-stone-400 mb-2 leading-relaxed"
+                className="text-[11px] text-gray-600 dark:text-gray-400 mb-2 leading-relaxed"
               >
                 {t("onbStep3CutoffHint") ||
                   "A 02:00 sale belongs to YESTERDAY's shift — restaurant convention. You can change this later in Profile."}
@@ -804,10 +804,10 @@ export default function OnboardingPage() {
                         setTax({ ...tax, day_cutoff_mode: opt.id })
                       }
                       className={
-                        "w-full text-left flex items-start gap-3 rounded-lg border p-3 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
+                        "w-full text-left flex items-start gap-3 rounded-lg border p-3 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
                         (active
-                          ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 ring-1 ring-emerald-500/50"
-                          : "border-stone-200 dark:border-stone-800 hover:border-stone-300 dark:hover:border-stone-700")
+                          ? "border-gray-300 bg-gray-50 dark:bg-gray-800/50 ring-1 ring-gray-400"
+                          : "border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700")
                       }
                     >
                       <span
@@ -815,15 +815,15 @@ export default function OnboardingPage() {
                         className={
                           "mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 " +
                           (active
-                            ? "bg-emerald-600 border-emerald-600 ring-2 ring-emerald-200 dark:ring-emerald-900/40"
-                            : "border-stone-400 dark:border-stone-600")
+                            ? "bg-gray-900 border-gray-900 ring-2 ring-gray-200 dark:ring-gray-700/40"
+                            : "border-gray-400 dark:border-gray-600")
                         }
                       />
                       <span className="min-w-0">
                         <span className="block text-sm font-medium">
                           {t(opt.labelKey) || opt.labelFallback}
                         </span>
-                        <span className="block text-[11px] text-stone-600 dark:text-stone-400 mt-0.5">
+                        <span className="block text-[11px] text-gray-600 dark:text-gray-400 mt-0.5">
                           {t(opt.descKey) || opt.descFallback}
                         </span>
                       </span>
@@ -839,8 +839,8 @@ export default function OnboardingPage() {
                   className={
                     "w-full flex items-center gap-3 rounded-lg border p-3 transition " +
                     (tax.day_cutoff_mode === "custom"
-                      ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 ring-1 ring-emerald-500/50"
-                      : "border-stone-200 dark:border-stone-800")
+                      ? "border-gray-300 bg-gray-50 dark:bg-gray-800/50 ring-1 ring-gray-400"
+                      : "border-gray-200 dark:border-gray-800")
                   }
                 >
                   <button
@@ -848,15 +848,15 @@ export default function OnboardingPage() {
                     role="radio"
                     aria-checked={tax.day_cutoff_mode === "custom"}
                     onClick={() => setTax({ ...tax, day_cutoff_mode: "custom" })}
-                    className="flex items-center gap-3 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded"
+                    className="flex items-center gap-3 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded"
                   >
                     <span
                       aria-hidden="true"
                       className={
                         "w-4 h-4 rounded-full border-2 shrink-0 " +
                         (tax.day_cutoff_mode === "custom"
-                          ? "bg-emerald-600 border-emerald-600 ring-2 ring-emerald-200 dark:ring-emerald-900/40"
-                          : "border-stone-400 dark:border-stone-600")
+                          ? "bg-gray-900 border-gray-900 ring-2 ring-gray-200 dark:ring-gray-700/40"
+                          : "border-gray-400 dark:border-gray-600")
                       }
                     />
                     <span className="text-sm font-medium">
@@ -880,9 +880,9 @@ export default function OnboardingPage() {
                       setTax((tx) => ({ ...tx, day_cutoff_mode: "custom" }))
                     }
                     aria-label={t("onbStep3CutoffCustomAria") || "Custom rollover hour (0-23)"}
-                    className="w-16 px-2 py-1 rounded border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-16 px-2 py-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-center focus:outline-none focus:ring-2 focus:ring-gray-400"
                   />
-                  <span className="text-[11px] text-stone-500 dark:text-stone-400 shrink-0">
+                  <span className="text-[11px] text-gray-500 dark:text-gray-400 shrink-0">
                     {t("onbStep3CutoffCustomSuffix") || ":00 local time (0–23)"}
                   </span>
                 </div>
@@ -891,7 +891,7 @@ export default function OnboardingPage() {
 
             {/* Accountant email (optional) */}
             <div className="mb-2">
-              <label htmlFor="onb-acct-email" className="block text-xs font-medium text-stone-700 dark:text-stone-300 mb-1.5">
+              <label htmlFor="onb-acct-email" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                 {t("onbStep3AccountantLabel") || "Accountant's email (optional)"}
               </label>
               <input
@@ -904,9 +904,9 @@ export default function OnboardingPage() {
                 placeholder="revisor@example.dk"
                 autoComplete="off"
                 aria-describedby="onb-acct-email-hint"
-                className="w-full px-3 py-2.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                className="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
               />
-              <p id="onb-acct-email-hint" className="text-[11px] text-stone-600 dark:text-stone-400 mt-1.5">
+              <p id="onb-acct-email-hint" className="text-[11px] text-gray-600 dark:text-gray-400 mt-1.5">
                 {t("onbStep3AccountantHint") ||
                   "Used as the To: address when you tap 'Email kasserapport'. We never email anyone without your action."}
               </p>
@@ -916,7 +916,7 @@ export default function OnboardingPage() {
                   Same accountant 95% of the time, but two different
                   channels — explicit copy here saves a support ticket
                   ("Why does it ask for the same email twice?"). */}
-              <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-1.5 italic">
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 italic">
                 {t("onbStep3AccountantDisambig") ||
                   "Different from the read-only revisor login in the next step — that one's for accountants who want to log in and see your books directly."}
               </p>
@@ -926,7 +926,7 @@ export default function OnboardingPage() {
               <p className="text-xs text-red-700 dark:text-red-400 mt-3" role="alert" aria-live="assertive">{stepError}</p>
             )}
 
-            <div className="flex items-center justify-between gap-3 mt-6 pt-5 border-t border-stone-200 dark:border-stone-800">
+            <div className="flex items-center justify-between gap-3 mt-6 pt-5 border-t border-gray-200 dark:border-gray-800">
               <Button variant="ghost" onClick={() => setStep(2)}>
                 {t("onbBack") || "Back"}
               </Button>
@@ -948,7 +948,7 @@ export default function OnboardingPage() {
               <h2 className="text-lg font-semibold tracking-tight">
                 {t("onbStep4Title") || "Share with your revisor"}
               </h2>
-              <p className="text-sm text-stone-500 dark:text-stone-400 mt-1">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                 {t("onbStep4Subtitle") ||
                   "Most Danish small businesses share their books with a revisor. Invite yours now — they'll get read-only access to your reports."}
               </p>
@@ -967,7 +967,7 @@ export default function OnboardingPage() {
                   ctaLabel={t("onbStep4SeeStarter") || "See Starter"}
                   cta="/subscription"
                 />
-                <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-3">
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-3">
                   {t("onbStep4SkipForNow") ||
                     "Or skip — you can invite from Profile anytime."}
                 </p>
@@ -975,7 +975,7 @@ export default function OnboardingPage() {
             ) : (
               <>
                 <div className="mb-4">
-                  <label htmlFor="onb-revisor-email" className="block text-xs font-medium text-stone-700 dark:text-stone-300 mb-1.5">
+                  <label htmlFor="onb-revisor-email" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                     {t("onbStep4EmailLabel") || "Revisor's email"}
                   </label>
                   <input
@@ -989,11 +989,11 @@ export default function OnboardingPage() {
                     autoComplete="off"
                     aria-invalid={!!revisorError}
                     aria-describedby={revisorError ? "onb-revisor-error" : undefined}
-                    className="w-full px-3 py-2.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
                   />
                 </div>
                 <div className="mb-2">
-                  <label htmlFor="onb-revisor-name" className="block text-xs font-medium text-stone-700 dark:text-stone-300 mb-1.5">
+                  <label htmlFor="onb-revisor-name" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                     {t("onbStep4NameLabel") || "Revisor's name (optional)"}
                   </label>
                   <input
@@ -1005,9 +1005,9 @@ export default function OnboardingPage() {
                     }
                     placeholder={t("onbStep4NamePlaceholder") || "Anna Hansen"}
                     aria-describedby="onb-revisor-name-hint"
-                    className="w-full px-3 py-2.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
                   />
-                  <p id="onb-revisor-name-hint" className="text-[11px] text-stone-600 dark:text-stone-400 mt-1.5">
+                  <p id="onb-revisor-name-hint" className="text-[11px] text-gray-600 dark:text-gray-400 mt-1.5">
                     {t("onbStep4NameHint") ||
                       "Shown in the greeting (\"Hej Anna,\") of the invite email."}
                   </p>
@@ -1016,7 +1016,7 @@ export default function OnboardingPage() {
             )}
 
             {revisorMsg && (
-              <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-3 flex items-center gap-1" role="status" aria-live="polite">
+              <p className="text-xs text-gray-700 dark:text-emerald-400 mt-3 flex items-center gap-1" role="status" aria-live="polite">
                 <Icon name="CheckCircle2" size={12} />
                 {revisorMsg}
               </p>
@@ -1027,7 +1027,7 @@ export default function OnboardingPage() {
               </p>
             )}
 
-            <div className="flex items-center justify-between gap-3 mt-6 pt-5 border-t border-stone-200 dark:border-stone-800">
+            <div className="flex items-center justify-between gap-3 mt-6 pt-5 border-t border-gray-200 dark:border-gray-800">
               <Button
                 variant="ghost"
                 onClick={() => setStep(3)}

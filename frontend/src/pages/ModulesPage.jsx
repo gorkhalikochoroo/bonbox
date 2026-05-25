@@ -147,7 +147,7 @@ export default function ModulesPage() {
                   disabled={wouldBeBlocked}
                   className={`w-full text-left rounded-xl border px-5 py-4 transition flex items-start gap-4
                     ${selected
-                      ? "border-green-300 dark:border-green-700 bg-green-50/60 dark:bg-green-900/10"
+                      ? "border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-800/50"
                       : wouldBeBlocked
                         ? "border-gray-200 dark:border-gray-700 bg-gray-50/40 dark:bg-gray-800/30 opacity-60 cursor-not-allowed"
                         : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/60 hover:border-gray-300 dark:hover:border-gray-600"
@@ -156,7 +156,7 @@ export default function ModulesPage() {
                   <span
                     className={`mt-0.5 flex-shrink-0 w-5 h-5 rounded-md border flex items-center justify-center text-[12px] font-bold
                       ${selected
-                        ? "bg-green-500 border-green-500 text-white"
+                        ? "bg-gray-900 dark:bg-gray-100 border-gray-900 dark:border-gray-100 text-white dark:text-gray-900"
                         : "border-gray-300 dark:border-gray-600 text-transparent"
                       }`}
                   >
@@ -212,7 +212,7 @@ export default function ModulesPage() {
             </Button>
           )}
           {savedHint && (
-            <span className="text-[13px] text-emerald-700 dark:text-emerald-400 font-medium">
+            <span className="text-[13px] text-gray-700 dark:text-emerald-400 font-medium">
               ✓ {savedHint}
             </span>
           )}

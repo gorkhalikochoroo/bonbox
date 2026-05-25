@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { AlertTriangle } from "lucide-react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 
@@ -70,7 +71,7 @@ export function countryFromCurrency(currency) {
 function ConfidenceBadge({ level }) {
   const { t } = useLanguage();
   const map = {
-    verified: { color: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300", label: t("confidenceVerified") || "Verified" },
+    verified: { color: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300", label: t("confidenceVerified") || "Verified" },
     likely:   { color: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300", label: t("confidenceLikely") || "Likely match" },
     guess:    { color: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300", label: t("confidenceGuess") || "Best guess" },
   };
@@ -199,9 +200,9 @@ function AddressVerifyPicker({ cvrAddress, dawa, onPick }) {
   if (!dawa) return null;
   if (dawa.matches_input) {
     return (
-      <div className="px-3 py-2 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 text-xs flex items-center gap-2">
+      <div className="px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 text-xs flex items-center gap-2">
         <span>✓</span>
-        <span className="text-green-700 dark:text-green-300">
+        <span className="text-gray-700 dark:text-gray-300">
           {t("dawaAddressVerified") || "Address verified against DAWA postal register"}
         </span>
       </div>
@@ -223,9 +224,9 @@ function AddressVerifyPicker({ cvrAddress, dawa, onPick }) {
         </button>
         <button
           onClick={() => onPick(dawa.betegnelse, dawa.id)}
-          className="block w-full text-left px-3 py-2 rounded bg-white dark:bg-gray-800 border border-green-300 dark:border-green-700 hover:border-green-500 transition"
+          className="block w-full text-left px-3 py-2 rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-gray-300 transition"
         >
-          <p className="text-[10px] uppercase text-green-600">{t("dawaFromDawaLabel") || "From DAWA postal register (recommended)"}</p>
+          <p className="text-[10px] uppercase text-gray-500 dark:text-gray-400">{t("dawaFromDawaLabel") || "From DAWA postal register (recommended)"}</p>
           <p className="text-gray-700 dark:text-gray-200">{dawa.betegnelse}</p>
         </button>
       </div>
@@ -434,7 +435,7 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
 
           {/* Results dropdown */}
           {results.length > 0 && (
-            <div className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-xl z-20 max-h-80 overflow-y-auto">
+            <div className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm z-20 max-h-80 overflow-y-auto">
               {results.map((r, i) => (
                 <button
                   key={i}
@@ -455,10 +456,10 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
                   {(r.status_flags || []).length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1">
                       {r.status_flags.includes("konkurs") && (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-semibold">⚠️ konkurs</span>
+                        <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-semibold"><AlertTriangle className="w-2.5 h-2.5" />konkurs</span>
                       )}
                       {r.status_flags.includes("ophoert") && (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-semibold">⚠️ ophørt</span>
+                        <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-semibold"><AlertTriangle className="w-2.5 h-2.5" />ophørt</span>
                       )}
                       {r.status_flags.includes("no_vat") && (
                         <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-semibold">no MOMS</span>
@@ -491,7 +492,7 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
           {selected && !manual && (
             <div className="pb-2 border-b border-gray-200 dark:border-gray-600 space-y-2">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-green-500 text-lg">&#10003;</span>
+                <span className="text-emerald-600 text-lg">&#10003;</span>
                 <span className="text-sm font-semibold text-gray-800 dark:text-white">{form.company_name}</span>
                 {selected.confidence && <ConfidenceBadge level={selected.confidence} />}
                 <span className="text-xs text-gray-400">via {selected.source}</span>
@@ -503,7 +504,7 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
                 onApply={applyBusinessTypeDefaults}
               />
               {appliedBusinessType && (
-                <div className="px-3 py-1.5 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 text-xs text-green-700 dark:text-green-300">
+                <div className="px-3 py-1.5 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 text-xs text-gray-700 dark:text-gray-300">
                   ✓ Business type set to <strong>{appliedBusinessType}</strong>
                 </div>
               )}
@@ -589,7 +590,7 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
           <button
             onClick={handleSave}
             disabled={saving || !form.company_name}
-            className="w-full py-2.5 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 disabled:opacity-40 transition mt-2"
+            className="w-full py-2.5 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-700 disabled:opacity-40 transition mt-2"
           >
             {saving ? "Saving…" : saved ? "Saved!" : "Save Business Profile"}
           </button>

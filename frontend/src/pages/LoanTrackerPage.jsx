@@ -135,7 +135,7 @@ export default function LoanTrackerPage() {
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5 border border-gray-100 dark:border-gray-700">
           <p className="text-xs text-gray-500 dark:text-gray-400 uppercase">{t("netBalance")}</p>
-          <p className={`text-2xl font-bold ${summary.net_balance >= 0 ? "text-green-600" : "text-red-600"}`}>
+          <p className={`text-2xl font-bold ${summary.net_balance >= 0 ? "text-emerald-600" : "text-red-600"}`}>
             {summary.net_balance >= 0 ? "+" : ""}{fmt(summary.net_balance)} {currency}
           </p>
         </div>
@@ -191,7 +191,7 @@ export default function LoanTrackerPage() {
                     {p.lent_balance > 0 && (
                       <p className="text-xs text-blue-600">{t("owesMe")}: {fmt(p.lent_balance)}</p>
                     )}
-                    <p className={`font-bold text-sm ${p.net_balance > 0 ? "text-green-600" : p.net_balance < 0 ? "text-red-600" : "text-gray-400"}`}>
+                    <p className={`font-bold text-sm ${p.net_balance > 0 ? "text-emerald-600" : p.net_balance < 0 ? "text-red-600" : "text-gray-400"}`}>
                       {p.net_balance > 0 ? `+${fmt(p.net_balance)}` : p.net_balance < 0 ? fmt(p.net_balance) : t("settled")}
                     </p>
                   </div>
@@ -225,7 +225,7 @@ export default function LoanTrackerPage() {
                     {selected.lent_balance > 0 && (
                       <p className="text-xs text-blue-600">{t("owesMe")}: {fmt(selected.lent_balance)} {currency}</p>
                     )}
-                    <p className={`text-xl font-bold ${selected.net_balance >= 0 ? "text-green-600" : "text-red-600"}`}>
+                    <p className={`text-xl font-bold ${selected.net_balance >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                       {t("netBalance")}: {selected.net_balance >= 0 ? "+" : ""}{fmt(selected.net_balance)} {currency}
                     </p>
                   </div>
@@ -292,7 +292,7 @@ export default function LoanTrackerPage() {
                         <td className="px-4 py-3">
                           <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                             txn.is_repayment
-                              ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+                              ? "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                               : txn.type === "lent"
                                 ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400"
                                 : "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400"
@@ -301,11 +301,11 @@ export default function LoanTrackerPage() {
                           </span>
                         </td>
                         <td className={`px-4 py-3 text-right font-medium ${
-                          txn.is_repayment ? "text-green-600" : txn.type === "lent" ? "text-blue-600" : "text-orange-600"
+                          txn.is_repayment ? "text-emerald-600" : txn.type === "lent" ? "text-blue-600" : "text-orange-600"
                         }`}>
                           {txn.is_repayment ? "-" : "+"}{fmt(txn.amount)} {currency}
                         </td>
-                        <td className={`px-4 py-3 text-right font-bold ${txn.runNet >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        <td className={`px-4 py-3 text-right font-bold ${txn.runNet >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                           {txn.runNet >= 0 ? "+" : ""}{fmt(txn.runNet)} {currency}
                         </td>
                         <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{txn.notes || "-"}</td>

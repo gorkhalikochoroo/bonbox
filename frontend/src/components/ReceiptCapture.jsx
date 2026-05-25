@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { Camera, ImageIcon } from "lucide-react";
 import Modal from "./Modal";
 import ReceiptViewer from "./ReceiptViewer";
 import api from "../services/api";
@@ -170,15 +171,16 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
       {!isExpense && (
         <button
           onClick={() => setOpen(true)}
-          className="px-4 py-2.5 bg-white dark:bg-gray-700 text-green-700 dark:text-green-400 border border-green-300 dark:border-green-700 rounded-lg text-sm font-medium hover:bg-green-50 dark:hover:bg-green-900/20 transition shadow-sm"
+          className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 transition shadow-sm"
         >
-          📸 {t("snapReceipt")}
+          <Camera size={16} />
+          {t("snapReceipt")}
         </button>
       )}
 
       <Modal open={open} onClose={closeModal} title={modalTitle}>
         {success ? (
-          <div className="bg-green-50 text-green-700 px-4 py-6 rounded-xl text-center font-medium">
+          <div className="bg-gray-50 text-gray-700 px-4 py-6 rounded-xl text-center font-medium">
             {success}
           </div>
         ) : (
@@ -195,7 +197,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
             {capError && (
               <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 p-4 text-sm text-amber-800 dark:text-amber-200 space-y-2">
                 <div className="font-semibold flex items-center gap-2">
-                  <span className="text-base">📸</span>
+                  <Camera size={16} />
                   Receipt scans this month: {capError.used} / {capError.cap}
                 </div>
                 <p className="text-xs leading-relaxed">
@@ -203,7 +205,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                 </p>
                 <a
                   href="/subscription"
-                  className="inline-block px-3 py-1.5 bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 rounded-lg text-xs font-medium hover:bg-stone-700 dark:hover:bg-stone-200 transition"
+                  className="inline-block px-3 py-1.5 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded-lg text-xs font-medium hover:bg-gray-700 dark:hover:bg-gray-200 transition"
                 >
                   See plans →
                 </a>
@@ -254,7 +256,9 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                     }}
                     className="border-2 border-dashed border-gray-200 dark:border-gray-600 rounded-xl p-6 text-center hover:border-blue-400 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition group"
                   >
-                    <div className="text-3xl mb-1 group-hover:scale-110 transition">📸</div>
+                    <div className="flex justify-center mb-1 group-hover:scale-110 transition text-gray-700 dark:text-gray-300">
+                      <Camera size={28} strokeWidth={1.5} />
+                    </div>
                     <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">
                       {t("takePhoto") || "Take Photo"}
                     </p>
@@ -271,7 +275,9 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                     }}
                     className="border-2 border-dashed border-gray-200 dark:border-gray-600 rounded-xl p-6 text-center hover:border-blue-400 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition group"
                   >
-                    <div className="text-3xl mb-1 group-hover:scale-110 transition">🖼️</div>
+                    <div className="flex justify-center mb-1 group-hover:scale-110 transition text-gray-700 dark:text-gray-300">
+                      <ImageIcon size={28} strokeWidth={1.5} />
+                    </div>
                     <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">
                       Choose Photo
                     </p>
@@ -340,8 +346,8 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
             {result && !uploading && (
               <div>
                 {result.suggested_amount ? (
-                  <div className="bg-green-50 border border-green-200 p-3 rounded-lg mb-3">
-                    <p className="text-green-700 text-sm font-medium">
+                  <div className="bg-gray-50 border border-gray-100 p-3 rounded-lg mb-3">
+                    <p className="text-gray-700 text-sm font-medium">
                       {t("detectedAmount")}: {result.suggested_amount.toLocaleString()} DKK
                     </p>
                     {result.all_amounts_found.length > 1 && (
@@ -352,7 +358,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                             onClick={() => setAmount(String(a))}
                             className={`px-2 py-1 rounded text-xs border transition ${
                               amount === String(a)
-                                ? "bg-green-100 border-green-300 text-green-700"
+                                ? "bg-gray-100 border-gray-200 text-gray-700"
                                 : "border-gray-200 text-gray-600 hover:bg-gray-50"
                             }`}
                           >
@@ -480,8 +486,8 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                     category. Tap to confirm (sets the id), tap × to
                     skip and pick manually after save. */}
                 {isExpense && result?.suggested_category && (
-                  <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 rounded-lg">
-                    <span className="text-xs text-emerald-700 dark:text-emerald-300">
+                  <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/40 rounded-lg">
+                    <span className="text-xs text-gray-700 dark:text-gray-300">
                       Category guess:
                     </span>
                     <button
@@ -489,8 +495,8 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                       onClick={() => setParsedCategoryId(result.suggested_category.category_id)}
                       className={`px-2 py-0.5 rounded-md text-xs font-medium transition ${
                         parsedCategoryId === result.suggested_category.category_id
-                          ? "bg-emerald-600 text-white"
-                          : "bg-white dark:bg-stone-800 border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50"
+                          ? "bg-gray-900 text-white"
+                          : "bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50"
                       }`}
                     >
                       {parsedCategoryId === result.suggested_category.category_id ? "✓ " : ""}
@@ -500,7 +506,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                       <button
                         type="button"
                         onClick={() => setParsedCategoryId("")}
-                        className="ml-auto text-xs text-stone-500 hover:text-stone-700"
+                        className="ml-auto text-xs text-gray-500 hover:text-gray-700"
                         aria-label="Clear category"
                       >
                         ×

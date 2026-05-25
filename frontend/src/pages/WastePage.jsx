@@ -390,7 +390,7 @@ export default function WastePage() {
                           className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-sm dark:bg-gray-700 dark:text-white w-20" />
                       </td>
                       <td className="px-4 py-3 text-right space-x-2">
-                        <button onClick={saveEdit} className="text-green-600 dark:text-green-400 text-sm font-medium hover:underline">{t("save")}</button>
+                        <button onClick={saveEdit} className="text-emerald-600 dark:text-gray-300 text-sm font-medium hover:underline">{t("save")}</button>
                         <button onClick={() => setEditId(null)} className="text-gray-400 text-sm hover:underline">{t("cancel")}</button>
                       </td>
                     </>

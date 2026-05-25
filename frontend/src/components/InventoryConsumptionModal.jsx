@@ -170,7 +170,7 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
       onClick={onClose}
     >
       <div
-        className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-lg w-full max-h-[92vh] flex flex-col overflow-hidden"
+        className="bg-white dark:bg-gray-800 rounded-xl shadow-sm max-w-lg w-full max-h-[92vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -208,7 +208,7 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
                 <div className="space-y-3">
                   <div className={`rounded-lg p-3 text-sm ${
                     suggestion.confidence === "high"
-                      ? "bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/50"
+                      ? "bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/50"
                       : suggestion.confidence === "medium"
                         ? "bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50"
                         : "bg-gray-50 dark:bg-gray-700/30 border border-gray-200 dark:border-gray-600"
@@ -240,7 +240,7 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
                     {suggestion.matching_sales_preview?.length > 0 && (
                       <div className="flex items-start gap-2 mt-1">
                         <span className="text-gray-400 shrink-0 w-20">{t("inventoryConsumptionWouldCatch") || "Would catch"}:</span>
-                        <span className="text-emerald-700 dark:text-emerald-300">
+                        <span className="text-gray-700 dark:text-gray-300">
                           {suggestion.matching_sales_preview.join(", ")}
                         </span>
                       </div>
@@ -278,7 +278,7 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
                         }
                       }}
                       disabled={saving || suggestion.confidence === "low"}
-                      className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-50 transition flex-1"
+                      className="px-4 py-2 rounded-lg bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold disabled:opacity-50 transition flex-1"
                     >
                       {suggestion.confidence === "low"
                         ? (t("inventoryConsumptionUnknownItem") || "We don't recognise this — edit details")
@@ -398,7 +398,7 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
                   </button>
                 </div>
                 {previewMatches.length > 0 && (
-                  <div className="mt-2 text-[11px] text-emerald-700 dark:text-emerald-300">
+                  <div className="mt-2 text-[11px] text-gray-700 dark:text-gray-300">
                     ✓ {(t("inventoryConsumptionMatchHint") || "Would match: {names}")
                       .replace("{names}", previewMatches.map((m) => m.name).join(", "))}
                   </div>
@@ -435,7 +435,7 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
             <button
               onClick={handleSave}
               disabled={saving || loading}
-              className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-50 transition"
+              className="px-4 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold disabled:opacity-50 transition"
             >
               {saving ? (t("saving") || "Saving…") : (t("save") || "Save")}
             </button>

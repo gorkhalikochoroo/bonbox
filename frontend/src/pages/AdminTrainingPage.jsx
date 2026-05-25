@@ -142,7 +142,7 @@ export default function AdminTrainingPage() {
 
       {/* ─── Drift status ───────────────────────────────────── */}
       <FadeIn>
-        <section className="mb-6 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 sm:p-6">
+        <section className="mb-6 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 sm:p-6">
           <div className="flex items-start justify-between flex-wrap gap-3 mb-4">
             <div>
               <h2 className="text-base font-bold text-gray-900 dark:text-white">
@@ -182,7 +182,7 @@ export default function AdminTrainingPage() {
 
       {/* ─── Extraction stats ──────────────────────────────── */}
       <FadeIn delay={0.05}>
-        <section className="mb-6 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 sm:p-6">
+        <section className="mb-6 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 sm:p-6">
           <div className="flex items-start justify-between flex-wrap gap-3 mb-4">
             <div>
               <h2 className="text-base font-bold text-gray-900 dark:text-white">
@@ -232,7 +232,7 @@ export default function AdminTrainingPage() {
                       <td className={`px-2 py-2 text-right font-mono ${row.pct_flagged_manual_review > 30 ? "text-amber-600" : ""}`}>
                         {row.pct_flagged_manual_review}%
                       </td>
-                      <td className={`px-2 py-2 text-right font-mono ${row.pct_user_corrected > 30 ? "text-amber-600" : "text-green-600"}`}>
+                      <td className={`px-2 py-2 text-right font-mono ${row.pct_user_corrected > 30 ? "text-amber-600" : "text-emerald-600"}`}>
                         {row.pct_user_corrected}%
                       </td>
                       <td className="px-2 py-2 text-right text-gray-400 font-mono text-[11px]">
@@ -249,7 +249,7 @@ export default function AdminTrainingPage() {
 
       {/* ─── Pattern sweep trigger ─────────────────────────── */}
       <FadeIn delay={0.1}>
-        <section className="mb-6 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 sm:p-6">
+        <section className="mb-6 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 sm:p-6">
           <div className="flex items-start justify-between flex-wrap gap-3">
             <div>
               <h2 className="text-base font-bold text-gray-900 dark:text-white">
@@ -314,7 +314,7 @@ export default function AdminTrainingPage() {
 
       {/* ─── Recent examples ───────────────────────────────── */}
       <FadeIn delay={0.15}>
-        <section className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 sm:p-6">
+        <section className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 sm:p-6">
           <div className="flex items-start justify-between flex-wrap gap-3 mb-4">
             <div>
               <h2 className="text-base font-bold text-gray-900 dark:text-white">
@@ -362,7 +362,7 @@ export default function AdminTrainingPage() {
 
 function DriftRow({ row, severity }) {
   const palette = {
-    ok:    { bg: "bg-green-50 dark:bg-green-900/20", text: "text-green-700 dark:text-green-300", label: "OK" },
+    ok:    { bg: "bg-gray-50 dark:bg-gray-800/50", text: "text-gray-700 dark:text-gray-300", label: "OK" },
     amber: { bg: "bg-amber-50 dark:bg-amber-900/20", text: "text-amber-700 dark:text-amber-300", label: "Drifting" },
     red:   { bg: "bg-red-50 dark:bg-red-900/20",     text: "text-red-700 dark:text-red-300",     label: "Refresh" },
   }[severity];

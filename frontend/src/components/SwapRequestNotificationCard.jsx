@@ -45,7 +45,7 @@ export default function SwapRequestNotificationCard() {
   if (!loaded || swaps.length === 0) return null;
 
   return (
-    <div className="bg-blue-50/70 dark:bg-blue-900/15 border border-blue-200 dark:border-blue-800/50 rounded-2xl p-4 sm:p-5">
+    <div className="bg-blue-50/70 dark:bg-blue-900/15 border border-blue-200 dark:border-blue-800/50 rounded-xl p-4 sm:p-5">
       <div className="flex items-start gap-2 mb-3">
         <span className="text-xl shrink-0" aria-hidden="true">🔄</span>
         <div className="flex-1">
@@ -122,7 +122,7 @@ function SwapRow({ swap, onChanged, t }) {
           <button
             onClick={() => decide(true)}
             disabled={busy}
-            className="text-xs font-medium px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50 transition"
+            className="text-xs font-medium px-2.5 py-1 rounded-md bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:opacity-50 transition"
           >
             {t("swapApprove") || "Approve"}
           </button>

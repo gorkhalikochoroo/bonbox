@@ -256,14 +256,14 @@ export default function BookkeepingExportPage() {
                   className={`relative px-3 py-3 rounded-xl text-sm font-medium border transition text-left
                     ${active
                       ? (isBundle
-                          ? "bg-emerald-50 dark:bg-emerald-900/30 border-emerald-400 dark:border-emerald-600 text-emerald-800 dark:text-emerald-200 ring-2 ring-emerald-300/60"
-                          : "bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-700 text-green-800 dark:text-green-300 ring-1 ring-green-200/60")
+                          ? "bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-900 text-gray-800 dark:text-gray-200 ring-2 ring-gray-200/60"
+                          : "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-300 ring-1 ring-gray-200/60")
                       : (isBundle
-                          ? "bg-emerald-50/40 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800/50 text-gray-800 dark:text-gray-200 hover:bg-emerald-50/70"
+                          ? "bg-gray-50/40 dark:bg-gray-800/50 border-gray-100 dark:border-gray-800/50 text-gray-800 dark:text-gray-200 hover:bg-gray-50/70"
                           : "bg-white dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700")}`}
                 >
                   {isBundle && (
-                    <span className="absolute -top-2 -right-2 bg-emerald-600 text-white text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded">
+                    <span className="absolute -top-2 -right-2 bg-gray-900 text-white text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded">
                       ★ Recommended
                     </span>
                   )}
@@ -386,7 +386,7 @@ export default function BookkeepingExportPage() {
         </div>
         {!businessProfile?.accountant_email && (
           <p className="text-[11px] text-gray-500 dark:text-gray-400 -mt-2">
-            Tip: <a href="/profile" className="text-emerald-700 dark:text-emerald-400 hover:underline font-medium">save your revisor's email on Profile</a> to skip typing it every month.
+            Tip: <a href="/profile" className="text-gray-700 dark:text-emerald-400 hover:underline font-medium">save your revisor's email on Profile</a> to skip typing it every month.
           </p>
         )}
 

@@ -247,7 +247,7 @@ export default function DailyBriefCard() {
 
   if (loading) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700/60 p-6 sm:p-7 animate-pulse">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700/60 p-6 sm:p-7 animate-pulse">
         <div className="h-3 w-40 bg-gray-100 dark:bg-gray-700 rounded mb-4" />
         <div className="h-5 w-3/4 bg-gray-100 dark:bg-gray-700 rounded mb-3" />
         <div className="h-3 w-2/3 bg-gray-100 dark:bg-gray-700 rounded mb-2" />
@@ -275,10 +275,10 @@ export default function DailyBriefCard() {
   const headlineCta = _safeCtaPath(brief.headline_cta_url);
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-sm p-6 sm:p-7">
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700/60 shadow-sm p-6 sm:p-7">
       <div className="flex items-start justify-between gap-4 mb-3">
         <div className="flex items-start gap-3 min-w-0">
-          <div className="w-9 h-9 rounded-lg bg-emerald-500/10 dark:bg-emerald-500/15 flex items-center justify-center shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400">
+          <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0 mt-0.5 text-gray-700 dark:text-gray-300">
             <Icon name="Sparkles" size={16} strokeWidth={1.75} />
           </div>
           <div className="min-w-0">
@@ -295,7 +295,7 @@ export default function DailyBriefCard() {
               onClick={onRefresh}
               disabled={refreshing}
               aria-label={t("refreshBrief") || "Refresh brief"}
-              className="text-[12px] text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 disabled:opacity-50 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded px-1"
+              className="text-[12px] text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 disabled:opacity-50 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded px-1"
             >
               {refreshing ? "Refreshing…" : "Refresh"}
             </button>
@@ -305,7 +305,7 @@ export default function DailyBriefCard() {
             onClick={onDismiss}
             aria-label={t("dismissBriefToday") || "Dismiss brief for today"}
             title={t("dismissBriefToday") || "Dismiss for today"}
-            className="w-7 h-7 -mr-1 -mt-1 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/60 dark:hover:text-gray-200 transition flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+            className="w-7 h-7 -mr-1 -mt-1 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/60 dark:hover:text-gray-200 transition flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M18 6L6 18M6 6l12 12" />
@@ -321,7 +321,7 @@ export default function DailyBriefCard() {
       {headlineCta && (
         <Link
           to={headlineCta}
-          className="inline-flex items-center gap-1 text-[12.5px] font-medium text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 mb-3 transition"
+          className="inline-flex items-center gap-1 text-[12.5px] font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white mb-3 transition"
         >
           {brief.headline_cta_label || "Open"}
           <span aria-hidden="true">→</span>
@@ -346,7 +346,7 @@ export default function DailyBriefCard() {
                   {cta && (
                     <Link
                       to={cta}
-                      className="inline-flex items-center gap-1 mt-1 text-[12px] font-medium text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 transition"
+                      className="inline-flex items-center gap-1 mt-1 text-[12px] font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition"
                     >
                       {ins.cta_label || "Open"}
                       <span aria-hidden="true">→</span>
@@ -365,7 +365,7 @@ export default function DailyBriefCard() {
         </span>
         <div className="flex items-center gap-2">
           {shareToast && (
-            <span className="text-[11px] text-emerald-700 dark:text-emerald-400" role="status" aria-live="polite">
+            <span className="text-[11px] text-gray-700 dark:text-gray-300" role="status" aria-live="polite">
               {shareToast}
             </span>
           )}
@@ -377,7 +377,7 @@ export default function DailyBriefCard() {
             onClick={onCopy}
             aria-label={t("copyBriefClipboard") || "Copy brief to clipboard"}
             title={t("copy") || "Copy"}
-            className="w-7 h-7 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/60 dark:hover:text-gray-200 transition flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+            className="w-7 h-7 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/60 dark:hover:text-gray-200 transition flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
           >
             <Icon name="ClipboardList" size={14} strokeWidth={1.75} />
           </button>
@@ -386,7 +386,7 @@ export default function DailyBriefCard() {
             onClick={onForward}
             aria-label={t("forwardBriefEmail") || "Forward brief by email"}
             title={t("forward") || "Forward"}
-            className="w-7 h-7 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/60 dark:hover:text-gray-200 transition flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+            className="w-7 h-7 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/60 dark:hover:text-gray-200 transition flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
           >
             <Icon name="Send" size={14} strokeWidth={1.75} />
           </button>
@@ -406,7 +406,7 @@ export default function DailyBriefCard() {
               type="button"
               onClick={enableBriefEmail}
               disabled={briefPrefBusy}
-              className="text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 transition disabled:opacity-50"
+              className="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition disabled:opacity-50"
             >
               {t("getThisByEmail")} →
             </button>

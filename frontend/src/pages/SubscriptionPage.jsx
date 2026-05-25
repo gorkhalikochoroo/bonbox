@@ -460,11 +460,11 @@ export default function SubscriptionPage() {
       {hasStripeSub ? (
         <Card variant="emphasis" className="mb-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
-            <div className="w-10 h-10 rounded-full bg-emerald-50 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0 text-lg">
+            <div className="w-10 h-10 rounded-full bg-gray-50 dark:bg-gray-800 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0 text-lg">
               {billing?.subscription_status === "past_due" ? "!" : "✓"}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold text-stone-900 dark:text-stone-100">
+              <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                 {billing?.subscription_status === "trialing"
                   ? (t("pricingLockedTrialing") || "Locked in at founding rate — first charge {when}").replace(
                       "{when}",
@@ -480,7 +480,7 @@ export default function SubscriptionPage() {
                       ? (t("pricingLockedPastDue") || "Payment failed — please update your card to keep your plan")
                       : (t("pricingLockedGeneric") || "Subscription active")}
               </div>
-              <div className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                 {t("pricingLockedSubtitle") || "All Pro features unlocked. Founding-member rate is locked for life as long as you stay subscribed."}
               </div>
             </div>
@@ -502,12 +502,12 @@ export default function SubscriptionPage() {
               <span aria-hidden="true">⏳</span>
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold text-stone-900 dark:text-stone-100">
+              <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                 {(t("pricingTrialEndsIn") || "Your free Pro trial ends in {n} day{s}.")
                   .replace("{n}", trialDaysLeft)
                   .replace("{s}", trialDaysLeft === 1 ? "" : "s")}
               </div>
-              <div className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                 {t("pricingTrialUsing") || "You're using all Pro features right now — AI insights, unlimited Copilot, full history, vertical modules. After the trial you can stay on Free (limited) or upgrade."}
               </div>
             </div>
@@ -526,43 +526,43 @@ export default function SubscriptionPage() {
       {/* How it works — only relevant while on trial */}
       {trialDaysLeft != null && trialDaysLeft > 0 && (
         <Card variant="default" className="mb-10 max-w-4xl mx-auto">
-          <h3 className="text-[15px] font-semibold text-stone-900 dark:text-stone-100 mb-4">
+          <h3 className="text-[15px] font-semibold text-gray-900 dark:text-gray-100 mb-4">
             {t("pricingHowTrialWorks") || "How your trial works"}
           </h3>
           <div className="grid sm:grid-cols-3 gap-4 sm:gap-5">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-stone-500 dark:text-stone-400">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 {t("pricingTrialStep1Tag") || "Today"}
               </div>
-              <div className="text-sm font-semibold text-stone-900 dark:text-stone-100 mt-1">
+              <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 mt-1">
                 {t("pricingTrialStep1Title") || "Trial started at sign-in"}
               </div>
-              <div className="text-[12px] text-stone-500 dark:text-stone-400 mt-1.5 leading-relaxed">
+              <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
                 {t("pricingTrialStep1Body") || "14 days of full Pro — every feature, no caps. No card, no charge."}
               </div>
             </div>
-            <div className="sm:border-l sm:border-stone-200 sm:dark:border-stone-800 sm:pl-5">
+            <div className="sm:border-l sm:border-gray-200 sm:dark:border-gray-800 sm:pl-5">
               <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
                 {(t("pricingTrialStep2Tag") || "Anytime in the next {n} day{s}")
                   .replace("{n}", trialDaysLeft)
                   .replace("{s}", trialDaysLeft === 1 ? "" : "s")}
               </div>
-              <div className="text-sm font-semibold text-stone-900 dark:text-stone-100 mt-1">
+              <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 mt-1">
                 {t("pricingTrialStep2Title") || "Pick your path"}
               </div>
-              <div className="text-[12px] text-stone-500 dark:text-stone-400 mt-1.5 leading-relaxed">
+              <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
                 <span className="block">→ {t("pricingTrialStep2BodyLock") || "Lock in founding rate: add card now, your founding price (Starter 129 / Pro 249) is locked for life"}</span>
                 <span className="block mt-1">→ {t("pricingTrialStep2BodyDoNothing") || "Do nothing: trial runs out, you drop to Free"}</span>
               </div>
             </div>
-            <div className="sm:border-l sm:border-stone-200 sm:dark:border-stone-800 sm:pl-5">
+            <div className="sm:border-l sm:border-gray-200 sm:dark:border-gray-800 sm:pl-5">
               <div className="text-[11px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
                 {t("pricingTrialStep3Tag") || "Day 14"}
               </div>
-              <div className="text-sm font-semibold text-stone-900 dark:text-stone-100 mt-1">
+              <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 mt-1">
                 {t("pricingTrialStep3Title") || "What actually happens"}
               </div>
-              <div className="text-[12px] text-stone-500 dark:text-stone-400 mt-1.5 leading-relaxed">
+              <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
                 <span className="block">{t("pricingTrialStep3BodyLocked") || "If locked in: founding rate charged to your card"}</span>
                 <span className="block mt-1">{t("pricingTrialStep3BodyDropped") || "If not: dropped to Free (caps return, data stays, no charge ever)"}</span>
               </div>
@@ -574,10 +574,10 @@ export default function SubscriptionPage() {
       {/* Hero — acquisition copy only */}
       {!billing?.trial_active && !billing?.is_paid && (
         <div className="text-center mb-10">
-          <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-stone-900 dark:text-stone-100">
+          <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">
             {t("pricingHeroTitleNew", "Plans built around time saved.") || "Plans built around time saved."}
           </h1>
-          <p className="text-sm sm:text-base text-stone-500 dark:text-stone-400 mt-3 max-w-2xl mx-auto leading-relaxed">
+          <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-3 max-w-2xl mx-auto leading-relaxed">
             {t(
               "pricingHeroSubtitleNew",
               "Pick the plan that matches how much manual work you want to skip. Every signup starts with 14 days of full Pro — no card, no surprises.",
@@ -590,7 +590,7 @@ export default function SubscriptionPage() {
               left") which IS the truth and pairs nicely with the
               sold-out state. */}
           {foundingRemaining != null && (
-            <div className="mt-5 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-stone-100 dark:bg-stone-800 text-[11px] font-medium text-stone-700 dark:text-stone-300">
+            <div className="mt-5 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-[11px] font-medium text-gray-700 dark:text-gray-300">
               {(t("pricingFoundingChipNew", "First {limit} customers — founding price locked for life · {remaining} spots left") ||
                 "First {limit} customers — founding price locked for life · {remaining} spots left")
                 .replace("{remaining}", foundingRemaining)
@@ -603,10 +603,10 @@ export default function SubscriptionPage() {
       {/* Quieter heading once user is engaged */}
       {(billing?.trial_active || billing?.is_paid) && (
         <div className="text-center mb-6">
-          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-stone-900 dark:text-stone-100">
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">
             {t("pricingComparePlansTitle") || "Compare plans"}
           </h1>
-          <p className="text-sm text-stone-500 dark:text-stone-400 mt-1.5">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1.5">
             {t("pricingComparePlansSubtitle") ||
               "What you get on each tier. Annual saves 20%."}
           </p>
@@ -615,13 +615,13 @@ export default function SubscriptionPage() {
 
       {/* Annual / monthly toggle */}
       <div className="text-center mb-10">
-        <div className="inline-flex items-center bg-stone-100 dark:bg-stone-800 rounded-full p-1 mt-2">
+        <div className="inline-flex items-center bg-gray-100 dark:bg-gray-800 rounded-full p-1 mt-2">
           <button
             onClick={() => setAnnual(false)}
             className={`px-4 py-1.5 rounded-full text-sm font-medium transition ${
               !annual
-                ? "bg-white dark:bg-stone-700 text-stone-900 dark:text-stone-100 shadow-sm"
-                : "text-stone-500 dark:text-stone-400"
+                ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm"
+                : "text-gray-500 dark:text-gray-400"
             }`}
           >
             {t("pricingMonthly") || "Monthly"}
@@ -630,12 +630,12 @@ export default function SubscriptionPage() {
             onClick={() => setAnnual(true)}
             className={`px-4 py-1.5 rounded-full text-sm font-medium transition relative ${
               annual
-                ? "bg-white dark:bg-stone-700 text-stone-900 dark:text-stone-100 shadow-sm"
-                : "text-stone-500 dark:text-stone-400"
+                ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm"
+                : "text-gray-500 dark:text-gray-400"
             }`}
           >
             {t("pricingAnnual") || "Annual"}
-            <span className="ml-2 inline-block bg-emerald-50 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 text-[10px] px-1.5 py-0.5 rounded font-semibold">
+            <span className="ml-2 inline-block bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-emerald-400 text-[10px] px-1.5 py-0.5 rounded font-semibold">
               -20%
             </span>
           </button>
@@ -644,7 +644,7 @@ export default function SubscriptionPage() {
 
       {/* Status confirmation banner */}
       {msg && (
-        <div className="mb-6 text-center text-sm bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-300 rounded-xl px-4 py-3 border border-emerald-200/60 dark:border-emerald-800/60">
+        <div className="mb-6 text-center text-sm bg-gray-50 dark:bg-gray-800/50 text-gray-800 dark:text-gray-300 rounded-xl px-4 py-3 border border-gray-100/60 dark:border-gray-800/60">
           {msg}
         </div>
       )}
@@ -703,12 +703,12 @@ export default function SubscriptionPage() {
               key={tier.id}
               variant={tier.variant}
               className={`relative flex flex-col ${
-                tier.highlight ? "ring-1 ring-stone-900/10 dark:ring-stone-100/10" : ""
+                tier.highlight ? "ring-1 ring-gray-900/10 dark:ring-gray-100/10" : ""
               }`}
             >
               {/* Top-right status pill */}
               {(isCurrent || showTrialBadge) && (
-                <div className="absolute -top-2.5 right-4 bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full whitespace-nowrap">
+                <div className="absolute -top-2.5 right-4 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full whitespace-nowrap">
                   {showTrialBadge
                     ? (t("yourTrial") || "Your trial")
                     : (t("currentPlan") || "Current plan")}
@@ -717,25 +717,25 @@ export default function SubscriptionPage() {
 
               {/* Recommended pill for the Pro card */}
               {tier.highlight && !isCurrent && !showTrialBadge && (
-                <div className="absolute -top-2.5 left-5 bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full whitespace-nowrap">
+                <div className="absolute -top-2.5 left-5 bg-gray-900 text-white text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full whitespace-nowrap">
                   {t("pricingRecommended", "Recommended") || "Recommended"}
                 </div>
               )}
 
               {/* Tier name */}
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-stone-500 dark:text-stone-400">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 {tier.name}
               </div>
 
               {/* Job-to-be-done — leads with the value */}
-              <p className="mt-2 text-[15px] leading-snug font-medium text-stone-900 dark:text-stone-100 min-h-[3em]">
-                <span className="text-stone-400 dark:text-stone-500">“</span>
+              <p className="mt-2 text-[15px] leading-snug font-medium text-gray-900 dark:text-gray-100 min-h-[3em]">
+                <span className="text-gray-400 dark:text-gray-500">“</span>
                 {tier.job}
-                <span className="text-stone-400 dark:text-stone-500">”</span>
+                <span className="text-gray-400 dark:text-gray-500">”</span>
               </p>
 
               {/* Time saved */}
-              <div className="mt-3 inline-flex items-center text-[12px] font-medium text-emerald-700 dark:text-emerald-400">
+              <div className="mt-3 inline-flex items-center text-[12px] font-medium text-gray-700 dark:text-emerald-400">
                 {tier.timeSaved}
               </div>
 
@@ -744,37 +744,37 @@ export default function SubscriptionPage() {
                 {isFounding ? (
                   <>
                     <div className="flex items-baseline gap-1">
-                      <span className="text-4xl font-bold text-stone-900 dark:text-stone-100 tracking-tight">
+                      <span className="text-4xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">
                         {tier.founding_price}
                       </span>
-                      <span className="text-sm font-medium text-stone-500 dark:text-stone-400">
+                      <span className="text-sm font-medium text-gray-500 dark:text-gray-400">
                         {t("pricingDkkPerMonth", "DKK / mo") || "DKK / mo"}
                       </span>
                     </div>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs text-stone-400 dark:text-stone-500 line-through">
+                      <span className="text-xs text-gray-400 dark:text-gray-500 line-through">
                         {price} {t("pricingDkkPerMonth", "DKK / mo") || "DKK / mo"}
                       </span>
-                      <span className="text-[10px] font-semibold uppercase tracking-wider text-stone-500 dark:text-stone-400 bg-stone-100 dark:bg-stone-800 px-1.5 py-0.5 rounded">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">
                         {t("pricingFirst100Chip", "First 100") || "First 100"}
                       </span>
                     </div>
                   </>
                 ) : price === 0 ? (
                   <div className="flex items-baseline gap-1">
-                    <span className="text-4xl font-bold text-stone-900 dark:text-stone-100 tracking-tight">
+                    <span className="text-4xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">
                       {t("pricingFree", "Free") || "Free"}
                     </span>
-                    <span className="text-sm font-medium text-stone-500 dark:text-stone-400">
+                    <span className="text-sm font-medium text-gray-500 dark:text-gray-400">
                       {t("pricingForever", "forever") || "forever"}
                     </span>
                   </div>
                 ) : (
                   <div className="flex items-baseline gap-1">
-                    <span className="text-4xl font-bold text-stone-900 dark:text-stone-100 tracking-tight">
+                    <span className="text-4xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">
                       {price}
                     </span>
-                    <span className="text-sm font-medium text-stone-500 dark:text-stone-400">
+                    <span className="text-sm font-medium text-gray-500 dark:text-gray-400">
                       {t("pricingDkkPerMonth", "DKK / mo") || "DKK / mo"}
                     </span>
                   </div>
@@ -788,7 +788,7 @@ export default function SubscriptionPage() {
 
               {/* Trial badge — Pro only */}
               {tier.badge && (
-                <div className="text-[11px] font-medium text-stone-700 dark:text-stone-300 bg-stone-100 dark:bg-stone-800 rounded-md px-2.5 py-1.5 mt-4 text-center">
+                <div className="text-[11px] font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-md px-2.5 py-1.5 mt-4 text-center">
                   {tier.badge}
                 </div>
               )}
@@ -812,20 +812,20 @@ export default function SubscriptionPage() {
                 <button
                   onClick={handleManage}
                   disabled={pending === "manage"}
-                  className="w-full text-xs text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 underline mt-2 disabled:opacity-50"
+                  className="w-full text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline mt-2 disabled:opacity-50"
                 >
                   {pending === "manage" ? (t("pricingOpening") || "Opening…") : (t("pricingManageOrCancel") || "Manage subscription / cancel")}
                 </button>
               )}
 
               {/* Feature list — verb-led, short lines */}
-              <div className="mt-6 pt-5 border-t border-stone-200 dark:border-stone-800 flex-1">
+              <div className="mt-6 pt-5 border-t border-gray-200 dark:border-gray-800 flex-1">
                 {tier.addsHeader && (
-                  <div className="text-[12px] font-semibold text-stone-900 dark:text-stone-100 mb-3">
+                  <div className="text-[12px] font-semibold text-gray-900 dark:text-gray-100 mb-3">
                     {tier.addsHeader}
                   </div>
                 )}
-                <ul className="space-y-2.5 text-[13px] text-stone-700 dark:text-stone-300">
+                <ul className="space-y-2.5 text-[13px] text-gray-700 dark:text-gray-300">
                   {tier.features.map((f, i) => (
                     <li key={i} className="flex items-start gap-2 leading-snug">
                       <CheckIcon />
@@ -844,12 +844,12 @@ export default function SubscriptionPage() {
                   itself is gated by `accountant_month_end_bundle` and
                   ships in a follow-up build). */}
               {tier.id === "starter" && (
-                <p className="mt-4 text-[12px] text-emerald-700 dark:text-emerald-400 font-medium leading-snug">
+                <p className="mt-4 text-[12px] text-gray-700 dark:text-emerald-400 font-medium leading-snug">
                   {renderStarterAcctTagline(t, acctSavings)}
                 </p>
               )}
               {tier.id === "pro" && (
-                <p className="mt-4 text-[12px] text-emerald-700 dark:text-emerald-400 font-medium leading-snug">
+                <p className="mt-4 text-[12px] text-gray-700 dark:text-emerald-400 font-medium leading-snug">
                   {t(
                     "pricingProAcctTagline",
                     "+ one-click revisor pack at month-end",
@@ -864,21 +864,21 @@ export default function SubscriptionPage() {
       {/* What changes after trial — calm transparency */}
       <Card variant="subtle" className="mt-10 max-w-3xl mx-auto">
         <div className="flex items-start gap-3">
-          <div className="w-8 h-8 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 flex items-center justify-center text-sm font-semibold shrink-0">
+          <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 flex items-center justify-center text-sm font-semibold shrink-0">
             i
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="text-[15px] font-semibold text-stone-900 dark:text-stone-100">
+            <h3 className="text-[15px] font-semibold text-gray-900 dark:text-gray-100">
               {t("pricingAfterTrialTitle") || "What changes after the 14-day trial"}
             </h3>
-            <p className="text-[13px] text-stone-500 dark:text-stone-400 mt-1 leading-relaxed">
+            <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
               {t(
                 "pricingAfterTrialBodyNew",
                 "Nothing dramatic. Your data stays, every feature stays visible. These are the caps that come back when the trial ends:",
               ) ||
                 "Nothing dramatic. Your data stays, every feature stays visible. These are the caps that come back when the trial ends:"}
             </p>
-            <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 mt-4 text-[13px] text-stone-700 dark:text-stone-300">
+            <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 mt-4 text-[13px] text-gray-700 dark:text-gray-300">
               {[
                 t("pricingAfterTrialCapClose", "30-second daily close") || "30-second daily close",
                 t("pricingAfterTrialCapHistory", "7 days of history") || "7 days of history",
@@ -890,12 +890,12 @@ export default function SubscriptionPage() {
                 t("pricingAfterTrialCapNoFaktura", "Faktura locked (Starter+)") || "Faktura locked (Starter+)",
               ].map((line) => (
                 <div key={line} className="flex items-start gap-2">
-                  <span className="mt-[7px] w-1 h-1 rounded-full bg-stone-400 dark:bg-stone-500 shrink-0" />
+                  <span className="mt-[7px] w-1 h-1 rounded-full bg-gray-400 dark:bg-gray-500 shrink-0" />
                   <span>{line}</span>
                 </div>
               ))}
             </div>
-            <p className="text-[12px] text-stone-500 dark:text-stone-400 mt-4 leading-relaxed">
+            <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-4 leading-relaxed">
               {t(
                 "pricingAfterTrialClosingNew",
                 'No card needed to start the trial — it runs automatically when you sign up. You only enter a card if you click "Lock in founding rate". Otherwise the trial just ends and you drop to Free.',
@@ -916,7 +916,7 @@ export default function SubscriptionPage() {
 
       {/* FAQ */}
       <div className="mt-12 max-w-3xl mx-auto">
-        <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-stone-900 dark:text-stone-100 mb-4">
+        <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-4">
           {t("faqHeading") || "Common questions"}
         </h2>
         <div className="space-y-3">
@@ -935,7 +935,7 @@ export default function SubscriptionPage() {
         </div>
 
         {/* Trademark notice */}
-        <p className="mt-10 text-[11px] text-stone-400 dark:text-stone-500 leading-relaxed text-center">
+        <p className="mt-10 text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed text-center">
           {t("pricingTrademarkNotice") || "Dinero, Billy, e-conomic, MobilePay and Dankort are trademarks of their respective owners. BonBox is not affiliated with or endorsed by any of these companies. References are made for interoperability and comparative purposes under nominative fair use."}
         </p>
 
@@ -967,9 +967,9 @@ function CheckIcon() {
 
 function Reassure({ title, sub }) {
   return (
-    <div className="bg-stone-50 dark:bg-stone-900/60 border border-stone-200/70 dark:border-stone-800/70 rounded-xl p-4 text-center">
-      <div className="text-sm font-semibold text-stone-900 dark:text-stone-100">{title}</div>
-      <div className="text-xs text-stone-500 dark:text-stone-400 mt-1 leading-relaxed">{sub}</div>
+    <div className="bg-gray-50 dark:bg-gray-900/60 border border-gray-200/70 dark:border-gray-800/70 rounded-xl p-4 text-center">
+      <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title}</div>
+      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">{sub}</div>
     </div>
   );
 }
@@ -977,21 +977,21 @@ function Reassure({ title, sub }) {
 function FaqItem({ q, a }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl">
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl">
       <button
         onClick={() => setOpen((o) => !o)}
         className="w-full text-left px-4 py-3 flex items-center justify-between gap-3"
       >
-        <span className="text-sm font-medium text-stone-900 dark:text-stone-100">{q}</span>
+        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{q}</span>
         <span
-          className="text-stone-400 transition-transform"
+          className="text-gray-400 transition-transform"
           style={{ transform: open ? "rotate(180deg)" : "rotate(0)" }}
         >
           ▾
         </span>
       </button>
       {open && (
-        <div className="px-4 pb-3 text-sm text-stone-600 dark:text-stone-300 leading-relaxed">
+        <div className="px-4 pb-3 text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
           {a}
         </div>
       )}
@@ -1079,13 +1079,13 @@ function DevToolsPanel() {
           <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300">
             Dev tools · super-admin only
           </div>
-          <h3 className="text-base font-semibold text-stone-900 dark:text-stone-100 mt-1">
+          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mt-1">
             Trial state controls
           </h3>
-          <p className="text-[13px] text-stone-600 dark:text-stone-300 mt-1">
+          <p className="text-[13px] text-gray-600 dark:text-gray-300 mt-1">
             Signed in as <span className="font-medium">{status.admin_email}</span>.
             Current plan:{" "}
-            <span className="font-mono text-stone-900 dark:text-stone-100">
+            <span className="font-mono text-gray-900 dark:text-gray-100">
               {status.admin_summary?.plan}
             </span>
             {status.admin_summary?.subscription_status ? (
@@ -1106,7 +1106,7 @@ function DevToolsPanel() {
           type="button"
           disabled={busy}
           onClick={() => run("expire-trial")}
-          className="px-3 h-10 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-[13px] font-medium hover:bg-stone-50 dark:hover:bg-stone-700 disabled:opacity-50"
+          className="px-3 h-10 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-[13px] font-medium hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
         >
           Expire trial → Free
         </button>
@@ -1114,30 +1114,30 @@ function DevToolsPanel() {
           type="button"
           disabled={busy}
           onClick={() => run("reset-trial", 14)}
-          className="px-3 h-10 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-[13px] font-medium hover:bg-stone-50 dark:hover:bg-stone-700 disabled:opacity-50"
+          className="px-3 h-10 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-[13px] font-medium hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
         >
           Reset trial (14 days)
         </button>
-        <label className="flex items-center gap-2 text-[12px] text-stone-600 dark:text-stone-300 ml-2">
+        <label className="flex items-center gap-2 text-[12px] text-gray-600 dark:text-gray-300 ml-2">
           <input
             type="checkbox"
             checked={force}
             onChange={(e) => setForce(e.target.checked)}
-            className="h-4 w-4 rounded border-stone-300"
+            className="h-4 w-4 rounded border-gray-300"
           />
           force (bypass active-sub guard)
         </label>
       </div>
 
       {busy && (
-        <p className="text-[12px] text-stone-500 dark:text-stone-400">Working…</p>
+        <p className="text-[12px] text-gray-500 dark:text-gray-400">Working…</p>
       )}
 
       {lastResult && (
         <div
           className={`mt-2 rounded-md border p-2 text-[12px] font-mono break-words ${
             lastResult.ok
-              ? "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-100"
+              ? "border-gray-200 bg-gray-50 text-gray-900 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-100"
               : "border-red-300 bg-red-50 text-red-900 dark:border-red-700 dark:bg-red-950/40 dark:text-red-100"
           }`}
         >
@@ -1152,7 +1152,7 @@ function DevToolsPanel() {
                 after: plan={lastResult.data?.after?.plan} · trial_ends_at=
                 {lastResult.data?.after?.trial_ends_at || "null"}
               </div>
-              <div className="mt-1 text-stone-500">
+              <div className="mt-1 text-gray-500">
                 Reloading in 1s to refresh /billing/me…
               </div>
             </>
@@ -1169,7 +1169,7 @@ function DevToolsPanel() {
         </div>
       )}
 
-      <p className="mt-3 text-[11px] text-stone-500 dark:text-stone-400 leading-relaxed">
+      <p className="mt-3 text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
         Hidden from non-admins. Disabled by default — requires the operator
         to set <code className="font-mono">DEBUG_BILLING_ENABLED=true</code> on
         Render. Every action writes a SecurityEvent row.

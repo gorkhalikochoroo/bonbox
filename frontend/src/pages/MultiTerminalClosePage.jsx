@@ -218,10 +218,10 @@ export default function MultiTerminalClosePage() {
   if (!entLoading && !isUnlocked) {
     return (
       <div className="px-4 sm:px-6 py-10 max-w-2xl mx-auto">
-        <h1 className="text-xl font-semibold text-stone-900 dark:text-stone-100 mb-2">
+        <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
           {t("multiClose", "Multi-terminal close")}
         </h1>
-        <p className="text-sm text-stone-500 dark:text-stone-400 mb-5">
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
           {t(
             "multiCloseProIntro",
             "Consolidate every POS terminal into one daily close in under 90 seconds — built for chain operators.",
@@ -344,9 +344,9 @@ export default function MultiTerminalClosePage() {
               return (
                 <div
                   key={term.id}
-                  className={`rounded-2xl border p-4 sm:p-5 transition ${
+                  className={`rounded-xl border p-4 sm:p-5 transition ${
                     isDone
-                      ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700/50"
+                      ? "bg-gray-50 dark:bg-gray-800/50 border-gray-100 dark:border-gray-700/50"
                       : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700"
                   }`}
                 >
@@ -360,7 +360,7 @@ export default function MultiTerminalClosePage() {
                           {term.name}
                         </h3>
                         {isDone && (
-                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-green-600 text-white">
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-gray-900 text-white">
                             ✓ {t("scanned") || "Scanned"}
                           </span>
                         )}
@@ -440,7 +440,7 @@ export default function MultiTerminalClosePage() {
       {/* ─── STEP 2: manual entry ──────────────────────────────── */}
       {step === "manual" && (
         <FadeIn>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 sm:p-6">
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 sm:p-6">
             <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-1">
               {t("manualEntryTitle") || "Cash + non-card payments"}
             </h2>
@@ -536,7 +536,7 @@ export default function MultiTerminalClosePage() {
           onClick={() => setPendingSanity(null)}
         >
           <div
-            className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full p-5 space-y-4"
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-sm max-w-md w-full p-5 space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
             <div>
@@ -558,7 +558,7 @@ export default function MultiTerminalClosePage() {
               <button
                 type="button"
                 onClick={() => send(true)}
-                className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition"
+                className="px-4 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold transition"
               >
                 {t("sanityCheckSendAnyway") || "Yes, send"}
               </button>
@@ -607,7 +607,7 @@ function ProgressPill({ step }) {
         <div
           key={s}
           className={`px-2 py-1 rounded ${
-            i < idx ? "bg-green-600 text-white"
+            i < idx ? "bg-gray-900 text-white"
               : i === idx ? "bg-gray-900 dark:bg-white text-white dark:text-gray-900"
               : "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500"
           }`}
@@ -649,7 +649,7 @@ function ManualField({ label, value, onChange, currency, hint }) {
 function ReviewView({ aggregated, currency, t, onBack, onSend, sending }) {
   const agg = aggregated.aggregated;
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 sm:p-6">
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 sm:p-6">
       <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-1">
         {t("reviewTitle") || "Review tonight's close"}
       </h2>
@@ -941,7 +941,7 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
   }
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-green-200 dark:border-green-800 p-6 sm:p-8">
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-800 p-6 sm:p-8">
       <div className="text-center">
         <div className="text-5xl mb-3">✅</div>
         <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">
@@ -965,7 +965,7 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
           share sheet opens (WhatsApp / Messenger / email) and the
           message goes wherever they already share their closing. */}
       {aggData && shareText && (
-        <div className="mt-2 mb-6 rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30">
+        <div className="mt-2 mb-6 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30">
           <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between flex-wrap gap-2">
             <div className="text-sm font-semibold text-gray-800 dark:text-white">
               📨 {t("sendToTeam") || "Send til ejer / team"}
@@ -986,7 +986,7 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
               className={`mx-4 mb-3 px-3 py-2 rounded-lg text-xs ${
                 shareState.status === "error"
                   ? "bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-300"
-                  : "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+                  : "bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
               }`}
             >
               {shareState.message}
@@ -1069,7 +1069,7 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
               className={`mx-4 mb-3 px-3 py-2 rounded-lg text-xs ${
                 pdfState.status === "error"
                   ? "bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-300"
-                  : "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+                  : "bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
               }`}
             >
               {pdfState.message}
@@ -1080,7 +1080,7 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
               className={`mx-4 mb-3 px-3 py-2 rounded-lg text-xs ${
                 xlsxState.status === "error"
                   ? "bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-300"
-                  : "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+                  : "bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
               }`}
             >
               {xlsxState.message}

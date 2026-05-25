@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+import { AlertTriangle } from "lucide-react";
 
 /**
  * Multi-layer defense — Layer 5 (frontend).
@@ -62,9 +63,9 @@ export default function SoftErrorBanner() {
       {errors.map((e) => (
         <div
           key={e.id}
-          className="pointer-events-auto flex items-start gap-2 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 px-4 py-3 shadow-lg"
+          className="pointer-events-auto flex items-start gap-2 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 px-4 py-3 shadow-sm"
         >
-          <span className="text-lg shrink-0">⚠️</span>
+          <AlertTriangle className="w-5 h-5 shrink-0 text-amber-500" />
           <div className="flex-1 text-sm text-amber-900 dark:text-amber-200">
             {e.message}
           </div>

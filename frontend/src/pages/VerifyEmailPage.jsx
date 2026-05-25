@@ -147,12 +147,12 @@ export default function VerifyEmailPage() {
       <div className="min-h-screen flex bg-slate-950">
         {/* Left panel — branding */}
         <div className="hidden lg:flex lg:w-1/2 items-center justify-center p-12 relative overflow-hidden">
-          <div className="absolute top-20 left-1/4 w-80 h-80 bg-green-600/10 rounded-full blur-[100px]" />
-          <div className="absolute bottom-20 right-1/4 w-60 h-60 bg-emerald-600/8 rounded-full blur-[100px]" />
+          <div className="absolute top-20 left-1/4 w-80 h-80 bg-gray-900/10 rounded-full blur-[100px]" />
+          <div className="absolute bottom-20 right-1/4 w-60 h-60 bg-gray-900/8 rounded-full blur-[100px]" />
 
           <div className="relative z-10 text-center max-w-md" style={{ animation: "fadeIn 0.8s ease-out" }}>
             <div className="flex items-center justify-center gap-4 mb-10">
-              <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center backdrop-blur-sm border border-white/10">
+              <div className="w-14 h-14 bg-white/10 rounded-xl flex items-center justify-center backdrop-blur-sm border border-white/10">
                 <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
                   <rect x="4" y="2" width="20" height="24" rx="3" stroke="white" strokeWidth="2.5"/>
                   <path d="M9 8h10M9 12h10M9 16h6" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
@@ -160,7 +160,7 @@ export default function VerifyEmailPage() {
                 </svg>
               </div>
               <span className="text-3xl font-bold text-white tracking-tight">
-                Bon<span className="text-green-400">Box</span>
+                Bon<span className="text-gray-300">Box</span>
               </span>
             </div>
 
@@ -204,7 +204,7 @@ export default function VerifyEmailPage() {
                     <path d="M4 20h20" stroke="#22c55e" strokeWidth="2"/>
                   </svg>
                 </div>
-                <span className="text-xl font-bold text-white">Bon<span className="text-green-400">Box</span></span>
+                <span className="text-xl font-bold text-white">Bon<span className="text-gray-300">Box</span></span>
               </div>
 
               <h1 className="text-3xl font-bold text-white">Verify your email</h1>
@@ -216,7 +216,7 @@ export default function VerifyEmailPage() {
 
             {/* Success message */}
             {success && (
-              <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/20 text-green-400 p-3.5 rounded-xl mb-5 text-sm" style={{ animation: "slideUp 0.3s ease-out" }}>
+              <div className="flex items-center gap-2 bg-emerald-500/15 border border-gray-300/20 text-gray-300 p-3.5 rounded-xl mb-5 text-sm" style={{ animation: "slideUp 0.3s ease-out" }}>
                 <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
@@ -250,8 +250,8 @@ export default function VerifyEmailPage() {
                     onKeyDown={(e) => handleKeyDown(index, e)}
                     className={`w-13 h-14 text-center text-2xl font-bold rounded-xl border-2 transition-all duration-200 bg-white/[0.05] text-white focus:outline-none ${
                       digit
-                        ? "border-green-500/50 bg-green-500/5"
-                        : "border-white/10 focus:border-green-500 focus:ring-2 focus:ring-green-500/20"
+                        ? "border-gray-300/50 bg-emerald-500/15"
+                        : "border-white/10 focus:border-gray-300 focus:ring-2 focus:ring-gray-400/20"
                     }`}
                     style={{ width: "3.25rem" }}
                     disabled={loading}
@@ -265,7 +265,7 @@ export default function VerifyEmailPage() {
             <button
               onClick={() => handleVerify()}
               disabled={loading || code.join("").length !== 6}
-              className="w-full bg-green-500 text-white py-3.5 rounded-xl hover:bg-green-400 active:scale-[0.98] transition-all font-semibold text-base disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-green-500/25"
+              className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 active:scale-[0.98] transition-all font-semibold text-base disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white"
             >
               {loading ? (
                 <>
@@ -289,7 +289,7 @@ export default function VerifyEmailPage() {
                 className={`text-sm font-semibold transition ${
                   resendCooldown > 0
                     ? "text-gray-600 cursor-not-allowed"
-                    : "text-green-400 hover:text-green-300 hover:underline"
+                    : "text-gray-300 hover:text-gray-300 hover:underline"
                 }`}
               >
                 {resendCooldown > 0

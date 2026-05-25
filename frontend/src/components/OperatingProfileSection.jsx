@@ -152,14 +152,14 @@ export default function OperatingProfileSection() {
 
   if (!loaded) {
     return (
-      <div className="rounded-2xl border border-gray-200 dark:border-gray-700/60 p-5 text-sm text-gray-500">
+      <div className="rounded-xl border border-gray-200 dark:border-gray-700/60 p-5 text-sm text-gray-500">
         {t("loading") || "Loading…"}
       </div>
     );
   }
 
   return (
-    <div className="rounded-2xl border border-gray-200 dark:border-gray-700/60 bg-white dark:bg-gray-800/40 p-5 sm:p-6 space-y-5">
+    <div className="rounded-xl border border-gray-200 dark:border-gray-700/60 bg-white dark:bg-gray-800/40 p-5 sm:p-6 space-y-5">
       <div>
         <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
           🗓️ {t("operatingProfileTitle") || "Operating profile"}
@@ -185,7 +185,7 @@ export default function OperatingProfileSection() {
                 onClick={() => toggleDay(id)}
                 className={`px-3 py-1.5 rounded-md text-xs font-medium border transition ${
                   active
-                    ? "border-emerald-300 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
+                    ? "border-gray-200 bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                     : "border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-500 dark:text-gray-400"
                 }`}
               >
@@ -278,7 +278,7 @@ export default function OperatingProfileSection() {
         <button
           onClick={handleSave}
           disabled={saving}
-          className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-50 transition"
+          className="px-4 py-2 rounded-lg bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold disabled:opacity-50 transition"
         >
           {saving ? (t("saving") || "Saving…") : (t("save") || "Save")}
         </button>
@@ -293,7 +293,7 @@ function RoleRow({ role, label, category, count, onChange, t }) {
   return (
     <div className={`rounded-md px-3 py-2 border transition ${
       enabled
-        ? "border-emerald-200 dark:border-emerald-800/50 bg-emerald-50/50 dark:bg-emerald-900/15"
+        ? "border-gray-100 dark:border-gray-800/50 bg-gray-50/50 dark:bg-gray-800/50"
         : "border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700/30"
     }`}>
       <div className="flex items-center justify-between gap-3">

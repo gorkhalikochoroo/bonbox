@@ -197,7 +197,7 @@ export default function KhataPage() {
             <button
               type="button"
               onClick={() => setOutreachOpen(true)}
-              className="inline-flex items-center gap-2 px-3 h-9 rounded-lg text-sm font-medium border border-emerald-200 dark:border-emerald-800/40 bg-emerald-50/50 dark:bg-emerald-900/15 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100/60 dark:hover:bg-emerald-900/25 transition"
+              className="inline-flex items-center gap-2 px-3 h-9 rounded-lg text-sm font-medium border border-gray-100 dark:border-gray-800/40 bg-gray-50/50 dark:bg-gray-800/50 text-gray-700 dark:text-gray-300 hover:bg-gray-100/60 dark:hover:bg-gray-800/50 transition"
             >
               <Icon name="Heart" size={14} />
               {t("khataReachOut") || "Reach out to regulars"}
@@ -293,7 +293,7 @@ export default function KhataPage() {
                     {c.phone && <p className="text-xs text-gray-500 dark:text-gray-400">{c.phone}</p>}
                   </div>
                   <div className="text-right">
-                    <p className={`font-bold text-sm ${c.balance > 0 ? "text-red-600" : "text-green-600"}`}>
+                    <p className={`font-bold text-sm ${c.balance > 0 ? "text-red-600" : "text-emerald-600"}`}>
                       {c.balance > 0 ? `${fmt(c.balance)} ${t("owed")}` : c.balance < 0 ? `${fmt(Math.abs(c.balance))} ${t("overpaid")}` : t("settled")}
                     </p>
                   </div>
@@ -324,7 +324,7 @@ export default function KhataPage() {
                   </div>
                   <button
                     onClick={() => setShowPayForm(!showPayForm)}
-                    className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition"
+                    className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-700 transition"
                   >
                     {t("recordPayment")}
                   </button>
@@ -336,13 +336,13 @@ export default function KhataPage() {
                     <p className="text-xs text-gray-500 dark:text-gray-400">{t("totalPurchased")}</p>
                     <p className="text-lg font-bold text-red-600">{fmt(customerTotals.purchased)}</p>
                   </div>
-                  <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 text-center">
+                  <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3 text-center">
                     <p className="text-xs text-gray-500 dark:text-gray-400">{t("totalPaid")}</p>
-                    <p className="text-lg font-bold text-green-600">{fmt(customerTotals.paid)}</p>
+                    <p className="text-lg font-bold text-emerald-600">{fmt(customerTotals.paid)}</p>
                   </div>
-                  <div className={`rounded-lg p-3 text-center ${customerRemaining > 0 ? "bg-orange-50 dark:bg-orange-900/20" : "bg-green-50 dark:bg-green-900/20"}`}>
+                  <div className={`rounded-lg p-3 text-center ${customerRemaining > 0 ? "bg-orange-50 dark:bg-orange-900/20" : "bg-gray-50 dark:bg-gray-800/50"}`}>
                     <p className="text-xs text-gray-500 dark:text-gray-400">{t("remaining")}</p>
-                    <p className={`text-lg font-bold ${customerRemaining > 0 ? "text-orange-600" : "text-green-600"}`}>
+                    <p className={`text-lg font-bold ${customerRemaining > 0 ? "text-orange-600" : "text-emerald-600"}`}>
                       {customerRemaining > 0 ? fmt(customerRemaining) : `${t("settled")} ✓`}
                     </p>
                   </div>
@@ -368,7 +368,7 @@ export default function KhataPage() {
                     </button>
                     <button
                       type="submit"
-                      className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition"
+                      className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition"
                     >
                       {t("pay")}
                     </button>
@@ -483,10 +483,10 @@ export default function KhataPage() {
                         <td className="px-4 py-3 text-right text-red-600 font-medium">
                           {parseFloat(txn.purchase_amount) > 0 ? `+${fmt(txn.purchase_amount)}` : "-"}
                         </td>
-                        <td className="px-4 py-3 text-right text-green-600 font-medium">
+                        <td className="px-4 py-3 text-right text-emerald-600 font-medium">
                           {parseFloat(txn.paid_amount) > 0 ? `-${fmt(txn.paid_amount)}` : "-"}
                         </td>
-                        <td className={`px-4 py-3 text-right font-bold ${txn.runningBalance > 0 ? "text-red-600" : "text-green-600"}`}>
+                        <td className={`px-4 py-3 text-right font-bold ${txn.runningBalance > 0 ? "text-red-600" : "text-emerald-600"}`}>
                           {fmt(txn.runningBalance)} {currency}
                         </td>
                         <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{txn.notes || "-"}</td>

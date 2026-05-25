@@ -68,7 +68,7 @@ function calcHoursFromTimes(start, end, breakMin) {
 const METHOD_BADGES = {
   quick: { label: "Quick", color: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" },
   clock: { label: "Clock", color: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300" },
-  schedule: { label: "Schedule", color: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300" },
+  schedule: { label: "Schedule", color: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" },
 };
 
 /* ═══════════════════════════════════════════════════════════
@@ -328,7 +328,7 @@ function HoursSummaryTable({ summary, loading, currency }) {
                 >
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-green-100 dark:bg-green-900/40 flex items-center justify-center text-xs font-bold text-green-700 dark:text-green-300">
+                      <div className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-700 dark:text-gray-300">
                         {(row.staff_name || "?").charAt(0).toUpperCase()}
                       </div>
                       <div>
@@ -350,7 +350,7 @@ function HoursSummaryTable({ summary, loading, currency }) {
                   <td className={`px-3 py-3 text-right font-medium tabular-nums ${
                     diff === 0 ? "text-gray-400 dark:text-gray-500"
                       : isOvertime ? "text-red-600 dark:text-red-400"
-                      : "text-green-600 dark:text-green-400"
+                      : "text-emerald-600 dark:text-gray-300"
                   }`}>
                     {diff === 0 ? "\u2014" : `${diff > 0 ? "+" : ""}${diff.toFixed(1)}h`}
                   </td>
@@ -500,7 +500,7 @@ function QuickLogForm({ staffList, currency, onLogged }) {
             value={staffId}
             onChange={e => setStaffId(e.target.value)}
             required
-            className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+            className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           >
             <option value="">Select staff...</option>
             {staffList.map(s => (
@@ -517,7 +517,7 @@ function QuickLogForm({ staffList, currency, onLogged }) {
             value={date}
             onChange={e => setDate(e.target.value)}
             required
-            className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+            className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           />
         </div>
 
@@ -533,18 +533,18 @@ function QuickLogForm({ staffList, currency, onLogged }) {
             onChange={e => setHours(e.target.value)}
             placeholder="e.g. 8"
             required
-            className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+            className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           />
         </div>
       </div>
 
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-      {success && <p className="text-sm text-green-600 dark:text-green-400">{success}</p>}
+      {success && <p className="text-sm text-emerald-600 dark:text-gray-300">{success}</p>}
 
       <button
         type="submit"
         disabled={saving || !staffId || !hours}
-        className="bg-green-600 hover:bg-green-700 text-white font-medium text-sm px-5 py-2.5 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
+        className="bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white font-medium text-sm px-5 py-2.5 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
       >
         {saving ? "Saving..." : "Log Hours"}
       </button>
@@ -618,7 +618,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
             value={staffId}
             onChange={e => setStaffId(e.target.value)}
             required
-            className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+            className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           >
             <option value="">Select staff...</option>
             {staffList.map(s => (
@@ -635,7 +635,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
             value={date}
             onChange={e => setDate(e.target.value)}
             required
-            className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+            className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           />
         </div>
 
@@ -647,7 +647,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
             value={startTime}
             onChange={e => setStartTime(e.target.value)}
             required
-            className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+            className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           />
         </div>
 
@@ -659,7 +659,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
             value={endTime}
             onChange={e => setEndTime(e.target.value)}
             required
-            className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+            className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           />
         </div>
 
@@ -673,7 +673,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
             max="120"
             value={breakMin}
             onChange={e => setBreakMin(e.target.value)}
-            className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+            className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           />
         </div>
 
@@ -694,12 +694,12 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
       </div>
 
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-      {success && <p className="text-sm text-green-600 dark:text-green-400">{success}</p>}
+      {success && <p className="text-sm text-emerald-600 dark:text-gray-300">{success}</p>}
 
       <button
         type="submit"
         disabled={saving || !staffId || !startTime || !endTime}
-        className="bg-green-600 hover:bg-green-700 text-white font-medium text-sm px-5 py-2.5 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
+        className="bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white font-medium text-sm px-5 py-2.5 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
       >
         {saving ? "Saving..." : "Log Clock Entry"}
       </button>
@@ -746,14 +746,14 @@ function FromScheduleForm({ periodFrom, onLogged }) {
             type="date"
             value={weekStart}
             onChange={e => setWeekStart(e.target.value)}
-            className="border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+            className="border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           />
         </div>
 
         <button
           onClick={handleConfirm}
           disabled={confirming}
-          className="bg-green-600 hover:bg-green-700 text-white font-medium text-sm px-5 py-2.5 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+          className="bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white font-medium text-sm px-5 py-2.5 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
         >
           {confirming ? (
             <span className="flex items-center gap-2">
@@ -772,12 +772,12 @@ function FromScheduleForm({ periodFrom, onLogged }) {
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
       {result && (
-        <div className="bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-lg p-4">
-          <p className="text-sm font-medium text-green-800 dark:text-green-300">
+        <div className="bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-800 rounded-lg p-4">
+          <p className="text-sm font-medium text-gray-800 dark:text-gray-300">
             Schedule confirmed!
           </p>
           {result.confirmed_count != null && (
-            <p className="text-sm text-green-700 dark:text-green-400 mt-1">
+            <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">
               {result.confirmed_count} shift{result.confirmed_count !== 1 ? "s" : ""} logged as actual hours.
             </p>
           )}
@@ -838,7 +838,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
 
   if (loading) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
         <div className="animate-pulse space-y-3">
           <div className="h-5 w-36 bg-gray-200 dark:bg-gray-700 rounded" />
           <div className="h-12 bg-gray-200 dark:bg-gray-700 rounded" />
@@ -850,7 +850,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
 
   if (!entries || entries.length === 0) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-8 text-center">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-8 text-center">
         <div className="text-3xl mb-2">&#128203;</div>
         <p className="text-gray-500 dark:text-gray-400 font-medium">{t("noHourEntries")}</p>
         <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">Logged entries will appear here with edit and delete options.</p>
@@ -862,7 +862,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
   const sorted = [...entries].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
         <h2 className="text-base font-semibold text-gray-800 dark:text-white">{t("recentHoursLog")}</h2>
         <span className="text-xs text-gray-400 dark:text-gray-500">{sorted.length} entries</span>
@@ -919,7 +919,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
                         max="24"
                         value={editHours}
                         onChange={e => setEditHours(e.target.value)}
-                        className="w-16 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded px-2 py-1 text-sm focus:ring-2 focus:ring-green-500 outline-none"
+                        className="w-16 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded px-2 py-1 text-sm focus:ring-2 focus:ring-gray-400 outline-none"
                         autoFocus
                         onKeyDown={e => {
                           if (e.key === "Enter") handleEdit(entry.id);
@@ -929,7 +929,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
                       <button
                         onClick={() => handleEdit(entry.id)}
                         disabled={editSaving}
-                        className="text-green-600 hover:text-green-700 dark:text-green-400 text-xs font-medium"
+                        className="text-emerald-600 hover:text-gray-700 dark:text-gray-300 text-xs font-medium"
                       >
                         {editSaving ? "..." : "Save"}
                       </button>

@@ -4,7 +4,7 @@
 // dropped into ghost variants.  Dead-stock alert moved from full-page red
 // gradient to SectionBanner severity="critical".  Expiry/expired alerts
 // replaced with SectionBanner.  Category tab row uses TabPills (gray-900
-// active state, no more bg-green-600).  Behavior + i18n + a11y unchanged.
+// active state, no more bg-gray-900).  Behavior + i18n + a11y unchanged.
 //
 // Task #119 Phase 3 polish: replaced dark-gradient rainbow KPI panels
 // with neutral clickable StatCards.  Click-to-expand affordance
@@ -60,7 +60,7 @@ const TEMPLATES = [
 
 const COLOR_MAP = {
   orange: { border: "hover:border-orange-400", bg: "hover:bg-orange-50 dark:hover:bg-orange-900/20" },
-  green: { border: "hover:border-green-400", bg: "hover:bg-green-50 dark:hover:bg-green-900/20" },
+  green: { border: "hover:border-gray-300", bg: "hover:bg-gray-50 dark:hover:bg-gray-800/50" },
   blue: { border: "hover:border-blue-400", bg: "hover:bg-blue-50 dark:hover:bg-blue-900/20" },
   yellow: { border: "hover:border-yellow-400", bg: "hover:bg-yellow-50 dark:hover:bg-yellow-900/20" },
   purple: { border: "hover:border-purple-400", bg: "hover:bg-purple-50 dark:hover:bg-purple-900/20" },
@@ -537,7 +537,7 @@ export default function InventoryPage() {
         <InventoryAutopilotPanel onClose={() => setShowAutopilot(false)} />
       )}
 
-      {success && <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
+      {success && <div className="bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
       {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-300 px-4 py-3 rounded-xl text-sm">{error}</div>}
 
       <DismissibleTip
@@ -726,7 +726,7 @@ export default function InventoryPage() {
             colored border + dot pills inside) is unchanged for this
             iteration per the Phase 3 scope: outer tile chrome only. */}
         {expandedStat === "total" && (
-          <div id="inventory-stat-panel" className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-green-200 dark:border-green-800 shadow-sm">
+          <div id="inventory-stat-panel" className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-800 shadow-sm">
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("allItems")} ({items.length})</p>
               <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
@@ -738,7 +738,7 @@ export default function InventoryPage() {
                 <>
                   <div className="flex flex-wrap gap-1.5 mb-3">
                     {Object.entries(byCat).sort((a, b) => b[1].length - a[1].length).map(([cat, list]) => (
-                      <span key={cat} className="px-2.5 py-1 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-xs font-bold text-green-700 dark:text-green-400">{cat} · {list.length}</span>
+                      <span key={cat} className="px-2.5 py-1 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 rounded-lg text-xs font-bold text-gray-700 dark:text-gray-300">{cat} · {list.length}</span>
                     ))}
                   </div>
                   <div className="grid grid-cols-3 gap-2 mb-3">
@@ -752,7 +752,7 @@ export default function InventoryPage() {
                     </div>
                     <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
                       <p className="text-[10px] text-gray-500 dark:text-gray-400 font-semibold">{t("avgMargin")}</p>
-                      <p className={`text-sm font-extrabold ${stats.avgMargin >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>{stats.avgMargin}%</p>
+                      <p className={`text-sm font-extrabold ${stats.avgMargin >= 0 ? "text-emerald-600 dark:text-gray-300" : "text-red-500"}`}>{stats.avgMargin}%</p>
                     </div>
                   </div>
                   <div className="space-y-1 max-h-48 overflow-y-auto">
@@ -791,7 +791,7 @@ export default function InventoryPage() {
                   </div>
                 ))}
               </div>
-            ) : <p className="text-sm text-green-600 dark:text-green-400 text-center py-3 font-medium">{t("allWellStocked")}</p>}
+            ) : <p className="text-sm text-emerald-600 dark:text-gray-300 text-center py-3 font-medium">{t("allWellStocked")}</p>}
           </div>
         )}
 
@@ -854,16 +854,16 @@ export default function InventoryPage() {
             </div>
             <div className="space-y-1.5 max-h-48 overflow-y-auto">
               {items.filter(i => i.sell_price != null && parseFloat(i.sell_price) > 0).length > 0 && (
-                <p className="text-[10px] uppercase tracking-wide text-green-600 dark:text-green-400 font-semibold px-1 mb-1">{t("priced")}</p>
+                <p className="text-[10px] uppercase tracking-wide text-emerald-600 dark:text-gray-300 font-semibold px-1 mb-1">{t("priced")}</p>
               )}
               {items.filter(i => i.sell_price != null && parseFloat(i.sell_price) > 0).slice(0, 10).map((i) => {
                 const margin = parseFloat(i.cost_per_unit) > 0 ? Math.round(((parseFloat(i.sell_price) - parseFloat(i.cost_per_unit)) / parseFloat(i.cost_per_unit)) * 100) : 0;
                 return (
-                  <div key={i.id} className="flex items-center justify-between px-3 py-1.5 bg-green-50 dark:bg-green-900/20 rounded-lg text-xs">
+                  <div key={i.id} className="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-gray-800/50 rounded-lg text-xs">
                     <span className="font-medium text-gray-800 dark:text-white truncate max-w-[35%]">{i.name}</span>
                     <span className="text-gray-500">{t("buyLabel")}: {parseFloat(i.cost_per_unit).toLocaleString()}</span>
                     <span className="text-blue-600 dark:text-blue-400">{t("sellLabel")}: {parseFloat(i.sell_price).toLocaleString()}</span>
-                    <span className={`font-bold ${margin >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>{margin}%</span>
+                    <span className={`font-bold ${margin >= 0 ? "text-emerald-600 dark:text-gray-300" : "text-red-500"}`}>{margin}%</span>
                   </div>
                 );
               })}
@@ -1161,7 +1161,7 @@ export default function InventoryPage() {
                         <td className="px-3 py-2 text-right">
                           <span className="inline-flex items-center gap-1">
                             <button onClick={saveEdit} title={t("save")} aria-label={t("save")}
-                              className="w-7 h-7 inline-flex items-center justify-center rounded-md text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 transition">
+                              className="w-7 h-7 inline-flex items-center justify-center rounded-md text-emerald-600 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition">
                               <Icon name="Check" size={14} />
                             </button>
                             <button onClick={() => setEditId(null)} title={t("cancel")} aria-label={t("cancel")}
@@ -1187,7 +1187,7 @@ export default function InventoryPage() {
                                   className="w-16 px-1.5 py-1 border border-gray-200 dark:border-gray-600 rounded text-[12px] tabular-nums dark:bg-gray-700 dark:text-white"
                                   onKeyDown={(e) => e.key === "Enter" && adjustStock(item.id, adjustQty)} autoFocus />
                                 <button onClick={() => adjustStock(item.id, adjustQty)} title={t("go")} aria-label={t("go")}
-                                  className="w-6 h-6 inline-flex items-center justify-center rounded text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/30">
+                                  className="w-6 h-6 inline-flex items-center justify-center rounded text-emerald-600 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50">
                                   <Icon name="Check" size={12} />
                                 </button>
                                 <button onClick={() => { setAdjustId(null); setAdjustQty(""); }} title={t("cancel")} aria-label={t("cancel")}
@@ -1212,7 +1212,7 @@ export default function InventoryPage() {
                           {item.sell_price_per_pour > 0 ? (
                             <span className="text-amber-600 dark:text-amber-400 font-medium">{parseFloat(item.sell_price_per_pour)}/{item.pour_unit || "glass"}</span>
                           ) : margin != null ? (
-                            <span className={margin >= 0 ? "text-green-600 dark:text-green-400 font-medium" : "text-red-500 font-medium"}>
+                            <span className={margin >= 0 ? "text-emerald-600 dark:text-gray-300 font-medium" : "text-red-500 font-medium"}>
                               {margin >= 0 ? "+" : ""}{margin}%
                             </span>
                           ) : (
@@ -1221,7 +1221,7 @@ export default function InventoryPage() {
                         </td>
                         <td className="px-3 py-2.5 text-[13px] tabular-nums text-right">
                           {profit != null ? (
-                            <span className={profit >= 0 ? "text-green-600 dark:text-green-400 font-medium" : "text-red-500 font-medium"}>
+                            <span className={profit >= 0 ? "text-emerald-600 dark:text-gray-300 font-medium" : "text-red-500 font-medium"}>
                               {profit >= 0 ? "+" : ""}{profit.toLocaleString()}
                             </span>
                           ) : (
@@ -1391,7 +1391,7 @@ export default function InventoryPage() {
                       </button>
                       <button
                         onClick={saveEdit}
-                        className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-emerald-600 bg-emerald-600 text-white text-[13px] font-semibold hover:bg-emerald-700"
+                        className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-900 bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-700"
                       >
                         {t("save")}
                       </button>
@@ -1437,14 +1437,14 @@ export default function InventoryPage() {
                           {item.sell_price_per_pour > 0 ? (
                             <span className="text-amber-600 dark:text-amber-400">{parseFloat(item.sell_price_per_pour)}/{item.pour_unit || "glass"}</span>
                           ) : margin != null ? (
-                            <span className={margin >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}>
+                            <span className={margin >= 0 ? "text-emerald-600 dark:text-gray-300" : "text-red-500"}>
                               {margin >= 0 ? "+" : ""}{margin}%
                             </span>
                           ) : (
                             <span className="text-gray-400">—</span>
                           )}
                           {profit != null && (
-                            <span className={`ml-1.5 ${profit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
+                            <span className={`ml-1.5 ${profit >= 0 ? "text-emerald-600 dark:text-gray-300" : "text-red-500"}`}>
                               {profit >= 0 ? "+" : ""}{profit.toLocaleString()}
                             </span>
                           )}
@@ -1547,7 +1547,7 @@ export default function InventoryPage() {
           }}
           tabIndex={-1}
         >
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
             <h3 id="restock-title" className="text-lg font-bold text-gray-800 dark:text-white mb-1">{t("restock")} — {restockItem.name}</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
               {restockItem.bottle_size || 750}{restockItem.pour_unit || "ml"} {t("perBottle")} · {t("currently")} {Math.round(restockItem.quantity)} {restockItem.pour_unit || "ml"} {t("inStock")}
@@ -1573,7 +1573,7 @@ export default function InventoryPage() {
               <button
                 onClick={restockBottle}
                 autoFocus
-                className="flex-1 py-2.5 bg-green-500 text-white rounded-xl font-semibold text-sm hover:bg-green-600"
+                className="flex-1 py-2.5 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white rounded-xl font-semibold text-sm"
               >{t("add")} {restockBottles} {t("bottles")}</button>
             </div>
           </div>
@@ -1583,7 +1583,7 @@ export default function InventoryPage() {
       {/* Pour Modal */}
       {pourModal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setPourModal(null)}>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-1">{t("pour")} — {pourModal.name}</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
               {pourModal.pour_size}{pourModal.pour_unit || "ml"} {t("perGlass")} · {Math.round(pourModal.quantity)} {pourModal.pour_unit || "ml"} {t("inStock")}
@@ -1622,7 +1622,7 @@ export default function InventoryPage() {
       {showTemplateModal && (
         <div className="fixed inset-0 bg-black/30 z-50 flex justify-end" onClick={() => { setShowTemplateModal(false); setTemplateLoaded(null); }}>
           <div
-            className="bg-white dark:bg-gray-800 shadow-2xl w-full max-w-sm h-full overflow-y-auto p-6 animate-slideIn"
+            className="bg-white dark:bg-gray-800 shadow-sm w-full max-w-sm h-full overflow-y-auto p-6 animate-slideIn"
             onClick={(e) => e.stopPropagation()}
             style={{ animation: "slideIn 0.25s ease-out" }}
           >
@@ -1643,7 +1643,7 @@ export default function InventoryPage() {
                     key={tmpl.type}
                     onClick={() => loadTemplate(tmpl.type)}
                     disabled={templateLoading}
-                    className={`w-full p-4 text-left border rounded-xl transition ${isLoaded ? "border-green-400 bg-green-50 dark:bg-green-900/20" : `border-gray-200 dark:border-gray-600 ${c.border} ${c.bg}`}`}
+                    className={`w-full p-4 text-left border rounded-xl transition ${isLoaded ? "border-gray-300 bg-gray-50 dark:bg-gray-800/50" : `border-gray-200 dark:border-gray-600 ${c.border} ${c.bg}`}`}
                   >
                     <div className="flex items-center gap-3">
                       <span className="text-2xl">{tmpl.icon}</span>
@@ -1651,7 +1651,7 @@ export default function InventoryPage() {
                         <div className="flex items-center gap-2">
                           <p className="font-semibold text-gray-800 dark:text-white">{tmpl.name}</p>
                           <span className="text-xs text-gray-400">{tmpl.count} {t("items")}</span>
-                          {isLoaded && <span className="text-xs text-green-600 dark:text-green-400 font-medium">✓ {t("loaded")}</span>}
+                          {isLoaded && <span className="text-xs text-emerald-600 dark:text-gray-300 font-medium">✓ {t("loaded")}</span>}
                         </div>
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{tmpl.desc}</p>
                       </div>

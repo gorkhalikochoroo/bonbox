@@ -166,8 +166,8 @@ function KpiCard({ title, numericValue, value, currency: cur, change, changeLabe
           // Quiet pill (gray-50 bg) so it doesn't compete with the value.
           <span className={`inline-flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded-md tabular-nums
             ${isPositive
-              ? "text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20"
-              : "text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20"
+              ? "text-emerald-600 dark:text-emerald-400 bg-gray-50 dark:bg-gray-800/60"
+              : "text-red-600 dark:text-red-400 bg-gray-50 dark:bg-gray-800/60"
             }`}>
             {isPositive ? "▲" : "▼"} {Math.abs(change)}%
           </span>
@@ -203,7 +203,7 @@ function RevenueTrendChart({ data, currency, onNavigate }) {
     return (
       <div
         onClick={onNavigate}
-        className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+        className="bg-white dark:bg-gray-800 rounded-xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
       >
         <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
           {t("revenueTrend", "Revenue trend")}
@@ -222,7 +222,7 @@ function RevenueTrendChart({ data, currency, onNavigate }) {
   return (
     <div
       onClick={onNavigate}
-      className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+      className="bg-white dark:bg-gray-800 rounded-xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
     >
       <div className="flex items-start justify-between mb-4">
         <div>
@@ -761,7 +761,7 @@ function AlertsPanel({ actionItems, summary, weekComparison, onNavigate }) {
     critical: "bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800/30",
     warning: "bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/30",
     info: "bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700",
-    success: "bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800/30",
+    success: "bg-gray-50 dark:bg-gray-800/40 border-gray-100 dark:border-gray-700",
   };
   // Icon tint per severity — matches the SectionBanner recipe.
   const iconColor = {
@@ -926,7 +926,7 @@ function PLCard({ revenue, expenses, profit, margin, currency, onNavigate, loadi
         ${revenue === 0 && expenses === 0
           ? "bg-gray-50 dark:bg-gray-800/40 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700"
           : isProfit
-            ? "bg-emerald-50 dark:bg-emerald-900/15 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/30"
+            ? "bg-gray-50 dark:bg-gray-800/40 text-gray-700 dark:text-gray-300 border-gray-100 dark:border-gray-700"
             : "bg-red-50 dark:bg-red-900/15 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800/30"
         }`}>
         {revenue === 0 && expenses === 0
@@ -1230,7 +1230,7 @@ function WeekComparisonCard({ weekComparison, currency, onNavigate }) {
   return (
     <div
       onClick={onNavigate}
-      className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+      className="bg-white dark:bg-gray-800 rounded-xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
     >
       <div className="flex items-center justify-between mb-4">
         <div>
@@ -1238,10 +1238,10 @@ function WeekComparisonCard({ weekComparison, currency, onNavigate }) {
           <p className="text-xs text-gray-400 mt-0.5">{t("performanceComparison")}</p>
         </div>
         {weekComparison.change_pct !== 0 && (
-          <span className={`text-sm font-bold px-2.5 py-1 rounded-lg
+          <span className={`text-sm font-bold px-2.5 py-1 rounded-lg tabular-nums
             ${weekComparison.change_pct > 0
-              ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
-              : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
+              ? "bg-gray-50 dark:bg-gray-800 text-emerald-600 dark:text-emerald-400"
+              : "bg-gray-50 dark:bg-gray-800 text-red-600 dark:text-red-400"
             }`}>
             {weekComparison.change_pct > 0 ? "↑" : "↓"} {Math.abs(weekComparison.change_pct)}%
           </span>
@@ -1267,10 +1267,10 @@ function WeekComparisonCard({ weekComparison, currency, onNavigate }) {
                   <p className="text-sm text-gray-500">{Math.round(row.lastWeek).toLocaleString()}</p>
                 </div>
                 {clampedDiff !== 0 && (
-                  <span className={`text-xs font-bold px-1.5 py-0.5 rounded-md
+                  <span className={`text-xs font-bold px-1.5 py-0.5 rounded-md tabular-nums
                     ${isGood
-                      ? "text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30"
-                      : "text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-900/30"
+                      ? "text-emerald-600 dark:text-emerald-400 bg-gray-100 dark:bg-gray-800"
+                      : "text-red-600 dark:text-red-400 bg-gray-100 dark:bg-gray-800"
                     }`}>
                     {isUp ? "↑" : "↓"}{Math.abs(clampedDiff)}%
                   </span>
@@ -1320,7 +1320,7 @@ function HealthScore({ summary, monthlyData, onNavigate }) {
   return (
     <div
       onClick={onNavigate}
-      className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+      className="bg-white dark:bg-gray-800 rounded-xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
     >
       <div className="flex flex-col sm:flex-row sm:items-center gap-5">
         {/* Gauge */}
@@ -1430,7 +1430,7 @@ function GoalTracker({ todayRevenue, monthRevenue }) {
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm space-y-4">
+    <div className="bg-white dark:bg-gray-800 rounded-xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm space-y-4">
       <GoalBar label={t("dailyGoal")} current={todayRevenue} goal={dailyGoal} type="daily" color="bg-blue-500" />
       <GoalBar label={t("monthlyGoal")} current={monthRevenue} goal={monthlyGoal} type="monthly" color="bg-purple-500" />
     </div>
@@ -1904,7 +1904,7 @@ export default function DashboardPage() {
             <button key={p} onClick={() => setPeriod(p)}
               className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all
                 ${period === p
-                  ? "bg-green-600 text-white shadow-sm"
+                  ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 shadow-sm"
                   : "bg-gray-100 dark:bg-gray-700/60 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
                 }`}>
               {p === "today" ? t("today") : p === "thisWeek" ? t("thisWeek") : p === "thisMonth" ? t("thisMonth") : t("last30Days")}
@@ -2014,14 +2014,16 @@ export default function DashboardPage() {
               const agentBtn = document.querySelector("[data-bonbox-agent-toggle]");
               if (agentBtn) agentBtn.click();
             }}
-            className="w-full flex items-center gap-3 px-5 py-4 bg-gradient-to-r from-blue-500/5 via-purple-500/5 to-pink-500/5 dark:from-blue-500/10 dark:via-purple-500/10 dark:to-pink-500/10 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] active:scale-[0.99] transition-all"
+            className="w-full flex items-center gap-3 px-5 py-4 bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
           >
-            <span className="text-2xl">💬</span>
+            <span className="text-gray-600 dark:text-gray-300"><Icon name="MessageCircle" size={22} /></span>
             <div className="text-left flex-1 min-w-0">
               <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Ask anything about your business...</p>
               <p className="text-xs text-gray-400 mt-0.5">{t("poweredByBonBoxAgent")}</p>
             </div>
-            <span className="text-[10px] font-bold text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-0.5 rounded-full uppercase tracking-wider flex-shrink-0">Live</span>
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full uppercase tracking-wider flex-shrink-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Live
+            </span>
           </button>
         </FadeIn>
 
@@ -2049,7 +2051,7 @@ export default function DashboardPage() {
            ═══════════════════════════════════════════════════ */}
         {budgetSummary && budgetSummary.categories.length > 0 && (
           <FadeIn>
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:shadow-md transition" onClick={() => navigate("/budgets")}>
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors" onClick={() => navigate("/budgets")}>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("budgetSnapshot")}</h3>
                 {budgetSummary.total_budget > 0 && (
@@ -2097,7 +2099,7 @@ export default function DashboardPage() {
            ROW 8: RECEIPTS (if any)
            ═══════════════════════════════════════════════════ */}
         {receipts.length > 0 && (
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm">
             <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100 mb-4">{t("recentReceipts")}</h3>
             <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-7 gap-3">
               {receipts.map((r) => {
@@ -2111,10 +2113,10 @@ export default function DashboardPage() {
                       className="w-full h-24 object-cover"
                       onError={(e) => { e.target.style.display = "none"; e.target.nextSibling.style.display = "flex"; }} />
                   ) : null}
-                  <div className="w-full h-24 bg-gray-50 dark:bg-gray-700 flex items-center justify-center" style={{ display: safeReceipt ? "none" : "flex" }}>
-                    <span className="text-2xl">🧾</span>
+                  <div className="w-full h-24 bg-gray-50 dark:bg-gray-700 flex items-center justify-center text-gray-400" style={{ display: safeReceipt ? "none" : "flex" }}>
+                    <Icon name="Receipt" size={24} />
                   </div>
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent text-white text-[10px] px-2 py-1.5">
+                  <div className="absolute bottom-0 left-0 right-0 bg-gray-900/80 text-white text-[10px] px-2 py-1.5">
                     <p className="font-semibold">{r.amount.toLocaleString()} {currency}</p>
                   </div>
                 </div>
@@ -2142,7 +2144,7 @@ export default function DashboardPage() {
             >
               <span aria-hidden="true">&times;</span>
             </button>
-            <img src={lightboxImg} alt="Receipt" className="max-w-full max-h-[90vh] rounded-xl shadow-2xl object-contain" onClick={(e) => e.stopPropagation()} />
+            <img src={lightboxImg} alt="Receipt" className="max-w-full max-h-[90vh] rounded-xl shadow-sm object-contain" onClick={(e) => e.stopPropagation()} />
           </div>
         )}
       </div>

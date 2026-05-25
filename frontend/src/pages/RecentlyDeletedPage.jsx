@@ -88,7 +88,7 @@ export default function RecentlyDeletedPage() {
         </div>
         <div className="flex gap-2">
           <button onClick={() => restore(item.id)}
-            className="px-3 py-1.5 text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-lg hover:bg-green-200 dark:hover:bg-green-900/50">
+            className="px-3 py-1.5 text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800/50">
             {t("restore")}
           </button>
           <button onClick={() => permanentDelete(item.id)}

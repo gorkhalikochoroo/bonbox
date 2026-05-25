@@ -128,7 +128,7 @@ export default function CloserPromptCard({ user }) {
   if (stage === "done") return null;
 
   return (
-    <div className="mb-5 rounded-2xl border border-amber-200 dark:border-amber-800/50 bg-gradient-to-br from-amber-50 to-orange-50/60 dark:from-amber-900/20 dark:to-orange-900/10 p-5 sm:p-6">
+    <div className="mb-5 rounded-xl border border-amber-200 dark:border-amber-800/50 bg-gray-50 dark:bg-gray-800/50 p-5 sm:p-6">
       <div className="flex items-start gap-3 mb-3">
         <div className="text-2xl shrink-0">👋</div>
         <div className="flex-1 min-w-0">

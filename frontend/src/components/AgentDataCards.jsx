@@ -83,22 +83,20 @@ function ChangeBadge({ pct }) {
 /* ------------------------------------------------------------------ */
 /*  Shared: Card shell                                                 */
 /* ------------------------------------------------------------------ */
-function CardShell({ children, gradient = "from-gray-900/80 to-gray-800/60", className = "" }) {
+function CardShell({ children, className = "" }) {
   return (
     <div
       className={`
-        relative overflow-hidden rounded-xl border border-white/[0.06]
-        bg-gradient-to-br ${gradient}
-        shadow-lg shadow-black/10
-        dark:shadow-black/30
+        relative overflow-hidden rounded-xl border border-gray-100
+        bg-white dark:bg-gray-900 dark:border-gray-800
+        shadow-sm
         p-4 max-h-[200px]
-        backdrop-blur-sm
         ${className}
       `}
       style={{ animation: "agentCardIn 0.35s ease-out both" }}
     >
       {/* subtle top highlight line */}
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+      <div className="absolute inset-x-0 top-0 h-px bg-gray-200 dark:bg-gray-700" />
       {children}
       <style>{`
         @keyframes agentCardIn {
@@ -158,7 +156,7 @@ export function RevenueCard({ data, currency }) {
   }
 
   return (
-    <CardShell gradient="from-emerald-950/80 to-gray-900/70">
+    <CardShell>
       <div className="flex items-start justify-between mb-2">
         <div>
           <p className="text-[11px] uppercase tracking-wider text-emerald-400/70 font-semibold mb-1">{t("revenue")}</p>
@@ -210,7 +208,7 @@ export function ExpenseCard({ data, currency }) {
   ];
 
   return (
-    <CardShell gradient="from-rose-950/60 to-gray-900/70">
+    <CardShell>
       <div className="flex items-start justify-between mb-3">
         <div>
           <p className="text-[11px] uppercase tracking-wider text-rose-400/70 font-semibold mb-1">{t("expenses")}</p>
@@ -279,7 +277,7 @@ export function InventoryCard({ data }) {
   }
 
   return (
-    <CardShell gradient="from-sky-950/60 to-gray-900/70">
+    <CardShell>
       <div className="flex items-start justify-between mb-3">
         <div>
           <p className="text-[11px] uppercase tracking-wider text-sky-400/70 font-semibold mb-1">{t("inventory")}</p>
@@ -340,7 +338,7 @@ export function WasteCard({ data, currency }) {
   const maxCost = Math.max(...by_reason.map((r) => r.total_cost), 1);
 
   return (
-    <CardShell gradient="from-amber-950/60 to-gray-900/70">
+    <CardShell>
       <div className="flex items-start justify-between mb-3">
         <div>
           <p className="text-[11px] uppercase tracking-wider text-amber-400/70 font-semibold mb-1">{t("waste")}</p>
@@ -373,7 +371,7 @@ export function WasteCard({ data, currency }) {
               </div>
               <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-gradient-to-r from-amber-500 to-orange-400 transition-all"
+                  className="h-full rounded-full bg-gray-50 dark:bg-gray-800/50 transition-all"
                   style={{ width: `${(r.total_cost / maxCost) * 100}%` }}
                 />
               </div>
@@ -398,8 +396,8 @@ export function KhataCard({ data, currency }) {
   const withBalance = customers.filter((c) => c.outstanding > 0);
 
   function statusStyle(c) {
-    if (c.is_overdue) return "bg-red-500 shadow-red-500/40 shadow-sm";
-    return "bg-emerald-400 shadow-emerald-400/40 shadow-sm";
+    if (c.is_overdue) return "bg-red-500 shadow-sm";
+    return "bg-emerald-400 shadow-sm";
   }
 
   function statusLabel(c) {
@@ -408,7 +406,7 @@ export function KhataCard({ data, currency }) {
   }
 
   return (
-    <CardShell gradient="from-violet-950/60 to-gray-900/70">
+    <CardShell>
       <div className="flex items-start justify-between mb-3">
         <div>
           <p className="text-[11px] uppercase tracking-wider text-violet-400/70 font-semibold mb-1">{t("khataCredit")}</p>
@@ -465,7 +463,7 @@ export function StaffCard({ data }) {
     manager: "bg-violet-500/20 text-violet-300 border-violet-500/20",
     cashier: "bg-sky-500/20 text-sky-300 border-sky-500/20",
     chef: "bg-amber-500/20 text-amber-300 border-amber-500/20",
-    waiter: "bg-emerald-500/20 text-emerald-300 border-emerald-500/20",
+    waiter: "bg-emerald-500/15 text-gray-300 border-gray-300/20",
     delivery: "bg-indigo-500/20 text-indigo-300 border-indigo-500/20",
   };
 
@@ -475,7 +473,7 @@ export function StaffCard({ data }) {
   }
 
   return (
-    <CardShell gradient="from-indigo-950/60 to-gray-900/70">
+    <CardShell>
       <div className="flex items-start justify-between mb-3">
         <div>
           <p className="text-[11px] uppercase tracking-wider text-indigo-400/70 font-semibold mb-1">{t("navStaff")}</p>
@@ -532,13 +530,13 @@ export function SuggestionsCard({ data }) {
   const typeStyles = {
     warning: { bg: "bg-amber-500/10", border: "border-amber-500/30", icon: "⚠️", text: "text-amber-400" },
     action: { bg: "bg-blue-500/10", border: "border-blue-500/30", icon: "🎯", text: "text-blue-400" },
-    success: { bg: "bg-green-500/10", border: "border-green-500/30", icon: "✅", text: "text-green-400" },
+    success: { bg: "bg-emerald-500/15", border: "border-gray-300/30", icon: "✅", text: "text-gray-300" },
     info: { bg: "bg-sky-500/10", border: "border-sky-500/30", icon: "💡", text: "text-sky-400" },
     insight: { bg: "bg-purple-500/10", border: "border-purple-500/30", icon: "📊", text: "text-purple-400" },
   };
 
   return (
-    <div className="rounded-xl border border-amber-500/20 bg-gradient-to-br from-amber-900/20 to-orange-900/10 p-3.5 space-y-2.5">
+    <div className="rounded-xl border border-amber-500/20 bg-gray-50 dark:bg-gray-800/50 p-3.5 space-y-2.5">
       <div className="flex items-center gap-2">
         <span className="text-amber-400 font-bold text-[10px] uppercase tracking-widest">
           {t("suggestionsLabel")}
@@ -657,7 +655,7 @@ export function HealthCard({ data, currency }) {
   ];
 
   return (
-    <CardShell gradient="from-gray-900/90 to-gray-800/70" className="max-h-[220px]">
+    <CardShell className="max-h-[220px]">
       <p className="text-[11px] uppercase tracking-wider text-white/50 font-semibold mb-3">{t("businessHealth")}</p>
       <div className="grid grid-cols-3 gap-x-3 gap-y-2.5">
         {metrics.map((m) => (

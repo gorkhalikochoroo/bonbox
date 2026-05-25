@@ -1,5 +1,5 @@
 // Task #118 polish (Agent B): migrated to PageHeader, StatCard,
-// SectionBanner, Card, Empty primitives.  Replaced ad-hoc rounded-2xl
+// SectionBanner, Card, Empty primitives.  Replaced ad-hoc rounded-xl
 // recharts wrapper, the colored alert blocks, and the local MetricCard
 // helper with primitives.  Recharts chart itself is one-off and left
 // alone (only the wrapper polished).  Behavior + i18n + a11y unchanged.
@@ -205,7 +205,7 @@ export default function ExpiryPage() {
                       type="button"
                       disabled={actingId === `${it.id}:${a}`}
                       onClick={() => handleAction(it.id, a)}
-                      className="text-xs px-2.5 py-1 rounded-md bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 border border-emerald-200 dark:border-emerald-800/60 disabled:opacity-50"
+                      className="text-xs px-2.5 py-1 rounded-md bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 border border-gray-100 dark:border-gray-800/60 disabled:opacity-50"
                     >
                       {actingId === `${it.id}:${a}` ? "…" : label}
                     </button>
@@ -239,7 +239,7 @@ export default function ExpiryPage() {
             >
               <p>{alert.detail}</p>
               {alert.action && (
-                <p className="mt-2 font-medium text-emerald-700 dark:text-emerald-400">
+                <p className="mt-2 font-medium text-gray-700 dark:text-emerald-400">
                   → {alert.action}
                 </p>
               )}
@@ -458,7 +458,7 @@ export default function ExpiryPage() {
               </span>
             ))}
           </div>
-          <a href="/inventory" className="text-sm font-medium text-emerald-700 dark:text-emerald-400 hover:underline">
+          <a href="/inventory" className="text-sm font-medium text-gray-700 dark:text-emerald-400 hover:underline">
             Go to Inventory to add expiry dates →
           </a>
         </SectionBanner>
@@ -475,7 +475,7 @@ export default function ExpiryPage() {
             cta={
               <a
                 href="/inventory"
-                className="inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors h-9 px-3.5 text-sm bg-emerald-600 text-white hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2"
+                className="inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors h-9 px-3.5 text-sm bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2"
               >
                 Go to Inventory
               </a>

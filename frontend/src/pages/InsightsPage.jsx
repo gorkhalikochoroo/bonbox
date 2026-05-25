@@ -161,7 +161,7 @@ export default function InsightsPage() {
         <button
           onClick={refreshNow}
           disabled={refreshing}
-          className="self-start sm:self-end px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-sm font-medium rounded-lg shadow-sm disabled:opacity-50"
+          className="self-start sm:self-end px-4 py-2 bg-gray-50 dark:bg-gray-800/50 text-white text-sm font-medium rounded-lg shadow-sm disabled:opacity-50"
         >
           {refreshing ? "Refreshing…" : "Refresh insights"}
         </button>
@@ -239,7 +239,7 @@ export default function InsightsPage() {
 
 function StatCard({ label, value, accent }) {
   const cls =
-    accent === "green" ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400" :
+    accent === "green" ? "bg-gray-50 dark:bg-gray-800/50 text-gray-700 dark:text-gray-300" :
     accent === "red" ? "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400" :
     "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400";
   return (
@@ -260,7 +260,7 @@ function InsightCard({ pattern, onFeedback, onDismiss, onActed }) {
 
   const stateColors = {
     active: "bg-white dark:bg-gray-800",
-    acted: "bg-green-50/40 dark:bg-green-900/10",
+    acted: "bg-gray-50/40 dark:bg-gray-800/50",
     dismissed: "bg-gray-50/60 dark:bg-gray-800/40 opacity-70",
     expired: "bg-gray-50/40 dark:bg-gray-800/30 opacity-60",
   };
@@ -306,7 +306,7 @@ function InsightCard({ pattern, onFeedback, onDismiss, onActed }) {
               onClick={() => onFeedback("useful")}
               icon="👍"
               label="Useful"
-              activeBg="bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"
+              activeBg="bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
             />
             <FeedbackButton
               active={pattern.feedback === "not_useful"}
@@ -361,7 +361,7 @@ function FeedbackButton({ active, onClick, icon, label, activeBg }) {
 function EmptyState({ filter }) {
   if (filter === "active") {
     return (
-      <div className="text-center py-12 px-4 bg-gradient-to-br from-purple-50 to-indigo-50 dark:from-purple-900/10 dark:to-indigo-900/10 rounded-2xl border border-purple-200/40 dark:border-purple-800/30">
+      <div className="text-center py-12 px-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-purple-200/40 dark:border-purple-800/30">
         <div className="text-4xl mb-2">✨</div>
         <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">No active insights right now</h3>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-md mx-auto">

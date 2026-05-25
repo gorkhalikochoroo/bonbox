@@ -23,10 +23,10 @@ function CustomTooltip({ active, payload, currency }) {
   const d = payload[0]?.payload;
   if (!d) return null;
   return (
-    <div className="bg-white dark:bg-gray-800 p-3 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 text-sm">
+    <div className="bg-white dark:bg-gray-800 p-3 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 text-sm">
       <p className="font-bold text-gray-800 dark:text-white">{d.day}, {d.date}</p>
       <div className="mt-1 space-y-0.5">
-        <p className={`font-semibold ${d.balance >= 0 ? "text-green-600" : "text-red-600"}`}>
+        <p className={`font-semibold ${d.balance >= 0 ? "text-emerald-600" : "text-red-600"}`}>
           Balance: {fmt(d.balance)} {currency}
         </p>
         {d.revenue > 0 && <p className="text-blue-500">+ Revenue: {fmt(d.revenue)} {currency}</p>}
@@ -80,7 +80,7 @@ export default function CashFlowPage() {
       <div className="p-4 md:p-8 max-w-lg mx-auto text-center">
         <div className="text-4xl mb-4">📊</div>
         <p className="text-red-500">{error || "No data available"}</p>
-        <button onClick={fetchForecast} className="mt-4 text-sm text-green-600 hover:underline">Try again</button>
+        <button onClick={fetchForecast} className="mt-4 text-sm text-emerald-600 hover:underline">Try again</button>
       </div>
     );
   }
@@ -151,11 +151,11 @@ export default function CashFlowPage() {
       {alerts.length > 0 && (
         <div className="space-y-3">
           {alerts.map((alert, i) => (
-            <div key={i} className={`p-4 rounded-2xl border-l-4 ${
+            <div key={i} className={`p-4 rounded-xl border-l-4 ${
               alert.severity === "critical" ? "border-red-600 bg-red-50 dark:bg-red-900/20" :
               alert.severity === "warning" ? "border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20" :
               alert.severity === "medium" ? "border-orange-500 bg-orange-50 dark:bg-orange-900/20" :
-              alert.severity === "positive" ? "border-green-500 bg-green-50 dark:bg-green-900/20" :
+              alert.severity === "positive" ? "border-gray-300 bg-gray-50 dark:bg-gray-800/50" :
               "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
             }`}>
               <div className="flex items-start gap-3">
@@ -164,7 +164,7 @@ export default function CashFlowPage() {
                   <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{alert.title}</p>
                   <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{alert.detail}</p>
                   {alert.action && (
-                    <p className="text-xs text-green-700 dark:text-green-400 mt-2 font-medium">💡 {alert.action}</p>
+                    <p className="text-xs text-gray-700 dark:text-gray-300 mt-2 font-medium">💡 {alert.action}</p>
                   )}
                 </div>
               </div>
@@ -175,7 +175,7 @@ export default function CashFlowPage() {
 
       {/* ─── 30-DAY CHART ─── */}
       {has_data && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
           <h2 className="font-bold text-gray-800 dark:text-white mb-1">30-Day Cash Flow Projection</h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
             Based on your recent sales patterns and recurring expenses
@@ -227,7 +227,7 @@ export default function CashFlowPage() {
             </ResponsiveContainer>
           </div>
           <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
-            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-green-500 inline-block rounded" /> Balance</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-emerald-500 inline-block rounded" /> Balance</span>
             <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-yellow-500 inline-block rounded border-dashed" /> Safety threshold ({fmt(safety_threshold)} {currency})</span>
             <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-red-500 inline-block rounded" /> Zero line</span>
           </div>
@@ -236,7 +236,7 @@ export default function CashFlowPage() {
 
       {/* ─── DAILY BREAKDOWN TABLE ─── */}
       {has_data && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
           <h2 className="font-bold text-gray-800 dark:text-white mb-4">Daily Breakdown</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -257,7 +257,7 @@ export default function CashFlowPage() {
                   }`}>
                     <td className="py-2 px-2 text-gray-700 dark:text-gray-300">{p.date.slice(5)}</td>
                     <td className="py-2 px-2 text-gray-500 dark:text-gray-400">{p.day.slice(0, 3)}</td>
-                    <td className="py-2 px-2 text-right text-green-600">
+                    <td className="py-2 px-2 text-right text-emerald-600">
                       {p.revenue > 0 ? `+${fmt(p.revenue)}` : "—"}
                     </td>
                     <td className="py-2 px-2 text-right text-orange-500">
@@ -285,7 +285,7 @@ export default function CashFlowPage() {
 
       {/* ─── TOP RECEIVABLES ─── */}
       {receivables.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
           <h2 className="font-bold text-gray-800 dark:text-white mb-1 flex items-center gap-2">
             <span>💰</span> Outstanding Receivables
           </h2>
@@ -318,7 +318,7 @@ export default function CashFlowPage() {
 
       {/* ─── RECURRING EXPENSES ─── */}
       {recurring_expenses.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
           <h2 className="font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
             <span>📅</span> Upcoming Recurring Expenses
           </h2>
@@ -338,14 +338,14 @@ export default function CashFlowPage() {
 
       {/* No data prompt */}
       {!has_data && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-sm text-center">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-8 shadow-sm text-center">
           <div className="text-5xl mb-4">📊</div>
           <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-2">Build Your Prediction Model</h2>
           <p className="text-gray-500 dark:text-gray-400 mb-4">
             Log sales for at least 2 weeks to unlock accurate 30-day cash flow predictions.
           </p>
           <div className="flex gap-3 justify-center">
-            <a href="/sales" className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition">
+            <a href="/sales" className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition">
               Log Sales
             </a>
             <a href="/cashbook" className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition">

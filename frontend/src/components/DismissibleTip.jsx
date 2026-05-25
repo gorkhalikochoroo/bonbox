@@ -10,7 +10,7 @@ import { Icon } from "./ui";
  * Re-skinned May 2026 to match the new SectionBanner aesthetic — neutral
  * gray surface by default, Lucide info icon (not an emoji bulb), and
  * the same border / radius / padding rhythm as the Card primitive. The
- * old `bg-green-50/70` "lightbulb in a green box" look made tips
+ * old `bg-gray-50/70` "lightbulb in a green box" look made tips
  * visually compete with primary content; the new neutral treatment
  * recedes until the owner actually reads it.
  *
@@ -152,7 +152,7 @@ export default function DismissibleTip({
         type="button"
         onClick={dismiss}
         aria-label={t("dismissTip") || "Dismiss tip"}
-        className="absolute top-3 right-3 w-7 h-7 rounded-full inline-flex items-center justify-center hover:bg-black/5 dark:hover:bg-white/10 transition text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+        className="absolute top-3 right-3 w-7 h-7 rounded-full inline-flex items-center justify-center hover:bg-black/5 dark:hover:bg-white/10 transition text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
       >
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
           <path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />

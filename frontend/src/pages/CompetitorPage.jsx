@@ -361,7 +361,7 @@ export default function CompetitorPage() {
 
       {/* ─── MANUAL ADD (collapsible) ─── */}
       {showManual && (
-        <form onSubmit={handleAddManual} className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm space-y-3 border border-gray-100 dark:border-gray-700">
+        <form onSubmit={handleAddManual} className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm space-y-3 border border-gray-100 dark:border-gray-700">
           <h3 className="font-bold text-gray-700 dark:text-gray-200 text-sm">{t("addCompetitorManually")}</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder={t("businessNameRequired")}
@@ -372,7 +372,7 @@ export default function CompetitorPage() {
               className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" />
           </div>
           <div className="flex gap-2">
-            <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium">Save</button>
+            <button type="submit" className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium">Save</button>
             <button type="button" onClick={() => setShowManual(false)} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm">{t("cancel")}</button>
           </div>
         </form>
@@ -438,27 +438,27 @@ export default function CompetitorPage() {
                 3. has data → big number + scrollable competitor list
                               with one-click "Track" per row */}
           {cuisineLoading ? (
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
               <p className="text-sm text-gray-400 animate-pulse">🔍 {t("cuisineMarketLoading", "Scanning your local market…")}</p>
             </div>
           ) : cuisineMarket?.needs_setup ? (
-            <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl p-5 border border-emerald-200 dark:border-emerald-800">
-              <h3 className="font-bold text-emerald-900 dark:text-emerald-100 mb-1">
+            <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-5 border border-gray-100 dark:border-gray-800">
+              <h3 className="font-bold text-gray-900 dark:text-gray-100 mb-1">
                 🍽️ {t("cuisineMarketSetupTitle", "Tell us what you serve")}
               </h3>
-              <p className="text-sm text-emerald-700 dark:text-emerald-300 mb-3">
+              <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
                 {cuisineMarket.message || t("cuisineMarketSetupBody",
                   "Set your cuisine in Profile and we'll show you how many places nearby serve the same thing — and let you track them in one click.")}
               </p>
               <a
                 href="/profile"
-                className="inline-block px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-lg"
+                className="inline-block px-4 py-2 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold rounded-lg"
               >
                 {t("setCuisineCTA", "Set my cuisine →")}
               </a>
             </div>
           ) : cuisineMarket?.needs_location ? (
-            <div className="bg-amber-50 dark:bg-amber-900/20 rounded-2xl p-5 border border-amber-200 dark:border-amber-800">
+            <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-5 border border-amber-200 dark:border-amber-800">
               <h3 className="font-bold text-amber-900 dark:text-amber-100 mb-1">
                 📍 {t("locationNeededTitle", "Set your location first")}
               </h3>
@@ -468,7 +468,7 @@ export default function CompetitorPage() {
               <a href="/profile" className="text-sm font-semibold text-amber-800 underline">{t("openProfile", "Open Profile →")}</a>
             </div>
           ) : cuisineMarket && cuisineMarket.cuisine ? (
-            <div className="bg-gradient-to-br from-emerald-50 to-blue-50 dark:from-emerald-900/20 dark:to-blue-900/20 rounded-2xl p-5 border border-emerald-200/60 dark:border-emerald-800/60">
+            <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-5 border border-gray-100/60 dark:border-gray-800/60">
               <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
                 <div>
                   <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 font-semibold">
@@ -493,7 +493,7 @@ export default function CompetitorPage() {
                 </div>
                 <a
                   href="/profile"
-                  className="text-xs text-emerald-700 dark:text-emerald-300 underline whitespace-nowrap"
+                  className="text-xs text-gray-700 dark:text-gray-300 underline whitespace-nowrap"
                   title={t("changeCuisine", "Change cuisine")}
                 >
                   {t("changeCuisine", "Change cuisine")}
@@ -516,7 +516,7 @@ export default function CompetitorPage() {
                             </span>
                           )}
                           {p.already_tracked && (
-                            <span className="text-[10px] bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 rounded font-medium">
+                            <span className="text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-1.5 py-0.5 rounded font-medium">
                               ✓ {t("tracked", "Tracked")}
                             </span>
                           )}
@@ -532,7 +532,7 @@ export default function CompetitorPage() {
                         <button
                           onClick={() => handleTrackPlace(p)}
                           disabled={addingId === p.place_id}
-                          className="text-[11px] px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md font-medium disabled:opacity-50"
+                          className="text-[11px] px-2 py-1 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white rounded-md font-medium disabled:opacity-50"
                         >
                           {addingId === p.place_id ? "…" : "+ " + t("track", "Track")}
                         </button>
@@ -550,7 +550,7 @@ export default function CompetitorPage() {
           ) : null}
 
           {/* Search bar */}
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
             <h3 className="font-bold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
               📍 Find Nearby Competitors
             </h3>
@@ -574,7 +574,7 @@ export default function CompetitorPage() {
                 </select>
               </div>
               <button onClick={handleDiscover} disabled={discoverLoading}
-                className="px-6 py-2.5 bg-green-600 text-white rounded-xl text-sm font-bold hover:bg-green-700 transition disabled:opacity-50 flex items-center gap-1.5">
+                className="px-6 py-2.5 bg-gray-900 text-white rounded-xl text-sm font-bold hover:bg-gray-700 transition disabled:opacity-50 flex items-center gap-1.5">
                 {discoverLoading ? (
                   <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" /> Scanning...</>
                 ) : (
@@ -634,7 +634,7 @@ export default function CompetitorPage() {
       {tab === "overview" && (
         <div className="space-y-6">
           {overpriced_items?.length > 0 && (
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm border-l-4 border-yellow-500">
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border-l-4 border-yellow-500">
               <h2 className="font-bold text-gray-800 dark:text-white mb-3">📈 We're Priced Higher</h2>
               <div className="space-y-2">
                 {overpriced_items.map((p, i) => (
@@ -654,17 +654,17 @@ export default function CompetitorPage() {
           )}
 
           {underpriced_items?.length > 0 && (
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm border-l-4 border-green-500">
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border-l-4 border-gray-300">
               <h2 className="font-bold text-gray-800 dark:text-white mb-3">💡 Room to Raise Prices</h2>
               <div className="space-y-2">
                 {underpriced_items.map((p, i) => (
-                  <div key={i} className="flex items-center justify-between gap-3 bg-green-50 dark:bg-green-900/10 rounded-xl px-3 sm:px-4 py-3">
+                  <div key={i} className="flex items-center justify-between gap-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl px-3 sm:px-4 py-3">
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{p.item}</p>
                       <p className="text-xs text-gray-500">vs {p.competitor}</p>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="text-sm font-bold text-green-600">{p.diff_pct}%</p>
+                      <p className="text-sm font-bold text-emerald-600">{p.diff_pct}%</p>
                       <p className="text-[10px] sm:text-xs text-gray-400">{fmt(p.our_price)} vs {fmt(p.their_price)}</p>
                     </div>
                   </div>
@@ -675,7 +675,7 @@ export default function CompetitorPage() {
 
           {/* Price check form */}
           {competitors?.length > 0 && (
-            <form onSubmit={handlePriceCheck} className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm space-y-3 border border-gray-100 dark:border-gray-700">
+            <form onSubmit={handlePriceCheck} className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm space-y-3 border border-gray-100 dark:border-gray-700">
               <h2 className="font-bold text-gray-800 dark:text-white">📋 {t("logPriceCheck", "Log Price Check")}</h2>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 {t(
@@ -705,9 +705,9 @@ export default function CompetitorPage() {
                           className={
                             "px-2.5 py-1 rounded-full text-xs font-medium border transition " +
                             (selected
-                              ? "bg-emerald-600 text-white border-emerald-600"
+                              ? "bg-gray-900 text-white border-gray-900"
                               : fromInventory
-                                ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100"
+                                ? "bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-100 dark:border-gray-800 hover:bg-gray-100"
                                 : "bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600")
                           }
                           title={
@@ -739,7 +739,7 @@ export default function CompetitorPage() {
                 <input type="number" step="0.01" value={ourPrice} onChange={(e) => setOurPrice(e.target.value)}
                   placeholder={`${t("ourPrice", "Our price")} (${currency})`} className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" />
               </div>
-              <button type="submit" className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700">{t("logPriceCheck", "Log Price Check")}</button>
+              <button type="submit" className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-700">{t("logPriceCheck", "Log Price Check")}</button>
             </form>
           )}
 
@@ -748,7 +748,7 @@ export default function CompetitorPage() {
               <p className="text-4xl mb-3">📊</p>
               <p className="text-lg font-medium">{t("noDataYet")}</p>
               <p className="text-sm mt-1">
-                Go to <button onClick={() => setTab("discover")} className="text-green-600 underline font-medium">Discover</button> to find and track competitors first.
+                Go to <button onClick={() => setTab("discover")} className="text-emerald-600 underline font-medium">Discover</button> to find and track competitors first.
               </p>
             </div>
           )}
@@ -759,7 +759,7 @@ export default function CompetitorPage() {
       {tab === "competitors" && (
         <div className="space-y-4">
           {competitors?.length > 0 ? competitors.map((comp) => (
-            <div key={comp.id} className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
+            <div key={comp.id} className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
               <div className="flex items-start justify-between mb-3">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -772,7 +772,7 @@ export default function CompetitorPage() {
                       </span>
                     )}
                     {comp.price_level != null && (
-                      <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full">
+                      <span className="text-xs bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-2 py-0.5 rounded-full">
                         {PRICE_LABELS[comp.price_level] || ""}
                       </span>
                     )}
@@ -782,7 +782,7 @@ export default function CompetitorPage() {
                 <div className="flex flex-col gap-1 items-end flex-shrink-0 ml-2">
                   <button
                     onClick={() => openScanModal(comp.id)}
-                    className="text-xs px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 font-medium"
+                    className="text-xs px-2.5 py-1 rounded-full bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-100 dark:border-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800/50 font-medium"
                     title={t("scanMenuTitle", "Scan their menu — extract items + prices with AI")}
                   >
                     📷 {t("scanMenu", "Scan menu")}
@@ -804,7 +804,7 @@ export default function CompetitorPage() {
                         <span className="text-gray-500">{fmt(p.their_price)} {currency}</span>
                         {p.our_price && (
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                            p.position === "we_are_lower" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300" :
+                            p.position === "we_are_lower" ? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" :
                             p.position === "we_are_higher" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" :
                             "bg-gray-100 text-gray-500"
                           }`}>
@@ -824,7 +824,7 @@ export default function CompetitorPage() {
               <p className="text-5xl mb-3">🎯</p>
               <p className="text-lg font-medium">{t("noCompetitorsTracked")}</p>
               <p className="text-sm mt-1">
-                Go to <button onClick={() => setTab("discover")} className="text-green-600 underline font-medium">Discover</button> to find businesses near you.
+                Go to <button onClick={() => setTab("discover")} className="text-emerald-600 underline font-medium">Discover</button> to find businesses near you.
               </p>
             </div>
           )}
@@ -834,7 +834,7 @@ export default function CompetitorPage() {
       {/* ═══ SCAN MENU MODAL ═══ */}
       {scanCompId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b dark:border-gray-700">
               <div>
                 <h3 className="font-bold text-gray-800 dark:text-white">📷 {t("scanMenuTitle2", "Scan competitor menu")}</h3>
@@ -862,7 +862,7 @@ export default function CompetitorPage() {
                           <button
                             key={p.photo_reference}
                             onClick={() => scanFromGooglePhoto(p.photo_reference)}
-                            className="aspect-square rounded-lg overflow-hidden border-2 border-transparent hover:border-emerald-500 focus:border-emerald-500 transition group relative"
+                            className="aspect-square rounded-lg overflow-hidden border-2 border-transparent hover:border-gray-300 focus:border-gray-300 transition group relative"
                             title={t("scanMenuTapToScan", "Tap to scan this photo")}
                           >
                             <img src={p.view_url} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -889,7 +889,7 @@ export default function CompetitorPage() {
                     <span className="block text-xs uppercase tracking-wide text-gray-500 font-semibold mb-2">
                       {t("scanMenuUpload", "Upload your own photo")}
                     </span>
-                    <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-6 text-center cursor-pointer hover:border-emerald-500 transition">
+                    <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-6 text-center cursor-pointer hover:border-gray-300 transition">
                       <p className="text-3xl mb-1">📤</p>
                       <p className="text-sm text-gray-600 dark:text-gray-300 font-medium">
                         {t("scanMenuTapToUpload", "Tap to take a photo or pick from gallery")}
@@ -940,7 +940,7 @@ export default function CompetitorPage() {
                           {scanConfidence && (
                             <span className={
                               "ml-2 px-1.5 py-0.5 rounded text-[10px] font-semibold " +
-                              (scanConfidence === "high" ? "bg-emerald-100 text-emerald-700"
+                              (scanConfidence === "high" ? "bg-gray-100 text-gray-700"
                                 : scanConfidence === "medium" ? "bg-amber-100 text-amber-700"
                                 : "bg-red-100 text-red-700")
                             }>
@@ -995,7 +995,7 @@ export default function CompetitorPage() {
                 <button
                   onClick={importExtractedItems}
                   disabled={bulkSaving || extractedItems.every((i) => !i.include)}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold disabled:opacity-50"
+                  className="px-4 py-2 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white rounded-lg text-sm font-semibold disabled:opacity-50"
                 >
                   {bulkSaving
                     ? t("scanMenuSaving", "Saving…")
@@ -1035,10 +1035,10 @@ function PlaceCard({ place, onTrack, isAdding }) {
     : null;
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col">
+    <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col">
       <div className="flex items-start gap-3 flex-1">
         {/* Icon / Category */}
-        <div className="w-10 h-10 rounded-xl bg-green-50 dark:bg-green-900/30 flex items-center justify-center flex-shrink-0 text-lg">
+        <div className="w-10 h-10 rounded-xl bg-gray-50 dark:bg-gray-800 flex items-center justify-center flex-shrink-0 text-lg">
           {p.category === "Restaurant" ? "🍽️" :
            p.category === "Cafe" ? "☕" :
            p.category === "Bar" ? "🍺" :
@@ -1052,7 +1052,7 @@ function PlaceCard({ place, onTrack, isAdding }) {
             <h3 className="font-bold text-gray-800 dark:text-white text-sm truncate">{p.name}</h3>
             {p.open_now != null && (
               <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                p.open_now ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                p.open_now ? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
               }`}>
                 {p.open_now ? "Open" : "Closed"}
               </span>
@@ -1079,12 +1079,12 @@ function PlaceCard({ place, onTrack, isAdding }) {
 
       <div className="mt-3 pt-2 border-t dark:border-gray-700">
         {p.already_tracked ? (
-          <span className="text-xs text-green-600 dark:text-green-400 font-medium flex items-center gap-1">
+          <span className="text-xs text-emerald-600 dark:text-gray-300 font-medium flex items-center gap-1">
             ✅ Already tracking
           </span>
         ) : (
           <button onClick={onTrack} disabled={isAdding}
-            className="w-full py-2 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700 transition disabled:opacity-50">
+            className="w-full py-2 bg-gray-900 text-white rounded-lg text-xs font-bold hover:bg-gray-700 transition disabled:opacity-50">
             {isAdding ? "Adding..." : "🎯 Track Competitor"}
           </button>
         )}

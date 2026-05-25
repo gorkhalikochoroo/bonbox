@@ -62,7 +62,7 @@ export default function MileagePage() {
   if (!hasAccess) {
     return (
       <div className="p-4 md:p-8 max-w-2xl mx-auto">
-        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl p-6 text-center">
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-6 text-center">
           <div className="text-4xl mb-3">🔒</div>
           <h1 className="text-xl font-bold mb-2 text-amber-900 dark:text-amber-200">
             {t("mileageStarterRequired") || "Mileage tracker — Starter plan required"}
@@ -95,7 +95,7 @@ export default function MileagePage() {
             setEditingId(null);
             setShowForm(true);
           }}
-          className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition"
+          className="px-4 py-2 bg-gray-900 text-white rounded-xl text-sm font-semibold hover:bg-gray-700 transition"
         >
           + {t("newTrip") || "New trip"}
         </button>
@@ -140,7 +140,7 @@ export default function MileagePage() {
 
       {/* Year summary card */}
       {summary && (
-        <div className="bg-gradient-to-br from-green-600 to-emerald-700 text-white rounded-2xl p-6 shadow-lg">
+        <div className="bg-gray-50 dark:bg-gray-800/50 text-white rounded-xl p-6 shadow-sm">
           <p className="text-sm opacity-90 mb-1">
             {t("yearToDate") || "Year to date"} · {summary.year}
           </p>
@@ -183,7 +183,7 @@ export default function MileagePage() {
       {loading ? (
         <div className="text-center py-12 text-gray-500">{t("loading") || "Loading…"}</div>
       ) : entries.length === 0 ? (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-12 text-center border border-gray-100 dark:border-gray-700">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-12 text-center border border-gray-100 dark:border-gray-700">
           <p className="text-4xl mb-3">🚗</p>
           <p className="text-gray-600 dark:text-gray-300 font-medium mb-2">
             {t("noTripsYet") || "No trips logged this year."}
@@ -193,7 +193,7 @@ export default function MileagePage() {
           </p>
         </div>
       ) : (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 dark:bg-gray-900/40 text-gray-500 dark:text-gray-400 uppercase text-xs">
               <tr>
@@ -220,7 +220,7 @@ export default function MileagePage() {
                   <td className="px-5 py-3 text-right text-gray-600 dark:text-gray-400 text-xs">
                     {Number(e.rate_per_km).toFixed(2).replace(".", ",")} kr/km
                   </td>
-                  <td className="px-5 py-3 text-right font-semibold text-green-700 dark:text-green-300">
+                  <td className="px-5 py-3 text-right font-semibold text-gray-700 dark:text-gray-300">
                     {fmtKr(e.deduction_amount)}
                   </td>
                   <td className="px-5 py-3 text-right whitespace-nowrap">
@@ -319,7 +319,7 @@ function MileageFormModal({ entryId, entries, onClose, onSaved, t }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-lg w-full">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm max-w-lg w-full">
         <div className="p-5 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
           <h2 className="text-lg font-bold text-gray-800 dark:text-white">
             {isEdit ? (t("editTrip") || "Edit trip") : (t("newTrip") || "New trip")}
@@ -430,7 +430,7 @@ function MileageFormModal({ entryId, entries, onClose, onSaved, t }) {
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition disabled:opacity-50"
+              className="px-4 py-2 bg-gray-900 text-white rounded-xl text-sm font-semibold hover:bg-gray-700 transition disabled:opacity-50"
             >
               {saving ? (t("saving") || "Saving…") : (t("save") || "Save trip")}
             </button>

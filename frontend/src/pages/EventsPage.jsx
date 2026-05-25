@@ -337,7 +337,7 @@ export default function EventsPage() {
         </div>
         <button
           onClick={() => (showForm ? resetForm() : setShowForm(true))}
-          className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition"
+          className="px-4 py-2 bg-gray-900 text-white rounded-xl text-sm font-semibold hover:bg-gray-700 transition"
         >
           {showForm ? t("cancel", "Cancel") : `+ ${t("eventsNew", "New event")}`}
         </button>
@@ -349,13 +349,13 @@ export default function EventsPage() {
         </div>
       )}
       {successMsg && (
-        <div className="bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-4 py-3 rounded-xl text-sm">
+        <div className="bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-4 py-3 rounded-xl text-sm">
           {successMsg}
         </div>
       )}
 
       {showForm && (
-        <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3">
+        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3">
           <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
             {t("eventsNew", "New event")}
           </h2>
@@ -395,7 +395,7 @@ export default function EventsPage() {
               <button
                 type="button"
                 onClick={openTierSection}
-                className="text-sm font-medium text-green-700 dark:text-green-400 hover:underline"
+                className="text-sm font-medium text-gray-700 dark:text-gray-300 hover:underline"
               >
                 + {t("eventTicketTiersSection", "Add ticket tiers (enables Cash-up)")}
               </button>
@@ -403,7 +403,7 @@ export default function EventsPage() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
-                    <Wallet className="w-4 h-4 text-green-600" aria-hidden />
+                    <Wallet className="w-4 h-4 text-emerald-600" aria-hidden />
                     {t("eventTicketTiersSection", "Ticket tiers")}
                   </h3>
                   <button
@@ -459,7 +459,7 @@ export default function EventsPage() {
                   <button
                     type="button"
                     onClick={addTier}
-                    className="inline-flex items-center gap-1 text-sm font-medium text-green-700 dark:text-green-400 hover:underline"
+                    className="inline-flex items-center gap-1 text-sm font-medium text-gray-700 dark:text-gray-300 hover:underline"
                   >
                     <Plus className="w-4 h-4" />
                     {t("eventTicketTierAdd", "Add another tier")}
@@ -470,7 +470,7 @@ export default function EventsPage() {
                     type="checkbox"
                     checked={formTaxExempt}
                     onChange={(e) => setFormTaxExempt(e.target.checked)}
-                    className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                    className="rounded border-gray-300 text-emerald-600 focus:ring-gray-400"
                   />
                   <span>
                     {t("eventIsTaxExempt", "MOMS-fri event (e.g. §13 live theatre)")}
@@ -490,7 +490,7 @@ export default function EventsPage() {
             <button
               onClick={createEvent}
               disabled={creating}
-              className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition disabled:opacity-60"
+              className="px-4 py-2 bg-gray-900 text-white rounded-xl text-sm font-semibold hover:bg-gray-700 transition disabled:opacity-60"
             >
               {creating ? t("creating", "Creating…") : t("save", "Save")}
             </button>
@@ -525,7 +525,7 @@ export default function EventsPage() {
                   key={ev.id}
                   className={`rounded-xl border px-4 py-3 cursor-pointer transition ${
                     selectedId === ev.id
-                      ? "border-green-500 bg-green-50 dark:bg-green-900/20"
+                      ? "border-gray-300 bg-gray-50 dark:bg-gray-800/50"
                       : "border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 hover:border-gray-300"
                   }`}
                   onClick={() => setSelectedId(ev.id)}
@@ -541,13 +541,13 @@ export default function EventsPage() {
                               "{n} ticket tier(s) defined",
                               { n: ev.ticket_tiers.length },
                             )}
-                            className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
+                            className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"
                           >
                             {ev.ticket_tiers.length}× {t("eventTicketTierBadgeShort", "tier")}
                           </span>
                         )}
                         {ev.is_tax_exempt && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">
                             MOMS-fri
                           </span>
                         )}
@@ -575,7 +575,7 @@ export default function EventsPage() {
         </div>
 
         {/* Detail */}
-        <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
+        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
           {!selectedId ? (
             <div className="text-sm text-gray-500 dark:text-gray-400 py-6 text-center">
               {t("eventsSelectHint", "Pick an event on the left to see its summary.")}
@@ -651,7 +651,7 @@ export default function EventsPage() {
                         "Add ticket tiers to this event first (Edit → Ticket tiers).",
                       )
                 }
-                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-green-600 hover:bg-green-700 text-white text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Wallet className="w-4 h-4" aria-hidden />
                 {t("eventCashupButton", "Cash up event")}

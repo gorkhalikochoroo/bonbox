@@ -10,7 +10,7 @@ import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit
 import { PageHeader, Button, SectionBanner, StatCard } from "../components/ui";
 
 const STATUS_COLORS = {
-  green: { bg: "bg-green-500", track: "bg-green-100 dark:bg-green-900/30", text: "text-green-600 dark:text-green-400", badge: "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400" },
+  green: { bg: "bg-emerald-500", track: "bg-gray-100 dark:bg-gray-800", text: "text-emerald-600 dark:text-gray-300", badge: "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300" },
   yellow: { bg: "bg-amber-500", track: "bg-amber-100 dark:bg-amber-900/30", text: "text-amber-600 dark:text-amber-400", badge: "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400" },
   red: { bg: "bg-red-500", track: "bg-red-100 dark:bg-red-900/30", text: "text-red-600 dark:text-red-400", badge: "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400" },
 };
@@ -118,7 +118,7 @@ export default function BudgetPage() {
     <div className="p-4 sm:p-6 space-y-6 max-w-[1000px] mx-auto">
       {/* Toast */}
       {toast && (
-        <div className="fixed top-4 right-4 z-50 bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-medium shadow-lg animate-fade-in">
+        <div className="fixed top-4 right-4 z-50 bg-gray-900 text-white px-4 py-2 rounded-xl text-sm font-medium shadow-sm animate-fade-in">
           {toast}
         </div>
       )}
@@ -157,13 +157,13 @@ export default function BudgetPage() {
       {loading ? (
         <div className="space-y-4">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="h-24 bg-gray-100 dark:bg-gray-800 rounded-2xl animate-pulse" />
+            <div key={i} className="h-24 bg-gray-100 dark:bg-gray-800 rounded-xl animate-pulse" />
           ))}
         </div>
       ) : editing ? (
         /* ═══ EDIT MODE ═══ */
         <FadeIn>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700 shadow-sm space-y-5">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700 shadow-sm space-y-5">
             <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">Set monthly limits</h2>
 
             {/* Total budget */}
@@ -246,7 +246,7 @@ export default function BudgetPage() {
           {/* Overall progress */}
           {summary && summary.total_budget > 0 && (
             <FadeIn>
-              <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
+              <div className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Overall Budget</span>
                   <span className="text-sm font-semibold text-gray-800 dark:text-white">
@@ -256,14 +256,14 @@ export default function BudgetPage() {
                 <div className="h-4 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all duration-500 ${
-                      summary.total_pct > 100 ? "bg-red-500" : summary.total_pct >= 80 ? "bg-amber-500" : "bg-green-500"
+                      summary.total_pct > 100 ? "bg-red-500" : summary.total_pct >= 80 ? "bg-amber-500" : "bg-emerald-500"
                     }`}
                     style={{ width: `${Math.min(summary.total_pct, 100)}%` }}
                   />
                 </div>
                 <div className="flex items-center justify-between mt-2">
                   <span className={`text-xs font-semibold ${
-                    summary.total_pct > 100 ? "text-red-500" : summary.total_pct >= 80 ? "text-amber-500" : "text-green-500"
+                    summary.total_pct > 100 ? "text-red-500" : summary.total_pct >= 80 ? "text-amber-500" : "text-emerald-600"
                   }`}>
                     {summary.total_pct}% used
                   </span>
@@ -322,7 +322,7 @@ export default function BudgetPage() {
                 {cats.map((cat) => {
                   const sc = STATUS_COLORS[cat.status] || STATUS_COLORS.green;
                   return (
-                    <div key={cat.category} className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
+                    <div key={cat.category} className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-semibold text-gray-800 dark:text-white">{cat.category}</span>

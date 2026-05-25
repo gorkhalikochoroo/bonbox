@@ -174,11 +174,11 @@ export default function WineListPage() {
             { label: t("wineWines"), val: summary.total_wines, icon: "🍷" },
             { label: t("wineBottles"), val: summary.total_bottles, icon: "🍾" },
             { label: t("wineAvgMargin"), val: `${summary.avg_margin}%`, icon: "📊",
-              color: summary.avg_margin >= 40 ? "text-green-600" : summary.avg_margin >= 25 ? "text-yellow-600" : "text-red-600" },
+              color: summary.avg_margin >= 40 ? "text-emerald-600" : summary.avg_margin >= 25 ? "text-yellow-600" : "text-red-600" },
             { label: t("wineLowStock"), val: summary.low_stock_count, icon: "⚠️",
-              color: summary.low_stock_count > 0 ? "text-red-600" : "text-green-600" },
+              color: summary.low_stock_count > 0 ? "text-red-600" : "text-emerald-600" },
           ].map(k => (
-            <div key={k.label} className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm border border-gray-100 dark:border-gray-700">
+            <div key={k.label} className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700">
               <p className="text-xs text-gray-500 dark:text-gray-400">{k.icon} {k.label}</p>
               <p className={`text-2xl font-bold mt-1 ${k.color || "dark:text-white"}`}>{k.val}</p>
             </div>
@@ -327,7 +327,7 @@ function ScanButton({ onResult }) {
     <>
       <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFile} />
       <button onClick={() => fileRef.current?.click()} disabled={scanning}
-        className="px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl text-sm font-semibold hover:from-purple-700 hover:to-pink-700 transition disabled:opacity-60 flex items-center gap-1.5">
+        className="px-4 py-2 bg-gray-50 dark:bg-gray-800/50 text-white rounded-xl text-sm font-semibold transition disabled:opacity-60 flex items-center gap-1.5">
         {scanning ? (
           <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" /> Reading...</>
         ) : (
@@ -344,7 +344,7 @@ function ScanButton({ onResult }) {
    ═══════════════════════════════════════════════════════════ */
 function WineCard({ wine: w, currency, isSelected, onToggle, onSell, onDelete }) {
   const { t } = useLanguage();
-  const marginColor = w.margin_pct >= 40 ? "text-green-600 dark:text-green-400"
+  const marginColor = w.margin_pct >= 40 ? "text-emerald-600 dark:text-gray-300"
     : w.margin_pct >= 25 ? "text-yellow-600 dark:text-yellow-400"
     : "text-red-600 dark:text-red-400";
 
@@ -396,7 +396,7 @@ function WineCard({ wine: w, currency, isSelected, onToggle, onSell, onDelete })
           </div>
           <div className="flex gap-1">
             <button onClick={onSell} title={t("wineSell1Bottle")} disabled={w.stock_qty <= 0}
-              className="p-2 rounded-lg bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/50 transition disabled:opacity-30 text-xs font-bold">
+              className="p-2 rounded-lg bg-gray-50 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition disabled:opacity-30 text-xs font-bold">
               -1
             </button>
             <button onClick={onDelete} title={t("delete")}
@@ -534,18 +534,18 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
       </div>
 
       {/* PDF Export Controls */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
         <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
           <h3 className="text-sm font-bold dark:text-white">{t("winePrintSettings")}</h3>
           <div className="flex gap-2">
             {dirtyCount > 0 && (
               <button onClick={handleSaveAll}
-                className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition">
+                className="px-4 py-2 bg-gray-900 text-white rounded-xl text-sm font-semibold hover:bg-gray-700 transition">
                 Save {dirtyCount} Change{dirtyCount > 1 ? "s" : ""}
               </button>
             )}
             <button onClick={handlePdfExport} disabled={pdfLoading || wines.length === 0}
-              className="px-5 py-2 bg-gradient-to-r from-purple-700 to-pink-600 text-white rounded-xl text-sm font-bold hover:from-purple-800 hover:to-pink-700 transition disabled:opacity-50 flex items-center gap-1.5">
+              className="px-5 py-2 bg-gray-50 dark:bg-gray-800/50 text-white rounded-xl text-sm font-bold transition disabled:opacity-50 flex items-center gap-1.5">
               {pdfLoading ? (
                 <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" /> Generating...</>
               ) : pdfSuccess ? (
@@ -577,7 +577,7 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
         </div>
 
         {hasAnyGlass && (
-          <p className="text-xs text-green-600 dark:text-green-400 mt-2">
+          <p className="text-xs text-emerald-600 dark:text-gray-300 mt-2">
             Glass pricing detected — PDF will show Glass / Bottle columns
           </p>
         )}
@@ -676,7 +676,7 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
 
                         {dirty && (
                           <button onClick={() => handleSave(w)} disabled={saving === w.id}
-                            className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-700 transition disabled:opacity-50">
+                            className="px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs font-semibold hover:bg-gray-700 transition disabled:opacity-50">
                             {saving === w.id ? "Saving..." : "Save"}
                           </button>
                         )}
@@ -725,7 +725,7 @@ function StaffSheet({ wines, currency }) {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {filtered.map(w => (
-            <div key={w.id} className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
+            <div key={w.id} className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
               <div className="flex items-baseline justify-between gap-2 mb-2">
                 <h3 className="font-bold text-gray-900 dark:text-white text-lg">{w.name}</h3>
                 <span className="text-sm font-bold text-gray-600 dark:text-gray-300 whitespace-nowrap">{w.sell_price.toLocaleString()} {currency}</span>
@@ -740,9 +740,9 @@ function StaffSheet({ wines, currency }) {
 
               {/* What to tell the customer */}
               {w.staff_description ? (
-                <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-3 mb-2">
-                  <p className="text-xs font-semibold text-green-700 dark:text-green-400 mb-1">💬 What to say:</p>
-                  <p className="text-sm text-green-800 dark:text-green-300 leading-relaxed">{w.staff_description}</p>
+                <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3 mb-2">
+                  <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">💬 What to say:</p>
+                  <p className="text-sm text-gray-800 dark:text-gray-300 leading-relaxed">{w.staff_description}</p>
                 </div>
               ) : w.tasting_notes ? (
                 <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-3 mb-2">
@@ -762,7 +762,7 @@ function StaffSheet({ wines, currency }) {
                 <span className={`text-xs font-medium ${w.stock_qty <= w.reorder_level ? "text-red-500" : "text-gray-400"}`}>
                   {w.stock_qty} bottles left
                 </span>
-                <span className={`text-xs font-bold ${w.margin_pct >= 40 ? "text-green-600" : w.margin_pct >= 25 ? "text-yellow-600" : "text-red-600"}`}>
+                <span className={`text-xs font-bold ${w.margin_pct >= 40 ? "text-emerald-600" : w.margin_pct >= 25 ? "text-yellow-600" : "text-red-600"}`}>
                   {w.margin_pct}% margin
                 </span>
               </div>
@@ -896,7 +896,7 @@ function QRModal({ token, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm w-full max-w-sm p-6 text-center">
         <h2 className="text-lg font-bold dark:text-white mb-1">📱 Customer Wine Menu</h2>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{t("winePrintQrTables")}</p>
 
@@ -986,7 +986,7 @@ function AddWineModal({ currency, prefill, onClose, onDone }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-white dark:bg-gray-800 px-5 pt-5 pb-3 border-b dark:border-gray-700 z-10">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-bold dark:text-white">
@@ -995,7 +995,7 @@ function AddWineModal({ currency, prefill, onClose, onDone }) {
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
           </div>
           {prefill && (
-            <p className="text-xs text-green-600 dark:text-green-400 mt-1">✅ AI filled the details from your label photo. Just add pricing and confirm.</p>
+            <p className="text-xs text-emerald-600 dark:text-gray-300 mt-1">✅ AI filled the details from your label photo. Just add pricing and confirm.</p>
           )}
         </div>
 
@@ -1040,7 +1040,7 @@ function AddWineModal({ currency, prefill, onClose, onDone }) {
                 <input className={inputClass + " text-right"} type="number" value={form.reorder_level} onChange={e => set("reorder_level", e.target.value)} /></div>
             </div>
             {margin > 0 && (
-              <div className={`mt-3 text-center text-sm font-bold ${margin >= 40 ? "text-green-600" : margin >= 25 ? "text-yellow-600" : "text-red-600"}`}>
+              <div className={`mt-3 text-center text-sm font-bold ${margin >= 40 ? "text-emerald-600" : margin >= 25 ? "text-yellow-600" : "text-red-600"}`}>
                 {margin}% margin
                 {margin < 30 && <span className="font-normal text-xs ml-2">— consider raising your price</span>}
               </div>

@@ -53,7 +53,7 @@ export default function SickCallNotificationCard() {
   if (!loaded || absences.length === 0) return null;
 
   return (
-    <div className="bg-amber-50/70 dark:bg-amber-900/15 border border-amber-200 dark:border-amber-800/50 rounded-2xl p-4 sm:p-5">
+    <div className="bg-amber-50/70 dark:bg-amber-900/15 border border-amber-200 dark:border-amber-800/50 rounded-xl p-4 sm:p-5">
       <div className="flex items-start gap-2 mb-3">
         <span className="text-xl shrink-0" aria-hidden="true">🤒</span>
         <div className="flex-1">
@@ -86,7 +86,7 @@ function AbsenceRow({ absence, onChanged, t }) {
       ? "bg-amber-200 dark:bg-amber-800/40 text-amber-900 dark:text-amber-200"
       : absence.status === "acknowledged"
         ? "bg-blue-200 dark:bg-blue-800/40 text-blue-900 dark:text-blue-200"
-        : "bg-emerald-200 dark:bg-emerald-800/40 text-emerald-900 dark:text-emerald-200";
+        : "bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-200";
 
   const acknowledge = async () => {
     setBusy(true);
@@ -139,7 +139,7 @@ function AbsenceRow({ absence, onChanged, t }) {
         </div>
       )}
       {absence.replacement_staff_name && (
-        <div className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-1">
+        <div className="text-[11px] text-gray-700 dark:text-emerald-400 mt-1">
           ✓ {(t("sickCallCovered") || "Covered by {name}").replace("{name}", absence.replacement_staff_name)}
         </div>
       )}
@@ -159,7 +159,7 @@ function AbsenceRow({ absence, onChanged, t }) {
             <button
               onClick={openCover}
               disabled={busy}
-              className="text-xs font-medium px-2.5 py-1 rounded-md bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-800/40 disabled:opacity-50 transition"
+              className="text-xs font-medium px-2.5 py-1 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700/50 disabled:opacity-50 transition"
             >
               {t("sickCallFindCover") || "Find cover"}
             </button>
@@ -195,7 +195,7 @@ function AbsenceRow({ absence, onChanged, t }) {
                   <button
                     onClick={() => assignCover(c.id)}
                     disabled={busy}
-                    className="text-xs font-medium px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50 transition"
+                    className="text-xs font-medium px-2.5 py-1 rounded-md bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:opacity-50 transition"
                   >
                     {t("sickCallAssign") || "Assign"}
                   </button>

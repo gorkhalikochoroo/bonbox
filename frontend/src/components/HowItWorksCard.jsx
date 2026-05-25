@@ -96,9 +96,9 @@ export default function HowItWorksCard({
       },
       green: {
         wrap:
-          "bg-green-50/70 dark:bg-green-900/15 border-green-200/70 dark:border-green-800/40 text-green-900 dark:text-green-100",
-        chip: "bg-green-600 text-white",
-        accent: "text-green-700 dark:text-green-300",
+          "bg-gray-50/70 dark:bg-gray-800/50 border-gray-100/70 dark:border-gray-800/40 text-gray-900 dark:text-gray-100",
+        chip: "bg-gray-900 text-white",
+        accent: "text-gray-700 dark:text-gray-300",
       },
       amber: {
         wrap:
@@ -127,7 +127,7 @@ export default function HowItWorksCard({
   return (
     <div
       // rounded-xl (12px) — matches the rest of the design system. Was
-      // rounded-2xl before, which made the panel feel "softer" than its
+      // rounded-xl before, which made the panel feel "softer" than its
       // neighbors. Single radius across all cards keeps the page rhythm
       // tight.
       className={`relative rounded-xl border p-5 ${palette.wrap} ${className}`}

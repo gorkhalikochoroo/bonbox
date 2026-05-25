@@ -95,32 +95,32 @@ export default function ExpiryAlertsCard() {
               {t("expiryEyebrow", "Expiry alert")}
             </span>
           </div>
-          <div className="text-2xl font-bold text-stone-900 dark:text-stone-100 leading-tight">
+          <div className="text-2xl font-bold text-gray-900 dark:text-gray-100 leading-tight">
             {headline}
           </div>
           {cost > 0 && (
-            <div className="mt-1 text-sm text-stone-600 dark:text-stone-300">
-              <span className="font-semibold text-stone-900 dark:text-stone-100">
+            <div className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+              <span className="font-semibold text-gray-900 dark:text-gray-100">
                 {fmtAmount(cost, "DKK")}
               </span>{" "}
-              <span className="text-stone-500 dark:text-stone-400">
+              <span className="text-gray-500 dark:text-gray-400">
                 {t("expiryAtRisk", "at risk")}
               </span>
             </div>
           )}
           {preview && (
-            <div className="mt-2 text-xs text-stone-500 dark:text-stone-400 truncate">
+            <div className="mt-2 text-xs text-gray-500 dark:text-gray-400 truncate">
               {preview}
               {items.length > 3 ? ` +${items.length - 3}` : ""}
             </div>
           )}
           {hasToday && soon.length > 0 && (
-            <div className="mt-1 text-xs text-stone-500 dark:text-stone-400">
+            <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {t("expiryAndSoon", "{n} more within 3 days").replace("{n}", String(soon.length))}
             </div>
           )}
         </div>
-        <Icon name="ChevronDown" size={18} className="-rotate-90 text-stone-400 shrink-0 mt-1" />
+        <Icon name="ChevronDown" size={18} className="-rotate-90 text-gray-400 shrink-0 mt-1" />
       </div>
     </Link>
   );

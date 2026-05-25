@@ -46,10 +46,10 @@ const ROLE_COLORS = {
     label: "Bar",
   },
   floor: {
-    bg: "bg-green-100 dark:bg-green-900/20",
-    text: "text-green-800 dark:text-green-300",
-    border: "border-green-200 dark:border-green-800",
-    dot: "bg-green-500",
+    bg: "bg-gray-100 dark:bg-gray-800/50",
+    text: "text-gray-800 dark:text-gray-300",
+    border: "border-gray-100 dark:border-gray-800",
+    dot: "bg-emerald-500",
     label: "Floor",
   },
 };
@@ -762,7 +762,7 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
   );
   const compared = suggestion.compared_to_last_week || {};
   return (
-    <div className="bg-gradient-to-br from-violet-50/60 to-emerald-50/60 dark:from-violet-900/10 dark:to-emerald-900/10 border border-violet-200 dark:border-violet-800 rounded-2xl p-5 sm:p-6 space-y-4">
+    <div className="bg-gray-50 dark:bg-gray-800/50 border border-violet-200 dark:border-violet-800 rounded-xl p-5 sm:p-6 space-y-4">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div className="min-w-0">
@@ -797,7 +797,7 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
               <span
                 className={
                   compared.delta_pct < 0
-                    ? "text-emerald-700 dark:text-emerald-400 font-medium"
+                    ? "text-gray-700 dark:text-emerald-400 font-medium"
                     : "text-amber-700 dark:text-amber-400"
                 }
               >
@@ -819,7 +819,7 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
             type="button"
             onClick={onApply}
             disabled={applying}
-            className="px-4 py-2 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition disabled:opacity-50"
+            className="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50"
           >
             {applying
               ? t("autopilotApplying", "Applying…")
@@ -1099,26 +1099,26 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
             placeholder="Name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+            className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           />
           <input
             type="email"
             placeholder="Email (optional)"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+            className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           />
           <input
             type="tel"
             placeholder="Phone (optional)"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+            className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           />
           <select
             value={role}
             onChange={(e) => setRole(e.target.value)}
-            className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+            className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           >
             {ROLES.map((r) => (
               <option key={r} value={r}>{r}</option>
@@ -1127,7 +1127,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
           <select
             value={contractType}
             onChange={(e) => setContractType(e.target.value)}
-            className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+            className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           >
             {CONTRACT_TYPES.map((ct) => (
               <option key={ct.value} value={ct.value}>{ct.label}</option>
@@ -1140,12 +1140,12 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
             onChange={(e) => setBaseRate(e.target.value)}
             min="0"
             step="0.5"
-            className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+            className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           />
           <button
             onClick={handleAdd}
             disabled={saving || !name.trim()}
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition disabled:opacity-50"
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50"
           >
             {saving ? "Adding..." : "Add"}
           </button>
@@ -1270,7 +1270,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
                         <button
                           onClick={() => handleUpdate(member.id)}
                           disabled={saving}
-                          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-green-600 text-white hover:bg-green-700 transition disabled:opacity-50"
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50"
                         >
                           {saving ? "Saving..." : "Save"}
                         </button>
@@ -1292,7 +1292,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
                           {member.name}
                         </span>
                         {member.email && (
-                          <span className="text-xs text-green-500 dark:text-green-400" title={member.email}>
+                          <span className="text-xs text-emerald-600 dark:text-gray-300" title={member.email}>
                             @
                           </span>
                         )}
@@ -1316,7 +1316,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
                             <button
                               onClick={() => generateLink(member)}
                               title={t("sharePortalLink")}
-                              className="px-2 py-1 rounded text-xs text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 transition"
+                              className="px-2 py-1 rounded text-xs text-emerald-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition"
                             >
                               🔗 Share
                             </button>
@@ -1381,18 +1381,18 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
       )}
       {user?.is_admin && (
       <details className="group">
-        <summary className="flex items-center justify-between cursor-pointer py-3 px-4 bg-green-50 dark:bg-green-900/10 rounded-xl border border-green-200 dark:border-green-800/30 text-sm font-medium text-green-800 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/20 transition">
+        <summary className="flex items-center justify-between cursor-pointer py-3 px-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-100 dark:border-gray-800/30 text-sm font-medium text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition">
           <span>📱 WhatsApp Notifications — Quick Setup (admin only)</span>
           <svg className="w-4 h-4 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
         </summary>
         <div className="mt-3 p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 space-y-5 text-sm text-gray-600 dark:text-gray-400">
 
           {/* How it works */}
-          <div className="p-3 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-100 dark:border-green-800/20">
+          <div className="p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-100 dark:border-gray-800/20">
             <p className="text-gray-800 dark:text-gray-200 font-medium text-xs uppercase tracking-wide mb-1">How it works</p>
             <p>When you publish or change a schedule, staff with a phone number get a WhatsApp message like:</p>
             <div className="mt-2 p-3 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 font-mono text-xs leading-relaxed">
-              <p className="text-green-600 dark:text-green-400">BonBox - Schedule Update</p>
+              <p className="text-emerald-600 dark:text-gray-300">BonBox - Schedule Update</p>
               <p className="mt-1">Hi Jonas! Your shifts changed:</p>
               <p className="mt-1">Mon 14 Apr: 10:00 - 18:00</p>
               <p>Wed 16 Apr: start moved to 15:00</p>
@@ -1406,11 +1406,11 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
 
             {/* Step 1 */}
             <div className="flex gap-3">
-              <span className="flex-shrink-0 w-7 h-7 rounded-full bg-green-500 text-white flex items-center justify-center text-xs font-bold">1</span>
+              <span className="flex-shrink-0 w-7 h-7 rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 flex items-center justify-center text-xs font-bold">1</span>
               <div className="flex-1">
                 <p className="font-medium text-gray-800 dark:text-gray-200">Sign up at twilio.com <span className="text-xs font-normal text-gray-500">(free, 2 min)</span></p>
                 <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg text-xs space-y-1">
-                  <p>Go to <span className="text-green-600 dark:text-green-400 font-medium">twilio.com/try-twilio</span></p>
+                  <p>Go to <span className="text-emerald-600 dark:text-gray-300 font-medium">twilio.com/try-twilio</span></p>
                   <p>Enter your email and create a password</p>
                   <p>Verify your phone number — done!</p>
                 </div>
@@ -1419,20 +1419,20 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
 
             {/* Step 2 */}
             <div className="flex gap-3">
-              <span className="flex-shrink-0 w-7 h-7 rounded-full bg-green-500 text-white flex items-center justify-center text-xs font-bold">2</span>
+              <span className="flex-shrink-0 w-7 h-7 rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 flex items-center justify-center text-xs font-bold">2</span>
               <div className="flex-1">
                 <p className="font-medium text-gray-800 dark:text-gray-200">Turn on WhatsApp <span className="text-xs font-normal text-gray-500">(1 min)</span></p>
                 <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg text-xs space-y-2">
                   <p>In Twilio, click <span className="font-medium text-gray-800 dark:text-gray-200">Messaging</span> in the left menu</p>
                   <p>Click <span className="font-medium text-gray-800 dark:text-gray-200">Try it out</span> &rarr; <span className="font-medium text-gray-800 dark:text-gray-200">Send a WhatsApp message</span></p>
-                  <p>You'll see a sandbox number like <span className="font-mono text-green-600 dark:text-green-400">+1 415 523 8886</span></p>
-                  <p>And a join code like <span className="font-mono text-green-600 dark:text-green-400">join bright-owl</span></p>
-                  <div className="mt-2 p-2 bg-green-50 dark:bg-green-900/20 rounded border border-green-200 dark:border-green-800/30">
-                    <p className="text-green-700 dark:text-green-400">Copy these 3 things from your Twilio dashboard:</p>
+                  <p>You'll see a sandbox number like <span className="font-mono text-emerald-600 dark:text-gray-300">+1 415 523 8886</span></p>
+                  <p>And a join code like <span className="font-mono text-emerald-600 dark:text-gray-300">join bright-owl</span></p>
+                  <div className="mt-2 p-2 bg-gray-50 dark:bg-gray-800/50 rounded border border-gray-100 dark:border-gray-800/30">
+                    <p className="text-gray-700 dark:text-gray-300">Copy these 3 things from your Twilio dashboard:</p>
                     <div className="mt-1 font-mono space-y-0.5 text-gray-700 dark:text-gray-300">
-                      <p>Account SID: <span className="text-green-600 dark:text-green-400">AC1234...abcd</span></p>
-                      <p>Auth Token: <span className="text-green-600 dark:text-green-400">ef5678...wxyz</span></p>
-                      <p>WhatsApp #: <span className="text-green-600 dark:text-green-400">+14155238886</span></p>
+                      <p>Account SID: <span className="text-emerald-600 dark:text-gray-300">AC1234...abcd</span></p>
+                      <p>Auth Token: <span className="text-emerald-600 dark:text-gray-300">ef5678...wxyz</span></p>
+                      <p>WhatsApp #: <span className="text-emerald-600 dark:text-gray-300">+14155238886</span></p>
                     </div>
                   </div>
                 </div>
@@ -1441,7 +1441,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
 
             {/* Step 3 */}
             <div className="flex gap-3">
-              <span className="flex-shrink-0 w-7 h-7 rounded-full bg-green-500 text-white flex items-center justify-center text-xs font-bold">3</span>
+              <span className="flex-shrink-0 w-7 h-7 rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 flex items-center justify-center text-xs font-bold">3</span>
               <div className="flex-1">
                 <p className="font-medium text-gray-800 dark:text-gray-200">Paste them in Render <span className="text-xs font-normal text-gray-500">(1 min)</span></p>
                 <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg text-xs space-y-2">
@@ -1449,9 +1449,9 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
                   <p>Click <span className="font-medium text-gray-800 dark:text-gray-200">Environment</span> in the sidebar</p>
                   <p>Add these 3 values:</p>
                   <div className="mt-1 font-mono bg-white dark:bg-gray-950 p-2 rounded border border-gray-200 dark:border-gray-700 space-y-0.5 text-gray-700 dark:text-gray-300">
-                    <p>TWILIO_ACCOUNT_SID = <span className="text-green-600 dark:text-green-400">paste yours</span></p>
-                    <p>TWILIO_AUTH_TOKEN = <span className="text-green-600 dark:text-green-400">paste yours</span></p>
-                    <p>TWILIO_WHATSAPP_NUMBER = <span className="text-green-600 dark:text-green-400">+14155238886</span></p>
+                    <p>TWILIO_ACCOUNT_SID = <span className="text-emerald-600 dark:text-gray-300">paste yours</span></p>
+                    <p>TWILIO_AUTH_TOKEN = <span className="text-emerald-600 dark:text-gray-300">paste yours</span></p>
+                    <p>TWILIO_WHATSAPP_NUMBER = <span className="text-emerald-600 dark:text-gray-300">+14155238886</span></p>
                   </div>
                   <p>Click <span className="font-medium text-gray-800 dark:text-gray-200">Save Changes</span> — Render restarts automatically</p>
                 </div>
@@ -1464,7 +1464,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
             <p className="text-gray-800 dark:text-gray-200 font-medium text-xs uppercase tracking-wide mb-2">What your staff does</p>
             <div className="text-xs space-y-2">
               <p><span className="font-medium text-gray-800 dark:text-gray-200">You:</span> Add their phone number here (e.g. <span className="font-mono text-blue-600 dark:text-blue-400">+4512345678</span>) using the edit button above</p>
-              <p><span className="font-medium text-gray-800 dark:text-gray-200">Staff:</span> Opens WhatsApp, sends <span className="font-mono bg-white dark:bg-gray-900 px-1.5 py-0.5 rounded text-green-600 dark:text-green-400">join bright-owl</span> to <span className="font-mono">+1 415 523 8886</span></p>
+              <p><span className="font-medium text-gray-800 dark:text-gray-200">Staff:</span> Opens WhatsApp, sends <span className="font-mono bg-white dark:bg-gray-900 px-1.5 py-0.5 rounded text-emerald-600 dark:text-gray-300">join bright-owl</span> to <span className="font-mono">+1 415 523 8886</span></p>
               <p><span className="font-medium text-gray-800 dark:text-gray-200">Done!</span> They'll now get WhatsApp messages when shifts change</p>
             </div>
           </div>
@@ -1479,7 +1479,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
       {/* Portal Link Modal */}
       {linkModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setLinkModal(null)}>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-sm w-full p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm max-w-sm w-full p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
             <div className="text-center">
               <div className="text-3xl mb-2">🔗</div>
               <h3 className="text-base font-bold text-gray-900 dark:text-white">{t("sharePortalLink")}</h3>
@@ -1490,7 +1490,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
 
             {linkModal.loading ? (
               <div className="flex justify-center py-4">
-                <div className="animate-spin w-6 h-6 border-2 border-green-500 border-t-transparent rounded-full" />
+                <div className="animate-spin w-6 h-6 border-2 border-gray-300 border-t-transparent rounded-full" />
               </div>
             ) : (
               <>
@@ -1502,7 +1502,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
                     onClick={copyLink}
                     className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition ${
                       linkCopied
-                        ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+                        ? "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                         : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
                     }`}
                   >
@@ -1510,7 +1510,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
                   </button>
                   <button
                     onClick={shareLink}
-                    className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition"
+                    className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition"
                   >
                     📱 Share
                   </button>
@@ -1539,7 +1539,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
    ═══════════════════════════════════════════════════════════ */
 function ScheduleGrid({ staff, weekDates, shifts, getShiftForCell, onCellClick }) {
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[700px]">
           <thead>
@@ -1554,7 +1554,7 @@ function ScheduleGrid({ staff, weekDates, shifts, getShiftForCell, onCellClick }
                     key={i}
                     className={`px-2 py-3 text-center text-xs font-semibold uppercase tracking-wider w-[calc((100%-10rem)/7)] ${
                       isToday
-                        ? "text-green-600 dark:text-green-400 bg-green-50/50 dark:bg-green-900/10"
+                        ? "text-emerald-600 dark:text-gray-300 bg-gray-50/50 dark:bg-gray-800/50"
                         : "text-gray-500 dark:text-gray-400"
                     }`}
                   >
@@ -1594,7 +1594,7 @@ function ScheduleGrid({ staff, weekDates, shifts, getShiftForCell, onCellClick }
                         <td
                           key={dayIdx}
                           className={`px-1 py-2 text-center cursor-pointer transition-colors ${
-                            isToday ? "bg-green-50/30 dark:bg-green-900/5" : ""
+                            isToday ? "bg-gray-50/60 dark:bg-gray-800/40" : ""
                           } hover:bg-gray-100 dark:hover:bg-gray-700/50`}
                           onClick={() => onCellClick(member.id, date, null)}
                         >
@@ -1614,7 +1614,7 @@ function ScheduleGrid({ staff, weekDates, shifts, getShiftForCell, onCellClick }
                       <td
                         key={dayIdx}
                         className={`px-1 py-2 text-center cursor-pointer transition-colors ${
-                          isToday ? "bg-green-50/30 dark:bg-green-900/5" : ""
+                          isToday ? "bg-gray-50/60 dark:bg-gray-800/40" : ""
                         } hover:bg-gray-100 dark:hover:bg-gray-700/50`}
                         onClick={() => onCellClick(member.id, date, shift)}
                       >
@@ -1764,7 +1764,7 @@ function ShiftModal({ modal, staff, weekDates, onClose, onSaved, branchId }) {
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
 
       {/* Modal */}
-      <div className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 w-full max-w-md p-6 space-y-4">
+      <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 w-full max-w-md p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
             {isEdit ? "Edit Shift" : "Add Shift"}
@@ -1789,7 +1789,7 @@ function ShiftModal({ modal, staff, weekDates, onClose, onSaved, branchId }) {
           <select
             value={staffId}
             onChange={(e) => setStaffId(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+            className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           >
             <option value="">{t("selectStaff")}</option>
             {staff.map((s) => (
@@ -1806,7 +1806,7 @@ function ShiftModal({ modal, staff, weekDates, onClose, onSaved, branchId }) {
           <select
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+            className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           >
             {dateOptions.map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -1877,7 +1877,7 @@ function ShiftModal({ modal, staff, weekDates, onClose, onSaved, branchId }) {
               min="0"
               max="120"
               step="5"
-              className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
             />
           </div>
           <div>
@@ -1885,7 +1885,7 @@ function ShiftModal({ modal, staff, weekDates, onClose, onSaved, branchId }) {
             <select
               value={roleOnShift}
               onChange={(e) => setRoleOnShift(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
             >
               {ROLES.map((r) => (
                 <option key={r} value={r}>{r}</option>
@@ -1908,7 +1908,7 @@ function ShiftModal({ modal, staff, weekDates, onClose, onSaved, branchId }) {
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="e.g. Training, covering for Anna..."
-            className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+            className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           />
         </div>
 
@@ -1935,7 +1935,7 @@ function ShiftModal({ modal, staff, weekDates, onClose, onSaved, branchId }) {
             <button
               onClick={handleSave}
               disabled={saving}
-              className="px-4 py-2 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition disabled:opacity-50"
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50"
             >
               {saving ? "Saving..." : isEdit ? "Update Shift" : "Add Shift"}
             </button>

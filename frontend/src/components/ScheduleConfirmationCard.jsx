@@ -48,7 +48,7 @@ export default function ScheduleConfirmationCard() {
   //   3. All confirmed → quiet celebration
   let toneClass, icon, message;
   if (all_confirmed) {
-    toneClass = "border-emerald-200 bg-emerald-50/60 dark:bg-emerald-900/10 text-emerald-800 dark:text-emerald-300";
+    toneClass = "border-gray-100 bg-gray-50/60 dark:bg-gray-800/50 text-gray-800 dark:text-gray-300";
     icon = "✓";
     message = (t("scheduleConfirmAll") || "All {n} staff confirmed this week's schedule.")
       .replace("{n}", String(total_staff));

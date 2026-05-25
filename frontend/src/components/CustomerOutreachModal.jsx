@@ -261,17 +261,17 @@ export default function CustomerOutreachModal({
         aria-labelledby="outreach-dialog-title"
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
-        className="bg-white dark:bg-stone-900 rounded-t-2xl sm:rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col focus:outline-none"
+        className="bg-white dark:bg-gray-900 rounded-t-2xl sm:rounded-xl shadow-sm max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col focus:outline-none"
       >
         {/* Header */}
-        <div className="px-5 pt-5 pb-3 border-b border-stone-100 dark:border-stone-800 shrink-0">
+        <div className="px-5 pt-5 pb-3 border-b border-gray-100 dark:border-gray-800 shrink-0">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h3 id="outreach-dialog-title" className="text-base font-semibold text-stone-900 dark:text-stone-100 flex items-center gap-2">
-                <Icon name="Heart" size={18} className="text-emerald-600 shrink-0" />
+              <h3 id="outreach-dialog-title" className="text-base font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                <Icon name="Heart" size={18} className="text-gray-700 dark:text-gray-300 shrink-0" />
                 {t("outreachTitle") || "Reach out to regulars"}
               </h3>
-              <p className="text-xs text-stone-500 dark:text-stone-400 mt-1 leading-relaxed">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
                 {t("outreachSubtitle") ||
                   "Pick a template, choose who to text, hit Open SMS. The message goes through your phone — BonBox never sees it."}
               </p>
@@ -280,7 +280,7 @@ export default function CustomerOutreachModal({
               type="button"
               onClick={onClose}
               aria-label={t("close") || "Close"}
-              className="w-7 h-7 -mr-1 -mt-1 rounded-md text-stone-500 hover:text-stone-700 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-700/60 dark:hover:text-stone-200 transition flex items-center justify-center shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+              className="w-7 h-7 -mr-1 -mt-1 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/60 dark:hover:text-gray-200 transition flex items-center justify-center shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M18 6L6 18M6 6l12 12" />
@@ -292,7 +292,7 @@ export default function CustomerOutreachModal({
         <div className="overflow-y-auto flex-1">
           {/* Template picker */}
           <div className="px-5 pt-4">
-            <p className="text-xs font-medium text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-2">
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
               {t("outreachTemplate") || "Template"}
             </p>
             <div className="grid grid-cols-2 gap-2">
@@ -311,8 +311,8 @@ export default function CustomerOutreachModal({
                     onClick={() => setTemplate(key)}
                     className={`px-3 py-2 rounded-lg text-sm font-medium border transition ${
                       active
-                        ? "bg-emerald-50 dark:bg-emerald-900/30 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300"
-                        : "bg-white dark:bg-stone-800 border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:border-stone-400 dark:hover:border-stone-500"
+                        ? "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300"
+                        : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-400 dark:hover:border-gray-500"
                     }`}
                   >
                     {labels[key]}
@@ -325,25 +325,25 @@ export default function CustomerOutreachModal({
           {/* Customers picker */}
           <div className="px-5 pt-4">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-medium text-stone-500 dark:text-stone-400 uppercase tracking-wider">
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 {t("outreachRecipients") || "Recipients"} ({selectedCustomers.length}/{atRisk.length})
               </p>
               {totalReachable > 0 && (
                 <button
                   type="button"
                   onClick={() => setSelectedIds(new Set(atRisk.filter(c => c.phone).map(c => c.id)))}
-                  className="text-xs text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 transition"
+                  className="text-xs text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition"
                 >
                   {t("outreachSelectAll") || "Select all reachable"}
                 </button>
               )}
             </div>
             {loading ? (
-              <div className="py-6 text-center text-sm text-stone-400">
+              <div className="py-6 text-center text-sm text-gray-400">
                 {t("outreachLoading") || "Loading regulars…"}
               </div>
             ) : atRisk.length === 0 ? (
-              <div className="py-6 text-center text-sm text-stone-400 border border-dashed border-stone-200 dark:border-stone-700 rounded-lg">
+              <div className="py-6 text-center text-sm text-gray-400 border border-dashed border-gray-200 dark:border-gray-700 rounded-lg">
                 {t("outreachEmpty") || "No at-risk regulars right now — keep doing what you're doing."}
               </div>
             ) : (
@@ -355,8 +355,8 @@ export default function CustomerOutreachModal({
                     <li key={c.id}>
                       <label className={`flex items-start gap-2.5 px-3 py-2 rounded-lg border cursor-pointer transition ${
                         selected
-                          ? "bg-emerald-50/60 dark:bg-emerald-900/15 border-emerald-200 dark:border-emerald-800/40"
-                          : "bg-white dark:bg-stone-800/60 border-stone-200 dark:border-stone-700"
+                          ? "bg-gray-50/60 dark:bg-gray-800/50 border-gray-100 dark:border-gray-800/40"
+                          : "bg-white dark:bg-gray-800/60 border-gray-200 dark:border-gray-700"
                       } ${!hasPhone ? "opacity-60" : ""}`}>
                         <input
                           type="checkbox"
@@ -366,10 +366,10 @@ export default function CustomerOutreachModal({
                           className="mt-0.5 accent-emerald-600"
                         />
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium text-stone-800 dark:text-stone-100 truncate">
+                          <div className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
                             {c.name}
                           </div>
-                          <div className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                             {c.visits} {t("outreachVisits") || "visits"} · {(t("outreachDaysAgo") || "{n} days silent").replace("{n}", String(c.days_since_last))}
                             {!hasPhone && (
                               <span className="ml-2 text-red-500 dark:text-red-400">
@@ -388,7 +388,7 @@ export default function CustomerOutreachModal({
 
           {/* Message preview / custom edit */}
           <div className="px-5 pt-4 pb-2">
-            <p className="text-xs font-medium text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-2">
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
               {t("outreachMessage") || "Message"}
             </p>
             <textarea
@@ -400,17 +400,17 @@ export default function CustomerOutreachModal({
               rows={6}
               maxLength={500}
               placeholder={t("outreachPlaceholder") || "Write your own message…"}
-              className="w-full px-3 py-2 border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-800 dark:text-stone-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 leading-relaxed"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 leading-relaxed"
             />
-            <p className="text-[10.5px] text-stone-400 mt-1">
+            <p className="text-[10.5px] text-gray-400 mt-1">
               {(t("outreachCharCount") || "{n}/500 chars · template auto-fills first names").replace("{n}", String(messageBody.length))}
             </p>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-4 bg-stone-50 dark:bg-stone-800/40 border-t border-stone-100 dark:border-stone-800 flex items-center justify-between gap-3 shrink-0">
-          <div className="text-xs text-stone-500 dark:text-stone-400 min-w-0" aria-live="polite">
+        <div className="px-5 py-4 bg-gray-50 dark:bg-gray-800/40 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between gap-3 shrink-0">
+          <div className="text-xs text-gray-500 dark:text-gray-400 min-w-0" aria-live="polite">
             {toast && <span className="text-amber-700 dark:text-amber-400">{toast}</span>}
             {!toast && phones.length > 0 && (
               <span>
@@ -422,7 +422,7 @@ export default function CustomerOutreachModal({
             type="button"
             onClick={onSend}
             disabled={phones.length === 0 || !messageBody.trim()}
-            className="shrink-0 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-stone-50 dark:focus-visible:ring-offset-stone-800"
+            className="shrink-0 px-4 py-2 bg-gray-900 hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-stone-50 dark:focus-visible:ring-offset-stone-800"
           >
             {t("outreachOpenSms") || "Open SMS"}
           </button>

@@ -100,17 +100,17 @@ export default function ConnectionsProgressCard() {
   };
 
   return (
-    <div className="bg-white dark:bg-stone-800 rounded-2xl border border-stone-200 dark:border-stone-700 shadow-sm p-5 sm:p-6">
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-5 sm:p-6">
       <div className="flex items-start justify-between gap-4 mb-3">
         <div className="flex items-start gap-3 min-w-0">
-          <div className="w-9 h-9 rounded-lg bg-emerald-500/10 dark:bg-emerald-500/15 flex items-center justify-center shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400">
+          <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0 mt-0.5 text-gray-700 dark:text-gray-300">
             <Icon name="Link2" size={16} strokeWidth={1.75} />
           </div>
           <div className="min-w-0">
-            <h2 className="text-[15.5px] font-semibold text-stone-900 dark:text-stone-100 tracking-tight">
+            <h2 className="text-[15.5px] font-semibold text-gray-900 dark:text-gray-100 tracking-tight">
               {t("connsProgTitle", "Finish your setup")}
             </h2>
-            <p className="text-[12.5px] text-stone-500 dark:text-stone-400 mt-0.5">
+            <p className="text-[12.5px] text-gray-500 dark:text-gray-400 mt-0.5">
               {t("connsProgSubtitle", "Each one is under 60 seconds.")}
             </p>
           </div>
@@ -120,7 +120,7 @@ export default function ConnectionsProgressCard() {
           onClick={onDismiss}
           aria-label={t("connsProgDismiss", "Dismiss for 30 days")}
           title={t("connsProgDismiss", "Dismiss for 30 days")}
-          className="w-7 h-7 -mr-1 -mt-1 rounded-md text-stone-500 hover:text-stone-700 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-700/60 dark:hover:text-stone-200 transition flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+          className="w-7 h-7 -mr-1 -mt-1 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/60 dark:hover:text-gray-200 transition flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M18 6L6 18M6 6l12 12" />
@@ -130,11 +130,11 @@ export default function ConnectionsProgressCard() {
 
       {/* Progress meter */}
       <div className="flex items-center gap-3 mb-4">
-        <span className="text-sm font-semibold text-stone-900 dark:text-stone-100 shrink-0">
+        <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 shrink-0">
           {doneCount}/{total}
         </span>
         <div
-          className="flex-1 h-2 bg-stone-200 dark:bg-stone-700 rounded-full overflow-hidden"
+          className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden"
           role="progressbar"
           aria-valuenow={pct}
           aria-valuemin={0}
@@ -146,7 +146,7 @@ export default function ConnectionsProgressCard() {
             style={{ width: `${pct}%` }}
           />
         </div>
-        <span className="text-[11.5px] text-stone-500 dark:text-stone-400 shrink-0">
+        <span className="text-[11.5px] text-gray-500 dark:text-gray-400 shrink-0">
           {pct}%
         </span>
       </div>
@@ -156,14 +156,14 @@ export default function ConnectionsProgressCard() {
         {missing.slice(0, 4).map(item => (
           <span
             key={item.id}
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11.5px] bg-stone-100 dark:bg-stone-700/60 text-stone-600 dark:text-stone-300"
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11.5px] bg-gray-100 dark:bg-gray-700/60 text-gray-600 dark:text-gray-300"
           >
-            <span className="w-1 h-1 rounded-full bg-stone-400 dark:bg-stone-500" aria-hidden="true" />
+            <span className="w-1 h-1 rounded-full bg-gray-400 dark:bg-gray-500" aria-hidden="true" />
             {item.label}
           </span>
         ))}
         {missing.length > 4 && (
-          <span className="text-[11.5px] text-stone-500 dark:text-stone-400 px-1">
+          <span className="text-[11.5px] text-gray-500 dark:text-gray-400 px-1">
             {t("connsProgMore", "+{n} more").replace("{n}", String(missing.length - 4))}
           </span>
         )}
@@ -171,7 +171,7 @@ export default function ConnectionsProgressCard() {
 
       <Link
         to="/connections"
-        className="inline-flex items-center gap-1 text-[13px] font-medium text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 transition"
+        className="inline-flex items-center gap-1 text-[13px] font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition"
       >
         {t("connsProgCta", "Finish setup")} <span aria-hidden="true">→</span>
       </Link>

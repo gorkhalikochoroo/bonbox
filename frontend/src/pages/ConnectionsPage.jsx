@@ -54,9 +54,9 @@ function ConnectionCard({
   const dot = {
     connected: "bg-emerald-500",
     pending: "bg-amber-500",
-    disconnected: "bg-stone-400",
-    soon: "bg-stone-300",
-  }[status] || "bg-stone-300";
+    disconnected: "bg-gray-400",
+    soon: "bg-gray-300",
+  }[status] || "bg-gray-300";
 
   const label = statusLabel || (
     status === "connected" ? "Connected"
@@ -68,12 +68,12 @@ function ConnectionCard({
   return (
     <Card className="flex flex-col h-full">
       <div className="flex items-start gap-3 mb-3">
-        <div className="w-9 h-9 rounded-lg bg-stone-100 dark:bg-stone-800 flex items-center justify-center shrink-0 text-stone-700 dark:text-stone-300">
+        <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0 text-gray-700 dark:text-gray-300">
           <Icon name={icon} size={18} strokeWidth={1.75} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="text-[15px] font-semibold text-stone-900 dark:text-stone-100 tracking-tight">
+            <h3 className="text-[15px] font-semibold text-gray-900 dark:text-gray-100 tracking-tight">
               {title}
             </h3>
             {badge && (
@@ -84,15 +84,15 @@ function ConnectionCard({
           </div>
           <div className="flex items-center gap-1.5 mt-1">
             <span className={`w-1.5 h-1.5 rounded-full ${dot}`} aria-hidden="true" />
-            <span className="text-[11.5px] text-stone-500 dark:text-stone-400">{label}</span>
+            <span className="text-[11.5px] text-gray-500 dark:text-gray-400">{label}</span>
           </div>
         </div>
       </div>
-      <p className="text-[13px] text-stone-600 dark:text-stone-300 leading-relaxed mb-4">
+      <p className="text-[13px] text-gray-600 dark:text-gray-300 leading-relaxed mb-4">
         {description}
       </p>
       {comingSoonNote && (
-        <p className="text-[11.5px] text-stone-400 dark:text-stone-500 italic mb-3">
+        <p className="text-[11.5px] text-gray-400 dark:text-gray-500 italic mb-3">
           {comingSoonNote}
         </p>
       )}
@@ -101,10 +101,10 @@ function ConnectionCard({
           primaryAction.to ? (
             <Link
               to={primaryAction.to}
-              className={`inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 ${
+              className={`inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 ${
                 status === "connected"
-                  ? "bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-200 hover:bg-stone-200 dark:hover:bg-stone-700"
-                  : "bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 hover:bg-stone-700 dark:hover:bg-stone-200"
+                  ? "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700"
+                  : "bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-200"
               }`}
             >
               {primaryAction.label}
@@ -123,7 +123,7 @@ function ConnectionCard({
           secondaryAction.to ? (
             <Link
               to={secondaryAction.to}
-              className="text-[12px] text-stone-600 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded px-1"
+              className="text-[12px] text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded px-1"
             >
               {secondaryAction.label}
             </Link>
@@ -131,7 +131,7 @@ function ConnectionCard({
             <button
               type="button"
               onClick={secondaryAction.onClick}
-              className="text-[12px] text-stone-600 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded px-1"
+              className="text-[12px] text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded px-1"
             >
               {secondaryAction.label}
             </button>
@@ -579,10 +579,10 @@ export default function ConnectionsPage() {
     return (
       <div className="max-w-5xl mx-auto p-5 sm:p-6">
         <div className="animate-pulse space-y-6">
-          <div className="h-6 w-48 bg-stone-200 dark:bg-stone-700 rounded" />
+          <div className="h-6 w-48 bg-gray-200 dark:bg-gray-700 rounded" />
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {[1, 2, 3, 4, 5, 6].map(i => (
-              <div key={i} className="h-44 bg-stone-100 dark:bg-stone-800 rounded-xl" />
+              <div key={i} className="h-44 bg-gray-100 dark:bg-gray-800 rounded-xl" />
             ))}
           </div>
         </div>
@@ -595,9 +595,9 @@ export default function ConnectionsPage() {
       {/* Toast (Task #67 — "🎉 Bank connected" / errors) */}
       {toast && (
         <div
-          className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-xl shadow-lg text-sm font-medium ${
+          className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-xl shadow-sm text-sm font-medium ${
             toast.kind === "success"
-              ? "bg-emerald-600 text-white"
+              ? "bg-gray-900 text-white"
               : "bg-red-600 text-white"
           }`}
           role="status"
@@ -623,19 +623,19 @@ export default function ConnectionsPage() {
           when the owner has 1+ active connections, so the most-relevant
           actionable state is the first thing they see. */}
       {activeBankConnections.length > 0 && (
-        <div className="mb-7 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-2xl p-5">
+        <div className="mb-7 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 rounded-xl p-5">
           <div className="flex items-start justify-between mb-3 flex-wrap gap-2">
             <div>
-              <h2 className="text-base font-semibold text-stone-900 dark:text-stone-100">
+              <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
                 Bank connections
               </h2>
-              <p className="text-xs text-stone-600 dark:text-stone-400 mt-0.5">
+              <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
                 Direct PSD2 feed via Aiia. Auto-syncs nightly.
               </p>
             </div>
             <Link
               to="/bank-import"
-              className="text-xs text-emerald-700 hover:text-emerald-900 dark:text-emerald-300 dark:hover:text-emerald-100 underline"
+              className="text-xs text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100 underline"
             >
               + Connect another
             </Link>
@@ -651,10 +651,10 @@ export default function ConnectionsPage() {
               return (
                 <div
                   key={conn.id}
-                  className="flex flex-wrap items-center gap-2 p-3 bg-white dark:bg-stone-900 rounded-lg border border-stone-100 dark:border-stone-800"
+                  className="flex flex-wrap items-center gap-2 p-3 bg-white dark:bg-gray-900 rounded-lg border border-gray-100 dark:border-gray-800"
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-stone-900 dark:text-stone-100 truncate">
+                    <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
                       {bankLabel}
                       {conn.sandbox_mode && (
                         <span className="ml-2 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
@@ -662,21 +662,21 @@ export default function ConnectionsPage() {
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-stone-500 dark:text-stone-400 truncate">
+                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                       {conn.account_label || "Bank account"} · Last sync: {lastSyncedHuman}
                     </div>
                   </div>
                   <button
                     onClick={() => syncBankConnection(conn.id)}
                     disabled={busyConn === conn.id}
-                    className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 hover:bg-stone-700 dark:hover:bg-stone-200 disabled:opacity-50"
+                    className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-200 disabled:opacity-50"
                   >
                     {busyConn === conn.id ? "Syncing…" : "Sync now"}
                   </button>
                   <button
                     onClick={() => disconnectBankConnection(conn.id)}
                     disabled={busyConn === conn.id}
-                    className="text-xs text-stone-600 hover:text-red-600 dark:text-stone-400 dark:hover:text-red-400 disabled:opacity-50"
+                    className="text-xs text-gray-600 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 disabled:opacity-50"
                   >
                     Disconnect
                   </button>
@@ -692,21 +692,21 @@ export default function ConnectionsPage() {
           (or expired) MobilePay connection, so the most actionable
           state is surfaced before the integration grid. */}
       {mpConnection?.status === "active" && (
-        <div className="mb-7 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-2xl p-5">
+        <div className="mb-7 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-xl p-5">
           <div className="flex items-start justify-between mb-3 flex-wrap gap-2">
             <div>
-              <h2 className="text-base font-semibold text-stone-900 dark:text-stone-100">
+              <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
                 {t("mpPanelTitle") || "MobilePay Erhverv"}
               </h2>
-              <p className="text-xs text-stone-600 dark:text-stone-400 mt-0.5">
+              <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
                 {t("mpPanelSubtitle") ||
                   "Per-payment feed via Vipps MobilePay. Auto-syncs nightly."}
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 p-3 bg-white dark:bg-stone-900 rounded-lg border border-stone-100 dark:border-stone-800">
+          <div className="flex flex-wrap items-center gap-2 p-3 bg-white dark:bg-gray-900 rounded-lg border border-gray-100 dark:border-gray-800">
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold text-stone-900 dark:text-stone-100 truncate">
+              <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
                 {mpConnection?.merchant_name || t("mpDefaultMerchant") || "MobilePay Erhverv"}
                 {/* Task #89 P3-5 — sandbox badge parity with the bank
                     rows above. The MobilePay backend client switches to
@@ -723,7 +723,7 @@ export default function ConnectionsPage() {
                   </span>
                 )}
               </div>
-              <div className="text-xs text-stone-500 dark:text-stone-400 truncate">
+              <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                 {(t("mpLastSynced") || "Last sync") + ": "}
                 {mpConnection?.last_synced_at
                   ? new Date(mpConnection.last_synced_at).toLocaleString()
@@ -733,7 +733,7 @@ export default function ConnectionsPage() {
             <button
               onClick={syncMobilePay}
               disabled={mpBusy}
-              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 hover:bg-stone-700 dark:hover:bg-stone-200 disabled:opacity-50"
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-200 disabled:opacity-50"
             >
               {mpBusy
                 ? (t("mpSyncing") || "Syncing…")
@@ -742,7 +742,7 @@ export default function ConnectionsPage() {
             <button
               onClick={disconnectMobilePay}
               disabled={mpBusy}
-              className="text-xs text-stone-600 hover:text-red-600 dark:text-stone-400 dark:hover:text-red-400 disabled:opacity-50"
+              className="text-xs text-gray-600 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 disabled:opacity-50"
             >
               {t("mpDisconnect") || "Disconnect"}
             </button>
@@ -751,7 +751,7 @@ export default function ConnectionsPage() {
       )}
 
       {mpConnection?.status === "expired" && (
-        <div className="mb-7 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl p-4 flex items-center justify-between gap-3 flex-wrap">
+        <div className="mb-7 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4 flex items-center justify-between gap-3 flex-wrap">
           <div>
             <div className="text-sm font-semibold text-amber-900 dark:text-amber-200">
               {t("mpExpiredTitle") || "MobilePay needs re-consent"}
@@ -873,7 +873,7 @@ export default function ConnectionsPage() {
               ? "bg-amber-500"   // pending setup
               : alias
               ? "bg-emerald-500" // active
-              : "bg-stone-400";  // active backend but no alias yet (fresh user)
+              : "bg-gray-400";  // active backend but no alias yet (fresh user)
             const statusLabel = !infraEnabled
               ? t("inboxStatusPending", "Pending setup · estimated <2 weeks")
               : isUnlimited
@@ -882,26 +882,26 @@ export default function ConnectionsPage() {
             return (
               <Card className="flex flex-col h-full">
                 <div className="flex items-start gap-3 mb-3">
-                  <div className="w-9 h-9 rounded-lg bg-stone-100 dark:bg-stone-800
+                  <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800
                                   flex items-center justify-center shrink-0
-                                  text-stone-700 dark:text-stone-300">
+                                  text-gray-700 dark:text-gray-300">
                     <Icon name="Mail" size={18} strokeWidth={1.75} />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="text-[15px] font-semibold text-stone-900 dark:text-stone-100 tracking-tight">
+                      <h3 className="text-[15px] font-semibold text-gray-900 dark:text-gray-100 tracking-tight">
                         {t("inboxCardTitle", "Receipt forwarding")}
                       </h3>
                     </div>
                     <div className="flex items-center gap-1.5 mt-1">
                       <span className={`w-1.5 h-1.5 rounded-full ${statusDot}`} aria-hidden="true" />
-                      <span className="text-[11.5px] text-stone-500 dark:text-stone-400">
+                      <span className="text-[11.5px] text-gray-500 dark:text-gray-400">
                         {statusLabel}
                       </span>
                     </div>
                   </div>
                 </div>
-                <p className="text-[13px] text-stone-600 dark:text-stone-300 leading-relaxed mb-3">
+                <p className="text-[13px] text-gray-600 dark:text-gray-300 leading-relaxed mb-3">
                   {infraEnabled
                     ? t(
                         "inboxCardDesc",
@@ -917,9 +917,9 @@ export default function ConnectionsPage() {
                 {infraEnabled && alias ? (
                   <div className="flex items-stretch gap-2 mb-3">
                     <code className="flex-1 min-w-0 truncate font-mono text-[12.5px]
-                                     px-2.5 py-2 rounded-lg bg-stone-100 dark:bg-stone-800
-                                     border border-stone-200 dark:border-stone-700
-                                     text-stone-900 dark:text-stone-100 select-all">
+                                     px-2.5 py-2 rounded-lg bg-gray-100 dark:bg-gray-800
+                                     border border-gray-200 dark:border-gray-700
+                                     text-gray-900 dark:text-gray-100 select-all">
                       {alias}
                     </code>
                     <button
@@ -930,10 +930,10 @@ export default function ConnectionsPage() {
                         : t("inboxCopyAria", "Copy receipt inbox address")}
                       className="inline-flex items-center justify-center gap-1 min-h-[40px] px-3
                                  rounded-lg text-[12px] font-semibold
-                                 bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900
-                                 hover:bg-stone-700 dark:hover:bg-stone-200 transition
+                                 bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900
+                                 hover:bg-gray-700 dark:hover:bg-gray-200 transition
                                  focus-visible:outline-none focus-visible:ring-2
-                                 focus-visible:ring-emerald-500"
+                                 focus-visible:ring-gray-400"
                     >
                       {inboxCopied
                         ? <><Icon name="Check" size={14} /> {t("inboxCopied", "Copied!")}</>
@@ -943,9 +943,9 @@ export default function ConnectionsPage() {
                 ) : (
                   <div className="mb-3">
                     <code className="inline-block font-mono text-[12.5px] px-2.5 py-1.5
-                                     rounded-lg bg-stone-100/70 dark:bg-stone-800/60
-                                     border border-dashed border-stone-300 dark:border-stone-700
-                                     text-stone-500 dark:text-stone-400 italic">
+                                     rounded-lg bg-gray-100/70 dark:bg-gray-800/60
+                                     border border-dashed border-gray-300 dark:border-gray-700
+                                     text-gray-500 dark:text-gray-400 italic">
                       {t("inboxAliasPreview", "sudip-xyz@in.bonbox.dk")}
                     </code>
                   </div>
@@ -961,11 +961,11 @@ export default function ConnectionsPage() {
                         ? t("inboxTestOwnerOnly", "Owner-only — ask the account owner to send a test.")
                         : undefined}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold
-                                 bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900
-                                 hover:bg-stone-700 dark:hover:bg-stone-200
+                                 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900
+                                 hover:bg-gray-700 dark:hover:bg-gray-200
                                  disabled:opacity-50 disabled:cursor-not-allowed
                                  transition focus-visible:outline-none focus-visible:ring-2
-                                 focus-visible:ring-emerald-500 focus-visible:ring-offset-2
+                                 focus-visible:ring-gray-400 focus-visible:ring-offset-2
                                  focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900"
                     >
                       {inboxTesting
@@ -973,7 +973,7 @@ export default function ConnectionsPage() {
                         : <><Icon name="Send" size={14} /> {t("inboxSendTest", "Send test email")}</>}
                     </button>
                   ) : (
-                    <span className="text-[11.5px] text-stone-500 dark:text-stone-400 italic">
+                    <span className="text-[11.5px] text-gray-500 dark:text-gray-400 italic">
                       {t("inboxComingSoonNote", "We'll email you the day your inbox goes live.")}
                     </span>
                   )}
@@ -1093,7 +1093,7 @@ export default function ConnectionsPage() {
       </div>
 
       {/* Footer — sets the right expectation about what's NOT here */}
-      <p className="mt-10 text-center text-[12px] text-stone-500 dark:text-stone-400 leading-relaxed max-w-2xl mx-auto">
+      <p className="mt-10 text-center text-[12px] text-gray-500 dark:text-gray-400 leading-relaxed max-w-2xl mx-auto">
         {t("connectionsFooter") ||
           "We deliberately don't connect to your POS — Lightspeed, Toast, Square keep that role. BonBox sits beside them and reads your sales register via daily sync. Same with payment terminals: keep your Dankort + iZettle, BonBox imports the daily totals."}
       </p>

@@ -255,7 +255,7 @@ export default function PersonalPage() {
         </div>
       </div>
 
-      {success && <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
+      {success && <div className="bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
       {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-300 px-4 py-3 rounded-xl text-sm">{error}</div>}
 
       {/* Quick setup */}
@@ -271,21 +271,21 @@ export default function PersonalPage() {
       )}
 
       {/* Wallet — one big balance, auto-deducts */}
-      <div className={`rounded-2xl shadow-sm border p-5 sm:p-6 text-center ${
+      <div className={`rounded-xl shadow-sm border p-5 sm:p-6 text-center ${
         balance >= 0
-          ? "bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border-green-200 dark:border-green-800"
-          : "bg-gradient-to-br from-red-50 to-orange-50 dark:from-red-900/20 dark:to-orange-900/20 border-red-200 dark:border-red-800"
+          ? "bg-gray-50 dark:bg-gray-800/50 border-gray-100 dark:border-gray-800"
+          : "bg-gray-50 dark:bg-gray-800/50 border-red-200 dark:border-red-800"
       }`}>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">
           {balance >= 0 ? t("youHave") : t("youreShort")}
         </p>
         <p className={`text-4xl sm:text-5xl font-extrabold ${
-          balance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400"
+          balance >= 0 ? "text-emerald-600 dark:text-gray-300" : "text-red-500 dark:text-red-400"
         }`}>
           {balance.toLocaleString()} <span className="text-lg font-medium text-gray-400">{currency}</span>
         </p>
         <div className="flex items-center justify-center gap-4 mt-3 text-sm">
-          <span className="text-green-600 dark:text-green-400">+{totalIncome.toLocaleString()} {t("in")}</span>
+          <span className="text-emerald-600 dark:text-gray-300">+{totalIncome.toLocaleString()} {t("in")}</span>
           <span className="text-gray-300 dark:text-gray-600">|</span>
           <span className="text-red-500 dark:text-red-400">-{totalSpent.toLocaleString()} {t("out")}</span>
         </div>
@@ -294,7 +294,7 @@ export default function PersonalPage() {
           <div className="mt-3 max-w-xs mx-auto">
             <div className="h-2 bg-white/60 dark:bg-gray-700/60 rounded-full overflow-hidden">
               <div className={`h-full rounded-full transition-all ${
-                totalSpent > totalIncome ? "bg-red-500" : totalSpent >= totalIncome * 0.8 ? "bg-amber-500" : "bg-green-500"
+                totalSpent > totalIncome ? "bg-red-500" : totalSpent >= totalIncome * 0.8 ? "bg-amber-500" : "bg-emerald-500"
               }`} style={{ width: `${Math.min((totalSpent / totalIncome) * 100, 100)}%` }} />
             </div>
             <p className="text-xs text-gray-400 mt-1">{Math.min(Math.round((totalSpent / totalIncome) * 100), 999)}% {t("spent")}</p>
@@ -358,15 +358,15 @@ export default function PersonalPage() {
         </div>
       )}
       {totalBudget > 0 && (
-        <div className={`rounded-xl p-4 border ${totalBudgetUsed > 100 ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800" : totalBudgetUsed >= 80 ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800" : "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"}`}>
+        <div className={`rounded-xl p-4 border ${totalBudgetUsed > 100 ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800" : totalBudgetUsed >= 80 ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800" : "bg-gray-50 dark:bg-gray-800/50 border-gray-100 dark:border-gray-800"}`}>
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t("monthlyBudget")}</span>
-            <span className={`text-sm font-bold ${totalBudgetUsed > 100 ? "text-red-600" : totalBudgetUsed >= 80 ? "text-amber-600" : "text-green-600"}`}>
+            <span className={`text-sm font-bold ${totalBudgetUsed > 100 ? "text-red-600" : totalBudgetUsed >= 80 ? "text-amber-600" : "text-emerald-600"}`}>
               {totalSpent.toLocaleString()} / {totalBudget.toLocaleString()} {currency} ({totalBudgetUsed}%)
             </span>
           </div>
           <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-            <div className={`h-full rounded-full transition-all ${totalBudgetUsed > 100 ? "bg-red-500" : totalBudgetUsed >= 80 ? "bg-amber-500" : "bg-green-500"}`}
+            <div className={`h-full rounded-full transition-all ${totalBudgetUsed > 100 ? "bg-red-500" : totalBudgetUsed >= 80 ? "bg-amber-500" : "bg-emerald-500"}`}
               style={{ width: `${Math.min(totalBudgetUsed, 100)}%` }} />
           </div>
           {totalBudgetUsed > 100 && (
@@ -426,21 +426,21 @@ export default function PersonalPage() {
 
           {/* Summary Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="text-center p-3 bg-green-50 dark:bg-green-900/20 rounded-xl">
+            <div className="text-center p-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl">
               <p className="text-xs text-gray-500 dark:text-gray-400">{t("income")}</p>
-              <p className="text-lg font-bold text-green-600 dark:text-green-400">{totalIncome.toLocaleString()}</p>
+              <p className="text-lg font-bold text-emerald-600 dark:text-gray-300">{totalIncome.toLocaleString()}</p>
             </div>
             <div className="text-center p-3 bg-red-50 dark:bg-red-900/20 rounded-xl">
               <p className="text-xs text-gray-500 dark:text-gray-400">{t("expense")}</p>
               <p className="text-lg font-bold text-red-500 dark:text-red-400">{totalSpent.toLocaleString()}</p>
             </div>
-            <div className={`text-center p-3 rounded-xl ${balance >= 0 ? "bg-green-50 dark:bg-green-900/20" : "bg-red-50 dark:bg-red-900/20"}`}>
+            <div className={`text-center p-3 rounded-xl ${balance >= 0 ? "bg-gray-50 dark:bg-gray-800/50" : "bg-red-50 dark:bg-red-900/20"}`}>
               <p className="text-xs text-gray-500 dark:text-gray-400">{t("saved")}</p>
-              <p className={`text-lg font-bold ${balance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400"}`}>{balance.toLocaleString()}</p>
+              <p className={`text-lg font-bold ${balance >= 0 ? "text-emerald-600 dark:text-gray-300" : "text-red-500 dark:text-red-400"}`}>{balance.toLocaleString()}</p>
             </div>
             <div className="text-center p-3 bg-purple-50 dark:bg-purple-900/20 rounded-xl">
               <p className="text-xs text-gray-500 dark:text-gray-400">{t("savingsRate")}</p>
-              <p className={`text-lg font-bold ${savingsRate >= 20 ? "text-green-600" : savingsRate >= 0 ? "text-amber-600" : "text-red-500"}`}>{savingsRate}%</p>
+              <p className={`text-lg font-bold ${savingsRate >= 20 ? "text-emerald-600" : savingsRate >= 0 ? "text-amber-600" : "text-red-500"}`}>{savingsRate}%</p>
             </div>
           </div>
 
@@ -452,7 +452,7 @@ export default function PersonalPage() {
                 {Object.entries(incomeByCategory).sort((a, b) => b[1] - a[1]).map(([cat, amt]) => (
                   <div key={cat} className="flex items-center justify-between text-sm">
                     <span className="text-gray-600 dark:text-gray-400">{cat}</span>
-                    <span className="font-medium text-green-600 dark:text-green-400">+{amt.toLocaleString()} {currency}</span>
+                    <span className="font-medium text-emerald-600 dark:text-gray-300">+{amt.toLocaleString()} {currency}</span>
                   </div>
                 ))}
               </div>
@@ -478,7 +478,7 @@ export default function PersonalPage() {
                     </div>
                     {limit > 0 && (
                       <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full ${exceeded ? "bg-red-500" : pct >= 80 ? "bg-amber-500" : "bg-green-500"}`}
+                        <div className={`h-full rounded-full ${exceeded ? "bg-red-500" : pct >= 80 ? "bg-amber-500" : "bg-emerald-500"}`}
                           style={{ width: `${Math.min(pct, 100)}%` }} />
                       </div>
                     )}
@@ -490,8 +490,8 @@ export default function PersonalPage() {
           </div>
 
           {/* Verdict */}
-          <div className={`p-4 rounded-xl text-center ${balance >= 0 ? "bg-green-50 dark:bg-green-900/20" : "bg-red-50 dark:bg-red-900/20"}`}>
-            <p className={`text-lg font-bold ${balance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400"}`}>
+          <div className={`p-4 rounded-xl text-center ${balance >= 0 ? "bg-gray-50 dark:bg-gray-800/50" : "bg-red-50 dark:bg-red-900/20"}`}>
+            <p className={`text-lg font-bold ${balance >= 0 ? "text-emerald-600 dark:text-gray-300" : "text-red-500 dark:text-red-400"}`}>
               {balance >= 0
                 ? savingsRate >= 20 ? t("greatMonth") : t("inTheGreen")
                 : t("overspentThisMonth")}
@@ -533,7 +533,7 @@ export default function PersonalPage() {
           </div>
           <div className="flex items-center justify-between">
             <span className="text-sm text-gray-500 dark:text-gray-400">{t("savingsRate")}</span>
-            <span className={`text-sm font-bold ${savingsRate >= 20 ? "text-green-600" : savingsRate >= 0 ? "text-yellow-600" : "text-red-500"}`}>
+            <span className={`text-sm font-bold ${savingsRate >= 20 ? "text-emerald-600" : savingsRate >= 0 ? "text-yellow-600" : "text-red-500"}`}>
               {savingsRate}%
             </span>
           </div>
@@ -551,7 +551,7 @@ export default function PersonalPage() {
           </div>
           <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-700">
             <span className="text-sm text-gray-500 dark:text-gray-400">{t("netBalance")}</span>
-            <span className={`text-sm font-bold ${loanNetBalance >= 0 ? "text-green-600" : "text-red-500"}`}>
+            <span className={`text-sm font-bold ${loanNetBalance >= 0 ? "text-emerald-600" : "text-red-500"}`}>
               {loanNetBalance >= 0 ? "+" : ""}{loanNetBalance.toLocaleString()} {currency}
             </span>
           </div>
@@ -561,7 +561,7 @@ export default function PersonalPage() {
               {loanSummary.persons.slice(0, 3).map((p, i) => (
                 <div key={i} className="flex justify-between text-xs">
                   <span className="text-gray-600 dark:text-gray-400">{p.name}</span>
-                  <span className={`font-medium ${p.net >= 0 ? "text-green-600" : "text-orange-600"}`}>
+                  <span className={`font-medium ${p.net >= 0 ? "text-emerald-600" : "text-orange-600"}`}>
                     {p.net >= 0 ? `+${Number(p.net).toLocaleString()}` : Number(p.net).toLocaleString()} {currency}
                   </span>
                 </div>
@@ -584,7 +584,7 @@ export default function PersonalPage() {
               className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition whitespace-nowrap ${
                 catId === c.id
                   ? isIncome(c.name)
-                    ? "bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-600 text-green-700 dark:text-green-300"
+                    ? "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-900 text-gray-700 dark:text-gray-300"
                     : "bg-purple-50 dark:bg-purple-900/30 border-purple-300 dark:border-purple-600 text-purple-700 dark:text-purple-300"
                   : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50"
               }`}
@@ -713,13 +713,13 @@ export default function PersonalPage() {
                     <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{formatDate(e.date)}</td>
                     <td className="px-6 py-4 text-sm">
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                        income ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400" : "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
+                        income ? "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300" : "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
                       }`}>
                         {income ? "+" : "-"} {catName}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{e.description}</td>
-                    <td className={`px-6 py-4 text-sm font-semibold ${income ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400"}`}>
+                    <td className={`px-6 py-4 text-sm font-semibold ${income ? "text-emerald-600 dark:text-gray-300" : "text-red-500 dark:text-red-400"}`}>
                       {income ? "+" : "-"}{parseFloat(e.amount).toLocaleString()} {currency}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 capitalize">{e.payment_method?.replace("_", " ") || "-"}</td>

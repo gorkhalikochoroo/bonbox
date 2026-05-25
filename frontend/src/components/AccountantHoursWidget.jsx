@@ -132,7 +132,7 @@ function BreakdownDrawer({ data, onClose, t }) {
         aria-modal="true"
         aria-labelledby="acct-savings-breakdown-title"
         onClick={(e) => e.stopPropagation()}
-        className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-t-2xl sm:rounded-2xl shadow-xl max-w-md w-full p-5 sm:p-6"
+        className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-t-2xl sm:rounded-xl shadow-sm max-w-md w-full p-5 sm:p-6"
       >
         <div className="flex items-start justify-between gap-4 mb-4">
           <h3
@@ -390,7 +390,7 @@ export default function AccountantHoursWidget() {
             "flex items-center justify-center text-gray-400 dark:text-gray-500 " +
             "hover:text-gray-700 dark:hover:text-gray-200 " +
             "hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors " +
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
           }
         >
           <Icon name="X" size={16} aria-hidden="true" />
@@ -405,7 +405,7 @@ export default function AccountantHoursWidget() {
         className={
           "w-full text-left rounded-xl ring-1 ring-gray-200 dark:ring-gray-800 " +
           "bg-white dark:bg-gray-900 p-5 hover:shadow-sm transition-shadow " +
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 " +
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 " +
           "focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900"
         }
       >

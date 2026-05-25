@@ -20,12 +20,12 @@ export default function WeeklyReportPage() {
   if (!report) return <div className="p-8 text-center text-gray-400">{t("noSalesData")}</div>;
 
   const currency = report.currency || "DKK";
-  const changeColor = report.change_pct >= 0 ? "text-green-600" : "text-red-600";
+  const changeColor = report.change_pct >= 0 ? "text-emerald-600" : "text-red-600";
   const changeArrow = report.change_pct >= 0 ? "↑" : "↓";
 
   return (
     <div className="p-6 space-y-6 max-w-2xl mx-auto">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-6" id="weekly-report">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6" id="weekly-report">
         <div className="text-center mb-6">
           <p className="text-sm text-gray-400 dark:text-gray-500 uppercase tracking-wide">{t("weeklySalesReport")}</p>
           <h1 className="text-xl font-bold text-gray-800 dark:text-white mt-1">
@@ -59,7 +59,7 @@ export default function WeeklyReportPage() {
           </div>
           <div className="text-center">
             <p className="text-xs text-gray-500 dark:text-gray-400">{t("bestDay")}</p>
-            <p className="text-lg font-bold text-green-600">{report.best_day ? report.best_day.day : "—"}</p>
+            <p className="text-lg font-bold text-emerald-600">{report.best_day ? report.best_day.day : "—"}</p>
           </div>
         </div>
 
@@ -106,9 +106,9 @@ export default function WeeklyReportPage() {
         {(report.best_day || report.worst_day) && (
           <div className="flex gap-3 mt-4">
             {report.best_day && (
-              <div className="flex-1 bg-green-50 dark:bg-green-900/20 rounded-xl p-3 text-center">
-                <p className="text-xs text-green-600 dark:text-green-400 font-medium">{t("bestDay")}</p>
-                <p className="text-sm font-bold text-green-700 dark:text-green-300">
+              <div className="flex-1 bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3 text-center">
+                <p className="text-xs text-emerald-600 dark:text-gray-300 font-medium">{t("bestDay")}</p>
+                <p className="text-sm font-bold text-gray-700 dark:text-gray-300">
                   {report.best_day.day} — {report.best_day.amount.toLocaleString()} {currency}
                 </p>
               </div>

@@ -318,7 +318,7 @@ export function ScaleTap({ children, className = "", scale = 0.97 }) {
 // ═══════════════════════════════════════════════════
 // PROGRESS BAR — animated width
 // ═══════════════════════════════════════════════════
-export function AnimatedBar({ value, max = 100, color = "bg-green-500", className = "", height = "h-2" }) {
+export function AnimatedBar({ value, max = 100, color = "bg-emerald-500", className = "", height = "h-2" }) {
   const pct = Math.min(100, Math.max(0, (value / max) * 100));
   return (
     <div className={`w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden ${height} ${className}`}>

@@ -89,7 +89,7 @@ export default function AcceptInvitePage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-900 px-4 py-12">
-      <div className="w-full max-w-md bg-white dark:bg-gray-800 border border-stone-200 dark:border-stone-700 rounded-xl shadow-sm p-7">
+      <div className="w-full max-w-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm p-7">
         <h1 className="text-2xl font-semibold text-gray-900 dark:text-white mb-2">
           You're invited as a revisor
         </h1>
@@ -115,7 +115,7 @@ export default function AcceptInvitePage() {
               onChange={(e) => setFullName(e.target.value)}
               placeholder="Anna Hansen"
               maxLength={255}
-              className="w-full border border-stone-300 dark:border-stone-600 rounded-lg px-3 py-2.5 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:border-green-500"
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:border-gray-300"
               autoComplete="name"
             />
           </div>
@@ -130,7 +130,7 @@ export default function AcceptInvitePage() {
               placeholder="At least 8 characters"
               minLength={8}
               maxLength={200}
-              className="w-full border border-stone-300 dark:border-stone-600 rounded-lg px-3 py-2.5 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:border-green-500"
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:border-gray-300"
               autoComplete="new-password"
               required
             />
@@ -139,7 +139,7 @@ export default function AcceptInvitePage() {
           <button
             type="submit"
             disabled={submitting || !!error || password.length < 8}
-            className="w-full bg-green-600 text-white py-2.5 rounded-lg font-medium hover:bg-green-700 disabled:opacity-60 transition"
+            className="w-full bg-gray-900 text-white py-2.5 rounded-lg font-medium hover:bg-gray-700 disabled:opacity-60 transition"
           >
             {submitting ? "Setting up your account…" : "Accept invitation"}
           </button>

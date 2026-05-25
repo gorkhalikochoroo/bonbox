@@ -121,10 +121,9 @@ export default function DemoDataCard() {
   // surfaces means owners get one mental model: amber = sample data.
   return (
     <div
-      className="bg-gradient-to-br from-amber-50 to-amber-100/60
-                 dark:from-amber-900/15 dark:to-amber-900/20
-                 rounded-2xl p-5 sm:p-6 border border-amber-200/70
-                 dark:border-amber-800/40 shadow-sm"
+      className="bg-gray-50 dark:bg-gray-800/50
+                 rounded-xl p-5 sm:p-6 border border-gray-100
+                 dark:border-gray-700 shadow-sm"
       role="region"
       aria-label={t("demoCardAria", "Try BonBox with sample data")}
     >

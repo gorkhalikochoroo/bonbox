@@ -159,14 +159,14 @@ export default function QuickAdd() {
         // iPhone safe-area-inset-bottom (home indicator). Without the inline
         // calc, FAB sits behind the nav on devices with a home indicator.
         style={{ bottom: "calc(5rem + env(safe-area-inset-bottom, 0px))" }}
-        className={`fixed md:bottom-6 left-6 z-40 w-10 h-10 ${mode === "personal" ? "bg-purple-600 hover:bg-purple-700" : "bg-green-600 hover:bg-green-700"} text-white rounded-full shadow-lg hover:scale-105 transition-all flex items-center justify-center text-xl font-light`}
+        className={`fixed md:bottom-6 left-6 z-40 w-10 h-10 ${mode === "personal" ? "bg-purple-600 hover:bg-purple-700" : "bg-gray-900 hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white"} text-white rounded-full shadow-sm hover:scale-105 transition-all flex items-center justify-center text-xl font-light`}
       >
         +
       </button>
 
       <Modal open={open} onClose={() => setOpen(false)} title={mode === "personal" ? t("personalEntry") : t("quickEntry")}>
         {success && (
-          <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-4 py-2.5 rounded-lg mb-4 text-sm font-medium text-center">
+          <div className="bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-4 py-2.5 rounded-lg mb-4 text-sm font-medium text-center">
             {success}
           </div>
         )}
@@ -188,16 +188,16 @@ export default function QuickAdd() {
               setOpen(false);
               setSmartScanOpen(true);
             }}
-            className="w-full mb-4 flex items-center gap-3 px-3 py-3 rounded-xl border border-emerald-200 dark:border-emerald-800/40 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+            className="w-full mb-4 flex items-center gap-3 px-3 py-3 rounded-xl border border-gray-100 dark:border-gray-800/40 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
           >
-            <div className="w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 group-hover:scale-105 transition">
+            <div className="w-9 h-9 rounded-full bg-gray-900 text-white flex items-center justify-center shrink-0 group-hover:scale-105 transition">
               <ScanLine size={18} strokeWidth={2} aria-hidden="true" />
             </div>
             <div className="min-w-0 flex-1 text-left">
-              <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-200">
+              <p className="text-sm font-semibold text-gray-900 dark:text-gray-200">
                 {t("smartScan.title", "Smart skan")}
               </p>
-              <p className="text-[11px] text-emerald-700/80 dark:text-emerald-300/80">
+              <p className="text-[11px] text-gray-700/80 dark:text-gray-300/80">
                 {t("smartScan.subtitle", "Tag ét billede — vi finder ud af resten")}
               </p>
             </div>
@@ -212,7 +212,7 @@ export default function QuickAdd() {
             <>
               <button onClick={() => setTab("personal_income")}
                 className={`flex-1 py-2.5 rounded-md text-sm font-medium transition ${
-                  tab === "personal_income" ? "bg-white dark:bg-gray-600 shadow text-green-700 dark:text-green-400" : "text-gray-500 dark:text-gray-400"
+                  tab === "personal_income" ? "bg-white dark:bg-gray-600 shadow text-gray-700 dark:text-gray-300" : "text-gray-500 dark:text-gray-400"
                 }`}>
                 {t("income")}
               </button>
@@ -301,7 +301,7 @@ export default function QuickAdd() {
             <button
               onClick={submitSale}
               disabled={!saleAmount}
-              className="w-full bg-green-600 text-white py-3.5 rounded-xl hover:bg-green-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
+              className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
             >
               {t("logSale")}
             </button>
@@ -381,7 +381,7 @@ export default function QuickAdd() {
             <button
               onClick={submitExpense}
               disabled={!expAmount || !expCatId || !expDesc}
-              className="w-full bg-green-600 text-white py-3.5 rounded-xl hover:bg-green-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
+              className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
             >
               {t("addExpense")}
             </button>
@@ -399,7 +399,7 @@ export default function QuickAdd() {
                     onClick={() => setPCatId(c.id)}
                     className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition ${
                       pCatId === c.id
-                        ? "bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-600 text-green-700 dark:text-green-400"
+                        ? "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-900 text-gray-700 dark:text-gray-300"
                         : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                     }`}
                   >
@@ -421,7 +421,7 @@ export default function QuickAdd() {
                     onClick={() => setPAmount(String(amt))}
                     className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition ${
                       pAmount === String(amt)
-                        ? "bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-600 text-green-700 dark:text-green-400"
+                        ? "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-900 text-gray-700 dark:text-gray-300"
                         : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                     }`}
                   >
@@ -436,7 +436,7 @@ export default function QuickAdd() {
               value={pAmount}
               onChange={(e) => setPAmount(e.target.value)}
               placeholder={t("amountReceived")}
-              className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-400"
               autoFocus
             />
 
@@ -445,7 +445,7 @@ export default function QuickAdd() {
               value={pNotes}
               onChange={(e) => setPNotes(e.target.value)}
               placeholder={t("notesOptional")}
-              className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-400"
             />
 
             <div className="flex items-center gap-3">
@@ -455,14 +455,14 @@ export default function QuickAdd() {
                 value={pDate}
                 max={localIso()}
                 onChange={(e) => setPDate(e.target.value)}
-                className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
               />
             </div>
 
             <button
               onClick={submitPersonal}
               disabled={!pAmount || !pCatId}
-              className="w-full bg-green-600 text-white py-3.5 rounded-xl hover:bg-green-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
+              className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
             >
               {t("logIncome")}
             </button>

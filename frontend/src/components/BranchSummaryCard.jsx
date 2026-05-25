@@ -67,7 +67,7 @@ export default function BranchSummaryCard() {
   const totalRev = summary.consolidated?.month_revenue || 0;
 
   return (
-    <div className="rounded-2xl border border-gray-200 dark:border-gray-700/60 bg-white dark:bg-gray-800/40 p-5 mb-4">
+    <div className="rounded-xl border border-gray-200 dark:border-gray-700/60 bg-white dark:bg-gray-800/40 p-5 mb-4">
       <div className="flex items-baseline justify-between mb-3">
         <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
           {t("branchSummaryTitle") || "Your locations this month"}
@@ -92,7 +92,7 @@ export default function BranchSummaryCard() {
               aria-pressed={isActive}
               className={`w-full text-left rounded-lg px-3 py-2 transition ${
                 isActive
-                  ? "bg-emerald-50 dark:bg-emerald-900/20 ring-1 ring-emerald-300 dark:ring-emerald-700"
+                  ? "bg-gray-50 dark:bg-gray-800/50 ring-1 ring-gray-200 dark:ring-gray-700"
                   : "bg-gray-50 dark:bg-gray-700/30 hover:bg-gray-100 dark:hover:bg-gray-700/50"
               }`}
             >

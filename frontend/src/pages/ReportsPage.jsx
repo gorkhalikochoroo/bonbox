@@ -277,11 +277,11 @@ function DailyKasserapport() {
 
 
       {loading ? (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 text-center border border-gray-100 dark:border-gray-700">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-100 dark:border-gray-700">
           <div className="inline-block w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin" />
         </div>
       ) : data ? (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden print:shadow-none print:border-none">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden print:shadow-none print:border-none">
           {/* Receipt Header */}
           <div className="text-center py-6 border-b border-dashed border-gray-200 dark:border-gray-700">
             <h2 className="text-lg font-bold text-gray-800 dark:text-white tracking-wide">{t("kasserapport")}</h2>
@@ -338,7 +338,7 @@ function DailyKasserapport() {
                 <Row label={t("expensesTotal")} value={`${fmt(data.expenses_total)} ${currency}`} />
                 <div className="border-t border-gray-200 dark:border-gray-700 pt-2">
                   <Row label={t("netCash")} value={`${fmt(data.net_cash)} ${currency}`} bold
-                    color={data.net_cash >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"} />
+                    color={data.net_cash >= 0 ? "text-emerald-600 dark:text-gray-300" : "text-red-600 dark:text-red-400"} />
                 </div>
               </div>
 
@@ -377,7 +377,7 @@ function Row({ label, value, bold, color }) {
 function OverviewCard({ label, value, sub, color = "blue" }) {
   const colorMap = {
     blue: "text-blue-600 dark:text-blue-400",
-    green: "text-green-600 dark:text-green-400",
+    green: "text-emerald-600 dark:text-gray-300",
     red: "text-red-600 dark:text-red-400",
     purple: "text-purple-600 dark:text-purple-400",
     amber: "text-amber-600 dark:text-amber-400",

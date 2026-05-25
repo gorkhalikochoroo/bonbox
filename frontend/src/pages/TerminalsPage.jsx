@@ -195,7 +195,7 @@ export default function TerminalsPage() {
         <FadeIn delay={0.02}>
           <details
             open={terminals.length === 0}
-            className="mt-4 mb-2 bg-white dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-2xl group"
+            className="mt-4 mb-2 bg-white dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-xl group"
           >
             <summary className="cursor-pointer px-5 py-3 text-[13px] font-semibold text-gray-800 dark:text-gray-200 flex items-center justify-between list-none">
               <span className="flex items-center gap-2">
@@ -230,7 +230,7 @@ export default function TerminalsPage() {
                 </div>
               </div>
               <div className="sm:border-l sm:border-gray-200 sm:dark:border-gray-700 sm:pl-5">
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-green-600 dark:text-green-400">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-gray-300">
                   {t("terminalsHowStep3Tag") || "Step 3 (automatic)"}
                 </div>
                 <div className="text-sm font-semibold text-gray-900 dark:text-white mt-1">
@@ -250,7 +250,7 @@ export default function TerminalsPage() {
           sees their changes appear in context */}
       {editing && (
         <FadeIn>
-          <div className="mt-5 mb-6 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 sm:p-6 shadow-sm">
+          <div className="mt-5 mb-6 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 sm:p-6 shadow-sm">
             <h2 className="text-base font-bold text-gray-900 dark:text-white mb-4">
               {editing === "new"
                 ? (t("addTerminal") || "Add terminal")
@@ -269,7 +269,7 @@ export default function TerminalsPage() {
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   placeholder={t("terminalNameExample") || "e.g. Front bar, Terrace, Takeaway"}
                   maxLength={80}
-                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-green-300 dark:focus:ring-green-700 outline-none"
+                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-gray-200 dark:focus:ring-green-700 outline-none"
                 />
               </div>
 
@@ -396,7 +396,7 @@ export default function TerminalsPage() {
             {error}
           </div>
         ) : terminals.length === 0 ? (
-          <div className="mt-6 bg-white dark:bg-gray-800 border border-dashed border-gray-200 dark:border-gray-700 rounded-2xl p-8 text-center">
+          <div className="mt-6 bg-white dark:bg-gray-800 border border-dashed border-gray-200 dark:border-gray-700 rounded-xl p-8 text-center">
             <div className="text-4xl mb-2">💳</div>
             <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-1">
               {t("noTerminalsYet") || "No terminals yet"}
@@ -476,7 +476,7 @@ function CapabilityToggle({ label, checked, onChange }) {
       onClick={() => onChange(!checked)}
       className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
         checked
-          ? "bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300"
+          ? "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300"
           : "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400"
       }`}
     >

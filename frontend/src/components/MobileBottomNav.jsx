@@ -58,10 +58,10 @@ export default function MobileBottomNav() {
                 key={`center-${i}`}
                 to={tab.to}
                 className="relative -top-3 flex items-center justify-center
-                  w-12 h-12 bg-emerald-600 dark:bg-emerald-500 rounded-full
-                  text-white shadow-lg active:scale-95 transition-transform
+                  w-12 h-12 bg-gray-900 dark:bg-emerald-500 rounded-full
+                  text-white shadow-sm active:scale-95 transition-transform
                   focus-visible:outline-none focus-visible:ring-2
-                  focus-visible:ring-emerald-500 focus-visible:ring-offset-2
+                  focus-visible:ring-gray-400 focus-visible:ring-offset-2
                   focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800"
                 aria-label={label}
               >
@@ -79,10 +79,10 @@ export default function MobileBottomNav() {
               aria-label={label}
               className={`flex flex-col items-center justify-center w-16 h-14 transition
                 focus-visible:outline-none focus-visible:ring-2
-                focus-visible:ring-emerald-500 focus-visible:ring-inset
+                focus-visible:ring-gray-400 focus-visible:ring-inset
                 ${isActive
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : "text-stone-500 dark:text-stone-400"}`}
+                  ? "text-gray-900 dark:text-gray-100"
+                  : "text-gray-500 dark:text-gray-400"}`}
             >
               {tab.icon === "Menu"
                 ? <Menu size={20} strokeWidth={1.75} aria-hidden="true" />

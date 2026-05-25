@@ -22,6 +22,8 @@ import TaxBreakdown from "../components/TaxBreakdown";
 import { FadeIn, StaggerGrid, StaggerGridItem, AnimatedList, AnimatedListItem, TabContent, motion, AnimatePresence } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
 import { PageHeader, Button, SectionBanner, StatCard, TabPills } from "../components/ui";
+import EntryCard from "../components/ui/EntryCard";
+import { Mic } from "lucide-react";
 
 const QUICK_AMOUNTS = [500, 1000, 2500, 5000, 7500, 10000, 15000];
 
@@ -390,98 +392,38 @@ export default function SalesPage() {
 
       {/* Form + Stats side by side */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        {/* Quick Entry - left side */}
-        <div className="lg:col-span-3 bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-          <div className="max-w-md">
-          <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300 mb-0.5">{t("logSale")}</h2>
-          <p className="text-xs text-gray-400 dark:text-gray-400 mb-3">{t("tapAmount")}</p>
-
-          {/* One-tap amounts */}
-          <div className="flex flex-wrap gap-1.5 mb-3">
-            {QUICK_AMOUNTS.map((amt) => (
-              <button
-                key={amt}
-                onClick={() => submit(amt)}
-                className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:border-blue-300 dark:hover:border-blue-500 hover:text-blue-700 dark:hover:text-blue-300 transition"
-              >
-                {amt.toLocaleString()} {currency}
-              </button>
-            ))}
-          </div>
-
-          {/* Custom amount */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={startVoice}
-              className={`p-2 rounded-lg border transition flex-shrink-0 ${
-                listening
-                  ? "bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-600 text-red-600 dark:text-red-400 animate-pulse"
-                  : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600"
-              }`}
-              title={t("voiceInput")}
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-              </svg>
-            </button>
-            <input
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder={`${t("customAmount")} ${getTaxConfig(user?.currency).rate > 0 ? `(${getTaxConfig(user?.currency).label})` : ""}`}
-              className="flex-1 px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
-              onKeyDown={(e) => e.key === "Enter" && submit()}
-            />
-            <button
-              onClick={() => submit()}
-              disabled={!amount}
-              className="px-4 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold text-sm disabled:opacity-40"
-            >
-              {t("log")}
-            </button>
-          </div>
-
-          {/* Tax breakdown */}
-          <TaxBreakdown amount={amount} currencyCode={user?.currency} isTaxExempt={isTaxExempt} onTaxExemptChange={setIsTaxExempt} />
-
-          {/* Payment method */}
-          <div className="flex flex-wrap gap-1.5 mt-2">
-            {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
-              <button
-                key={m}
-                onClick={() => setMethod(m)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition ${
-                  method === m
-                    ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-500 text-blue-700 dark:text-blue-300"
-                    : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50"
-                }`}
-              >
-                {t(m)}
-              </button>
-            ))}
-          </div>
-
-          {/* Notes + Date row */}
-          <div className="mt-2 flex items-center gap-2">
-            <input
-              type="text"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder={t("addNoteOptional")}
-              className="flex-1 px-2.5 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:bg-gray-700 dark:text-white"
-            />
-            <input
-              type="date"
-              value={saleDate}
-              max={localIso()}
-              onChange={(e) => setSaleDate(e.target.value)}
-              className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
-            />
-          </div>
-          {saleDate !== localIso() && (
-            <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 font-medium">{t("backdatedEntry")}</p>
-          )}
-          </div>
+        {/* Quick Entry - left side (migrated to EntryCard primitive) */}
+        <div className="lg:col-span-3">
+          <EntryCard
+            title={t("logSale")}
+            hint={t("tapAmount")}
+            amountPresets={QUICK_AMOUNTS}
+            amount={amount}
+            onAmountChange={setAmount}
+            amountPlaceholder={`${t("customAmount")} ${getTaxConfig(user?.currency).rate > 0 ? `(${getTaxConfig(user?.currency).label})` : ""}`}
+            amountSuffix={currency}
+            paymentMethods={["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => ({ id: m, label: t(m) }))}
+            paymentMethod={method}
+            onPaymentChange={setMethod}
+            voiceInput={true}
+            onVoiceClick={startVoice}
+            voiceIcon={<Mic className={`w-4 h-4 ${listening ? "text-red-600 dark:text-red-400 animate-pulse" : ""}`} />}
+            extras={
+              <>
+                <TaxBreakdown amount={amount} currencyCode={user?.currency} isTaxExempt={isTaxExempt} onTaxExemptChange={setIsTaxExempt} />
+                {saleDate !== localIso() && (
+                  <p className="mt-2 text-xs text-amber-600 dark:text-amber-400 font-medium">{t("backdatedEntry")}</p>
+                )}
+              </>
+            }
+            notes={notes}
+            onNotesChange={setNotes}
+            notesPlaceholder={t("addNoteOptional")}
+            date={saleDate}
+            onDateChange={setSaleDate}
+            submitLabel={t("log")}
+            onSubmit={() => submit()}
+          />
         </div>
 
         {/* Summary Stats - right side, Inventory Monitor style */}

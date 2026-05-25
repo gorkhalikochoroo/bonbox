@@ -192,20 +192,20 @@ export default function InstallAppPrompt() {
   if (iosHint) {
     return (
       <div
-        className="fixed bottom-20 sm:bottom-6 left-3 right-3 sm:left-auto sm:right-6 sm:w-[360px] z-40 bg-white dark:bg-stone-800 rounded-2xl border border-stone-200 dark:border-stone-700 shadow-lg p-4"
+        className="fixed bottom-20 sm:bottom-6 left-3 right-3 sm:left-auto sm:right-6 sm:w-[360px] z-40 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-4"
         role="dialog"
         aria-labelledby="install-app-prompt-title"
       >
         <div className="flex items-start justify-between gap-3 mb-2">
           <div className="flex items-start gap-2.5 min-w-0">
-            <div className="w-9 h-9 rounded-lg bg-emerald-500/10 dark:bg-emerald-500/15 flex items-center justify-center shrink-0 text-emerald-600 dark:text-emerald-400">
+            <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0 text-gray-700 dark:text-gray-300">
               <Icon name="Sparkles" size={16} strokeWidth={1.75} />
             </div>
             <div className="min-w-0">
-              <h3 id="install-app-prompt-title" className="text-[14px] font-semibold text-stone-900 dark:text-stone-100">
+              <h3 id="install-app-prompt-title" className="text-[14px] font-semibold text-gray-900 dark:text-gray-100">
                 {t("installPromptIosTitle") || "Add BonBox to your home screen"}
               </h3>
-              <p className="text-[12px] text-stone-500 dark:text-stone-400 mt-0.5 leading-snug">
+              <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">
                 {t("installPromptIosSub") ||
                   "One tap to launch, no Safari chrome, brief opens on launch."}
               </p>
@@ -215,7 +215,7 @@ export default function InstallAppPrompt() {
             type="button"
             onClick={onIosDismiss}
             aria-label={t("dismiss") || "Dismiss"}
-            className="w-7 h-7 -mr-1 -mt-1 rounded-md text-stone-500 hover:text-stone-700 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-700/60 dark:hover:text-stone-200 transition flex items-center justify-center shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+            className="w-7 h-7 -mr-1 -mt-1 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/60 dark:hover:text-gray-200 transition flex items-center justify-center shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M18 6L6 18M6 6l12 12" />
@@ -226,10 +226,10 @@ export default function InstallAppPrompt() {
             inline rows, each with the visual cue users will hunt for
             in the iOS share sheet. */}
         <div className="mt-2 space-y-1.5">
-          <div className="flex items-center gap-2 text-[12.5px] text-stone-700 dark:text-stone-200">
-            <span className="text-stone-500 dark:text-stone-400" aria-hidden="true">1.</span>
+          <div className="flex items-center gap-2 text-[12.5px] text-gray-700 dark:text-gray-200">
+            <span className="text-gray-500 dark:text-gray-400" aria-hidden="true">1.</span>
             <span>{t("installPromptIosStep1") || "Tap the"}</span>
-            <span className="inline-flex items-center justify-center w-5 h-5 rounded border border-stone-300 dark:border-stone-600 text-stone-600 dark:text-stone-300" aria-hidden="true">
+            <span className="inline-flex items-center justify-center w-5 h-5 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300" aria-hidden="true">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8" />
                 <polyline points="16 6 12 2 8 6" />
@@ -238,8 +238,8 @@ export default function InstallAppPrompt() {
             </span>
             <span>{t("installPromptIosShareBtn") || "Share button"}</span>
           </div>
-          <div className="flex items-center gap-2 text-[12.5px] text-stone-700 dark:text-stone-200">
-            <span className="text-stone-500 dark:text-stone-400" aria-hidden="true">2.</span>
+          <div className="flex items-center gap-2 text-[12.5px] text-gray-700 dark:text-gray-200">
+            <span className="text-gray-500 dark:text-gray-400" aria-hidden="true">2.</span>
             <span>
               {t("installPromptIosStep2") || "Tap"}{" "}
               <span className="font-semibold">
@@ -255,20 +255,20 @@ export default function InstallAppPrompt() {
   // Chrome / Android path — the system install dialog is one tap away
   return (
     <div
-      className="fixed bottom-20 sm:bottom-6 left-3 right-3 sm:left-auto sm:right-6 sm:w-[340px] z-40 bg-white dark:bg-stone-800 rounded-2xl border border-stone-200 dark:border-stone-700 shadow-lg p-4"
+      className="fixed bottom-20 sm:bottom-6 left-3 right-3 sm:left-auto sm:right-6 sm:w-[340px] z-40 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-4"
       role="dialog"
       aria-labelledby="install-app-prompt-title-2"
     >
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex items-start gap-2.5 min-w-0">
-          <div className="w-9 h-9 rounded-lg bg-emerald-500/10 dark:bg-emerald-500/15 flex items-center justify-center shrink-0 text-emerald-600 dark:text-emerald-400">
+          <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0 text-gray-700 dark:text-gray-300">
             <Icon name="Sparkles" size={16} strokeWidth={1.75} />
           </div>
           <div className="min-w-0">
-            <h3 id="install-app-prompt-title-2" className="text-[14px] font-semibold text-stone-900 dark:text-stone-100">
+            <h3 id="install-app-prompt-title-2" className="text-[14px] font-semibold text-gray-900 dark:text-gray-100">
               {t("installPromptTitle") || "Install BonBox"}
             </h3>
-            <p className="text-[12px] text-stone-500 dark:text-stone-400 mt-0.5 leading-snug">
+            <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">
               {t("installPromptSub") ||
                 "One tap from your phone, no browser tabs, brief opens on launch."}
             </p>
@@ -278,7 +278,7 @@ export default function InstallAppPrompt() {
           type="button"
           onClick={onDismiss}
           aria-label={t("dismiss") || "Dismiss"}
-          className="w-7 h-7 -mr-1 -mt-1 rounded-md text-stone-500 hover:text-stone-700 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-700/60 dark:hover:text-stone-200 transition flex items-center justify-center shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+          className="w-7 h-7 -mr-1 -mt-1 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/60 dark:hover:text-gray-200 transition flex items-center justify-center shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M18 6L6 18M6 6l12 12" />
@@ -289,7 +289,7 @@ export default function InstallAppPrompt() {
         type="button"
         onClick={onInstallClick}
         disabled={installing}
-        className="w-full px-3 py-2 bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 rounded-lg text-[13px] font-semibold hover:bg-stone-700 dark:hover:bg-stone-200 transition disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-800"
+        className="w-full px-3 py-2 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded-lg text-[13px] font-semibold hover:bg-gray-700 dark:hover:bg-gray-200 transition disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-800"
       >
         {installing
           ? (t("installPromptInstalling") || "Installing…")

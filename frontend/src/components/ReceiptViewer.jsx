@@ -43,6 +43,7 @@
  * renders with a placeholder so the user can at least see the metadata.
  */
 import { useEffect } from "react";
+import { Receipt } from "lucide-react";
 import { useLanguage } from "../hooks/useLanguage";
 import { safeImageUrl } from "../utils/safeUrl";
 
@@ -79,7 +80,7 @@ function highlightAmounts(text, numbers, suggested) {
         key={i}
         className={
           isSuggested
-            ? "bg-emerald-200 dark:bg-emerald-700/60 text-emerald-900 dark:text-emerald-100 px-0.5 rounded font-semibold"
+            ? "bg-gray-200 dark:bg-gray-800/60 text-gray-900 dark:text-gray-100 px-0.5 rounded font-semibold"
             : "bg-amber-100 dark:bg-amber-700/30 text-amber-900 dark:text-amber-200 px-0.5 rounded"
         }
       >
@@ -134,13 +135,13 @@ export default function ReceiptViewer({
       onClick={onClose}
     >
       <div
-        className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[92vh] flex flex-col overflow-hidden"
+        className="bg-white dark:bg-gray-900 rounded-xl shadow-sm max-w-4xl w-full max-h-[92vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 dark:border-gray-700/60">
           <div className="flex items-center gap-2">
-            <span className="text-lg" aria-hidden="true">🧾</span>
+            <Receipt className="w-5 h-5 text-gray-500 dark:text-gray-400" aria-hidden="true" />
             <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
               {title}
             </h2>
@@ -179,8 +180,8 @@ export default function ReceiptViewer({
                   />
                 </a>
               ) : (
-                <div className="w-full aspect-[3/4] flex items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-xl text-3xl text-gray-400">
-                  🧾
+                <div className="w-full aspect-[3/4] flex items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-xl text-gray-400">
+                  <Receipt className="w-12 h-12" />
                 </div>
               )}
             </div>

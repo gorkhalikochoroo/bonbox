@@ -58,8 +58,8 @@ export default function MomsCountdownCard() {
     // Keep a low-noise skeleton — never block the rest of the dashboard
     return (
       <Card variant="subtle" className="animate-pulse">
-        <div className="h-4 bg-stone-200 dark:bg-stone-700 rounded w-1/3 mb-3" />
-        <div className="h-8 bg-stone-200 dark:bg-stone-700 rounded w-1/2" />
+        <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3 mb-3" />
+        <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
       </Card>
     );
   }
@@ -87,9 +87,9 @@ export default function MomsCountdownCard() {
     toneText = "text-amber-700 dark:text-amber-300";
     toneRing = "ring-amber-200 dark:ring-amber-800/40";
   } else {
-    tone = "bg-emerald-50 dark:bg-emerald-900/15";
-    toneText = "text-emerald-700 dark:text-emerald-300";
-    toneRing = "ring-emerald-200 dark:ring-emerald-800/40";
+    tone = "bg-gray-50 dark:bg-gray-800/50";
+    toneText = "text-gray-700 dark:text-gray-300";
+    toneRing = "ring-gray-200 dark:ring-gray-700/40";
   }
 
   const currency = data?.currency || "DKK";
@@ -124,29 +124,29 @@ export default function MomsCountdownCard() {
             </span>
           </div>
           <div className="flex items-baseline gap-3 flex-wrap">
-            <div className="text-3xl font-bold text-stone-900 dark:text-stone-100 leading-none">
+            <div className="text-3xl font-bold text-gray-900 dark:text-gray-100 leading-none">
               {countdown}
             </div>
-            <div className="text-sm text-stone-500 dark:text-stone-400">
+            <div className="text-sm text-gray-500 dark:text-gray-400">
               {fmtDate(next.date)}
               {next.period_label ? ` · ${next.period_label}` : ""}
             </div>
           </div>
           {owed != null && (
-            <div className="mt-2 text-sm text-stone-600 dark:text-stone-300">
+            <div className="mt-2 text-sm text-gray-600 dark:text-gray-300">
               {t("momsEstimatedOwed", "Estimated")}:{" "}
-              <span className="font-semibold text-stone-900 dark:text-stone-100">
+              <span className="font-semibold text-gray-900 dark:text-gray-100">
                 {fmtAmount(owed, currency)}
               </span>
               {output != null && input != null && (
-                <span className="text-stone-400 dark:text-stone-500 ml-1.5">
+                <span className="text-gray-400 dark:text-gray-500 ml-1.5">
                   · {t("output", "Output")} {fmtAmount(output, currency)} · {t("input", "Input")} {fmtAmount(input, currency)}
                 </span>
               )}
             </div>
           )}
         </div>
-        <Icon name="ChevronDown" size={18} className="-rotate-90 text-stone-400 shrink-0 mt-1" />
+        <Icon name="ChevronDown" size={18} className="-rotate-90 text-gray-400 shrink-0 mt-1" />
       </div>
     </Link>
   );

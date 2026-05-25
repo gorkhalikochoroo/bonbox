@@ -130,12 +130,12 @@ export function useToast() {
         <div
           key={toast.id}
           className={`
-            pointer-events-auto px-4 py-3 rounded-lg shadow-lg
+            pointer-events-auto px-4 py-3 rounded-lg shadow-sm
             flex items-center gap-3 min-w-[280px] max-w-[400px]
             transition-all duration-300 ease-out
             ${toast.exiting ? "opacity-0 translate-x-8" : "opacity-100 translate-x-0 animate-slideIn"}
             ${toast.type === "success"
-              ? "bg-emerald-50 dark:bg-emerald-900/90 border border-emerald-200 dark:border-emerald-700 text-emerald-800 dark:text-emerald-100"
+              ? "bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-700 text-gray-800 dark:text-gray-100"
               : toast.type === "warning"
               ? "bg-amber-50 dark:bg-amber-900/90 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-100"
               : toast.type === "error"
@@ -197,7 +197,7 @@ export function ShortcutsHelp({ open, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center" onClick={onClose}>
-      <div className="bg-white dark:bg-gray-900 rounded-2xl p-6 w-[360px] shadow-2xl border border-gray-200 dark:border-gray-700 animate-scaleIn" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white dark:bg-gray-900 rounded-xl p-6 w-[360px] shadow-sm border border-gray-200 dark:border-gray-700 animate-scaleIn" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Keyboard Shortcuts</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl">&times;</button>
@@ -321,7 +321,7 @@ export function QuickSaleModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center" onClick={onClose}>
-      <div className="bg-white dark:bg-gray-900 rounded-2xl p-8 w-[400px] shadow-2xl border border-gray-200 dark:border-gray-700 animate-scaleIn" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white dark:bg-gray-900 rounded-xl p-8 w-[400px] shadow-sm border border-gray-200 dark:border-gray-700 animate-scaleIn" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
           {t("quickSale") || "Quick Sale"}
         </h3>

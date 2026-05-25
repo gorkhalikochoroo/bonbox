@@ -432,7 +432,7 @@ export default function StaffPayrollPage() {
                 type="checkbox"
                 checked={staffList.length > 0 && selectedIds.size === staffList.length}
                 onChange={toggleAll}
-                className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-gray-400"
               />
               <span className="text-sm text-gray-600 dark:text-gray-400">{t("selectAll")}</span>
             </label>
@@ -465,7 +465,7 @@ export default function StaffPayrollPage() {
                     key={s.id}
                     className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition border ${
                       selectedIds.has(s.id)
-                        ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"
+                        ? "bg-gray-50 dark:bg-gray-800/50 border-gray-100 dark:border-gray-800"
                         : "bg-gray-50 dark:bg-gray-700/50 border-gray-100 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700"
                     }`}
                   >
@@ -473,7 +473,7 @@ export default function StaffPayrollPage() {
                       type="checkbox"
                       checked={selectedIds.has(s.id)}
                       onChange={() => toggleStaff(s.id)}
-                      className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                      className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-gray-400"
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
@@ -525,7 +525,7 @@ export default function StaffPayrollPage() {
                     <th className="text-right py-3 px-2 text-gray-500 dark:text-gray-400 font-medium">{t("hoursLabel")}</th>
                     <th className="text-right py-3 px-2 text-gray-500 dark:text-gray-400 font-medium">{t("baseEarned")}</th>
                     <th className="text-right py-3 px-2 text-amber-600 dark:text-amber-400 font-medium">{t("overtime")}</th>
-                    <th className="text-right py-3 px-2 text-green-600 dark:text-green-400 font-medium">Tips</th>
+                    <th className="text-right py-3 px-2 text-emerald-600 dark:text-gray-300 font-medium">Tips</th>
                     <th className="text-right py-3 px-2 text-gray-500 dark:text-gray-400 font-medium">{t("total")}</th>
                   </tr>
                 </thead>
@@ -553,7 +553,7 @@ export default function StaffPayrollPage() {
                       </td>
                       <td className="text-right py-3 px-2 tabular-nums">
                         {row.tips > 0 ? (
-                          <span className="text-green-600 dark:text-green-400 font-medium">
+                          <span className="text-emerald-600 dark:text-gray-300 font-medium">
                             {fmtMoney(row.tips, currency)}
                           </span>
                         ) : (
@@ -580,7 +580,7 @@ export default function StaffPayrollPage() {
                     <td className="text-right py-3 px-2 font-bold text-amber-600 dark:text-amber-400 tabular-nums">
                       {fmtMoney(totals.overtime, currency)}
                     </td>
-                    <td className="text-right py-3 px-2 font-bold text-green-600 dark:text-green-400 tabular-nums">
+                    <td className="text-right py-3 px-2 font-bold text-emerald-600 dark:text-gray-300 tabular-nums">
                       {fmtMoney(totals.tips, currency)}
                     </td>
                     <td className="text-right py-3 px-2 font-bold text-gray-800 dark:text-white tabular-nums">
@@ -843,7 +843,7 @@ export default function StaffPayrollPage() {
             </Button>
           </form>
           {sickSuccess && (
-            <p className="text-emerald-700 dark:text-emerald-400 text-sm mb-3">{sickSuccess}</p>
+            <p className="text-gray-700 dark:text-emerald-400 text-sm mb-3">{sickSuccess}</p>
           )}
 
           {/* Recent sick calls */}
@@ -911,7 +911,7 @@ export default function StaffPayrollPage() {
 function DkStat({ label, value, currency, accent = "gray", small = false }) {
   const accentClass =
     accent === "blue" ? "border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/20"
-    : accent === "green" ? "border-green-200 dark:border-green-800 bg-green-50/60 dark:bg-green-900/20"
+    : accent === "green" ? "border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/50"
     : accent === "dark" ? "border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700/40"
     : "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40";
   return (

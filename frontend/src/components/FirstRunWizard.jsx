@@ -178,7 +178,7 @@ export default function FirstRunWizard() {
       aria-modal="true"
       className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
     >
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700/60">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
@@ -208,7 +208,7 @@ export default function FirstRunWizard() {
                   "Looks like you signed up as a {type}. We've pre-loaded sensible defaults for that. You can change anything later.")
                   .replace("{type}", user.business_type || "business")}
               </p>
-              <div className="rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-200">
+              <div className="rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/40 px-4 py-3 text-sm text-gray-800 dark:text-gray-200">
                 <span className="font-semibold capitalize">{user.business_type || "business"}</span>
               </div>
             </div>
@@ -225,7 +225,7 @@ export default function FirstRunWizard() {
                     key={p.id}
                     className={`block rounded-xl border p-3 cursor-pointer ${
                       presetId === p.id
-                        ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20"
+                        ? "border-gray-300 bg-gray-50 dark:bg-gray-800/50"
                         : "border-gray-200 dark:border-gray-700/60 hover:bg-gray-50 dark:hover:bg-gray-700/30"
                     }`}
                   >
@@ -263,12 +263,12 @@ export default function FirstRunWizard() {
                   type="button"
                   onClick={() => savePresetAndContinue("/daily-close/multi")}
                   disabled={saving}
-                  className="w-full text-left rounded-xl border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/20 p-3 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 disabled:opacity-50"
+                  className="w-full text-left rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3 hover:bg-gray-100 dark:hover:bg-gray-800/50 disabled:opacity-50"
                 >
-                  <div className="text-sm font-semibold text-emerald-900 dark:text-emerald-200">
+                  <div className="text-sm font-semibold text-gray-900 dark:text-gray-200">
                     {t("firstRunOptionScan") || "Scan one kasserapport now"}
                   </div>
-                  <div className="text-[11px] text-emerald-700 dark:text-emerald-300 mt-0.5">
+                  <div className="text-[11px] text-gray-700 dark:text-gray-300 mt-0.5">
                     {t("firstRunOptionScanHint") || "We'll read your terminal labels off the slip and finish setup automatically."}
                   </div>
                 </button>
@@ -307,7 +307,7 @@ export default function FirstRunWizard() {
               <button
                 type="button"
                 onClick={() => setStep(step + 1)}
-                className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition"
+                className="px-4 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold transition"
               >
                 {t("firstRunNext") || "Next"}
               </button>

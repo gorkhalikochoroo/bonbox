@@ -12,7 +12,7 @@ import AppleSignInButton from "../components/AppleSignInButton";
 /* Inline SVG illustration — a fun receipt-and-boxes scene */
 function HeroIllustration() {
   return (
-    <svg viewBox="0 0 400 400" fill="none" className="w-full max-w-sm mx-auto drop-shadow-lg" style={{ filter: "drop-shadow(0 8px 24px rgba(0,0,0,0.08))" }}>
+    <svg viewBox="0 0 400 400" fill="none" className="w-full max-w-sm mx-auto drop-shadow-sm" style={{ filter: "drop-shadow(0 8px 24px rgba(0,0,0,0.08))" }}>
       {/* Background blob */}
       <ellipse cx="200" cy="210" rx="170" ry="160" fill="#ECFDF5" />
 
@@ -553,7 +553,7 @@ export default function LoginPage() {
                 or reveal whether the address is registered (just like
                 the backend's enumeration-safe 200). */}
             {magicMode && magicSent ? (
-              <div className="mt-7 bg-emerald-50 border border-emerald-200 rounded-xl p-5">
+              <div className="mt-7 bg-gray-50 border border-gray-100 rounded-xl p-5">
                 <div className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center shrink-0">
                     <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -561,15 +561,15 @@ export default function LoginPage() {
                     </svg>
                   </div>
                   <div className="flex-1">
-                    <p className="text-[15px] font-semibold text-emerald-900">{t("magicLinkSent") || "Check your email"}</p>
-                    <p className="text-[13px] text-emerald-800 mt-1 leading-relaxed">
+                    <p className="text-[15px] font-semibold text-gray-900">{t("magicLinkSent") || "Check your email"}</p>
+                    <p className="text-[13px] text-gray-800 mt-1 leading-relaxed">
                       {t("magicLinkSentDetail") ||
                         `If ${email} is registered, we've sent a sign-in link. It expires in 15 minutes.`}
                     </p>
                     <button
                       type="button"
                       onClick={switchToPasswordMode}
-                      className="mt-3 text-[13px] text-emerald-700 hover:text-emerald-900 underline-offset-2 hover:underline font-medium"
+                      className="mt-3 text-[13px] text-gray-700 hover:text-gray-900 underline-offset-2 hover:underline font-medium"
                     >
                       {t("usePasswordInstead") || "Use password instead"}
                     </button>
@@ -629,7 +629,7 @@ export default function LoginPage() {
                         onClick={() => setShowPass(!showPass)}
                         aria-label={showPass ? (t("hidePassword") || "Hide password") : (t("showPassword") || "Show password")}
                         aria-pressed={showPass}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-800 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-800 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
                       >
                         {showPass ? (
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L6.59 6.59m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>

@@ -168,14 +168,14 @@ export default function SmartStaffingCard({ onEditClick }) {
 
   if (loading) {
     return (
-      <div className="rounded-2xl border border-gray-200 dark:border-gray-700/60 p-5 text-sm text-gray-500">
+      <div className="rounded-xl border border-gray-200 dark:border-gray-700/60 p-5 text-sm text-gray-500">
         {t("loading") || "Loading…"}
       </div>
     );
   }
   if (!proposal) {
     return (
-      <div className="rounded-2xl border border-gray-200 dark:border-gray-700/60 p-5 text-sm text-red-500">
+      <div className="rounded-xl border border-gray-200 dark:border-gray-700/60 p-5 text-sm text-red-500">
         {error || (t("smartStaffingLoadError") || "Couldn't load suggestion.")}
       </div>
     );
@@ -186,20 +186,20 @@ export default function SmartStaffingCard({ onEditClick }) {
   const dayMaskDigit = { mon: "1", tue: "2", wed: "3", thu: "4", fri: "5", sat: "6", sun: "7" };
 
   const confidenceBadge = {
-    high: { color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300", label: t("confidenceHigh") || "High confidence" },
+    high: { color: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300", label: t("confidenceHigh") || "High confidence" },
     medium: { color: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300", label: t("confidenceMedium") || "Medium confidence" },
     low: { color: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300", label: t("confidenceLow") || "Low confidence" },
   }[proposal.confidence] || { color: "bg-gray-100 text-gray-600", label: proposal.confidence };
 
   return (
     <>
-      <div className="rounded-2xl border border-gray-200 dark:border-gray-700/60 bg-white dark:bg-gray-800/40 p-5 sm:p-6 space-y-4">
+      <div className="rounded-xl border border-gray-200 dark:border-gray-700/60 bg-white dark:bg-gray-800/40 p-5 sm:p-6 space-y-4">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
               {t("smartStaffingTitle") || "How your business runs"}
               {branchId && branchName && branchName !== "All" && (
-                <span className="ml-2 text-[11px] font-normal text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 rounded-full align-middle">
+                <span className="ml-2 text-[11px] font-normal text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-0.5 rounded-full align-middle">
                   {branchName}
                 </span>
               )}
@@ -229,7 +229,7 @@ export default function SmartStaffingCard({ onEditClick }) {
                     key={k}
                     className={`px-2 py-0.5 rounded text-xs font-medium ${
                       active
-                        ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-200"
+                        ? "bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200"
                         : "bg-gray-100 dark:bg-gray-700 text-gray-400 line-through"
                     }`}
                   >
@@ -333,7 +333,7 @@ export default function SmartStaffingCard({ onEditClick }) {
           <button
             onClick={acceptProposal}
             disabled={saving}
-            className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-50 transition"
+            className="px-4 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold disabled:opacity-50 transition"
           >
             {saving ? (t("saving") || "Saving…") : (t("smartStaffingSaveAction") || "Save these hours")}
           </button>

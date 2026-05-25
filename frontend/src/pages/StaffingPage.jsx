@@ -15,7 +15,7 @@ import { FadeIn } from "../components/AnimationKit";
 import { PageHeader, StatCard, SectionBanner, TabPills } from "../components/ui";
 
 const LEVEL_COLORS = {
-  Slow: "bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-700",
+  Slow: "bg-gray-100 text-gray-700 border-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700",
   Normal: "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700",
   Busy: "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-700",
 };
@@ -25,14 +25,14 @@ const LEVEL_BAR_COLORS = { Slow: "#22c55e", Normal: "#3b82f6", Busy: "#f97316" }
 const STATUS_COLORS = {
   overstaffed: "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800",
   understaffed: "bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800",
-  optimal: "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800",
+  optimal: "bg-gray-50 dark:bg-gray-800/50 border-gray-100 dark:border-gray-800",
   no_data: "bg-gray-50 dark:bg-gray-700/30 border-gray-200 dark:border-gray-700",
 };
 
 const STATUS_BADGE = {
   overstaffed: "text-red-600 bg-red-100 dark:bg-red-900/40 dark:text-red-300",
   understaffed: "text-orange-600 bg-orange-100 dark:bg-orange-900/40 dark:text-orange-300",
-  optimal: "text-green-600 bg-green-100 dark:bg-green-900/40 dark:text-green-300",
+  optimal: "text-emerald-600 bg-gray-100 dark:bg-gray-800 dark:text-gray-300",
 };
 
 function fmt(n) { return n != null ? Math.round(n).toLocaleString() : "—"; }
@@ -227,7 +227,7 @@ export default function StaffingPage() {
           ) : (
             <>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <SummaryCard title={t("slowDaysAhead")} value={recs.filter((r) => r.business_level?.toLowerCase().includes("slow")).length} subtitle={t("reduceStaff")} color="text-green-600" />
+                <SummaryCard title={t("slowDaysAhead")} value={recs.filter((r) => r.business_level?.toLowerCase().includes("slow")).length} subtitle={t("reduceStaff")} color="text-emerald-600" />
                 <SummaryCard title={t("normalDays")} value={recs.filter((r) => r.business_level?.toLowerCase().includes("normal")).length} subtitle={t("standardStaffing")} color="text-blue-600" />
                 <SummaryCard title={t("busyDaysAhead")} value={recs.filter((r) => r.business_level?.toLowerCase().includes("busy")).length} subtitle={t("extraStaff")} color="text-orange-600" />
               </div>
@@ -304,7 +304,7 @@ export default function StaffingPage() {
                           </td>
                           <td className="px-6 py-4 text-sm font-bold text-gray-800 dark:text-white">{r.recommended_staff}</td>
                           <td className="px-6 py-4">
-                            <span className={`text-xs ${r.confidence === "high" ? "text-green-600 dark:text-green-400" : "text-yellow-600 dark:text-yellow-400"}`}>
+                            <span className={`text-xs ${r.confidence === "high" ? "text-emerald-600 dark:text-gray-300" : "text-yellow-600 dark:text-yellow-400"}`}>
                               {r.confidence}
                             </span>
                           </td>
@@ -431,7 +431,7 @@ export default function StaffingPage() {
 
           {/* Not enough data prompt */}
           {insights && !insights.ready && (
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-sm text-center">
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-8 shadow-sm text-center">
               <div className="text-5xl mb-4">👥</div>
               <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-2">Build Your Staff Intelligence</h2>
               <p className="text-gray-500 dark:text-gray-400 mb-2">
@@ -439,7 +439,7 @@ export default function StaffingPage() {
               </p>
               <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden w-64 mx-auto">
                 <div
-                  className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full transition-all"
+                  className="h-full bg-gray-50 dark:bg-gray-800/50 rounded-full transition-all"
                   style={{ width: `${Math.min(100, (insights.days_logged / 14) * 100)}%` }}
                 />
               </div>
@@ -483,11 +483,11 @@ export default function StaffingPage() {
                 onChange={e => setLogForm({ ...logForm, labor_cost: e.target.value })}
                 className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
               />
-              <button type="submit" className="bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition text-sm font-medium">
+              <button type="submit" className="bg-gray-900 text-white py-2 rounded-lg hover:bg-gray-700 transition text-sm font-medium">
                 Log Staff
               </button>
             </form>
-            {logSuccess && <p className="text-green-500 text-sm">{logSuccess}</p>}
+            {logSuccess && <p className="text-emerald-600 text-sm">{logSuccess}</p>}
             <p className="text-xs text-gray-400 mt-2">Only staff count is required. Hours and cost are optional but improve insights.</p>
           </div>
 

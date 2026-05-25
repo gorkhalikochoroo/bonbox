@@ -367,8 +367,8 @@ export default function BonBoxAgent() {
               className={`
                 px-4 py-2.5 text-[13.5px] leading-relaxed
                 ${isUser
-                  ? "bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-2xl rounded-br-md shadow-lg shadow-green-900/20"
-                  : "bg-gray-800/60 dark:bg-gray-800/60 text-gray-100 dark:text-gray-100 rounded-2xl rounded-bl-md border border-white/[0.04] backdrop-blur-sm"
+                  ? "bg-gray-50 dark:bg-gray-800/50 text-white rounded-xl rounded-br-md shadow-sm"
+                  : "bg-gray-800/60 dark:bg-gray-800/60 text-gray-100 dark:text-gray-100 rounded-xl rounded-bl-md border border-white/[0.04] backdrop-blur-sm"
                 }
               `}
             >
@@ -401,8 +401,8 @@ export default function BonBoxAgent() {
                       disabled={isStreaming}
                       className="
                         text-[10.5px] px-2.5 py-1 rounded-full
-                        bg-emerald-500/[0.08] border border-emerald-500/[0.15]
-                        text-emerald-300/80 hover:text-emerald-200 hover:bg-emerald-500/[0.15] hover:border-emerald-500/[0.25]
+                        bg-emerald-500/[0.08] border border-gray-300/[0.15]
+                        text-gray-300/80 hover:text-gray-200 hover:bg-emerald-500/[0.15] hover:border-gray-300/[0.25]
                         transition-all duration-200
                         disabled:opacity-40 disabled:cursor-not-allowed
                       "
@@ -427,7 +427,7 @@ export default function BonBoxAgent() {
                     className="
                       text-[12.5px] px-4 py-2 rounded-full
                       bg-white/[0.07] border border-white/[0.10]
-                      text-gray-200 hover:text-white hover:bg-white/[0.13] hover:border-emerald-500/30
+                      text-gray-200 hover:text-white hover:bg-white/[0.13] hover:border-gray-300/30
                       hover:shadow-[0_0_12px_rgba(34,197,94,0.1)]
                       transition-all duration-200
                       disabled:opacity-40 disabled:cursor-not-allowed
@@ -543,7 +543,7 @@ export default function BonBoxAgent() {
           className="
             fixed md:bottom-6 right-6 z-[9999]
             w-14 h-14 rounded-full
-            bg-gradient-to-br from-green-500 to-emerald-600
+            bg-gray-50 dark:bg-gray-800/50
             flex items-center justify-center
             cursor-pointer select-none
             transition-transform duration-300 ease-out
@@ -565,7 +565,7 @@ export default function BonBoxAgent() {
             return (
               <span
                 key={i}
-                className="absolute w-1 h-1 rounded-full bg-green-300"
+                className="absolute w-1 h-1 rounded-full bg-emerald-300"
                 style={{
                   "--px": `${px}px`,
                   "--py": `${py}px`,
@@ -607,10 +607,10 @@ export default function BonBoxAgent() {
             sm:w-[420px] sm:h-[620px]
             max-sm:inset-0 max-sm:bottom-0 max-sm:right-0
             flex flex-col
-            rounded-2xl max-sm:rounded-none
+            rounded-xl max-sm:rounded-none
             overflow-hidden
             border border-white/[0.08]
-            shadow-2xl shadow-black/40
+            shadow-sm shadow-black/40
           "
           style={{
             background:
@@ -624,14 +624,14 @@ export default function BonBoxAgent() {
           }}
         >
           {/* --- gradient top edge --- */}
-          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-500/30 to-transparent" />
+          <div className="absolute inset-x-0 top-0 h-px bg-gray-200 dark:bg-gray-700" />
 
           {/* ========= HEADER ========= */}
           <div className="flex items-center justify-between px-5 py-3.5 max-sm:pt-[max(0.875rem,env(safe-area-inset-top))] border-b border-white/[0.06] shrink-0">
             <div className="flex items-center gap-3">
               {/* animated brain icon */}
               <div
-                className="w-8 h-8 rounded-lg bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center"
+                className="w-8 h-8 rounded-lg bg-gray-50 dark:bg-gray-800/50 flex items-center justify-center"
                 style={{ animation: "neuralPulse 3s ease-in-out infinite" }}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-white">
@@ -646,7 +646,7 @@ export default function BonBoxAgent() {
                   {t("bonboxAi")}
                 </h3>
                 <div className="flex items-center gap-1.5 mt-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-sm" />
                   <span className="text-[10px] text-gray-400">{t("online")}</span>
                 </div>
               </div>
@@ -694,7 +694,7 @@ export default function BonBoxAgent() {
             {/* ---- typing indicator ---- */}
             {isStreaming && activeTools.length === 0 && (
               <div className="flex justify-start mb-3">
-                <div className="bg-gray-800/60 border border-white/[0.04] rounded-2xl rounded-bl-md px-4 py-3 flex items-center gap-1">
+                <div className="bg-gray-800/60 border border-white/[0.04] rounded-xl rounded-bl-md px-4 py-3 flex items-center gap-1">
                   {[0, 1, 2].map((i) => (
                     <span
                       key={i}
@@ -721,7 +721,7 @@ export default function BonBoxAgent() {
                 border border-white/[0.08]
                 bg-white/[0.04]
                 transition-all duration-300
-                focus-within:border-emerald-500/40 focus-within:bg-white/[0.06]
+                focus-within:border-gray-300/40 focus-within:bg-white/[0.06]
                 focus-within:shadow-[0_0_20px_rgba(34,197,94,0.08)]
               "
               style={{
@@ -797,7 +797,7 @@ export default function BonBoxAgent() {
                   disabled:opacity-30 disabled:cursor-not-allowed
                   ${listening
                     ? "bg-red-500/20 text-red-400 ring-1 ring-red-500/40 animate-pulse"
-                    : "bg-white/[0.04] text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10"}
+                    : "bg-white/[0.04] text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/15"}
                 `}
               >
                 {/* mic SVG */}
@@ -817,10 +817,10 @@ export default function BonBoxAgent() {
                 className="
                   shrink-0 w-9 h-9 mr-1.5 mb-1.5
                   rounded-lg flex items-center justify-center
-                  bg-gradient-to-br from-green-500 to-emerald-600
+                  bg-gray-50 dark:bg-gray-800/50
                   text-white
                   disabled:opacity-30 disabled:cursor-not-allowed
-                  hover:from-green-400 hover:to-emerald-500
+                 
                   transition-all duration-200
                   active:scale-90
                 "
@@ -855,7 +855,7 @@ function ToolPill({ tool }) {
         inline-flex items-center gap-2
         px-3 py-1.5 rounded-full
         border border-white/[0.06]
-        text-[11px] font-medium text-emerald-300
+        text-[11px] font-medium text-gray-300
       "
       style={{
         background:

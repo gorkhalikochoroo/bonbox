@@ -198,7 +198,7 @@ export default function EventCashupModal({
       aria-labelledby="event-cashup-title"
     >
       <div
-        className="bg-white dark:bg-gray-900 rounded-2xl w-full sm:max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl border border-gray-200 dark:border-gray-700 animate-scaleIn"
+        className="bg-white dark:bg-gray-900 rounded-xl w-full sm:max-w-lg max-h-[90vh] overflow-y-auto shadow-sm border border-gray-200 dark:border-gray-700 animate-scaleIn"
         onClick={(e) => e.stopPropagation()}
       >
         {/* ── Header ─────────────────────────────────────────────── */}
@@ -208,13 +208,13 @@ export default function EventCashupModal({
               id="event-cashup-title"
               className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2"
             >
-              <Wallet className="w-5 h-5 text-green-600 shrink-0" aria-hidden />
+              <Wallet className="w-5 h-5 text-gray-700 dark:text-gray-300 shrink-0" aria-hidden />
               {t("eventCashupTitle", "Cash up event")}
             </h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 truncate">
               {event?.name}
               {isExempt && (
-                <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
+                <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">
                   MOMS-fri
                 </span>
               )}
@@ -277,7 +277,7 @@ export default function EventCashupModal({
                     onChange={(e) => setTierQty(row.label, e.target.value)}
                     placeholder="0"
                     aria-label={t("eventCashupQtyLabel", "Quantity sold")}
-                    className="w-14 h-8 px-2 text-center rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm font-semibold text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className="w-14 h-8 px-2 text-center rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm font-semibold text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400"
                   />
                   <button
                     type="button"
@@ -356,7 +356,7 @@ export default function EventCashupModal({
                 "eventCashupNotesPlaceholder",
                 "Notes (optional) — e.g. door takings + advance Billetto",
               )}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-400"
             />
           </div>
         )}
@@ -395,7 +395,7 @@ export default function EventCashupModal({
             type="button"
             onClick={handleSubmit}
             disabled={!canSubmit}
-            className="w-full py-3 rounded-xl bg-green-600 hover:bg-green-700 text-white text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full py-3 rounded-xl bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {submitting
               ? t("eventCashupSubmitting", "Logging…")
@@ -427,7 +427,7 @@ function SplitInput({ label, value, onChange }) {
         value={value}
         onChange={(e) => onChange(e.target.value.replace(/[^\d.,]/g, ""))}
         placeholder="0"
-        className="w-full px-2 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+        className="w-full px-2 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
       />
     </label>
   );

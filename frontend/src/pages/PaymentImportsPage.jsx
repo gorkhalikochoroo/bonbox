@@ -135,9 +135,9 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
   // Step 0: Introduction — what you'll need
   if (step === 0) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 px-6 py-5 border-b border-gray-100 dark:border-gray-700">
+        <div className="bg-gray-50 dark:bg-gray-800/50 px-6 py-5 border-b border-gray-100 dark:border-gray-700">
           <div className="flex items-center gap-3">
             <span className="text-3xl">{provider.logo_emoji}</span>
             <div>
@@ -223,7 +223,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
   // Step 2: Testing connection
   if (step === 2) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-8 text-center">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-8 text-center">
         <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center">
           <svg className="w-6 h-6 text-blue-600 dark:text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -240,7 +240,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
 
   // Step 1: Enter credentials
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
       {/* Header */}
       <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -314,7 +314,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
               className="w-full px-3 py-2 rounded-lg border border-blue-200 dark:border-blue-800/40 bg-white dark:bg-gray-800 text-xs text-gray-800 dark:text-gray-200 font-mono focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 outline-none transition resize-none"
             />
             {pasteAck && (
-              <p className={`text-[11px] mt-1.5 font-medium flex items-center gap-1 ${pasteAck.found === pasteAck.total ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400"}`}>
+              <p className={`text-[11px] mt-1.5 font-medium flex items-center gap-1 ${pasteAck.found === pasteAck.total ? "text-emerald-600 dark:text-gray-300" : "text-amber-600 dark:text-amber-400"}`}>
                 {pasteAck.found === pasteAck.total ? "✓" : "⚠"}
                 {pasteAck.found === pasteAck.total
                   ? (t("smartPasteAllFilled") || `All ${pasteAck.total} fields auto-filled — review below and tap Test & Connect`).replace("{n}", pasteAck.total)
@@ -330,7 +330,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
           const value = creds[field.key] || "";
           const check = checkField(provider.id, field.key, value);
           const borderClass =
-            check.state === "ok"   ? "border-green-300 dark:border-green-700/50 bg-green-50/40 dark:bg-green-900/10" :
+            check.state === "ok"   ? "border-gray-200 dark:border-gray-700/50 bg-gray-50/40 dark:bg-gray-800/50" :
             check.state === "warn" ? "border-amber-300 dark:border-amber-700/50 bg-amber-50/40 dark:bg-amber-900/10" :
                                      "border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700";
           const formatHint =
@@ -343,7 +343,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
                 </span>
                 {field.label}
                 {check.state === "ok" && (
-                  <span className="ml-auto text-[11px] text-green-600 dark:text-green-400 font-semibold flex items-center gap-0.5">
+                  <span className="ml-auto text-[11px] text-emerald-600 dark:text-gray-300 font-semibold flex items-center gap-0.5">
                     <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                     </svg>
@@ -392,7 +392,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
           <button
             onClick={handleSave}
             disabled={!allFieldsFilled || saving}
-            className="flex-1 py-3 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition text-sm flex items-center justify-center gap-2"
+            className="flex-1 py-3 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition text-sm flex items-center justify-center gap-2"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -438,17 +438,17 @@ function ConnectedCard({ conn, provider, onDisconnect, onSync, onToggleAutoSync,
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
       {/* Header */}
       <div className="px-5 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-green-50 dark:bg-green-900/20 flex items-center justify-center text-xl">
+          <div className="w-10 h-10 rounded-xl bg-gray-50 dark:bg-gray-800/50 flex items-center justify-center text-xl">
             {PROVIDER_LOGOS[conn.provider] || "💳"}
           </div>
           <div>
             <p className="text-sm font-semibold text-gray-800 dark:text-white">{conn.label}</p>
             <p className="text-xs text-gray-400 flex items-center gap-1.5">
-              <span className={`w-1.5 h-1.5 rounded-full inline-block ${conn.auto_sync ? "bg-green-400" : "bg-gray-300"}`} />
+              <span className={`w-1.5 h-1.5 rounded-full inline-block ${conn.auto_sync ? "bg-emerald-500" : "bg-gray-300"}`} />
               {provider?.name || conn.provider}
               {conn.last_synced_at && (
                 <span className="ml-1">
@@ -470,9 +470,9 @@ function ConnectedCard({ conn, provider, onDisconnect, onSync, onToggleAutoSync,
       <div className="px-5 pb-3">
         <div className="flex items-center justify-between py-2.5 px-4 rounded-xl bg-gray-50 dark:bg-gray-700/40">
           <div className="flex items-center gap-2.5">
-            <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${conn.auto_sync ? "bg-green-100 dark:bg-green-900/30" : "bg-gray-200 dark:bg-gray-600"}`}>
+            <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${conn.auto_sync ? "bg-gray-100 dark:bg-gray-800" : "bg-gray-200 dark:bg-gray-600"}`}>
               {conn.auto_sync ? (
-                <svg className="w-3.5 h-3.5 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <svg className="w-3.5 h-3.5 text-emerald-600 dark:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
               ) : (
@@ -496,7 +496,7 @@ function ConnectedCard({ conn, provider, onDisconnect, onSync, onToggleAutoSync,
           </div>
           <button
             onClick={() => onToggleAutoSync(conn.id, !conn.auto_sync)}
-            className={`relative w-10 h-5.5 rounded-full transition-colors ${conn.auto_sync ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600"}`}
+            className={`relative w-10 h-5.5 rounded-full transition-colors ${conn.auto_sync ? "bg-emerald-500" : "bg-gray-300 dark:bg-gray-600"}`}
             style={{ minWidth: "40px", height: "22px" }}
           >
             <span
@@ -596,7 +596,7 @@ function ConnectedCard({ conn, provider, onDisconnect, onSync, onToggleAutoSync,
                   <p className="text-xs text-gray-400">{txn.date}{txn.suggested_category && ` · ${txn.suggested_category}`}</p>
                 </div>
                 <span className={`text-sm font-semibold shrink-0 ${
-                  txn.type === "income" ? "text-green-600 dark:text-green-400" : "text-red-500"
+                  txn.type === "income" ? "text-emerald-600 dark:text-gray-300" : "text-red-500"
                 }`}>
                   {txn.type === "income" ? "+" : "-"}{fmt(Math.abs(txn.amount))}
                 </span>
@@ -608,7 +608,7 @@ function ConnectedCard({ conn, provider, onDisconnect, onSync, onToggleAutoSync,
             <button
               onClick={() => onConfirmImport(conn, syncResult.transactions.filter((_, i) => selected.has(i)))}
               disabled={confirming || selected.size === 0}
-              className="w-full py-2.5 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 disabled:opacity-40 transition text-sm"
+              className="w-full py-2.5 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-700 disabled:opacity-40 transition text-sm"
             >
               {confirming
                 ? (t("importing") || "Importing...")
@@ -628,15 +628,15 @@ function ConnectedCard({ conn, provider, onDisconnect, onSync, onToggleAutoSync,
       {/* Import success */}
       {importResult && (
         <div className="px-5 pb-4">
-          <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-4 text-center">
+          <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4 text-center">
             <div className="text-2xl mb-1">🎉</div>
-            <p className="text-green-700 dark:text-green-400 font-semibold text-sm">
+            <p className="text-gray-700 dark:text-gray-300 font-semibold text-sm">
               {importResult.imported} {t("imported") || "imported"}
               {importResult.skipped > 0 && (
                 <span className="text-gray-500 font-normal ml-1">({importResult.skipped} duplicates skipped)</span>
               )}
             </p>
-            <p className="text-xs text-green-600/60 dark:text-green-400/60 mt-1">Added to your cash book</p>
+            <p className="text-xs text-emerald-600/60 dark:text-gray-300/60 mt-1">Added to your cash book</p>
           </div>
         </div>
       )}
@@ -819,8 +819,8 @@ export default function PaymentImportsPage() {
                         <p className="text-xs text-gray-400 truncate">{p.description}</p>
                       </div>
                       {isConnected ? (
-                        <span className="text-xs font-medium text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 px-3 py-1.5 rounded-full flex items-center gap-1 shrink-0">
-                          <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
+                        <span className="text-xs font-medium text-emerald-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded-full flex items-center gap-1 shrink-0">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
                           {t("connected") || "Connected"}
                         </span>
                       ) : (

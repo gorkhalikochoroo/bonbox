@@ -49,8 +49,8 @@ const URGENCY = {
     sortRank: 1,
   },
   monitor: {
-    color: "bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700",
-    dot: "bg-stone-400",
+    color: "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700",
+    dot: "bg-gray-400",
     labelKey: "inventoryAutopilotMonitor",
     labelFallback: "Monitor",
     sortRank: 2,
@@ -84,7 +84,7 @@ function ConfidenceBadge({ confidence, t }) {
   };
   const meta = labels[confidence] || labels.low;
   return (
-    <span className="text-[10px] text-stone-500 dark:text-stone-400">
+    <span className="text-[10px] text-gray-500 dark:text-gray-400">
       {t(meta.key, meta.fallback)}
     </span>
   );
@@ -100,7 +100,7 @@ function SupplierCard({ group, edits, setEdits, onSendOne, sending, t, currency 
       <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="text-base font-semibold text-stone-900 dark:text-stone-100 truncate">
+            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">
               {group.supplier_name ||
                 group.supplier_email ||
                 t("inventoryAutopilotNoSupplier", "No supplier set")}
@@ -108,7 +108,7 @@ function SupplierCard({ group, edits, setEdits, onSendOne, sending, t, currency 
             <UrgencyBadge urgency={group.urgency} t={t} />
           </div>
           {hasEmail ? (
-            <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5 break-all">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 break-all">
               {group.supplier_email}
             </p>
           ) : (
@@ -121,16 +121,16 @@ function SupplierCard({ group, edits, setEdits, onSendOne, sending, t, currency 
           )}
         </div>
         <div className="text-right shrink-0">
-          <p className="text-xs text-stone-500 dark:text-stone-400">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
             {t("inventoryAutopilotEstTotal", "Est. total")}
           </p>
-          <p className="text-base font-semibold text-stone-900 dark:text-stone-100">
+          <p className="text-base font-semibold text-gray-900 dark:text-gray-100">
             {Number(group.total_cost || 0).toFixed(2)} {currency}
           </p>
         </div>
       </div>
 
-      <ul className="divide-y divide-stone-100 dark:divide-stone-800 -mx-1">
+      <ul className="divide-y divide-gray-100 dark:divide-gray-800 -mx-1">
         {groupItems.map((it) => {
           const editKey = it.item_id;
           const qty = edits[editKey] ?? it.suggested_qty;
@@ -142,7 +142,7 @@ function SupplierCard({ group, edits, setEdits, onSendOne, sending, t, currency 
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-medium text-stone-900 dark:text-stone-100 truncate">
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                       {it.name}
                     </p>
                     <UrgencyBadge urgency={it.urgency} t={t} />
@@ -152,7 +152,7 @@ function SupplierCard({ group, edits, setEdits, onSendOne, sending, t, currency 
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                     {t("inventoryAutopilotStock", "Stock")}:&nbsp;
                     {Number(it.current_stock || 0).toFixed(2)} {it.unit} ·&nbsp;
                     {t("inventoryAutopilotDailyDemand", "Daily demand")}:&nbsp;
@@ -177,15 +177,15 @@ function SupplierCard({ group, edits, setEdits, onSendOne, sending, t, currency 
                     onChange={(e) =>
                       setEdits((prev) => ({ ...prev, [editKey]: e.target.value }))
                     }
-                    className="w-full sm:w-24 h-10 px-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-stone-900 dark:text-stone-100 text-right focus:outline-none focus:ring-2 focus:ring-gray-900"
+                    className="w-full sm:w-24 h-10 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100 text-right focus:outline-none focus:ring-2 focus:ring-gray-900"
                     aria-label={t("inventoryAutopilotQtyLabel", "Quantity to order")}
                   />
-                  <span className="text-xs text-stone-500 dark:text-stone-400 shrink-0 min-w-[2rem]">
+                  <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0 min-w-[2rem]">
                     {it.unit}
                   </span>
                 </div>
               </div>
-              <p className="text-[11px] text-stone-400 dark:text-stone-500 mt-1 text-right">
+              <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1 text-right">
                 {lineCost} {currency}
               </p>
             </li>
@@ -374,10 +374,10 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose }) {
     return (
       <Card>
         <div className="mb-3">
-          <h2 className="text-base font-semibold text-stone-900 dark:text-stone-100">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
             {t("inventoryAutopilotHeading", "Order autopilot")}
           </h2>
-          <p className="text-sm text-stone-500 dark:text-stone-400 mt-1">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             {t(
               "inventoryAutopilotIntro",
               "BonBox reads 8 weeks of consumption + the weather forecast and proposes one order per supplier.",
@@ -403,10 +403,10 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose }) {
     <Card>
       <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
         <div className="min-w-0 flex-1">
-          <h2 className="text-base font-semibold text-stone-900 dark:text-stone-100">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
             {t("inventoryAutopilotHeading", "Order autopilot")}
           </h2>
-          <p className="text-sm text-stone-500 dark:text-stone-400 mt-1">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             {t(
               "inventoryAutopilotSubtitle",
               "Suggestions grouped by supplier. Edit qty before sending.",
@@ -414,13 +414,13 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose }) {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <label className="text-xs text-stone-500 dark:text-stone-400">
+          <label className="text-xs text-gray-500 dark:text-gray-400">
             {t("inventoryAutopilotHorizon", "Horizon")}
           </label>
           <select
             value={daysAhead}
             onChange={(e) => setDaysAhead(parseInt(e.target.value, 10) || 7)}
-            className="h-9 px-2 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm"
+            className="h-9 px-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
           >
             <option value={7}>7 {t("inventoryAutopilotDays", "days")}</option>
             <option value={14}>14 {t("inventoryAutopilotDays", "days")}</option>
@@ -451,7 +451,7 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose }) {
         </div>
       )}
       {success && (
-        <div className="mb-3 px-4 py-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/30 text-sm text-emerald-700 dark:text-emerald-300">
+        <div className="mb-3 px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-300">
           {success}
         </div>
       )}
@@ -459,7 +459,7 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose }) {
       {suggestion && (
         <>
           {/* Basis chip — confidence + weather + lookback */}
-          <div className="mb-4 flex items-center gap-3 flex-wrap text-xs text-stone-500 dark:text-stone-400">
+          <div className="mb-4 flex items-center gap-3 flex-wrap text-xs text-gray-500 dark:text-gray-400">
             <ConfidenceBadge confidence={suggestion.confidence} t={t} />
             <span>•</span>
             <span>
@@ -494,7 +494,7 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose }) {
           )}
 
           {visibleSuppliers.length === 0 ? (
-            <div className="px-4 py-10 text-center text-sm text-stone-500 dark:text-stone-400">
+            <div className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
               {t(
                 "inventoryAutopilotEmpty",
                 "Nothing to reorder — your shelves look healthy.",
@@ -519,8 +519,8 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose }) {
 
           {/* Send all footer — only visible when at least one supplier has email */}
           {totalPending > 0 && (
-            <div className="mt-5 flex items-center justify-between gap-3 flex-wrap pt-4 border-t border-stone-200 dark:border-stone-800">
-              <p className="text-xs text-stone-500 dark:text-stone-400">
+            <div className="mt-5 flex items-center justify-between gap-3 flex-wrap pt-4 border-t border-gray-200 dark:border-gray-800">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
                 {t(
                   "inventoryAutopilotSendAllHint",
                   "Sends one consolidated email per supplier.",
@@ -542,8 +542,8 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose }) {
 
       {!suggestion && !loading && (
         <div className="px-4 py-8 text-center">
-          <Icon name="Package" size={36} className="mx-auto text-stone-400 mb-3" />
-          <p className="text-sm text-stone-600 dark:text-stone-300">
+          <Icon name="Package" size={36} className="mx-auto text-gray-400 mb-3" />
+          <p className="text-sm text-gray-600 dark:text-gray-300">
             {t(
               "inventoryAutopilotEmptyState",
               "Tap Run autopilot to see what to reorder this week.",

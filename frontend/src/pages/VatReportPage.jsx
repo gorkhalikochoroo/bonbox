@@ -163,7 +163,7 @@ export default function VatReportPage() {
       {error && <div className="p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg text-sm">{error}</div>}
 
       {report && !loading && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
           <div className="text-center mb-6">
             <p className="text-sm text-gray-400 dark:text-gray-500 uppercase tracking-wide">{vat.reportTitle}</p>
             <h1 className="text-xl font-bold text-gray-800 dark:text-white mt-1">

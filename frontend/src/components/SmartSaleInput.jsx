@@ -279,7 +279,7 @@ export default function SmartSaleInput({ open, onClose, onSaved }) {
             </div>
 
             {savedCount > 0 ? (
-              <div className="text-[13px] text-green-700 bg-green-50 dark:bg-green-900/20 dark:text-green-300 px-3 py-2 rounded-lg border border-green-200 dark:border-green-800/60">
+              <div className="text-[13px] text-gray-700 bg-gray-50 dark:bg-gray-800/50 dark:text-gray-300 px-3 py-2 rounded-lg border border-gray-100 dark:border-gray-800/60">
                 ✓ {(savedCount === 1 ? (t("saleLoggedSingular") || "{n} sale logged") : (t("saleLoggedPlural") || "{n} sales logged")).replace("{n}", savedCount)}
               </div>
             ) : (

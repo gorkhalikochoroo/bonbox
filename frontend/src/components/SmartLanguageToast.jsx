@@ -71,7 +71,7 @@ export default function SmartLanguageToast() {
     <div
       role="status"
       aria-live="polite"
-      className="fixed left-1/2 -translate-x-1/2 z-50 max-w-md w-[92vw] sm:w-auto px-4 py-2.5 rounded-xl bg-gray-900/95 text-white shadow-lg flex items-center gap-3 text-[13px] top-[max(1rem,env(safe-area-inset-top))]"
+      className="fixed left-1/2 -translate-x-1/2 z-50 max-w-md w-[92vw] sm:w-auto px-4 py-2.5 rounded-xl bg-gray-900/95 text-white shadow-sm flex items-center gap-3 text-[13px] top-[max(1rem,env(safe-area-inset-top))]"
     >
       <span className="flex-1 min-w-0">
         <span aria-hidden>🌍 </span>
@@ -82,7 +82,7 @@ export default function SmartLanguageToast() {
       <button
         type="button"
         onClick={switchToEnglish}
-        className="text-emerald-300 hover:text-emerald-200 underline-offset-2 hover:underline font-semibold whitespace-nowrap"
+        className="text-gray-300 hover:text-gray-200 underline-offset-2 hover:underline font-semibold whitespace-nowrap"
       >
         {t("smartLangSwitchEn") || "Switch to English"}
       </button>
