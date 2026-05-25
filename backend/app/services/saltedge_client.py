@@ -426,28 +426,55 @@ class SaltEdgeClient:
         sep = "&" if "?" in redirect_uri else "?"
         return_to = f"{redirect_uri}{sep}state={state}"
 
+        # ── v6 body (2026-05-25 comprehensive schema audit) ───────────
+        #
+        # Schema sourced from:
+        #   https://docs.saltedge.com/v6/  (migration guide)
+        #   https://docs.saltedge.com/v6/api_reference/  (POST /connections/connect)
+        #
+        # Field-by-field reasoning vs the v5 body Salt Edge used to accept:
+        #
+        #   data.customer_id           ─ unchanged, top-level under data.
+        #   data.consent.scopes        ─ v5 ["account_details","transactions_details"]
+        #                                 → v6 ["accounts","transactions"] (also
+        #                                 accepts "holder_info"; we skip — we
+        #                                 don't need owner identity for MOMS
+        #                                 reconciliation, smaller consent = better UX).
+        #   data.consent.from_date     ─ v6 still accepts; we keep the explicit
+        #                                 90-day window so consent ALWAYS asks
+        #                                 for PSD2 max lookback (passing None
+        #                                 yields "parameter must be filled").
+        #   data.consent.period_days   ─ v6 keeps this name (optional). 90 = DK
+        #                                 PSD2 cap. Salt Edge v6 supports up to
+        #                                 180 for EU but DK ASPSPs still cap 90.
+        #   data.provider              ─ v6 NESTED object.  v5 was data.provider_code
+        #                                 as a flat string; v6 requires
+        #                                 {"provider": {"code": "..."}}.  This is
+        #                                 the next round of WrongRequestFormat we
+        #                                 would have hit without this fix.
+        #   data.attempt.return_to     ─ v6 moved return_to inside attempt
+        #                                 (we already did this).
+        #   data.attempt.fetch_scopes  ─ v6 SEPARATED balance from accounts; v5
+        #                                 "accounts" implied balance, v6 needs
+        #                                 ["accounts","balance","transactions"]
+        #                                 explicitly to populate balances on the
+        #                                 Connection.  Missing "balance" here is
+        #                                 silent in the connect call but causes
+        #                                 empty balance fields in GET /accounts.
+        #   data.attempt.locale        ─ v6 accepts ISO 639-1 (lowercase canonical).
+        #                                 We send "da"; Salt Edge widget renders
+        #                                 in Danish for DK SCA flow.
+        #   data.country_code          ─ REMOVED in v6 (was a v5 picker filter for
+        #                                 /providers; when provider_code is given,
+        #                                 country is derived). Sending it as an
+        #                                 unknown top-level field has been seen
+        #                                 to surface as WrongRequestFormat on
+        #                                 strict v6 validators — kill it.
         body = {
             "data": {
                 "customer_id": customer_id,
                 "consent": {
-                    # v6 renamed the consent scope tokens (verified live
-                    # 2026-05-25 via WrongRequestFormat from Salt Edge):
-                    #   v5 "account_details"      → v6 "accounts"
-                    #   v5 "transactions_details" → v6 "transactions"
-                    # Salt Edge v6 also accepts "holder_info" for the
-                    # account-owner identity surface; we don't need it
-                    # for invoice/MOMS reconciliation so leave it off
-                    # (smaller consent ask = better UX on the SCA page).
                     "scopes": ["accounts", "transactions"],
-                    # 90-day SCA window — matches DK PSD2 max.  v6 now
-                    # REQUIRES `from_date` to be a real ISO date; passing
-                    # None or omitting it returns
-                    # "data.consent.from_date parameter must be filled"
-                    # (verified live 2026-05-25).  Compute today minus 90d
-                    # at call time so the consent always asks for the
-                    # PSD2 maximum lookback.  We deliberately don't cap
-                    # at 89d — Salt Edge enforces its own DK provider
-                    # limits and the user gets the most history possible.
                     "from_date": (
                         date.today() - timedelta(days=90)
                     ).isoformat(),
@@ -455,11 +482,16 @@ class SaltEdgeClient:
                 },
                 "attempt": {
                     "return_to": return_to,
-                    "fetch_scopes": ["accounts", "transactions"],
+                    # v6: "balance" is its own fetch scope; "accounts" no longer
+                    # implies it. Include explicitly so the Connection populates
+                    # balance fields on GET /accounts.
+                    "fetch_scopes": ["accounts", "balance", "transactions"],
                     "locale": "da",
                 },
-                "provider_code": provider_code,
-                "country_code": self._COUNTRY,
+                # v6: provider_code moved from a flat string at data.provider_code
+                # to a nested object data.provider.code.  Migration guide quote:
+                # `"provider_code": "fake_client_xf"` → `"provider": {"code": ...}`.
+                "provider": {"code": provider_code},
             },
         }
         # v6: POST /connections/connect (was /connect_sessions/create in v5).

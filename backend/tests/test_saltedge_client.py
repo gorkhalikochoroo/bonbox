@@ -84,7 +84,8 @@ def test_init_consent_returns_connect_url_and_callbacks_ids(client):
 
     def stub(self, method, url, **kwargs):
         if method == "POST" and url.endswith("/customers"):
-            return _resp(200, {"data": {"id": "cust_456"}})
+            # v6 returns `customer_id` (was `id` in v5).  Test the v6 shape.
+            return _resp(200, {"data": {"customer_id": "cust_456"}})
         # v6: /connections/connect (was /connect_sessions/create in v5).
         if method == "POST" and url.endswith("/connections/connect"):
             body = kwargs.get("json") or {}
@@ -92,9 +93,9 @@ def test_init_consent_returns_connect_url_and_callbacks_ids(client):
             captured["url"] = url
             return _resp(200, {
                 "data": {
-                    "session_id": "sess_uuid",
                     "expires_at": "2026-05-20T12:00:00Z",
                     "connect_url": "https://www.saltedge.com/connect?token=abc",
+                    "customer_id": "cust_456",
                 },
             })
         return _resp(500)
@@ -117,8 +118,11 @@ def test_init_consent_returns_connect_url_and_callbacks_ids(client):
     # State embedded in return_to so the callback CSRF check works.
     sess_body = captured["body"]["data"]
     assert "state=csrf_state_xyz" in sess_body["attempt"]["return_to"]
-    assert sess_body["provider_code"] == "danske_bank_dk"
-    assert sess_body["country_code"] == "DK"
+    # v6: provider moved to nested object {"provider": {"code": "..."}}.
+    assert sess_body["provider"] == {"code": "danske_bank_dk"}
+    # v6: country_code removed from the request body.
+    assert "country_code" not in sess_body
+    assert "provider_code" not in sess_body  # legacy v5 flat field — gone
     # Lock the v6 path: regression of the May 2026 404 incident where the
     # client kept calling the retired v5 path /connect_sessions/create.
     assert captured["url"].endswith("/api/v6/connections/connect"), (
@@ -145,7 +149,7 @@ def test_init_consent_sandbox_routes_to_fakebank(client):
 
     def stub(self, method, url, **kwargs):
         if url.endswith("/customers"):
-            return _resp(200, {"data": {"id": "cust_x"}})
+            return _resp(200, {"data": {"customer_id": "cust_x"}})
         # v6: /connections/connect (renamed from /connect_sessions/create).
         if url.endswith("/connections/connect"):
             captured["body"] = kwargs.get("json")
@@ -160,7 +164,92 @@ def test_init_consent_sandbox_routes_to_fakebank(client):
             sandbox=True,
         )
 
-    assert captured["body"]["data"]["provider_code"] == "fakebank_simple_xf"
+    # v6: provider is a nested object, not a flat provider_code string.
+    assert captured["body"]["data"]["provider"] == {"code": "fakebank_simple_xf"}
+
+
+def test_init_consent_v6_body_locks_full_schema_shape(client):
+    """Comprehensive v6 contract-lock test (2026-05-25 schema audit).
+
+    Asserts every field of the request body we send to
+    POST /connections/connect exactly matches the Salt Edge v6 spec
+    documented at:
+      - https://docs.saltedge.com/v6/  (migration guide: scopes renamed,
+        provider nested, return_to/locale moved under attempt)
+      - https://docs.saltedge.com/v6/api_reference/  (endpoint schema)
+
+    The previous incidents (May 2026) peeled v6 drift errors one at a
+    time across 5 deploys.  This fixture pins the COMPLETE shape so the
+    next drift in either direction (we regress, or v6 deprecates a field
+    we still send) fires a single explicit assertion failure.
+    """
+    captured: dict = {}
+
+    def stub(self, method, url, **kwargs):
+        if url.endswith("/customers"):
+            return _resp(200, {"data": {"customer_id": "cust_lock"}})
+        if url.endswith("/connections/connect"):
+            captured["body"] = kwargs.get("json")
+            return _resp(200, {"data": {
+                "connect_url": "https://www.saltedge.com/connect?token=lock",
+                "expires_at": "2026-08-23T00:00:00Z",
+                "customer_id": "cust_lock",
+            }})
+        return _resp(500)
+
+    with patch.object(httpx.Client, "request", new=stub):
+        client.init_consent(
+            redirect_uri="https://api.bonbox.dk/api/bank-connect/callback",
+            state="lockstate1234",
+            bank_slug="danske_bank",
+        )
+
+    body = captured["body"]
+    data = body["data"]
+
+    # Top-level keys must be exactly these — nothing else, no v5 cruft.
+    assert set(data.keys()) == {"customer_id", "consent", "attempt", "provider"}, (
+        f"v6 schema drift: unexpected top-level keys {sorted(data.keys())}"
+    )
+
+    # customer_id resolved from POST /customers and threaded in.
+    assert data["customer_id"] == "cust_lock"
+
+    # consent: scopes renamed in v6, from_date required, period_days kept.
+    consent = data["consent"]
+    assert set(consent.keys()) == {"scopes", "from_date", "period_days"}
+    assert consent["scopes"] == ["accounts", "transactions"], (
+        "v6 scopes must be the renamed enum values (was 'account_details' "
+        "and 'transactions_details' in v5)"
+    )
+    # from_date is today - 90d, ISO format (YYYY-MM-DD, 10 chars).
+    assert len(consent["from_date"]) == 10
+    assert consent["from_date"].count("-") == 2
+    assert consent["period_days"] == 90
+
+    # attempt: v6 nests return_to / locale / fetch_scopes inside attempt.
+    attempt = data["attempt"]
+    assert set(attempt.keys()) == {"return_to", "fetch_scopes", "locale"}
+    assert "state=lockstate1234" in attempt["return_to"]
+    # v6 separates `balance` from `accounts` in fetch_scopes; v5 implied
+    # balance from accounts.  Without explicit "balance" here, the
+    # Connection populates with empty balance fields on GET /accounts.
+    assert attempt["fetch_scopes"] == ["accounts", "balance", "transactions"]
+    # ISO 639-1 lowercase canonical; "da" → Salt Edge widget renders Danish.
+    assert attempt["locale"] == "da"
+
+    # provider: v6 nested object, NOT the v5 flat string at data.provider_code.
+    assert data["provider"] == {"code": "danske_bank_dk"}, (
+        "v6 requires data.provider = {'code': '...'}.  v5 used a flat "
+        "data.provider_code string — that shape returns WrongRequestFormat "
+        "on a v6 host."
+    )
+
+    # Explicitly assert v5 cruft we previously sent is GONE.  These keys
+    # appearing in the body have been seen to surface as WrongRequestFormat
+    # on strict v6 validators.
+    assert "provider_code" not in data, "v5 flat provider_code must be removed"
+    assert "country_code" not in data, "v5 country_code must be removed (v6 derives from provider)"
 
 
 # ─── exchange_code ─────────────────────────────────────────────────────
@@ -175,13 +264,17 @@ def test_exchange_code_requires_connection_id(client):
 def test_exchange_code_happy_path(client):
     def stub(self, method, url, **kwargs):
         if "/connections/conn_a" in url:
-            return _resp(200, {"data": {"id": "conn_a", "status": "active"}})
+            # v6 GET /connections returns connection_id (was `id` in v5).
+            return _resp(200, {"data": {
+                "connection_id": "conn_a", "status": "active",
+            }})
         if "/accounts" in url:
             params = kwargs.get("params") or {}
             if params.get("connection_id") == "conn_a":
+                # v6 GET /accounts rows carry account_id (was `id` in v5).
                 return _resp(200, {"data": [
-                    {"id": "acct_1", "name": "Erhverv driftskonto"},
-                    {"id": "acct_2", "name": "Savings"},
+                    {"account_id": "acct_1", "name": "Erhverv driftskonto"},
+                    {"account_id": "acct_2", "name": "Savings"},
                 ]})
         return _resp(500)
 
