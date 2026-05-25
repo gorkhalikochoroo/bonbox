@@ -264,13 +264,26 @@ def init_bank_connection(
             "state": state,
             "bank_slug": body.bank_slug,
         }
-        # Only pass the callback to clients that accept it (GoCardless).
-        # Aiia's Protocol signature doesn't list it; we feature-detect
-        # to keep both code paths clean and avoid surprising the mock.
+        # Feature-detect optional kwargs the AiiaClient Protocol doesn't
+        # require (so the mock + gocardless clients stay simple).
         import inspect
         sig_params = inspect.signature(client.init_consent).parameters
         if "on_provider_ids" in sig_params:
             init_kwargs["on_provider_ids"] = _persist_provider_ids
+        # Salt Edge: thread the sandbox flag through.  Without this, a
+        # 'Pending' Salt Edge app sends the real-bank provider_code (e.g.
+        # "danske_bank_dk") into POST /connections/connect, Salt Edge
+        # silently rejects it and the picker falls back to whichever
+        # providers ARE accessible in Pending mode (typically just the
+        # one Salt Edge whitelisted for our app — Nordea in BonBox's
+        # case).  Passing sandbox=True forces _provider_code to use the
+        # fakebank_simple_xf provider, which every Salt Edge app can
+        # reach regardless of approval status.  Once AIIA_ENV is flipped
+        # to "live" (after Salt Edge Test access lands),
+        # sandbox_mode_default() returns False and the real bank_slug
+        # is honoured.
+        if "sandbox" in sig_params:
+            init_kwargs["sandbox"] = sandbox
         consent_url = client.init_consent(**init_kwargs)
     except AiiaClientError as e:
         db.rollback()
@@ -756,6 +769,12 @@ def reconnect_bank_connection(
         sig_params = inspect.signature(client.init_consent).parameters
         if "on_provider_ids" in sig_params:
             init_kwargs["on_provider_ids"] = _persist_provider_ids
+        # Same sandbox plumbing as /init — see comment there.  Without
+        # this, reconnect on a sandbox-mode tenant would silently bounce
+        # the user to whatever Salt-Edge provider the Pending-mode app
+        # has whitelisted instead of fakebank.
+        if "sandbox" in sig_params:
+            init_kwargs["sandbox"] = sandbox
         consent_url = client.init_consent(**init_kwargs)
     except AiiaClientError as e:
         db.rollback()
