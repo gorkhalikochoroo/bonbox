@@ -238,10 +238,14 @@ def test_free_user_blocked(client, db):
     assert detail["current_plan"] == "free"
 
 
-# ─── 2. Starter user blocked (Pro killer) ──────────────────────────────
+# ─── 2. Starter user passes (tier-doctrine fix 2026-05-25) ─────────────
+#
+# Manoj's locked rule: Starter + Pro share features, only Free is gated.
+# Previously Starter was blocked here ("Pro killer"); the doctrine flip
+# opened inventory_autopilot to Starter+.
 
 
-def test_starter_user_blocked(client, db):
+def test_starter_user_passes(client, db):
     owner = _owner(db, plan="starter")
     _override_user(owner)
 
@@ -249,11 +253,7 @@ def test_starter_user_blocked(client, db):
         "/api/inventory/autopilot/suggest",
         json={"days_ahead": 7},
     )
-    assert res.status_code == 402, res.text
-    detail = res.json()["detail"]
-    assert detail["code"] == "plan_required"
-    assert detail["upgrade_to"] == "pro"
-    assert detail["current_plan"] == "starter"
+    assert res.status_code == 200, res.text
 
 
 # ─── 3. Pro user with no history → low confidence ──────────────────────
@@ -668,8 +668,10 @@ def test_inventory_autopilot_key_on_every_plan():
         assert "inventory_autopilot" in PLAN_FEATURES[plan], (
             f"Plan {plan} missing inventory_autopilot key"
         )
+    # 2026-05-25 tier-doctrine: Starter + Pro share features, only Free
+    # is gated. inventory_autopilot was flipped from Pro-only to Starter+.
     assert PLAN_FEATURES["free"]["inventory_autopilot"] is False
-    assert PLAN_FEATURES["starter"]["inventory_autopilot"] is False
+    assert PLAN_FEATURES["starter"]["inventory_autopilot"] is True
     assert PLAN_FEATURES["trial"]["inventory_autopilot"] is True
     assert PLAN_FEATURES["pro"]["inventory_autopilot"] is True
 

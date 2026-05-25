@@ -207,7 +207,11 @@ def test_anonymous_request_returns_401(client):
 
 def test_free_user_returns_402_with_upgrade_payload(client, db):
     """L7 — Free tier has growth_intelligence=False → enforce_feature
-    raises 402 with the canonical upgrade payload."""
+    raises 402 with the canonical upgrade payload.
+
+    Tier-doctrine fix 2026-05-25: upgrade_to now points to "starter"
+    (the lowest plan with growth_intelligence after Starter+ opened it).
+    """
     user = _user(db, plan="free")
     _override_user(user)
 
@@ -217,23 +221,24 @@ def test_free_user_returns_402_with_upgrade_payload(client, db):
     assert detail["error"] == "feature_locked"
     assert detail["feature"] == "growth_intelligence"
     assert detail["plan"] == "free"
-    # Upgrade hint points at Pro (only tier with growth_intelligence).
-    assert detail["upgrade_to"] == "pro"
+    # Upgrade hint points at Starter (lowest tier with growth_intelligence).
+    assert detail["upgrade_to"] == "starter"
 
 
-def test_starter_user_returns_402(client, db):
-    """L7 — Starter also doesn't have growth_intelligence; same 402
-    + upgrade payload as Free."""
+def test_starter_user_returns_200(client, db):
+    """Tier-doctrine fix 2026-05-25: Manoj's locked rule is Starter + Pro
+    share features, only Free is gated. Previously Starter was 402'd
+    here (`growth_intelligence` Pro-only); the doctrine flip opened it
+    to Starter+ so this should now pass the gate.
+    """
     user = _user(db, plan="starter")
     _override_user(user)
 
     res = client.post("/api/dashboard/growth-signals")
-    assert res.status_code == 402, res.text
-    detail = res.json().get("detail") or res.json()
-    assert detail["error"] == "feature_locked"
-    assert detail["feature"] == "growth_intelligence"
-    assert detail["plan"] == "starter"
-    assert detail["upgrade_to"] == "pro"
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert "signals" in body
+    assert isinstance(body["signals"], list)
 
 
 def test_pro_user_returns_200(client, db):
