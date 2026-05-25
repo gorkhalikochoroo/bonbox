@@ -345,10 +345,18 @@ export const DASHBOARD_CARD_SET = {
     },
 
     // Free-tier UpgradeNudge — fills the slot where Pro/Starter have growth.
+    //
+    // Tier-flicker fix: while entitlements are still loading, `ctx.plan`
+    // defaults to "free" — without the `entReady` guard a trial user
+    // briefly sees this "Upgrade to Starter" card before the real plan
+    // payload arrives and removes it. That ~150-300ms flash is the
+    // "asks Starter+ even, then gets normal" bug Manoj reported on the
+    // trial flow. Wait until billing is loaded before deciding whether
+    // to render the nudge at all.
     {
       id: "upgradeNudge",
       component: "UpgradeNudge",
-      renderIf: (ctx) => ctx?.plan === "free",
+      renderIf: (ctx) => ctx?.entReady !== false && ctx?.plan === "free",
       props: {
         intent: "card",
         tier: "starter",

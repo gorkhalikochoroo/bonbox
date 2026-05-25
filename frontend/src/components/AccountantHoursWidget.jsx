@@ -240,7 +240,7 @@ function _dismissThisMonth() {
 
 export default function AccountantHoursWidget() {
   const { t } = useLanguage();
-  const { hasFeature } = useEntitlements();
+  const { hasFeature, isReady: entReady } = useEntitlements();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -253,6 +253,14 @@ export default function AccountantHoursWidget() {
 
   useEffect(() => {
     let alive = true;
+    // Tier-flicker fix: don't make any rendering decisions while
+    // entitlements are still loading. Otherwise a trial user (who
+    // SHOULD have this widget unlocked) would briefly see the locked
+    // "Sparer revisoren timer fra Starter" UpgradeNudge before the
+    // billing payload arrives and re-renders to the real widget.
+    if (!entReady) {
+      return () => { alive = false; };
+    }
     if (!featureAvailable) {
       // Free tier — don't even hit the API. The locked state below
       // renders without it.
@@ -269,7 +277,13 @@ export default function AccountantHoursWidget() {
       })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [featureAvailable]);
+  }, [entReady, featureAvailable]);
+
+  // Tier-flicker fix: render nothing while entitlements are loading.
+  // Returning the locked UpgradeNudge here would flash the "upgrade to
+  // Starter" surface to trial / Starter / Pro users for ~150-300ms
+  // before the billing payload lands — the exact bug Manoj reported.
+  if (!entReady) return null;
 
   // ── Locked state (Free tier) ────────────────────────────────────────
   // We DON'T self-hide here — that would mean Free users never see the

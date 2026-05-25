@@ -45,13 +45,19 @@ export default function BankImportPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
-  const { hasFeature } = useEntitlements();
+  const { hasFeature, isReady: entReady } = useEntitlements();
   // Task #106 — hide the "Connect bank automatically" card in prod
   // when no real PSD2 provider is configured. CSV upload remains the
   // primary path. Backend /api/bank-connect/init also gates with 503
   // so direct API hits get a meaningful message.
   const { bank_connect_enabled: bankConnectEnabled } = useFeatures();
-  const canAutoReconcile = hasFeature("bank_auto_reconcile");
+  // Tier-flicker fix: while entitlements are still loading hasFeature()
+  // fails closed → false. Without the entReady guard, a trial user would
+  // briefly see the "Starter+" pill + locked auto-reconcile pane before
+  // the billing payload arrives. `null` is the canonical "loading"
+  // signal — every render branch below treats it as "not yet decided"
+  // (no pill, no locked card, no premature 402-saving early returns).
+  const canAutoReconcile = entReady ? hasFeature("bank_auto_reconcile") : null;
   const { showToast, ToastContainer } = useToast();
 
   // States: upload → preview → done → reconcile
@@ -397,14 +403,24 @@ export default function BankImportPage() {
                   One-time MitID login at your bank — no more CSV uploads. BonBox auto-pulls transactions nightly and matches them to your fakturaer.
                 </p>
               </div>
-              {!canAutoReconcile && (
+              {/* Tier-flicker fix: canAutoReconcile is `null` while
+                  entitlements are loading. The `=== false` check means
+                  the Starter+ pill only renders for *confirmed* Free
+                  users — not for trial users who just haven't received
+                  their billing payload yet. */}
+              {canAutoReconcile === false && (
                 <span className="px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300">
                   Starter+
                 </span>
               )}
             </div>
 
-            {canAutoReconcile ? (
+            {/* Tier-flicker fix: while canAutoReconcile is `null`
+                (entitlements loading), render the skeleton placeholder
+                so the layout doesn't shift when the real branch lands. */}
+            {canAutoReconcile === null ? (
+              <div className="h-12 rounded-lg bg-gray-100 dark:bg-gray-800 animate-pulse" aria-hidden="true" />
+            ) : canAutoReconcile ? (
               <div className="flex flex-wrap items-end gap-3">
                 <div className="flex-1 min-w-[180px]">
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Choose your bank</label>
@@ -696,9 +712,14 @@ export default function BankImportPage() {
 
             {/* Starter killer feature: match against open invoices.
                 Free users see the UpgradeNudge inline. Paid users get
-                an accent button that loads ranked match candidates. */}
+                an accent button that loads ranked match candidates.
+                Tier-flicker fix: render a skeleton while canAutoReconcile
+                is `null` (loading) so trial users never see the locked
+                Starter nudge flash before the billing payload lands. */}
             <div className="pt-2">
-              {canAutoReconcile ? (
+              {canAutoReconcile === null ? (
+                <div className="h-11 w-56 rounded-lg bg-gray-100 dark:bg-gray-800 animate-pulse" aria-hidden="true" />
+              ) : canAutoReconcile ? (
                 <Button
                   variant="accent"
                   size="lg"

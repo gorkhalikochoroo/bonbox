@@ -262,3 +262,56 @@ describe("<Locked> — atCap mode (numeric cap exceeded)", () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 });
+
+
+// ─────────────────────────────────────────────────────────────────────
+// Tier-flicker contract: <Locked> must NOT render the upgrade overlay
+// while entitlements are loading. The default Free fallback used during
+// that ~150-300ms window would otherwise trigger a brief "Upgrade
+// required" flash on trial / Starter / Pro users — the "trial glitch"
+// Manoj reported. While loading, children render pass-through.
+// ─────────────────────────────────────────────────────────────────────
+describe("<Locked> — tier-flicker contract (loading state)", () => {
+  it("renders children WITHOUT the locked overlay while entitlements are still loading", async () => {
+    // Hold the API response so the provider stays in `data === null`
+    // (loading) state for the duration of the assertion.
+    let resolveFn;
+    api.get.mockImplementationOnce(
+      () => new Promise((r) => { resolveFn = r; }),
+    );
+
+    withProviders(
+      <Locked feature="ai_anomaly_detection">
+        <ProtectedButton onClick={() => {}} />
+      </Locked>,
+    );
+
+    // The fetch fired (provider mounted) but hasn't resolved yet —
+    // we're now in the loading window the flicker bug occupies.
+    await waitFor(() => expect(api.get).toHaveBeenCalled());
+
+    // Critical contract: NO upgrade overlay is in the DOM during loading.
+    // If this regresses, every trial user sees the "Upgrade required"
+    // overlay flash on every <Locked> wrapped feature for 150-300ms.
+    expect(screen.queryByLabelText("Upgrade required")).toBeNull();
+    // Children are visible and interactive (not aria-hidden, not
+    // pointer-events: none) so the user sees the real feature UI.
+    expect(screen.getByTestId("protected-button")).toBeInTheDocument();
+
+    // Resolve to confirm we transition cleanly to the locked state
+    // once entitlements settle to a Free user.
+    resolveFn({
+      data: {
+        plan: "free",
+        raw_plan: "free",
+        is_paid: false,
+        in_trial: false,
+        caps: {},
+        features: { ai_anomaly_detection: false },
+        min_plan_by_feature: { ai_anomaly_detection: "starter" },
+        plans: { free: {}, starter: {}, pro: {} },
+      },
+    });
+    await screen.findByLabelText("Upgrade required");
+  });
+});

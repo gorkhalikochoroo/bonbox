@@ -132,10 +132,29 @@ export function EntitlementsProvider({ children }) {
     [data],
   );
 
+  // ─── Three-state contract (loading | locked | unlocked) ────────────
+  // Tier-flicker fix: every consumer that gates UI on a feature/plan
+  // MUST treat `loading` as a real third state. While `loading === true`
+  // the cached payload defaults to Free shape (plan="free", every
+  // hasFeature()→false) so naive consumers would render the locked /
+  // upgrade UI for ~150-300ms and then re-render unlocked once the
+  // payload lands. That flicker is the "asks Starter+ then gets normal"
+  // bug Manoj reported on the trial flow.
+  //
+  // Rule for callers:
+  //   • Show locked / UpgradeNudge ONLY when `isReady && !hasFeature(...)`
+  //   • Render nothing (or a subtle skeleton) while `!isReady`
+  //
+  // `isReady` is the positive flag — preferred at call sites because
+  // negating `loading` invites the "let me just check truthy" mistake.
+  const loading = data === null;
+  const isReady = !loading;
+
   const value = {
     // Raw payload (escape hatch)
     data,
-    loading: data === null,
+    loading,
+    isReady,
     error,
     refresh,
 
@@ -185,9 +204,13 @@ export function useEntitlements() {
   if (ctx) return ctx;
   // Used outside the provider — return a no-op safe default rather
   // than throwing, so a stray <Locked> on a public page doesn't crash.
+  // `isReady: true` here because there's nothing to wait FOR — the
+  // consumer should treat this as a settled Free shape, not a loading
+  // state (otherwise public landing pages would render skeletons forever).
   return {
     data: DEFAULT_FREE_FALLBACK,
     loading: false,
+    isReady: true,
     error: null,
     refresh: () => Promise.resolve(DEFAULT_FREE_FALLBACK),
     plan: "free",

@@ -97,7 +97,14 @@ describe("useEntitlements — happy path", () => {
     expect(probe).toHaveAttribute("data-is-paid", "true");
     expect(probe).toHaveAttribute("data-has-anomaly", "true");
     expect(probe).toHaveAttribute("data-min-plan-anomaly", "starter");
-    expect(api.get).toHaveBeenCalledWith("/billing/entitlements");
+    // The provider passes { _noRetry: true } so a cold-start 503 doesn't
+    // stall the SPA behind axios retry backoff. Assert the URL + the
+    // options shape rather than just the URL (the strict equality form
+    // would fail when we add/remove non-retry knobs).
+    expect(api.get).toHaveBeenCalledWith(
+      "/billing/entitlements",
+      expect.objectContaining({ _noRetry: true }),
+    );
   });
 
   it("hits /billing/entitlements only once when multiple consumers mount", async () => {

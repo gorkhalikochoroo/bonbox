@@ -377,6 +377,15 @@ export default function DashboardPage() {
       archetype: archetype?.id || "transactionalDaily",
       activations,
       has: (featureKey) => Boolean(entitlements?.hasFeature?.(featureKey)),
+      // Tier-flicker fix: while billing is still loading, `plan` defaults
+      // to "free" and every has(...) returns false. Card renderIf
+      // predicates that gate on `plan === "free"` (e.g. the Zone 2
+      // UpgradeNudge) would render the upgrade nudge during the loading
+      // window, then disappear once the trial/Starter/Pro payload lands.
+      // entLoading lets predicates short-circuit so Free-only nudges
+      // wait for the real plan to land before rendering.
+      entLoading: Boolean(entitlements?.loading),
+      entReady: Boolean(entitlements?.isReady),
 
       // Currency + nav helpers — most cards navigate themselves, but
       // some helpers below format with currency directly.

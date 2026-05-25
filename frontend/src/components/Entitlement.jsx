@@ -291,6 +291,21 @@ export function Locked({
   const ent = useEntitlements();
   const [promptOpen, setPromptOpen] = useState(false);
 
+  // Tier-flicker fix: while entitlements are still loading, ent.hasFeature()
+  // returns false (Free-tier fail-closed default) — which would render the
+  // locked overlay for ~150-300ms before the trial/Starter/Pro payload
+  // lands and the children un-lock. That flicker is the "asks Starter+
+  // even, then gets normal" bug Manoj saw on the trial flow.
+  //
+  // While !isReady we pass children through unchanged (no overlay, no
+  // badge). The user sees the real feature UI directly — and IF it turns
+  // out they're actually Free, the next render adds the overlay. The
+  // multi-barrier 10-layer model means the SERVER still gates the
+  // underlying action; a Free user who clicked through during the
+  // loading window would just get a 402 from the API. UI-side this is
+  // strictly better than the flicker.
+  if (!ent.isReady) return <>{children}</>;
+
   // Determine lock state.
   let locked = false;
   if (atCap && capKey != null) {

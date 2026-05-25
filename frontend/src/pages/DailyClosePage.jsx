@@ -470,7 +470,7 @@ function getBusinessDate(cutoffHour = 0) {
 
 function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed }) {
   const { user, refreshUser } = useAuth();
-  const { hasFeature } = useEntitlements();
+  const { hasFeature, isReady: entReady } = useEntitlements();
   const defaultRevCats = useMemo(() => getRevenueCats(branchType), [branchType]);
   const defaultPayMethods = useMemo(() => getPaymentMethods(branchType), [branchType]);
   const config = CLOSE_CONFIG[branchType] || CLOSE_CONFIG.general;
@@ -479,7 +479,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // and writes through to /auth/profile when toggled. Starter+ feature;
   // shown locked for Free users with the upgrade nudge so the path
   // to Starter is one tap.
-  const closeAutoEmailEntitled = hasFeature("close_auto_email");
+  //
+  // Tier-flicker fix: tri-state `null | true | false`. While entitlements
+  // are still loading we render NEITHER the unlocked toggle NOR the
+  // locked "Upgrade to Starter" CTA — both would flash and disappear for
+  // trial users (the bug Manoj reported). A subtle skeleton fills the
+  // slot until the real entitlement lands ~150-300ms later.
+  const closeAutoEmailEntitled = entReady ? hasFeature("close_auto_email") : null;
   const [autoEmailPref, setAutoEmailPref] = useState(
     user?.auto_email_on_close !== false,
   );
@@ -1784,48 +1790,58 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 state is the user's preference; the entitlement is
                 the tier gate — both must be true at lock time for
                 the email to fire (router enforces). */}
-            <div className={`rounded-xl p-4 ${
-              closeAutoEmailEntitled
-                ? "bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800"
-                : "bg-gray-50 dark:bg-gray-800/50 border border-dashed border-gray-300 dark:border-gray-700"
-            }`}>
-              {closeAutoEmailEntitled ? (
-                <label className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={autoEmailPref}
-                    onChange={toggleAutoEmail}
-                    className="mt-1 h-4 w-4 rounded text-emerald-600 focus:ring-gray-400"
-                  />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
-                      📧 {t("autoEmailToggleLabel") || "Email owner + accountant automatically on lock"}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      {t("autoEmailToggleHint") || "When you tap Confirm & Lock, we send one email with the kasserapport PDF + scanned Z-report photo to your owner email and your accountant."}
-                    </p>
+            {closeAutoEmailEntitled === null ? (
+              /* Tier-flicker fix: skeleton while entitlements load —
+                 prevents trial users from seeing the "Upgrade to Starter"
+                 nudge briefly before the real toggle appears. */
+              <div className="rounded-xl p-4 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800">
+                <div className="h-4 w-2/3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" aria-hidden="true" />
+                <div className="h-3 w-full mt-2 bg-gray-100 dark:bg-gray-800 rounded animate-pulse" aria-hidden="true" />
+              </div>
+            ) : (
+              <div className={`rounded-xl p-4 ${
+                closeAutoEmailEntitled
+                  ? "bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800"
+                  : "bg-gray-50 dark:bg-gray-800/50 border border-dashed border-gray-300 dark:border-gray-700"
+              }`}>
+                {closeAutoEmailEntitled ? (
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={autoEmailPref}
+                      onChange={toggleAutoEmail}
+                      className="mt-1 h-4 w-4 rounded text-emerald-600 focus:ring-gray-400"
+                    />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
+                        📧 {t("autoEmailToggleLabel") || "Email owner + accountant automatically on lock"}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        {t("autoEmailToggleHint") || "When you tap Confirm & Lock, we send one email with the kasserapport PDF + scanned Z-report photo to your owner email and your accountant."}
+                      </p>
+                    </div>
+                  </label>
+                ) : (
+                  <div className="flex items-start gap-3">
+                    <span className="text-gray-400 mt-0.5">🔒</span>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                        {t("autoEmailToggleStarterGate") || "Auto-email on lock is on Starter+"}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        {t("autoEmailToggleStarterGateBody") || "Free still lets you manually tap Send to accountant after locking. Upgrade to Starter for the no-extra-tap version."}
+                      </p>
+                      <a
+                        href="/subscription"
+                        className="inline-block mt-2 text-xs font-semibold text-emerald-600 dark:text-gray-300 hover:underline"
+                      >
+                        {t("pricingUpgradeStarter") || "Upgrade to Starter"} →
+                      </a>
+                    </div>
                   </div>
-                </label>
-              ) : (
-                <div className="flex items-start gap-3">
-                  <span className="text-gray-400 mt-0.5">🔒</span>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
-                      {t("autoEmailToggleStarterGate") || "Auto-email on lock is on Starter+"}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      {t("autoEmailToggleStarterGateBody") || "Free still lets you manually tap Send to accountant after locking. Upgrade to Starter for the no-extra-tap version."}
-                    </p>
-                    <a
-                      href="/subscription"
-                      className="inline-block mt-2 text-xs font-semibold text-emerald-600 dark:text-gray-300 hover:underline"
-                    >
-                      {t("pricingUpgradeStarter") || "Upgrade to Starter"} →
-                    </a>
-                  </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
 
             {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">{error}</div>}
           </div>
