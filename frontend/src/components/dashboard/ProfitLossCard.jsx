@@ -1,0 +1,86 @@
+/**
+ * ProfitLossCard — compact Revenue / Expenses / Net row. Full P&L
+ * breakdown lives in /reports; this is the 3-line Zone 2 summary.
+ *
+ * Doctrine compliance:
+ *   • Neutral surface (rounded-xl, gray-200 border, bg-white).
+ *   • Revenue uses emerald-600 (money-in moment per doctrine).
+ *   • Expenses use red-600 (money-out signal).
+ *   • Net profit color = emerald (positive) or red (negative). The
+ *     status of "this month is profitable" is the data, so coloring
+ *     it carries information.
+ */
+import React from "react";
+import { useNavigate } from "react-router-dom";
+import { useLanguage } from "../../hooks/useLanguage";
+
+export default function ProfitLossCard({ ctx = {} }) {
+  const { t } = useLanguage();
+  const navigate = useNavigate();
+  const summary = ctx?.summary || {};
+  const currency = ctx?.currency || "DKK";
+  const revenue = Number(summary.month_revenue || 0);
+  const expenses = Number(summary.month_expenses || 0);
+  const profit = Number(summary.month_profit ?? revenue - expenses);
+  const margin = Number(
+    summary.profit_margin ||
+      (revenue > 0 ? Math.round((profit / revenue) * 100) : 0),
+  );
+  const isProfit = profit >= 0;
+
+  return (
+    <div
+      onClick={() => navigate("/reports")}
+      className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 sm:p-6 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition"
+      data-zone="2"
+      data-component="ProfitLossCard"
+    >
+      <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+        {t("profitAndLoss", "Profit & loss")}
+      </h3>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-4">
+        {t("thisMonth", "This month")}
+      </p>
+
+      <div className="space-y-2 border-b border-gray-200 dark:border-gray-800 pb-3 mb-3">
+        <div className="flex justify-between">
+          <span className="text-sm text-gray-600 dark:text-gray-400">
+            {t("revenue", "Revenue")}
+          </span>
+          <span className="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+            +{Math.round(revenue).toLocaleString()} {currency}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-sm text-gray-600 dark:text-gray-400">
+            {t("expenses", "Expenses")}
+          </span>
+          <span className="text-sm font-semibold tabular-nums text-red-600 dark:text-red-400">
+            −{Math.round(expenses).toLocaleString()} {currency}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex justify-between items-baseline">
+        <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+          {t("netProfit", "Net profit")}
+        </span>
+        <div className="text-right">
+          <p
+            className={`text-xl font-bold tabular-nums ${
+              isProfit
+                ? "text-emerald-600 dark:text-emerald-400"
+                : "text-red-600 dark:text-red-400"
+            }`}
+          >
+            {isProfit ? "+" : ""}
+            {Math.round(profit).toLocaleString()} {currency}
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
+            {t("marginColonPct", "Margin: {pct}%").replace("{pct}", String(margin))}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}

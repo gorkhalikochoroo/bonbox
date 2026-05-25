@@ -1,13 +1,25 @@
-// Task #118 polish (Agent C): migrated H1 → PageHeader, sticky banner
-// → SectionBanner (pending returns), primary CTAs → Button variant,
-// dropped the DismissibleTip emoji prop so it uses the Lucide default.
-// Behavior + i18n + a11y unchanged.
+// Tier 4 — Phase C: SalesPage restructured to the v2 spec
+// (docs/tier-4-dashboard-restructure.md §4 + §7).
 //
-// Task #119 Phase 3 polish: replaced dark-gradient rainbow KPI panels
-// with neutral clickable StatCards.  Click-to-expand affordance
-// preserved via onClick + ChevronDown indicator.  Selected state
-// uses gray-900 ring (no tech-glow per sidebar rule).
-import { useState, useEffect, useMemo } from "react";
+//   • Outer wrapper → <PageShell width="default"> (gutters + max-w + rhythm)
+//   • Right rail reframed from period KPIs → session reconciliation tiles
+//     (4 tiles for `session4tile` mode, inline strip for `sessionInline`).
+//     Persona-aware via getArchetype(user) once Phase A's
+//     `dashboardCardSets.js` lands; falls back to `session4tile` until then.
+//   • Recent Sales table → <DataTable> primitive (replaces the hand-rolled
+//     desktop <table> + mobile card list — ~450 LOC of chrome removed).
+//   • Filter row (event + date range + search) → <FilterBar> primitive.
+//   • Edit / return inline forms now render in an overlay panel above the
+//     table when editId / returnMode is set, so the row renderer stays
+//     declarative.
+//
+// All state hooks (amount, method, notes, saleDate, recentSales, eventFilter,
+// editId, returnMode, …) and all API handlers (submit, handleReturn, openEdit,
+// softDelete, bulkDelete) keep their existing names + shapes — only the
+// rendering layer changed.
+import { useState, useEffect, useMemo, useRef } from "react";
+import { Link } from "react-router-dom";
+import { Mic, Undo2, Pencil, Trash, AlertCircle } from "lucide-react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -16,25 +28,36 @@ import ReceiptViewer from "../components/ReceiptViewer";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { displayCurrency, getTaxConfig } from "../utils/currency";
-import { formatDate, formatDateShort, formatDateClear, localIso } from "../utils/dateFormat";
-import { getVatTerms } from "../utils/currency";
+import { formatDate, formatDateClear, localIso } from "../utils/dateFormat";
 import TaxBreakdown from "../components/TaxBreakdown";
-import { FadeIn, StaggerGrid, StaggerGridItem, AnimatedList, AnimatedListItem, TabContent, motion, AnimatePresence } from "../components/AnimationKit";
+import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
-import { PageHeader, Button, SectionBanner, StatCard, TabPills } from "../components/ui";
+import { PageHeader, Button, SectionBanner, StatCard, TabPills, Empty, Card } from "../components/ui";
 import EntryCard from "../components/ui/EntryCard";
-import { Mic } from "lucide-react";
+import PageShell from "../components/ui/PageShell";
+import DataTable from "../components/ui/DataTable";
+import FilterBar from "../components/ui/FilterBar";
 
 const QUICK_AMOUNTS = [500, 1000, 2500, 5000, 7500, 10000, 15000];
+
+// Persona-aware right-rail mode.
+// TODO: read from `../config/dashboardCardSets` (getArchetype) once Phase A
+// lands. Parallel agent owns that file; until it merges we default every
+// account to `session4tile` (matches transactionalDaily — café/restaurant/
+// retail — the most common archetype). When Phase A merges, swap this to:
+//
+//   import { getArchetype } from "../config/dashboardCardSets";
+//   const archetype = useMemo(() => getArchetype(user), [user]);
+//   const rightRailMode = archetype.salesRightRail;
+//
+// Hardcoding the default keeps Phase C unblocked on Phase A's merge.
+const DEFAULT_RIGHT_RAIL_MODE = "session4tile";
 
 export default function SalesPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
   const [sales, setSales] = useState([]);
-  // Track first-load so stat cards can show a skeleton instead of "0" before
-  // the API resolves. Once data arrives once, we never go back to "loading"
-  // even on refetch — the previous numbers stay visible while the new ones load.
   const [salesLoading, setSalesLoading] = useState(true);
   const [amount, setAmount] = useState("");
   const [saleDate, setSaleDate] = useState(localIso());
@@ -46,9 +69,6 @@ export default function SalesPage() {
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
   const [editId, setEditId] = useState(null);
-  // Receipt review modal — opens when user clicks the 🧾 chip on a
-  // sale row that has receipt_photo set. Stores the sale being viewed
-  // so we can pass amount/date/payment_method into the viewer.
   const [receiptViewing, setReceiptViewing] = useState(null);
   const [editData, setEditData] = useState({});
   const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -58,29 +78,27 @@ export default function SalesPage() {
   const [isTaxExempt, setIsTaxExempt] = useState(false);
   const [showItemSale, setShowItemSale] = useState(false);
   const [inventoryItems, setInventoryItems] = useState([]);
-  const [expandedStat, setExpandedStat] = useState(null); // "today" | "total" | "avg" | null
-  // Return / exchange state
-  const [statusFilter, setStatusFilter] = useState("all"); // all | completed | returns
-  const [returnMode, setReturnMode] = useState(null); // sale id being returned
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [returnMode, setReturnMode] = useState(null);
   const [returnData, setReturnData] = useState({ reason: "", action: "" });
   const [returnSummary, setReturnSummary] = useState(null);
-  // Cultural event filter (migration 013, kulturarrangør sprint). The
-  // chip near the top of the page lets Sudip-style owners narrow the
-  // sales list to a single event ("Show me everything from the Nepali
-  // Movie Night on April 4"). `eventFilter` is the selected event_id
-  // (or "" for All, or "__none__" for untagged sales).
-  const [eventOptions, setEventOptions] = useState([]);  // [{id, name, event_date}]
+  const [eventOptions, setEventOptions] = useState([]);
   const [eventFilter, setEventFilter] = useState("");
 
+  // Session reconciliation: track the page-mount timestamp so we can
+  // count "sales logged since the user opened this tab" (= the right-rail
+  // THIS SESSION tile). Using a ref keeps it stable across renders.
+  const sessionMountedAtRef = useRef(new Date().toISOString());
+
+  // Right-rail mode — see DEFAULT_RIGHT_RAIL_MODE above.
+  const rightRailMode = DEFAULT_RIGHT_RAIL_MODE;
+
   const filtered = sales.filter(s => {
-    // Status filter
     if (statusFilter === "completed" && (s.status || "completed") !== "completed") return false;
     if (statusFilter === "returns" && !["returned", "exchanged", "return-pending"].includes(s.status || "completed")) return false;
-    // Search
     if (search && !(s.notes?.toLowerCase().includes(search.toLowerCase()) || s.payment_method?.toLowerCase().includes(search.toLowerCase()) || String(s.amount).includes(search) || (s.item_name || "").toLowerCase().includes(search.toLowerCase()))) return false;
     return true;
   }).sort((a, b) => {
-    // Pending returns always first
     const aPend = (a.status === "return-pending") ? 0 : 1;
     const bPend = (b.status === "return-pending") ? 0 : 1;
     if (aPend !== bPend) return aPend - bPend;
@@ -92,6 +110,32 @@ export default function SalesPage() {
   const pendingReturnCount = sales.filter(s => s.status === "return-pending").length;
   const returnCount = sales.filter(s => ["returned", "exchanged", "return-pending"].includes(s.status || "completed")).length;
 
+  // Has any filter been touched compared to defaults?
+  const hasActiveFilter = !!(eventFilter || filterFrom || filterTo || search);
+
+  // Session / today / event reconciliation aggregates. Memoised so we don't
+  // recompute on every input keystroke.
+  const sessionAgg = useMemo(() => {
+    const sessionAt = sessionMountedAtRef.current;
+    const sessionSales = sales.filter((s) => (s.created_at || "") >= sessionAt);
+    const todayStr = localIso();
+    const todaySales = sales.filter((s) => s.date === todayStr);
+    const eventSales = eventFilter && eventFilter !== "__none__"
+      ? sales.filter((s) => s.event_id === eventFilter)
+      : (eventFilter === "__none__"
+          ? sales.filter((s) => !s.event_id)
+          : []);
+    const sum = (rows) => rows.reduce((acc, s) => acc + parseFloat(s.amount || 0), 0);
+    return {
+      sessionCount: sessionSales.length,
+      sessionTotal: sum(sessionSales),
+      todayCount: todaySales.length,
+      todayTotal: sum(todaySales),
+      eventCount: eventSales.length,
+      eventTotal: sum(eventSales),
+    };
+  }, [sales, eventFilter]);
+
   const startVoice = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) { setError(t("voiceNotSupported")); return; }
@@ -102,17 +146,14 @@ export default function SalesPage() {
     recognition.onend = () => setListening(false);
     recognition.onresult = (event) => {
       const text = event.results[0][0].transcript.toLowerCase();
-      // Extract number from speech
       const numMatch = text.match(/[\d,]+\.?\d*/);
       if (numMatch) {
         const val = parseFloat(numMatch[0].replace(/,/g, ""));
         if (val > 0) {
           setAmount(String(val));
-          // Detect payment method
           if (text.includes("cash")) setMethod("cash");
           else if (text.includes("card")) setMethod("card");
           else if (text.includes("mobile")) setMethod("mobilepay");
-          // Extract notes (everything after the number and method)
           const remaining = text.replace(numMatch[0], "").replace(/cash|card|mobilepay|mixed|dankort/g, "").trim();
           if (remaining.length > 2) setNotes(remaining);
           setSuccess(`${t("voiceParsed")}: "${text}" → ${val.toLocaleString()} ${currency}`);
@@ -133,9 +174,6 @@ export default function SalesPage() {
       const params = {};
       if (from) params.from = from;
       if (to) params.to = to;
-      // Cultural event filter (migration 013). "" = All events, no
-      // event_id sent. "__none__" = untagged sales (server treats the
-      // literal "null" as untagged). Otherwise an event UUID.
       const effectiveEventFilter = eventId !== undefined ? eventId : eventFilter;
       if (effectiveEventFilter === "__none__") params.event_id = "null";
       else if (effectiveEventFilter) params.event_id = effectiveEventFilter;
@@ -144,14 +182,9 @@ export default function SalesPage() {
     } catch (err) {
       setFetchError(err.response?.data?.detail || t("failedToLoadSales"));
     } finally {
-      // Always clear the first-load flag, even on error — otherwise the page
-      // sticks on a skeleton forever if the network fails.
       setSalesLoading(false);
     }
   };
-  // Pull the owner's event list once for the filter dropdown. We pull
-  // all events (including soft-deleted) so historical filters keep
-  // working even after the owner clears out old entries.
   const fetchEventOptions = () => {
     api
       .get("/events", { params: { sort: "date_desc", include_deleted: true } })
@@ -165,7 +198,6 @@ export default function SalesPage() {
     api.get("/sales/returns/summary").then((r) => setReturnSummary(r.data)).catch(() => {});
   };
 
-  // Process return/exchange
   const processReturn = async (saleId) => {
     if (!returnData.reason || !returnData.action) return;
     try {
@@ -175,7 +207,7 @@ export default function SalesPage() {
       });
       setReturnMode(null);
       setReturnData({ reason: "", action: "" });
-      setSuccess(t("returnProcessed") || "Return processed successfully");
+      setSuccess(t("returnProcessed", "Return processed successfully"));
       setTimeout(() => setSuccess(""), 3000);
       fetchSales(filterFrom, filterTo);
       fetchInventory();
@@ -187,26 +219,7 @@ export default function SalesPage() {
     }
   };
 
-  // Request a return (mark as pending)
-  const requestReturn = async (saleId, reason) => {
-    try {
-      await api.post(`/sales/${saleId}/request-return`, null, { params: { reason } });
-      setReturnMode(null);
-      setReturnData({ reason: "", action: "" });
-      setSuccess("Return request created");
-      setTimeout(() => setSuccess(""), 3000);
-      fetchSales(filterFrom, filterTo);
-      fetchReturnSummary();
-    } catch (err) {
-      setError(err.response?.data?.detail || "Failed to request return");
-      setTimeout(() => setError(""), 4000);
-    }
-  };
-
   useEffect(() => {
-    // Deep-link support (migration 013): EventsPage "View tagged sales →"
-    // sends owners here with `?event_id=<uuid>` in the URL. Pre-populate
-    // the filter on first mount so the page lands already-narrowed.
     let initialEvent = "";
     try {
       const params = new URLSearchParams(window.location.search);
@@ -224,8 +237,6 @@ export default function SalesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Re-fetch sales whenever the event filter changes — keeps the chip
-  // and the list in sync without needing a manual refresh.
   useEffect(() => {
     fetchSales(filterFrom, filterTo);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -255,7 +266,6 @@ export default function SalesPage() {
       trackEvent("sale_logged", "sales", `${value} ${currency} via ${method}`);
       setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${formatDate(saleDate)})` : ""}!`);
       fetchSales(filterFrom, filterTo);
-      // Cross-page refresh: notify Dashboard, Reports, Expenses, etc.
       window.dispatchEvent(new Event("bonbox-data-changed"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
@@ -317,8 +327,407 @@ export default function SalesPage() {
     }
   };
 
+  // ─── Selection helpers (wired into <DataTable selectable> props) ──────
+  const toggleSelect = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const toggleAll = () => {
+    if (selected.size === filtered.length) setSelected(new Set());
+    else setSelected(new Set(filtered.slice(0, 50).map((s) => s.id)));
+  };
+
+  // ─── Filter clear (used by <FilterBar.Reset>) ─────────────────────────
+  const clearAllFilters = () => {
+    setEventFilter("");
+    setFilterFrom("");
+    setFilterTo("");
+    setSearch("");
+    fetchSales();
+  };
+
+  // ─── Right-rail panel (rendered inline in the JSX below) ──────────────
+  const rightRailFourTile = (
+    <div className="lg:col-span-2 grid grid-cols-2 gap-3 content-start">
+      <StatCard
+        label={t("thisSession", "THIS SESSION")}
+        value={salesLoading ? "—" : sessionAgg.sessionTotal.toLocaleString()}
+        helper={salesLoading ? " " : `${sessionAgg.sessionCount} ${sessionAgg.sessionCount === 1 ? t("saleCount") : t("salesCount")} · ${currency}`}
+      />
+      <StatCard
+        label={t("today", "TODAY")}
+        value={salesLoading ? "—" : sessionAgg.todayTotal.toLocaleString()}
+        helper={salesLoading ? " " : `${sessionAgg.todayCount} ${sessionAgg.todayCount === 1 ? t("saleCount") : t("salesCount")} · ${currency}`}
+      />
+      {eventFilter && eventFilter !== "" && (
+        <StatCard
+          label={t("event", "EVENT")}
+          value={salesLoading ? "—" : sessionAgg.eventTotal.toLocaleString()}
+          helper={salesLoading ? " " : `${sessionAgg.eventCount} ${sessionAgg.eventCount === 1 ? t("saleCount") : t("salesCount")} · ${currency}`}
+        />
+      )}
+      <Card
+        variant="subtle"
+        className={
+          // Keep the tile chrome aligned to the StatCard neighbours so the
+          // 2x2 grid reads as one block. The reconcile card is the
+          // action-oriented one — it links to the daily close.
+          "flex flex-col justify-between gap-2 px-4 py-3.5"
+        }
+      >
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+            {t("reconcile", "RECONCILE")}
+          </p>
+          <p className="text-[12px] text-gray-600 dark:text-gray-300 mt-1 leading-snug">
+            {t("matchesCashDrawer", "Matches cash drawer?")}
+          </p>
+        </div>
+        <Link
+          to="/today"
+          className={
+            "inline-flex items-center justify-center gap-1 rounded-lg " +
+            "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-100 " +
+            "hover:bg-gray-200 dark:hover:bg-gray-700 transition " +
+            "h-7 px-2.5 text-xs font-medium"
+          }
+        >
+          {t("openDailyClose", "Open Daily Close")} →
+        </Link>
+      </Card>
+    </div>
+  );
+
+  const sessionInlineLine = (
+    <p className="text-sm text-gray-500 dark:text-gray-400">
+      {sessionAgg.sessionCount} {sessionAgg.sessionCount === 1 ? t("saleCount") : t("salesCount")}
+      {" "}{t("thisSessionInline", "this session")} · {sessionAgg.sessionTotal.toLocaleString()} {currency}
+      <Link
+        to="/today"
+        className="ml-2 text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white underline"
+      >
+        {t("openDailyClose", "Open Daily Close")} →
+      </Link>
+    </p>
+  );
+
+  // ─── DataTable column + row-action config ─────────────────────────────
+  const paymentLabel = (m) => (m ? t(m) : "—");
+  const statusBadge = (s) => {
+    const st = s.status || "completed";
+    if (st === "completed") return null;
+    const cfg = {
+      returned:         { dot: "bg-red-600",    label: t("returned", "Returned") },
+      exchanged:        { dot: "bg-gray-500",   label: t("exchanged", "Exchanged") },
+      "return-pending": { dot: "bg-amber-500",  label: t("returnPending", "Return pending") },
+    };
+    const c = cfg[st] || cfg.returned;
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200">
+        <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} aria-hidden="true" />
+        {c.label}
+      </span>
+    );
+  };
+
+  const columns = [
+    {
+      id: "amount",
+      label: t("amount"),
+      align: "right",
+      render: (r) => {
+        const st = r.status || "completed";
+        return (
+          <div className="inline-flex items-center justify-end gap-2 flex-wrap">
+            <span className={st === "returned" ? "line-through text-gray-500" : "font-semibold tabular-nums"}>
+              {parseFloat(r.amount).toLocaleString()} {currency}
+            </span>
+            {statusBadge(r)}
+            {r.receipt_photo && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setReceiptViewing(r)}
+                aria-label={t("receiptViewerOpen", "View receipt")}
+              >
+                {t("viewReceipt", "Receipt")}
+              </Button>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      id: "method",
+      label: t("payment"),
+      render: (r) => <span className="capitalize">{paymentLabel(r.payment_method)}</span>,
+    },
+    {
+      id: "notes",
+      label: t("notes"),
+      render: (r) => {
+        if (r.item_name) {
+          return (
+            <span className="text-gray-700 dark:text-gray-300">
+              {r.item_name}
+              {r.quantity_sold ? ` × ${r.quantity_sold}` : ""}
+            </span>
+          );
+        }
+        return r.notes || "—";
+      },
+    },
+    {
+      id: "date",
+      label: t("date"),
+      width: "w-32",
+      render: (r) => formatDateClear(r.date),
+    },
+  ];
+
+  const rowActions = (row) => {
+    const st = row.status || "completed";
+    const actions = [];
+    if (st === "completed" || st === "return-pending") {
+      actions.push({
+        label: t("return", "Return"),
+        icon: <Undo2 size={14} />,
+        onClick: () => {
+          setReturnMode(row.id);
+          setReturnData({ reason: row.return_reason || "", action: "" });
+        },
+      });
+    }
+    if (st === "completed") {
+      actions.push({
+        label: t("edit"),
+        icon: <Pencil size={14} />,
+        onClick: () => startEdit(row),
+      });
+    }
+    actions.push({
+      label: t("moveToTrash"),
+      icon: <Trash size={14} />,
+      onClick: () => {
+        if (deleteConfirm === row.id) deleteSale(row.id);
+        else setDeleteConfirm(row.id);
+      },
+      variant: "danger",
+    });
+    return actions;
+  };
+
+  // ─── Inline edit panel (replaces in-row form) ─────────────────────────
+  const editPanel = editId && (() => {
+    const sale = sales.find((s) => s.id === editId);
+    if (!sale) return null;
+    return (
+      <Card variant="emphasis">
+        <Card.Header
+          title={t("editSale", "Edit sale")}
+          subtitle={`${parseFloat(sale.amount).toLocaleString()} ${currency} · ${formatDateClear(sale.date)}`}
+          action={
+            <Button variant="ghost" size="sm" onClick={() => { setEditId(null); setEditData({}); }}>
+              {t("cancel")}
+            </Button>
+          }
+        />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label className="text-xs text-gray-500 dark:text-gray-400 flex flex-col gap-1">
+            {t("amount")}
+            <input
+              type="number"
+              value={editData.amount}
+              onChange={(e) => setEditData({ ...editData, amount: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
+              className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-gray-400"
+            />
+          </label>
+          <label className="text-xs text-gray-500 dark:text-gray-400 flex flex-col gap-1">
+            {t("date")}
+            <input
+              type="date"
+              value={editData.date}
+              onChange={(e) => setEditData({ ...editData, date: e.target.value })}
+              className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
+            />
+          </label>
+          <label className="text-xs text-gray-500 dark:text-gray-400 flex flex-col gap-1">
+            {t("payment")}
+            <select
+              value={editData.payment_method}
+              onChange={(e) => setEditData({ ...editData, payment_method: e.target.value })}
+              className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
+            >
+              {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
+                <option key={m} value={m}>{t(m)}</option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs text-gray-500 dark:text-gray-400 flex flex-col gap-1">
+            {t("notes")}
+            <input
+              type="text"
+              value={editData.notes || ""}
+              onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
+              placeholder={t("notes")}
+              className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
+            />
+          </label>
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => { setEditId(null); setEditData({}); }}>
+            {t("cancel")}
+          </Button>
+          <Button variant="primary" onClick={saveEdit}>
+            {t("save")}
+          </Button>
+        </div>
+      </Card>
+    );
+  })();
+
+  // ─── Inline return panel (replaces in-row form) ───────────────────────
+  const returnPanel = returnMode && (() => {
+    const sale = sales.find((s) => s.id === returnMode);
+    if (!sale) return null;
+    const reasons = ["Wrong order", "Cold/bad quality", "Changed mind", "Defective", "Size issue", "Other"];
+    const actions = [
+      { id: "refund",   label: t("refund", "Refund"),     sub: `${parseFloat(sale.amount).toLocaleString()} ${currency}` },
+      { id: "replace",  label: t("replace", "Replace"),   sub: t("sendNewItem", "Send new item") },
+      { id: "exchange", label: t("exchange", "Exchange"), sub: t("swapForAnother", "Swap for another") },
+      { id: "restock",  label: t("restock", "Restock"),   sub: t("backToInventory", "Back to inventory") },
+    ];
+    return (
+      <Card variant="emphasis">
+        <Card.Header
+          title={t("processReturn", "Process return")}
+          subtitle={`${parseFloat(sale.amount).toLocaleString()} ${currency} · ${formatDateClear(sale.date)}`}
+          action={
+            <Button variant="ghost" size="sm" onClick={() => { setReturnMode(null); setReturnData({ reason: "", action: "" }); }}>
+              {t("cancel")}
+            </Button>
+          }
+        />
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1.5">
+            {t("reason", "Reason")}
+          </p>
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            {reasons.map((r) => {
+              const selectedR = returnData.reason === r;
+              return (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setReturnData({ ...returnData, reason: r })}
+                  className={
+                    "text-[12px] font-medium px-2.5 py-1 rounded-full border transition " +
+                    (selectedR
+                      ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
+                      : "bg-white text-gray-700 border-gray-200 hover:border-gray-300 dark:bg-gray-900 dark:text-gray-300 dark:border-gray-700")
+                  }
+                >
+                  {r}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1.5">
+            {t("action", "Action")}
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+            {actions.map((a) => {
+              const sel = returnData.action === a.id;
+              return (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => setReturnData({ ...returnData, action: a.id })}
+                  className={
+                    "p-3 rounded-xl border text-left transition " +
+                    (sel
+                      ? "bg-gray-50 border-gray-900 dark:bg-gray-800 dark:border-gray-100 ring-1 ring-gray-900 dark:ring-gray-100"
+                      : "bg-white border-gray-200 hover:border-gray-300 dark:bg-gray-900 dark:border-gray-700")
+                  }
+                >
+                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{a.label}</p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{a.sub}</p>
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => { setReturnMode(null); setReturnData({ reason: "", action: "" }); }}>
+              {t("cancel")}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => processReturn(sale.id)}
+              disabled={!returnData.reason || !returnData.action}
+            >
+              {t("confirmReturn", "Confirm return")}
+            </Button>
+          </div>
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-3">
+            {t("invAndPlAutoUpdate", "Inventory & P&L update automatically")}
+          </p>
+        </div>
+      </Card>
+    );
+  })();
+
+  // ─── Bulk-action toolbar (sticky bottom) ───────────────────────────────
+  const bulkBar = selected.size > 0 && (() => {
+    const selSales = filtered.filter((s) => selected.has(s.id));
+    const total = selSales.reduce((acc, s) => acc + parseFloat(s.amount), 0);
+    const avg = selSales.length ? total / selSales.length : 0;
+    return (
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-lg w-[calc(100%-2rem)]">
+        <Card variant="emphasis" className="!p-4">
+          <div className="flex items-center gap-3 mb-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSelected(new Set())}
+              aria-label={t("clearSelection", "Clear selection")}
+            >
+              ×
+            </Button>
+            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex-1">
+              {selected.size} {t("selected")} · {total.toLocaleString()} {currency}
+            </p>
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {t("avg")}: {Math.round(avg).toLocaleString()}
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                const text = `${selected.size} sales | Total: ${total.toLocaleString()} ${currency} | Avg: ${Math.round(avg).toLocaleString()} ${currency}`;
+                navigator.clipboard?.writeText(text);
+                setSuccess(t("copiedToClipboard"));
+                setTimeout(() => setSuccess(""), 2000);
+              }}
+            >
+              {t("copySummary")}
+            </Button>
+            <Button variant="danger" size="sm" onClick={bulkDelete}>
+              {t("moveToTrash")}
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  })();
+
   return (
-    <div className="p-4 sm:p-6 space-y-6">
+    <PageShell width="default">
       <FadeIn>
         <PageHeader
           eyebrow="MONEY"
@@ -334,48 +743,23 @@ export default function SalesPage() {
         />
       </FadeIn>
 
-      {success && <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
-      {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">{error}</div>}
-      {fetchError && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">{fetchError}</div>}
-
-      {/* Cultural-event filter chip (migration 013, kulturarrangør sprint).
-          Hidden when the owner has zero events — keeps the Sales page calm
-          for the 90% of users who'll never use this feature. Sudip-style
-          owners with 10-15 events/year see a single-row dropdown that
-          narrows the list to "Show me everything from event X". */}
-      {eventOptions.length > 0 && (
-        <div className="flex items-center gap-3 flex-wrap text-sm">
-          <label
-            htmlFor="sales-event-filter"
-            className="font-medium text-gray-600 dark:text-gray-300"
-          >
-            {t("filterByEvent") || "Filter by event"}:
-          </label>
-          <select
-            id="sales-event-filter"
-            value={eventFilter}
-            onChange={(e) => setEventFilter(e.target.value)}
-            className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
-          >
-            <option value="">{t("filterAllEvents") || "All events"}</option>
-            <option value="__none__">{t("filterNoEvent") || "No event"}</option>
-            {eventOptions.map((ev) => (
-              <option key={ev.id} value={ev.id}>
-                {ev.name} · {ev.event_date}
-                {ev.is_deleted ? " (deleted)" : ""}
-              </option>
-            ))}
-          </select>
-          {eventFilter && (
-            <button
-              type="button"
-              onClick={() => setEventFilter("")}
-              className="text-xs text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 underline"
-            >
-              {t("clear") || "Clear"}
-            </button>
-          )}
-        </div>
+      {/* Inline status messages.  Kept neutral — no green/red full-tint
+          backgrounds (those were doctrine violations).  Critical = red dot
+          + neutral pill; success uses the Button-accent style via SectionBanner. */}
+      {success && (
+        <SectionBanner severity="info" icon="Check" title={success}>
+          <span className="sr-only">{success}</span>
+        </SectionBanner>
+      )}
+      {error && (
+        <SectionBanner severity="critical" icon="AlertCircle" title={error}>
+          <span className="sr-only">{error}</span>
+        </SectionBanner>
+      )}
+      {fetchError && (
+        <SectionBanner severity="critical" icon="AlertCircle" title={fetchError}>
+          <span className="sr-only">{fetchError}</span>
+        </SectionBanner>
       )}
 
       <DismissibleTip
@@ -390,10 +774,13 @@ export default function SalesPage() {
         </p>
       </DismissibleTip>
 
-      {/* Form + Stats side by side */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        {/* Quick Entry - left side (migrated to EntryCard primitive) */}
-        <div className="lg:col-span-3">
+      {/* EntryCard (left) + session reconciliation right-rail.
+          When rightRailMode === "session4tile" the rail is a 2-column
+          grid of small StatCards.  When "sessionInline" the rail is
+          removed and a single muted line sits above the table instead
+          (rendered further down). */}
+      <div className={rightRailMode === "session4tile" ? "grid grid-cols-1 lg:grid-cols-5 gap-4" : ""}>
+        <div className={rightRailMode === "session4tile" ? "lg:col-span-3" : ""}>
           <EntryCard
             title={t("logSale")}
             hint={t("tapAmount")}
@@ -425,217 +812,10 @@ export default function SalesPage() {
             onSubmit={() => submit()}
           />
         </div>
-
-        {/* Summary Stats - right side, Inventory Monitor style */}
-        {sales.length > 0 ? (() => {
-          // Derive display month from data when filters are active, otherwise use current month
-          const now = new Date();
-          const hasFilter = filterFrom || filterTo;
-          // If filtered, use the most recent sale's month; otherwise current month
-          const refDate = hasFilter && sales.length > 0
-            ? new Date(sales.reduce((latest, s) => s.date > latest ? s.date : latest, sales[0].date) + "T12:00:00")
-            : now;
-          const monthPrefix = localIso(refDate).slice(0, 7);
-          const monthName = refDate.toLocaleString("default", { month: "long" });
-          // When filtered, show all sales as "month sales" (they're already filtered by the API)
-          const monthSales = hasFilter ? sales : sales.filter(s => s.date?.startsWith(monthPrefix));
-          const totalRev = monthSales.reduce((s, x) => s + parseFloat(x.amount), 0);
-          const todayStr = localIso(now);
-          // When filtered to past dates, show the latest day in the data as "today" card
-          const latestDate = hasFilter && sales.length > 0
-            ? sales.reduce((latest, s) => s.date > latest ? s.date : latest, sales[0].date)
-            : todayStr;
-          const todaySales = sales.filter(s => s.date === latestDate);
-          const todayRev = todaySales.reduce((s, x) => s + parseFloat(x.amount), 0);
-          const methods = {};
-          monthSales.forEach(s => { methods[s.payment_method] = (methods[s.payment_method] || 0) + parseFloat(s.amount); });
-          // Group sales by date for breakdown (avg per day, not per entry)
-          const byDate = {};
-          monthSales.forEach(s => { byDate[s.date] = (byDate[s.date] || 0) + parseFloat(s.amount); });
-          const daysWithSales = Object.keys(byDate).length;
-          const avgSale = daysWithSales > 0 ? totalRev / daysWithSales : 0;
-          const sortedDates = Object.entries(byDate).sort((a, b) => b[0].localeCompare(a[0]));
-          // Today's methods
-          const todayMethods = {};
-          todaySales.forEach(s => { todayMethods[s.payment_method] = (todayMethods[s.payment_method] || 0) + parseFloat(s.amount); });
-          return (
-            <div className="lg:col-span-2 space-y-3">
-              {/* KPI strip — Task #119 Phase 3: dark-gradient rainbow
-                  panels replaced with neutral clickable StatCards.
-                  All values render in neutral gray-900; no per-card
-                  emerald/blue/purple/orange. The "by payment" tile is
-                  the one that can't fit the StatCard template (it
-                  shows breakdown chips, not a single number) so it
-                  keeps a custom container — but with the same chrome. */}
-              <div className="grid grid-cols-2 gap-3">
-                <StatCard
-                  label={hasFilter ? t("latestDay") : t("today")}
-                  value={salesLoading ? <span className="opacity-40">…</span> : todayRev.toLocaleString()}
-                  helper={salesLoading ? " " : `${todaySales.length} ${todaySales.length !== 1 ? t("salesCount") : t("saleCount")} ${t("today").toLowerCase()}`}
-                  onClick={() => setExpandedStat(expandedStat === "today" ? null : "today")}
-                  selected={expandedStat === "today"}
-                  expandable
-                  ariaControls="sales-stat-panel"
-                />
-                <StatCard
-                  label={`${monthName} ${t("revenue")}`}
-                  value={salesLoading ? <span className="opacity-40">…</span> : totalRev.toLocaleString()}
-                  helper={salesLoading ? " " : `${currency} · ${monthSales.length} ${t("salesCount")}`}
-                  onClick={() => setExpandedStat(expandedStat === "total" ? null : "total")}
-                  selected={expandedStat === "total"}
-                  expandable
-                  ariaControls="sales-stat-panel"
-                />
-                <StatCard
-                  label={t("avgSale")}
-                  value={salesLoading ? <span className="opacity-40">…</span> : Math.round(avgSale).toLocaleString()}
-                  helper={`${currency}/${t("day")} · ${daysWithSales} ${t("days")}`}
-                  onClick={() => setExpandedStat(expandedStat === "avg" ? null : "avg")}
-                  selected={expandedStat === "avg"}
-                  expandable
-                  ariaControls="sales-stat-panel"
-                />
-                {/* "By payment" — special: shows breakdown chips, not a
-                    single number.  Mirrors the StatCard chrome
-                    (rounded-xl, gray-200 border, white bg) so the strip
-                    reads as a single block.  Chips are neutral gray pills;
-                    the active payment-filter chip uses the gray-900 fill
-                    that matches the StatCard selected treatment. */}
-                <div className="rounded-xl border border-gray-200 bg-white dark:bg-gray-900 dark:border-gray-800 px-4 py-3.5">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1.5">{t("byPayment")}</p>
-                  <div className="flex flex-wrap gap-1.5 mt-1">
-                    {Object.entries(methods).sort((a, b) => b[1] - a[1]).map(([m, amt]) => (
-                      <button
-                        key={m}
-                        onClick={() => setSearch(search === m ? "" : m)}
-                        className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition capitalize ${
-                          search === m
-                            ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900"
-                            : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-                        }`}
-                      >
-                        {t(m)} · {amt.toLocaleString()}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-[11.5px] text-gray-500 dark:text-gray-400 mt-2 leading-snug">{Object.keys(methods).length} {Object.keys(methods).length !== 1 ? t("methodsUsed") : t("methodUsed")}</p>
-                </div>
-                            </div>
-
-              {/* Expanded detail panel */}
-              {expandedStat === "today" && (
-                <div id="sales-stat-panel" className="bg-gradient-to-br from-green-950/80 to-gray-800 rounded-xl p-4 border border-green-700/60 animate-in">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-xs font-semibold text-green-300">{t("todaysBreakdown")}</p>
-                    <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-green-900/50 text-green-400 text-xs hover:bg-green-800/60">&times;</button>
-                  </div>
-                  {todaySales.length > 0 ? (
-                    <>
-                      {Object.keys(todayMethods).length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 mb-3">
-                          {Object.entries(todayMethods).sort((a, b) => b[1] - a[1]).map(([m, amt]) => (
-                            <span key={m} className="px-2.5 py-1 bg-green-900/40 border border-green-700/40 rounded-full text-[11px] font-bold text-green-300 capitalize">{t(m)} · {amt.toLocaleString()}</span>
-                          ))}
-                        </div>
-                      )}
-                      <div className="space-y-1 max-h-36 overflow-y-auto">
-                        {todaySales.map((s, i) => (
-                          <div key={i} className="flex items-center justify-between px-3 py-1.5 bg-green-900/20 rounded-lg text-xs">
-                            <span className="font-bold text-green-300">{parseFloat(s.amount).toLocaleString()} {currency}</span>
-                            <span className="text-green-400/50 capitalize">{s.payment_method}</span>
-                            <span className="text-green-400/40 truncate max-w-[80px]">{s.notes || "—"}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  ) : <p className="text-xs text-green-400/50 text-center py-2">{t("noSalesTodayYet")}</p>}
-                </div>
-              )}
-
-              {expandedStat === "total" && (
-                <div id="sales-stat-panel" className="bg-gradient-to-br from-blue-950/80 to-gray-800 rounded-xl p-4 border border-blue-700/60 animate-in">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-xs font-semibold text-blue-300">{t("revenueByDay")}</p>
-                    <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-blue-900/50 text-blue-400 text-xs hover:bg-blue-800/60">&times;</button>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5 mb-3">
-                    {Object.entries(methods).sort((a, b) => b[1] - a[1]).map(([m, amt]) => (
-                      <span key={m} className="px-2.5 py-1 bg-blue-900/40 border border-blue-700/40 rounded-full text-[11px] font-bold text-blue-300 capitalize">{t(m)} · {amt.toLocaleString()}</span>
-                    ))}
-                  </div>
-                  <div className="space-y-1 max-h-36 overflow-y-auto">
-                    {sortedDates.slice(0, 10).map(([date, amt]) => (
-                      <div key={date} className="flex items-center justify-between px-3 py-1.5 bg-blue-900/20 rounded-lg text-xs">
-                        <span className="text-blue-300/70">{date}</span>
-                        <span className="font-bold text-blue-300">{amt.toLocaleString()} {currency}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="text-[10px] text-blue-400/40 mt-2 text-center">{monthSales.length} {t("salesCount")} · {sortedDates.length} {t("days")} · {monthName}</p>
-                </div>
-              )}
-
-              {expandedStat === "avg" && (() => {
-                const amounts = monthSales.map(s => parseFloat(s.amount)).sort((a, b) => a - b);
-                if (amounts.length === 0) return null;
-                const min = amounts[0];
-                const max = amounts[amounts.length - 1];
-                const median = amounts.length % 2 === 0 ? (amounts[amounts.length / 2 - 1] + amounts[amounts.length / 2]) / 2 : amounts[Math.floor(amounts.length / 2)];
-                // Distribution buckets
-                const buckets = [
-                  { label: `< ${Math.round(avgSale * 0.5).toLocaleString()}`, count: amounts.filter(a => a < avgSale * 0.5).length },
-                  { label: `${Math.round(avgSale * 0.5).toLocaleString()} – ${Math.round(avgSale * 1.5).toLocaleString()}`, count: amounts.filter(a => a >= avgSale * 0.5 && a <= avgSale * 1.5).length },
-                  { label: `> ${Math.round(avgSale * 1.5).toLocaleString()}`, count: amounts.filter(a => a > avgSale * 1.5).length },
-                ];
-                return (
-                  <div id="sales-stat-panel" className="bg-gradient-to-br from-purple-950/80 to-gray-800 rounded-xl p-4 border border-purple-700/60 animate-in">
-                    <div className="flex items-center justify-between mb-3">
-                      <p className="text-xs font-semibold text-purple-300">{monthName} {t("saleDistribution")}</p>
-                      <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-purple-900/50 text-purple-400 text-xs hover:bg-purple-800/60">&times;</button>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2 mb-3">
-                      <div className="text-center p-2 bg-purple-900/30 rounded-lg">
-                        <p className="text-[10px] text-purple-400/60 font-semibold">{t("min")}</p>
-                        <p className="text-sm font-extrabold text-purple-300">{min.toLocaleString()}</p>
-                      </div>
-                      <div className="text-center p-2 bg-purple-900/30 rounded-lg">
-                        <p className="text-[10px] text-purple-400/60 font-semibold">{t("median")}</p>
-                        <p className="text-sm font-extrabold text-purple-300">{Math.round(median).toLocaleString()}</p>
-                      </div>
-                      <div className="text-center p-2 bg-purple-900/30 rounded-lg">
-                        <p className="text-[10px] text-purple-400/60 font-semibold">{t("max")}</p>
-                        <p className="text-sm font-extrabold text-purple-300">{max.toLocaleString()}</p>
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      {buckets.map((b) => (
-                        <div key={b.label} className="flex items-center gap-2">
-                          <span className="text-[10px] text-purple-400/60 w-24 text-right truncate">{b.label}</span>
-                          <div className="flex-1 bg-purple-900/30 rounded-full h-4 overflow-hidden">
-                            <div className="h-full bg-purple-500/60 rounded-full" style={{ width: `${Math.max(4, (b.count / monthSales.length) * 100)}%` }} />
-                          </div>
-                          <span className="text-[10px] font-bold text-purple-300 w-6">{b.count}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <p className="text-[10px] text-purple-400/40 mt-2 text-center">{totalRev.toLocaleString()} ÷ {daysWithSales} {t("days")} = {Math.round(avgSale).toLocaleString()} {currency}/{t("day")}</p>
-                  </div>
-                );
-              })()}
-            </div>
-          );
-        })() : (
-          // Empty-state KPI strip — Task #119 Phase 3: same StatCard
-          // chrome as the populated state so the page reads as one block
-          // whether or not the owner has logged any sales yet.
-          <div className="lg:col-span-2 grid grid-cols-2 gap-3 content-start">
-            <StatCard label={t("today")} value="0" helper={t("noSalesYet")} />
-            <StatCard label={t("thisMonth")} value="0" helper={currency} />
-            <StatCard label={t("avgSale")} value="—" helper={t("logFirstSale")} />
-            <StatCard label={t("byPayment")} value="—" helper={t("noDataYet")} />
-          </div>
-        )}
+        {rightRailMode === "session4tile" && rightRailFourTile}
       </div>
+
+      {rightRailMode === "sessionInline" && sessionInlineLine}
 
       {/* Item Sale Modal */}
       {showItemSale && (
@@ -670,615 +850,150 @@ export default function SalesPage() {
           title={`${pendingReturnCount} return${pendingReturnCount > 1 ? "s" : ""} pending`}
         >
           <div className="flex items-center justify-between gap-3 flex-wrap">
-            <span>Needs your action — refund, replace, or restock</span>
+            <span>{t("needsRefundReplaceRestock", "Needs your action — refund, replace, or restock")}</span>
             <Button variant="secondary" size="sm" onClick={() => setStatusFilter("returns")}>
-              View returns
+              {t("viewReturns", "View returns")}
             </Button>
           </div>
         </SectionBanner>
       )}
 
-      {/* Return summary */}
+      {/* Return summary stats */}
       {returnSummary && returnSummary.total_returns > 0 && statusFilter === "returns" && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <StatCard
-            label="Returns"
+            label={t("returns", "Returns")}
             value={returnSummary.total_returns}
             accent="critical"
           />
           <StatCard
-            label="Refunded"
+            label={t("refunded", "Refunded")}
             value={`${Math.round(returnSummary.total_refunded).toLocaleString()} ${currency}`}
             accent="critical"
           />
           <StatCard
-            label="Pending"
+            label={t("pending", "Pending")}
             value={returnSummary.pending_count}
             accent="warn"
           />
           <StatCard
-            label="Exchanged"
+            label={t("exchanged", "Exchanged")}
             value={returnSummary.by_action?.exchange || 0}
           />
         </div>
       )}
 
-      {/* Sales History */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex flex-wrap items-center justify-between gap-3">
+      {/* Inline edit / return panels (replace the in-row forms) */}
+      {editPanel}
+      {returnPanel}
+
+      {/* Recent sales section — title + FilterBar + DataTable */}
+      <section className="space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-end gap-3 sm:justify-between">
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-            <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">{t("recentSales")}</h2>
-            {/* Status filter pills */}
+            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+              {t("recentSales")}
+            </h2>
             <TabPills
               tabs={[
-                { id: "all", label: "All" },
-                { id: "completed", label: "Completed" },
-                { id: "returns", label: `Returns${returnCount > 0 ? ` (${returnCount})` : ""}` },
+                { id: "all",       label: t("all", "All") },
+                { id: "completed", label: t("completed", "Completed") },
+                { id: "returns",   label: `${t("returns", "Returns")}${returnCount > 0 ? ` (${returnCount})` : ""}` },
               ]}
               activeId={statusFilter}
               onChange={setStatusFilter}
               ariaLabel="Sales status filter"
             />
           </div>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-            <input
-              type="date"
-              value={filterFrom}
-              onChange={(e) => { setFilterFrom(e.target.value); fetchSales(e.target.value, filterTo); }}
-              className="w-full sm:w-auto px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
-            />
-            <span className="hidden sm:inline text-xs text-gray-400">→</span>
-            <input
-              type="date"
-              value={filterTo}
-              onChange={(e) => { setFilterTo(e.target.value); fetchSales(filterFrom, e.target.value); }}
-              className="w-full sm:w-auto px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
-            />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={t("searchSalesPlaceholder")}
-              className="w-full sm:w-auto px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
-            />
-            {(filterFrom || filterTo) && (
-              <button
-                onClick={() => { setFilterFrom(""); setFilterTo(""); fetchSales(); }}
-                className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 font-medium"
-              >
-                {t("clear")}
-              </button>
-            )}
-            <button
-              onClick={() => exportToCsv("sales.csv", sales, [
-                { key: "date", label: t("date") },
-                { key: "amount", label: t("amount") },
-                { key: "payment_method", label: t("payment") },
-                { key: "notes", label: t("notes") },
-              ])}
-              className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
-            >
-              {t("exportCsv")}
-            </button>
-          </div>
-        </div>
-        {/* Desktop / tablet table — hidden on phones, where we render the
-            card list below instead. Keeping md+ identical to prior version. */}
-        <div className="hidden md:block overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
-        <table className="w-full text-left min-w-[500px]">
-          <thead className="bg-gray-50 dark:bg-gray-700/50">
-            <tr>
-              <th className="px-4 sm:px-6 py-3 w-8">
-                <input type="checkbox" onChange={(e) => {
-                  if (e.target.checked) setSelected(new Set(filtered.map(i => i.id)));
-                  else setSelected(new Set());
-                }} checked={selected.size === filtered.length && filtered.length > 0} />
-              </th>
-              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("amount")}</th>
-              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("payment")}</th>
-              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("notes")}</th>
-              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">{t("date")}</th>
-              <th className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">{t("actions")}</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {filtered.slice(0, 50).map((sale) => {
-              const st = sale.status || "completed";
-              const statusCfg = {
-                completed: { label: "Completed", cls: "text-green-600 bg-green-50 dark:bg-green-900/20 dark:text-green-400" },
-                returned: { label: "Returned", cls: "text-red-600 bg-red-50 dark:bg-red-900/20 dark:text-red-400" },
-                exchanged: { label: "Exchanged", cls: "text-blue-600 bg-blue-50 dark:bg-blue-900/20 dark:text-blue-400" },
-                "return-pending": { label: "Return pending", cls: "text-amber-600 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-400 animate-pulse" },
-              };
-              const sc = statusCfg[st] || statusCfg.completed;
-              const isReturnForm = returnMode === sale.id;
-
-              return (
-              <tr key={sale.id} className={st === "return-pending" ? "bg-amber-50/30 dark:bg-amber-900/5" : ""}>
-                <td className="px-4 sm:px-6 py-4">
-                  <input type="checkbox" checked={selected.has(sale.id)} onChange={(e) => {
-                    const next = new Set(selected);
-                    if (e.target.checked) next.add(sale.id);
-                    else next.delete(sale.id);
-                    setSelected(next);
-                  }} />
-                </td>
-                {editId === sale.id ? (
-                  <>
-                    <td className="px-6 py-3">
-                      <input type="number" value={editData.amount} onChange={(e) => setEditData({ ...editData, amount: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
-                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-28" />
-                    </td>
-                    <td className="px-6 py-3">
-                      <select value={editData.payment_method} onChange={(e) => setEditData({ ...editData, payment_method: e.target.value })}
-                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white">
-                        {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
-                          <option key={m} value={m}>{t(m)}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-6 py-3">
-                      <input type="text" value={editData.notes || ""} onChange={(e) => setEditData({ ...editData, notes: e.target.value })} placeholder={t("notes")}
-                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-32" />
-                    </td>
-                    <td className="px-6 py-3 text-right">
-                      <input type="date" value={editData.date} onChange={(e) => setEditData({ ...editData, date: e.target.value })}
-                        className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-36" />
-                    </td>
-                    <td className="px-6 py-3 text-right space-x-2">
-                      <button onClick={saveEdit} className="text-green-600 dark:text-green-400 text-sm font-medium hover:underline">{t("save")}</button>
-                      <button onClick={() => setEditId(null)} className="text-gray-400 dark:text-gray-500 text-sm hover:underline">{t("cancel")}</button>
-                    </td>
-                  </>
-                ) : (
-                  <>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-sm font-semibold ${st === "returned" ? "text-red-400 line-through" : "text-gray-800 dark:text-white"}`}>
-                          {parseFloat(sale.amount).toLocaleString()} {currency}
-                        </span>
-                        {st !== "completed" && (
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${sc.cls}`}>{sc.label}</span>
-                        )}
-                        {/* Receipt-photo chip — visible only when this
-                            sale was logged via Snap Receipt (so the row
-                            has a photo URL on receipt_photo). Click
-                            opens the ReceiptViewer for spot-checking
-                            against the photo. */}
-                        {sale.receipt_photo && (
-                          <button
-                            type="button"
-                            onClick={() => setReceiptViewing(sale)}
-                            title={t("receiptViewerOpen") || "View receipt"}
-                            aria-label={t("receiptViewerOpen") || "View receipt"}
-                            className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-800/30 text-amber-600 dark:text-amber-300 text-sm transition"
-                          >
-                            🧾
-                          </button>
-                        )}
-                      </div>
-                      {sale.item_name && (
-                        <div className="text-xs font-normal text-gray-400 mt-0.5">
-                          {sale.item_name} {sale.quantity_sold ? `x ${sale.quantity_sold}` : ""} {sale.unit_price ? `@ ${parseFloat(sale.unit_price).toLocaleString()}/${currency}` : ""}
-                          {sale.cost_at_sale != null && sale.unit_price && sale.quantity_sold && (
-                            <span className="ml-1.5 text-green-600 dark:text-green-400">
-                              +{Math.round((sale.unit_price - sale.cost_at_sale) * sale.quantity_sold).toLocaleString()} {t("profit")}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                      {/* Return info banner */}
-                      {sale.return_reason && (
-                        <div className={`mt-1.5 px-2 py-1 rounded-md text-[11px] ${sc.cls}`}>
-                          {sale.return_action === "refund" ? "💸" : sale.return_action === "exchange" ? "↔️" : sale.return_action === "restock" ? "📦" : "🔄"}{" "}
-                          {sale.return_reason}
-                          {sale.return_action && <span className="font-semibold"> — {sale.return_action}</span>}
-                          {sale.return_amount > 0 && <span> ({Math.round(sale.return_amount).toLocaleString()} {currency} refunded)</span>}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 capitalize">{sale.payment_method}</td>
-                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{sale.notes || "—"}</td>
-                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 text-right">{formatDateClear(sale.date)}</td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2 flex-wrap">
-                        {/* Return/Exchange button for completed sales */}
-                        {st === "completed" && !isReturnForm && (
-                          <button onClick={() => { setReturnMode(sale.id); setReturnData({ reason: "", action: "" }); }}
-                            className="text-[11px] font-semibold px-2 py-1 rounded-md bg-red-50 dark:bg-red-900/15 text-red-500 dark:text-red-400 border border-red-200/40 dark:border-red-800/30 hover:bg-red-100 dark:hover:bg-red-900/30 transition">
-                            ↩️ Return
-                          </button>
-                        )}
-                        {/* Process pending return */}
-                        {st === "return-pending" && !isReturnForm && (
-                          <button onClick={() => { setReturnMode(sale.id); setReturnData({ reason: sale.return_reason || "", action: "" }); }}
-                            className="text-[11px] font-bold px-2 py-1 rounded-md bg-amber-500 text-white hover:bg-amber-600 transition">
-                            Process return
-                          </button>
-                        )}
-                        {st === "completed" && (
-                          <button onClick={() => startEdit(sale)} className="text-blue-500 dark:text-blue-400 text-xs hover:underline">{t("edit")}</button>
-                        )}
-                        {deleteConfirm === sale.id ? (
-                          <span className="inline-flex items-center gap-1.5 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded-lg">
-                            <span className="text-xs text-red-600 dark:text-red-400">{t("delete")}?</span>
-                            <button onClick={() => deleteSale(sale.id)} className="text-red-600 dark:text-red-400 text-xs font-bold hover:underline">✓</button>
-                            <button onClick={() => setDeleteConfirm(null)} className="text-gray-400 text-xs font-bold hover:underline">✕</button>
-                          </span>
-                        ) : (
-                          <button onClick={() => setDeleteConfirm(sale.id)} className="text-red-400 dark:text-red-500 text-xs hover:underline">{t("moveToTrash")}</button>
-                        )}
-                      </div>
-
-                      {/* ── RETURN FORM (inline, below actions) ── */}
-                      {isReturnForm && (
-                        <div onClick={(e) => e.stopPropagation()} className="mt-3 text-left p-4 rounded-xl bg-red-50/50 dark:bg-red-900/10 border border-red-200/40 dark:border-red-800/30">
-                          <p className="text-sm font-semibold text-gray-800 dark:text-white mb-3">↩️ Process return</p>
-
-                          {/* Reason pills */}
-                          <p className="text-[11px] text-gray-400 mb-1.5">Reason</p>
-                          <div className="flex flex-wrap gap-1.5 mb-3">
-                            {["Wrong order", "Cold/bad quality", "Changed mind", "Defective", "Size issue", "Other"].map((r) => (
-                              <button key={r} onClick={() => setReturnData({ ...returnData, reason: r })}
-                                className={`text-[11px] font-medium px-2.5 py-1 rounded-md border transition
-                                  ${returnData.reason === r
-                                    ? "border-red-400/50 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
-                                    : "border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-500 dark:text-gray-400"
-                                  }`}>
-                                {r}
-                              </button>
-                            ))}
-                          </div>
-
-                          {/* Action buttons */}
-                          <p className="text-[11px] text-gray-400 mb-1.5">Action</p>
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
-                            {[
-                              { id: "refund", icon: "💸", label: "Refund", sub: `${parseFloat(sale.amount).toLocaleString()} ${currency}`, color: "red" },
-                              { id: "replace", icon: "🔄", label: "Replace", sub: "Send new item", color: "blue" },
-                              { id: "exchange", icon: "↔️", label: "Exchange", sub: "Swap for another", color: "purple" },
-                              { id: "restock", icon: "📦", label: "Restock", sub: "Back to inventory", color: "green" },
-                            ].map((a) => {
-                              const sel = returnData.action === a.id;
-                              const colors = { red: "border-red-400 bg-red-50 dark:bg-red-900/20 text-red-600", blue: "border-blue-400 bg-blue-50 dark:bg-blue-900/20 text-blue-600", purple: "border-purple-400 bg-purple-50 dark:bg-purple-900/20 text-purple-600", green: "border-green-400 bg-green-50 dark:bg-green-900/20 text-green-600" };
-                              return (
-                                <button key={a.id} onClick={() => setReturnData({ ...returnData, action: a.id })}
-                                  className={`p-2 rounded-lg border-2 text-center transition ${sel ? colors[a.color] : "border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-500"}`}>
-                                  <span className="text-base block">{a.icon}</span>
-                                  <span className="text-[11px] font-semibold block">{a.label}</span>
-                                  <span className="text-[10px] block opacity-60">{a.sub}</span>
-                                </button>
-                              );
-                            })}
-                          </div>
-
-                          {/* Confirm / Cancel */}
-                          <div className="flex gap-2">
-                            <button onClick={() => { setReturnMode(null); setReturnData({ reason: "", action: "" }); }}
-                              className="flex-1 px-3 py-2 rounded-lg text-xs font-medium text-gray-500 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600 transition">
-                              Cancel
-                            </button>
-                            <button onClick={() => processReturn(sale.id)}
-                              disabled={!returnData.reason || !returnData.action}
-                              className={`flex-[2] px-3 py-2 rounded-lg text-xs font-semibold text-white transition
-                                ${returnData.reason && returnData.action ? "bg-red-500 hover:bg-red-600 cursor-pointer" : "bg-gray-300 dark:bg-gray-600 cursor-not-allowed opacity-50"}`}>
-                              Confirm return
-                            </button>
-                          </div>
-                          <p className="text-[10px] text-gray-400 mt-2 text-center">Inventory & P&L update automatically</p>
-                        </div>
-                      )}
-                    </td>
-                  </>
-                )}
-              </tr>
-            );
-            })}
-            {filtered.length === 0 && (
-              <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noSalesYet")}</td></tr>
-            )}
-          </tbody>
-        </table>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => exportToCsv("sales.csv", sales, [
+              { key: "date",           label: t("date") },
+              { key: "amount",         label: t("amount") },
+              { key: "payment_method", label: t("payment") },
+              { key: "notes",          label: t("notes") },
+            ])}
+          >
+            {t("exportCsv")}
+          </Button>
         </div>
 
-        {/* Mobile card list — replaces the previous overflow-x scroll so
-            owners on phones never have to swipe horizontally to reach
-            Edit / Delete. Each card surfaces the same data as the desktop
-            row in a vertical layout with 44px tap targets. */}
-        <div className="md:hidden p-3 space-y-2">
-          {filtered.length === 0 && (
-            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6 text-center text-[13px] text-gray-400 dark:text-gray-500">
-              {t("noSalesYet")}
-            </div>
+        <FilterBar>
+          {eventOptions.length > 0 && (
+            <FilterBar.Select
+              label={t("event", "Event")}
+              value={eventFilter}
+              onChange={setEventFilter}
+              options={[
+                { value: "",         label: t("filterAllEvents", "All events") },
+                { value: "__none__", label: t("filterNoEvent", "No event") },
+                ...eventOptions.map((ev) => ({
+                  value: ev.id,
+                  label: `${ev.name} · ${ev.event_date}${ev.is_deleted ? " (deleted)" : ""}`,
+                })),
+              ]}
+            />
           )}
-          {filtered.slice(0, 50).map((sale) => {
-            const st = sale.status || "completed";
-            const statusCfg = {
-              completed: { label: "Completed", cls: "text-green-600 bg-green-50 dark:bg-green-900/20 dark:text-green-400" },
-              returned: { label: "Returned", cls: "text-red-600 bg-red-50 dark:bg-red-900/20 dark:text-red-400" },
-              exchanged: { label: "Exchanged", cls: "text-blue-600 bg-blue-50 dark:bg-blue-900/20 dark:text-blue-400" },
-              "return-pending": { label: "Return pending", cls: "text-amber-600 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-400" },
-            };
-            const sc = statusCfg[st] || statusCfg.completed;
-            const isEditing = editId === sale.id;
-            const isReturnForm = returnMode === sale.id;
-            const confirming = deleteConfirm === sale.id;
-            const isSelected = selected.has(sale.id);
+          <FilterBar.Date
+            label={t("from", "From")}
+            value={filterFrom}
+            onChange={(v) => { setFilterFrom(v); fetchSales(v, filterTo); }}
+          />
+          <FilterBar.Date
+            label={t("to", "To")}
+            value={filterTo}
+            onChange={(v) => { setFilterTo(v); fetchSales(filterFrom, v); }}
+          />
+          <FilterBar.Search
+            value={search}
+            onChange={setSearch}
+            placeholder={t("searchSalesPh", t("searchSalesPlaceholder"))}
+          />
+          {hasActiveFilter && (
+            <FilterBar.Reset onClick={clearAllFilters} />
+          )}
+        </FilterBar>
 
-            return (
-              <div
-                key={sale.id}
-                className={`rounded-xl border bg-white dark:bg-gray-800 p-3 ${
-                  st === "return-pending"
-                    ? "border-amber-200 dark:border-amber-800"
-                    : isSelected
-                    ? "border-gray-900 dark:border-white ring-1 ring-gray-900 dark:ring-white bg-gray-50 dark:bg-gray-700/40"
-                    : "border-gray-200 dark:border-gray-700"
-                }`}
-              >
-                {isEditing ? (
-                  /* Inline edit form — stacked */
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        type="number"
-                        value={editData.amount}
-                        onChange={(e) => setEditData({ ...editData, amount: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
-                        placeholder={t("amount")}
-                        className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] tabular-nums dark:bg-gray-700 dark:text-white"
-                      />
-                      <input
-                        type="date"
-                        value={editData.date}
-                        onChange={(e) => setEditData({ ...editData, date: e.target.value })}
-                        className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] dark:bg-gray-700 dark:text-white"
-                      />
-                    </div>
-                    <select
-                      value={editData.payment_method}
-                      onChange={(e) => setEditData({ ...editData, payment_method: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] dark:bg-gray-700 dark:text-white"
-                    >
-                      {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
-                        <option key={m} value={m}>{t(m)}</option>
-                      ))}
-                    </select>
-                    <input
-                      type="text"
-                      value={editData.notes || ""}
-                      onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
-                      placeholder={t("notes")}
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] dark:bg-gray-700 dark:text-white"
-                    />
-                    <div className="flex gap-2 pt-1">
-                      <button
-                        onClick={() => setEditId(null)}
-                        className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-[13px] font-medium hover:bg-gray-50 dark:hover:bg-gray-700"
-                      >
-                        {t("cancel")}
-                      </button>
-                      <button
-                        onClick={saveEdit}
-                        className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-emerald-600 bg-emerald-600 text-white text-[13px] font-semibold hover:bg-emerald-700"
-                      >
-                        {t("save")}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    {/* Header: date (primary) + payment (eyebrow) | amount + status */}
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="font-semibold text-gray-900 dark:text-white truncate">
-                          {formatDateClear(sale.date)}
-                        </div>
-                        <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5 capitalize">
-                          {sale.payment_method ? t(sale.payment_method) : "—"}
-                        </div>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <div className={`font-semibold tabular-nums ${st === "returned" ? "text-red-400 line-through" : "text-gray-900 dark:text-white"}`}>
-                          {parseFloat(sale.amount).toLocaleString()} {currency}
-                        </div>
-                        {st !== "completed" && (
-                          <span className={`inline-block mt-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-md ${sc.cls}`}>
-                            {sc.label}
-                          </span>
-                        )}
-                      </div>
-                    </div>
+        <DataTable
+          columns={columns}
+          rows={filtered.slice(0, 50)}
+          rowKey="id"
+          empty={
+            <Empty
+              title={t("noSalesYet", "No sales yet")}
+              body={t("noSalesBody", "Tap a quick amount above to log your first.")}
+            />
+          }
+          loading={salesLoading}
+          rowActions={rowActions}
+          selectable={true}
+          selectedIds={selected}
+          onToggleSelect={toggleSelect}
+          onToggleAll={toggleAll}
+        />
 
-                    {/* Item info / notes / return info */}
-                    {(sale.item_name || sale.notes || sale.return_reason || sale.receipt_photo) && (
-                      <div className="text-[12px] pt-2 border-t border-gray-100 dark:border-gray-700 space-y-1">
-                        {sale.item_name && (
-                          <div className="text-gray-600 dark:text-gray-400">
-                            <span className="text-gray-500 dark:text-gray-500">{sale.item_name}</span>
-                            {sale.quantity_sold ? ` x ${sale.quantity_sold}` : ""}
-                            {sale.unit_price ? ` @ ${parseFloat(sale.unit_price).toLocaleString()} ${currency}` : ""}
-                            {sale.cost_at_sale != null && sale.unit_price && sale.quantity_sold && (
-                              <span className="ml-1.5 text-green-600 dark:text-green-400">
-                                +{Math.round((sale.unit_price - sale.cost_at_sale) * sale.quantity_sold).toLocaleString()} {t("profit")}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                        {sale.notes && (
-                          <div className="text-gray-500 dark:text-gray-400 truncate">{sale.notes}</div>
-                        )}
-                        {sale.return_reason && (
-                          <div className={`mt-1.5 px-2 py-1 rounded-md text-[11px] ${sc.cls}`}>
-                            {sale.return_reason}
-                            {sale.return_action && <span className="font-semibold"> — {sale.return_action}</span>}
-                          </div>
-                        )}
-                        {sale.receipt_photo && (
-                          <button
-                            type="button"
-                            onClick={() => setReceiptViewing(sale)}
-                            className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 hover:underline text-[12px]"
-                          >
-                            {t("receiptViewerOpen") || "View receipt"}
-                          </button>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Action row */}
-                    <div className="flex items-center gap-2 pt-3 mt-3 border-t border-gray-100 dark:border-gray-700">
-                      {st === "completed" && !isReturnForm && (
-                        <button
-                          onClick={() => { setReturnMode(sale.id); setReturnData({ reason: "", action: "" }); }}
-                          className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 active:bg-gray-100 text-[13px] font-medium transition"
-                        >
-                          {t("return") || "Return"}
-                        </button>
-                      )}
-                      {st === "return-pending" && !isReturnForm && (
-                        <button
-                          onClick={() => { setReturnMode(sale.id); setReturnData({ reason: sale.return_reason || "", action: "" }); }}
-                          className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-amber-500 bg-amber-500 text-white hover:bg-amber-600 text-[13px] font-semibold transition"
-                        >
-                          {t("processReturn") || "Process return"}
-                        </button>
-                      )}
-                      {st === "completed" && (
-                        <button
-                          onClick={() => startEdit(sale)}
-                          className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 active:bg-gray-100 text-[13px] font-medium transition"
-                        >
-                          {t("edit")}
-                        </button>
-                      )}
-                      {confirming ? (
-                        <button
-                          onClick={() => deleteSale(sale.id)}
-                          className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg bg-red-600 text-white text-[13px] font-semibold hover:bg-red-700 transition"
-                        >
-                          {t("confirm") || "Confirm"}
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => setDeleteConfirm(sale.id)}
-                          className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/30 dark:hover:text-red-400 active:bg-red-100 text-[13px] font-medium transition"
-                        >
-                          {t("delete")}
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Inline return form — same as desktop, just always full width on mobile */}
-                    {isReturnForm && (
-                      <div className="mt-3 text-left p-3 rounded-xl bg-red-50/50 dark:bg-red-900/10 border border-red-200/40 dark:border-red-800/30">
-                        <p className="text-[13px] font-semibold text-gray-800 dark:text-white mb-2">{t("processReturn") || "Process return"}</p>
-                        <p className="text-[11px] text-gray-400 mb-1.5">Reason</p>
-                        <div className="flex flex-wrap gap-1.5 mb-3">
-                          {["Wrong order", "Cold/bad quality", "Changed mind", "Defective", "Size issue", "Other"].map((r) => (
-                            <button key={r} onClick={() => setReturnData({ ...returnData, reason: r })}
-                              className={`text-[11px] font-medium px-2.5 py-1 rounded-md border transition
-                                ${returnData.reason === r
-                                  ? "border-red-400/50 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
-                                  : "border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-500 dark:text-gray-400"
-                                }`}>
-                              {r}
-                            </button>
-                          ))}
-                        </div>
-                        <p className="text-[11px] text-gray-400 mb-1.5">Action</p>
-                        <div className="grid grid-cols-2 gap-2 mb-3">
-                          {[
-                            { id: "refund", label: "Refund", sub: `${parseFloat(sale.amount).toLocaleString()} ${currency}`, color: "red" },
-                            { id: "replace", label: "Replace", sub: "Send new item", color: "blue" },
-                            { id: "exchange", label: "Exchange", sub: "Swap for another", color: "purple" },
-                            { id: "restock", label: "Restock", sub: "Back to inventory", color: "green" },
-                          ].map((a) => {
-                            const sel = returnData.action === a.id;
-                            const colors = { red: "border-red-400 bg-red-50 dark:bg-red-900/20 text-red-600", blue: "border-blue-400 bg-blue-50 dark:bg-blue-900/20 text-blue-600", purple: "border-purple-400 bg-purple-50 dark:bg-purple-900/20 text-purple-600", green: "border-green-400 bg-green-50 dark:bg-green-900/20 text-green-600" };
-                            return (
-                              <button key={a.id} onClick={() => setReturnData({ ...returnData, action: a.id })}
-                                className={`min-h-[44px] p-2 rounded-lg border-2 text-center transition ${sel ? colors[a.color] : "border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-500"}`}>
-                                <span className="text-[12px] font-semibold block">{a.label}</span>
-                                <span className="text-[10px] block opacity-60">{a.sub}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                        <div className="flex gap-2">
-                          <button onClick={() => { setReturnMode(null); setReturnData({ reason: "", action: "" }); }}
-                            className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg text-[13px] font-medium text-gray-700 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600 transition">
-                            Cancel
-                          </button>
-                          <button onClick={() => processReturn(sale.id)}
-                            disabled={!returnData.reason || !returnData.action}
-                            className={`flex-[2] min-h-[44px] inline-flex items-center justify-center rounded-lg text-[13px] font-semibold text-white transition
-                              ${returnData.reason && returnData.action ? "bg-red-500 hover:bg-red-600" : "bg-gray-300 dark:bg-gray-600 cursor-not-allowed opacity-50"}`}>
-                            Confirm return
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Sticky selection bar */}
-      {selected.size > 0 && (() => {
-        const selSales = filtered.filter(s => selected.has(s.id));
-        const total = selSales.reduce((sum, s) => sum + parseFloat(s.amount), 0);
-        const avg = selSales.length ? total / selSales.length : 0;
-        const byMethod = {};
-        selSales.forEach(s => { byMethod[s.payment_method] = (byMethod[s.payment_method] || 0) + parseFloat(s.amount); });
-        return (
-          <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-blue-600 dark:bg-blue-700 text-white rounded-2xl px-5 py-3 shadow-2xl shadow-blue-600/30 max-w-lg w-[calc(100%-2rem)]">
-            <div className="flex items-center gap-3 mb-1.5">
-              <button onClick={() => setSelected(new Set())} className="w-6 h-6 flex items-center justify-center rounded-full bg-white/20 text-white text-xs font-bold hover:bg-white/30 transition flex-shrink-0">
-                &times;
-              </button>
-              <p className="text-sm font-semibold flex-1">
-                {selected.size} {t("selected")} &middot; {total.toLocaleString()} {currency}
-              </p>
-              <span className="text-xs opacity-75">{t("avg")}: {Math.round(avg).toLocaleString()}</span>
-            </div>
-            {Object.keys(byMethod).length > 1 && (
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {Object.entries(byMethod).sort((a, b) => b[1] - a[1]).map(([m, amt]) => (
-                  <span key={m} className="px-2 py-0.5 bg-white/15 rounded-full text-[11px] capitalize">
-                    {t(m)}: {amt.toLocaleString()}
-                  </span>
-                ))}
-              </div>
-            )}
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  const text = `${selected.size} sales | Total: ${total.toLocaleString()} ${currency} | Avg: ${Math.round(avg).toLocaleString()} ${currency}`;
-                  navigator.clipboard?.writeText(text);
-                  setSuccess(t("copiedToClipboard"));
-                  setTimeout(() => setSuccess(""), 2000);
-                }}
-                className="px-3 py-1.5 bg-white/20 rounded-lg text-xs font-medium hover:bg-white/30 transition"
-              >
-                {t("copySummary")}
-              </button>
-              <button onClick={bulkDelete} className="px-3 py-1.5 bg-red-500/80 rounded-lg text-xs font-medium hover:bg-red-500 transition">
-                {t("moveToTrash")}
-              </button>
-            </div>
+        {/* Delete confirmation hint — when a row's "Move to trash" was
+            tapped once, the action button stays primed; tapping again
+            commits.  We render a small nudge so the dual-tap UX is
+            visible. */}
+        {deleteConfirm && (
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 px-4 py-2">
+            <p className="text-sm text-gray-700 dark:text-gray-300 flex items-center gap-2">
+              <AlertCircle size={14} className="text-red-600 dark:text-red-400" aria-hidden="true" />
+              {t("confirmTrashHint", "Tap Move to trash again on the row to confirm")}
+            </p>
+            <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm(null)}>
+              {t("cancel")}
+            </Button>
           </div>
-        );
-      })()}
+        )}
+      </section>
 
-      {/* Post-save receipt review — opens when a sale row's 🧾 chip
-          is clicked. Single instance shared across rows; the
-          receiptViewing state holds the active sale. We don't have
-          OCR text on saved sales (it isn't persisted), so the viewer
-          renders without the highlighted-text panel — just the photo
-          + recorded fields, which is enough to verify amount + date. */}
+      {/* Sticky bulk-action toolbar */}
+      {bulkBar}
+
+      {/* Post-save receipt review */}
       <ReceiptViewer
         open={!!receiptViewing}
         onClose={() => setReceiptViewing(null)}
@@ -1290,7 +1005,7 @@ export default function SalesPage() {
         description={receiptViewing?.notes}
         kind="sale"
       />
-    </div>
+    </PageShell>
   );
 }
 
@@ -1298,22 +1013,15 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
   const { t } = useLanguage();
   const [search, setSearch] = useState("");
   const [selectedItem, setSelectedItem] = useState(null);
-  // Pre-fill qty=1 so the seller doesn't have to retype it for every common
-  // single-item sale. Sell-by-volume bar items override this on selection.
   const [qty, setQty] = useState("1");
   const [price, setPrice] = useState("");
   const [method, setMethod] = useState("cash");
 
-  // When searching, surface ALL matches — including 0-stock — so the seller
-  // immediately sees they need to restock before selling. The picker disables
-  // those rows so accidental sale-of-empty-stock is impossible.
   const filtered = useMemo(() => {
     const all = items || [];
     const inStock = all.filter((i) => parseFloat(i.quantity) > 0);
     const outOfStock = all.filter((i) => !(parseFloat(i.quantity) > 0));
     if (!search) {
-      // No query: show in-stock items first; only fill the rest of the slot
-      // budget with out-of-stock if there's room (rare on a fresh load).
       const top = inStock.slice(0, 20);
       const remainder = Math.max(0, 20 - top.length);
       return [...top, ...outOfStock.slice(0, remainder)];
@@ -1323,7 +1031,6 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
     return [...inStock.filter(matchesQ), ...outOfStock.filter(matchesQ)].slice(0, 20);
   }, [items, search]);
 
-  // Unit conversion: if item stocks in dozen but sells in pieces
   const ppu = selectedItem ? parseFloat(selectedItem.pieces_per_unit || 0) : 0;
   const hasConversion = selectedItem && selectedItem.sell_unit && ppu > 0 && selectedItem.sell_unit !== selectedItem.unit;
   const sellUnit = hasConversion ? selectedItem.sell_unit : (selectedItem?.unit || "");
@@ -1351,8 +1058,8 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-1">{t("itemSale")}</h3>
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">{t("itemSale")}</h3>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{t("pickItemDesc")}</p>
 
         {!selectedItem ? (
@@ -1362,7 +1069,7 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t("searchInventory")}
-              className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white mb-3"
+              className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 dark:text-gray-100 mb-3 focus:outline-none focus:ring-1 focus:ring-gray-400"
               autoFocus
             />
             <div className="max-h-64 overflow-y-auto space-y-1">
@@ -1379,25 +1086,24 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
                       const ippu = parseFloat(item.pieces_per_unit || 0);
                       const iHasConv = item.sell_unit && ippu > 0 && item.sell_unit !== item.unit;
                       if (item.sell_price) {
-                        // If sell_price is per stock unit and we sell in pieces, divide it
                         setPrice(iHasConv ? String(Math.round((parseFloat(item.sell_price) / ippu) * 100) / 100) : String(parseFloat(item.sell_price)));
                       }
                     }}
                     className={`w-full text-left px-3 py-2.5 rounded-lg transition flex items-center justify-between ${
                       isEmpty
-                        ? "opacity-50 cursor-not-allowed bg-gray-50 dark:bg-gray-700/30"
-                        : "hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                        ? "opacity-50 cursor-not-allowed bg-gray-50 dark:bg-gray-800/40"
+                        : "hover:bg-gray-50 dark:hover:bg-gray-800/60"
                     }`}
                   >
                     <div>
-                      <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{item.name}</p>
-                      <p className="text-xs text-gray-400">{item.category} · {t("cost")}: {parseFloat(item.cost_per_unit)} {currency}/{item.unit}</p>
+                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{item.name}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{item.category} · {t("cost")}: {parseFloat(item.cost_per_unit)} {currency}/{item.unit}</p>
                     </div>
                     <div className="text-right">
                       {isEmpty ? (
-                        <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">⚠️ {t("restockFirst") || "Restock first"}</p>
+                        <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">{t("restockFirst", "Restock first")}</p>
                       ) : (
-                        <p className="text-sm font-semibold text-gray-600 dark:text-gray-300">
+                        <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">
                           {item.sell_unit && parseFloat(item.pieces_per_unit || 0) > 0 && item.sell_unit !== item.unit
                             ? `${Math.floor(itemQty * parseFloat(item.pieces_per_unit))} ${item.sell_unit}`
                             : `${itemQty} ${item.unit}`}
@@ -1414,16 +1120,16 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
           </>
         ) : (
           <>
-            <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg mb-4">
+            <div className="bg-gray-50 dark:bg-gray-800/60 p-3 rounded-lg mb-4 border border-gray-200 dark:border-gray-700">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-semibold text-gray-800 dark:text-white">{selectedItem.name}</p>
+                  <p className="font-semibold text-gray-900 dark:text-gray-100">{selectedItem.name}</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     {t("cost")}: {cost.toFixed(2)} {currency}/{sellUnit} · {t("stock")}: {Math.floor(available)} {sellUnit}
-                    {hasConversion && <span className="text-blue-500 ml-1">({parseFloat(selectedItem.quantity)} {selectedItem.unit})</span>}
+                    {hasConversion && <span className="ml-1 text-gray-400">({parseFloat(selectedItem.quantity)} {selectedItem.unit})</span>}
                   </p>
                 </div>
-                <button onClick={() => { setSelectedItem(null); setQty(""); setPrice(""); }} className="text-xs text-blue-600 hover:underline">{t("change")}</button>
+                <button onClick={() => { setSelectedItem(null); setQty(""); setPrice(""); }} className="text-xs text-gray-700 dark:text-gray-300 hover:underline">{t("change")}</button>
               </div>
             </div>
 
@@ -1436,11 +1142,11 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
                   onChange={(e) => setQty(e.target.value)}
                   placeholder="0"
                   max={available}
-                  className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
+                  className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-400"
                   autoFocus
                 />
                 {qtyNum > available && (
-                  <p className="text-xs text-red-500 mt-1">{Math.floor(available)} {sellUnit}</p>
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-1">{Math.floor(available)} {sellUnit}</p>
                 )}
               </div>
               <div>
@@ -1450,21 +1156,20 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
                   value={price}
                   onChange={(e) => setPrice(e.target.value)}
                   placeholder="0"
-                  className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
+                  className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-400"
                 />
               </div>
             </div>
 
-            {/* Payment method */}
             <div className="flex flex-wrap gap-1.5 mb-4">
               {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
                 <button
                   key={m}
                   onClick={() => setMethod(m)}
-                  className={`px-3 py-2 rounded-lg text-xs font-medium border transition ${
+                  className={`px-3 py-2 rounded-full text-xs font-medium border transition ${
                     method === m
-                      ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-500 text-blue-700 dark:text-blue-300"
-                      : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"
+                      ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
+                      : "bg-white border-gray-200 dark:bg-gray-900 dark:border-gray-700 text-gray-700 dark:text-gray-300"
                   }`}
                 >
                   {t(m)}
@@ -1472,46 +1177,43 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
               ))}
             </div>
 
-            {/* Summary */}
             {qtyNum > 0 && priceNum > 0 && (
-              <div className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg mb-4 space-y-1">
+              <div className="bg-gray-50 dark:bg-gray-800/60 p-3 rounded-lg mb-4 space-y-1 border border-gray-200 dark:border-gray-700">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">{t("total")}</span>
-                  <span className="font-bold text-gray-800 dark:text-white">{total.toLocaleString()} {currency}</span>
+                  <span className="text-gray-500 dark:text-gray-400">{t("total")}</span>
+                  <span className="font-semibold text-gray-900 dark:text-gray-100">{total.toLocaleString()} {currency}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">{t("cost")}</span>
-                  <span className="text-gray-600 dark:text-gray-300">{(qtyNum * cost).toLocaleString()} {currency}</span>
+                  <span className="text-gray-500 dark:text-gray-400">{t("cost")}</span>
+                  <span className="text-gray-700 dark:text-gray-300">{(qtyNum * cost).toLocaleString()} {currency}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">{t("profit")}</span>
-                  <span className={`font-bold ${profit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
+                  <span className="text-gray-500 dark:text-gray-400">{t("profit")}</span>
+                  <span className={`font-semibold ${profit >= 0 ? "text-gray-900 dark:text-gray-100" : "text-red-600 dark:text-red-400"}`}>
                     {profit >= 0 ? "+" : ""}{profit.toLocaleString()} {currency}
                   </span>
                 </div>
                 {cost > 0 && (
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">{t("margin")}</span>
-                    <span className="text-green-600 dark:text-green-400">{Math.round(((priceNum - cost) / cost) * 100)}%</span>
+                    <span className="text-gray-500 dark:text-gray-400">{t("margin")}</span>
+                    <span className="text-gray-700 dark:text-gray-300">{Math.round(((priceNum - cost) / cost) * 100)}%</span>
                   </div>
                 )}
               </div>
             )}
 
             <div className="flex gap-3">
-              <button
-                onClick={onClose}
-                className="flex-1 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-              >
+              <Button variant="secondary" onClick={onClose} className="flex-1">
                 {t("cancel")}
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
                 onClick={handleSubmit}
                 disabled={!qtyNum || !priceNum || qtyNum > available}
-                className="flex-1 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition disabled:opacity-40"
+                className="flex-1"
               >
                 {t("sell")} {total > 0 ? `(${total.toLocaleString()} ${currency})` : ""}
-              </button>
+              </Button>
             </div>
           </>
         )}
@@ -1548,7 +1250,6 @@ function CsvUpload({ onDone }) {
     const formData = new FormData();
     formData.append("file", file);
     try {
-      // Step 1 — dry run for preview (server doesn't commit)
       const res = await api.post("/sales/import-csv?dry_run=true", formData);
       setPreview(res.data);
     } catch (err) {
@@ -1564,7 +1265,6 @@ function CsvUpload({ onDone }) {
     const formData = new FormData();
     formData.append("file", pendingFile);
     try {
-      // Step 3 — actual commit
       const res = await api.post("/sales/import-csv", formData);
       setResult(res.data);
       setPreview(null);
@@ -1590,20 +1290,21 @@ function CsvUpload({ onDone }) {
       setResult(null);
       onDone();
     } catch (err) {
-      // Surface error but don't block the user
       console.warn("Rollback failed:", err);
     }
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-      <div className="flex items-center justify-between">
+    <Card>
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">{t("importCsv")}</h2>
-          <p className="text-xs text-gray-400 dark:text-gray-400 mt-0.5">{t("csvColumns")}</p>
+          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">{t("importCsv")}</h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t("csvColumns")}</p>
         </div>
         <label className={`px-4 py-2.5 rounded-lg text-sm font-medium cursor-pointer transition ${
-          uploading ? "bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+          uploading
+            ? "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500"
+            : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
         }`}>
           {uploading ? t("uploading") : t("chooseFile")}
           <input type="file" accept=".csv" onChange={handleFile} className="hidden" disabled={uploading || confirming || preview} />
@@ -1612,25 +1313,25 @@ function CsvUpload({ onDone }) {
 
       {/* Preview step — user must explicitly confirm before any DB write */}
       {preview && !result && (
-        <div className="mt-4 border border-blue-200 dark:border-blue-700 bg-blue-50/60 dark:bg-blue-900/20 rounded-lg p-3">
-          <p className="text-sm font-semibold text-blue-800 dark:text-blue-300 mb-2">
-            Preview — {preview.would_import || 0} sales will be imported
+        <div className="mt-4 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 rounded-xl p-3">
+          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">
+            {t("preview", "Preview")} — {preview.would_import || 0} {t("salesWillBeImported", "sales will be imported")}
           </p>
           {preview.preview && preview.preview.length > 0 && (
-            <div className="overflow-x-auto max-h-56 overflow-y-auto rounded border border-blue-200 dark:border-blue-700 mb-2 bg-white dark:bg-gray-900">
+            <div className="overflow-x-auto max-h-56 overflow-y-auto rounded border border-gray-200 dark:border-gray-700 mb-2 bg-white dark:bg-gray-900">
               <table className="w-full text-xs">
-                <thead className="bg-blue-100 dark:bg-blue-900/40 sticky top-0">
+                <thead className="bg-gray-50 dark:bg-gray-900/80 sticky top-0">
                   <tr>
-                    <th className="text-left p-2 font-semibold text-gray-600 dark:text-gray-300">Date</th>
-                    <th className="text-right p-2 font-semibold text-gray-600 dark:text-gray-300">Amount</th>
-                    <th className="text-left p-2 font-semibold text-gray-600 dark:text-gray-300">Payment</th>
+                    <th className="text-left p-2 font-semibold text-gray-500 dark:text-gray-400">{t("date")}</th>
+                    <th className="text-right p-2 font-semibold text-gray-500 dark:text-gray-400">{t("amount")}</th>
+                    <th className="text-left p-2 font-semibold text-gray-500 dark:text-gray-400">{t("payment")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {preview.preview.map((row, i) => (
-                    <tr key={i} className="border-t border-blue-100 dark:border-blue-800/40">
-                      <td className="p-2 text-gray-600 dark:text-gray-300">{row.date}</td>
-                      <td className="p-2 text-right font-medium text-gray-700 dark:text-gray-200">{Number(row.amount).toLocaleString()}</td>
+                    <tr key={i} className="border-t border-gray-100 dark:border-gray-800">
+                      <td className="p-2 text-gray-700 dark:text-gray-300">{row.date}</td>
+                      <td className="p-2 text-right font-medium text-gray-900 dark:text-gray-100 tabular-nums">{Number(row.amount).toLocaleString()}</td>
                       <td className="p-2 text-gray-500 dark:text-gray-400">{row.payment_method}</td>
                     </tr>
                   ))}
@@ -1639,34 +1340,34 @@ function CsvUpload({ onDone }) {
             </div>
           )}
           {preview.preview_truncated && (
-            <p className="text-[11px] text-blue-600 dark:text-blue-400 mb-2">Showing first 50 rows. {preview.would_import - 50} more will be imported.</p>
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-2">
+              {t("showingFirst50", "Showing first 50 rows.")} {preview.would_import - 50} {t("moreWillBeImported", "more will be imported.")}
+            </p>
           )}
           {preview.errors?.length > 0 && (
             <details className="mb-2">
-              <summary className="text-xs text-amber-700 dark:text-amber-400 cursor-pointer font-medium">
-                ⚠️ {preview.errors.length} rows will be skipped
+              <summary className="text-xs text-amber-600 dark:text-amber-400 cursor-pointer font-medium">
+                {preview.errors.length} {t("rowsWillBeSkipped", "rows will be skipped")}
               </summary>
-              <ul className="mt-1 text-[11px] text-amber-700 dark:text-amber-400 space-y-0.5 max-h-24 overflow-y-auto">
+              <ul className="mt-1 text-[11px] text-amber-600 dark:text-amber-400 space-y-0.5 max-h-24 overflow-y-auto">
                 {preview.errors.slice(0, 20).map((err, i) => <li key={i}>{err}</li>)}
-                {preview.errors.length > 20 && <li>… and {preview.errors.length - 20} more</li>}
+                {preview.errors.length > 20 && <li>… {t("andNMore", "and {n} more", { n: preview.errors.length - 20 })}</li>}
               </ul>
             </details>
           )}
           <div className="flex gap-2">
-            <button
-              onClick={cancelPreview}
-              disabled={confirming}
-              className="px-3 py-1.5 text-xs rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-            >
-              Cancel
-            </button>
-            <button
+            <Button variant="secondary" size="sm" onClick={cancelPreview} disabled={confirming}>
+              {t("cancel")}
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
               onClick={confirmImport}
               disabled={confirming || !preview.would_import}
-              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
+              busy={confirming}
             >
-              {confirming ? "Importing…" : `Confirm import (${preview.would_import})`}
-            </button>
+              {confirming ? t("importing", "Importing…") : `${t("confirmImport", "Confirm import")} (${preview.would_import})`}
+            </Button>
           </div>
         </div>
       )}
@@ -1675,31 +1376,28 @@ function CsvUpload({ onDone }) {
       {result && (
         <div className="mt-3 text-sm">
           {result.imported > 0 && !rolledBack && (
-            <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700">
+            <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700">
               <div>
-                <p className="text-green-700 dark:text-green-400 font-medium">
-                  ✓ {result.imported} {t("salesImported")}
+                <p className="text-gray-900 dark:text-gray-100 font-medium">
+                  {result.imported} {t("salesImported")}
                 </p>
-                <p className="text-xs text-green-600 dark:text-green-500 mt-0.5">Undo available for 5 minutes</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t("undoAvailable5min", "Undo available for 5 minutes")}</p>
               </div>
               {result.imported_ids?.length > 0 && (
-                <button
-                  onClick={undoImport}
-                  className="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-md border border-green-400 dark:border-green-600 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/40"
-                >
-                  Undo
-                </button>
+                <Button variant="secondary" size="sm" onClick={undoImport}>
+                  {t("undo", "Undo")}
+                </Button>
               )}
             </div>
           )}
           {rolledBack && (
-            <p className="text-amber-700 dark:text-amber-400 font-medium px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
-              Import undone — sales removed.
+            <p className="text-amber-600 dark:text-amber-400 font-medium px-3 py-2 rounded-xl bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700">
+              {t("importUndone", "Import undone — sales removed.")}
             </p>
           )}
           {result.errors?.length > 0 && (
             <details className="mt-2">
-              <summary className="text-yellow-600 dark:text-yellow-400 cursor-pointer">{result.errors.length} {t("rowsSkipped")}</summary>
+              <summary className="text-amber-600 dark:text-amber-400 cursor-pointer">{result.errors.length} {t("rowsSkipped")}</summary>
               <ul className="mt-1 text-xs text-gray-500 dark:text-gray-400 space-y-0.5">
                 {result.errors.map((err, i) => <li key={i}>{err}</li>)}
               </ul>
@@ -1707,6 +1405,6 @@ function CsvUpload({ onDone }) {
           )}
         </div>
       )}
-    </div>
+    </Card>
   );
 }

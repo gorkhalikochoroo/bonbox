@@ -88,6 +88,13 @@ from app.routers import push as push_router
 # live tagline on the Starter pricing card. Aggregate-only, tier-gated
 # via accountant_hours_widget.
 from app.routers import accountant_savings as accountant_savings_router
+# 2026-05-25 — Tier 4 Dashboard restructure (Phase F). Pro killer #3
+# behind the GrowthLeverCard slot in Zone 2 — simple SQL aggregation
+# of event/sale patterns surfaces 1-3 ranked growth signals like
+# "Friday events earn 73% more per ticket". Tier-gated on the new
+# `growth_intelligence` PLAN_FEATURE; full 10-layer doctrine in the
+# router module.
+from app.routers import growth_signals as growth_signals_router
 from app.database import engine, Base, get_db
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -2589,6 +2596,17 @@ app.include_router(
     accountant_savings_router.router,
     prefix="/api/accountant-savings",
     tags=["Accountant Savings"],
+)
+# 2026-05-25 — Growth signals (Pro killer #3, Tier 4 Dashboard Phase F).
+# Mounted under /api/dashboard so the new endpoint lands at
+# /api/dashboard/growth-signals — sits alongside /batch, /summary,
+# /daily-brief, etc. on the existing Dashboard surface. Pro-only via
+# the new `growth_intelligence` PLAN_FEATURE; full 10-layer doctrine
+# in the router module.
+app.include_router(
+    growth_signals_router.router,
+    prefix="/api/dashboard",
+    tags=["Dashboard"],
 )
 
 

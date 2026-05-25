@@ -99,10 +99,17 @@ function _setExpanded(v) {
  *                   /connections so dismiss makes no sense there
  *   • onState — optional callback so the parent (ConnectionsPage) can
  *               share the fetched payload without double-fetching
+ *   • hero — Tier 4 Phase D: when true AND messages_this_month > 0,
+ *            render the banner in expanded "hero" mode (no chevron,
+ *            prominent "Review N receipts →" CTA). When false OR count
+ *            is 0, render the existing slim collapsible row. Sudip's
+ *            workflow signal: 5 receipts overnight ⇒ banner shouts;
+ *            0 receipts ⇒ banner whispers.
  */
 export default function InboxBanner({
   dismissable = true,
   onState,
+  hero = false,
 }) {
   const { t } = useLanguage();
   const { user } = useAuth();
@@ -242,6 +249,14 @@ export default function InboxBanner({
   const isNearCap = !isUnlimited && cap > 0 && count >= cap - 1;
   const isAtCap = !isUnlimited && cap > 0 && count >= cap;
 
+  // Tier 4 Phase D hero mode: when the parent flagged this banner as
+  // hero AND we actually have unreviewed receipts, force-expand and
+  // hide the chevron toggle. This is Sudip's workflow signal — when
+  // 5 receipts come in overnight, the banner shouts. When 0, it
+  // whispers via the existing collapsed-row behaviour.
+  const heroMode = hero === true && infraEnabled && count > 0;
+  const isExpanded = heroMode || expanded;
+
   return (
     <div
       className="relative rounded-xl border bg-white dark:bg-gray-800
@@ -249,39 +264,40 @@ export default function InboxBanner({
       role="region"
       aria-label={t("inboxBannerAria", "Receipt-forwarding email inbox")}
     >
-      {/* Collapse/expand toggle — the ONLY control on the banner now.
-          The previous dismiss × was removed (2026-05-25) because users
-          mis-tapped it sitting next to this chevron and lost the alias
-          entirely with no obvious way back. With the slim collapsed
-          row at ~70px, dismiss was never load-bearing — collapse already
-          de-clutters the page. */}
-      <button
-        type="button"
-        onClick={toggleExpanded}
-        aria-label={expanded
-          ? t("inboxCollapse", "Hide receipt inbox details")
-          : t("inboxExpand", "Show receipt inbox details")}
-        aria-expanded={expanded}
-        className="absolute top-3 right-3 w-8 h-8 rounded-full inline-flex items-center justify-center
-                   hover:bg-black/5 dark:hover:bg-white/10 transition
-                   text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200
-                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
-      >
-        {expanded
-          ? <ChevronUp className="w-4 h-4" aria-hidden="true" />
-          : <ChevronDown className="w-4 h-4" aria-hidden="true" />}
-      </button>
+      {/* Collapse/expand toggle — hidden in hero mode (the banner is
+          deliberately load-bearing then, can't be collapsed away). In
+          the default mode, this is the only control on the banner. */}
+      {!heroMode && (
+        <button
+          type="button"
+          onClick={toggleExpanded}
+          aria-label={expanded
+            ? t("inboxCollapse", "Hide receipt inbox details")
+            : t("inboxExpand", "Show receipt inbox details")}
+          aria-expanded={expanded}
+          className="absolute top-3 right-3 w-8 h-8 rounded-full inline-flex items-center justify-center
+                     hover:bg-black/5 dark:hover:bg-white/10 transition
+                     text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200
+                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+        >
+          {expanded
+            ? <ChevronUp className="w-4 h-4" aria-hidden="true" />
+            : <ChevronDown className="w-4 h-4" aria-hidden="true" />}
+        </button>
+      )}
 
-      <div className="flex items-start gap-3 pr-8 sm:pr-10">
+      <div className={"flex items-start gap-3 " + (heroMode ? "" : "pr-8 sm:pr-10")}>
         <div className="shrink-0 p-2 rounded-xl bg-gray-50 dark:bg-gray-800/50">
           <Mail className="w-5 h-5 text-gray-700 dark:text-gray-300"
                 strokeWidth={1.75} aria-hidden="true" />
         </div>
         <div className="flex-1 min-w-0">
           <h3 className="text-[15px] font-semibold text-gray-900 dark:text-gray-100">
-            {infraEnabled
-              ? t("inboxBannerTitle", "Your receipt inbox")
-              : t("inboxBannerTitleSoon", "Receipt inbox · Coming soon")}
+            {heroMode
+              ? t("inboxHeroTitle", "{n} new receipt(s) to review", { n: count })
+              : infraEnabled
+                ? t("inboxBannerTitle", "Your receipt inbox")
+                : t("inboxBannerTitleSoon", "Receipt inbox · Coming soon")}
           </h3>
 
           {/* Alias row — focal element when infra is on; replaced by an
@@ -328,19 +344,49 @@ export default function InboxBanner({
           {/* Description — hidden in collapsed mode to keep the page un-
               cluttered. The alias + status row above remain visible so the
               owner can copy + check count at a glance; the explanation
-              shows when they actually want to learn the flow. */}
-          {expanded && (
+              shows when they actually want to learn the flow. Hero mode
+              forces it expanded so the banner reads as a load-bearing
+              call to action. */}
+          {isExpanded && (
             <p className="mt-3 text-[13.5px] text-gray-700 dark:text-gray-300 leading-relaxed">
-              {infraEnabled
+              {heroMode
                 ? t(
-                    "inboxBannerBody",
-                    "Forward any receipt to this address. We'll OCR it, draft an Expense, and notify you. Stored for 5 years per Bogføringsloven §10 — your revisor sees a complete audit trail.",
+                    "inboxHeroBody",
+                    "Forwarded receipts are waiting as drafts below. Review the amount, vendor, and category — each one becomes a fully audit-trailed expense for your revisor.",
                   )
-                : t(
-                    "inboxBannerBodySoon",
-                    "We're wiring up our inbound email provider. You'll get a personal inbox like the preview above — forward any receipt and BonBox drafts the Expense for you. Stored for 5 years per Bogføringsloven §10 so your revisor has a complete audit trail.",
-                  )}
+                : infraEnabled
+                  ? t(
+                      "inboxBannerBody",
+                      "Forward any receipt to this address. We'll OCR it, draft an Expense, and notify you. Stored for 5 years per Bogføringsloven §10 — your revisor sees a complete audit trail.",
+                    )
+                  : t(
+                      "inboxBannerBodySoon",
+                      "We're wiring up our inbound email provider. You'll get a personal inbox like the preview above — forward any receipt and BonBox drafts the Expense for you. Stored for 5 years per Bogføringsloven §10 so your revisor has a complete audit trail.",
+                    )}
             </p>
+          )}
+
+          {/* Hero "Review N receipts →" CTA. Shown only in hero mode so
+              the banner has a single, obvious next step. We scroll to
+              the recent-expenses section (#bonbox-recent-expenses)
+              which the ExpensesPage anchors. Falls back to /expenses
+              hash navigation when the anchor isn't on the page. */}
+          {heroMode && (
+            <div className="mt-3">
+              <a
+                href="#bonbox-recent-expenses"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg
+                           bg-gray-900 text-white hover:bg-gray-700
+                           dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white
+                           text-[13px] font-semibold transition
+                           focus-visible:outline-none focus-visible:ring-2
+                           focus-visible:ring-gray-400 focus-visible:ring-offset-2
+                           focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800"
+              >
+                {t("inboxHeroReview", "Review {n} receipt(s)", { n: count })}
+                <span aria-hidden="true">→</span>
+              </a>
+            </div>
           )}
 
           {/* Status row — dot + label, optional CTA on the right. */}
@@ -380,7 +426,7 @@ export default function InboxBanner({
                 In collapsed mode the status dot + count is enough; the
                 test button would just add visual weight to a row most
                 owners glance past. */}
-            {infraEnabled && expanded && (
+            {infraEnabled && isExpanded && (
               <button
                 type="button"
                 onClick={onSendTest}

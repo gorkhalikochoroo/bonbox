@@ -513,6 +513,56 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # every tier anyway — the boolean here is the per-user gate,
         # the env var is the infrastructure gate.
         "inbox_email_capture": True,
+        # ── Tier 4 Dashboard restructure (Phase F, 2026-05-25) ────────
+        # Per-card dashboard feature flags. The v2 spec (§9 tier matrix)
+        # gates each surviving Dashboard card via PLAN_FEATURES so the
+        # frontend `dashboardCardSets.js` config can read a single source
+        # of truth via useEntitlements(). Multi-barrier intact — every
+        # Pro-only backend endpoint (e.g. growth_intelligence) still
+        # re-checks server-side via this same module.
+        #
+        # AccountantHoursWidget — retention proof, hidden on Free (the
+        # underlying time-saving only becomes real on Starter+ once
+        # auto-email-on-close + supplier auto-detect kick in).
+        "dashboard_accountant_hours": False,
+        # Business Health composite line — REFACTORED in v2, single line
+        # with a falsifiable verdict + next-best-action. Hidden on Free
+        # because the underlying signal needs ≥10 sales to be honest.
+        "dashboard_business_health": False,
+        # Expiry warnings card — Phase 1 alert-rich layer is Starter+;
+        # Free still sees the /expiry page but no Dashboard card.
+        "dashboard_expiry_warnings": False,
+        # GoalTracker card — Starter+ unlock; Free Dashboard sees the
+        # UpgradeNudge in this slot instead.
+        "dashboard_goal_tracker": False,
+        # OutstandingFakturaCard — Pro-only Zone 1 hero card. Sudip's
+        # #1 cashflow pain has its own surface, not just a Daily Brief
+        # item that can drop off. Rides on top of customer_outreach for
+        # the one-tap "Send reminder" action.
+        "dashboard_outstanding_invoices": False,
+        # TaxAutopilotPreview — Pro-only Zone 3 compliance card. Closes
+        # the loop on tax_filing_pdf with a one-tap "send to revisor".
+        "dashboard_tax_autopilot_preview": False,
+        # TopSellersCard — Starter+ Zone 2. Hidden on Free because the
+        # n=2 threshold from v2 spec wouldn't make sense without inventory
+        # activation (which Free can have but rarely does in week 1).
+        "dashboard_top_sellers": False,
+        # Revenue trend window — tiered by tier. Free=7d, Starter=30d,
+        # Pro=90d. The 7d signal is universal because everyone needs
+        # SOME trend feedback (it's where the "am I growing?" signal
+        # lives), but the deeper windows are the upsell. Read as a
+        # cascade in dashboardCardSets.js — the most-permissive flag
+        # wins (Pro reads 90d ? Pro : 30d ? Starter : 7d).
+        "revenue_trend_7d": True,
+        "revenue_trend_30d": False,
+        "revenue_trend_90d": False,
+        # GrowthLeverCard — NEW Pro killer #3 (Task: growth_signals
+        # endpoint). Backed by SQL aggregation of event/sale patterns;
+        # surfaces 1-3 ranked signals like "Friday events earn 73% more
+        # per ticket — book another Friday". Pro-only because the signal
+        # rides on multi-week data accumulation that Starter users can
+        # see but Free users would mostly see [] for.
+        "growth_intelligence": False,
     },
     "starter": {
         "ai_anomaly_detection": True,
@@ -549,6 +599,18 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "multi_tier_tickets": True,        # Starter+ — adult/student/family pricing
         "cross_event_analytics": False,    # Pro-only — comparison across events
         "inbox_email_capture": True,       # Universal — workflow feature
+        # ── Tier 4 Dashboard restructure (Phase F) — see Free comment ──
+        "dashboard_accountant_hours": True,        # Starter+ — retention card
+        "dashboard_business_health": True,         # Starter+ — composite verdict line
+        "dashboard_expiry_warnings": True,         # Starter+ — Dashboard alert card
+        "dashboard_goal_tracker": True,            # Starter+ — Zone 2 progress card
+        "dashboard_outstanding_invoices": False,   # Pro-only — uses customer_outreach
+        "dashboard_tax_autopilot_preview": False,  # Pro-only — uses tax_autopilot
+        "dashboard_top_sellers": True,             # Starter+ — Zone 2 ranked items
+        "revenue_trend_7d": True,                  # Universal
+        "revenue_trend_30d": True,                 # Starter+ unlocks the 30-day window
+        "revenue_trend_90d": False,                # Pro-only — 90d + confidence band
+        "growth_intelligence": False,              # Pro killer #3 — see Free comment
     },
     "trial": {  # = full Pro
         "ai_anomaly_detection": True,
@@ -585,6 +647,18 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "multi_tier_tickets": True,             # Trial mirrors Pro
         "cross_event_analytics": True,          # Trial mirrors Pro
         "inbox_email_capture": True,            # Universal
+        # ── Tier 4 Dashboard restructure (Phase F) — trial mirrors Pro ──
+        "dashboard_accountant_hours": True,
+        "dashboard_business_health": True,
+        "dashboard_expiry_warnings": True,
+        "dashboard_goal_tracker": True,
+        "dashboard_outstanding_invoices": True,
+        "dashboard_tax_autopilot_preview": True,
+        "dashboard_top_sellers": True,
+        "revenue_trend_7d": True,
+        "revenue_trend_30d": True,
+        "revenue_trend_90d": True,              # Trial mirrors Pro — 90d window
+        "growth_intelligence": True,            # Trial mirrors Pro — growth signals
     },
     "pro": {
         "ai_anomaly_detection": True,
@@ -621,6 +695,18 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "multi_tier_tickets": True,        # Starter+ — same on Pro
         "cross_event_analytics": True,     # Pro killer for kulturarrangører
         "inbox_email_capture": True,       # Universal
+        # ── Tier 4 Dashboard restructure (Phase F) — Pro unlocks all ──
+        "dashboard_accountant_hours": True,        # Starter+ — same on Pro
+        "dashboard_business_health": True,         # Starter+ — same on Pro
+        "dashboard_expiry_warnings": True,         # Starter+ — same on Pro
+        "dashboard_goal_tracker": True,            # Starter+ — same on Pro
+        "dashboard_outstanding_invoices": True,    # Pro-only — Sudip's cashflow card
+        "dashboard_tax_autopilot_preview": True,   # Pro-only — closes loop on tax_filing_pdf
+        "dashboard_top_sellers": True,             # Starter+ — same on Pro
+        "revenue_trend_7d": True,                  # Universal
+        "revenue_trend_30d": True,                 # Starter+
+        "revenue_trend_90d": True,                 # Pro killer — 90d + confidence band
+        "growth_intelligence": True,               # Pro killer #3 — growth signals
     },
 }
 

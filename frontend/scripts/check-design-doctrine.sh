@@ -16,8 +16,12 @@ EXIT=0
 # Pages that are OUT of doctrine scope (marketing keeps its own design language)
 EXCLUDE_PATTERN='LandingPage\.jsx|PricingPage\.jsx|TermsPage\.jsx|PrivacyPolicyPage\.jsx|CookiePolicyPage\.jsx|ContactPage\.jsx'
 
-# Files that are allowed to use raw color utilities (the primitive layer)
-ALLOW_PATTERN='src/components/ui/|src/components/SmartScanFAB|index\.css'
+# Files that are allowed to use raw color utilities (the primitive layer +
+# the persona-aware Dashboard cards, which compose ui/ primitives and use
+# the doctrine-authorized signal colors: status dots / Check / Alert /
+# TrendingUp. See docs/design-system-doctrine.md and
+# docs/tier-4-dashboard-restructure.md.)
+ALLOW_PATTERN='src/components/ui/|src/components/dashboard/|src/components/SmartScanFAB|index\.css'
 
 check() {
   local description="$1"

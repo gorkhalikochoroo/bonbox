@@ -1,47 +1,37 @@
-// Task #120 polish (Agent E): migrated H1 → PageHeader, KPI cards →
-// StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
-// + i18n + a11y unchanged.
-import { useState, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+// Tier 4 — DashboardPage (v2) — persona-aware 3-zone shell.
+//
+// Phase B wiring: this file is the thin orchestrator. It fetches data,
+// derives the `ctx` object, and hands it (with a component `registry`)
+// to the declarative <DashboardZones> primitive shipped in Phase A.
+//
+// All the inline card components that used to live here have been
+// extracted to `components/dashboard/` so this file stays at orchestrator
+// scope. See `docs/tier-4-dashboard-restructure.md` for the v2 spec and
+// `docs/design-system-doctrine.md` for the color / component discipline
+// every extracted card already follows.
+//
+// What still lives in DashboardPage:
+//   1. Data fetching (the same `/dashboard/batch` call as before).
+//   2. The `ctx` memo — assembled from existing state hooks so the
+//      declarative config can drive rendering without each card
+//      doing its own fetch.
+//   3. The component `REGISTRY` — string -> React component lookup the
+//      orchestrator uses to render zones.
+//   4. PageHeader (kept the surgical 2-CTA + overflow pattern from the
+//      previous pass).
+//   5. Loading skeleton matching the zone shape.
+//   6. First-run state — replaces the full dashboard.
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import { MoreHorizontal } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { useEntitlements } from "../hooks/useEntitlements";
 import api from "../services/api";
-import { PageHeader, Button as UIButton, SectionBanner, StatCard, Icon } from "../components/ui";
+import { PageHeader, Button, UpgradeNudge } from "../components/ui";
+import PageShell from "../components/ui/PageShell";
 import { trackEvent } from "../hooks/useEventLog";
-import { safeImageUrl } from "../utils/safeUrl";
-import ReceiptCapture from "../components/ReceiptCapture";
-import InsightsCard from "../components/InsightsCard";
-// TrialBanner was the old full-width stripe — replaced by the
-// compact <TrialChip> living in the Layout sidebar. The component
-// file still exists for backward-compat but is no longer mounted
-// anywhere by default.
-import Onboarding from "../components/Onboarding";
-import DailyBriefCard from "../components/DailyBriefCard";
-import SickCallNotificationCard from "../components/SickCallNotificationCard";
-import SwapRequestNotificationCard from "../components/SwapRequestNotificationCard";
-import SmartDriftBanner from "../components/SmartDriftBanner";
-import MonthEndBundleBanner from "../components/MonthEndBundleBanner";
-import FirstRunWizard from "../components/FirstRunWizard";
-import BranchSummaryCard from "../components/BranchSummaryCard";
-import ScheduleConfirmationCard from "../components/ScheduleConfirmationCard";
-import SmartSaleInput from "../components/SmartSaleInput";
-import AnomalyAlertsCard from "../components/AnomalyAlertsCard";
-import DismissibleTip from "../components/DismissibleTip";
-import CloserPromptCard from "../components/CloserPromptCard";
-import TrialFinalStretchTip from "../components/TrialFinalStretchTip";
-import MomsCountdownCard from "../components/MomsCountdownCard";
-// 2026-05-24 — Accountant Hours Saved widget. Lives in the top row of
-// value tiles right below the MOMS countdown so the "we save you revisor
-// hours" pitch sits next to the "MOMS due in N days" anxiety reducer —
-// the two strongest stress-down tiles travel together.
-import AccountantHoursWidget from "../components/AccountantHoursWidget";
-import ExpiryAlertsCard from "../components/ExpiryAlertsCard";
-import ConnectionsProgressCard from "../components/ConnectionsProgressCard";
-import PushOptInPrompt from "../components/PushOptInPrompt";
-import DemoDataCard from "../components/DemoDataCard";
-import DemoActiveBanner from "../components/DemoActiveBanner";
 import {
-  AnimatedCounter,
   SkeletonCard,
   SkeletonChart,
   useToast,
@@ -50,1391 +40,101 @@ import {
   QuickSaleModal,
   PullToRefresh,
 } from "../components/BonBoxPolishKit";
-import { FadeIn, StaggerGrid, StaggerGridItem, AnimatedCard, TabContent } from "../components/AnimationKit";
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  AreaChart, Area,
-  BarChart, Bar, Cell, ReferenceLine,
-} from "recharts";
+import ReceiptCapture from "../components/ReceiptCapture";
+import SmartSaleInput from "../components/SmartSaleInput";
 import { displayCurrency, getTaxConfig } from "../utils/currency";
-import { formatDateShort, localIso } from "../utils/dateFormat";
+import { localIso } from "../utils/dateFormat";
+
+// ── Phase A artifacts + extracted zone cards ──
+import DashboardZones from "../components/dashboard/DashboardZones";
+import KpiStrip from "../components/dashboard/KpiStrip";
+import AllClearCard from "../components/dashboard/AllClearCard";
+import OutstandingFakturaCard from "../components/dashboard/OutstandingFakturaCard";
+import ComplianceCountdownCard from "../components/dashboard/ComplianceCountdownCard";
+import GrowthLeverCard from "../components/dashboard/GrowthLeverCard";
+import FirstRunCollapsedDashboard from "../components/dashboard/FirstRunCollapsedDashboard";
+import BusinessHealthCard from "../components/dashboard/BusinessHealthCard";
+import RevenueTrendChart from "../components/dashboard/RevenueTrendChart";
+import ProfitLossCard from "../components/dashboard/ProfitLossCard";
+import GoalTracker from "../components/dashboard/GoalTracker";
+import PaymentBreakdownCard from "../components/dashboard/PaymentBreakdownCard";
+import TopSellersCard from "../components/dashboard/TopSellersCard";
+import InventoryPanel from "../components/dashboard/InventoryPanel";
+import AlertsPanel from "../components/dashboard/AlertsPanel";
+import {
+  DASHBOARD_CARD_SET,
+  getArchetype,
+  deriveActivations,
+} from "../config/dashboardCardSets";
+
+// ── Existing app-level components referenced by the card-set config ──
+import DailyBriefCard from "../components/DailyBriefCard";
+import AccountantHoursWidget from "../components/AccountantHoursWidget";
+import SmartDriftBanner from "../components/SmartDriftBanner";
+import DemoActiveBanner from "../components/DemoActiveBanner";
+import TrialBanner from "../components/TrialBanner";
+import PushOptInPrompt from "../components/PushOptInPrompt";
+import MonthEndBundleBanner from "../components/MonthEndBundleBanner";
+import CloserPromptCard from "../components/CloserPromptCard";
+import SmartStaffingCard from "../components/SmartStaffingCard";
+import ExpiryAlertsCard from "../components/ExpiryAlertsCard";
+
+// ExpiryWarningsCard is the spec name; the existing component is
+// ExpiryAlertsCard. Aliased so the registry id matches the config.
+const ExpiryWarningsCard = ExpiryAlertsCard;
 
 /* ═══════════════════════════════════════════════════════════
-   CONSTANTS
-   ═══════════════════════════════════════════════════════════ */
-
-const PERIODS = ["today", "thisWeek", "thisMonth", "last30"];
-
-function getDateRange(period) {
-  const now = new Date();
-  const fmt = (d) => localIso(d);
-  const today = fmt(now);
-  switch (period) {
-    case "today": return { from: today, to: today };
-    case "thisWeek": { const d = new Date(now); d.setDate(d.getDate() - (d.getDay() === 0 ? 6 : d.getDay() - 1)); return { from: fmt(d), to: today }; }
-    case "thisMonth": return { from: fmt(new Date(now.getFullYear(), now.getMonth(), 1)), to: today };
-    case "last30": { const d = new Date(now); d.setDate(d.getDate() - 30); return { from: fmt(d), to: today }; }
-    default: return { from: "", to: "" };
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════
-   MINI SPARKLINE — tiny inline chart for KPI cards
-   ═══════════════════════════════════════════════════════════ */
-
-function MiniSparkline({ data, color = "#22C55E", height = 32 }) {
-  if (!data || data.length < 2) return null;
-  return (
-    <ResponsiveContainer width="100%" height={height}>
-      <AreaChart data={data.map((v, i) => ({ v, i }))}>
-        <defs>
-          <linearGradient id={`spark-${color.replace("#", "")}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity={0.3} />
-            <stop offset="100%" stopColor={color} stopOpacity={0} />
-          </linearGradient>
-        </defs>
-        <Area type="monotone" dataKey="v" stroke={color} strokeWidth={1.5} fill={`url(#spark-${color.replace("#", "")})`} dot={false} isAnimationActive={false} />
-      </AreaChart>
-    </ResponsiveContainer>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   KPI CARD — StatCard-shaped chrome + sparkline + change indicator
+   COMPONENT REGISTRY — string id → React component
    ───────────────────────────────────────────────────────────
-   Aligned with the `<StatCard>` primitive so the dashboard KPI row
-   reads the same as every other page in the app. Previously this
-   used `rounded-2xl`, hover-scale, a gradient on `highlight`, a red
-   border on `alert`, and a blue "New day" pill — all violations of
-   the gray-* / emerald-money-moment DNA.
-
-   Now:
-     • `rounded-xl border border-gray-200 bg-white` (Card recipe)
-     • No shadow, no scale, no gradient
-     • `highlight` (revenue KPI) keeps a quiet emerald accent on the
-       value number ONLY — same trick StatCard's accent="success" uses.
-     • Sparkline is data, not chrome, so it stays. Emerald when trend
-       is up / neutral; red when trend is materially down.
+   The card-set config references components by string name (keeps the
+   config import-free of React). DashboardZones / PageNotices look them
+   up here. Order grouped by zone so it's easy to see what each zone has.
    ═══════════════════════════════════════════════════════════ */
 
-function KpiCard({ title, numericValue, value, currency: cur, change, changeLabel, subtitle, alert, sparkData, onClick, highlight }) {
-  const isPositive = change >= 0;
-  const showChange = change !== undefined && change !== null && Math.abs(change) <= 500;
-  const isNew = change !== undefined && (change === -100 || Math.abs(change) > 500);
+const REGISTRY = {
+  // ── Notices ──
+  SmartDriftBanner,
+  DemoActiveBanner,
+  TrialBanner,
+  PushOptInPrompt,
 
-  // Surface — matches the StatCard recipe exactly. The `alert` prop is
-  // semantically "this number is bad news" — a critical-state KPI gets
-  // a red value but the chrome stays neutral so a row of mixed-state
-  // tiles still reads as one block.
-  const surface =
-    "rounded-xl border border-gray-200 bg-white dark:bg-gray-900 dark:border-gray-800";
+  // ── Zone 1 ──
+  OutstandingFakturaCard,
+  MonthEndBundleBanner,
+  DailyBriefCard,
+  KpiStrip,
+  AccountantHoursWidget,
+  ComplianceCountdownCard,
 
-  // Value color — emerald ONLY for the revenue/money-moment KPI
-  // (highlight=true). Critical KPI gets red. Everything else stays
-  // gray-900 so the dashboard doesn't paint every tile a different color.
-  const valueClass = highlight
-    ? "text-emerald-600 dark:text-emerald-400"
-    : alert
-      ? "text-red-600 dark:text-red-400"
-      : "text-gray-900 dark:text-gray-100";
+  // ── Zone 2 ──
+  RevenueTrendChart,
+  ProfitLossCard,
+  GoalTracker,
+  BusinessHealthCard,
+  PaymentBreakdownCard,
+  TopSellersCard,
+  GrowthLeverCard,
+  UpgradeNudge,
 
-  return (
-    <button
-      onClick={onClick}
-      className={
-        "relative overflow-hidden p-4 sm:p-5 text-left w-full transition cursor-pointer " +
-        "hover:bg-gray-50 hover:border-gray-300 dark:hover:bg-gray-800/60 dark:hover:border-gray-700 " +
-        "focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 " +
-        "focus-visible:ring-offset-1 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-950 active:scale-[0.99] " +
-        surface
-      }
-    >
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{title}</p>
-      </div>
+  // ── Zone 3 ──
+  InventoryPanel,
+  ExpiryWarningsCard,
+  SmartStaffingCard,
+  AlertsPanel,
+  CloserPromptCard,
+  AllClearCard,
 
-      <div className="flex items-baseline gap-1.5 mt-1">
-        <span className={`text-[26px] font-bold tabular-nums leading-tight ${valueClass}`}>
-          {numericValue !== undefined ? <AnimatedCounter value={numericValue} /> : value}
-        </span>
-        {cur && <span className="text-sm font-medium text-gray-400 dark:text-gray-500">{cur}</span>}
-      </div>
-
-      <div className="flex items-center gap-2 mt-1">
-        {showChange && (
-          // Change badge — emerald means revenue grew, red means it shrank.
-          // Quiet pill (gray-50 bg) so it doesn't compete with the value.
-          <span className={`inline-flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded-md tabular-nums
-            ${isPositive
-              ? "text-emerald-600 dark:text-emerald-400 bg-gray-50 dark:bg-gray-800/60"
-              : "text-red-600 dark:text-red-400 bg-gray-50 dark:bg-gray-800/60"
-            }`}>
-            {isPositive ? "▲" : "▼"} {Math.abs(change)}%
-          </span>
-        )}
-        {/* "New day" pill — quiet gray, not blue. The old blue here was
-            the only blue on the dashboard chrome and read as a bug. */}
-        {isNew && <span className="text-[11px] text-gray-500 dark:text-gray-400 font-medium">New day</span>}
-        {changeLabel && <span className="text-[11.5px] text-gray-500 dark:text-gray-400">{changeLabel}</span>}
-        {subtitle && !changeLabel && <span className="text-[11.5px] text-gray-500 dark:text-gray-400">{subtitle}</span>}
-      </div>
-
-      {/* Sparkline — kept because it's data, not chrome. Emerald when
-          trend is up / unknown (default), red when materially down. */}
-      {sparkData && sparkData.length > 1 && (
-        <div className="mt-2 -mx-1">
-          <MiniSparkline data={sparkData} color={isPositive || change === undefined ? "#10B981" : "#EF4444"} height={28} />
-        </div>
-      )}
-    </button>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   REVENUE TREND — gradient filled line with avg reference
-   ═══════════════════════════════════════════════════════════ */
-
-function RevenueTrendChart({ data, currency, onNavigate }) {
-  const { t } = useLanguage();
-  // Empty state — instead of returning null and creating a sparse dashboard
-  // for new users, render the card chrome with a friendly CTA. The card
-  // structure stays consistent across loading / empty / populated states.
-  if (!data || data.length === 0) {
-    return (
-      <div
-        onClick={onNavigate}
-        className="bg-white dark:bg-gray-800 rounded-xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
-      >
-        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
-          {t("revenueTrend", "Revenue trend")}
-        </h3>
-        <div className="h-40 flex flex-col items-center justify-center text-center">
-          <div className="text-3xl mb-2">📈</div>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            {t("revenueTrendEmpty", "Log your first sale to start the chart.")}
-          </p>
-        </div>
-      </div>
-    );
-  }
-  const avg = Math.round(data.reduce((s, d) => s + d.amount, 0) / data.length);
-
-  return (
-    <div
-      onClick={onNavigate}
-      className="bg-white dark:bg-gray-800 rounded-xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
-    >
-      <div className="flex items-start justify-between mb-4">
-        <div>
-          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("revenueTrend")}</h3>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{t("dailyRevenueAvgDesc")}</p>
-        </div>
-        <div className="flex items-center gap-4 text-xs text-gray-400">
-          <span className="flex items-center gap-1.5">
-            <span className="w-3 h-0.5 bg-green-500 rounded-full inline-block" /> Daily
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-3 h-0 border-t border-dashed border-gray-400 inline-block" style={{ width: 12 }} /> Avg {avg.toLocaleString()}
-          </span>
-        </div>
-      </div>
-      <ResponsiveContainer width="100%" height={240}>
-        <AreaChart data={data}>
-          <defs>
-            <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#22C55E" stopOpacity={0.15} />
-              <stop offset="100%" stopColor="#22C55E" stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(156,163,175,0.15)" />
-          <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#9CA3AF" }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fontSize: 11, fill: "#9CA3AF" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
-          <Tooltip
-            contentStyle={{ background: "rgba(17,24,39,0.95)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, color: "#f1f1f1", fontSize: 13 }}
-            formatter={(v) => [`${v.toLocaleString()} ${currency}`, "Revenue"]}
-          />
-          <ReferenceLine y={avg} stroke="rgba(156,163,175,0.4)" strokeDasharray="5 5" />
-          <Area type="monotone" dataKey="amount" stroke="#22C55E" strokeWidth={2} fill="url(#revenueGrad)" dot={false} activeDot={{ r: 4, fill: "#22C55E" }} />
-        </AreaChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   UNIFIED FORECAST + WEATHER + STAFFING — the killer panel
-   ═══════════════════════════════════════════════════════════ */
-
-const WEATHER_ICONS = { clear: "☀️", cloudy: "☁️", rain: "🌧️", drizzle: "🌦️", snow: "❄️", storm: "⛈️", fog: "🌫️" };
-const CONDITION_ICON = (c) => WEATHER_ICONS[c] || "⛅";
-
-// Translate backend-supplied day name (always English) to current locale's 3-char abbrev
-const translateDayShort = (day, t) => {
-  if (!day) return "";
-  const key = day.slice(0, 3).toLowerCase(); // mon/tue/wed/thu/fri/sat/sun
-  const translated = t("day_" + key + "_short");
-  // Fall back to original 3-char slice if no translation key set
-  return translated && translated !== "day_" + key + "_short" ? translated : day.slice(0, 3);
+  // ── Full-page replacement states ──
+  FirstRunCollapsedDashboard,
 };
 
-function ForecastWeatherStaffing({ forecast, weather, staffing, currency, onNavigate }) {
-  const { t } = useLanguage();
-  const [sel, setSel] = useState(null);
-  // Empty state — the forecast service can be unavailable on a fresh
-  // tenant (no historical data to forecast from) or during an outage.
-  // Previously the whole card vanished silently; now we keep the chrome
-  // and explain. Owners want to know the section EXISTS.
-  if (!forecast?.forecast?.length) {
-    return (
-      <div className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800">
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
-          <Icon name="Telescope" size={18} className="text-gray-500 dark:text-gray-400" />
-          {t("forecastWeather", "Next 7 days — forecast & weather")}
-        </h3>
-        <div className="py-6 text-center">
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            {t(
-              "forecastEmpty",
-              "Log a few weeks of sales and we'll forecast revenue, weather, and staffing here.",
-            )}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  const data = forecast.forecast;
-  const total = forecast.total_predicted || data.reduce((s, f) => s + f.predicted_revenue, 0);
-  const weekendDays = ["Fri", "Sat", "Sun", "Friday", "Saturday", "Sunday"];
-  const maxRev = Math.max(...data.map((f) => f.predicted_revenue));
-
-  // Match weather/staffing by day index
-  const weatherDays = weather?.days || [];
-  const staffDays = staffing?.recommendations || [];
-
-  const selected = sel !== null ? data[sel] : null;
-  const selWeather = sel !== null ? weatherDays[sel] : null;
-  const selStaff = sel !== null ? staffDays[sel] : null;
-
-  // Trend direction icon — Lucide outline so it sits in the same rhythm
-  // as the rest of the page. Previously emoji (📈📉📊) which broke
-  // cross-platform consistency and contrasted oddly with neutral text.
-  const trendIconName =
-    forecast.trend_direction === "up"
-      ? "TrendingUp"
-      : forecast.trend_direction === "down"
-      ? "TrendingDown"
-      : "LineChart";
-  const trendLabel =
-    forecast.trend_direction === "up"
-      ? t("trendUp")
-      : forecast.trend_direction === "down"
-      ? t("trendDown")
-      : t("trendStable");
-
-  return (
-    // Neutral surface — rounded-xl, gray-200 border, no shadow. The
-    // interactive bars below are chart fills (data, not chrome) so they
-    // keep their blue. Chrome typography stays gray-* for restraint.
-    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
-      {/* Header + Bars */}
-      <div className="p-5 sm:p-6 pb-0">
-        <div className="flex items-start justify-between mb-2">
-          <div>
-            <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("revenueForecastTitle")}</h3>
-            <p className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              <span>{t("nextDays")} &bull; {forecast.confidence || 95}% {t("confidence")}</span>
-              <span aria-hidden="true">&bull;</span>
-              <Icon name={trendIconName} size={14} className="text-gray-500 dark:text-gray-400" />
-              <span>{trendLabel}</span>
-            </p>
-          </div>
-          <div className="text-right flex-shrink-0">
-            {/* Total — primary number, no decorative blue. Same gray-900
-                hierarchy other surfaces use. */}
-            <p className="text-lg font-bold tabular-nums text-gray-900 dark:text-gray-100">{total.toLocaleString()} {currency}</p>
-          </div>
-        </div>
-
-        {/* Interactive bars — bar fill colors are data (forecast revenue
-            chart), kept as recharts-equivalent series fills. */}
-        <div className="flex items-end gap-1.5 sm:gap-2 mt-4" style={{ height: 100 }}>
-          {data.map((f, i) => {
-            const isActive = sel === i;
-            const isWeekend = weekendDays.some((d) => f.day?.startsWith(d));
-            const barH = maxRev > 0 ? (f.predicted_revenue / maxRev) * 85 : 10;
-            return (
-              <div key={i} onClick={() => setSel(isActive ? null : i)}
-                className="flex-1 flex flex-col items-center gap-1 cursor-pointer group">
-                <span className={`text-[10px] font-medium tabular-nums transition-colors ${isActive ? "text-gray-900 dark:text-gray-100" : "text-gray-400"}`}>
-                  {(f.predicted_revenue / 1000).toFixed(1)}k
-                </span>
-                <div
-                  className="w-full rounded-t-md transition-all duration-200"
-                  style={{
-                    height: barH,
-                    background: isActive ? "#3B82F6" : isWeekend ? "rgba(59,130,246,0.6)" : "rgba(59,130,246,0.25)",
-                    boxShadow: isActive ? "0 -4px 14px rgba(59,130,246,0.3)" : "none",
-                    transform: isActive ? "scaleY(1.05)" : "scaleY(1)",
-                    transformOrigin: "bottom",
-                  }}
-                />
-                {/* Weekend day labels: emphasis via bold, never via color.
-                    Active day jumps to gray-900 (same selected-state
-                    treatment used elsewhere in the app). */}
-                <span className={`text-[11px] ${isActive ? "font-semibold text-gray-900 dark:text-gray-100" : isWeekend ? "font-semibold text-gray-700 dark:text-gray-200" : "font-medium text-gray-500 dark:text-gray-400"}`}>
-                  {translateDayShort(f.day, t)}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Weather row — emoji condition icons are data (which weather is
-          forecasted), so they stay. Temperature numbers also stay tinted
-          because the color IS the data (cold blue vs warm orange — a
-          glanceable scale, not decoration). */}
-      {weatherDays.length > 0 && (
-        <div className="px-5 sm:px-6 py-2 border-t border-gray-200 dark:border-gray-800">
-          <div className="flex gap-1">
-            {weatherDays.slice(0, 7).map((w, i) => {
-              const isActive = sel === i;
-              const temp = Math.round(w.temp_max || w.temp || 0);
-              return (
-                <div key={i} onClick={() => setSel(isActive ? null : i)}
-                  className={`flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-lg cursor-pointer transition ${isActive ? "bg-gray-100 dark:bg-gray-800/60" : ""}`}>
-                  <span className="text-sm">{CONDITION_ICON(w.condition)}</span>
-                  {/* Temperature: the color encodes the data (cold→warm
-                      scale), so the gradient stays. The mid-range slate-
-                      600 was the readability fix from the previous polish
-                      pass — keeping it. */}
-                  <span className={`text-[11px] font-semibold tabular-nums ${
-                    temp >= 18 ? "text-orange-500 dark:text-orange-400"
-                    : temp >= 14 ? "text-emerald-600 dark:text-emerald-400"
-                    : temp >= 4 ? "text-slate-600 dark:text-slate-300"
-                    : "text-blue-500 dark:text-blue-400"
-                  }`}>{temp}°</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Staffing row — dot colors and headcount color are data viz
-          (busy/normal/quiet = recommended staff scale). Chrome borders
-          shift to gray-200 to match the surface. */}
-      {staffDays.length > 0 && (
-        <div className="px-5 sm:px-6 py-2.5 border-t border-gray-200 dark:border-gray-800">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">{t("smartStaffing")}</span>
-            <span className="text-[10px] text-gray-500 dark:text-gray-400">{t("recommendedHeadcount")}</span>
-          </div>
-          <div className="flex gap-1">
-            {staffDays.slice(0, 7).map((s, i) => {
-              const isActive = sel === i;
-              const level = s.business_level || "Normal";
-              const color = level === "Busy" ? "#EF4444" : level === "Normal" ? "#F59E0B" : "#3B82F6";
-              return (
-                <div key={i} onClick={() => setSel(isActive ? null : i)}
-                  className={`flex-1 flex flex-col items-center gap-1 py-1.5 rounded-lg cursor-pointer transition ${isActive ? "bg-gray-100 dark:bg-gray-800/60" : ""}`}>
-                  <div className="flex flex-col items-center gap-0.5">
-                    {Array.from({ length: s.recommended_staff || 3 }, (_, j) => (
-                      <div key={j} className="w-1.5 h-1.5 rounded-full" style={{ background: color, opacity: 0.5 + (j / (s.recommended_staff || 3)) * 0.5 }} />
-                    ))}
-                  </div>
-                  <span className="text-[11px] font-bold tabular-nums" style={{ color }}>{s.recommended_staff || 3}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Detail panel when a day is selected */}
-      {selected && (
-        <div className="px-5 sm:px-6 py-3 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/40">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{translateDayShort(selected.day, t)}</span>
-              {selWeather && <span className="text-sm text-gray-700 dark:text-gray-200">{CONDITION_ICON(selWeather.condition)} {Math.round(selWeather.temp_max || 0)}°</span>}
-            </div>
-            {selStaff && (
-              // Business-level pill — only "Busy" gets the red accent
-              // (data-meaningful: needs more staff). Other levels stay
-              // neutral instead of inventing a blue chrome accent.
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tabular-nums
-                ${selStaff.business_level === "Busy"
-                  ? "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400"
-                  : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
-                }`}>
-                {selStaff.business_level === "Busy" ? t("busy") : selStaff.business_level === "Quiet" || selStaff.business_level === "Slow" ? t("slow") : t("normal")}
-              </span>
-            )}
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <p className="text-[10px] text-gray-500 dark:text-gray-400">{t("revenue")}</p>
-              <p className="text-sm font-bold tabular-nums text-gray-900 dark:text-gray-100">{selected.predicted_revenue.toLocaleString()}</p>
-            </div>
-            {selStaff && (
-              <div>
-                <p className="text-[10px] text-gray-500 dark:text-gray-400">{t("staffShort")}</p>
-                {/* Staff count is data, not a money-moment — neutral gray. */}
-                <p className="text-sm font-bold tabular-nums text-gray-900 dark:text-gray-100">{selStaff.recommended_staff} {t("peopleAbbrev")}</p>
-              </div>
-            )}
-            {selWeather && (
-              <div>
-                <p className="text-[10px] text-gray-500 dark:text-gray-400">{t("precip")}</p>
-                <p className="text-sm font-bold tabular-nums text-gray-700 dark:text-gray-200">{selWeather.precipitation || 0}mm</p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {!selected && (
-        <div className="px-5 sm:px-6 py-2 border-t border-gray-200 dark:border-gray-800">
-          <p className="text-center text-[11px] text-gray-500 dark:text-gray-400 py-1 border border-dashed border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer" onClick={onNavigate}>
-            {t("tapDayForDetails")} &bull; {t("viewFullForecast")} →
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* ═══════════════════════════════════════════════════════════
-   INVENTORY PANEL — with days-left, expiry, reorder
+   HELPERS
    ═══════════════════════════════════════════════════════════ */
 
-function InventoryPanel({ items, currency, onNavigate }) {
-  const { t } = useLanguage();
-  const [filter, setFilter] = useState("all");
-  // Empty state — same card chrome, friendly CTA. New users without
-  // inventory should still see the section so they know it exists.
-  if (!items || items.length === 0) {
-    return (
-      <div
-        onClick={onNavigate}
-        className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition"
-      >
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
-          <Icon name="Boxes" size={18} className="text-gray-500 dark:text-gray-400" />
-          {t("inventory", "Inventory")}
-        </h3>
-        <div className="py-6 text-center">
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            {t("inventoryEmpty", "Add items to track stock, reorders, and expiry dates.")}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // Process items
-  const processed = items.map((it) => {
-    const qty = parseFloat(it.quantity) || 0;
-    const min = parseFloat(it.min_threshold) || 0;
-    const cost = parseFloat(it.cost_per_unit) || 0;
-    const isLow = qty <= min;
-    const stockPct = min > 0 ? (qty / (min * 2)) * 100 : 100;
-    // Expiry
-    let daysToExpiry = 999;
-    if (it.expiry_date) {
-      const exp = new Date(it.expiry_date);
-      daysToExpiry = Math.ceil((exp - new Date()) / 86400000);
-    }
-    const isExpiring = daysToExpiry <= 3;
-    const urgency = isLow ? (qty <= min * 0.5 ? 3 : 2) : isExpiring ? 2 : 0;
-    const status = urgency >= 2 ? "critical" : isLow || isExpiring ? "warning" : "ok";
-    return { ...it, qty, min, cost, isLow, stockPct, daysToExpiry, isExpiring, urgency, status };
-  });
-
-  let list = [...processed];
-  if (filter === "low") list = list.filter((i) => i.isLow);
-  if (filter === "exp") list = list.filter((i) => i.isExpiring);
-  list.sort((a, b) => b.urgency - a.urgency || a.qty - b.qty);
-
-  const lowCount = processed.filter((i) => i.isLow).length;
-  const expCount = processed.filter((i) => i.isExpiring).length;
-  const totalValue = Math.round(processed.reduce((s, i) => s + i.qty * i.cost, 0));
-
-  // Status row styles — critical/warning keep their accent (data-meaningful:
-  // a critical low-stock item NEEDS the red signal). "ok" stays fully
-  // neutral so the row doesn't look mid-stress at rest.
-  const statusStyles = {
-    critical: "bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800/30",
-    warning: "bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/30",
-    ok: "bg-transparent border-gray-200 dark:border-gray-800",
-  };
-  // Bar fill colors are data viz (stock-health scale). Emerald not green
-  // to align with the rest of the app's money-moment accent.
-  const barColors = { critical: "#EF4444", warning: "#F59E0B", ok: "#10B981" };
-
-  return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800">
-      <div className="flex items-start justify-between mb-3">
-        <div>
-          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("inventory")}</h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            {items.length} {t("inventoryItemsLabel", "items")}
-          </p>
-        </div>
-        <div className="text-right">
-          <p className="text-sm font-bold tabular-nums text-gray-900 dark:text-gray-100">{totalValue.toLocaleString()}</p>
-          <p className="text-[10px] text-gray-500 dark:text-gray-400">{currency} {t("stockValue", "stock value")}</p>
-        </div>
-      </div>
-
-      {/* Filter pills — selected pill uses the neutral "ring-1 ring-gray-900
-          + bg-gray-50" treatment (the StatCard/sidebar pattern). Previously
-          painted each filter a different color (blue/red/amber) which read
-          as decoration; now hierarchy comes from selection, not category. */}
-      <div className="flex gap-1.5 mb-3">
-        {[
-          { k: "all", label: `${t("inventoryAll", "All")} (${items.length})` },
-          { k: "low", label: `${t("inventoryLow", "Low")} (${lowCount})` },
-          { k: "exp", label: `${t("inventoryExpiring", "Expiring")} (${expCount})` },
-        ].map((f) => (
-          <button key={f.k} onClick={() => setFilter(f.k)}
-            className={`text-[11px] font-medium px-2.5 py-1 rounded-md transition
-              ${filter === f.k
-                ? "ring-1 ring-gray-900 dark:ring-gray-100 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                : "bg-gray-100 dark:bg-gray-800/40 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800"
-              }`}>
-            {f.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Item list */}
-      <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
-        {list.slice(0, 8).map((it, i) => (
-          <div key={i} className={`px-3 py-2 rounded-xl border ${statusStyles[it.status]}`}>
-            <div className="flex items-center justify-between mb-1">
-              <span className={`text-sm text-gray-700 dark:text-gray-200 ${it.status !== "ok" ? "font-semibold" : ""}`}>{it.name}</span>
-              {it.status !== "ok" && (
-                <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded
-                  ${it.status === "critical" ? "text-red-600 bg-red-100 dark:bg-red-900/20" : "text-amber-600 bg-amber-100 dark:bg-amber-900/20"}`}>
-                  {it.status === "critical"
-                    ? t("inventoryCritical", "Critical")
-                    : t("inventoryLow", "Low")}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="flex-1 h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, it.stockPct)}%`, background: barColors[it.status] }} />
-              </div>
-              <span className="text-xs font-semibold min-w-[40px] text-right" style={{ color: barColors[it.status] }}>
-                {it.qty} {it.unit || ""}
-              </span>
-            </div>
-            <div className="flex gap-3 mt-1 text-[10px] text-gray-400">
-              <span>{t("inventoryMin", "Min")}: {it.min}</span>
-              {it.daysToExpiry < 999 && (
-                <span className={it.daysToExpiry <= 3 ? "text-amber-500 font-semibold" : ""}>
-                  {t("inventoryExpShort", "Exp")}: {it.daysToExpiry}{t("daysShort", "d")}
-                </span>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Reorder banner — SectionBanner primitive (critical severity).
-          Low-stock is data-meaningful so the red accent stays. The
-          inline emoji + colored button got replaced by the standard
-          banner chrome + a quiet gray action link. */}
-      {lowCount > 0 && (
-        <div className="mt-3">
-          <SectionBanner
-            severity="critical"
-            icon="Package"
-            title={`${t("reorderNeeded", "Reorder needed")} (${lowCount} ${t("inventoryItemsLabel", "items")})`}
-          >
-            <p className="mb-2">
-              {processed.filter((i) => i.isLow).map((i) => i.name).slice(0, 4).join(", ")}
-            </p>
-            <button
-              onClick={(e) => { e.stopPropagation(); onNavigate(); }}
-              className="text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-gray-900 text-white hover:bg-gray-800 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100 transition"
-            >
-              {t("viewInventory")}
-            </button>
-          </SectionBanner>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   DISMISSABLE ALERTS — actionable alerts with dismiss
-   ═══════════════════════════════════════════════════════════ */
-
-function AlertsPanel({ actionItems, summary, weekComparison, onNavigate }) {
-  const { t } = useLanguage();
-  const [dismissed, setDismissed] = useState(new Set());
-  const [filter, setFilter] = useState("all");
-
-  // Build alerts from real data. Icons are Lucide names (resolved via
-  // <Icon name="…" />) — no more emoji chrome.
-  const alerts = [];
-
-  // Action items from API
-  if (actionItems?.length > 0) {
-    actionItems.forEach((item) => {
-      const typeMap = { restock: "critical", expiring: "warning", cost: "warning", tip: "info", return: "critical" };
-      const iconMap = {
-        restock: "Package",
-        expiring: "AlarmClock",
-        cost: "Wallet",
-        tip: "Sparkles",
-        return: "RotateCw",
-      };
-      alerts.push({
-        type: typeMap[item.type] || "info",
-        icon: iconMap[item.type] || "Sparkles",
-        title: item.title,
-        desc: item.detail,
-        action: item.type === "restock" ? "View Inventory" : item.type === "cost" ? "Check Expenses" : item.type === "return" ? "View Sales" : "View Details",
-        route: item.type === "restock" ? "/inventory" : item.type === "cost" ? "/expenses" : item.type === "return" ? "/sales" : "/reports",
-        id: `action-${item.title}`,
-      });
-    });
-  }
-
-  // Week comparison
-  if (weekComparison && weekComparison.change_pct !== 0) {
-    const up = weekComparison.change_pct > 0;
-    alerts.push({
-      type: up ? "success" : "warning",
-      icon: up ? "TrendingUp" : "TrendingDown",
-      title: `Weekly revenue ${up ? "up" : "down"} ${Math.abs(weekComparison.change_pct)}%`,
-      desc: `This week: ${Math.round(weekComparison.this_week_revenue).toLocaleString()} vs last: ${Math.round(weekComparison.last_week_revenue).toLocaleString()}`,
-      action: "View Reports", route: "/reports", id: "week-change",
-    });
-  }
-
-  // Margin alert
-  if (summary) {
-    const margin = summary.profit_margin || 0;
-    if (margin > 0 && margin < 15) {
-      alerts.push({
-        type: "warning", icon: "AlertTriangle",
-        title: `Profit margin at ${margin}%`,
-        desc: "Below the 15% healthy threshold. Review expense categories.",
-        action: "Review Expenses", route: "/expenses", id: "margin-low",
-      });
-    } else if (margin >= 15) {
-      alerts.push({
-        type: "success", icon: "Heart",
-        title: `Healthy ${margin}% profit margin`,
-        desc: "On track for profitability this month.",
-        action: "View Reports", route: "/reports", id: "margin-ok",
-      });
-    }
-    if (summary.inventory_alerts > 0) {
-      alerts.push({
-        type: "critical", icon: "Package",
-        title: `${summary.inventory_alerts} items below minimum`,
-        desc: "Stock levels critically low on some items.",
-        action: "View Inventory", route: "/inventory", id: "inv-alerts",
-      });
-    }
-  }
-
-  if (alerts.length === 0) {
-    alerts.push({ type: "success", icon: "CheckCircle2", title: "All clear", desc: "No alerts right now.", action: "View Reports", route: "/reports", id: "all-clear" });
-  }
-
-  const visible = alerts.filter((a) => !dismissed.has(a.id) && (filter === "all" || a.type === filter || (filter === "info" && a.type === "success")));
-  const critCount = alerts.filter((a) => a.type === "critical" && !dismissed.has(a.id)).length;
-
-  // Per-alert styling — same palette SectionBanner uses (50/200 paired
-  // shades). Info alerts stay fully neutral instead of inventing a blue.
-  const typeStyles = {
-    critical: "bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800/30",
-    warning: "bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/30",
-    info: "bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700",
-    success: "bg-gray-50 dark:bg-gray-800/40 border-gray-100 dark:border-gray-700",
-  };
-  // Icon tint per severity — matches the SectionBanner recipe.
-  const iconColor = {
-    critical: "text-red-600 dark:text-red-400",
-    warning: "text-amber-600 dark:text-amber-400",
-    info: "text-gray-500 dark:text-gray-400",
-    success: "text-emerald-600 dark:text-emerald-400",
-  };
-
-  return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("alerts")}</h3>
-          {critCount > 0 && (
-            // Critical badge — solid red is data-meaningful (count of
-            // urgent alerts). Lost the pulsing animation; pulsing pills
-            // read as "this app is anxious" and the count alone is enough.
-            <span className="text-[10px] font-bold tabular-nums px-2 py-0.5 rounded-full bg-red-600 text-white">{critCount}</span>
-          )}
-        </div>
-        <span className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">{visible.length} active</span>
-      </div>
-
-      {/* Filter pills — neutral selected-state pattern (ring + bg-gray-50).
-          Was painting each filter blue/red/amber even when unselected,
-          which made the row look like four open alerts simultaneously. */}
-      <div className="flex gap-1.5 mb-3 overflow-x-auto">
-        {[
-          { k: "all", label: t("alertsAll", "All") },
-          { k: "critical", label: `${t("alertsCritical", "Critical")} (${critCount})` },
-          { k: "warning", label: t("alertsWarnings", "Warnings") },
-          { k: "info", label: t("alertsInfo", "Info") },
-        ].map((f) => (
-          <button key={f.k} onClick={() => setFilter(f.k)}
-            className={`text-[11px] font-medium px-2.5 py-1 rounded-md whitespace-nowrap transition
-              ${filter === f.k
-                ? "ring-1 ring-gray-900 dark:ring-gray-100 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                : "bg-gray-100 dark:bg-gray-800/40 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800"
-              }`}>
-            {f.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Alert cards — icon shifts to Lucide, action button uses the
-          neutral gray-900 confident-quiet treatment. Border/bg accent
-          is per-severity (data-meaningful). */}
-      <div className="space-y-2 max-h-[320px] overflow-y-auto">
-        {visible.map((a) => (
-          <div key={a.id} className={`px-3 py-2.5 rounded-xl border ${typeStyles[a.type]}`}>
-            <div className="flex items-start gap-2">
-              <span className={`mt-0.5 shrink-0 ${iconColor[a.type]}`}>
-                <Icon name={a.icon} size={16} />
-              </span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-2 mb-0.5">
-                  <span className="text-xs font-semibold text-gray-800 dark:text-gray-100">{a.title}</span>
-                  <button
-                    onClick={() => setDismissed(new Set([...dismissed, a.id]))}
-                    aria-label={t("dismissAlert", "Dismiss alert") + ": " + a.title}
-                    className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-sm leading-none flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 rounded w-5 h-5 flex items-center justify-center"
-                  >
-                    <span aria-hidden="true">&times;</span>
-                  </button>
-                </div>
-                <p className="text-[11px] text-gray-600 dark:text-gray-400 leading-relaxed mb-1.5">{a.desc}</p>
-                <button
-                  onClick={() => onNavigate(a.route)}
-                  className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-gray-900 text-white hover:bg-gray-800 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100 transition"
-                >
-                  {a.action}
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
-        {visible.length === 0 && (
-          <p className="flex items-center justify-center gap-1.5 py-4 text-sm text-gray-500 dark:text-gray-400">
-            <Icon name="CheckCircle2" size={14} className="text-emerald-600 dark:text-emerald-400" />
-            {t("alertsAllClear", "All clear — no active alerts")}
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   P&L SUMMARY — compact profit/loss card
-   ═══════════════════════════════════════════════════════════ */
-
-function PLCard({ revenue, expenses, profit, margin, currency, onNavigate, loading }) {
-  const { t } = useLanguage();
-  const isProfit = profit >= 0;
-  // Show "…" placeholder while data loads so we don't briefly render -0 DKK
-  // (which the QA flagged — looked broken even though it was just a render race).
-  const placeholder = <span className="opacity-30">…</span>;
-  return (
-    <div
-      onClick={onNavigate}
-      className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition flex-1"
-    >
-      <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("profitAndLoss")}</h3>
-      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-4">{t("thisMonth")}</p>
-
-      <div className="border-b border-gray-200 dark:border-gray-800 pb-3 mb-3 space-y-2">
-        <div className="flex justify-between">
-          <span className="text-sm text-gray-600 dark:text-gray-400">{t("revenue")}</span>
-          {/* Revenue is THE money moment — emerald accent earns its keep
-              here. Stays restrained because the chrome is neutral. */}
-          <span className="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
-            {loading
-              ? placeholder
-              // Revenue is always non-negative in our model — but be
-              // defensive in case of voids/refunds being aggregated.
-              : (revenue >= 0
-                  ? `+${revenue.toLocaleString()} ${currency}`
-                  : `−${Math.abs(revenue).toLocaleString()} ${currency}`)}
-          </span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-sm text-gray-600 dark:text-gray-400">{t("expenses")}</span>
-          {/* Expenses — red is data-meaningful (money leaving the
-              business), kept. */}
-          <span className="text-sm font-semibold tabular-nums text-red-600 dark:text-red-400">
-            {loading
-              ? placeholder
-              // Guard against double-minus when an expense row is itself
-              // negative (refund / reversal aggregated into the total).
-              // Old code printed "--1500 DKK" — wrong + ugly.
-              : (expenses >= 0
-                  ? `−${expenses.toLocaleString()} ${currency}`
-                  : `+${Math.abs(expenses).toLocaleString()} ${currency}`)}
-          </span>
-        </div>
-      </div>
-
-      <div className="flex justify-between items-baseline">
-        <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("netProfit")}</span>
-        <div className="text-right">
-          {/* Net profit — emerald when positive (money moment), red
-              when negative (data-meaningful loss). */}
-          <p className={`text-xl font-bold tabular-nums ${loading ? "text-gray-400" : (isProfit ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}`}>
-            {loading ? placeholder : `${isProfit ? "+" : ""}${profit.toLocaleString()} ${currency}`}
-          </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
-            {/* t() doesn't do {pct} interpolation — substitute at call
-                site. Previously this rendered the literal "Margin: {pct}%"
-                because the object 2nd arg was ignored. */}
-            {loading ? " " : t("marginColonPct", "Margin: {pct}%").replace("{pct}", margin)}
-          </p>
-        </div>
-      </div>
-
-      {/* Status banner — the "no data" empty state used to be blue
-          (the only blue on the page chrome) and read as a bug. Now
-          neutral gray-50 for empty, emerald for profit (data-meaningful
-          money moment), red for loss. Same 50/200 recipe SectionBanner
-          uses so it nests in the design rhythm. */}
-      <div className={`mt-3 px-3 py-2.5 rounded-xl text-xs leading-relaxed border
-        ${revenue === 0 && expenses === 0
-          ? "bg-gray-50 dark:bg-gray-800/40 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700"
-          : isProfit
-            ? "bg-gray-50 dark:bg-gray-800/40 text-gray-700 dark:text-gray-300 border-gray-100 dark:border-gray-700"
-            : "bg-red-50 dark:bg-red-900/15 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800/30"
-        }`}>
-        {revenue === 0 && expenses === 0
-          ? t("dashNoDataYet")
-          : isProfit
-            ? t("dashOnTrackProfit")
-            : t("dashExpensesExceeding")}
-      </div>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   EXPENSE BREAKDOWN — horizontal bars (replaces donut)
-   ═══════════════════════════════════════════════════════════ */
-
-const EXPENSE_COLORS = ["#EF4444", "#F59E0B", "#22C55E", "#3B82F6", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316"];
-
-function ExpenseBreakdown({ breakdown, currency, onNavigate }) {
-  const { t } = useLanguage();
-  // Empty state for new users / months with no logged expenses
-  if (!breakdown || breakdown.length === 0) {
-    return (
-      <div
-        onClick={onNavigate}
-        className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition"
-      >
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
-          <Icon name="Wallet" size={18} className="text-gray-500 dark:text-gray-400" />
-          {t("expenses", "Expenses")}
-        </h3>
-        <div className="py-6 text-center">
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            {t("expensesEmpty", "Log expenses to see where the money goes.")}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  const total = breakdown.reduce((s, e) => s + e.amount, 0);
-  const sorted = [...breakdown].sort((a, b) => b.amount - a.amount);
-  const maxAmount = sorted[0]?.amount || 1;
-
-  return (
-    // Neutral surface. The bar fills below are chart series colors
-    // (one color per expense category) — those stay because they're
-    // data labels, not chrome.
-    <div
-      onClick={onNavigate}
-      className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition flex-1"
-    >
-      <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("expenseBreakdown")}</h3>
-      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-4">{t("thisMonthByCategory")}</p>
-
-      <div className="space-y-3">
-        {sorted.slice(0, 6).map((e, i) => {
-          const pct = total > 0 ? Math.round((e.amount / total) * 100) : 0;
-          const barWidth = Math.max((e.amount / maxAmount) * 100, 4);
-          const color = EXPENSE_COLORS[i % EXPENSE_COLORS.length];
-          return (
-            <div key={i}>
-              <div className="flex justify-between items-baseline mb-1">
-                <span className="text-sm text-gray-700 dark:text-gray-200">{e.category}</span>
-                <span className="text-sm text-gray-500 dark:text-gray-400 tabular-nums">
-                  {Math.round(e.amount).toLocaleString()} {currency} &middot; {pct}%
-                </span>
-              </div>
-              <div className="h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all duration-700"
-                  style={{ width: `${barWidth}%`, background: color }}
-                />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {total > 0 && (
-        <div className="mt-4 pt-3 border-t border-gray-200 dark:border-gray-800 flex justify-between">
-          <span className="text-sm text-gray-600 dark:text-gray-400">{t("total")}</span>
-          <span className="text-sm font-bold tabular-nums text-gray-900 dark:text-gray-100">{Math.round(total).toLocaleString()} {currency}</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   TOP SELLERS — full-width with Qty / Revenue toggle + bars
-   ═══════════════════════════════════════════════════════════ */
-
-const TOP_BAR_COLORS = ["#22C55E", "#3B82F6", "#8B5CF6", "#F59E0B", "#EF4444", "#EC4899", "#14B8A6", "#F97316"];
-
-function TopSellersCard({ topSellers, currency, onNavigate }) {
-  const { t } = useLanguage();
-  const [mode, setMode] = useState("revenue"); // "revenue" | "qty"
-  if (!topSellers || topSellers.length === 0) {
-    return (
-      <div
-        onClick={onNavigate}
-        className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition"
-      >
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
-          <Icon name="TrendingUp" size={18} className="text-gray-500 dark:text-gray-400" />
-          {t("topSellers", "Top sellers")}
-        </h3>
-        <div className="py-6 text-center">
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            {t("topSellersEmpty", "Log sales with item names to surface your bestsellers.")}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  const sorted = [...topSellers].sort((a, b) =>
-    mode === "revenue" ? b.revenue - a.revenue : b.sales - a.sales
-  );
-  const maxVal = mode === "revenue"
-    ? Math.max(...sorted.map((s) => s.revenue), 1)
-    : Math.max(...sorted.map((s) => s.sales), 1);
-  const totalRev = topSellers.reduce((s, i) => s + i.revenue, 0);
-  const totalQty = topSellers.reduce((s, i) => s + i.sales, 0);
-
-  return (
-    // Neutral surface — bar fills below ARE data series colors (one
-    // color per ranked product), kept as the chart-label-equivalent
-    // colors the DNA explicitly preserves.
-    <div
-      className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition"
-      onClick={onNavigate}
-    >
-      {/* Header with toggle */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-        <div>
-          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("topSellers")}</h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 tabular-nums">
-            {topSellers.length} {t("products")} &bull; {mode === "revenue" ? `${totalRev.toLocaleString()} ${currency}` : `${totalQty.toLocaleString()} ${t("sold")}`}
-          </p>
-        </div>
-        {/* Segmented toggle — selected uses gray-900 confident-dark
-            (same TabPills recipe). Previously a soft white-on-gray
-            pill that read as "tab" without committing to the role. */}
-        <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
-          {[
-            { k: "revenue", label: t("revenueParen", { currency }) },
-            { k: "qty", label: t("qtySold") },
-          ].map((opt) => (
-            <button
-              key={opt.k}
-              onClick={(e) => { e.stopPropagation(); setMode(opt.k); }}
-              className={`text-xs font-medium px-3 py-1.5 rounded-md transition
-                ${mode === opt.k
-                  ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900"
-                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
-                }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Items — rank indicator uses bold + size hierarchy instead of
-          emoji medals. Top 3 get gray-900 bold; ranks 4+ get a small
-          gray-400 number. The bar fills + the value alongside them
-          ARE the chart series (one color per ranked item), kept. */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
-        {sorted.slice(0, 8).map((item, i) => {
-          const val = mode === "revenue" ? item.revenue : item.sales;
-          const barW = Math.max((val / maxVal) * 100, 4);
-          const color = TOP_BAR_COLORS[i % TOP_BAR_COLORS.length];
-          // Rank treatment: 1-3 get bold gray-900, 4+ get quiet gray-400.
-          // Hierarchy via size + weight, not via medal emoji that drift
-          // visually across Apple/Windows/Noto platforms.
-          const rankClass = i < 3
-            ? "text-sm font-bold text-gray-900 dark:text-gray-100"
-            : "text-xs text-gray-400 font-medium";
-          return (
-            <div key={i} className="flex items-center gap-3">
-              <span className={`${rankClass} w-6 text-center flex-shrink-0 tabular-nums`}>{i + 1}</span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-baseline justify-between mb-1">
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate">{item.name}</span>
-                  {/* Primary value: gray-900 (data, not chrome accent).
-                      The bar fill below already carries the series color. */}
-                  <span className="text-sm font-bold tabular-nums flex-shrink-0 ml-2 text-gray-900 dark:text-gray-100">
-                    {mode === "revenue" ? `${item.revenue.toLocaleString()}` : item.sales}
-                  </span>
-                </div>
-                <div className="h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full transition-all duration-500" style={{ width: `${barW}%`, background: color }} />
-                </div>
-                {mode === "revenue" ? (
-                  <span className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 block tabular-nums">{item.sales} {t("sold")}</span>
-                ) : (
-                  <span className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 block tabular-nums">{item.revenue.toLocaleString()} {currency}</span>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   PAYMENT METHODS — horizontal bar summary
-   ═══════════════════════════════════════════════════════════ */
-
-function PaymentBreakdownCard({ paymentBreakdown, currency, onNavigate }) {
-  const { t } = useLanguage();
-  if (!paymentBreakdown || paymentBreakdown.length === 0) {
-    return (
-      <div
-        onClick={onNavigate}
-        className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition"
-      >
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
-          <Icon name="CreditCard" size={18} className="text-gray-500 dark:text-gray-400" />
-          {t("paymentMethods", "Payment methods")}
-        </h3>
-        <div className="py-6 text-center">
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            {t("paymentMethodsEmpty", "Log sales by payment method to see the breakdown.")}
-          </p>
-        </div>
-      </div>
-    );
-  }
-  const total = paymentBreakdown.reduce((s, p) => s + p.amount, 0);
-  // Method colors are chart series labels (one color per payment method).
-  // Emerald for cash (money in!), blue for card, purple for MobilePay —
-  // matches the brand colors users see in the real apps, so the legend
-  // reads as recognition not decoration.
-  const methodColors = { cash: "#10B981", card: "#3B82F6", mobilepay: "#8B5CF6" };
-
-  return (
-    <div
-      onClick={onNavigate}
-      className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition flex-1"
-    >
-      <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("paymentMethods")}</h3>
-      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-4">{t("thisMonth")}</p>
-
-      {/* Stacked bar — series colors are data labels (per-method
-          recognition), kept. */}
-      {total > 0 && (
-        <div className="flex h-3 rounded-full overflow-hidden mb-4">
-          {paymentBreakdown.sort((a, b) => b.amount - a.amount).map((p, i) => (
-            <div
-              key={i}
-              className="h-full transition-all duration-500"
-              style={{ width: `${(p.amount / total) * 100}%`, background: methodColors[p.method] || "#9CA3AF" }}
-            />
-          ))}
-        </div>
-      )}
-
-      <div className="space-y-2">
-        {paymentBreakdown.sort((a, b) => b.amount - a.amount).map((p) => {
-          const pct = total > 0 ? Math.round((p.amount / total) * 100) : 0;
-          const color = methodColors[p.method] || "#9CA3AF";
-          const label = p.method.charAt(0).toUpperCase() + p.method.slice(1);
-          return (
-            <div key={p.method} className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: color }} />
-                <span className="text-sm text-gray-700 dark:text-gray-200">{label}</span>
-                <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">{p.count} sales</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">{Math.round(p.amount).toLocaleString()}</span>
-                <span className="text-xs text-gray-500 dark:text-gray-400 w-8 text-right tabular-nums">{pct}%</span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   WEEK COMPARISON — clean side-by-side
-   ═══════════════════════════════════════════════════════════ */
-
-function WeekComparisonCard({ weekComparison, currency, onNavigate }) {
-  const { t } = useLanguage();
-  if (!weekComparison) return null;
-
-  const rows = [
-    { label: t("revenue"), thisWeek: weekComparison.this_week_revenue, lastWeek: weekComparison.last_week_revenue, goodUp: true },
-    { label: t("expenses"), thisWeek: weekComparison.this_week_expenses, lastWeek: weekComparison.last_week_expenses, goodUp: false },
-    { label: t("profit") || "Profit", thisWeek: weekComparison.this_week_profit, lastWeek: weekComparison.last_week_profit, goodUp: true },
-  ];
-
-  return (
-    <div
-      onClick={onNavigate}
-      className="bg-white dark:bg-gray-800 rounded-xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
-    >
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("weekVsLastWeek")}</h3>
-          <p className="text-xs text-gray-400 mt-0.5">{t("performanceComparison")}</p>
-        </div>
-        {weekComparison.change_pct !== 0 && (
-          <span className={`text-sm font-bold px-2.5 py-1 rounded-lg tabular-nums
-            ${weekComparison.change_pct > 0
-              ? "bg-gray-50 dark:bg-gray-800 text-emerald-600 dark:text-emerald-400"
-              : "bg-gray-50 dark:bg-gray-800 text-red-600 dark:text-red-400"
-            }`}>
-            {weekComparison.change_pct > 0 ? "↑" : "↓"} {Math.abs(weekComparison.change_pct)}%
-          </span>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        {rows.map((row) => {
-          const diff = row.lastWeek > 0 ? Math.round(((row.thisWeek - row.lastWeek) / Math.abs(row.lastWeek)) * 100) : 0;
-          const clampedDiff = Math.max(-500, Math.min(500, diff));
-          const isUp = clampedDiff > 0;
-          const isGood = row.goodUp ? isUp : !isUp;
-          return (
-            <div key={row.label} className="flex items-center justify-between py-2.5 px-3 bg-gray-50 dark:bg-gray-700/20 rounded-xl">
-              <span className="text-sm font-medium text-gray-600 dark:text-gray-300 w-20">{row.label}</span>
-              <div className="flex items-center gap-3">
-                <div className="text-right">
-                  <p className="text-xs text-gray-400">{t("thisWeek")}</p>
-                  <p className="text-sm font-bold text-gray-800 dark:text-white">{Math.round(row.thisWeek).toLocaleString()}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs text-gray-400">{t("lastWeek")}</p>
-                  <p className="text-sm text-gray-500">{Math.round(row.lastWeek).toLocaleString()}</p>
-                </div>
-                {clampedDiff !== 0 && (
-                  <span className={`text-xs font-bold px-1.5 py-0.5 rounded-md tabular-nums
-                    ${isGood
-                      ? "text-emerald-600 dark:text-emerald-400 bg-gray-100 dark:bg-gray-800"
-                      : "text-red-600 dark:text-red-400 bg-gray-100 dark:bg-gray-800"
-                    }`}>
-                    {isUp ? "↑" : "↓"}{Math.abs(clampedDiff)}%
-                  </span>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   BUSINESS HEALTH SCORE — circular gauge
-   ═══════════════════════════════════════════════════════════ */
-
-function HealthScore({ summary, monthlyData, onNavigate }) {
-  const { t } = useLanguage();
-  const factors = [];
-
-  const margin = summary?.profit_margin || 0;
-  factors.push({ label: t("healthProfitability"), score: Math.min(Math.round(margin * 1.5), 30), max: 30 });
-
-  const dailyRevenue = monthlyData?.daily_revenue || [];
-  const daysWithSales = dailyRevenue.filter((d) => d.amount > 0).length;
-  const totalDays = Math.max(dailyRevenue.length, 1);
-  factors.push({ label: t("healthConsistency"), score: Math.min(Math.round((daysWithSales / totalDays) * 25), 25), max: 25 });
-
-  const growthChange = Math.max(-500, Math.min(500, summary?.today_revenue_change || 0));
-  const growthScore = growthChange > 0 ? Math.min(Math.round(growthChange), 20) : growthChange === 0 ? 10 : Math.max(10 + Math.round(growthChange / 2), 0);
-  factors.push({ label: t("healthGrowth"), score: growthScore, max: 20 });
-
-  const expenseRatio = (summary?.month_revenue || 0) > 0 ? (summary?.month_expenses || 0) / summary.month_revenue : 1;
-  factors.push({ label: t("healthCostControl"), score: Math.round(Math.max(0, (1 - expenseRatio)) * 15), max: 15 });
-
-  factors.push({ label: t("healthActivity"), score: (summary?.today_revenue || 0) > 0 ? 10 : 0, max: 10 });
-
-  const total = factors.reduce((s, f) => s + f.score, 0);
-  const hasData = (summary?.month_revenue || 0) > 0 || daysWithSales > 0;
-  const color = !hasData ? "#6B7280" : total >= 75 ? "#22C55E" : total >= 50 ? "#F59E0B" : total >= 25 ? "#F97316" : "#EF4444";
-  const label = !hasData ? t("healthGettingStarted") : total >= 75 ? t("healthExcellent") : total >= 50 ? t("healthGood") : total >= 25 ? t("healthNeedsWork") : t("healthCritical");
-
-  const circumference = 2 * Math.PI * 34;
-  const filled = (total / 100) * circumference;
-
-  return (
-    <div
-      onClick={onNavigate}
-      className="bg-white dark:bg-gray-800 rounded-xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
-    >
-      <div className="flex flex-col sm:flex-row sm:items-center gap-5">
-        {/* Gauge */}
-        <div className="flex items-center sm:flex-col gap-4 sm:gap-2">
-          <div className="relative w-20 h-20 flex-shrink-0">
-            <svg
-              className="w-20 h-20 -rotate-90"
-              viewBox="0 0 80 80"
-              role="img"
-              aria-label={`${t("businessHealth")}: ${total} / 100 — ${label}`}
-            >
-              <title>{`${t("businessHealth")}: ${total} / 100 — ${label}`}</title>
-              <circle cx="40" cy="40" r="34" fill="none" stroke="currentColor" strokeWidth="5" className="text-gray-100 dark:text-gray-700" />
-              <circle cx="40" cy="40" r="34" fill="none" strokeWidth="5" strokeLinecap="round" stroke={color}
-                strokeDasharray={`${filled} ${circumference}`}
-                style={{ transition: "stroke-dasharray 1s ease" }}
-              />
-            </svg>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-xl font-bold" style={{ color }}>{total}</span>
-            </div>
-          </div>
-          <div className="sm:text-center">
-            <p className="text-sm font-semibold text-gray-800 dark:text-white">{t("businessHealth")}</p>
-            <p className="text-xs font-medium" style={{ color }}>{label}</p>
-          </div>
-        </div>
-
-        {/* Factor bars */}
-        <div className="flex-1 space-y-2">
-          {factors.map((f) => (
-            <div key={f.label} className="flex items-center gap-3">
-              <span className="text-xs text-gray-500 dark:text-gray-400 w-20 shrink-0">{f.label}</span>
-              <div className="flex-1 h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                <div className="h-full rounded-full transition-all duration-700" style={{ width: `${(f.score / f.max) * 100}%`, background: color }} />
-              </div>
-              <span className="text-xs text-gray-400 w-8 text-right">{f.score}/{f.max}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   GOAL TRACKER — daily + monthly progress bars
-   ═══════════════════════════════════════════════════════════ */
-
-function GoalTracker({ todayRevenue, monthRevenue }) {
-  const { user } = useAuth();
-  const currency = displayCurrency(user?.currency);
-  const { t } = useLanguage();
-  const [dailyGoal, setDailyGoal] = useState(user?.daily_goal || 0);
-  const [monthlyGoal, setMonthlyGoal] = useState(user?.monthly_goal || 0);
-  const [editing, setEditing] = useState(null);
-  const [inputVal, setInputVal] = useState("");
-
-  const saveGoal = async (type) => {
-    const val = parseFloat(inputVal);
-    if (!val || val <= 0) return;
-    try {
-      if (type === "daily") { await api.patch("/auth/daily-goal", null, { params: { goal: val } }); setDailyGoal(val); }
-      else { await api.patch("/auth/monthly-goal", null, { params: { goal: val } }); setMonthlyGoal(val); }
-      setEditing(null);
-    } catch { /* ignore */ }
-  };
-
-  const GoalBar = ({ label, current, goal, type, color }) => {
-    const pct = goal > 0 ? Math.min(Math.round((current / goal) * 100), 100) : 0;
-    const hit = pct >= 100;
-    return (
-      <div>
-        <div className="flex items-center justify-between mb-1.5">
-          <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
-            {label} {hit && <span className="text-green-600 text-xs ml-1">🎯 {t("reached")}</span>}
-          </p>
-          {editing === type ? (
-            <div className="flex gap-1.5">
-              <input type="number" value={inputVal} onChange={(e) => setInputVal(e.target.value)} placeholder={String(goal)}
-                className="w-24 px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-lg text-xs bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                autoFocus onKeyDown={(e) => e.key === "Enter" && saveGoal(type)} />
-              <button onClick={() => saveGoal(type)} className="px-2 py-1 bg-blue-600 text-white rounded-lg text-xs font-medium">{t("save")}</button>
-              <button onClick={() => setEditing(null)} className="text-gray-400 text-xs">✕</button>
-            </div>
-          ) : goal > 0 ? (
-            <button onClick={() => { setEditing(type); setInputVal(String(goal)); }} className="text-xs text-blue-500 hover:underline">{t("edit")}</button>
-          ) : (
-            <button onClick={() => { setEditing(type); setInputVal(""); }} className="text-xs text-blue-600 font-medium hover:underline">{t("setGoal")}</button>
-          )}
-        </div>
-        {goal > 0 ? (
-          <>
-            <div className="flex items-baseline justify-between mb-1">
-              <span className="text-xs text-gray-500 dark:text-gray-400">{current.toLocaleString()} / {goal.toLocaleString()} {currency}</span>
-              <span className={`text-xs font-semibold ${hit ? "text-green-600" : "text-gray-500"}`}>{pct}%</span>
-            </div>
-            <div className="w-full h-2.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-              <div className={`h-full rounded-full transition-all duration-500 ${hit ? "bg-green-500" : color}`} style={{ width: `${pct}%` }} />
-            </div>
-          </>
-        ) : (
-          <p className="text-xs text-gray-400">{t("trackProgress")}</p>
-        )}
-      </div>
-    );
-  };
-
-  return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm space-y-4">
-      <GoalBar label={t("dailyGoal")} current={todayRevenue} goal={dailyGoal} type="daily" color="bg-blue-500" />
-      <GoalBar label={t("monthlyGoal")} current={monthRevenue} goal={monthlyGoal} type="monthly" color="bg-purple-500" />
-    </div>
-  );
+function computeDaysToMonthEnd(now = new Date()) {
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  return Math.max(0, Math.ceil((endOfMonth - now) / 86400000));
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -1443,36 +143,44 @@ function GoalTracker({ todayRevenue, monthRevenue }) {
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const currency = displayCurrency(user?.currency);
   const { showToast, ToastContainer } = useToast();
+  const entitlements = useEntitlements();
 
   // ── State ──
   const [summary, setSummary] = useState(null);
   const [monthlyData, setMonthlyData] = useState(null);
   const [lastSale, setLastSale] = useState(null);
-  const [receipts, setReceipts] = useState([]);
-  const [quickMsg, setQuickMsg] = useState("");
-  const [forecast, setForecast] = useState(null);
-  const [period, setPeriod] = useState("today");
-  const [customFrom, setCustomFrom] = useState("");
-  const [customTo, setCustomTo] = useState("");
-  const [periodStats, setPeriodStats] = useState(null);
-  const [categories, setCategories] = useState([]);
-  const [benchmarks, setBenchmarks] = useState(null);
   const [inventoryItems, setInventoryItems] = useState([]);
   const [topSellers, setTopSellers] = useState([]);
   const [actionItems, setActionItems] = useState([]);
   const [weekComparison, setWeekComparison] = useState(null);
   const [paymentBreakdown, setPaymentBreakdown] = useState([]);
-  const [weather, setWeather] = useState(null);
-  const [staffing, setStaffing] = useState(null);
+  const [outstandingInvoices, setOutstandingInvoices] = useState([]);
+  const [growthSignals, setGrowthSignals] = useState([]);
+  const [profile, setProfile] = useState(null);
+  const [momsCountdownDays, setMomsCountdownDays] = useState(null);
+  const [momsDate, setMomsDate] = useState(null);
   const [saleModal, setSaleModal] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [lightboxImg, setLightboxImg] = useState(null);
-  const [budgetSummary, setBudgetSummary] = useState(null);
   const [smartSaleOpen, setSmartSaleOpen] = useState(false);
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // Click-outside for the overflow menu.
+  const overflowRef = useRef(null);
+  useEffect(() => {
+    if (!overflowOpen) return;
+    const onClick = (e) => {
+      if (overflowRef.current && !overflowRef.current.contains(e.target)) {
+        setOverflowOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [overflowOpen]);
 
   // ── Keyboard shortcuts ──
   useKeyboardShortcuts({
@@ -1482,89 +190,44 @@ export default function DashboardPage() {
     i: () => navigate("/inventory"),
     r: () => navigate("/reports"),
     "?": () => setHelpOpen(true),
-    escape: () => { setSaleModal(false); setHelpOpen(false); },
+    escape: () => {
+      setSaleModal(false);
+      setHelpOpen(false);
+      setOverflowOpen(false);
+    },
   });
 
-  // ── Derived data ──
-  const dateRange = useMemo(() => {
-    if (period === "custom") return { from: customFrom, to: customTo };
-    return getDateRange(period);
-  }, [period, customFrom, customTo]);
-
-  const invStats = useMemo(() => {
-    let lowStock = 0;
-    inventoryItems.forEach((i) => {
-      if (parseFloat(i.quantity) <= parseFloat(i.min_threshold)) lowStock++;
-    });
-    return { lowStock, count: inventoryItems.length };
-  }, [inventoryItems]);
-
-  // ── Data fetching (single batch call) ──
-  const [dashLoading, setDashLoading] = useState(true);
-
+  // ── Data fetching (single batch call — same as the previous version) ──
   const fetchAll = async () => {
     try {
-      setDashLoading(true);
+      setLoading(true);
       const now = new Date();
       const { data } = await api.get("/dashboard/batch", {
         params: { month: now.getMonth() + 1, year: now.getFullYear() },
       });
-      // Unpack all data at once
       if (data.summary) setSummary(data.summary);
       if (data.monthly) setMonthlyData(data.monthly);
       if (data.latest_sales) setLastSale(data.latest_sales);
-      if (data.receipts) setReceipts(data.receipts);
-      if (data.forecast) setForecast(data.forecast);
-      if (data.expense_categories) setCategories(data.expense_categories);
-      if (data.benchmarks) setBenchmarks(data.benchmarks);
       if (data.inventory) setInventoryItems(data.inventory);
       if (data.top_sellers) setTopSellers(data.top_sellers);
       if (data.action_items) setActionItems(data.action_items);
       if (data.week_comparison) setWeekComparison(data.week_comparison);
       if (data.payment_breakdown) setPaymentBreakdown(data.payment_breakdown);
-      if (data.weather) setWeather(data.weather);
-      if (data.staffing_forecast) setStaffing(data.staffing_forecast);
-      if (data.budget_summary) setBudgetSummary(data.budget_summary);
+      if (data.outstanding_invoices) setOutstandingInvoices(data.outstanding_invoices);
+      if (data.growth_signals) setGrowthSignals(data.growth_signals);
+      if (data.profile) setProfile(data.profile);
+      if (data.moms_countdown_days != null) setMomsCountdownDays(data.moms_countdown_days);
+      if (data.moms_date) setMomsDate(data.moms_date);
     } catch {
-      // Fallback: try individual calls if batch fails
+      // Fallback to per-endpoint calls if the batch endpoint is down.
+      // Same defensive pattern the previous version used.
       api.get("/dashboard/summary").then((r) => setSummary(r.data)).catch(() => {});
       api.get("/dashboard/top-sellers").then((r) => setTopSellers(r.data)).catch(() => {});
       api.get("/dashboard/action-items").then((r) => setActionItems(r.data)).catch(() => {});
     } finally {
-      setDashLoading(false);
+      setLoading(false);
     }
   };
-
-  // Fetch period-specific stats
-  useEffect(() => {
-    if (!dateRange.from || !dateRange.to) return;
-    if (period === "today") { setPeriodStats(null); return; }
-    const params = { from: dateRange.from, to: dateRange.to };
-    Promise.all([api.get("/sales", { params }), api.get("/expenses", { params })]).then(([salesRes, expRes]) => {
-      const sales = salesRes.data;
-      const expenses = expRes.data;
-      const totalRevenue = sales.reduce((s, x) => s + parseFloat(x.amount), 0);
-      const totalExpenses = expenses.reduce((s, x) => s + parseFloat(x.amount), 0);
-      const catMap = {};
-      expenses.forEach((e) => { catMap[e.category_id || "other"] = (catMap[e.category_id || "other"] || 0) + parseFloat(e.amount); });
-      const topCat = Object.entries(catMap).sort((a, b) => b[1] - a[1])[0];
-      let topExpenseCategoryName = null;
-      if (topCat) { const catObj = categories.find((c) => c.id === topCat[0]); topExpenseCategoryName = catObj ? catObj.name : "Other"; }
-      const dailyMap = {}, dailyExpMap = {};
-      sales.forEach((s) => { dailyMap[s.date] = (dailyMap[s.date] || 0) + parseFloat(s.amount); });
-      expenses.forEach((e) => { dailyExpMap[e.date] = (dailyExpMap[e.date] || 0) + parseFloat(e.amount); });
-      const allDates = new Set([...Object.keys(dailyMap), ...Object.keys(dailyExpMap)]);
-      const dailyRevenue = [...allDates].sort().map((date) => ({
-        date, amount: Math.round(dailyMap[date] || 0), expenses: Math.round(dailyExpMap[date] || 0), profit: Math.round((dailyMap[date] || 0) - (dailyExpMap[date] || 0)),
-      }));
-      setPeriodStats({
-        totalRevenue: Math.round(totalRevenue), totalExpenses: Math.round(totalExpenses),
-        profit: Math.round(totalRevenue - totalExpenses),
-        margin: totalRevenue > 0 ? Math.round(((totalRevenue - totalExpenses) / totalRevenue) * 100) : 0,
-        topExpenseAmount: topCat ? Math.round(topCat[1]) : 0, topExpenseCategoryName, dailyRevenue, salesCount: sales.length,
-      });
-    }).catch(() => {});
-  }, [dateRange.from, dateRange.to, period, categories]);
 
   useEffect(() => {
     fetchAll();
@@ -1573,41 +236,20 @@ export default function DashboardPage() {
     return () => window.removeEventListener("bonbox-data-changed", onDataChanged);
   }, []);
 
-  // ── Quick actions ──
+  // ── Quick-sale handler (preserved verbatim — MOMS conversion is
+  //    load-bearing: misinterpreting incl/excl-MOMS on a stored Sale
+  //    cascades into the MOMS-angivelse PDF) ──
   const handleQuickSale = async (amount, inclMoms = true, isTaxExempt = false) => {
-    // The Sale model stores `amount` in the form the user's profile
-    // dictates (gross if prices_include_moms=true, net if false). The
-    // Quick Sale modal lets the owner override per-entry — e.g. their
-    // profile is "Incl. MOMS" (B2C default) but THIS specific sale is a
-    // B2B net invoice. Convert here so the row matches the profile
-    // convention; downstream MOMS math (tax_service._calc_vat) reads
-    // user.prices_include_moms to interpret the column. Without this
-    // conversion an Excl-MOMS toggle on an Incl-MOMS profile would
-    // mis-extract MOMS by the wrong rate.
-    //
-    // Rate is currency-aware (DKK 25%, EUR 21%, NPR 13%, GBP 20%, etc.)
-    // — the single-source TAX_RATES table in utils/currency.js is the
-    // same table the rest of the frontend reads.
-    //
-    // MOMS-fri (is_tax_exempt=true): skip the Incl./Excl. conversion
-    // entirely. The row gets stored at face value and flagged exempt
-    // so property_report drops it from `taxable_sales` while keeping
-    // it in `total_revenue` (gift cards, B2B reverse-charge, EU export,
-    // §13 nr.17). The MOMS-angivelse PDF then reports it correctly on
-    // line `salg_uden_moms` (fixed in commit 8fce2ef).
     const profileInclMoms = user?.prices_include_moms ?? true;
-    const vatRate = getTaxConfig(user?.currency).rate;  // e.g. 0.25 DKK
+    const vatRate = getTaxConfig(user?.currency).rate;
     let storedAmount = amount;
     if (!isTaxExempt && vatRate > 0 && inclMoms !== profileInclMoms) {
       if (inclMoms && !profileInclMoms) {
-        // User said "Incl. MOMS" but profile stores net → strip MOMS.
         storedAmount = amount / (1 + vatRate);
       } else {
-        // User said "Excl. MOMS" but profile stores gross → add MOMS.
         storedAmount = amount * (1 + vatRate);
       }
     }
-    // Round to 2 decimals so we don't write fractional øre into the DB.
     storedAmount = Math.round(storedAmount * 100) / 100;
     try {
       await api.post("/sales", {
@@ -1615,10 +257,6 @@ export default function DashboardPage() {
         date: localIso(),
         payment_method: "cash",
         notes: t("quickSaleDesc"),
-        // Only forward the flag when set — keeps the payload clean for
-        // the normal case and lets backend defaults handle the false
-        // path. Backend schema (schemas/sale.py:44) defaults to False
-        // so this is the same as omission when not exempt.
         ...(isTaxExempt ? { is_tax_exempt: true } : {}),
       });
       const trackLabel = isTaxExempt
@@ -1627,527 +265,392 @@ export default function DashboardPage() {
       trackEvent("sale_logged", "dashboard", trackLabel);
       showToast(`${t("saleLogged")} ${amount.toLocaleString()} ${currency}`, "success");
       fetchAll();
-      // Cross-page refresh signal — see EventsPage handleCashedUp.
       window.dispatchEvent(new Event("bonbox-data-changed"));
-    } catch { showToast(t("failedToLogSale"), "error"); }
-  };
-
-  const repeatYesterday = async () => {
-    try {
-      await api.post("/sales/repeat-yesterday");
-      trackEvent("sale_logged", "dashboard", "repeat_yesterday");
-      setQuickMsg(t("yesterdayCopied"));
-      fetchAll();
-      window.dispatchEvent(new Event("bonbox-data-changed"));
-      setTimeout(() => setQuickMsg(""), 3000);
     } catch {
-      setQuickMsg(t("noYesterdaySale"));
-      setTimeout(() => setQuickMsg(""), 3000);
+      showToast(t("failedToLogSale"), "error");
     }
   };
 
   const downloadPdf = async () => {
     try {
       const now = new Date();
-      const res = await api.get("/reports/monthly/pdf", { params: { month: now.getMonth() + 1, year: now.getFullYear() }, responseType: "blob" });
+      const res = await api.get("/reports/monthly/pdf", {
+        params: { month: now.getMonth() + 1, year: now.getFullYear() },
+        responseType: "blob",
+      });
       const url = window.URL.createObjectURL(new Blob([res.data]));
-      const a = document.createElement("a"); a.href = url; a.download = `report_${now.getFullYear()}_${now.getMonth() + 1}.pdf`; a.click();
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `report_${now.getFullYear()}_${now.getMonth() + 1}.pdf`;
+      a.click();
       window.URL.revokeObjectURL(url);
-    } catch { setQuickMsg(t("downloadPdf") + " failed"); setTimeout(() => setQuickMsg(""), 3000); }
+    } catch {
+      showToast(t("downloadPdf") + " failed", "error");
+    }
   };
 
-  // ── Computed values ──
-  const dailyRevData = periodStats?.dailyRevenue || monthlyData?.daily_revenue || [];
-  const weekSparkData = dailyRevData.slice(-7).map((d) => d.amount);
-  const monthSparkData = dailyRevData.slice(-14).map((d) => d.amount);
-  const revenue = periodStats ? periodStats.totalRevenue : summary?.month_revenue || 0;
-  const expenses = periodStats ? periodStats.totalExpenses : summary?.month_expenses || 0;
-  const profit = periodStats ? periodStats.profit : summary?.month_profit || 0;
-  const marginPct = periodStats ? periodStats.margin : summary?.profit_margin || 0;
+  // ── Derived values ──
+  const archetype = useMemo(() => getArchetype(user || {}), [user]);
 
-  // ── Yesterday's revenue for daily summary ──
-  const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayKey = localIso(yesterday);
-  const yesterdayData = dailyRevData.find((d) => d.date === yesterdayKey);
-  const yesterdayRev = yesterdayData ? yesterdayData.amount : 0;
+  // dailyRevData feeds RevenueTrendChart via ctx.
+  const dailyRevData = useMemo(
+    () => monthlyData?.daily_revenue || [],
+    [monthlyData],
+  );
 
-  // ── Week avg ──
-  const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - (weekStart.getDay() === 0 ? 6 : weekStart.getDay() - 1));
-  const weekDays = dailyRevData.filter((d) => d.date >= localIso(weekStart));
-  const weekAvg = weekDays.length > 0 ? Math.round(weekDays.reduce((s, d) => s + d.amount, 0) / weekDays.length) : 0;
+  const activations = useMemo(() => {
+    return deriveActivations(
+      {
+        inventory: { itemCount: inventoryItems?.length || 0 },
+        staff: {
+          configured: !!profile?.staff_configured,
+          headcount: Number(profile?.staff_headcount || 0),
+        },
+        // TODO(Phase G): wire ctx.events when an events service exposes
+        // recurringCount / totalCount on the dashboard batch payload.
+        events: { recurringCount: 0, totalCount: 0 },
+        payments: {
+          distinctMethods: Array.from(
+            new Set((paymentBreakdown || []).map((m) => m.method)),
+          ),
+        },
+        invoices: { overdueCount: outstandingInvoices?.length || 0 },
+        compliance: { daysToNext: momsCountdownDays ?? 999 },
+        now: { daysToMonthEnd: computeDaysToMonthEnd() },
+        summary: { totalSales: summary?.lifetime_sale_count || 0 },
+      },
+      archetype,
+    );
+  }, [
+    archetype,
+    inventoryItems,
+    profile,
+    paymentBreakdown,
+    outstandingInvoices,
+    momsCountdownDays,
+    summary,
+  ]);
 
-  // ── Best day ──
-  const bestDay = dailyRevData.length > 0 ? dailyRevData.reduce((best, d) => d.amount > best.amount ? d : best, dailyRevData[0]) : null;
+  // ── ctx — single object passed to every Phase A card ──
+  const ctx = useMemo(() => {
+    const overdueTotal = (outstandingInvoices || []).reduce(
+      (s, inv) => s + (Number(inv.amount) || 0),
+      0,
+    );
+    return {
+      // Identity / plan
+      user,
+      plan: entitlements?.plan || "free",
+      archetype: archetype?.id || "transactionalDaily",
+      activations,
+      has: (featureKey) => Boolean(entitlements?.hasFeature?.(featureKey)),
 
-  // ── Loading state ──
-  if (!summary) {
+      // Currency + nav helpers — most cards navigate themselves, but
+      // some helpers below format with currency directly.
+      currency,
+      navigate,
+      t,
+
+      // Data feeds
+      summary: {
+        ...(summary || {}),
+        // KpiStrip + BusinessHealthCard look at these specific keys.
+        currency,
+        totalSales: summary?.lifetime_sale_count || 0,
+        todaySales: summary?.today_sale_count || 0,
+        todayRevenue: summary?.today_revenue || 0,
+        weekRevenue: summary?.week_revenue || 0,
+        monthRevenue: summary?.month_revenue || 0,
+        monthExpenses: summary?.month_expenses || 0,
+        profit_30d: summary?.profit_30d ?? summary?.month_profit,
+        profit_margin: summary?.profit_margin || 0,
+        week_expense_delta_pct: summary?.week_expense_delta_pct || 0,
+      },
+      weekComparison: weekComparison
+        ? {
+            todayDeltaPct: weekComparison.today_change_pct ?? null,
+            weekDeltaPct: weekComparison.change_pct ?? null,
+            direction:
+              (weekComparison.change_pct || 0) > 0
+                ? "up"
+                : (weekComparison.change_pct || 0) < 0
+                  ? "down"
+                  : "flat",
+          }
+        : { todayDeltaPct: null, weekDeltaPct: null, direction: "flat" },
+      compliance: {
+        nextDeadline: {
+          type: "moms",
+          date: momsDate,
+          daysAway: momsCountdownDays,
+          label: t("dashComplianceMomsLabel", "MOMS filing"),
+        },
+        daysToNext: momsCountdownDays ?? 999,
+        nextDeadlineLabel: t("dashComplianceMomsLabel", "MOMS filing"),
+      },
+      topSellers: topSellers || [],
+      paymentBreakdown: paymentBreakdown || [],
+      inventoryItems: inventoryItems || [],
+      inventoryCriticalCount: (inventoryItems || []).filter(
+        (i) =>
+          parseFloat(i.min_threshold) > 0 &&
+          parseFloat(i.quantity) <= parseFloat(i.min_threshold),
+      ).length,
+      // ExpiryAlertsCard self-fetches; this gates the registry render.
+      // TODO(Phase G): expose expiring count on /dashboard/batch so the
+      // gate predicate is data-driven instead of always rendering.
+      expiringSoonCount: 0,
+      goalsSet: !!(
+        profile?.daily_revenue_goal ||
+        profile?.monthly_revenue_goal ||
+        user?.daily_goal ||
+        user?.monthly_goal
+      ),
+      invoices: {
+        overdueCount: outstandingInvoices?.length || 0,
+        overdue: outstandingInvoices || [],
+        overdueTotal,
+      },
+      growthSignals: growthSignals || [],
+      actionItems: actionItems || [],
+      // CloserPromptCard self-detects whether daily close ran; the
+      // renderIf still needs a default. The card hides itself when
+      // there's nothing to prompt.
+      dailyCloseRanToday: false,
+
+      // Notices state. Current banner components self-detect their own
+      // visibility; these defaults exist so the renderIf predicates
+      // resolve without crashing.
+      driftActive: true,
+      isDemoData: !!user?.is_demo_data_active,
+      trialDaysLeft: entitlements?.trialDaysRemaining ?? null,
+      pushOptedIn: false,
+
+      // Profile (for GoalTracker)
+      profile,
+
+      // Trend feed
+      dailyRevData,
+    };
+  }, [
+    user,
+    entitlements,
+    archetype,
+    activations,
+    currency,
+    navigate,
+    t,
+    summary,
+    weekComparison,
+    topSellers,
+    paymentBreakdown,
+    inventoryItems,
+    outstandingInvoices,
+    growthSignals,
+    actionItems,
+    momsCountdownDays,
+    momsDate,
+    profile,
+    dailyRevData,
+  ]);
+
+  // ── Greeting (preserved from the previous surgical pass) ──
+  const greetingTitle = useMemo(() => {
+    const hour = new Date().getHours();
+    const tr = (key, fallback) => {
+      const v = t(key);
+      return v && v !== key ? v : fallback;
+    };
+    let greet;
+    if (hour < 5) greet = tr("goodEvening", "Good evening");
+    else if (hour < 12) greet = tr("goodMorning", "Good morning");
+    else if (hour < 18) greet = tr("goodAfternoon", "Good afternoon");
+    else greet = tr("goodEvening", "Good evening");
+    const rawName = user?.business_name?.trim() || "";
+    const looksLikeAppName = /^bonbox$/i.test(rawName);
+    const displayName =
+      !rawName || looksLikeAppName ? user?.email?.split("@")[0] || "" : rawName;
+    return displayName ? `${greet}, ${displayName}` : greet;
+  }, [t, user]);
+
+  // ── Loading skeleton (matches zone shape, not the old grid) ──
+  if (loading && !summary) {
     return (
-      <div className="p-4 sm:p-6 space-y-6">
-        <SkeletonCard />
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3"><SkeletonCard /><SkeletonCard /><SkeletonCard /><SkeletonCard /></div>
-        <SkeletonChart />
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6"><SkeletonChart /><SkeletonChart /></div>
-      </div>
+      <PageShell width="wide">
+        <PageHeader
+          eyebrow={t("home", "HOME").toUpperCase()}
+          title={greetingTitle}
+        />
+        <div className="space-y-6">
+          {/* Zone 1 skeleton: DailyBrief + 3-tile KPI strip */}
+          <SkeletonCard />
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+          </div>
+          {/* Zone 2 skeleton: RevenueTrend */}
+          <SkeletonChart />
+        </div>
+      </PageShell>
     );
   }
 
-  return (
-    <PullToRefresh onRefresh={async () => fetchAll()}>
-      <div className="p-4 sm:p-6 space-y-5 max-w-[1400px] mx-auto">
-        <ToastContainer />
-        <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
-        <QuickSaleModal open={saleModal} onClose={() => setSaleModal(false)} onSubmit={handleQuickSale} currency={currency} pricesIncludeMoms={user?.prices_include_moms ?? true} />
-        <SmartSaleInput open={smartSaleOpen} onClose={() => setSmartSaleOpen(false)} onSaved={fetchAll} />
-
-        {/* ── HEADER ── */}
-        <FadeIn>
-          <PageHeader
-            title={(() => {
-              // Time-aware greeting + safer name handling.
-              // Falls back gracefully when business_name is missing or matches the app name.
-              // Note: t() returns the key string when a translation is missing,
-              // so we check both the falsy AND key-equality cases.
-              const hour = new Date().getHours();
-              const tr = (key, fallback) => {
-                const v = t(key);
-                return v && v !== key ? v : fallback;
-              };
-              let greet;
-              if (hour < 5) greet = tr("goodEvening", "Good evening");
-              else if (hour < 12) greet = tr("goodMorning", "Good morning");
-              else if (hour < 18) greet = tr("goodAfternoon", "Good afternoon");
-              else greet = tr("goodEvening", "Good evening");
-              const rawName = user?.business_name?.trim() || "";
-              // Don't repeat the app name back at the user — feels like a bug
-              const looksLikeAppName = /^bonbox$/i.test(rawName);
-              const displayName = !rawName || looksLikeAppName
-                ? (user?.email?.split("@")[0] || "")
-                : rawName;
-              return displayName ? `${greet}, ${displayName}` : greet;
-            })()}
-            subtitle={new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-            actions={
-              <>
-                <UIButton variant="accent" onClick={() => setSaleModal(true)}>
-                  + {t("quickSale")}
-                </UIButton>
-                <UIButton
-                  variant="secondary"
-                  onClick={() => setSmartSaleOpen(true)}
-                  title={t("smartEntryTooltip")}
-                >
-                  Smart entry
-                </UIButton>
-                <ReceiptCapture onSaleCreated={fetchAll} />
-                {/* Repeat Yesterday — only show when last sale is ACTUALLY from
-                    yesterday's calendar date. The previous predicate (just
-                    amount > 0) leaked stale demo / 3-week-old sales onto the
-                    button, displaying "Repeat Yesterday's Sale (10,000 DKK)"
-                    even when there were 0 sales yesterday — a credibility-
-                    breaking inconsistency vs the dashboard summary cards.
-                    Compute "yesterday" in the user's local timezone so it
-                    matches Sale.date semantics. */}
-                {(() => {
-                  if (!lastSale || !(parseFloat(lastSale.amount) > 0) || !lastSale.date) return null;
-                  const y = new Date();
-                  y.setDate(y.getDate() - 1);
-                  const yesterdayISO = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, "0")}-${String(y.getDate()).padStart(2, "0")}`;
-                  const saleDate = String(lastSale.date).slice(0, 10);  // ISO or already-trimmed
-                  if (saleDate !== yesterdayISO) return null;
-                  return (
-                    <UIButton variant="secondary" onClick={repeatYesterday}>
-                      {t("repeatYesterday")}
-                      <span className="ml-1 text-emerald-600 dark:text-emerald-400">
-                        ({parseFloat(lastSale.amount).toLocaleString()} {currency})
-                      </span>
-                    </UIButton>
-                  );
-                })()}
-                <UIButton variant="ghost" onClick={downloadPdf}>
-                  {t("downloadPdf")}
-                </UIButton>
-              </>
-            }
-          />
-        </FadeIn>
-
-        {quickMsg && (
-          <SectionBanner severity="info" title={quickMsg} />
-        )}
-
-        {/* Two-actor onboarding stake — auto-hides once a closer is set
-            or owner explicitly dismisses. Models the closer ≠ owner
-            split as a structural product step, not just marketing copy. */}
-        <CloserPromptCard user={user} />
-
-        {/* Trial countdown moved to the sidebar (components/TrialChip)
-            so it's persistent across all pages without consuming the
-            top of the dashboard with a stripe. The small chip
-            shows '🎁 14 days left in trial' next to navigation —
-            nice, not annoying.
-
-            The TrialFinalStretchTip below still renders here when
-            trial_days_remaining ∈ {1, 2} — it's a separate,
-            time-sensitive conversion nudge with founding-price
-            framing. Lives on the dashboard rather than the sidebar
-            because the message is too long for a chip. */}
-
-        {/* ── FINAL 48-HOUR CONVERSION NUDGE — only renders when
-             trial_days_remaining ∈ {1, 2}. Distinct from the calm
-             sidebar TrialChip — gives a specific, honest reason to
-             lock founding pricing before regular kicks in. ── */}
-        <TrialFinalStretchTip />
-
-        {/* ── FIRST-RUN WIZARD — guided 60-second setup for brand-new
-            accounts. Self-detects (only fires when no profile + <10 sales)
-            and writes a localStorage flag so it doesn't re-show. ── */}
-        <FirstRunWizard />
-
-        {/* ── BRANCH SUMMARY — multi-location at-a-glance. Self-hides
-            for single-branch accounts; renders a horizontal stack of
-            this month's revenue per location for ≥2-branch owners.
-            Tap a row → scopes the Smart cards below. ── */}
-        <BranchSummaryCard />
-
-        {/* ── SCHEDULE CONFIRMATION — calm awareness chip showing how
-            many staff have confirmed this week's published schedule.
-            Self-hides if no published shifts. No nagging, no chase
-            buttons — the magic-link IS the reminder. ── */}
-        <ScheduleConfirmationCard />
-
-        {/* ── SMART DRIFT — "your hours look different lately" — only
-            renders when the weekly re-inference job found material drift.
-            Sits above the daily brief because acting on it keeps every
-            other inference (and resulting recommendations) accurate. ── */}
-        <SmartDriftBanner />
-
-        {/* ── MONTH-END BUNDLE NUDGE — appears in the last 5 days of the
-            month (heads-up) or first 5 days of the next month (do-it-now).
-            Dismissible per-period via localStorage. Sits above DailyBrief
-            because closing the books is the most time-sensitive recurring
-            action — losing track of it costs real revisor fees. ── */}
-        <MonthEndBundleBanner />
-
-        {/* ── DEMO ACTIVE BANNER — when the owner has loaded sample
-            data, surface a subtle reminder so they never confuse
-            demo numbers with real ones. Self-hides once cleared. ── */}
-        <DemoActiveBanner />
-
-        {/* ── MOMS COUNTDOWN — the single most anxiety-reducing widget for
-            a DK owner. Shows days until next filing + estimated amount.
-            Self-hides on accounts with no tax preferences saved. Tap to
-            open Tax Autopilot for the full breakdown. ── */}
-        <MomsCountdownCard />
-
-        {/* ── ACCOUNTANT HOURS SAVED — the "we save you revisor hours = kr
-            in your pocket" tracker. Manoj's positioning load-bearing
-            widget. Free tier renders the Starter upsell card in this
-            slot (intentional — the surface is the marketing). Starter+
-            sees the live number with a breakdown drawer on tap. Honest
-            by construction: every hour traces to a real action in
-            /api/accountant-savings/current-month. ── */}
-        <AccountantHoursWidget />
-
-        {/* ── CONNECTIONS PROGRESS — surfaces incomplete setup directly
-            on the dashboard so new owners don't have to hunt for
-            /connections. Self-hides when everything is connected or
-            after 30-day dismissal. ── */}
-        <ConnectionsProgressCard />
-
-        {/* ── PUSH OPT-IN — Task #72. After day 1 in BonBox, nudges the
-            owner to enable native push notifications for the 8am
-            morning brief. Self-hides when not supported, already
-            subscribed, declined, or dismissed for 30 days. iOS Safari
-            without standalone gets a "Add to Home Screen first" hint
-            instead of a subscribe button. ── */}
-        <PushOptInPrompt />
-
-        {/* ── DEMO DATA — empty-state CTA for new owners. Self-hides
-            once the user has any real data or has already seeded
-            demo data, so this disappears as soon as it stops being
-            useful. (Task #68) ── */}
-        <DemoDataCard />
-
-        {/* ── AI DAILY BRIEF — actionable morning brief, top of fold ── */}
-        <DailyBriefCard />
-
-        {/* ── AI ANOMALY ALERTS — only renders when there are open alerts ── */}
-        <AnomalyAlertsCard />
-
-        {/* ── EXPIRY ALERTS — Starter+. Self-hides if no items expire
-            within 3 days OR the user lacks the entitlement. ── */}
-        <ExpiryAlertsCard />
-
-        {/* ── SICK-CALL NOTIFICATIONS — interrupt-only; renders only when
-            staff have called in. Pulls from /staff/absences. ── */}
-        <SickCallNotificationCard />
-
-        {/* ── SHIFT-SWAP REQUESTS — interrupt-only; renders only when
-            staff have peer-approved a swap and need owner sign-off. ── */}
-        <SwapRequestNotificationCard />
-
-        {/* ── First-run tip on the Dashboard ── */}
-        <DismissibleTip
-          id="dashboard-intro-v1"
-          icon="👋"
-          title={t("welcomeDashboard")}
+  // ── Header actions: 2 primary CTAs + overflow menu.
+  //    Preserved from the surgical pass. Repeat-Yesterday + Download PDF
+  //    + Smart entry move into the overflow so the header stays calm.
+  const headerActions = (
+    <>
+      <Button variant="primary" onClick={() => setSaleModal(true)}>
+        + {t("quickSale", "Quick sale")}
+      </Button>
+      <ReceiptCapture onSaleCreated={fetchAll} />
+      <div className="relative" ref={overflowRef}>
+        <Button
+          variant="ghost"
+          onClick={() => setOverflowOpen((v) => !v)}
+          aria-label={t("moreActions", "More actions")}
+          aria-haspopup="menu"
+          aria-expanded={overflowOpen}
         >
-          <p>{t("dashboardIntroTip")}</p>
-        </DismissibleTip>
-
-        {/* ── AI INSIGHTS — only renders when there are active patterns ── */}
-        <InsightsCard />
-
-        {/* ── PERIOD SELECTOR ── */}
-        <div className="flex flex-wrap items-center gap-2">
-          {PERIODS.map((p) => (
-            <button key={p} onClick={() => setPeriod(p)}
-              className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all
-                ${period === p
-                  ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 shadow-sm"
-                  : "bg-gray-100 dark:bg-gray-700/60 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
-                }`}>
-              {p === "today" ? t("today") : p === "thisWeek" ? t("thisWeek") : p === "thisMonth" ? t("thisMonth") : t("last30Days")}
-            </button>
-          ))}
-        </div>
-
-        <Onboarding summary={summary} />
-
-        {/* ═══════════════════════════════════════════════════
-           ROW 1: KPI CARDS — 4 columns with sparklines
-           ═══════════════════════════════════════════════════ */}
-        <StaggerGrid className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-          <StaggerGridItem>
-            <KpiCard
-              title={period === "today" ? t("todayRevenue") : period === "thisWeek" ? t("thisWeekRevenue") : period === "thisMonth" ? t("thisMonthRevenue") : t("last30Revenue")}
-              numericValue={periodStats ? periodStats.totalRevenue : summary.today_revenue}
-              currency={currency}
-              change={period === "today" ? summary.today_revenue_change : undefined}
-              changeLabel={period === "today" ? t("vsYesterday") : periodStats ? `${periodStats.salesCount} sales` : undefined}
-              sparkData={weekSparkData}
-              onClick={() => navigate("/sales")}
-              highlight
-            />
-          </StaggerGridItem>
-          <StaggerGridItem>
-            <KpiCard
-              title={t("yesterday")}
-              numericValue={yesterdayRev}
-              currency={currency}
-              subtitle={yesterdayRev > 0 ? formatDateShort(yesterdayKey) : t("noSales") || "No sales"}
-              onClick={() => navigate("/sales")}
-            />
-          </StaggerGridItem>
-          <StaggerGridItem>
-            <KpiCard
-              title={t("weekAvg")}
-              numericValue={weekAvg}
-              currency={currency}
-              subtitle={`${currency}/${t("dayShort") || "day"}`}
-              sparkData={weekSparkData}
-              onClick={() => navigate("/reports")}
-            />
-          </StaggerGridItem>
-          <StaggerGridItem>
-            <KpiCard
-              title={t("bestDay")}
-              numericValue={bestDay ? bestDay.amount : 0}
-              currency={currency}
-              // Only show the date when there's actually revenue on that
-              // day — otherwise the card shows day-1 of the period at 0,
-              // which reads as "the best day was a day with no sales".
-              subtitle={bestDay && bestDay.amount > 0 ? formatDateShort(bestDay.date) : "—"}
-              sparkData={monthSparkData}
-              onClick={() => navigate("/reports")}
-            />
-          </StaggerGridItem>
-        </StaggerGrid>
-
-        {/* ═══════════════════════════════════════════════════
-           ROW 2: TOP SELLERS — Qty / Revenue toggle (full width)
-           ═══════════════════════════════════════════════════ */}
-        <FadeIn>
-          <TopSellersCard topSellers={topSellers} currency={currency} onNavigate={() => navigate("/sales")} />
-        </FadeIn>
-
-        {/* ═══════════════════════════════════════════════════
-           ROW 3: FORECAST+WEATHER+STAFFING + P&L side by side
-           ═══════════════════════════════════════════════════ */}
-        <StaggerGrid className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <StaggerGridItem>
-            <ForecastWeatherStaffing forecast={forecast} weather={weather} staffing={staffing} currency={currency} onNavigate={() => navigate("/weather")} />
-          </StaggerGridItem>
-          <StaggerGridItem>
-            <PLCard revenue={revenue} expenses={expenses} profit={profit} margin={marginPct} currency={currency} loading={dashLoading} onNavigate={() => navigate("/reports")} />
-          </StaggerGridItem>
-        </StaggerGrid>
-
-        {/* ═══════════════════════════════════════════════════
-           ROW 4: SALES (payments) + EXPENSES together
-           ═══════════════════════════════════════════════════ */}
-        <StaggerGrid className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <StaggerGridItem>
-            <PaymentBreakdownCard paymentBreakdown={paymentBreakdown} currency={currency} onNavigate={() => navigate("/sales")} />
-          </StaggerGridItem>
-          <StaggerGridItem>
-            <ExpenseBreakdown breakdown={monthlyData?.expense_breakdown} currency={currency} onNavigate={() => navigate("/expenses")} />
-          </StaggerGridItem>
-        </StaggerGrid>
-
-        {/* ═══════════════════════════════════════════════════
-           ROW 5: INVENTORY + ALERTS
-           ═══════════════════════════════════════════════════ */}
-        <StaggerGrid className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <StaggerGridItem>
-            <InventoryPanel items={inventoryItems} currency={currency} onNavigate={() => navigate("/inventory")} />
-          </StaggerGridItem>
-          <StaggerGridItem>
-            <AlertsPanel actionItems={actionItems} summary={summary} weekComparison={weekComparison} onNavigate={navigate} />
-          </StaggerGridItem>
-        </StaggerGrid>
-
-        {/* Ask Agent CTA */}
-        <FadeIn>
-          <button
-            onClick={() => {
-              const agentBtn = document.querySelector("[data-bonbox-agent-toggle]");
-              if (agentBtn) agentBtn.click();
-            }}
-            className="w-full flex items-center gap-3 px-5 py-4 bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-          >
-            <span className="text-gray-600 dark:text-gray-300"><Icon name="MessageCircle" size={22} /></span>
-            <div className="text-left flex-1 min-w-0">
-              <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Ask anything about your business...</p>
-              <p className="text-xs text-gray-400 mt-0.5">{t("poweredByBonBoxAgent")}</p>
-            </div>
-            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full uppercase tracking-wider flex-shrink-0">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Live
-            </span>
-          </button>
-        </FadeIn>
-
-        {/* ═══════════════════════════════════════════════════
-           ROW 6: WEEK COMPARISON + HEALTH SCORE
-           ═══════════════════════════════════════════════════ */}
-        <StaggerGrid className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <StaggerGridItem>
-            <WeekComparisonCard weekComparison={weekComparison} currency={currency} onNavigate={() => navigate("/reports")} />
-          </StaggerGridItem>
-          <StaggerGridItem>
-            <HealthScore summary={summary} monthlyData={monthlyData} onNavigate={() => navigate("/reports")} />
-          </StaggerGridItem>
-        </StaggerGrid>
-
-        {/* ═══════════════════════════════════════════════════
-           ROW 7: GOALS
-           ═══════════════════════════════════════════════════ */}
-        <FadeIn>
-          <GoalTracker todayRevenue={summary.today_revenue} monthRevenue={summary.month_revenue} />
-        </FadeIn>
-
-        {/* ═══════════════════════════════════════════════════
-           BUDGET SNAPSHOT
-           ═══════════════════════════════════════════════════ */}
-        {budgetSummary && budgetSummary.categories.length > 0 && (
-          <FadeIn>
-            <div className="bg-white dark:bg-gray-800 rounded-xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors" onClick={() => navigate("/budgets")}>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("budgetSnapshot")}</h3>
-                {budgetSummary.total_budget > 0 && (
-                  <span className={`text-sm font-bold ${budgetSummary.total_pct > 100 ? "text-red-500" : budgetSummary.total_pct >= 80 ? "text-amber-500" : "text-green-500"}`}>
-                    {budgetSummary.total_pct}% used
-                  </span>
-                )}
-              </div>
-              {budgetSummary.total_budget > 0 && (
-                <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden mb-4">
-                  <div className={`h-full rounded-full transition-all duration-500 ${budgetSummary.total_pct > 100 ? "bg-red-500" : budgetSummary.total_pct >= 80 ? "bg-amber-500" : "bg-green-500"}`} style={{ width: `${Math.min(budgetSummary.total_pct, 100)}%` }} />
-                </div>
-              )}
-              <div className="space-y-2">
-                {budgetSummary.categories
-                  .filter((c) => c.status === "red" || c.status === "yellow")
-                  .slice(0, 4)
-                  .map((c) => (
-                    <div key={c.category} className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full ${c.status === "red" ? "bg-red-500" : "bg-amber-500"}`} />
-                        <span className="text-gray-700 dark:text-gray-300">{c.category}</span>
-                      </div>
-                      <span className={`font-semibold ${c.status === "red" ? "text-red-500" : "text-amber-500"}`}>{c.pct}%</span>
-                    </div>
-                  ))}
-                {budgetSummary.categories.filter((c) => c.status === "green").length > 0 && (
-                  <p className="text-xs text-green-500 dark:text-green-400 pt-1">
-                    {budgetSummary.categories.filter((c) => c.status === "green").length} categories on track
-                  </p>
-                )}
-              </div>
-            </div>
-          </FadeIn>
-        )}
-
-        {/* ═══════════════════════════════════════════════════
-           ROW 8: REVENUE TREND (detailed chart)
-           ═══════════════════════════════════════════════════ */}
-        <FadeIn>
-          <RevenueTrendChart data={dailyRevData} currency={currency} onNavigate={() => navigate("/reports")} />
-        </FadeIn>
-
-        {/* ═══════════════════════════════════════════════════
-           ROW 8: RECEIPTS (if any)
-           ═══════════════════════════════════════════════════ */}
-        {receipts.length > 0 && (
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700/60 shadow-sm">
-            <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100 mb-4">{t("recentReceipts")}</h3>
-            <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-7 gap-3">
-              {receipts.map((r) => {
-                // Validate receipt URL once per render — blocks data:/javascript:/
-                // SVG-onload XSS even if a malicious receipt URL ever lands in the DB.
-                const safeReceipt = safeImageUrl(r.receipt_photo);
-                return (
-                <div key={r.id} className="group relative cursor-pointer rounded-xl overflow-hidden" onClick={() => safeReceipt && setLightboxImg(safeReceipt)}>
-                  {safeReceipt ? (
-                    <img src={safeReceipt} alt={`Receipt ${r.date}`}
-                      className="w-full h-24 object-cover"
-                      onError={(e) => { e.target.style.display = "none"; e.target.nextSibling.style.display = "flex"; }} />
-                  ) : null}
-                  <div className="w-full h-24 bg-gray-50 dark:bg-gray-700 flex items-center justify-center text-gray-400" style={{ display: safeReceipt ? "none" : "flex" }}>
-                    <Icon name="Receipt" size={24} />
-                  </div>
-                  <div className="absolute bottom-0 left-0 right-0 bg-gray-900/80 text-white text-[10px] px-2 py-1.5">
-                    <p className="font-semibold">{r.amount.toLocaleString()} {currency}</p>
-                  </div>
-                </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Lightbox */}
-        {lightboxImg && (
+          <MoreHorizontal size={18} aria-hidden="true" />
+        </Button>
+        {overflowOpen && (
           <div
-            className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
-            onClick={() => setLightboxImg(null)}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Receipt preview"
-            onKeyDown={(e) => { if (e.key === "Escape") setLightboxImg(null); }}
-            tabIndex={-1}
+            role="menu"
+            className={
+              "absolute right-0 mt-2 w-56 rounded-xl border border-gray-200 " +
+              "dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm " +
+              "py-1 z-30"
+            }
           >
             <button
-              onClick={() => setLightboxImg(null)}
-              aria-label="Close preview"
-              className="absolute top-4 right-4 text-white text-3xl font-bold hover:text-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white rounded w-10 h-10 flex items-center justify-center"
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOverflowOpen(false);
+                setSmartSaleOpen(true);
+              }}
+              className="w-full text-left text-sm px-3 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
             >
-              <span aria-hidden="true">&times;</span>
+              {t("smartEntry", "Smart entry")}
             </button>
-            <img src={lightboxImg} alt="Receipt" className="max-w-full max-h-[90vh] rounded-xl shadow-sm object-contain" onClick={(e) => e.stopPropagation()} />
+            {lastSale && parseFloat(lastSale.amount) > 0 && lastSale.date && (() => {
+              const y = new Date();
+              y.setDate(y.getDate() - 1);
+              const yesterdayISO = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, "0")}-${String(y.getDate()).padStart(2, "0")}`;
+              const saleDate = String(lastSale.date).slice(0, 10);
+              if (saleDate !== yesterdayISO) return null;
+              return (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={async () => {
+                    setOverflowOpen(false);
+                    try {
+                      await api.post("/sales/repeat-yesterday");
+                      trackEvent("sale_logged", "dashboard", "repeat_yesterday");
+                      fetchAll();
+                      window.dispatchEvent(new Event("bonbox-data-changed"));
+                    } catch { /* ignore */ }
+                  }}
+                  className="w-full text-left text-sm px-3 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                >
+                  {t("repeatYesterday", "Repeat yesterday")}
+                </button>
+              );
+            })()}
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOverflowOpen(false);
+                downloadPdf();
+              }}
+              className="w-full text-left text-sm px-3 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+            >
+              {t("downloadPdf", "Download PDF")}
+            </button>
           </div>
         )}
       </div>
+    </>
+  );
+
+  // ── First-run state — replaces the whole zone tree ──
+  if (ctx.activations.isFirstRun) {
+    return (
+      <PageShell width="wide">
+        <ToastContainer />
+        <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
+        <QuickSaleModal
+          open={saleModal}
+          onClose={() => setSaleModal(false)}
+          onSubmit={handleQuickSale}
+          currency={currency}
+          pricesIncludeMoms={user?.prices_include_moms ?? true}
+        />
+        <SmartSaleInput
+          open={smartSaleOpen}
+          onClose={() => setSmartSaleOpen(false)}
+          onSaved={fetchAll}
+        />
+        <PageHeader
+          eyebrow={t("home", "HOME").toUpperCase()}
+          title={greetingTitle}
+          actions={headerActions}
+        />
+        <FirstRunCollapsedDashboard />
+      </PageShell>
+    );
+  }
+
+  // ── Steady-state: the full persona-aware 3-zone dashboard ──
+  return (
+    <PullToRefresh onRefresh={async () => fetchAll()}>
+      <PageShell width="wide">
+        <ToastContainer />
+        <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
+        <QuickSaleModal
+          open={saleModal}
+          onClose={() => setSaleModal(false)}
+          onSubmit={handleQuickSale}
+          currency={currency}
+          pricesIncludeMoms={user?.prices_include_moms ?? true}
+        />
+        <SmartSaleInput
+          open={smartSaleOpen}
+          onClose={() => setSmartSaleOpen(false)}
+          onSaved={fetchAll}
+        />
+
+        <PageHeader
+          eyebrow={t("home", "HOME").toUpperCase()}
+          title={greetingTitle}
+          subtitle={new Date().toLocaleDateString("en-GB", {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+          })}
+          actions={headerActions}
+        />
+
+        <DashboardZones
+          cardSet={DASHBOARD_CARD_SET}
+          ctx={ctx}
+          registry={REGISTRY}
+        />
+
+        <div className="mt-8 text-center">
+          <Link
+            to="/reports"
+            className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 underline"
+          >
+            {t("dashViewAllMetrics", "View all metrics in Reports →")}
+          </Link>
+        </div>
+      </PageShell>
     </PullToRefresh>
   );
 }
