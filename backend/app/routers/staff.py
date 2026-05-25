@@ -1950,216 +1950,110 @@ def export_payroll_csv(
 def loenseddel_pdf(
     period_start: date,
     period_end: date,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """
-    Generate Danish Lønseddel PDFs (one page per active employee) — DK standard
-    layout with Copenhagen-clean styling. Multi-tenant filtered.
+    Generate accountant-grade Lønseddel PDF (one page per active employee).
 
-    Layout per employee:
-      [Header: business / period / "LØNSEDDEL"]
-      [Employer info | Employee info — two columns]
-      [Wage breakdown table]
-      [Deductions table]
-      [Employer contributions table]
-      [Footer: estimate disclaimer]
+    Delegates rendering to `build_loenseddel_pdf` in `loenseddel_pdf.py` —
+    the dedicated service mirrors the gold-standard accountant-grade
+    pattern from `build_moms_filing_pdf` in `tax_filing_pdf.py`. Every
+    page carries the 6 required revisor-bound fields:
+      1. Bilagsnummer (`LON-{employee}-{YYYYMMDD}-{YYYYMMDD}`)
+      2. Doc-hash (SHA-256, 16-char short in footer)
+      3. Signature line for the medarbejder
+      4. Bogføringsloven §10 notice (5-year retention)
+      5. Provenance footer (BonBox v… · UTC timestamp · owner email)
+      6. Source reconciliation (every HoursLogged row that fed the gross)
+
+    Per Manoj's locked doctrine ("Accountant-grade artifacts"):
+      Tier controls cap / period auto-resolution / send-access — NEVER
+      artifact content. Every plan that has access to the endpoint gets
+      the same 6-field accountant-grade PDF.
 
     Multi-layer defense:
-      - reportlab import inside fn so module loads even if lib missing
       - empty staff/period returns 404 (don't ship a blank PDF)
       - per-employee try/except: one bad row doesn't kill the whole PDF
+      - PDF lib import wrapped — 500 if reportlab missing
+      - L7 audit_logs row written per employee rendered
     """
-    from app.services.payroll_service import estimate_period_payroll
+    from app.services.loenseddel_pdf import build_loenseddel_pdf_multi
 
-    est = estimate_period_payroll(db, user.id, period_start, period_end)
-    if est["staff_count"] == 0 or not est["per_staff"]:
+    # Resolve all eligible staff (active, non-deleted) AND restrict to
+    # those who logged hours in the period. We feed them all into one
+    # multi-page accountant-grade PDF — each employee gets their own
+    # bilagsnummer and source-reconciliation block.
+    staff_rows = (
+        db.query(StaffMember)
+        .filter(
+            StaffMember.user_id == user.id,
+            StaffMember.is_deleted.isnot(True),
+            StaffMember.active.is_(True),
+        )
+        .order_by(StaffMember.name.asc())
+        .all()
+    )
+    if not staff_rows:
         raise HTTPException(404, "No staff with hours logged in this period")
 
-    profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
+    has_hours_ids = set(
+        str(r[0]) for r in db.query(HoursLogged.staff_id)
+        .filter(
+            HoursLogged.user_id == user.id,
+            HoursLogged.date >= period_start,
+            HoursLogged.date <= period_end,
+        )
+        .distinct()
+        .all()
+    )
+    eligible = [s for s in staff_rows if str(s.id) in has_hours_ids]
+    if not eligible:
+        raise HTTPException(404, "No staff with hours logged in this period")
+
+    profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == user.id)
+        .first()
+    )
+
+    ip_address = (
+        getattr(request.client, "host", None)
+        if request and request.client else None
+    )
 
     try:
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib import colors
-        from reportlab.lib.units import mm
-        from reportlab.platypus import (
-            SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer,
-            HRFlowable, PageBreak,
+        pdf_bytes, summary = build_loenseddel_pdf_multi(
+            db, user, eligible, period_start, period_end, profile=profile,
         )
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.lib.enums import TA_RIGHT
     except ImportError:
         raise HTTPException(500, "PDF library not available")
 
-    # Copenhagen-clean palette: warm-white bg, near-black text, single accent
-    INK = colors.HexColor("#171717")
-    MUTED = colors.HexColor("#6b7280")
-    DIVIDER = colors.HexColor("#e5e7eb")
-    ACCENT = colors.HexColor("#1f2937")  # subdued dark accent
+    # L7 audit row — accountant-grade requirement. One row per
+    # employee rendered so a revisor can later see exactly which staff
+    # member's lønseddel went out. The doc_hash on EACH row is the
+    # combined-PDF hash (the artifact the user actually downloads), so
+    # later tamper-checks can verify against any of them.
+    for entry in summary["per_employee"]:
+        audit_service.record(
+            db,
+            user=user,
+            action="staff.loenseddel_pdf_generated",
+            entity_type="staff_member",
+            entity_id=entry["employee_id"],
+            after={
+                "period_start": summary["period_start"],
+                "period_end": summary["period_end"],
+                "total_hours": entry["total_hours"],
+                "total_gross": entry["total_gross"],
+                "doc_hash": summary["doc_hash"],
+                "bilagsnummer": entry["bilagsnummer"],
+            },
+            ip_address=ip_address,
+        )
+    db.commit()
 
-    buf = BytesIO()
-    doc = SimpleDocTemplate(
-        buf, pagesize=A4,
-        topMargin=22 * mm, bottomMargin=18 * mm,
-        leftMargin=22 * mm, rightMargin=22 * mm,
-        title="Lønseddel",
-    )
-
-    styles = getSampleStyleSheet()
-    h1 = ParagraphStyle("H1", parent=styles["Title"], fontSize=14, spaceAfter=2,
-                        textColor=INK, fontName="Helvetica-Bold")
-    h_period = ParagraphStyle("Period", parent=styles["Normal"], fontSize=9,
-                              textColor=MUTED, alignment=TA_RIGHT, fontName="Helvetica")
-    label = ParagraphStyle("Label", parent=styles["Normal"], fontSize=8.5,
-                           textColor=MUTED, fontName="Helvetica",
-                           leading=12, spaceAfter=1)
-    val = ParagraphStyle("Val", parent=styles["Normal"], fontSize=10.5,
-                         textColor=INK, fontName="Helvetica", leading=14)
-    section_title = ParagraphStyle("Sect", parent=styles["Normal"], fontSize=8.5,
-                                   textColor=MUTED, fontName="Helvetica-Bold",
-                                   leading=12, spaceBefore=10, spaceAfter=4)
-    foot = ParagraphStyle("Foot", parent=styles["Normal"], fontSize=8,
-                          textColor=MUTED, fontName="Helvetica-Oblique", leading=11)
-
-    # Employer info
-    biz_name = (profile.business_name if profile and profile.business_name else user.business_name) or "Business"
-    biz_addr_parts = []
-    if profile:
-        if profile.address: biz_addr_parts.append(profile.address)
-        zip_city = " ".join(p for p in [getattr(profile, "zipcode", None), getattr(profile, "city", None)] if p)
-        if zip_city: biz_addr_parts.append(zip_city)
-    biz_addr = "<br/>".join(biz_addr_parts) or "—"
-    biz_cvr = f"CVR {profile.org_number}" if profile and getattr(profile, "org_number", None) else ""
-
-    period_label = f"{period_start.isoformat()} — {period_end.isoformat()}"
-
-    def _money(v):
-        if v is None:
-            return "—"
-        return f"{float(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-    def _row(desc, amount, bold=False, indent=False):
-        d = f"<b>{desc}</b>" if bold else desc
-        a = f"<b>{_money(amount)}</b>" if bold else _money(amount)
-        prefix = "&nbsp;&nbsp;&nbsp;" if indent else ""
-        return [Paragraph(prefix + d, val), Paragraph(a, ParagraphStyle("Money", parent=val, alignment=TA_RIGHT))]
-
-    story = []
-    page_count = 0
-    for s in est["per_staff"]:
-        if page_count > 0:
-            story.append(PageBreak())
-        page_count += 1
-
-        try:
-            # Header row: title left, period right
-            head_table = Table(
-                [[Paragraph("LØNSEDDEL", h1), Paragraph(period_label, h_period)]],
-                colWidths=[100 * mm, 66 * mm],
-            )
-            head_table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
-            story.append(head_table)
-            story.append(HRFlowable(width="100%", thickness=0.5, color=DIVIDER, spaceBefore=4, spaceAfter=12))
-
-            # Two-column employer / employee info
-            employer_html = (
-                f"<font name='Helvetica-Bold' size='10.5'>{biz_name}</font><br/>"
-                f"<font color='#6b7280'>{biz_addr}</font><br/>"
-                f"<font color='#6b7280'>{biz_cvr}</font>"
-            )
-            employee_html = (
-                f"<font name='Helvetica-Bold' size='10.5'>{s.get('name', '—')}</font><br/>"
-                f"<font color='#6b7280'>Role: {s.get('role') or '—'}</font><br/>"
-                f"<font color='#6b7280'>Contract: {s.get('contract_type') or '—'}</font><br/>"
-                f"<font color='#6b7280'>Hours: {float(s.get('hours', 0)):.2f}</font>"
-            )
-            info_table = Table(
-                [[Paragraph("EMPLOYER", section_title), Paragraph("EMPLOYEE", section_title)],
-                 [Paragraph(employer_html, val), Paragraph(employee_html, val)]],
-                colWidths=[83 * mm, 83 * mm],
-            )
-            info_table.setStyle(TableStyle([
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-            ]))
-            story.append(info_table)
-            story.append(Spacer(1, 12 * mm))
-
-            # Wage breakdown
-            story.append(Paragraph("WAGE BREAKDOWN", section_title))
-            wage_rows = [
-                _row("Gross wage", s.get("gross"), bold=True),
-            ]
-            wage_table = Table(wage_rows, colWidths=[100 * mm, 66 * mm])
-            wage_table.setStyle(TableStyle([
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ("LINEBELOW", (0, -1), (-1, -1), 0.5, DIVIDER),
-            ]))
-            story.append(wage_table)
-
-            # Deductions
-            story.append(Paragraph("DEDUCTIONS", section_title))
-            ded_rows = [
-                _row("AM-bidrag (8%)", -float(s.get("am_bidrag") or 0), indent=True),
-                _row("A-skat (estimate ≈ 36%)", -float(s.get("a_skat") or 0), indent=True),
-                _row("Net pay", s.get("net_pay"), bold=True),
-            ]
-            ded_table = Table(ded_rows, colWidths=[100 * mm, 66 * mm])
-            ded_table.setStyle(TableStyle([
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ("LINEABOVE", (0, -1), (-1, -1), 0.5, DIVIDER),
-            ]))
-            story.append(ded_table)
-
-            # Employer contributions
-            story.append(Paragraph("EMPLOYER CONTRIBUTIONS", section_title))
-            emp_rows = [
-                _row("ATP", s.get("atp"), indent=True),
-                _row("Feriepenge (12.5%)", s.get("feriepenge"), indent=True),
-                _row("Total employer cost", s.get("employer_total_cost"), bold=True),
-            ]
-            emp_table = Table(emp_rows, colWidths=[100 * mm, 66 * mm])
-            emp_table.setStyle(TableStyle([
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ("LINEABOVE", (0, -1), (-1, -1), 0.5, DIVIDER),
-            ]))
-            story.append(emp_table)
-
-            # Footer disclaimer
-            story.append(Spacer(1, 14 * mm))
-            story.append(Paragraph(
-                "A-skat shown is an estimate (≈36% after personfradrag). The official "
-                "figure depends on each employee's trækkort and is computed by your "
-                "lønsystem (DataLøn / Zenegy / Visma) or by SKAT via eIndkomst. Use "
-                "this lønseddel for internal records; submit official wages via your "
-                "certified lønsystem.",
-                foot,
-            ))
-        except Exception as e:  # noqa: BLE001
-            import logging as _logging
-            _logging.getLogger("bonbox.loenseddel").warning(
-                "loenseddel: failed to render employee %s: %s", s.get("name"), e,
-            )
-            story.append(Paragraph(
-                f"Could not render lønseddel for {s.get('name', 'employee')} — please check the data.",
-                foot,
-            ))
-
-    doc.build(story)
-    pdf_bytes = buf.getvalue()
     filename = f"bonbox_loenseddel_{period_start}_{period_end}.pdf"
     return StreamingResponse(
         iter([pdf_bytes]),
