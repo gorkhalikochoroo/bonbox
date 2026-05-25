@@ -723,7 +723,7 @@ export default function EventsPage() {
       !confirm(
         t(
           "bookingRefundConfirm",
-          "Refund booking? This creates a kreditnota.",
+          "Mark booking as refunded? BonBox writes the kreditnota — you handle the actual refund via MobilePay/Dankort.",
         ),
       )
     ) {
@@ -732,7 +732,7 @@ export default function EventsPage() {
     setBookingActioningId(booking.id);
     setBookingsErr("");
     try {
-      await api.post(`/bookings/${booking.id}/refund`, {});
+      await api.post(`/bookings/${booking.id}/mark-refunded`, {});
       window.dispatchEvent(new Event("bonbox-data-changed"));
       await fetchBookings(selectedId);
     } catch (e) {
@@ -1618,7 +1618,7 @@ export default function EventsPage() {
                       if (row.status === "paid") {
                         actions.push({
                           id: "refund",
-                          label: t("bookingRefund", "Refund"),
+                          label: t("bookingMarkRefunded", "Mark refunded"),
                           icon: <RotateCcw size={14} />,
                           onClick: () => refundBooking(row),
                           variant: "danger",

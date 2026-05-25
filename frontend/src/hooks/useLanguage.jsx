@@ -3033,8 +3033,9 @@ const translations = {
     bookingMarkAllPaid: "Mark all paid",
     bookingViewTickets: "View tickets",
     bookingRefund: "Refund",
+    bookingMarkRefunded: "Mark refunded",
     bookingRefundConfirm:
-      "Refund booking? This creates a kreditnota.",
+      "Mark booking as refunded? BonBox writes the kreditnota — you handle the actual refund via MobilePay/Dankort.",
     bookingMarkAllPaidConfirm:
       "Mark all {n} pending bookings as paid?",
     bookingsLoadFailed: "Couldn't load bookings.",
@@ -6164,8 +6165,9 @@ const translations = {
     bookingMarkAllPaid: "Markér alle som betalt",
     bookingViewTickets: "Se billetter",
     bookingRefund: "Refundér",
+    bookingMarkRefunded: "Markér som refunderet",
     bookingRefundConfirm:
-      "Refundér reservation? Dette opretter en kreditnota.",
+      "Markér reservationen som refunderet? BonBox opretter kreditnotaen — du står selv for selve refunderingen via MobilePay/Dankort.",
     bookingMarkAllPaidConfirm:
       "Markér alle {n} afventende reservationer som betalt?",
     bookingsLoadFailed: "Kunne ikke hente reservationer.",

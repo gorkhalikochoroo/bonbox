@@ -271,6 +271,167 @@ def write_sale_from_booking(
     return sale
 
 
+class BookingNotRefundable(Exception):
+    """Booking is in a state from which it cannot be refunded.
+
+    Raised when the caller passes a booking that hasn't been paid yet
+    (`pending`, `cancelled`, `expired`) or has already been refunded.
+    Router-level callers catch this and surface as 409 Conflict.
+    """
+
+
+def write_kreditnota_from_booking(
+    db: Session,
+    booking: Booking,
+    *,
+    reason: Optional[str] = None,
+    refund_amount_dkk: Optional[int] = None,
+) -> Sale:
+    """Materialise a kreditnota Sale (negative amount) for a refunded booking.
+
+    BonBox doesn't move money — the organizer refunded the customer via
+    their own MobilePay/Dankort/cash. This function records the inverse
+    accounting entry: a negative-amount Sale row with a `K-YYYY-NNNN`
+    bilagsnummer that the revisor PDF reconciles against the original.
+
+    Idempotent: if `booking.refund_sale_id` is already populated, returns
+    the existing kreditnota Sale.
+
+    Args:
+      db: open SQLAlchemy session — caller commits.
+      booking: the paid Booking to refund. Must have status='paid' and
+               a sale_id (the original Sale this kreditnota offsets).
+      reason: optional free-text reason for the audit trail.
+      refund_amount_dkk: optional partial-refund amount (DKK integer).
+               Defaults to booking.total_amount_dkk (full refund). Must
+               be > 0 and ≤ booking.total_amount_dkk.
+
+    Returns:
+      The kreditnota Sale row (amount is negative).
+
+    Raises:
+      BookingNotRefundable: when booking is in a non-paid state OR
+                  refund_amount_dkk is out of bounds.
+    """
+    # ── L9 idempotency check ────────────────────────────────────────
+    if booking.refund_sale_id is not None:
+        existing = (
+            db.query(Sale).filter(Sale.id == booking.refund_sale_id).first()
+        )
+        if existing is not None:
+            logger.info(
+                "booking_to_sale: idempotent kreditnota return for booking=%s sale=%s",
+                booking.id, existing.id,
+            )
+            return existing
+        booking.refund_sale_id = None  # phantom FK — re-mint
+
+    # ── State guard ─────────────────────────────────────────────────
+    # Only `paid` bookings can be refunded. `refunded` is terminal.
+    if booking.status != "paid":
+        raise BookingNotRefundable(
+            f"Booking {booking.id} is in status {booking.status!r} — "
+            "only paid bookings can be refunded."
+        )
+
+    # Default to full refund. Partial-refund support handled via the
+    # optional param; partials must be a positive integer ≤ original.
+    full_amount = int(booking.total_amount_dkk)
+    if refund_amount_dkk is None:
+        refund_amount = full_amount
+    else:
+        refund_amount = int(refund_amount_dkk)
+        if refund_amount <= 0 or refund_amount > full_amount:
+            raise BookingNotRefundable(
+                f"refund_amount_dkk={refund_amount} out of bounds "
+                f"(1..{full_amount})."
+            )
+
+    # ── Resolve event ───────────────────────────────────────────────
+    event: Event | None = booking.event
+    if event is None:
+        event = (
+            db.query(Event)
+            .filter(Event.id == booking.event_id)
+            .first()
+        )
+
+    now = utc_now()
+    refunded_at_year = now.year
+
+    # ── Bilagsnummer — kreditnota sequence (K-YYYY-NNNN) ────────────
+    voucher_number: int | None
+    try:
+        from app.services.voucher_service import allocate_voucher
+        voucher_number = allocate_voucher(
+            db, booking.organizer_user_id, "kreditnota", refunded_at_year,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "booking_to_sale: kreditnota voucher allocation failed "
+            "for booking=%s: %s",
+            booking.id, exc,
+        )
+        voucher_number = None
+
+    # ── ticket_breakdown — kind="event_booking_refund" ──────────────
+    # Carries the link to the original Sale for revisor reconciliation.
+    original_sale = (
+        db.query(Sale).filter(Sale.id == booking.sale_id).first()
+        if booking.sale_id is not None
+        else None
+    )
+    ticket_breakdown = {
+        "kind": "event_booking_refund",
+        "original_booking_id": str(booking.id),
+        "original_sale_id": str(booking.sale_id) if booking.sale_id else None,
+        "original_voucher_number": (
+            original_sale.voucher_number if original_sale else None
+        ),
+        "refund_amount_dkk": refund_amount,
+        "original_amount_dkk": full_amount,
+        "is_partial": refund_amount < full_amount,
+        "reason": reason,
+        "payment_provider": booking.payment_provider or "manual",
+        "provider_ref": booking.payment_provider_ref,
+        "computed_at": now.isoformat(),
+    }
+
+    # ── Compose the negative Sale row (kreditnota) ──────────────────
+    kreditnota_sale = Sale(
+        user_id=booking.organizer_user_id,
+        event_id=event.id if event is not None else booking.event_id,
+        date=now.date(),
+        amount=float(-refund_amount),  # NEGATIVE — the inverse entry
+        payment_method=booking.payment_provider or "manual",
+        notes=(
+            f"Kreditnota: {event.name if event else 'event'}"
+            + (f" — {reason}" if reason else "")
+        ),
+        is_tax_exempt=bool(booking.is_tax_exempt),
+        ticket_breakdown=ticket_breakdown,
+        guest_count=0,  # refunds don't count toward attendance metrics
+        voucher_number=voucher_number,
+    )
+    db.add(kreditnota_sale)
+    db.flush()
+
+    # ── Stamp booking + void tickets ────────────────────────────────
+    booking.refund_sale_id = kreditnota_sale.id
+    # Only flip to 'refunded' on full refund; partial leaves status='paid'
+    # but with a refund_sale_id pointing at the partial kreditnota.
+    if refund_amount >= full_amount:
+        booking.status = "refunded"
+        # Void all tickets — they shouldn't scan green at the door
+        from app.models.ticket import Ticket
+        db.query(Ticket).filter(Ticket.booking_id == booking.id).update(
+            {Ticket.is_void: True}, synchronize_session=False,
+        )
+    booking.updated_at = now
+
+    return kreditnota_sale
+
+
 def event_for_booking(db: Session, booking: Booking) -> Event | None:
     """Helper exposed for callers that need the resolved event without
     triggering the full sale-write path (e.g. summary endpoints)."""

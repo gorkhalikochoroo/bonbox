@@ -284,6 +284,22 @@ class BulkMarkPaidRequest(BaseModel):
     payment_method: Optional[str] = Field(None, max_length=20)
 
 
+class MarkRefundedRequest(BaseModel):
+    """Body for POST /api/bookings/{id}/mark-refunded.
+
+    BonBox doesn't move money — the organizer refunded the customer via
+    their own rails. This call just records the kreditnota Sale in the
+    ledger. `reason` is optional free-text for the audit trail.
+    `refund_amount_dkk` defaults to full booking total; supply a smaller
+    value for partial refunds (the kreditnota Sale will use that value
+    as the negative amount; booking.status stays 'paid' but with a
+    refund_sale_id pointer).
+    """
+
+    reason: Optional[str] = Field(None, max_length=500)
+    refund_amount_dkk: Optional[int] = Field(None, gt=0)
+
+
 class TicketScanResponse(BaseModel):
     """Returned from POST /api/tickets/{id}/scan."""
 

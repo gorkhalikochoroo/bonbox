@@ -50,6 +50,7 @@ from app.schemas.booking import (
     BookingResponse,
     BulkMarkPaidRequest,
     MarkPaidRequest,
+    MarkRefundedRequest,
 )
 from app.schemas.event import (
     EventCashupRequest,
@@ -65,6 +66,8 @@ from app.services import audit_service
 from app.services.billing import enforce_cap, get_cap
 from app.services.booking_to_sale import (
     BookingNotConfirmable,
+    BookingNotRefundable,
+    write_kreditnota_from_booking,
     write_sale_from_booking,
 )
 from app.utils.time import utc_now
@@ -1132,3 +1135,89 @@ def bulk_mark_booking_paid(
         "succeeded": succeeded,
         "outcomes": outcomes,
     }
+
+
+@bookings_router.post("/{booking_id}/mark-refunded", response_model=BookingResponse)
+def mark_booking_refunded(
+    booking_id: UUID,
+    data: MarkRefundedRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Mark a paid booking as refunded — organizer self-service kreditnota.
+
+    BonBox doesn't move money. The organizer refunded the customer via
+    their own MobilePay / Dankort / cash. This endpoint just records the
+    inverse accounting entry: a negative-amount Sale row with a
+    K-YYYY-NNNN bilagsnummer that the revisor PDF reconciles against
+    the original Sale.
+
+    Full refund (default): booking.status flips to 'refunded', all
+    tickets get voided so they no longer scan green at the door.
+    Partial refund (refund_amount_dkk < total): booking.status stays
+    'paid' with refund_sale_id pointing at the partial kreditnota.
+
+    Idempotent: calling on an already-refunded booking returns the
+    existing kreditnota Sale unchanged.
+
+    L1-L10 doctrine:
+      L1: get_current_user
+      L2: organizer_user_id filter (no cross-tenant refund)
+      L3: Pydantic bounds — reason ≤ 500 char, refund_amount_dkk > 0
+      L6: tenant scope on the booking query
+      L8: audit_logs `booking.refunded` with kreditnota provenance
+      L9: idempotent via refund_sale_id check inside the service
+      L10: BookingNotRefundable surfaces as 409 with current_status
+    """
+    booking = (
+        db.query(Booking)
+        .filter(Booking.id == booking_id)
+        .filter(Booking.organizer_user_id == user.id)
+        .filter(Booking.is_deleted.isnot(True))
+        .first()
+    )
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    try:
+        kreditnota_sale = write_kreditnota_from_booking(
+            db,
+            booking,
+            reason=data.reason,
+            refund_amount_dkk=data.refund_amount_dkk,
+        )
+    except BookingNotRefundable as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "booking_not_refundable",
+                "message": str(exc),
+                "current_status": booking.status,
+            },
+        )
+
+    is_partial = (
+        data.refund_amount_dkk is not None
+        and int(data.refund_amount_dkk) < int(booking.total_amount_dkk)
+    )
+
+    audit_service.record(
+        db, user,
+        action="booking.refunded",
+        entity_type="booking",
+        entity_id=booking.id,
+        after={
+            "booking_id": str(booking.id),
+            "kreditnota_sale_id": str(kreditnota_sale.id),
+            "kreditnota_voucher_number": kreditnota_sale.voucher_number,
+            "refund_amount_dkk": int(abs(kreditnota_sale.amount)),
+            "original_amount_dkk": int(booking.total_amount_dkk),
+            "is_partial": is_partial,
+            "reason": data.reason,
+        },
+        ip_address=_client_ip(request),
+    )
+    db.commit()
+    db.refresh(booking)
+    return _booking_to_response(booking)
