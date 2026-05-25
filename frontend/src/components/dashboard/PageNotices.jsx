@@ -28,45 +28,70 @@
  *               so PageNotices itself stays import-free of the actual
  *               banner components (lets DashboardPage code-split them
  *               and avoid circular imports).
- *   • cap     — max banners visible at once (default 2). Overflow goes
- *               behind a "+N more" disclosure.
+ *   • cap     — DEPRECATED.  The original design capped visible banners
+ *               at 2 and put the rest behind a "+N more" disclosure.
+ *               That broke in May 2026 when notice components started
+ *               self-vetoing (returning null based on data they fetch
+ *               internally — e.g. BankConsentExpiryBanner returns null
+ *               when no bank is within its 14-day window).  PageNotices
+ *               counts those as overflow because renderIf says "yes,
+ *               show me" but the component then renders nothing → user
+ *               sees "+1 more notice" and clicks it to find an empty
+ *               box.  We dropped the cap entirely; each notice
+ *               component's own self-veto + tight renderIf are enough
+ *               to keep the stack short (typically 0-1 visible in
+ *               practice).  Prop kept for API compat but ignored.
  */
-import React, { useState } from "react";
-import { ChevronDown } from "lucide-react";
-import { useLanguage } from "../../hooks/useLanguage";
+import React from "react";
 
 export default function PageNotices({
   notices = [],
   ctx = {},
   registry = {},
-  cap = 2,
+  // `cap` prop accepted but ignored — kept in the signature for callsite
+  // backward compatibility (DashboardPage still passes cap={2}).  See
+  // JSDoc above for why the cap was removed.
   className = "",
+  // eslint-disable-next-line no-unused-vars
+  cap,
 }) {
-  const { t } = useLanguage();
-  const [showOverflow, setShowOverflow] = useState(false);
 
-  // Filter notices through their predicates. A notice with no renderIf
-  // is treated as "always render" — matches the config semantics.
+  // Filter notices through their predicates AND component-resolvability.
+  // A notice with no renderIf is treated as "always render" — matches the
+  // config semantics.  We also drop any notice whose component name isn't
+  // in the registry: otherwise it would pass renderIf, count toward the
+  // overflow disclosure ("+1 more notice"), and then render nothing when
+  // expanded — the May 2026 bug where the dashboard advertised "+1 more"
+  // but the expansion was an empty box.  Filtering here keeps the count
+  // honest end-to-end (collapsed pill, expanded list, ARIA exposure).
   const matched = notices
     .map((n) => {
       const pass =
         typeof n.renderIf !== "function" ? true : Boolean(n.renderIf(ctx));
-      return pass ? n : null;
+      if (!pass) return null;
+      // Drop notices with unresolvable component names.  Logged once via
+      // console.warn so the next dev sees the misconfig immediately.
+      if (!registry[n.component]) {
+        if (typeof console !== "undefined" && console.warn) {
+          console.warn(
+            "PageNotices: dropping notice with unknown component name",
+            { id: n.id, component: n.component },
+          );
+        }
+        return null;
+      }
+      return n;
     })
     .filter(Boolean);
 
   if (matched.length === 0) return null;
 
-  const visible = matched.slice(0, cap);
-  const overflow = matched.slice(cap);
-
   function renderOne(notice) {
+    // Defensive — `matched` already filtered out unresolvable components,
+    // so this lookup should always hit.  Keep the null-guard as a final
+    // belt-and-braces in case the registry changes mid-render.
     const Component = registry[notice.component];
-    if (!Component) {
-      // Unknown component name — fail quiet rather than crash the page.
-      // (Same pattern as Icon's `Circle` fallback.)
-      return null;
-    }
+    if (!Component) return null;
     const propsFromCtx =
       typeof notice.props === "function"
         ? notice.props(ctx) || {}
@@ -74,50 +99,20 @@ export default function PageNotices({
     return <Component key={notice.id} {...propsFromCtx} />;
   }
 
+  // Render every matched notice inline.  Each notice component is
+  // responsible for its own self-veto (returning null when it has
+  // nothing meaningful to show).  We don't try to second-guess that —
+  // attempting a "+N more" overflow disclosure required us to count
+  // notices BEFORE knowing whether they'd actually render, which
+  // produced empty disclosures whenever a self-vetoing component sat
+  // behind the cap.  Suppress the lint warning about unused `t` and
+  // `cap` — both stay in the signature for API compat.
   return (
     <div
       className={"space-y-2 " + (className || "")}
       data-component="PageNotices"
     >
-      {visible.map((n) => renderOne(n))}
-
-      {overflow.length > 0 && (
-        <div>
-          <button
-            type="button"
-            onClick={() => setShowOverflow((v) => !v)}
-            className={
-              "inline-flex items-center gap-1.5 text-xs font-medium " +
-              "text-gray-700 dark:text-gray-300 " +
-              "hover:text-gray-900 dark:hover:text-gray-100 " +
-              "focus-visible:outline-none focus-visible:ring-2 " +
-              "focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 " +
-              "focus-visible:ring-offset-1 rounded px-1 py-0.5 " +
-              "transition-colors"
-            }
-            aria-expanded={showOverflow}
-          >
-            <ChevronDown
-              size={14}
-              strokeWidth={2}
-              aria-hidden="true"
-              className={
-                "transition-transform " + (showOverflow ? "rotate-180" : "")
-              }
-            />
-            {showOverflow
-              ? t("dashNoticesHideMore", "Hide {n} more notice")
-                  .replace("{n}", String(overflow.length))
-              : t("dashNoticesShowMore", "+{n} more notice")
-                  .replace("{n}", String(overflow.length))}
-          </button>
-          {showOverflow && (
-            <div className="space-y-2 mt-2">
-              {overflow.map((n) => renderOne(n))}
-            </div>
-          )}
-        </div>
-      )}
+      {matched.map((n) => renderOne(n))}
     </div>
   );
 }
