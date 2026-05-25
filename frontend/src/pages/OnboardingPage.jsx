@@ -144,7 +144,7 @@ function ProgressDots({ step, total }) {
 export default function OnboardingPage() {
   const { user, refreshUser } = useAuth();
   const { t, lang } = useLanguage();
-  const { plan: currentPlan } = useEntitlements();
+  const { plan: currentPlan, isReady: entReady } = useEntitlements();
   const navigate = useNavigate();
 
   const [step, setStep] = useState(1);
@@ -205,9 +205,16 @@ export default function OnboardingPage() {
 
   // The wizard is plan-gated only at the revisor step (Starter+). All
   // other steps work on Free. We surface an UpgradeNudge — never block.
+  //
+  // Three-state: null while entitlements load, true on Starter+/Trial,
+  // false on confirmed Free.  Without the `entReady` guard, a trial
+  // user briefly sees the "See Starter" UpgradeNudge on the revisor
+  // step before the real plan lands — the trial-flicker bug.
   const canInviteRevisor = useMemo(
-    () => ["trial", "starter", "pro", "business"].includes(currentPlan),
-    [currentPlan],
+    () => entReady
+      ? ["trial", "starter", "pro", "business"].includes(currentPlan)
+      : null,
+    [currentPlan, entReady],
   );
 
   // Reset transient state when changing step
@@ -954,7 +961,13 @@ export default function OnboardingPage() {
               </p>
             </div>
 
-            {!canInviteRevisor ? (
+            {canInviteRevisor === null ? (
+              // Tier-flicker fix: while entitlements are loading, render
+              // a low-contrast skeleton instead of the locked upsell —
+              // trial users would otherwise see the "See Starter" nudge
+              // flash before their real plan arrives.
+              <div className="mb-5 h-32 rounded-xl bg-gray-100 dark:bg-gray-800 animate-pulse" aria-hidden="true" />
+            ) : canInviteRevisor === false ? (
               <div className="mb-5">
                 <UpgradeNudge
                   intent="card"

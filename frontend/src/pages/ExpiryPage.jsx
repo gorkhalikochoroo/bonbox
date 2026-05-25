@@ -37,7 +37,7 @@ const STATUS_CONFIG = {
 export default function ExpiryPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
-  const { hasFeature } = useEntitlements();
+  const { hasFeature, isReady: entReady } = useEntitlements();
   const currency = displayCurrency(user?.currency);
 
   const [data, setData] = useState(null);
@@ -48,7 +48,13 @@ export default function ExpiryPage() {
 
   // Phase 1 — tier gate read from entitlements. Drives the alerts
   // banner (Starter+) vs UpgradeNudge (Free) at the top of the page.
-  const expiryAlertsAvailable = hasFeature("expiry_alerts");
+  //
+  // Three-state contract: null while entitlements loading, true on
+  // Starter+, false on confirmed Free.  Without this guard, a trial
+  // user briefly sees the "Spildalarmer er en Starter+ funktion"
+  // UpgradeNudge before the real entitlements payload lands and
+  // hasFeature() flips to true — the trial-flicker bug.
+  const expiryAlertsAvailable = entReady ? hasFeature("expiry_alerts") : null;
 
   useEffect(() => { fetchData(); }, []);
 
@@ -136,8 +142,11 @@ export default function ExpiryPage() {
           Starter+ users see the live "X items expire today, Y kr at
           risk" banner with one-tap action chips per item. Free users
           see the same items list lower down but the alert-rich layer
-          + waste-cost column is gated to Starter+. */}
-      {!expiryAlertsAvailable && (
+          + waste-cost column is gated to Starter+.
+          Tier-flicker fix: only render the locked nudge when we have
+          CONFIRMED Free entitlements (=== false).  While loading
+          (null) render nothing to avoid the trial-flicker. */}
+      {expiryAlertsAvailable === false && (
         <UpgradeNudge
           intent="card"
           tier="starter"
@@ -151,7 +160,7 @@ export default function ExpiryPage() {
           ctaLabel={t("expiryUpgradeNudgeCta", "See plans")}
         />
       )}
-      {expiryAlertsAvailable && upcoming?.items?.length > 0 && (
+      {expiryAlertsAvailable === true && upcoming?.items?.length > 0 && (
         <SectionBanner
           severity={
             upcoming.items.some((i) => (i.days_left ?? 99) <= 0) ? "warn" : "info"

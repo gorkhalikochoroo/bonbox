@@ -34,6 +34,7 @@
  */
 import React, { useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useEntitlements } from "../../hooks/useEntitlements";
 
 // ─── Tier prices (founding rates leading) ─────────────────────────
 // Single source of truth — sync with backend/app/services/billing.py
@@ -70,6 +71,18 @@ function PriceTag({ tier }) {
 
 /**
  * <UpgradeNudge intent="inline" tier="starter" benefit="…" />
+ *
+ * Optional self-gating: pass a `feature` key (e.g. "bank_auto_reconcile")
+ * and the component will:
+ *   • return null while entitlements are still loading (kills the
+ *     trial-flicker for callsites that render the nudge unconditionally)
+ *   • return null when the user already has the feature
+ *   • render the nudge when isReady && !hasFeature(feature)
+ *
+ * Without `feature`, the component renders unconditionally — the parent
+ * is responsible for gating (legacy pattern; many callers still use it
+ * because they wrap the nudge in their own `isReady && !hasFeature(...)`
+ * check, which is also fine).
  */
 export default function UpgradeNudge({
   intent = "inline",
@@ -80,9 +93,24 @@ export default function UpgradeNudge({
   onTry = null,    // optional callback if you want to handle the click
   icon = null,
   className = "",
+  feature = null,  // optional — when set, self-gate on entitlements (see above)
 }) {
   const navigate = useNavigate();
   const tierMeta = TIER_LABELS[tier] || TIER_LABELS.starter;
+
+  // Self-gating path — only fires when caller passed `feature`. Hooks
+  // must run unconditionally, so we always call useEntitlements and
+  // decide whether to short-circuit below.
+  const ent = useEntitlements();
+  if (feature) {
+    // Tier-flicker contract: don't render the upgrade surface while
+    // entitlements are still in flight. The fail-closed Free fallback
+    // would otherwise make hasFeature("anything") === false and flash
+    // the nudge to trial / Starter / Pro users for 150-300ms.
+    if (!ent.isReady) return null;
+    // If the user already has the feature, the nudge is wrong — hide.
+    if (ent.hasFeature(feature)) return null;
+  }
 
   const handleClick = (e) => {
     if (onTry) {

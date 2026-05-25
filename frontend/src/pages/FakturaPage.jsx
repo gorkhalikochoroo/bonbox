@@ -5,6 +5,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { useEntitlements } from "../hooks/useEntitlements";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
 import HowItWorksCard from "../components/HowItWorksCard";
@@ -30,6 +31,15 @@ import { localIso } from "../utils/dateFormat";
 export default function FakturaPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
+  // Tier-flicker fix: read plan from useEntitlements (NOT user.plan).
+  // user.plan from useAuth lags entitlements/me by hundreds of ms on
+  // cold loads and defaults to "free" while loading, so a trial user
+  // would see the "fakturaStarterRequired" UpgradeNudge flash before
+  // the real plan landed.  Faktura is a tier gate (Starter+) rather
+  // than a boolean feature flag — there's no PLAN_FEATURES entry for
+  // it; access is just "any paid tier".  Backend billing.py re-verifies
+  // on every /invoices call so the frontend gate is cosmetic.
+  const { plan, isReady: entReady } = useEntitlements();
 
   const [invoices, setInvoices] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -47,14 +57,19 @@ export default function FakturaPage() {
   // could clear a suggestion via accept/reject).
   const [pendingCount, setPendingCount] = useState(0);
 
-  const plan = (user?.plan || "free").toLowerCase();
-  // Trial users get Pro-tier access during the 14-day window — include them
-  // so the trial actually demos every paid feature.
-  const hasAccess = ["starter", "pro", "business", "trial"].includes(plan);
+  // Three-state tier gate: null while entitlements loading (render
+  // nothing → see early-return below), true on Starter/Pro/Trial, false
+  // on confirmed Free.  Trial users get Pro entitlements during the
+  // 14-day window — include them so the trial actually demos faktura.
+  const hasAccess = entReady
+    ? ["starter", "pro", "business", "trial"].includes((plan || "free").toLowerCase())
+    : null;
 
   useEffect(() => {
-    if (!hasAccess) {
-      setLoading(false);
+    if (hasAccess !== true) {
+      // Either still loading (null) or confirmed Free (false) — either
+      // way, don't fetch.  Free user fetch would 402 anyway.
+      if (hasAccess === false) setLoading(false);
       return;
     }
     fetchAll();
@@ -96,7 +111,16 @@ export default function FakturaPage() {
     }
   };
 
-  if (!hasAccess) {
+  // Tier-flicker fix: while entitlements are still loading, render
+  // nothing — never the locked surface.  Returning the UpgradeNudge
+  // here would flash "Send invoices and replace your accountant's
+  // monthly data entry" to trial / Starter / Pro users for the
+  // ~150-300ms billing/entitlements round-trip.
+  if (hasAccess === null) {
+    return null;
+  }
+
+  if (hasAccess === false) {
     return (
       <div className="p-4 md:p-8 max-w-2xl mx-auto space-y-4">
         <PageHeader

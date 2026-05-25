@@ -28,6 +28,57 @@
  * a defensive Free-tier shape so the app keeps rendering — locked features
  * just stay locked. This is intentional: a backend outage should NEVER
  * silently grant Pro entitlements (fail closed).
+ *
+ * ─── DOCTRINE: TIER-FLICKER CONTRACT (LOCKED 2026-05-25, commit 4a66e03+) ──
+ *
+ * The fail-closed Free fallback bites consumers that naively render the
+ * locked surface whenever hasFeature(...) returns false. During the
+ * ~150-300ms cold-load window before /billing/entitlements responds, every
+ * trial / Starter / Pro user looks like Free, so they see "Upgrade to
+ * Starter+" cards / locked-overlay surfaces flash before the real payload
+ * lands. This is the "trial glich" Manoj reported (BUG #195, follow-ups).
+ *
+ * The LOCKED rule for every consumer (Option A — chosen because the
+ * consumer count was small enough to not need Suspense/route-loader
+ * refactor):
+ *
+ *   1. Read `isReady` (preferred) or `!loading` from the hook.
+ *   2. While !isReady, render NOTHING (or a low-contrast skeleton).
+ *      Never the locked surface.
+ *   3. Only show locked / UpgradeNudge UI when `isReady && !hasFeature(key)`.
+ *
+ * Anti-patterns that re-introduce the flicker — DO NOT use:
+ *
+ *   ✗ if (!hasFeature(key)) return <UpgradeNudge .../>   // flashes for trial
+ *   ✗ const isUnlocked = hasFeature(key);                // boolean, loses tri-state
+ *     if (!isUnlocked) return <Locked surface/>;
+ *   ✗ const plan = user?.plan;                           // useAuth, not useEnt
+ *     if (plan === "free") return <UpgradeNudge.../>;    // user.plan lags
+ *
+ * Correct patterns:
+ *
+ *   ✓ const { hasFeature, isReady } = useEntitlements();
+ *     if (!isReady) return null;                         // or skeleton
+ *     if (!hasFeature(key)) return <UpgradeNudge .../>;
+ *
+ *   ✓ const isUnlocked = isReady ? hasFeature(key) : null;   // tri-state
+ *     if (isUnlocked === null) return <Skeleton/>;
+ *     if (!isUnlocked) return <UpgradeNudge .../>;
+ *
+ *   ✓ <UpgradeNudge feature="bank_auto_reconcile" tier="starter" .../>
+ *     // UpgradeNudge accepts an optional `feature` prop and self-gates
+ *     // on isReady + hasFeature(feature) — returns null while loading or
+ *     // when the user already has the feature.  Use this when the
+ *     // surrounding page renders the nudge unconditionally.
+ *
+ * Backward compatibility: old consumers that don't import `isReady` or use
+ * UpgradeNudge without a `feature` prop keep working — they just keep
+ * flickering until migrated.  All current-as-of-commit consumers are
+ * migrated; new consumers should follow this doctrine.
+ *
+ * Pre-commit grep to catch regressions:
+ *   grep -rn 'hasFeature(' frontend/src --include='*.jsx' --include='*.js' \
+ *     | grep -v isReady | grep -v entReady | grep -v entLoading
  */
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import api from "../services/api";

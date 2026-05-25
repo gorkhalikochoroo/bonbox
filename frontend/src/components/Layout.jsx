@@ -231,7 +231,7 @@ const navGroups = [
  *  with just core + general inventory. The /modules picker is the
  *  single explicit place to opt in.
  */
-function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasFeature) {
+function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasFeature, entReady = true) {
   const activeTypes = branchType ? [branchType] : businessTypes;
   const enabled = enabledModules instanceof Set ? enabledModules : new Set();
   // Default to a fail-closed `hasFeature` when none is provided (e.g.
@@ -239,6 +239,16 @@ function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasF
   // the backend's fail-closed semantics: unknown feature → false →
   // sidebar entry stays hidden.
   const hasFeat = typeof hasFeature === "function" ? hasFeature : () => false;
+  // Tier-flicker fix: while entitlements are still loading, `hasFeat`
+  // returns false for everything (fail-closed Free default), which
+  // would mark Pro-only sidebar entries as `locked: true` for the
+  // ~150-300ms cold-load window — a trial user briefly sees their
+  // Pro-only entries flagged as locked.  We treat the loading state
+  // as "assume unlocked for cosmetic purposes" — the backend still
+  // gates the actual endpoint, so this is purely about not flashing
+  // a lock icon. Same multi-barrier rationale as <Locked> doing
+  // pass-through children during loading.
+  const featReady = entReady !== false;
 
   // Helper — does this nav element pass both filters?
   const passesType = (vf) => {
@@ -258,8 +268,16 @@ function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasF
   // entry (and any future Pro-only nav). Cosmetic gate only — the
   // backend re-checks via enforce_feature() on every call. Frontend
   // cache changes can only HIDE links, never grant access.
+  //
+  // Tier-flicker fix: while entitlements are still loading, return
+  // `true` so locked-but-visible items render UNLOCKED.  Once the
+  // payload lands the next render will lock them if appropriate.
+  // A trial user briefly seeing an unlocked Pro link is strictly
+  // better than seeing it flash as locked — and the backend gate
+  // is the actual security boundary.
   const passesFeature = (feat) => {
     if (!feat) return true;
+    if (!featReady) return true;
     return hasFeat(feat);
   };
 
@@ -493,13 +511,14 @@ export default function Layout() {
   // P5 — pull the entitlement helper so the sidebar filter can hide
   // Pro-only entries (multi-terminal close) for Free/Starter users.
   // Cosmetic only; backend enforcement is what actually keeps the
-  // feature locked.
-  const { hasFeature } = useEntitlements();
+  // feature locked.  `isReady` is threaded so the filter can suppress
+  // the locked-state flicker during the cold-load window.
+  const { hasFeature, isReady: entReady } = useEntitlements();
 
   // Filter sidebar groups by both business_type (branch) and enabled modules
   const baseVisible = isAccountant
     ? accountantNavGroups
-    : filterNavGroups(navGroups, branchType, businessTypes, enabledModules, hasFeature);
+    : filterNavGroups(navGroups, branchType, businessTypes, enabledModules, hasFeature, entReady);
   // For super_admin owners, show an extra "Platform" group with the admin
   // dashboard. Frontend gating is cosmetic — real enforcement is server-side
   // (services/admin_security.py). A non-admin clicking this link sees an empty
