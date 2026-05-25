@@ -352,3 +352,37 @@ body.modal-open {
 :root[data-theme="calm"].dark body  { background-color: #0f172a; }
 :root[data-theme="modern"] body     { background-color: #faf9fd; }
 :root[data-theme="focus"] body      { background-color: #f8fafc; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   BRAND GREEN — BonBox identity token
+
+   The doctrine (#164/#167) is gray-900-primary for typography and surface
+   chrome. But an app with ZERO brand color reads as a Notion clone, not
+   BonBox. Brand-green appears in five locked places and nowhere else:
+
+     1. Logo mark + wordmark dot (Layout sidebar, landing top bar, login)
+     2. Primary CTA on MARKETING surfaces (landing, login, register)
+        — interior app primary CTAs stay gray-900 per doctrine
+     3. Status indicators ("Active", "Connected", "Verified") — emerald-500 dot
+     4. Success moments ("Saved", "Filed", "Sent to revisor") — emerald-600 icon
+     5. Active sidebar nav item — 2px emerald-500 left rail (the bg stays gray)
+
+   The token is hard-locked to emerald-600 (#059669) for the saturated mark,
+   emerald-500 (#10b981) for indicator dots, emerald-50 (#ecfdf5) for tinted
+   surface recipes. Same scale as the existing `tech` theme so anything that
+   already wires emerald-* keeps working.
+
+   The favicon historically shipped #22c55e (green-500) — that's slightly
+   lighter and warmer. We standardize on emerald-600 because every existing
+   primitive (Button.accent, StatCard.success, Check icon, UpgradeNudge,
+   text-emerald-600 across pages) is already on the emerald scale. Migrating
+   the favicon to emerald-600 is a separate cosmetic pass.
+
+   Reference: docs/design-system-doctrine.md (#164)
+   ═══════════════════════════════════════════════════════════════════════ */
+:root {
+  --brand-green: 5 150 105;        /* emerald-600 — saturated brand mark */
+  --brand-green-hover: 4 120 87;   /* emerald-700 — hover on emerald-600 surfaces */
+  --brand-green-soft: 236 253 245; /* emerald-50  — severity-tinted surfaces */
+  --brand-green-dot: 16 185 129;   /* emerald-500 — status dots, active rail */
+}

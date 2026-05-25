@@ -703,10 +703,12 @@ export default function SubscriptionPage() {
               key={tier.id}
               variant={tier.variant}
               className={`relative flex flex-col ${
-                tier.highlight ? "ring-1 ring-gray-900/10 dark:ring-gray-100/10" : ""
+                tier.highlight ? "ring-1 ring-emerald-500/40 dark:ring-emerald-400/30" : ""
               }`}
             >
-              {/* Top-right status pill */}
+              {/* Top-right status pill — stays gray-900 because "Current
+                  plan" / "Your trial" are NEUTRAL info, not a brand
+                  promotion. Only the "Recommended" pill earns brand-green. */}
               {(isCurrent || showTrialBadge) && (
                 <div className="absolute -top-2.5 right-4 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full whitespace-nowrap">
                   {showTrialBadge
@@ -715,9 +717,12 @@ export default function SubscriptionPage() {
                 </div>
               )}
 
-              {/* Recommended pill for the Pro card */}
+              {/* "Recommended" pill — emerald-600 + emerald-500/40 ring on
+                  the card. Per the "BRAND GREEN" token in index.css, the
+                  recommended pricing tier is one of the locked brand-green
+                  moments because it's the eye-magnet decision aid. */}
               {tier.highlight && !isCurrent && !showTrialBadge && (
-                <div className="absolute -top-2.5 left-5 bg-gray-900 text-white text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full whitespace-nowrap">
+                <div className="absolute -top-2.5 left-5 bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full whitespace-nowrap">
                   {t("pricingRecommended", "Recommended") || "Recommended"}
                 </div>
               )}

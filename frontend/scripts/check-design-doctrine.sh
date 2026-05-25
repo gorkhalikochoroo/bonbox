@@ -13,15 +13,22 @@ cd "$(dirname "$0")/.."
 
 EXIT=0
 
-# Pages that are OUT of doctrine scope (marketing keeps its own design language)
-EXCLUDE_PATTERN='LandingPage\.jsx|PricingPage\.jsx|TermsPage\.jsx|PrivacyPolicyPage\.jsx|CookiePolicyPage\.jsx|ContactPage\.jsx'
+# Pages that are OUT of doctrine scope (marketing keeps its own design
+# language, and auth + pricing surfaces are brand-green locked entry points
+# per the "BRAND GREEN" token block in index.css).
+EXCLUDE_PATTERN='LandingPage\.jsx|PricingPage\.jsx|TermsPage\.jsx|PrivacyPolicyPage\.jsx|CookiePolicyPage\.jsx|ContactPage\.jsx|LoginPage\.jsx|LoginMagicPage\.jsx|RegisterPage\.jsx|SubscriptionPage\.jsx'
 
 # Files that are allowed to use raw color utilities (the primitive layer +
 # the persona-aware Dashboard cards, which compose ui/ primitives and use
 # the doctrine-authorized signal colors: status dots / Check / Alert /
 # TrendingUp. See docs/design-system-doctrine.md and
 # docs/tier-4-dashboard-restructure.md.)
-ALLOW_PATTERN='src/components/ui/|src/components/dashboard/|src/components/SmartScanFAB|index\.css'
+#
+# Layout.jsx is also allowed because the sidebar IS the brand surface:
+# the BonBox logo tile + the active-nav left-rail are the locked
+# emerald-* moments. See "BRAND GREEN" block in index.css for the
+# token contract.
+ALLOW_PATTERN='src/components/ui/|src/components/dashboard/|src/components/SmartScanFAB|src/components/Layout\.jsx|index\.css'
 
 check() {
   local description="$1"

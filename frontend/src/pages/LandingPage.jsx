@@ -376,8 +376,11 @@ export default function LandingPage() {
         style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
       >
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          {/* Brand mark — emerald-600 tile is the saturated brand-green
+              moment per the "BRAND GREEN" block in index.css. Wordmark
+              stays gray-900 so it reads as the structural primary. */}
           <Link to="/" className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-gray-900 rounded-lg flex items-center justify-center">
+            <div className="w-8 h-8 bg-emerald-600 rounded-lg flex items-center justify-center">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <rect x="4" y="3" width="16" height="18" rx="2" />
                 <path d="M8 8h8M8 12h8M8 16h5" />
@@ -417,9 +420,12 @@ export default function LandingPage() {
             >
               {tx_("landingSignIn", "Sign in")}
             </Link>
+            {/* Primary CTA — emerald-600. The marketing surface's single
+                primary action gets the brand-green; the rest of the top
+                bar (Sign in, language switch) stays neutral. */}
             <Link
               to="/register"
-              className="inline-flex items-center px-3.5 h-9 text-[14px] font-medium bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
+              className="inline-flex items-center px-3.5 h-9 text-[14px] font-medium bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
             >
               {tx_("landingStartFree", "Get started")}
             </Link>
@@ -493,9 +499,12 @@ export default function LandingPage() {
             </p>
 
             <div className="mt-7 flex flex-col sm:flex-row sm:items-center gap-3">
+              {/* Hero primary CTA — emerald-600. The ONE call-to-action on
+                  the page that earns the saturated brand mark. Secondary
+                  "Se Daily Close" link stays gray-700 ghost. */}
               <Link
                 to="/register"
-                className="inline-flex items-center justify-center h-11 px-5 bg-gray-900 text-white text-[14.5px] font-semibold rounded-lg hover:bg-gray-800 transition-colors"
+                className="inline-flex items-center justify-center h-11 px-5 bg-emerald-600 text-white text-[14.5px] font-semibold rounded-lg hover:bg-emerald-700 transition-colors"
               >
                 {tx_("landingCtaPrimary", "Start gratis i 14 dage")}
                 <ArrowRight size={16} strokeWidth={2} className="ml-2" aria-hidden="true" />
@@ -1158,11 +1167,15 @@ export default function LandingPage() {
             <div
               key={p.name}
               className={`relative bg-white border border-gray-200 rounded-xl p-5 sm:p-6 flex flex-col ${
-                p.emphasis ? "ring-1 ring-gray-900/10" : ""
+                p.emphasis ? "ring-1 ring-emerald-500/40" : ""
               }`}
             >
+              {/* "Most popular" pill — emerald-600. The emphasis ring uses
+                  emerald-500/40 (a soft, low-saturation outline) so the
+                  card still reads as part of the calm tier-card grid; the
+                  pill itself is the saturated moment. */}
               {p.emphasis && (
-                <span className="absolute -top-2.5 left-5 bg-gray-900 text-white text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full whitespace-nowrap">
+                <span className="absolute -top-2.5 left-5 bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full whitespace-nowrap">
                   {tx_("landingPricingMostPopular", "Most popular")}
                 </span>
               )}
@@ -1202,11 +1215,14 @@ export default function LandingPage() {
                 </p>
               )}
 
+              {/* Emphasized tier CTA — emerald-600 (brand-green primary).
+                  Non-emphasized tier CTAs stay neutral so the eye lands on
+                  the one recommended pick. */}
               <Link
                 to={p.ctaHref}
                 className={`mt-5 block text-center h-11 px-5 rounded-lg text-[14px] font-semibold leading-[44px] transition-colors ${
                   p.emphasis
-                    ? "bg-gray-900 text-white hover:bg-gray-800"
+                    ? "bg-emerald-600 text-white hover:bg-emerald-700"
                     : "bg-white border border-gray-300 text-gray-900 hover:border-gray-400"
                 }`}
               >
@@ -1337,9 +1353,13 @@ export default function LandingPage() {
             {tx_("landingFinalSub", "No card. No setup call. Open the app, log today's revenue, and see your morning Brief tomorrow.")}
           </p>
           <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
+            {/* Final CTA on the dark slab — emerald-600 with white text so
+                it stands out against the gray-900 surface. The slab itself
+                stays gray-900 (intentional inversion moment from the
+                landing redesign #8439566); only the pill earns brand-green. */}
             <Link
               to="/register"
-              className="inline-flex items-center justify-center h-11 px-6 bg-white text-gray-900 text-[14.5px] font-semibold rounded-lg hover:bg-gray-100 transition-colors"
+              className="inline-flex items-center justify-center h-11 px-6 bg-emerald-600 text-white text-[14.5px] font-semibold rounded-lg hover:bg-emerald-700 transition-colors"
             >
               {tx_("landingFinalCta", "Start free trial")}
               <ArrowRight size={16} strokeWidth={2} className="ml-2" aria-hidden="true" />
@@ -1361,8 +1381,10 @@ export default function LandingPage() {
       <footer className="border-t border-gray-200 bg-gray-50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-5">
+            {/* Footer brand mark — emerald-600 tile matching the top-bar
+                wordmark. Wordmark stays gray-900. */}
             <Link to="/" className="flex items-center gap-2.5">
-              <div className="w-7 h-7 bg-gray-900 rounded-lg flex items-center justify-center">
+              <div className="w-7 h-7 bg-emerald-600 rounded-lg flex items-center justify-center">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <rect x="4" y="3" width="16" height="18" rx="2" />
                   <path d="M8 8h8M8 12h8M8 16h5" />

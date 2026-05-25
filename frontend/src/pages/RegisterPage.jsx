@@ -352,13 +352,16 @@ export default function RegisterPage() {
           <div className="w-full max-w-md" style={{ animation: "slideUp 0.5s ease-out" }}>
             {/* Logo + heading */}
             <div className="mb-6">
+              {/* Brand mark — emerald-600 tile per the "BRAND GREEN" token
+                  contract. Same shape as the sidebar + landing logo so the
+                  user sees the same brand mark across every entry surface. */}
               <div className="flex items-center gap-3 mb-5">
-                <div className="w-10 h-10 bg-gray-900 dark:bg-white rounded-lg flex items-center justify-center">
+                <div className="w-10 h-10 bg-emerald-600 rounded-lg flex items-center justify-center">
                   <svg width="20" height="20" viewBox="0 0 28 28" fill="none">
                     <rect x="4" y="2" width="20" height="24" rx="3" stroke="currentColor"
-                          className="text-white dark:text-gray-900" strokeWidth="2.2"/>
+                          className="text-white" strokeWidth="2.2"/>
                     <path d="M9 8h10M9 12h10M9 16h6" stroke="currentColor"
-                          className="text-white dark:text-gray-900" strokeWidth="1.5" strokeLinecap="round"/>
+                          className="text-white" strokeWidth="1.5" strokeLinecap="round"/>
                   </svg>
                 </div>
                 <span className="text-xl font-bold text-gray-800 dark:text-white">BonBox</span>
@@ -668,9 +671,12 @@ export default function RegisterPage() {
               </div>
               )}
 
+              {/* Create-account primary CTA — emerald-600 (brand-green).
+                  Marketing surface, so it earns the saturated brand mark
+                  (mirror of /register on landing's hero CTA). */}
               <button type="submit" disabled={loading}
-                className="w-full bg-gray-900 dark:bg-white text-white dark:text-gray-900 py-2.5 rounded-lg
-                  text-[14px] font-medium hover:bg-gray-800 dark:hover:bg-gray-100
+                className="w-full bg-emerald-600 text-white py-2.5 rounded-lg
+                  text-[14px] font-medium hover:bg-emerald-700
                   disabled:opacity-60 disabled:cursor-not-allowed
                   flex items-center justify-center gap-2 mt-2 transition">
                 {loading ? (

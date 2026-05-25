@@ -590,7 +590,13 @@ export default function Layout() {
   // Accounting-software style: neutral gray bg + bold dark text on the active
   // item (Dinero/Billy/e-conomic do this). Avoids the "tech glow" colored pill
   // that read as developer-tool aesthetic.
-  const activeClass = "bg-gray-100 dark:bg-gray-700/60 text-gray-900 dark:text-white font-semibold";
+  // Active item: subtle gray bg (the doctrine) PLUS a 2px emerald-500 inset
+  // left rail drawn via box-shadow so it doesn't shift the icon/text layout
+  // (every NavLink — top-level AND sub-item — has different left padding;
+  // using box-shadow keeps that geometry untouched). That rail is the only
+  // brand-green moment in the nav. Everything else stays neutral.
+  // See "BRAND GREEN" block in index.css for the token contract.
+  const activeClass = "bg-gray-100 dark:bg-gray-700/60 text-gray-900 dark:text-white font-semibold shadow-[inset_2px_0_0_0_#10b981]";
   const inactiveClass = "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-white";
 
   return (
@@ -625,7 +631,20 @@ export default function Layout() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-        <h1 className="text-base font-bold text-gray-900 dark:text-gray-100">BonBox</h1>
+        {/* Mobile top-bar wordmark + emerald-600 brand mark. Logo tile is
+            the saturated brand-green moment per the brand-green token block
+            in index.css. Tile holds an inverted version of the favicon
+            shape (notepad lines) in white so it reads as the BonBox logo
+            even at 24px. */}
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 bg-emerald-600 rounded-md flex items-center justify-center shrink-0" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="4" y="3" width="16" height="18" rx="2" />
+              <path d="M8 8h8M8 12h8M8 16h5" />
+            </svg>
+          </div>
+          <h1 className="text-base font-bold text-gray-900 dark:text-gray-100">BonBox</h1>
+        </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setSearchOpen(true)}
@@ -661,8 +680,19 @@ export default function Layout() {
         {/* Header */}
         <div className="px-4 pt-4 pb-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100">BonBox</h1>
-            <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">{user?.business_name}</p>
+            {/* Wordmark — emerald-600 tile + gray-900 wordmark. The tile is
+                the saturated brand-green moment for the sidebar (paired
+                with the active-nav left-rail in emerald-500). */}
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 bg-emerald-600 rounded-md flex items-center justify-center shrink-0" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="4" y="3" width="16" height="18" rx="2" />
+                  <path d="M8 8h8M8 12h8M8 16h5" />
+                </svg>
+              </div>
+              <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100 truncate">BonBox</h1>
+            </div>
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate mt-1">{user?.business_name}</p>
             <BranchSelector compact />
           </div>
           <div className="flex items-center gap-1 shrink-0">

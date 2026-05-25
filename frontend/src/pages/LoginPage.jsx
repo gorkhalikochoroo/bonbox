@@ -325,8 +325,12 @@ export default function LoginPage() {
       <div className="min-h-screen flex flex-col bg-slate-50 text-gray-900">
         {/* Top bar — wordmark left, language dropdown right (Copenhagen-style minimal nav) */}
         <header className="px-6 sm:px-10 py-5 flex items-center justify-between border-b border-gray-200/60">
+          {/* Brand mark — emerald-600 per the "BRAND GREEN" token block.
+              Migrated from `bg-[#22c55e]` (green-500) to the canonical
+              emerald-600 (#059669) so the login logo matches the sidebar,
+              landing top-bar, and Button.accent primitive. */}
           <Link to="/" className="flex items-center gap-2.5 group">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[#22c55e]">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-emerald-600">
               <svg width="18" height="18" viewBox="0 0 28 28" fill="none">
                 <rect x="4" y="2" width="20" height="24" rx="3" stroke="currentColor"
                       className="text-white" strokeWidth="2.2"/>
@@ -641,11 +645,16 @@ export default function LoginPage() {
                   </div>
                 )}
 
+                {/* Primary sign-in CTA — emerald-600 (brand-green). Marketing
+                    surfaces (landing, login, register) earn brand-green;
+                    interior app primary CTAs stay gray-900 per doctrine.
+                    Migrated from #22c55e → emerald-600 (#059669) for token
+                    consistency with Layout sidebar + landing + Button.accent. */}
                 <button
                   type="submit"
                   disabled={magicMode ? magicSending : loading}
-                  className="w-full bg-[#22c55e] text-white py-2.5 rounded-lg
-                    text-[14px] font-medium hover:bg-[#16a34a]
+                  className="w-full bg-emerald-600 text-white py-2.5 rounded-lg
+                    text-[14px] font-medium hover:bg-emerald-700
                     disabled:opacity-60 disabled:cursor-not-allowed transition
                     flex items-center justify-center gap-2"
                 >
