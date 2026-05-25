@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import os
 import re
 import time
 from collections import OrderedDict
@@ -58,7 +59,21 @@ from app.services.branchekode_map import detect_business_type
 logger = logging.getLogger(__name__)
 
 CVRAPI_URL = "https://cvrapi.dk/api"
-CVRAPI_USER_AGENT = "BonBox - bonbox.dk"
+# cvrapi.dk free tier identifies clients by User-Agent and applies a
+# stricter quota to anonymous-looking strings (no email).  "BonBox -
+# bonbox.dk" was getting QUOTA_EXCEEDED responses end-to-end on
+# 2026-05-25 because cvrapi treated it as an anonymous request and
+# bucketed all our traffic against the cheap-tier IP cap.  Switching
+# to the documented "App - email" format (verified live: same CVR
+# 46417321 returns 200 with full data when UA contains an email)
+# moves us into the proper per-app quota.  Pinned email is the
+# operator address (super-admin); not user-specific data, safe to
+# ship as a constant.  Override via env if Manoj later wants to swap
+# to a noreply alias.
+CVRAPI_USER_AGENT = os.environ.get(
+    "CVRAPI_USER_AGENT",
+    "BonBox - contact@bonbox.dk",
+)
 
 COMPANIES_HOUSE_URL = "https://api.companieshouse.gov.uk"
 
