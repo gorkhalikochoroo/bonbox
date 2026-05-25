@@ -15,6 +15,18 @@ const BANK_LABELS = {
   jyske_bank: { label: "Jyske Bank", icon: "🏦" },
   lunar: { label: "Lunar", icon: "🌙" },
   revolut: { label: "Revolut", icon: "💳" },
+  // MobilePay Erhverv CSV — same engine, different payment_method
+  // tag so booking_match + cashbook downstream see "mobilepay" not
+  // "bank_transfer". The 80% of DK organizers who export from the
+  // MobilePay Business app land here.
+  mobilepay_erhverv: { label: "MobilePay Erhverv", icon: "📱" },
+};
+
+// payment_method per detected format. Banks → bank_transfer.
+// MobilePay Erhverv → mobilepay so the cashbook + booking-match flow
+// downstream treat it as a wallet line, not a generic bank transfer.
+const PAYMENT_METHOD_FOR_BANK = {
+  mobilepay_erhverv: "mobilepay",
 };
 
 // Banks that support direct Aiia connection (Task #67). Matches the
@@ -181,6 +193,13 @@ export default function BankImportPage() {
     setLoading(true);
     setError("");
 
+    // payment_method depends on the detected source: bank CSVs land
+    // as bank_transfer; MobilePay Erhverv CSV lands as mobilepay so
+    // the cashbook + booking_match flow tag the right rail. Anything
+    // outside the map falls back to bank_transfer.
+    const paymentMethod =
+      PAYMENT_METHOD_FOR_BANK[preview.bank] || "bank_transfer";
+
     const txns = preview.transactions
       .filter((t) => selected.has(t.ref_hash))
       .map((t) => ({
@@ -190,7 +209,7 @@ export default function BankImportPage() {
         type: t.type,
         category_name: categories[t.ref_hash] || (t.type === "income" ? "Sales" : "Other"),
         ref_hash: t.ref_hash,
-        payment_method: "bank_transfer",
+        payment_method: paymentMethod,
       }));
 
     try {
@@ -459,7 +478,7 @@ export default function BankImportPage() {
                   <p className="text-base font-medium text-gray-600 dark:text-gray-300">
                     Drop your bank CSV here or click to browse
                   </p>
-                  <p className="text-sm text-gray-400 mt-1">Supports Danske Bank, Nordea, Jyske Bank, Lunar, Revolut</p>
+                  <p className="text-sm text-gray-400 mt-1">Supports Danske Bank, Nordea, Jyske Bank, Lunar, Revolut, MobilePay Erhverv</p>
                 </div>
               )}
             </div>

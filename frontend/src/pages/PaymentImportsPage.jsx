@@ -1,27 +1,78 @@
+/**
+ * PaymentImportsPage — v2 (2026-05-25, Manoj DK-only + doctrine reframe)
+ *
+ * What changed vs v1 (commit 1667792):
+ *   • The page is now mobile-first, doctrine-compliant: PageShell +
+ *     PageHeader + Card primitives, gray-900 primary buttons,
+ *     Lucide icons everywhere, no rainbow color, no raw emojis in
+ *     UI chrome (the MobilePay phone icon was the worst offender —
+ *     it pretended to be a logo but read as a Slack reaction).
+ *   • CSV upload is now FIRST-CLASS, not a footnote. Research:
+ *     ~80% of DK small organizers never enable MobilePay's developer
+ *     API — they export the CSV from the MobilePay Business app
+ *     (Settings → Transactions → Export). The backend bank CSV
+ *     parser now recognises MobilePay Erhverv exports natively, so
+ *     /bank-import is the actual workflow for that population.
+ *     The Vipps API path is preserved as the "if you have keys"
+ *     advanced route; it's powerful (auto-sync nightly) but it's
+ *     not the realistic entry point for a café owner.
+ *   • Booking-match review (CSV-to-booking auto-match) preserved
+ *     verbatim — that's the event-booking reconciliation surface
+ *     and it's already doctrine-clean.
+ *
+ * Honest competitor framing (Dinero, Billy, e-conomic):
+ *   • Dinero: MobilePay shown as a connection card, but the actual
+ *     reconciliation is CSV + nightly bank import. Same as us.
+ *   • Billy: routes everything through their "Indkomstkonto" — the
+ *     owner picks a bank statement file and Billy matches by
+ *     reference text. They DON'T have a separate MobilePay page.
+ *   • e-conomic: full bank-feed integration via DanID; MobilePay is
+ *     a transaction line under the bank, never its own surface.
+ *   Conclusion: a separate MobilePay "Connect" page is mostly
+ *   surface noise. We keep ONE connect card (Vipps direct, real value
+ *   when keys exist) and lean hard on CSV upload as the everyday
+ *   path. v3 collapses this page into /bank-import entirely.
+ *
+ * Tier rule: Free / Starter / Pro all see the same surfaces — the
+ * connect-API path is the same complexity in all tiers (server
+ * enforces the right entitlements where needed).
+ *
+ * Aiia / PSD2 status: the integration spec exists (see
+ * docs/aiia-integration-spec.md) but is feature-flagged off by
+ * default (useFeatures().bank_connect_enabled). When it ships,
+ * /bank-import is the natural home for it — NOT this page. This
+ * page stays focused on "I have a MobilePay CSV or a Vipps API key".
+ */
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { CreditCard, FileText, ArrowRight } from "lucide-react";
+import {
+  CreditCard,
+  FileText,
+  ArrowRight,
+  Smartphone,
+  Zap,
+  Check,
+  AlertCircle,
+  ExternalLink,
+  ChevronLeft,
+  Loader2,
+  X,
+} from "lucide-react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
-import { useAuth } from "../hooks/useAuth";
 import { safeExternalUrl } from "../utils/safeUrl";
+import PageShell from "../components/ui/PageShell";
+import PageHeader from "../components/ui/PageHeader";
 import Card from "../components/ui/Card";
 import Button from "../components/ui/Button";
 import DataTable from "../components/ui/DataTable";
 
-const PROVIDER_LOGOS = {
-  vipps_mobilepay: "📱",
-  esewa: "💚",
-  khalti: "💜",
-};
+// Country labels reduced to DK-only (Manoj 2026-05-25 lock).
+// Non-DK providers stay readable in the backend for already-connected
+// users but are filtered out of the connect picker.
+const COUNTRY_LABELS = { DK: "Denmark" };
 
-const COUNTRY_LABELS = {
-  DK: "Denmark", NO: "Norway", NP: "Nepal", IN: "India", GB: "UK", SE: "Sweden",
-};
-
-/* ─── Field validators (frontend-only, opportunistic; backend remains the
-        authoritative validator on submit). Used to give "this looks ok / this
-        looks short" hints as the owner types. Permissive when no rule set. ─ */
+/* ─── Field validators ─ */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FIELD_VALIDATORS = {
   vipps_mobilepay: {
@@ -29,10 +80,6 @@ const FIELD_VALIDATORS = {
     client_id:        { regex: UUID_RE,               hintKey: "fmtUuid" },
     client_secret:    { minLength: 40,                hintKey: "fmtLong" },
     subscription_key: { minLength: 32,                hintKey: "fmtSubKey" },
-  },
-  esewa: {
-    merchant_code:    { minLength: 4,                 hintKey: "fmtCode" },
-    api_key:          { minLength: 16,                hintKey: "fmtMid" },
   },
 };
 function checkField(providerId, fieldKey, value) {
@@ -44,15 +91,9 @@ function checkField(providerId, fieldKey, value) {
   return { state: "ok" };
 }
 
-/* ─── Smart Paste — sniff a blob the owner pasted from the portal and
-        auto-route each token to its likely field. Heuristic-only; the owner
-        can still edit any field afterwards, and Test & Connect is the real
-        validator. ─────────────────────────────────────────────────────── */
+/* ─── Smart Paste ─────────────────────────────────────────────────── */
 function smartPasteParse(text, providerId) {
   if (!text || !text.trim()) return null;
-  // Tokenize: split on whitespace, newlines, commas, semicolons, equals signs.
-  // Strip surrounding quotes / leading "key:" labels Vipps copies sometimes
-  // include like "Client ID: a1b2c3d4-...".
   const tokens = text
     .split(/[\s\n,;=]+/)
     .map((t) => t.replace(/^["'`]+|["'`]+$/g, "").replace(/^.*?:/, "").trim())
@@ -61,12 +102,9 @@ function smartPasteParse(text, providerId) {
   if (providerId === "vipps_mobilepay") {
     const msn = tokens.find((t) => /^\d{6,8}$/.test(t)) || "";
     const uuid = tokens.find((t) => UUID_RE.test(t)) || "";
-    // Remaining long random strings are either client_secret or subscription_key.
     const longs = tokens.filter(
       (t) => t.length >= 32 && t !== msn && t !== uuid && !UUID_RE.test(t)
     );
-    // Heuristic: Vipps subscription keys are 32 hex chars; client secrets are
-    // typically longer (40-80). When ambiguous, fall back to declaration order.
     longs.sort((a, b) => a.length - b.length);
     const sub = longs[0] || "";
     const sec = longs.find((t) => t !== sub) || "";
@@ -74,28 +112,19 @@ function smartPasteParse(text, providerId) {
     const found = Object.values(filled).filter(Boolean).length;
     return { creds: filled, found, total: 4 };
   }
-  if (providerId === "esewa") {
-    // Two fields; not enough format diversity to disambiguate. Fill in order.
-    const filled = {};
-    if (tokens[0]) filled.merchant_code = tokens[0];
-    if (tokens[1]) filled.api_key = tokens[1];
-    const found = Object.values(filled).filter(Boolean).length;
-    return { creds: filled, found, total: 2 };
-  }
   return null;
 }
 
-/* ─── Setup Wizard ───────────────────────────────────────── */
+/* ─── Setup Wizard (Vipps API connect) ───────────────────────────── */
 function SetupWizard({ provider, onDone, onCancel, t }) {
   const [step, setStep] = useState(0); // 0 = intro, 1 = fields, 2 = testing
   const [creds, setCreds] = useState({});
   const [label, setLabel] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [pasteAck, setPasteAck] = useState(null); // { found, total } briefly after smart paste
+  const [pasteAck, setPasteAck] = useState(null);
   const [pasteText, setPasteText] = useState("");
 
-  const totalSteps = (provider.setup_steps || []).length;
   const allFieldsFilled = provider.fields.every(
     (f) => (creds[f.key] || "").trim().length > 0
   );
@@ -106,8 +135,6 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
     if (!text.trim()) { setPasteAck(null); return; }
     const result = smartPasteParse(text, provider.id);
     if (!result) return;
-    // Only overwrite empty fields by default — never clobber what the owner
-    // already typed. If they want to redo, the textarea has a Clear button.
     setCreds((prev) => {
       const next = { ...prev };
       for (const [k, v] of Object.entries(result.creds)) {
@@ -137,27 +164,20 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
     setSaving(false);
   };
 
-  // Step 0: Introduction — what you'll need
+  // Step 0: intro
   if (step === 0) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-        {/* Header */}
-        <div className="bg-gray-50 dark:bg-gray-800/50 px-6 py-5 border-b border-gray-100 dark:border-gray-700">
-          <div className="flex items-center gap-3">
-            <span className="text-3xl">{provider.logo_emoji}</span>
-            <div>
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white">
-                {t("connect") || "Connect"} {provider.name}
-              </h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {provider.setup_time && (t("takesAbout") || "Takes about {time}").replace("{time}", provider.setup_time)}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-6 space-y-5">
-          {/* What you'll need */}
+      <Card>
+        <Card.Header
+          icon={<Smartphone size={18} />}
+          title={`${t("connect") || "Connect"} ${provider.name}`}
+          subtitle={
+            provider.setup_time
+              ? (t("takesAbout") || "Takes about {time}").replace("{time}", provider.setup_time)
+              : null
+          }
+        />
+        <div className="space-y-5">
           <div>
             <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
               {t("hereIsWhatYoullDo") || "Here's what you'll do:"}
@@ -165,7 +185,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
             <div className="space-y-2.5">
               {(provider.setup_steps || []).map((step, i) => (
                 <div key={i} className="flex gap-3">
-                  <div className="shrink-0 w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 flex items-center justify-center text-xs font-bold">
+                  <div className="shrink-0 w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 flex items-center justify-center text-xs font-bold">
                     {i + 1}
                   </div>
                   <p className="text-sm text-gray-600 dark:text-gray-300 pt-0.5">{step}</p>
@@ -174,113 +194,91 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
             </div>
           </div>
 
-          {/* Portal link — only render when URL is https; safeExternalUrl
-              defends against javascript: / data: / scheme smuggling if the
-              provider record is ever attacker-influenced. */}
           {safeExternalUrl(provider.portal_url) && (
             <a
               href={safeExternalUrl(provider.portal_url)}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-3 px-4 py-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition group"
+              className="flex items-center gap-3 px-4 py-3 bg-gray-50 dark:bg-gray-800/60 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition group border border-gray-200 dark:border-gray-700"
             >
-              <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                </svg>
+              <div className="w-8 h-8 rounded-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 flex items-center justify-center shrink-0 text-gray-500">
+                <ExternalLink size={14} />
               </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-gray-800 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
                   {(t("openPortal") || "Open {portal}").replace("{portal}", provider.portal_name || provider.name)}
                 </p>
-                <p className="text-xs text-gray-400">{provider.portal_url.replace("https://", "")}</p>
+                <p className="text-xs text-gray-400 truncate">{provider.portal_url.replace("https://", "")}</p>
               </div>
-              <svg className="w-4 h-4 text-gray-300 dark:text-gray-500 group-hover:text-blue-500 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-              </svg>
+              <ChevronLeft className="rotate-180 text-gray-300 dark:text-gray-500 group-hover:text-gray-500" size={14} />
             </a>
           )}
 
-          <p className="text-xs text-gray-400 dark:text-gray-500">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
             {t("keysStoredSecurely") || "Your keys are stored securely and only used to fetch your transactions. BonBox never stores your customers' payment details."}
           </p>
 
-          {/* Actions */}
           <div className="flex gap-3 pt-1">
-            <button
-              onClick={() => setStep(1)}
-              className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition text-sm"
-            >
+            <Button variant="primary" size="lg" onClick={() => setStep(1)} className="flex-1">
               {t("iHaveKeysLetsGo") || "I have my keys — let's go"}
-            </button>
-            <button
-              onClick={onCancel}
-              className="px-5 py-3 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition text-sm font-medium"
-            >
+            </Button>
+            <Button variant="ghost" size="lg" onClick={onCancel}>
               {t("cancel") || "Cancel"}
-            </button>
+            </Button>
           </div>
         </div>
-      </div>
+      </Card>
     );
   }
 
-  // Step 2: Testing connection
+  // Step 2: testing
   if (step === 2) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-8 text-center">
-        <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center">
-          <svg className="w-6 h-6 text-blue-600 dark:text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
+      <Card>
+        <div className="py-8 text-center">
+          <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+            <Loader2 className="animate-spin text-gray-700 dark:text-gray-300" size={22} />
+          </div>
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            {(t("connectingTo") || "Connecting to {provider}...").replace("{provider}", provider.name)}
+          </p>
+          <p className="text-xs text-gray-400 mt-1">{t("verifyingYourKeys") || "Verifying your keys"}</p>
         </div>
-        <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-          {(t("connectingTo") || "Connecting to {provider}...").replace("{provider}", provider.name)}
-        </p>
-        <p className="text-xs text-gray-400 mt-1">{t("verifyingYourKeys") || "Verifying your keys"}</p>
-      </div>
+      </Card>
     );
   }
 
-  // Step 1: Enter credentials
+  // Step 1: credentials
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-      {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+    <Card>
+      <Card.Header
+        icon={
           <button
             onClick={() => setStep(0)}
-            className="w-8 h-8 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-center text-gray-400 transition"
+            className="w-7 h-7 -ml-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center text-gray-500 transition"
+            aria-label="Back"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-            </svg>
+            <ChevronLeft size={16} />
           </button>
-          <div>
-            <h3 className="text-sm font-bold text-gray-900 dark:text-white">
-              {provider.logo_emoji} {(t("enterYourKeysFor") || "Enter your {provider} keys").replace("{provider}", provider.name)}
-            </h3>
-            <p className="text-xs text-gray-400">{(t("pasteThemFromPortal") || "Paste them from the {portal}").replace("{portal}", provider.portal_name || "portal")}</p>
-          </div>
-        </div>
-        {safeExternalUrl(provider.portal_url) && (
-          <a
-            href={safeExternalUrl(provider.portal_url)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-blue-500 hover:text-blue-600 font-medium flex items-center gap-1"
-          >
-            {t("openPortalShort") || "Open portal"}
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-            </svg>
-          </a>
-        )}
-      </div>
+        }
+        title={(t("enterYourKeysFor") || "Enter your {provider} keys").replace("{provider}", provider.name)}
+        subtitle={(t("pasteThemFromPortal") || "Paste them from the {portal}").replace("{portal}", provider.portal_name || "portal")}
+        action={
+          safeExternalUrl(provider.portal_url) && (
+            <a
+              href={safeExternalUrl(provider.portal_url)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white font-medium flex items-center gap-1"
+            >
+              {t("openPortalShort") || "Open portal"}
+              <ExternalLink size={11} />
+            </a>
+          )
+        }
+      />
 
-      <div className="p-6 space-y-4">
-        {/* Optional label */}
+      <div className="space-y-4">
         <div>
           <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
             {t("nameConnection") || "Name this connection (optional)"}
@@ -290,23 +288,23 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder={t("connectionNameExample") || `e.g. "My café" or "Main store"`}
-            className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 outline-none transition"
+            className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 outline-none transition"
           />
         </div>
 
-        {/* Smart Paste — single textarea, auto-routes tokens to their fields. */}
         {supportsSmartPaste && (
-          <div className="rounded-xl border border-blue-100 dark:border-blue-900/30 bg-blue-50/30 dark:bg-blue-900/10 p-3.5">
+          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 p-3.5">
             <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-semibold text-blue-700 dark:text-blue-300 flex items-center gap-1.5">
-                <span className="text-sm">⚡</span>
+              <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-1.5">
+                <Zap size={12} className="text-gray-500" />
                 {t("smartPasteTitle") || "Paste all keys at once"}
               </label>
               {pasteText && (
                 <button
                   onClick={clearSmartPaste}
-                  className="text-[11px] text-blue-500 hover:text-blue-700 font-medium"
+                  className="text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 font-medium flex items-center gap-1"
                 >
+                  <X size={10} />
                   {t("clear") || "Clear"}
                 </button>
               )}
@@ -316,11 +314,13 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
               onChange={(e) => handleSmartPaste(e.target.value)}
               rows={3}
               placeholder={t("smartPastePlaceholder") || "Paste your 4 keys (or the whole block from the portal) — BonBox sorts them into the right fields"}
-              className="w-full px-3 py-2 rounded-lg border border-blue-200 dark:border-blue-800/40 bg-white dark:bg-gray-800 text-xs text-gray-800 dark:text-gray-200 font-mono focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 outline-none transition resize-none"
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-xs text-gray-800 dark:text-gray-200 font-mono focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 outline-none transition resize-none"
             />
             {pasteAck && (
-              <p className={`text-[11px] mt-1.5 font-medium flex items-center gap-1 ${pasteAck.found === pasteAck.total ? "text-emerald-600 dark:text-gray-300" : "text-amber-600 dark:text-amber-400"}`}>
-                {pasteAck.found === pasteAck.total ? "✓" : "⚠"}
+              <p className={`text-[11px] mt-1.5 font-medium flex items-center gap-1 ${pasteAck.found === pasteAck.total ? "text-gray-700 dark:text-gray-300" : "text-amber-600 dark:text-amber-400"}`}>
+                {pasteAck.found === pasteAck.total
+                  ? <Check size={11} className="text-emerald-600 dark:text-emerald-400" />
+                  : <AlertCircle size={11} className="text-amber-500" />}
                 {pasteAck.found === pasteAck.total
                   ? (t("smartPasteAllFilled") || `All ${pasteAck.total} fields auto-filled — review below and tap Test & Connect`).replace("{n}", pasteAck.total)
                   : (t("smartPastePartialFilled") || `Found ${pasteAck.found} of ${pasteAck.total} keys — fill the rest below`).replace("{found}", pasteAck.found).replace("{total}", pasteAck.total)
@@ -330,28 +330,23 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
           </div>
         )}
 
-        {/* Credential fields with live format validation */}
         {provider.fields.map((field, idx) => {
           const value = creds[field.key] || "";
           const check = checkField(provider.id, field.key, value);
           const borderClass =
-            check.state === "ok"   ? "border-gray-200 dark:border-gray-700/50 bg-gray-50/40 dark:bg-gray-800/50" :
-            check.state === "warn" ? "border-amber-300 dark:border-amber-700/50 bg-amber-50/40 dark:bg-amber-900/10" :
-                                     "border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700";
-          const formatHint =
-            check.state === "warn" && check.hintKey ? (t(check.hintKey) || "")  : "";
+            check.state === "warn" ? "border-amber-300 dark:border-amber-700/50 bg-amber-50/40 dark:bg-amber-900/10"
+                                   : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800";
+          const formatHint = check.state === "warn" && check.hintKey ? (t(check.hintKey) || "")  : "";
           return (
             <div key={field.key}>
               <label className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1.5">
-                <span className="w-5 h-5 rounded-md bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center text-[10px] font-bold shrink-0">
+                <span className="w-5 h-5 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 flex items-center justify-center text-[10px] font-bold shrink-0">
                   {idx + 1}
                 </span>
                 {field.label}
                 {check.state === "ok" && (
-                  <span className="ml-auto text-[11px] text-emerald-600 dark:text-gray-300 font-semibold flex items-center gap-0.5">
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
+                  <span className="ml-auto text-[11px] text-gray-700 dark:text-gray-300 font-semibold flex items-center gap-0.5">
+                    <Check size={11} className="text-emerald-600 dark:text-emerald-400" />
                     {t("looksGood") || "Looks good"}
                   </span>
                 )}
@@ -361,15 +356,16 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
                 value={value}
                 onChange={(e) => setCreds({ ...creds, [field.key]: e.target.value })}
                 placeholder={field.placeholder}
-                className={`w-full px-3 py-2.5 rounded-xl border text-sm text-gray-800 dark:text-gray-200 font-mono focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 outline-none transition ${borderClass}`}
+                className={`w-full px-3 py-2.5 rounded-lg border text-sm text-gray-800 dark:text-gray-200 font-mono focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 outline-none transition ${borderClass}`}
               />
               {formatHint && (
-                <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 ml-0.5">
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 ml-0.5 flex items-center gap-1">
+                  <AlertCircle size={10} />
                   {formatHint}
                 </p>
               )}
               {!formatHint && field.help && (
-                <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1 ml-0.5">
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 ml-0.5">
                   {field.help}
                 </p>
               )}
@@ -377,64 +373,48 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
           );
         })}
 
-        {/* Error */}
         {error && (
-          <div className="flex items-start gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 rounded-xl">
-            <svg className="w-4 h-4 text-red-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+          <div className="flex items-start gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40 rounded-xl">
+            <AlertCircle size={14} className="text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
             <div>
-              <p className="text-sm text-red-600 dark:text-red-400 font-medium">{error}</p>
-              <p className="text-xs text-red-400 dark:text-red-500 mt-0.5">
+              <p className="text-sm text-red-700 dark:text-red-400 font-medium">{error}</p>
+              <p className="text-xs text-red-500 dark:text-red-500 mt-0.5">
                 {t("connFailHint") || "Make sure you copied the full value with no extra spaces."}
               </p>
             </div>
           </div>
         )}
 
-        {/* Actions */}
         <div className="flex gap-3 pt-2">
-          <button
+          <Button
+            variant="primary"
+            size="lg"
             onClick={handleSave}
             disabled={!allFieldsFilled || saving}
-            className="flex-1 py-3 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition text-sm flex items-center justify-center gap-2"
+            busy={saving}
+            iconLeft={<Zap size={14} />}
+            className="flex-1"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
             {t("testAndConnect") || "Test & Connect"}
-          </button>
-          <button
-            onClick={onCancel}
-            className="px-5 py-3 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 font-medium text-sm transition"
-          >
+          </Button>
+          <Button variant="ghost" size="lg" onClick={onCancel}>
             {t("cancel") || "Cancel"}
-          </button>
+          </Button>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }
 
 
-/* ─── Booking-matches review ─────────────────────────────────
- *  Surfaces above the import-success banner whenever the backend
- *  returns a `booking_matches` payload (auto_confirmed + needs_review).
- *  The review UI is intentionally calm — doctrine-compliant chrome,
- *  gray-900 primary actions, status pills with colored dots only.
- *  Renders nothing when `bookingMatches` is null/undefined so the page
- *  degrades gracefully on responses without booking-match metadata.
- */
-// Wrapper picks a fresh internal state on every new import payload by
-// keying on the importId. Avoids the "setState-in-effect" anti-pattern
-// (the inner component is unmounted/remounted when the import_id flips).
+/* ─── Booking-matches review ───────────────────────────────────────── */
 function BookingMatchesReview(props) {
   const key = props.importId ?? "_no_id";
   return <BookingMatchesReviewInner key={key} {...props} />;
 }
 
 function BookingMatchesReviewInner({ bookingMatches, importId, onAfterConfirm, t }) {
-  const [busy, setBusy] = useState(null); // row index currently confirming
+  const [busy, setBusy] = useState(null);
   const [localState, setLocalState] = useState(bookingMatches || null);
 
   if (!localState) return null;
@@ -451,7 +431,6 @@ function BookingMatchesReviewInner({ bookingMatches, importId, onAfterConfirm, t
         booking_id: bookingId,
         action: "confirm",
       });
-      // Optimistic: drop this needs-review row, refetch if parent wants it
       setLocalState((prev) => {
         if (!prev) return prev;
         return {
@@ -460,10 +439,7 @@ function BookingMatchesReviewInner({ bookingMatches, importId, onAfterConfirm, t
         };
       });
       if (typeof onAfterConfirm === "function") onAfterConfirm();
-    } catch {
-      // surfacing errors at this level is the parent's job — silent fail
-      // here matches the existing import-confirm pattern in this page
-    }
+    } catch { /* parent handles */ }
     setBusy(null);
   };
 
@@ -511,111 +487,109 @@ function BookingMatchesReviewInner({ bookingMatches, importId, onAfterConfirm, t
   ];
 
   return (
-    <div className="border-t border-gray-100 dark:border-gray-700">
-      <div className="px-5 py-4">
-        <Card>
-          <Card.Header
-            title={t("bookingMatchesTitle", "Booking matches")}
-            subtitle={t(
-              "bookingMatchesSubtitle",
-              "{auto} auto-bekræftet · {review} til gennemgang",
-              { auto: auto.length, review: review.length },
-            )}
-          />
-
-          {auto.length > 0 && (
-            <details className="group" {...(auto.length <= 5 ? { open: true } : {})}>
-              <summary className="cursor-pointer list-none flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-gray-100 select-none">
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-xs text-gray-700 dark:text-gray-300">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" aria-hidden="true" />
-                  {t("bookingMatchesAutoConfirmed", "Auto-bekræftet")}
-                </span>
-                <span className="text-xs text-gray-500 dark:text-gray-400">{auto.length}</span>
-              </summary>
-              <div className="mt-3">
-                <DataTable
-                  columns={autoColumns}
-                  rows={auto}
-                  rowKey={(r) => r.booking_id || r.csv_row_index}
-                />
-              </div>
-            </details>
+    <div className="border-t border-gray-100 dark:border-gray-800 mt-4 pt-4">
+      <Card>
+        <Card.Header
+          title={t("bookingMatchesTitle", "Booking matches")}
+          subtitle={t(
+            "bookingMatchesSubtitle",
+            "{auto} auto-bekræftet · {review} til gennemgang",
+            { auto: auto.length, review: review.length },
           )}
+        />
 
-          {review.length > 0 && (
-            <div className="mt-4 space-y-3">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                {t("bookingMatchesNeedsReview", "Til gennemgang")}
-              </h3>
-              {review.map((row) => (
-                <Card key={row.csv_row_index} variant="subtle">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                        {row.csv_line?.amount} kr · {row.csv_line?.sender_name || "—"}
-                      </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        {[row.csv_line?.comment, row.csv_line?.date].filter(Boolean).join(" · ")}
-                      </p>
-                    </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400 shrink-0 tabular-nums">
-                      {t("bookingMatchesCsvRow", "CSV linje")} #{row.csv_row_index}
-                    </div>
-                  </div>
-                  <div className="mt-3 space-y-2">
-                    {(row.candidates || []).map((c) => (
-                      <div
-                        key={c.booking_id}
-                        className="flex items-center justify-between gap-3 p-3 rounded-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700"
-                      >
-                        <div className="min-w-0">
-                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-xs text-gray-700 dark:text-gray-300">
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full inline-block ${confidenceDotClass(c.confidence)}`}
-                              aria-hidden="true"
-                            />
-                            {t(`bookingMatchesConfidence${(c.confidence || "low").replace(/^./, x => x.toUpperCase())}`, c.confidence || "low")}
-                          </span>
-                          <p className="text-sm text-gray-900 dark:text-gray-100 mt-1">
-                            {t("bookingMatchesBooking", "Booking")} #{String(c.booking_id || "").slice(0, 8)}
-                          </p>
-                          {c.reason && (
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                              {c.reason}
-                            </p>
-                          )}
-                        </div>
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          onClick={() => handleConfirm(row.csv_row_index, c.booking_id)}
-                          busy={busy === row.csv_row_index}
-                        >
-                          {t("bookingMatchConfirm", "Bekræft")}
-                        </Button>
-                      </div>
-                    ))}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleSkip(row.csv_row_index)}
-                      disabled={busy === row.csv_row_index}
-                    >
-                      {t("bookingMatchSkip", "Spring over — ikke en booking")}
-                    </Button>
-                  </div>
-                </Card>
-              ))}
+        {auto.length > 0 && (
+          <details className="group" {...(auto.length <= 5 ? { open: true } : {})}>
+            <summary className="cursor-pointer list-none flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-gray-100 select-none">
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-xs text-gray-700 dark:text-gray-300">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" aria-hidden="true" />
+                {t("bookingMatchesAutoConfirmed", "Auto-bekræftet")}
+              </span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">{auto.length}</span>
+            </summary>
+            <div className="mt-3">
+              <DataTable
+                columns={autoColumns}
+                rows={auto}
+                rowKey={(r) => r.booking_id || r.csv_row_index}
+              />
             </div>
-          )}
-        </Card>
-      </div>
+          </details>
+        )}
+
+        {review.length > 0 && (
+          <div className="mt-4 space-y-3">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              {t("bookingMatchesNeedsReview", "Til gennemgang")}
+            </h3>
+            {review.map((row) => (
+              <Card key={row.csv_row_index} variant="subtle">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {row.csv_line?.amount} kr · {row.csv_line?.sender_name || "—"}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      {[row.csv_line?.comment, row.csv_line?.date].filter(Boolean).join(" · ")}
+                    </p>
+                  </div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 shrink-0 tabular-nums">
+                    {t("bookingMatchesCsvRow", "CSV linje")} #{row.csv_row_index}
+                  </div>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {(row.candidates || []).map((c) => (
+                    <div
+                      key={c.booking_id}
+                      className="flex items-center justify-between gap-3 p-3 rounded-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800"
+                    >
+                      <div className="min-w-0">
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-xs text-gray-700 dark:text-gray-300">
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full inline-block ${confidenceDotClass(c.confidence)}`}
+                            aria-hidden="true"
+                          />
+                          {t(`bookingMatchesConfidence${(c.confidence || "low").replace(/^./, x => x.toUpperCase())}`, c.confidence || "low")}
+                        </span>
+                        <p className="text-sm text-gray-900 dark:text-gray-100 mt-1">
+                          {t("bookingMatchesBooking", "Booking")} #{String(c.booking_id || "").slice(0, 8)}
+                        </p>
+                        {c.reason && (
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                            {c.reason}
+                          </p>
+                        )}
+                      </div>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => handleConfirm(row.csv_row_index, c.booking_id)}
+                        busy={busy === row.csv_row_index}
+                      >
+                        {t("bookingMatchConfirm", "Bekræft")}
+                      </Button>
+                    </div>
+                  ))}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleSkip(row.csv_row_index)}
+                    disabled={busy === row.csv_row_index}
+                  >
+                    {t("bookingMatchSkip", "Spring over — ikke en booking")}
+                  </Button>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </Card>
     </div>
   );
 }
 
 
-/* ─── Connected Provider Card ────────────────────────────── */
+/* ─── Connected Provider Card ──────────────────────────────────────── */
 function ConnectedCard({ conn, provider, onDisconnect, onSync, onToggleAutoSync, syncing, syncResult, onConfirmImport, confirming, importResult, onMatchUpdated, t }) {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -641,21 +615,21 @@ function ConnectedCard({ conn, provider, onDisconnect, onSync, onToggleAutoSync,
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+    <Card>
       {/* Header */}
-      <div className="px-5 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gray-50 dark:bg-gray-800/50 flex items-center justify-center text-xl">
-            {PROVIDER_LOGOS[conn.provider] || "💳"}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-500 dark:text-gray-400 shrink-0">
+            <Smartphone size={18} />
           </div>
-          <div>
-            <p className="text-sm font-semibold text-gray-800 dark:text-white">{conn.label}</p>
-            <p className="text-xs text-gray-400 flex items-center gap-1.5">
-              <span className={`w-1.5 h-1.5 rounded-full inline-block ${conn.auto_sync ? "bg-emerald-500" : "bg-gray-300"}`} />
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{conn.label}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5 truncate">
+              <span className={`w-1.5 h-1.5 rounded-full inline-block ${conn.auto_sync ? "bg-emerald-500" : "bg-gray-400"}`} />
               {provider?.name || conn.provider}
               {conn.last_synced_at && (
-                <span className="ml-1">
-                  &middot; Synced {new Date(conn.last_synced_at).toLocaleDateString()}
+                <span className="ml-1 truncate">
+                  · Synced {new Date(conn.last_synced_at).toLocaleDateString()}
                 </span>
               )}
             </p>
@@ -663,112 +637,98 @@ function ConnectedCard({ conn, provider, onDisconnect, onSync, onToggleAutoSync,
         </div>
         <button
           onClick={() => onDisconnect(conn.id)}
-          className="text-xs text-gray-400 hover:text-red-500 transition font-medium"
+          className="text-xs text-gray-500 hover:text-red-600 transition font-medium shrink-0"
         >
           {t("disconnect") || "Disconnect"}
         </button>
       </div>
 
       {/* Auto-sync status */}
-      <div className="px-5 pb-3">
-        <div className="flex items-center justify-between py-2.5 px-4 rounded-xl bg-gray-50 dark:bg-gray-700/40">
-          <div className="flex items-center gap-2.5">
-            <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${conn.auto_sync ? "bg-gray-100 dark:bg-gray-800" : "bg-gray-200 dark:bg-gray-600"}`}>
-              {conn.auto_sync ? (
-                <svg className="w-3.5 h-3.5 text-emerald-600 dark:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              ) : (
-                <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              )}
-            </div>
-            <div>
-              <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
-                {conn.auto_sync ? "Auto-importing new transactions" : "Auto-import paused"}
-              </p>
-              <p className="text-[11px] text-gray-400">
-                {conn.auto_sync
-                  ? conn.last_auto_imported > 0
-                    ? `${conn.last_auto_imported} new last sync`
-                    : "Checks every 6 hours"
-                  : "Turn on to import automatically"}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => onToggleAutoSync(conn.id, !conn.auto_sync)}
-            className={`relative w-10 h-5.5 rounded-full transition-colors ${conn.auto_sync ? "bg-emerald-500" : "bg-gray-300 dark:bg-gray-600"}`}
-            style={{ minWidth: "40px", height: "22px" }}
-          >
-            <span
-              className={`absolute top-[2px] w-[18px] h-[18px] rounded-full bg-white shadow-sm transition-transform ${conn.auto_sync ? "left-[20px]" : "left-[2px]"}`}
-            />
-          </button>
+      <div className="flex items-center justify-between py-2.5 px-3.5 rounded-lg bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 mb-3">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-gray-800 dark:text-gray-200">
+            {conn.auto_sync ? (t("autoImporting") || "Auto-importing new transactions") : (t("autoImportPaused") || "Auto-import paused")}
+          </p>
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+            {conn.auto_sync
+              ? conn.last_auto_imported > 0
+                ? `${conn.last_auto_imported} new last sync`
+                : (t("checksEvery6h") || "Checks every 6 hours")
+              : (t("turnOnToImportAutomatically") || "Turn on to import automatically")}
+          </p>
         </div>
+        <button
+          type="button"
+          onClick={() => onToggleAutoSync(conn.id, !conn.auto_sync)}
+          role="switch"
+          aria-checked={conn.auto_sync}
+          className={`relative rounded-full transition-colors shrink-0 ${conn.auto_sync ? "bg-emerald-500" : "bg-gray-300 dark:bg-gray-600"}`}
+          style={{ minWidth: "40px", height: "22px" }}
+        >
+          <span
+            className={`absolute top-[2px] w-[18px] h-[18px] rounded-full bg-white shadow-sm transition-transform ${conn.auto_sync ? "left-[20px]" : "left-[2px]"}`}
+          />
+        </button>
       </div>
 
-      {/* Manual sync (collapsible) */}
-      <div className="px-5 pb-4">
-        <button
-          onClick={() => setShowManual(!showManual)}
-          className="text-xs text-blue-500 hover:text-blue-600 font-medium flex items-center gap-1 mb-2"
-        >
-          <svg className={`w-3 h-3 transition-transform ${showManual ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-          Manual fetch for specific dates
-        </button>
-        {showManual && (
-          <div className="flex flex-wrap items-end gap-2.5">
+      {/* Manual sync */}
+      <button
+        onClick={() => setShowManual(!showManual)}
+        className="text-xs text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white font-medium flex items-center gap-1 mb-2"
+      >
+        <ChevronLeft className={`transition-transform ${showManual ? "-rotate-90" : "rotate-180"}`} size={11} />
+        {t("manualFetchForDates") || "Manual fetch for specific dates"}
+      </button>
+      {showManual && (
+        <div className="flex flex-wrap items-end gap-2.5 mb-2">
           <div className="flex-1 min-w-[120px]">
-            <label className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">From</label>
+            <label className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wider font-medium">
+              {t("from") || "From"}
+            </label>
             <input
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
-              className="block w-full mt-0.5 px-2.5 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200"
+              className="block w-full mt-0.5 px-2.5 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-800 dark:text-gray-200"
             />
           </div>
           <div className="flex-1 min-w-[120px]">
-            <label className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">To</label>
+            <label className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wider font-medium">
+              {t("to") || "To"}
+            </label>
             <input
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
-              className="block w-full mt-0.5 px-2.5 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200"
+              className="block w-full mt-0.5 px-2.5 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-800 dark:text-gray-200"
             />
           </div>
-          <button
+          <Button
+            variant="primary"
+            size="md"
             onClick={handleSync}
             disabled={isSyncing}
-            className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition whitespace-nowrap"
+            busy={isSyncing}
           >
-            {isSyncing ? (
-              <span className="flex items-center gap-2">
-                <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                Fetching...
-              </span>
-            ) : (t("syncNow") || "Fetch Transactions")}
-          </button>
+            {isSyncing ? (t("fetching") || "Fetching...") : (t("syncNow") || "Fetch Transactions")}
+          </Button>
         </div>
-        )}
-      </div>
+      )}
 
-      {/* Sync result — transaction list */}
+      {/* Sync result */}
       {syncResult && !syncResult.error && !importResult && (
-        <div className="border-t border-gray-100 dark:border-gray-700">
-          <div className="px-5 py-3 flex items-center justify-between bg-gray-50/50 dark:bg-gray-700/30">
-            <p className="text-sm text-gray-600 dark:text-gray-300">
-              <span className="font-semibold">{syncResult.total_count}</span> {t("transactionsFound") || "transactions found"}
+        <div className="border-t border-gray-100 dark:border-gray-800 mt-3 pt-3">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm text-gray-700 dark:text-gray-300">
+              <span className="font-semibold text-gray-900 dark:text-gray-100">{syncResult.total_count}</span>{" "}
+              {t("transactionsFound") || "transactions found"}
               {syncResult.date_from && (
-                <span className="text-xs text-gray-400 ml-2">
+                <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">
                   {syncResult.date_from} — {syncResult.date_to}
                 </span>
               )}
             </p>
-            <label className="text-xs text-blue-500 cursor-pointer flex items-center gap-1">
+            <label className="text-xs text-gray-700 dark:text-gray-300 cursor-pointer flex items-center gap-1">
               <input
                 type="checkbox"
                 checked={selected.size === syncResult.transactions.length}
@@ -784,22 +744,22 @@ function ConnectedCard({ conn, provider, onDisconnect, onSync, onToggleAutoSync,
             </label>
           </div>
 
-          <div className="max-h-72 overflow-y-auto">
+          <div className="max-h-72 overflow-y-auto -mx-5 sm:-mx-6 border-y border-gray-100 dark:border-gray-800">
             {syncResult.transactions.map((txn, i) => (
               <div
                 key={i}
                 onClick={() => toggleSelect(i)}
-                className={`flex items-center gap-3 px-5 py-2.5 border-b border-gray-50 dark:border-gray-700/50 cursor-pointer transition ${
-                  selected.has(i) ? "bg-blue-50/50 dark:bg-blue-900/10" : "hover:bg-gray-50 dark:hover:bg-gray-700/30"
+                className={`flex items-center gap-3 px-5 sm:px-6 py-2.5 border-b border-gray-50 dark:border-gray-800/60 cursor-pointer transition ${
+                  selected.has(i) ? "bg-gray-50 dark:bg-gray-800/60" : "hover:bg-gray-50 dark:hover:bg-gray-800/40"
                 }`}
               >
                 <input type="checkbox" checked={selected.has(i)} readOnly className="shrink-0 rounded" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-gray-800 dark:text-gray-200 truncate">{txn.description}</p>
-                  <p className="text-xs text-gray-400">{txn.date}{txn.suggested_category && ` · ${txn.suggested_category}`}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{txn.date}{txn.suggested_category && ` · ${txn.suggested_category}`}</p>
                 </div>
-                <span className={`text-sm font-semibold shrink-0 ${
-                  txn.type === "income" ? "text-emerald-600 dark:text-gray-300" : "text-red-500"
+                <span className={`text-sm font-semibold shrink-0 tabular-nums ${
+                  txn.type === "income" ? "text-gray-900 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
                 }`}>
                   {txn.type === "income" ? "+" : "-"}{fmt(Math.abs(txn.amount))}
                 </span>
@@ -807,32 +767,32 @@ function ConnectedCard({ conn, provider, onDisconnect, onSync, onToggleAutoSync,
             ))}
           </div>
 
-          <div className="px-5 py-3 bg-gray-50/50 dark:bg-gray-700/30">
-            <button
+          <div className="mt-3">
+            <Button
+              variant="primary"
+              size="lg"
               onClick={() => onConfirmImport(conn, syncResult.transactions.filter((_, i) => selected.has(i)))}
               disabled={confirming || selected.size === 0}
-              className="w-full py-2.5 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-700 disabled:opacity-40 transition text-sm"
+              busy={confirming}
+              className="w-full"
             >
               {confirming
                 ? (t("importing") || "Importing...")
                 : `${t("importSelected") || "Import"} ${selected.size} ${t("transactions") || "transactions"}`}
-            </button>
+            </Button>
           </div>
         </div>
       )}
 
       {/* Error */}
       {syncResult?.error && (
-        <div className="px-5 pb-4">
-          <p className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 px-4 py-2.5 rounded-xl">{syncResult.error}</p>
+        <div className="mt-3 flex items-start gap-2 px-3 py-2.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40 rounded-lg">
+          <AlertCircle size={14} className="text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+          <p className="text-sm text-red-700 dark:text-red-400">{syncResult.error}</p>
         </div>
       )}
 
-      {/* Booking matches (event-booking reconciliation) — rendered ABOVE
-          the basic import-success banner whenever the backend payload
-          contains the booking_matches shape. Pages that don't deal with
-          event bookings (eSewa, Khalti, etc.) get a no-op render — the
-          component returns null when the payload is missing or empty. */}
+      {/* Booking matches */}
       {importResult?.booking_matches && (
         <BookingMatchesReview
           bookingMatches={importResult.booking_matches}
@@ -844,36 +804,30 @@ function ConnectedCard({ conn, provider, onDisconnect, onSync, onToggleAutoSync,
 
       {/* Import success */}
       {importResult && (
-        <div className="px-5 pb-4">
-          <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4 text-center">
-            <div className="text-2xl mb-1">🎉</div>
-            <p className="text-gray-700 dark:text-gray-300 font-semibold text-sm">
-              {importResult.imported} {t("imported") || "imported"}
-              {importResult.skipped > 0 && (
-                <span className="text-gray-500 font-normal ml-1">({importResult.skipped} duplicates skipped)</span>
-              )}
-            </p>
-            <p className="text-xs text-emerald-600/60 dark:text-gray-300/60 mt-1">Added to your cash book</p>
-          </div>
+        <div className="mt-3 px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 text-center">
+          <Check size={20} className="text-emerald-600 dark:text-emerald-400 mx-auto mb-1" />
+          <p className="text-sm text-gray-900 dark:text-gray-100 font-semibold">
+            {importResult.imported} {t("imported") || "imported"}
+            {importResult.skipped > 0 && (
+              <span className="text-gray-500 dark:text-gray-400 font-normal ml-1">({importResult.skipped} duplicates skipped)</span>
+            )}
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t("addedToCashbook") || "Added to your cash book"}</p>
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
 
-/* ─── Main Page ──────────────────────────────────────────── */
+/* ─── Main Page ────────────────────────────────────────────────────── */
 export default function PaymentImportsPage() {
   const { t } = useLanguage();
-  const { user } = useAuth();
   const [providers, setProviders] = useState([]);
   const [connections, setConnections] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Wizard
   const [connectingProvider, setConnectingProvider] = useState(null);
-
-  // Sync state per connection
   const [syncing, setSyncing] = useState(null);
   const [syncResults, setSyncResults] = useState({});
   const [importResults, setImportResults] = useState({});
@@ -946,37 +900,32 @@ export default function PaymentImportsPage() {
 
   if (loading) {
     return (
-      <div className="p-6 flex justify-center">
-        <div className="w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin" />
-      </div>
+      <PageShell width="narrow">
+        <div className="flex justify-center py-12">
+          <Loader2 className="animate-spin text-gray-500" size={28} />
+        </div>
+      </PageShell>
     );
   }
 
-  // Group providers by country — Denmark-first lock (2026-05-25):
-  // we only surface DK providers. Non-DK providers stay supported in the
-  // backend for any users that already connected them, but new connections
-  // are DK-only. Per Manoj: "only dk focus".
-  const providersByCountry = {};
-  for (const p of providers) {
-    if (!Array.isArray(p.countries)) continue;
-    if (!p.countries.includes("DK")) continue;
-    if (!providersByCountry.DK) providersByCountry.DK = [];
-    providersByCountry.DK.push(p);
-  }
+  // DK-only providers (Manoj 2026-05-25 lock)
+  const dkProviders = providers.filter(
+    (p) => Array.isArray(p.countries) && p.countries.includes("DK"),
+  );
+  const providersByCountry = dkProviders.length ? { DK: dkProviders } : {};
 
   return (
-    <div className="p-4 sm:p-6 max-w-2xl mx-auto space-y-6">
-      {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-          {t("paymentImports") || "Payment Imports"}
-        </h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-          {t("paymentImportsSubtitle", "Auto-fetch your MobilePay sales — or use Bank CSV import for everything else.")}
-        </p>
-      </div>
+    <PageShell width="narrow">
+      <PageHeader
+        eyebrow="MONEY"
+        title={t("paymentImports") || "Payment Imports"}
+        subtitle={t(
+          "paymentImportsSubtitleV2",
+          "Most organizers upload the MobilePay or bank CSV — takes 30 seconds. Connect the API for nightly auto-sync if you have developer keys.",
+        )}
+      />
 
-      {/* Setup Wizard (if connecting) */}
+      {/* Setup Wizard (if connecting) — replaces everything else on the page */}
       {connectingProvider && (
         <SetupWizard
           provider={connectingProvider}
@@ -986,12 +935,105 @@ export default function PaymentImportsPage() {
         />
       )}
 
-      {/* Connected providers */}
-      {connections.length > 0 && !connectingProvider && (
+      {/* ── PRIMARY PATH: CSV upload ─────────────────────────────────
+          The 80% workflow. MobilePay Erhverv app → Settings →
+          Transactions → Export → CSV → here. We send them to
+          /bank-import (which now parses MobilePay Erhverv natively)
+          rather than fork an upload UI on this page. */}
+      {!connectingProvider && (
+        <Card>
+          <Card.Header
+            icon={<FileText size={18} />}
+            title={t("uploadCsvCardTitle", "Upload your MobilePay or bank CSV")}
+            subtitle={t(
+              "uploadCsvCardSubtitle",
+              "Recommended for most organizers — 30 seconds, no developer setup.",
+            )}
+          />
+          <div className="space-y-4">
+            <ol className="space-y-2.5">
+              {[
+                t("csvStep1", "In the MobilePay Business app: Settings → Transactions → Export"),
+                t("csvStep2", "Or from your bank: Download last 30 days as CSV"),
+                t("csvStep3", "Upload it here — BonBox auto-detects the format and matches bookings"),
+              ].map((step, i) => (
+                <li key={i} className="flex gap-3 text-sm text-gray-700 dark:text-gray-300">
+                  <span className="shrink-0 w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 flex items-center justify-center text-xs font-bold">
+                    {i + 1}
+                  </span>
+                  <span className="pt-0.5">{step}</span>
+                </li>
+              ))}
+            </ol>
+            <div className="pt-2">
+              <Link to="/bank-import">
+                <Button variant="primary" size="lg" iconRight={<ArrowRight size={14} />}>
+                  {t("uploadCsv", "Upload CSV")}
+                </Button>
+              </Link>
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {t(
+                "csvSupportedFormats",
+                "Supports: MobilePay Erhverv, Danske Bank, Nordea, Jyske Bank, Lunar, Revolut.",
+              )}
+            </p>
+          </div>
+        </Card>
+      )}
+
+      {/* ── SECONDARY PATH: API connect ──────────────────────────────
+          For the ~20% who have Vipps developer-portal keys and want
+          nightly auto-sync. The wizard handles the rest. */}
+      {!connectingProvider && Object.entries(providersByCountry).map(([countryCode, countryProviders]) => (
+        <div key={countryCode}>
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-2 font-semibold uppercase tracking-wider">
+            {t("advancedAutoSync", "Advanced — auto-sync with API keys")}{" "}
+            <span className="text-gray-400 dark:text-gray-500 font-normal normal-case tracking-normal">
+              · {COUNTRY_LABELS[countryCode] || countryCode}
+            </span>
+          </p>
+          <div className="space-y-2.5">
+            {countryProviders.map((p) => {
+              const isConnected = connections.some((c) => c.provider === p.id);
+              return (
+                <Card key={`${countryCode}-${p.id}`}>
+                  <div className="flex items-center gap-4">
+                    <div className="w-11 h-11 rounded-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0 text-gray-500 dark:text-gray-400">
+                      <CreditCard size={20} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{p.name}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{p.description}</p>
+                    </div>
+                    {isConnected ? (
+                      <span className="text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-3 py-1.5 rounded-full flex items-center gap-1.5 shrink-0">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                        {t("connected", "Connected")}
+                      </span>
+                    ) : (
+                      <Button
+                        variant="primary"
+                        size="md"
+                        onClick={() => setConnectingProvider(p)}
+                      >
+                        {t("connect", "Connect")}
+                      </Button>
+                    )}
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+
+      {/* Connected providers + their sync state */}
+      {!connectingProvider && connections.length > 0 && (
         <div className="space-y-3">
-          <h2 className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-            Your connections
-          </h2>
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 font-semibold uppercase tracking-wider">
+            {t("yourConnections", "Your connections")}
+          </p>
           {connections.map((conn) => (
             <ConnectedCard
               key={conn.id}
@@ -1006,9 +1048,6 @@ export default function PaymentImportsPage() {
               confirming={confirming}
               importResult={importResults[conn.id]}
               onMatchUpdated={() => {
-                // Best-effort refetch — if the parent doesn't actually
-                // serve a fresh import-result endpoint, the optimistic
-                // local mutation already removed the reviewed row.
                 const imp = importResults[conn.id];
                 const id = imp?.import_id || imp?.id;
                 if (!id) return;
@@ -1025,96 +1064,18 @@ export default function PaymentImportsPage() {
         </div>
       )}
 
-      {/* Available providers */}
+      {/* Help footer */}
       {!connectingProvider && (
-        <div className="space-y-4">
-          <h2 className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-            {connections.length > 0 ? "Add another provider" : "Connect a payment provider"}
-          </h2>
-
-          {Object.entries(providersByCountry).map(([countryCode, countryProviders]) => (
-            <div key={countryCode}>
-              <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-2 font-medium uppercase tracking-wider">
-                {COUNTRY_LABELS[countryCode] || countryCode}
-              </p>
-              <div className="space-y-2.5">
-                {countryProviders.map((p) => {
-                  const isConnected = connections.some((c) => c.provider === p.id);
-                  return (
-                    <div
-                      key={`${countryCode}-${p.id}`}
-                      className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 flex items-center gap-4"
-                    >
-                      <div className="w-11 h-11 rounded-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0">
-                        <CreditCard className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-gray-900 dark:text-white">{p.name}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{p.description}</p>
-                      </div>
-                      {isConnected ? (
-                        <span className="text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-3 py-1.5 rounded-full flex items-center gap-1.5 shrink-0">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
-                          {t("connected", "Connected")}
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => setConnectingProvider(p)}
-                          className="px-4 py-2 bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white rounded-lg text-sm font-medium transition shrink-0"
-                        >
-                          {t("connect", "Connect")}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-
-          {/* CSV escape hatch — most users don't have Vipps developer API
-              access. Their realistic path is to export their MobilePay
-              CSV (from the app or web portal) and run it through Bank
-              Import. We surface that path PROMINENTLY so the page is
-              actually useful for the 80% of small organizers. */}
-          <div className="bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-800 rounded-xl p-5">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 flex items-center justify-center shrink-0">
-                <FileText className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                  {t("dontHaveApiKeys", "Don't have API keys?")}
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
-                  {t(
-                    "dontHaveApiKeysBody",
-                    "Most organizers export their MobilePay CSV from the app and upload it. Takes 30 seconds — no developer setup needed.",
-                  )}
-                </p>
-                <Link
-                  to="/bank-import"
-                  className="inline-flex items-center gap-1.5 mt-3 text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-gray-700 dark:hover:text-white"
-                >
-                  {t("uploadCsvInstead", "Upload CSV instead")}
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </Link>
-              </div>
-            </div>
-          </div>
-
-          {/* Help CTA */}
-          <div className="text-center py-3">
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              {t("needHelpConnecting", "Need help connecting?")}{" "}
-              <a href="/contact" className="text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white underline underline-offset-2">
-                {t("contactUs", "Contact us")}
-              </a>{" "}
-              {t("needHelpConnectingTail", "and we'll walk you through it.")}
-            </p>
-          </div>
+        <div className="text-center pt-2 pb-1">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            {t("needHelpConnecting", "Need help connecting?")}{" "}
+            <a href="/contact" className="text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white underline underline-offset-2">
+              {t("contactUs", "Contact us")}
+            </a>{" "}
+            {t("needHelpConnectingTail", "and we'll walk you through it.")}
+          </p>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }
