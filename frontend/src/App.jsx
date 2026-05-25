@@ -158,6 +158,14 @@ const CustomersPage = lazyRetry(() => import("./pages/CustomersPage"));
 // Cultural events (migration 013, kulturarrangør sprint) — Sudip-style
 // owners tag Sales by which event (movie night, pop-up stall) they belong to.
 const EventsPage = lazyRetry(() => import("./pages/EventsPage"));
+// Event-booking public surface (Phase 1 ship). Visitor-facing pages —
+// no auth, must work for FB-click cold loads. /scan is organizer-only
+// (auth required) for door-side QR check-in.
+const EventPublicPage = lazyRetry(() => import("./pages/EventPublicPage"));
+const BookingCheckoutPage = lazyRetry(() => import("./pages/BookingCheckoutPage"));
+const BookingSuccessPage = lazyRetry(() => import("./pages/BookingSuccessPage"));
+const TicketPage = lazyRetry(() => import("./pages/TicketPage"));
+const DoorScanPage = lazyRetry(() => import("./pages/DoorScanPage"));
 const MileagePage = lazyRetry(() => import("./pages/MileagePage"));
 const LoanTrackerPage = lazyRetry(() => import("./pages/LoanTrackerPage"));
 const WeatherPage = lazyRetry(() => import("./pages/WeatherPage"));
@@ -316,6 +324,13 @@ function AppRoutes() {
             Token in URL is the only credential; the page collects
             password + name and POSTs to /accountants/signup. */}
         <Route path="/accept-invite/:token" element={<AcceptInvitePage />} />
+        {/* Event-booking public surface — no auth required (guest checkout).
+            Visitors land here from FB/Messenger clicks on the organizer's
+            shared link. Mobile-first; cover image is the only color moment. */}
+        <Route path="/e/:slug" element={<EventPublicPage />} />
+        <Route path="/e/:slug/checkout" element={<BookingCheckoutPage />} />
+        <Route path="/e/:slug/success" element={<BookingSuccessPage />} />
+        <Route path="/t/:ticket_id" element={<TicketPage />} />
         <Route
           element={
             <ProtectedRoute>
@@ -326,6 +341,10 @@ function AppRoutes() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/sales" element={<SalesPage />} />
           <Route path="/events" element={<EventsPage />} />
+          {/* Organizer-only door-scan PWA page — opens camera, scans QR
+              codes against the selected event's tickets. Capacitor 8
+              and web both go through getUserMedia. */}
+          <Route path="/scan" element={<DoorScanPage />} />
           <Route path="/expenses" element={<ExpensesPage />} />
           <Route path="/inventory" element={<InventoryPage />} />
           <Route path="/staffing" element={<StaffingPage />} />

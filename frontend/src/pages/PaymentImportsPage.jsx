@@ -1,8 +1,12 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { useAuth } from "../hooks/useAuth";
 import { safeExternalUrl } from "../utils/safeUrl";
+import Card from "../components/ui/Card";
+import Button from "../components/ui/Button";
+import DataTable from "../components/ui/DataTable";
 
 const PROVIDER_LOGOS = {
   vipps_mobilepay: "📱",
@@ -412,8 +416,206 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
 }
 
 
+/* ─── Booking-matches review ─────────────────────────────────
+ *  Surfaces above the import-success banner whenever the backend
+ *  returns a `booking_matches` payload (auto_confirmed + needs_review).
+ *  The review UI is intentionally calm — doctrine-compliant chrome,
+ *  gray-900 primary actions, status pills with colored dots only.
+ *  Renders nothing when `bookingMatches` is null/undefined so the page
+ *  degrades gracefully on responses without booking-match metadata.
+ */
+// Wrapper picks a fresh internal state on every new import payload by
+// keying on the importId. Avoids the "setState-in-effect" anti-pattern
+// (the inner component is unmounted/remounted when the import_id flips).
+function BookingMatchesReview(props) {
+  const key = props.importId ?? "_no_id";
+  return <BookingMatchesReviewInner key={key} {...props} />;
+}
+
+function BookingMatchesReviewInner({ bookingMatches, importId, onAfterConfirm, t }) {
+  const [busy, setBusy] = useState(null); // row index currently confirming
+  const [localState, setLocalState] = useState(bookingMatches || null);
+
+  if (!localState) return null;
+  const auto = Array.isArray(localState.auto_confirmed) ? localState.auto_confirmed : [];
+  const review = Array.isArray(localState.needs_review) ? localState.needs_review : [];
+  if (auto.length === 0 && review.length === 0) return null;
+
+  const handleConfirm = async (rowIdx, bookingId) => {
+    if (!importId) return;
+    setBusy(rowIdx);
+    try {
+      await api.post(`/payment-import/${importId}/confirm-match`, {
+        csv_row_index: rowIdx,
+        booking_id: bookingId,
+        action: "confirm",
+      });
+      // Optimistic: drop this needs-review row, refetch if parent wants it
+      setLocalState((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          needs_review: prev.needs_review.filter((r) => r.csv_row_index !== rowIdx),
+        };
+      });
+      if (typeof onAfterConfirm === "function") onAfterConfirm();
+    } catch {
+      // surfacing errors at this level is the parent's job — silent fail
+      // here matches the existing import-confirm pattern in this page
+    }
+    setBusy(null);
+  };
+
+  const handleSkip = async (rowIdx) => {
+    if (!importId) return;
+    setBusy(rowIdx);
+    try {
+      await api.post(`/payment-import/${importId}/confirm-match`, {
+        csv_row_index: rowIdx,
+        action: "skip",
+      });
+      setLocalState((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          needs_review: prev.needs_review.filter((r) => r.csv_row_index !== rowIdx),
+        };
+      });
+      if (typeof onAfterConfirm === "function") onAfterConfirm();
+    } catch { /* see above */ }
+    setBusy(null);
+  };
+
+  const confidenceDotClass = (c) => {
+    if (c === "high") return "bg-emerald-500";
+    if (c === "medium") return "bg-amber-500";
+    return "bg-gray-400";
+  };
+
+  const autoColumns = [
+    { id: "csv_row", label: t("bookingMatchesCsvRow", "CSV linje"),
+      render: (r) => <span className="tabular-nums text-gray-700 dark:text-gray-300">#{r.csv_row_index}</span> },
+    { id: "booking_id", label: t("bookingMatchesBooking", "Booking"),
+      render: (r) => {
+        const id = String(r.booking_id || "");
+        const href = r.event_id ? `/events/${r.event_id}#booking-${id}` : `#booking-${id}`;
+        return (
+          <Link to={href} className="text-gray-900 dark:text-gray-100 hover:underline">
+            #{id.slice(0, 8)}
+          </Link>
+        );
+      } },
+    { id: "sale", label: t("bookingMatchesSale", "Salg"),
+      render: (r) => <span className="text-gray-700 dark:text-gray-300">{r.bilagsnummer || "—"}</span> },
+  ];
+
+  return (
+    <div className="border-t border-gray-100 dark:border-gray-700">
+      <div className="px-5 py-4">
+        <Card>
+          <Card.Header
+            title={t("bookingMatchesTitle", "Booking matches")}
+            subtitle={t(
+              "bookingMatchesSubtitle",
+              "{auto} auto-bekræftet · {review} til gennemgang",
+              { auto: auto.length, review: review.length },
+            )}
+          />
+
+          {auto.length > 0 && (
+            <details className="group" {...(auto.length <= 5 ? { open: true } : {})}>
+              <summary className="cursor-pointer list-none flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-gray-100 select-none">
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-xs text-gray-700 dark:text-gray-300">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" aria-hidden="true" />
+                  {t("bookingMatchesAutoConfirmed", "Auto-bekræftet")}
+                </span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">{auto.length}</span>
+              </summary>
+              <div className="mt-3">
+                <DataTable
+                  columns={autoColumns}
+                  rows={auto}
+                  rowKey={(r) => r.booking_id || r.csv_row_index}
+                />
+              </div>
+            </details>
+          )}
+
+          {review.length > 0 && (
+            <div className="mt-4 space-y-3">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                {t("bookingMatchesNeedsReview", "Til gennemgang")}
+              </h3>
+              {review.map((row) => (
+                <Card key={row.csv_row_index} variant="subtle">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {row.csv_line?.amount} kr · {row.csv_line?.sender_name || "—"}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        {[row.csv_line?.comment, row.csv_line?.date].filter(Boolean).join(" · ")}
+                      </p>
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 shrink-0 tabular-nums">
+                      {t("bookingMatchesCsvRow", "CSV linje")} #{row.csv_row_index}
+                    </div>
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {(row.candidates || []).map((c) => (
+                      <div
+                        key={c.booking_id}
+                        className="flex items-center justify-between gap-3 p-3 rounded-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700"
+                      >
+                        <div className="min-w-0">
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-xs text-gray-700 dark:text-gray-300">
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full inline-block ${confidenceDotClass(c.confidence)}`}
+                              aria-hidden="true"
+                            />
+                            {t(`bookingMatchesConfidence${(c.confidence || "low").replace(/^./, x => x.toUpperCase())}`, c.confidence || "low")}
+                          </span>
+                          <p className="text-sm text-gray-900 dark:text-gray-100 mt-1">
+                            {t("bookingMatchesBooking", "Booking")} #{String(c.booking_id || "").slice(0, 8)}
+                          </p>
+                          {c.reason && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                              {c.reason}
+                            </p>
+                          )}
+                        </div>
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={() => handleConfirm(row.csv_row_index, c.booking_id)}
+                          busy={busy === row.csv_row_index}
+                        >
+                          {t("bookingMatchConfirm", "Bekræft")}
+                        </Button>
+                      </div>
+                    ))}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleSkip(row.csv_row_index)}
+                      disabled={busy === row.csv_row_index}
+                    >
+                      {t("bookingMatchSkip", "Spring over — ikke en booking")}
+                    </Button>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+
 /* ─── Connected Provider Card ────────────────────────────── */
-function ConnectedCard({ conn, provider, onDisconnect, onSync, onToggleAutoSync, syncing, syncResult, onConfirmImport, confirming, importResult, t }) {
+function ConnectedCard({ conn, provider, onDisconnect, onSync, onToggleAutoSync, syncing, syncResult, onConfirmImport, confirming, importResult, onMatchUpdated, t }) {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [selected, setSelected] = useState(new Set());
@@ -625,6 +827,20 @@ function ConnectedCard({ conn, provider, onDisconnect, onSync, onToggleAutoSync,
         </div>
       )}
 
+      {/* Booking matches (event-booking reconciliation) — rendered ABOVE
+          the basic import-success banner whenever the backend payload
+          contains the booking_matches shape. Pages that don't deal with
+          event bookings (eSewa, Khalti, etc.) get a no-op render — the
+          component returns null when the payload is missing or empty. */}
+      {importResult?.booking_matches && (
+        <BookingMatchesReview
+          bookingMatches={importResult.booking_matches}
+          importId={importResult.import_id || importResult.id}
+          onAfterConfirm={onMatchUpdated}
+          t={t}
+        />
+      )}
+
       {/* Import success */}
       {importResult && (
         <div className="px-5 pb-4">
@@ -785,6 +1001,20 @@ export default function PaymentImportsPage() {
               onConfirmImport={handleConfirmImport}
               confirming={confirming}
               importResult={importResults[conn.id]}
+              onMatchUpdated={() => {
+                // Best-effort refetch — if the parent doesn't actually
+                // serve a fresh import-result endpoint, the optimistic
+                // local mutation already removed the reviewed row.
+                const imp = importResults[conn.id];
+                const id = imp?.import_id || imp?.id;
+                if (!id) return;
+                api
+                  .get(`/payment-imports/${id}`)
+                  .then((r) => {
+                    setImportResults((prev) => ({ ...prev, [conn.id]: r.data }));
+                  })
+                  .catch(() => { /* optimistic state already applied */ });
+              }}
               t={t}
             />
           ))}

@@ -181,6 +181,18 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # they actually adopt the muscle memory. Starter+ unlimited
         # because the inbox IS the workflow at scale.
         "inbox_messages_per_month": 5,
+        # 2026-05-25 — Event-booking product (v3 ledger-only, Manoj-
+        # confirmed Starter=Pro for event features). Free gets one
+        # public bookable event per month — taste of the value moment;
+        # past 1 / month the publish endpoint 402s with the canonical
+        # upgrade payload. Starter+ unlimited.
+        "published_events_per_month": 1,
+        # `bookings_per_event_max` is the visitor-facing capacity ceiling
+        # that bites Free events past 30 sold tickets. Visitor sees the
+        # generic "Dette arrangement er fuldt booket" 409 (NOT a tier-
+        # leak — the visitor doesn't know whether the organizer is on
+        # Free or just sold out). Starter+ = unlimited.
+        "bookings_per_event_max": 30,
     },
     "starter": {
         "branches": 1,
@@ -220,6 +232,13 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # when there's no cap nagging the owner; capping it would defeat
         # the entire "forward like you do to your revisor" muscle memory.
         "inbox_messages_per_month": -1,
+        # Event-booking — Starter = unlimited (Manoj lock: Starter+Pro
+        # identical for event features). Public bookable events per
+        # month + tickets per event both uncapped at the platform layer.
+        # Organizers can still set per-event capacity_total (their venue
+        # limit); the tier cap simply doesn't fire.
+        "published_events_per_month": -1,
+        "bookings_per_event_max": -1,
     },
     "trial": {  # = full Pro for 14 days
         "branches": 3,
@@ -242,6 +261,9 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "foreign_currency_expenses_per_month": -1,
         "billetto_imports_per_month": -1,
         "inbox_messages_per_month": -1,
+        # Trial mirrors Pro — unlimited event-booking.
+        "published_events_per_month": -1,
+        "bookings_per_event_max": -1,
     },
     "pro": {
         "branches": 3,
@@ -271,6 +293,10 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "foreign_currency_expenses_per_month": -1,
         "billetto_imports_per_month": -1,
         "inbox_messages_per_month": -1,
+        # Pro = unlimited public events + unlimited tickets per event.
+        # See Starter comment for the Manoj-lock rationale.
+        "published_events_per_month": -1,
+        "bookings_per_event_max": -1,
     },
 }
 

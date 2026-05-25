@@ -27,12 +27,26 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Wallet, Plus, Trash2 } from "lucide-react";
+import {
+  Wallet,
+  Plus,
+  Trash2,
+  Check,
+  Eye,
+  RotateCcw,
+  Link2,
+  Upload,
+  X,
+} from "lucide-react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { formatMoney } from "../utils/currency";
 import EventCashupModal from "../components/EventCashupModal";
+import DataTable from "../components/ui/DataTable";
+import TabPills from "../components/ui/TabPills";
+import Empty from "../components/ui/Empty";
+import Button from "../components/ui/Button";
 
 // ── Default tier suggestions ──────────────────────────────────────────
 // Common DK ticket types — used to seed the create-tier form so an
@@ -45,6 +59,37 @@ const DEFAULT_TIER_SUGGESTIONS = [
 ];
 
 const EMPTY_TIER = { label: "", price_dkk: "" };
+const EMPTY_ADDON = { label: "", price_dkk: "" };
+
+// ── Refund policy options (locked spec values) ────────────────────────
+// Backend stores these as enum strings on events.refund_policy. Default
+// "organizer" matches Sudip's mental model — he wants to approve each
+// refund manually rather than auto-issue.
+const REFUND_POLICY_VALUES = ["organizer", "7day", "no_refund"];
+
+// ── Booking-side helpers ──────────────────────────────────────────────
+// Cover image client-side cap. Server also enforces this — defense in
+// depth. 5 MB matches the spec (§2 — Pro tier; Free is also capped at
+// 1 image so this client check is enough).
+const COVER_MAX_BYTES = 5 * 1024 * 1024;
+
+// Public booking link. Hard-coded www host per spec §3 ("Sudip pastes
+// it into Facebook"). Reads cleanly in DK Messenger preview.
+const PUBLIC_EVENT_LINK_BASE = "https://www.bonbox.dk/e";
+
+// Map booking.status → status-pill colour token. Stays at the file scope
+// (not inside the component) so the pill renderer stays cheap to inline
+// inside DataTable column render functions.
+const BOOKING_STATUS_DOT = {
+  reserved: "bg-gray-500",
+  paid: "bg-emerald-500",
+  attended: "bg-emerald-500",
+  refunded: "bg-red-500",
+  cancelled: "bg-red-500",
+  expired: "bg-gray-400",
+  pending: "bg-amber-500",
+  "pending-pay": "bg-amber-500",
+};
 
 export default function EventsPage() {
   const { user } = useAuth();
@@ -65,6 +110,25 @@ export default function EventsPage() {
   const [formTaxExempt, setFormTaxExempt] = useState(false);
   const [showTierSection, setShowTierSection] = useState(false);
   const [creating, setCreating] = useState(false);
+  // ── Booking-form extensions (P1) ───────────────────────────────────
+  // starts_at / ends_at replace the single date field for publishable
+  // events. We keep formDate populated too (the existing back-end still
+  // requires `event_date` per migration 013); when starts_at is set,
+  // formDate is derived from it on submit.
+  const [formStartsAt, setFormStartsAt] = useState("");   // datetime-local
+  const [formEndsAt, setFormEndsAt] = useState("");       // datetime-local
+  // Cover image goes through POST /api/uploads/event-cover before we
+  // stamp the URL onto the event create payload. Storing the URL (not
+  // the File) means a failed event-create doesn't orphan an unused
+  // upload — the backend will sweep dangling Supabase Storage rows.
+  const [formCoverUrl, setFormCoverUrl] = useState("");
+  const [coverUploading, setCoverUploading] = useState(false);
+  // Add-ons: separate from ticket_tiers because the spec (§5.2) ships
+  // them as a distinct JSONB column with different semantics — tiers
+  // gate the cash-up totals, add-ons are upsells that don't.
+  const [formAddons, setFormAddons] = useState([]);       // {label, price_dkk}
+  const [formRefundPolicy, setFormRefundPolicy] = useState("organizer");
+  const [formMakePublic, setFormMakePublic] = useState(false);
 
   // Selected event (right-pane summary)
   const [selectedId, setSelectedId] = useState(null);
@@ -73,6 +137,28 @@ export default function EventsPage() {
 
   // Cash-up modal
   const [cashupOpen, setCashupOpen] = useState(false);
+
+  // ── Bookings tab state (P1) ────────────────────────────────────────
+  // When the selected event is published, the detail-pane shows the
+  // bookings list by default. Walk-ins (cash-up) becomes a secondary
+  // tab. For unpublished events the tab control is hidden and we keep
+  // the existing cash-up CTA front-and-centre.
+  const [detailTab, setDetailTab] = useState("bookings"); // "bookings" | "walkins"
+  const [bookings, setBookings] = useState([]);
+  const [bookingsLoading, setBookingsLoading] = useState(false);
+  const [bookingsErr, setBookingsErr] = useState("");
+  const [bookingActioningId, setBookingActioningId] = useState(null);
+  // View-tickets modal — simple controlled state instead of pulling
+  // the global <Modal> primitive because the content is just a list,
+  // and the primitive's corner radius is the locked one (the doctrine
+  // carve-out only applies to the primitive itself, not pages that
+  // compose it).
+  const [ticketsModalBooking, setTicketsModalBooking] = useState(null);
+
+  // Success-toast slot — referenced from handleCashedUp + copyEventLink
+  // below. Hoisted here so the closures have a stable binding at
+  // declaration time (no temporal-dead-zone risk).
+  const [successMsg, setSuccessMsg] = useState("");
 
   // Search filter on the list
   const [q, setQ] = useState("");
@@ -120,6 +206,43 @@ export default function EventsPage() {
     };
   }, [selectedId]);
 
+  // Auto-pick the right default tab for the selected event: if it's
+  // a published bookable event, default to Bookings; otherwise show
+  // the existing Walk-ins / cash-up flow first. Re-runs every time
+  // the user switches selectedId so each event picks its own default.
+  useEffect(() => {
+    if (!selectedId) return;
+    const ev = events.find((e) => e.id === selectedId);
+    if (ev?.published) {
+      setDetailTab("bookings");
+    } else {
+      setDetailTab("walkins");
+    }
+    // We intentionally do not include `events` in deps — we only want
+    // to set the default on selection change, not whenever the events
+    // array re-fetches (which would clobber a manual tab switch).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
+
+  // Fetch bookings when the bookings tab activates. Re-fetches when
+  // the user switches between published events.
+  useEffect(() => {
+    if (!selectedId) return;
+    if (detailTab !== "bookings") return;
+    fetchBookings(selectedId);
+    // fetchBookings is closure-stable; explicit dep list keeps this
+    // tied to "tab activated for this event".
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, detailTab]);
+
+  const pendingBookingIds = useMemo(
+    () =>
+      bookings
+        .filter((b) => b.status === "reserved" || b.status === "pending-pay")
+        .map((b) => b.id),
+    [bookings],
+  );
+
   const filtered = useMemo(() => {
     if (!q.trim()) return events;
     const needle = q.trim().toLowerCase();
@@ -129,6 +252,118 @@ export default function EventsPage() {
       )
     );
   }, [events, q]);
+
+  // ── Cover image upload (Supabase Storage via backend proxy) ──────
+  // Backend wraps the multipart upload, runs MIME-sniff, and returns
+  // the public URL. We never touch the Supabase client directly here
+  // — the auth+ACL story stays server-owned. 5 MB client check is a
+  // UX cap, not security; backend re-validates.
+  async function handleCoverUpload(file) {
+    if (!file) return;
+    if (file.size > COVER_MAX_BYTES) {
+      setError(t("eventCoverTooLarge", "File too large (max 5 MB)"));
+      return;
+    }
+    setError("");
+    setCoverUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await api.post("/uploads/event-cover", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setFormCoverUrl(res.data?.url || "");
+    } catch (e) {
+      setError(
+        e?.response?.data?.detail ||
+          t("eventCoverUploadFailed", "Couldn't upload cover image"),
+      );
+    } finally {
+      setCoverUploading(false);
+    }
+  }
+
+  // ── Add-on row helpers (mirror tier helpers — kept inline because
+  // adding a shared util for an N≤6 repeater is more abstraction than
+  // the carry-cost is worth.)
+  function addAddon() {
+    if (formAddons.length >= 6) return;
+    setFormAddons((prev) => [...prev, { ...EMPTY_ADDON }]);
+  }
+  function removeAddon(idx) {
+    setFormAddons((prev) => prev.filter((_, i) => i !== idx));
+  }
+  function setAddonField(idx, field, value) {
+    setFormAddons((prev) =>
+      prev.map((row, i) =>
+        i === idx
+          ? {
+              ...row,
+              [field]:
+                field === "price_dkk"
+                  ? value.replace(/[^\d]/g, "").slice(0, 6)
+                  : value.slice(0, 40),
+            }
+          : row,
+      ),
+    );
+  }
+
+  function buildAddonsPayload() {
+    const real = formAddons.filter(
+      (a) => a.label.trim() || String(a.price_dkk).trim(),
+    );
+    for (const a of real) {
+      if (!a.label.trim()) {
+        throw new Error(
+          t("eventAddonLabelMissing", "Every add-on needs a label."),
+        );
+      }
+      const price = parseInt(a.price_dkk, 10);
+      if (!Number.isFinite(price) || price < 0) {
+        throw new Error(
+          t(
+            "eventAddonPriceInvalid",
+            "Add-on price must be a whole number ≥ 0 kr.",
+          ),
+        );
+      }
+    }
+    return real.map((a) => ({
+      label: a.label.trim(),
+      price_dkk: parseInt(a.price_dkk, 10),
+    }));
+  }
+
+  // ── starts_at / ends_at defaults ──────────────────────────────────
+  // When the user picks a start date+time we auto-fill ends_at to
+  // start + 3h (matches the spec §3 default). They can override.
+  function handleStartsAtChange(v) {
+    setFormStartsAt(v);
+    if (v && !formEndsAt) {
+      const d = new Date(v);
+      if (!Number.isNaN(d.getTime())) {
+        d.setHours(d.getHours() + 3);
+        // datetime-local expects YYYY-MM-DDTHH:mm, no timezone
+        const pad = (n) => String(n).padStart(2, "0");
+        const iso =
+          d.getFullYear() +
+          "-" +
+          pad(d.getMonth() + 1) +
+          "-" +
+          pad(d.getDate()) +
+          "T" +
+          pad(d.getHours()) +
+          ":" +
+          pad(d.getMinutes());
+        setFormEndsAt(iso);
+      }
+    }
+    // Keep formDate (the legacy single-date field, still required by
+    // POST /events) in sync from the date-portion of starts_at so the
+    // user never has to fill both.
+    if (v) setFormDate(v.slice(0, 10));
+  }
 
   // ── Tier-row editing helpers ─────────────────────────────────────
   // Empty state = section collapsed + no tiers. First "Add tier" click
@@ -217,6 +452,12 @@ export default function EventsPage() {
     setFormTiers([]);
     setFormTaxExempt(false);
     setShowTierSection(false);
+    setFormStartsAt("");
+    setFormEndsAt("");
+    setFormCoverUrl("");
+    setFormAddons([]);
+    setFormRefundPolicy("organizer");
+    setFormMakePublic(false);
   };
 
   const createEvent = async () => {
@@ -225,8 +466,10 @@ export default function EventsPage() {
       return;
     }
     let tiers;
+    let addons;
     try {
       tiers = buildTiersPayload();
+      addons = buildAddonsPayload();
     } catch (e) {
       setError(e.message);
       return;
@@ -234,6 +477,10 @@ export default function EventsPage() {
     setCreating(true);
     setError("");
     try {
+      // POST /events — extended with the P1 publishable-event fields.
+      // The backend (parallel agent) is adding cover_image_url, addons,
+      // refund_policy, starts_at, ends_at columns via migration 016.
+      // We send nullable; older deploys ignore unknown fields.
       const res = await api.post("/events", {
         name: formName.trim(),
         event_date: formDate,
@@ -241,10 +488,71 @@ export default function EventsPage() {
         notes: formNotes.trim() || null,
         ticket_tiers: tiers.length > 0 ? tiers : null,
         is_tax_exempt: !!formTaxExempt,
+        starts_at: (() => {
+          if (!formStartsAt) return null;
+          const d = new Date(formStartsAt);
+          return Number.isNaN(d.getTime()) ? null : d.toISOString();
+        })(),
+        ends_at: (() => {
+          if (!formEndsAt) return null;
+          const d = new Date(formEndsAt);
+          return Number.isNaN(d.getTime()) ? null : d.toISOString();
+        })(),
+        cover_image_url: formCoverUrl || null,
+        addons: addons.length > 0 ? addons : null,
+        refund_policy: REFUND_POLICY_VALUES.includes(formRefundPolicy)
+          ? formRefundPolicy
+          : "organizer",
       });
-      setEvents((prev) => [res.data, ...prev]);
-      setSelectedId(res.data.id);
-      resetForm();
+      const createdEvent = res.data;
+      // ── Two-step publish flow ──────────────────────────────────────
+      // Publish is a SEPARATE endpoint (POST /events/{id}/publish) so
+      // the L7 cap-check can run as a discrete failure mode. If the
+      // user is on Free tier and already published 1 event this month
+      // we get a 402 and surface the upgrade message — but keep the
+      // (unpublished) event row, so they don't lose their work.
+      let finalEvent = createdEvent;
+      if (formMakePublic && createdEvent?.id) {
+        try {
+          const pubRes = await api.post(
+            `/events/${createdEvent.id}/publish`,
+            {},
+          );
+          finalEvent = {
+            ...createdEvent,
+            published: true,
+            slug: pubRes.data?.slug || createdEvent.slug,
+            public_url: pubRes.data?.public_url,
+          };
+        } catch (pubErr) {
+          const status = pubErr?.response?.status;
+          if (status === 402) {
+            setError(
+              t(
+                "eventPublishFreeTierError",
+                "Free accounts can only publish 1 event per month",
+              ),
+            );
+          } else {
+            setError(
+              pubErr?.response?.data?.detail ||
+                t("eventPublishFailed", "Couldn't publish event"),
+            );
+          }
+          // We still keep the event row — `finalEvent` stays unpublished.
+        }
+      }
+      setEvents((prev) => [finalEvent, ...prev]);
+      setSelectedId(finalEvent.id);
+      // If we hit the publish error path we surfaced it via setError —
+      // keep the form open so the user can see the message + pick
+      // "upgrade" or "keep as draft". Otherwise reset.
+      if (!formMakePublic || finalEvent.published) {
+        resetForm();
+      } else {
+        setCreating(false);
+        return;
+      }
     } catch (e) {
       setError(e?.response?.data?.detail || t("eventsCreateFailed", "Failed to create event"));
     } finally {
@@ -260,6 +568,220 @@ export default function EventsPage() {
       if (selectedId === id) setSelectedId(null);
     } catch (e) {
       setError(e?.response?.data?.detail || t("eventsDeleteFailed", "Failed to delete event"));
+    }
+  };
+
+  // ── Publish / unpublish ──────────────────────────────────────────
+  // POST /api/events/{id}/publish — L7 cap-checks
+  // `published_events_per_month`. 402 = Free tier hit cap; we honour
+  // the spec's exact DA-fallback string. Everything else surfaces the
+  // backend's detail or a fallback.
+  const publishEvent = async (event) => {
+    try {
+      const res = await api.post(`/events/${event.id}/publish`, {});
+      setEvents((prev) =>
+        prev.map((e) =>
+          e.id === event.id
+            ? {
+                ...e,
+                published: true,
+                slug: res.data?.slug || e.slug,
+                public_url: res.data?.public_url,
+              }
+            : e,
+        ),
+      );
+    } catch (e) {
+      if (e?.response?.status === 402) {
+        setError(
+          t(
+            "eventPublishFreeTierError",
+            "Free accounts can only publish 1 event per month",
+          ),
+        );
+      } else {
+        setError(
+          e?.response?.data?.detail ||
+            t("eventPublishFailed", "Couldn't publish event"),
+        );
+      }
+    }
+  };
+
+  const unpublishEvent = async (event) => {
+    try {
+      await api.post(`/events/${event.id}/unpublish`, {});
+      setEvents((prev) =>
+        prev.map((e) =>
+          e.id === event.id ? { ...e, published: false } : e,
+        ),
+      );
+    } catch (e) {
+      setError(
+        e?.response?.data?.detail ||
+          t("eventUnpublishFailed", "Couldn't unpublish event"),
+      );
+    }
+  };
+
+  // ── Copy public link ─────────────────────────────────────────────
+  // Uses navigator.clipboard.writeText (modern path) with a no-op
+  // fallback when the API is blocked (rare — non-secure-context, but
+  // bonbox.dk is HTTPS everywhere). We surface the toast via the
+  // existing successMsg slot so we don't introduce a new toast
+  // primitive just for this.
+  const copyEventLink = async (event) => {
+    if (!event?.slug) return;
+    const url = `${PUBLIC_EVENT_LINK_BASE}/${event.slug}`;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      }
+      setSuccessMsg(t("eventLinkCopied", "Link copied"));
+      setTimeout(() => setSuccessMsg(""), 3000);
+    } catch {
+      // Fall back to a less-pretty prompt if clipboard is unavailable.
+      // Not localized — this only fires when the browser blocks
+      // clipboard access (e.g. embedded webviews).
+      try {
+        window.prompt("Copy this link", url);
+      } catch {
+        /* truly headless — give up silently */
+      }
+    }
+  };
+
+  // ── Bookings tab data ────────────────────────────────────────────
+  // Refetch helper extracted so row-actions can refresh after a
+  // mark-paid / refund / bulk operation. The endpoint accepts
+  // ?status=&limit=&offset= but for v1 we list everything and let
+  // the user scroll — pagination is a v2 polish.
+  const fetchBookings = async (eventId) => {
+    if (!eventId) return;
+    setBookingsLoading(true);
+    setBookingsErr("");
+    try {
+      const res = await api.get(`/events/${eventId}/bookings`, {
+        params: { limit: 200, offset: 0 },
+      });
+      // Endpoint returns either a bare array or {items: [...]} — be
+      // tolerant of both shapes so the parallel backend agent has wiggle
+      // room without breaking this page.
+      const list = Array.isArray(res.data)
+        ? res.data
+        : Array.isArray(res.data?.items)
+          ? res.data.items
+          : [];
+      setBookings(list);
+    } catch (e) {
+      setBookingsErr(
+        e?.response?.data?.detail ||
+          t("bookingsLoadFailed", "Couldn't load bookings."),
+      );
+      setBookings([]);
+    } finally {
+      setBookingsLoading(false);
+    }
+  };
+
+  // Mark a single booking paid → write_sale_from_booking server-side.
+  // Optimistic local update keeps the UI snappy; we refetch after to
+  // ensure status + sale_id reconcile.
+  const markBookingPaid = async (booking) => {
+    setBookingActioningId(booking.id);
+    setBookingsErr("");
+    // Optimistic UI: flip status locally so the action button hides
+    // immediately, then reconcile from the response.
+    setBookings((prev) =>
+      prev.map((b) =>
+        b.id === booking.id ? { ...b, status: "paid" } : b,
+      ),
+    );
+    try {
+      await api.post(`/bookings/${booking.id}/mark-paid`, {});
+      // Cross-page refresh so Dashboard / Sales pick up the new sale.
+      window.dispatchEvent(new Event("bonbox-data-changed"));
+      await fetchBookings(selectedId);
+    } catch (e) {
+      setBookingsErr(
+        e?.response?.data?.detail ||
+          t("bookingActionFailed", "Action failed. Please try again."),
+      );
+      // Roll back the optimistic flip.
+      setBookings((prev) =>
+        prev.map((b) =>
+          b.id === booking.id ? { ...b, status: booking.status } : b,
+        ),
+      );
+    } finally {
+      setBookingActioningId(null);
+    }
+  };
+
+  const refundBooking = async (booking) => {
+    if (
+      !confirm(
+        t(
+          "bookingRefundConfirm",
+          "Refund booking? This creates a kreditnota.",
+        ),
+      )
+    ) {
+      return;
+    }
+    setBookingActioningId(booking.id);
+    setBookingsErr("");
+    try {
+      await api.post(`/bookings/${booking.id}/refund`, {});
+      window.dispatchEvent(new Event("bonbox-data-changed"));
+      await fetchBookings(selectedId);
+    } catch (e) {
+      setBookingsErr(
+        e?.response?.data?.detail ||
+          t("bookingActionFailed", "Action failed. Please try again."),
+      );
+    } finally {
+      setBookingActioningId(null);
+    }
+  };
+
+  // Bulk mark-paid: the "Mark all paid" bar only renders when there
+  // are ≥3 pending bookings (spec §0 — "small events Sudip just taps
+  // each row; once you've got 3+ awaiting payment, the bulk button is
+  // the right affordance").
+  const bulkMarkAllPaid = async (pendingIds) => {
+    if (pendingIds.length === 0) return;
+    if (
+      !confirm(
+        t(
+          "bookingMarkAllPaidConfirm",
+          "Mark all {n} pending bookings as paid?",
+          { n: pendingIds.length },
+        ),
+      )
+    ) {
+      return;
+    }
+    setBookingsErr("");
+    // Optimistic: flip everything locally first.
+    setBookings((prev) =>
+      prev.map((b) =>
+        pendingIds.includes(b.id) ? { ...b, status: "paid" } : b,
+      ),
+    );
+    try {
+      await api.post(`/bookings/bulk-mark-paid`, {
+        booking_ids: pendingIds,
+      });
+      window.dispatchEvent(new Event("bonbox-data-changed"));
+      await fetchBookings(selectedId);
+    } catch (e) {
+      setBookingsErr(
+        e?.response?.data?.detail ||
+          t("bookingActionFailed", "Action failed. Please try again."),
+      );
+      // Refetch to recover from any partial state.
+      await fetchBookings(selectedId);
     }
   };
 
@@ -310,8 +832,6 @@ export default function EventsPage() {
     // not lingering once the owner moves on to the next action.
     setTimeout(() => setSuccessMsg(""), 6000);
   };
-
-  const [successMsg, setSuccessMsg] = useState("");
 
   const moneyFmt = (n) => formatMoney(n || 0, currency, { decimals: 0 });
 
@@ -367,6 +887,11 @@ export default function EventsPage() {
               placeholder={t("eventsNamePlaceholder", "Event name (e.g. Nepali Movie Night)")}
               className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
             />
+            {/* The legacy single-date input stays mounted for back-compat
+                (existing API still requires `event_date`), but the new
+                starts_at / ends_at controls below are the primary affordance
+                for publishable events. We keep this one visible so cash-up-
+                only owners (no public booking) don't lose their flow. */}
             <input
               type="date"
               value={formDate}
@@ -387,6 +912,190 @@ export default function EventsPage() {
               placeholder={t("eventsNotesPlaceholder", "Notes (optional)")}
               className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
             />
+          </div>
+
+          {/* ── starts_at / ends_at (P1) ──────────────────────────────
+              Two datetime-local inputs replace the single date for any
+              event that will be publicly bookable. When the user sets
+              `starts_at`, `ends_at` auto-fills to start+3h on first edit
+              (per spec §3 default). The legacy date field above stays
+              live for the back-end's required `event_date` column. */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+            <label className="text-xs font-medium text-gray-700 dark:text-gray-300 flex flex-col gap-1">
+              <span>{t("eventStartsAt", "Starts")}</span>
+              <input
+                type="datetime-local"
+                value={formStartsAt}
+                onChange={(e) => handleStartsAtChange(e.target.value)}
+                className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-normal"
+              />
+            </label>
+            <label className="text-xs font-medium text-gray-700 dark:text-gray-300 flex flex-col gap-1">
+              <span>{t("eventEndsAt", "Ends")}</span>
+              <input
+                type="datetime-local"
+                value={formEndsAt}
+                onChange={(e) => setFormEndsAt(e.target.value)}
+                className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-normal"
+              />
+            </label>
+          </div>
+
+          {/* ── Cover image upload (P1) ───────────────────────────────
+              16:9 preview when present, drop-zone affordance when not.
+              Server enforces MIME type + max 5 MB; the client check is
+              a UX cap. Image lives in Supabase Storage `event-covers/`
+              with public-read ACL (per spec §5.1). */}
+          <div className="border-t border-gray-100 dark:border-gray-800 pt-3 mt-1 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                {t("eventCoverImage", "Cover image")}
+              </h3>
+              <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                {t("eventCoverHint", "16:9, max 5 MB")}
+              </span>
+            </div>
+            {formCoverUrl ? (
+              <div className="relative rounded-xl overflow-hidden border border-gray-200 dark:border-gray-800 aspect-video bg-gray-50 dark:bg-gray-800">
+                <img
+                  src={formCoverUrl}
+                  alt={t("eventCoverImage", "Cover image")}
+                  className="w-full h-full object-cover"
+                />
+                <button
+                  type="button"
+                  onClick={() => setFormCoverUrl("")}
+                  aria-label={t("eventCoverRemove", "Remove cover")}
+                  className="absolute top-2 right-2 inline-flex items-center justify-center h-8 w-8 rounded-full bg-white/90 dark:bg-gray-900/90 text-gray-700 dark:text-gray-200 hover:bg-white dark:hover:bg-gray-900"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <label
+                className={
+                  "flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed " +
+                  "border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 " +
+                  "px-4 py-8 cursor-pointer hover:border-gray-400 dark:hover:border-gray-600 transition-colors"
+                }
+              >
+                <Upload
+                  className="w-5 h-5 text-gray-400 dark:text-gray-500"
+                  aria-hidden
+                />
+                <span className="text-sm text-gray-600 dark:text-gray-300">
+                  {coverUploading
+                    ? t("eventCoverUploading", "Uploading…")
+                    : t("eventCoverImage", "Cover image")}
+                </span>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  disabled={coverUploading}
+                  onChange={(e) => handleCoverUpload(e.target.files?.[0])}
+                  className="sr-only"
+                />
+              </label>
+            )}
+          </div>
+
+          {/* ── Add-ons repeater (P1) ─────────────────────────────────
+              Max 6 rows, chip-style. Identical UX shape to ticket-tier
+              repeater but ships as a separate JSONB column server-side. */}
+          <div className="border-t border-gray-100 dark:border-gray-800 pt-3 mt-1 space-y-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                {t("eventAddons", "Add-ons (optional)")}
+              </h3>
+            </div>
+            {formAddons.map((row, idx) => (
+              <div key={idx} className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="text"
+                  value={row.label}
+                  onChange={(e) => setAddonField(idx, "label", e.target.value)}
+                  placeholder={t("eventAddonLabel", "Label (e.g. Momo plate)")}
+                  maxLength={40}
+                  className="flex-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
+                />
+                <div className="flex gap-2">
+                  <div className="relative flex-1 sm:flex-none sm:w-32">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={row.price_dkk}
+                      onChange={(e) =>
+                        setAddonField(idx, "price_dkk", e.target.value)
+                      }
+                      placeholder={t("eventAddonPrice", "Price kr")}
+                      className="w-full pl-3 pr-10 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
+                      kr
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeAddon(idx)}
+                    aria-label={t("eventAddonRemove", "Remove add-on")}
+                    className="w-10 h-10 flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 text-gray-400 hover:text-red-600 hover:border-red-300"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+            {formAddons.length < 6 && (
+              <button
+                type="button"
+                onClick={addAddon}
+                className="inline-flex items-center gap-1 text-sm font-medium text-gray-700 dark:text-gray-300 hover:underline"
+              >
+                <Plus className="w-4 h-4" />
+                {t("eventAddonAdd", "Add add-on")}
+              </button>
+            )}
+          </div>
+
+          {/* ── Refund policy + Make publicly bookable toggle ─────────
+              Chip-style toggle for the publish flag; native select for
+              the policy enum because the 3 options fit nowhere else.
+              Both inherit the doctrine pill / input styling. */}
+          <div className="border-t border-gray-100 dark:border-gray-800 pt-3 mt-1 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label className="text-xs font-medium text-gray-700 dark:text-gray-300 flex flex-col gap-1">
+              <span>{t("eventRefundPolicy", "Refund policy")}</span>
+              <select
+                value={formRefundPolicy}
+                onChange={(e) => setFormRefundPolicy(e.target.value)}
+                className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-normal"
+              >
+                <option value="organizer">
+                  {t("eventRefundOrganizer", "Organizer-handled")}
+                </option>
+                <option value="7day">
+                  {t("eventRefund7day", "Refund within 7 days")}
+                </option>
+                <option value="no_refund">
+                  {t("eventRefundNone", "No refunds")}
+                </option>
+              </select>
+            </label>
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={() => setFormMakePublic((v) => !v)}
+                aria-pressed={formMakePublic}
+                className={
+                  "w-full inline-flex items-center justify-center gap-2 h-[42px] px-3 rounded-lg border text-sm font-medium transition-colors " +
+                  (formMakePublic
+                    ? "bg-gray-900 dark:bg-gray-50 border-gray-900 dark:border-gray-50 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-white"
+                    : "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600")
+                }
+              >
+                <Link2 className="w-4 h-4" aria-hidden />
+                {t("eventPublishToggle", "Make publicly bookable")}
+              </button>
+            </div>
           </div>
 
           {/* ── Ticket tiers (collapsible, defaults closed) ─────────── */}
@@ -532,8 +1241,45 @@ export default function EventsPage() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="font-medium text-gray-800 dark:text-gray-100 truncate flex items-center gap-2">
+                      <div className="font-medium text-gray-800 dark:text-gray-100 truncate flex items-center gap-2 flex-wrap">
                         {ev.name}
+                        {/* ── Publish status pill (doctrine pattern) ────
+                            gray-100 background + 6px colored dot. Three
+                            states: Live (emerald) when published; Lukket
+                            (red) when published but bookings_close_at is
+                            past; Draft (gray) otherwise. We compute the
+                            "lukket" branch here rather than relying on a
+                            server field so the pill reflects current time
+                            without a re-fetch. */}
+                        {(() => {
+                          const closesAt = ev.bookings_close_at
+                            ? new Date(ev.bookings_close_at)
+                            : null;
+                          const isClosed =
+                            ev.published &&
+                            closesAt &&
+                            !Number.isNaN(closesAt.getTime()) &&
+                            closesAt < new Date();
+                          const dotClass = isClosed
+                            ? "bg-red-500"
+                            : ev.published
+                              ? "bg-emerald-500"
+                              : "bg-gray-400";
+                          const label = isClosed
+                            ? t("eventStatusClosed", "Lukket")
+                            : ev.published
+                              ? t("eventStatusLive", "Live")
+                              : t("eventStatusDraft", "Draft");
+                          return (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-[11px] font-medium">
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${dotClass}`}
+                                aria-hidden="true"
+                              />
+                              {label}
+                            </span>
+                          );
+                        })()}
                         {ev.ticket_tiers && ev.ticket_tiers.length > 0 && (
                           <span
                             title={t(
@@ -557,16 +1303,67 @@ export default function EventsPage() {
                         {ev.venue ? ` · ${ev.venue}` : ""}
                       </div>
                     </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteEvent(ev.id);
-                      }}
-                      className="text-xs text-gray-400 hover:text-red-600"
-                      aria-label={t("delete", "Delete")}
-                    >
-                      ×
-                    </button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {/* ── Copy Link (only when published) ──────────
+                          Sits flush with the existing delete affordance
+                          so the action surface reads as one cluster. */}
+                      {ev.published && ev.slug && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            copyEventLink(ev);
+                          }}
+                          className="inline-flex items-center justify-center h-8 w-8 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors"
+                          aria-label={t("eventShareLink", "Copy link")}
+                          title={t("eventShareLink", "Copy link")}
+                        >
+                          <Link2 className="w-4 h-4" />
+                        </button>
+                      )}
+                      {/* ── Publish / Unpublish menu action ──────────
+                          Reuses the same single-button affordance as the
+                          existing delete X; no dropdown menu primitive
+                          exists on this page yet so we add a discrete
+                          icon button per pattern. */}
+                      {ev.published ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            unpublishEvent(ev);
+                          }}
+                          className="text-[11px] px-2 h-8 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors"
+                          aria-label={t(
+                            "eventPublishUnpublish",
+                            "Unpublish",
+                          )}
+                          title={t("eventPublishUnpublish", "Unpublish")}
+                        >
+                          {t("eventPublishUnpublish", "Unpublish")}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            publishEvent(ev);
+                          }}
+                          className="text-[11px] px-2 h-8 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors"
+                          aria-label={t("eventPublishAction", "Publish")}
+                          title={t("eventPublishAction", "Publish")}
+                        >
+                          {t("eventPublishAction", "Publish")}
+                        </button>
+                      )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteEvent(ev.id);
+                        }}
+                        className="text-xs text-gray-400 hover:text-red-600 w-8 h-8 inline-flex items-center justify-center"
+                        aria-label={t("delete", "Delete")}
+                      >
+                        ×
+                      </button>
+                    </div>
                   </div>
                 </li>
               ))}
@@ -635,27 +1432,255 @@ export default function EventsPage() {
                 </div>
               )}
 
-              {/* ── Cash-up CTA ────────────────────────────────────── */}
-              {/* Disabled w/ tooltip when no tiers — guides the user to
-                  edit the event and add tiers without breaking the
-                  flow with a hidden button. */}
-              <button
-                type="button"
-                onClick={() => setCashupOpen(true)}
-                disabled={!cashupReady}
-                title={
-                  cashupReady
-                    ? t("eventCashupButton", "Cash up event")
-                    : t(
-                        "eventCashupButtonDisabledHint",
-                        "Add ticket tiers to this event first (Edit → Ticket tiers).",
-                      )
-                }
-                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Wallet className="w-4 h-4" aria-hidden />
-                {t("eventCashupButton", "Cash up event")}
-              </button>
+              {/* ── Tabs (Bookings + Walk-ins) ────────────────────────
+                  Only rendered when the event is published — unpublished
+                  events have no booking surface so the cash-up CTA stays
+                  the only thing the owner needs. */}
+              {selectedEvent?.published && (
+                <TabPills
+                  tabs={[
+                    {
+                      id: "bookings",
+                      label: t("bookingsTab", "Bookings"),
+                      count: bookings.length || undefined,
+                    },
+                    { id: "walkins", label: t("walkInsTab", "Walk-ins") },
+                  ]}
+                  activeId={detailTab}
+                  onChange={setDetailTab}
+                />
+              )}
+
+              {/* ── Bookings tab content ───────────────────────────── */}
+              {selectedEvent?.published && detailTab === "bookings" ? (
+                <div className="space-y-3">
+                  {bookingsErr && (
+                    <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-3 py-2 rounded-xl text-xs">
+                      {bookingsErr}
+                    </div>
+                  )}
+                  {/* Bulk-action bar — appears once there are ≥3 pending
+                      bookings. Below that threshold a per-row tap is the
+                      right affordance (spec §0). */}
+                  {pendingBookingIds.length >= 3 && (
+                    <div className="flex items-center justify-between gap-2 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 px-3 py-2 text-xs text-gray-700 dark:text-gray-300">
+                      <span>
+                        {pendingBookingIds.length}{" "}
+                        {t(
+                          "bookingStatusPendingPay",
+                          "Awaiting payment",
+                        ).toLowerCase()}
+                      </span>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => bulkMarkAllPaid(pendingBookingIds)}
+                      >
+                        {t("bookingMarkAllPaid", "Mark all paid")}
+                      </Button>
+                    </div>
+                  )}
+                  <DataTable
+                    columns={[
+                      {
+                        id: "customer_name",
+                        label: t("bookingColCustomer", "Customer"),
+                        render: (r) => (
+                          <span className="font-medium text-gray-900 dark:text-gray-100">
+                            {r.customer_name || "—"}
+                          </span>
+                        ),
+                      },
+                      {
+                        id: "customer_email",
+                        label: t("bookingColEmail", "Email"),
+                        render: (r) => (
+                          <span
+                            className="text-gray-600 dark:text-gray-400 truncate inline-block max-w-[180px] align-middle"
+                            title={r.customer_email}
+                          >
+                            {r.customer_email || "—"}
+                          </span>
+                        ),
+                      },
+                      {
+                        id: "tickets",
+                        label: t("bookingColTickets", "Tickets"),
+                        render: (r) => {
+                          const lines = Array.isArray(r.ticket_lines)
+                            ? r.ticket_lines
+                            : [];
+                          return (
+                            <span className="text-gray-700 dark:text-gray-300">
+                              {lines.length === 0
+                                ? "—"
+                                : lines
+                                    .map((l) => `${l.qty} ${l.label}`)
+                                    .join(", ")}
+                            </span>
+                          );
+                        },
+                      },
+                      {
+                        id: "total_amount_dkk",
+                        label: t("bookingColTotal", "Total"),
+                        align: "right",
+                        render: (r) => (
+                          <span className="tabular-nums font-medium text-gray-900 dark:text-gray-100">
+                            {moneyFmt(r.total_amount_dkk || 0)}
+                          </span>
+                        ),
+                      },
+                      {
+                        id: "status",
+                        label: t("bookingColStatus", "Status"),
+                        render: (r) => {
+                          const dotClass =
+                            BOOKING_STATUS_DOT[r.status] || "bg-gray-400";
+                          const labelMap = {
+                            reserved: t(
+                              "bookingStatusReserved",
+                              "Reserved",
+                            ),
+                            paid: t("bookingStatusPaid", "Paid"),
+                            attended: t(
+                              "bookingStatusAttended",
+                              "Attended",
+                            ),
+                            refunded: t(
+                              "bookingStatusRefunded",
+                              "Refunded",
+                            ),
+                            cancelled: t(
+                              "bookingStatusCancelled",
+                              "Cancelled",
+                            ),
+                            expired: t(
+                              "bookingStatusExpired",
+                              "Expired",
+                            ),
+                            "pending-pay": t(
+                              "bookingStatusPendingPay",
+                              "Awaiting payment",
+                            ),
+                            pending: t(
+                              "bookingStatusPendingPay",
+                              "Awaiting payment",
+                            ),
+                          };
+                          return (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium">
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${dotClass}`}
+                                aria-hidden="true"
+                              />
+                              {labelMap[r.status] || r.status || "—"}
+                            </span>
+                          );
+                        },
+                      },
+                      {
+                        id: "created_at",
+                        label: t("bookingColCreated", "Created"),
+                        render: (r) =>
+                          r.created_at
+                            ? new Date(r.created_at).toLocaleDateString()
+                            : "—",
+                      },
+                    ]}
+                    rows={bookings}
+                    rowKey="id"
+                    loading={bookingsLoading}
+                    rowActions={(row) => {
+                      const actions = [];
+                      // Mark paid — reserved bookings only. Disabled
+                      // while an action is in flight for that specific
+                      // row so a double-tap can't fire twice.
+                      if (
+                        row.status === "reserved" ||
+                        row.status === "pending-pay" ||
+                        row.status === "pending"
+                      ) {
+                        actions.push({
+                          id: "mark-paid",
+                          label: t("bookingMarkPaid", "Mark paid"),
+                          icon: <Check size={14} />,
+                          onClick: () => markBookingPaid(row),
+                          disabled: bookingActioningId === row.id,
+                        });
+                      }
+                      actions.push({
+                        id: "view-tickets",
+                        label: t("bookingViewTickets", "View tickets"),
+                        icon: <Eye size={14} />,
+                        onClick: () => setTicketsModalBooking(row),
+                      });
+                      if (row.status === "paid") {
+                        actions.push({
+                          id: "refund",
+                          label: t("bookingRefund", "Refund"),
+                          icon: <RotateCcw size={14} />,
+                          onClick: () => refundBooking(row),
+                          variant: "danger",
+                          disabled: bookingActioningId === row.id,
+                        });
+                      }
+                      return actions;
+                    }}
+                    empty={
+                      <div className="text-center py-2">
+                        <Empty
+                          icon="📅"
+                          title={t(
+                            "bookingsEmptyTitle",
+                            "No reservations yet",
+                          )}
+                          body={t(
+                            "bookingsEmptyBody",
+                            "Share your event link to get the first booking",
+                          )}
+                          cta={
+                            selectedEvent?.slug ? (
+                              <Button
+                                variant="primary"
+                                size="sm"
+                                iconLeft={<Link2 className="w-4 h-4" />}
+                                onClick={() => copyEventLink(selectedEvent)}
+                              >
+                                {t("eventShareLink", "Copy link")}
+                              </Button>
+                            ) : null
+                          }
+                        />
+                      </div>
+                    }
+                  />
+                </div>
+              ) : (
+                <>
+                  {/* ── Cash-up CTA (walk-ins / unpublished default) ─ */}
+                  {/* Disabled w/ tooltip when no tiers — guides the user
+                      to edit the event and add tiers without breaking
+                      the flow with a hidden button. */}
+                  <button
+                    type="button"
+                    onClick={() => setCashupOpen(true)}
+                    disabled={!cashupReady}
+                    title={
+                      cashupReady
+                        ? t("eventCashupButton", "Cash up event")
+                        : t(
+                            "eventCashupButtonDisabledHint",
+                            "Add ticket tiers to this event first (Edit → Ticket tiers).",
+                          )
+                    }
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Wallet className="w-4 h-4" aria-hidden />
+                    {t("eventCashupButton", "Cash up event")}
+                  </button>
+                </>
+              )}
 
               <div className="flex gap-2">
                 <Link
@@ -684,6 +1709,82 @@ export default function EventsPage() {
         onCashedUp={handleCashedUp}
         currency={currency}
       />
+
+      {/* ── View-tickets modal ─────────────────────────────────────── */}
+      {/* Simple controlled-state modal — kept inline rather than
+          pulling the global <Modal> primitive because that primitive
+          uses the locked corner radius (the carve-out only applies to
+          itself, not its callers). The visitor's separate /t/{id}
+          ticket page owns the full QR experience; this modal is the
+          organizer's quick peek. */}
+      {ticketsModalBooking && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setTicketsModalBooking(null)}
+          />
+          <div className="relative bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 w-full max-w-md p-6 max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">
+                {t("bookingViewTicketsTitle", "Tickets in booking")}
+              </h2>
+              <button
+                onClick={() => setTicketsModalBooking(null)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                aria-label={t("close", "Close")}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="space-y-2 text-sm">
+              <div className="text-gray-600 dark:text-gray-400 text-xs">
+                {ticketsModalBooking.customer_name} ·{" "}
+                {ticketsModalBooking.customer_email}
+              </div>
+              <ul className="divide-y divide-gray-100 dark:divide-gray-800 border border-gray-200 dark:border-gray-800 rounded-lg">
+                {(ticketsModalBooking.ticket_lines || []).map((line, i) => (
+                  <li
+                    key={i}
+                    className="flex items-center justify-between px-3 py-2"
+                  >
+                    <span className="text-gray-800 dark:text-gray-200">
+                      {line.qty}× {line.label}
+                    </span>
+                    <span className="tabular-nums text-gray-600 dark:text-gray-400">
+                      {moneyFmt(
+                        (line.unit_price_dkk || 0) * (line.qty || 0),
+                      )}
+                    </span>
+                  </li>
+                ))}
+                {(ticketsModalBooking.addon_lines || []).map((line, i) => (
+                  <li
+                    key={"a-" + i}
+                    className="flex items-center justify-between px-3 py-2"
+                  >
+                    <span className="text-gray-500 dark:text-gray-400 text-xs">
+                      +{line.qty}× {line.label}
+                    </span>
+                    <span className="tabular-nums text-gray-500 dark:text-gray-400 text-xs">
+                      {moneyFmt(
+                        (line.unit_price_dkk || 0) * (line.qty || 0),
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <div className="flex items-center justify-between pt-2 text-sm font-semibold">
+                <span className="text-gray-700 dark:text-gray-300">
+                  {t("bookingColTotal", "Total")}
+                </span>
+                <span className="tabular-nums text-gray-900 dark:text-gray-100">
+                  {moneyFmt(ticketsModalBooking.total_amount_dkk || 0)}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -40,9 +40,17 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.database import get_db
+from app.models.booking import Booking
 from app.models.event import Event
 from app.models.sale import Sale
+from app.models.ticket import Ticket
 from app.models.user import User
+from app.schemas.booking import (
+    BookingListResponse,
+    BookingResponse,
+    BulkMarkPaidRequest,
+    MarkPaidRequest,
+)
 from app.schemas.event import (
     EventCashupRequest,
     EventCashupResponse,
@@ -54,6 +62,11 @@ from app.schemas.event import (
 from app.schemas.sale import SaleResponse
 from app.services.auth import get_current_user
 from app.services import audit_service
+from app.services.billing import enforce_cap, get_cap
+from app.services.booking_to_sale import (
+    BookingNotConfirmable,
+    write_sale_from_booking,
+)
 from app.utils.time import utc_now
 
 router = APIRouter()
@@ -593,70 +606,86 @@ def cashup_event(
         else f"Cash-up: {ev.name}"
     )
 
-    # Build the structured ticket_breakdown JSONB blob. Schema:
-    #   {
-    #     "kind": "event_cashup",
-    #     "tiers": [{label, qty, unit_price, subtotal}],
-    #     "gross": 8650,
-    #     "payment_split": {cash: 2000, mobilepay: 6000, card: 650} | null,
-    #     "computed_at": "2026-05-24T20:15:43Z"
-    #   }
-    # `kind=event_cashup` distinguishes this from a Billetto-import
-    # breakdown if/when that ever populates the same column. Future
-    # reporting code can filter on kind without parsing the tiers
-    # array.
-    ticket_breakdown = {
-        "kind": "event_cashup",
-        "tiers": tier_breakdown_rows,
-        "gross": gross,
-        "payment_split": payment_split_payload,
-        "computed_at": utc_now().isoformat(),
-    }
-
-    # ── Create the Sale row ──────────────────────────────────────────
-    # Mirrors routers/sales.py:create_sale so accountant-grade artifact
-    # invariants hold: voucher_number allocated via the same code path,
-    # event_id + ticket_breakdown populated, is_tax_exempt stamped
-    # from the event's whole-event posture.
-    sale = Sale(
-        user_id=user.id,
+    # ── Bridge through Booking → Sale (keystone refactor 2026-05-25) ──
+    # Path C cash-up (cash event without an inbound visitor booking)
+    # now materialises a synthetic Booking row (`payment_provider =
+    # "manual_cashup"`) and immediately bridges it to a Sale via the
+    # same `write_sale_from_booking` keystone used by Path A (organizer
+    # mark-paid) and the future Path B (CSV auto-match). One Sale-
+    # creation code path = same bilagsnummer chain, same MOMS handling,
+    # same revisor PDF shape no matter how the cash arrived.
+    #
+    # The synthetic Booking exists primarily for the audit chain. It
+    # is stamped `paid` immediately (no visitor lifecycle) and carries
+    # the per-tier rows in `ticket_lines` so revisor PDFs can still
+    # quote the breakdown. customer_email is an aggregate placeholder
+    # ("aggregate@bonbox.dk") because no individual visitor is involved
+    # — this is the legacy cash-up flow where the organizer rang up
+    # the cash on their own terminal.
+    ticket_lines_payload = [
+        {
+            "label": row["label"],
+            "qty": row["qty"],
+            "unit_price_dkk": int(row["unit_price"]),
+        }
+        for row in tier_breakdown_rows
+    ]
+    now = utc_now()
+    booking = Booking(
         event_id=ev.id,
-        date=sale_date,
-        amount=float(gross),
-        payment_method=payment_method,
-        notes=sale_notes,
+        organizer_user_id=user.id,
+        customer_email="aggregate@bonbox.dk",
+        customer_name=f"Cashup {ev.name}"[:160],
+        ticket_lines=ticket_lines_payload,
+        addon_lines=None,
+        total_amount_dkk=int(gross),
+        currency="DKK",
         is_tax_exempt=bool(ev.is_tax_exempt),
-        ticket_breakdown=ticket_breakdown,
-        # guest_count = sum of qty across all tiers — gives the
-        # events/summary endpoint a guest count even before it
-        # parses the ticket_breakdown JSON (defense in depth).
-        guest_count=sum(r["qty"] for r in tier_breakdown_rows),
-        # order_channel defaults to "dine_in" in the column default,
-        # but a cultural event isn't dine-in. We don't have a
-        # purpose-built "event" channel yet, and adding one would
-        # require a UI sweep — for v1 stay on the default and let
-        # the event_id tag drive the per-event grouping. Revisit if
-        # channel-based reports get noisy for heavy event users.
+        status="pending",
+        payment_provider="manual_cashup",
+        # Idempotency key includes sale_date so a second cash-up the
+        # same day for the same event is distinguished from a retry.
+        # Without this, accidentally double-tapping would create two
+        # bookings (each with its own Sale) — which is what we want
+        # the FIRST time around but want to dedupe on retries within
+        # the same request session. We don't have a request-side
+        # idempotency-key header on the cashup endpoint yet; the unique
+        # constraint is the safety net for genuinely-double posts.
+        idempotency_key=f"cashup-{ev.id}-{sale_date.isoformat()}-{int(now.timestamp())}",
     )
+    db.add(booking)
+    db.flush()  # populate booking.id
 
-    # L4 — Fail-soft voucher allocation. Wrapped per the existing
-    # routers/sales.py pattern: leaving voucher_number NULL is
-    # preferable to refusing the sale on a transient sequence hiccup.
-    try:
-        from app.services.voucher_service import allocate_voucher
-        sale.voucher_number = allocate_voucher(
-            db, user.id, "sale", sale.date.year,
-        )
-    except Exception:  # noqa: BLE001
-        sale.voucher_number = None
+    sale = write_sale_from_booking(
+        db,
+        booking,
+        payment_method=payment_method,
+        provider_ref=None,
+    )
+    # Override sale.date with the user-provided / event-anchored date
+    # (write_sale_from_booking defaults to booking.paid_at.date(); the
+    # cash-up flow lets the owner back-fill). Notes stay from the
+    # cashup notes (write_sale_from_booking sets a generic
+    # "Event booking: <name>" — overwrite it here).
+    sale.date = sale_date
+    sale.notes = sale_notes
+    # Annotate the breakdown so reporting can distinguish path C
+    # (manual cashup) from path A (visitor mark-paid). Both still
+    # carry kind="event_booking" so existing consumers see the same
+    # shape; we add a sub-kind on the ticket_breakdown blob.
+    # NOTE: reassign the whole dict (not just mutate in-place) so
+    # SQLAlchemy's change-tracking picks up the new keys (JSON column
+    # doesn't track in-place mutation by default).
+    if isinstance(sale.ticket_breakdown, dict):
+        breakdown = dict(sale.ticket_breakdown)
+        breakdown["sub_kind"] = "event_cashup"
+        breakdown["payment_split"] = payment_split_payload
+        sale.ticket_breakdown = breakdown
 
-    db.add(sale)
-    db.flush()  # populate sale.id for the audit row + response
-
-    # L7 — Audit row. Both `event.cashup` and the implicit `sale.create`
-    # land in audit_logs: we write event.cashup here (cash-up is the
-    # business-level intent), and the Sale row itself is captured
-    # because audit_service.record fires at the same DB savepoint.
+    # L7 — Audit row. Both `event.cashup` and `booking.paid` land in
+    # audit_logs: event.cashup is the business-level intent at this
+    # router; booking.paid is written by the service when the keystone
+    # runs (kept as a separate row so revisor PDFs can grep on either).
     audit_service.record(
         db, user,
         action="event.cashup",
@@ -669,6 +698,7 @@ def cashup_event(
         after={
             "event_id": str(ev.id),
             "sale_id": str(sale.id),
+            "booking_id": str(booking.id),
             "voucher_number": sale.voucher_number,
             "gross_dkk": gross,
             "is_tax_exempt": bool(ev.is_tax_exempt),
@@ -716,3 +746,389 @@ def event_sales(
         .all()
     )
     return rows
+
+
+# ─── Publish / unpublish (event-booking spec §5.3) ──────────────────
+
+
+def _allocate_slug(db: Session, event: Event) -> str:
+    """Generate a kebab-case slug + 4-char random suffix.
+
+    Pattern: `nepali-movie-night-14-lakhey-7k4q`.
+
+    Collision retry up to 3 times. If all 3 collide, raise 500 — the
+    caller surfaces a friendly Danish error.
+    """
+    import random
+    import re
+
+    alphabet = "abcdefghjkmnpqrstuvwxyz23456789"
+    # Slugify the event name.
+    raw = re.sub(r"[^a-z0-9]+", "-", (event.name or "event").lower()).strip("-")
+    # Cap the base at 60 chars so the full slug (base + dash + 4 chars)
+    # stays well under the column's 80-char limit.
+    base = raw[:60] or "event"
+    rng = random.SystemRandom()
+    for _ in range(3):
+        suffix = "".join(rng.choices(alphabet, k=4))
+        candidate = f"{base}-{suffix}"
+        existing = db.query(Event).filter(Event.slug == candidate).first()
+        if existing is None:
+            return candidate
+    # All 3 attempts collided — extremely unlikely (32^4 = ~1M per
+    # base). Raise so the caller can return a 500 + ask the user to
+    # rename their event.
+    raise HTTPException(
+        status_code=500,
+        detail={
+            "error": "slug_collision",
+            "message": (
+                "Kunne ikke generere et unikt link til arrangementet. "
+                "Prøv at omdøbe arrangementet og prøv igen."
+            ),
+        },
+    )
+
+
+@router.post("/{event_id}/publish", response_model=EventResponse)
+def publish_event(
+    event_id: UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Allocate a slug + flip the event to published=True.
+
+    L7 — `published_events_per_month` cap check. Free=1/mo, Starter/Pro
+    unlimited. Counted by audit_logs `event.published` rows in the
+    current calendar month for this user (matches the inbox cap-counter
+    pattern).
+    """
+    ev = _get_owned_event(db, user, event_id, include_deleted=False)
+
+    # If already published, the toggle is a no-op (idempotent — Sudip
+    # tapping "Publish" twice should not consume two cap slots).
+    if ev.published and ev.slug:
+        return ev
+
+    # L7 — published-events-per-month cap.
+    from app.models.audit_log import AuditLog
+    now = utc_now()
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    publishes_this_month = (
+        db.query(func.count(AuditLog.id))
+        .filter(AuditLog.user_id == user.id)
+        .filter(AuditLog.action == "event.published")
+        .filter(AuditLog.created_at >= month_start)
+        .scalar()
+        or 0
+    )
+    enforce_cap(user, "published_events_per_month", int(publishes_this_month))
+
+    # Allocate slug only on first-time publish; preserve a previously
+    # allocated slug on re-publish (after a temporary unpublish) so
+    # social-share links stay stable.
+    if not ev.slug:
+        ev.slug = _allocate_slug(db, ev)
+    ev.published = True
+    ev.published_at = ev.published_at or now
+    # Sensible booking-window defaults if the organizer didn't set
+    # them: open NOW, close 1h before starts_at (or 1h before event_date
+    # 18:00 default if starts_at is unset). Org can edit later.
+    if ev.bookings_open_at is None:
+        ev.bookings_open_at = now
+    if ev.bookings_close_at is None and ev.starts_at is not None:
+        from datetime import timedelta
+        ev.bookings_close_at = ev.starts_at - timedelta(hours=1)
+    ev.updated_at = now
+
+    audit_service.record(
+        db, user,
+        action="event.published",
+        entity_type="event",
+        entity_id=ev.id,
+        after={
+            "event_id": str(ev.id),
+            "slug": ev.slug,
+            "published_at": ev.published_at.isoformat(),
+        },
+        ip_address=_client_ip(request),
+    )
+    db.commit()
+    db.refresh(ev)
+    return ev
+
+
+@router.post("/{event_id}/unpublish", response_model=EventResponse)
+def unpublish_event(
+    event_id: UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Stop accepting new bookings. Slug is preserved so existing
+    /e/{slug} shares can re-resolve later if the organizer republishes.
+    """
+    ev = _get_owned_event(db, user, event_id, include_deleted=False)
+    if not ev.published:
+        # Idempotent — no audit row written for a no-op flip.
+        return ev
+    ev.published = False
+    ev.updated_at = utc_now()
+    audit_service.record(
+        db, user,
+        action="event.unpublished",
+        entity_type="event",
+        entity_id=ev.id,
+        before={"published": True},
+        after={"published": False, "slug": ev.slug},
+        ip_address=_client_ip(request),
+    )
+    db.commit()
+    db.refresh(ev)
+    return ev
+
+
+# ─── Organizer bookings list + mark paid ────────────────────────────
+
+
+def _booking_to_response(booking: Booking) -> BookingResponse:
+    """Pydantic projection that drops None-typed JSONB cells safely."""
+    return BookingResponse(
+        id=booking.id,
+        event_id=booking.event_id,
+        organizer_user_id=booking.organizer_user_id,
+        customer_email=booking.customer_email,
+        customer_name=booking.customer_name,
+        customer_phone=booking.customer_phone,
+        customer_consent_marketing=bool(booking.customer_consent_marketing),
+        ticket_lines=list(booking.ticket_lines or []),
+        addon_lines=list(booking.addon_lines) if booking.addon_lines else None,
+        total_amount_dkk=int(booking.total_amount_dkk),
+        currency=booking.currency,
+        is_tax_exempt=bool(booking.is_tax_exempt),
+        status=booking.status,
+        payment_provider=booking.payment_provider,
+        payment_provider_ref=booking.payment_provider_ref,
+        paid_at=booking.paid_at,
+        sale_id=booking.sale_id,
+        refund_sale_id=booking.refund_sale_id,
+        attended_at=booking.attended_at,
+        expires_at=booking.expires_at,
+        created_at=booking.created_at,
+        updated_at=booking.updated_at,
+    )
+
+
+@router.get("/{event_id}/bookings", response_model=BookingListResponse)
+def list_event_bookings(
+    event_id: UUID,
+    page: int = Query(1, ge=1, le=10_000),
+    page_size: int = Query(50, ge=1, le=200),
+    status_filter: Optional[str] = Query(None, alias="status", max_length=20),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Organizer guest list for an event. Paginated.
+
+    L2 — tenant scope via _get_owned_event. L6 — every Booking query
+    filters by organizer_user_id (denormalized so this never JOINs
+    through events).
+    """
+    ev = _get_owned_event(db, user, event_id, include_deleted=True)
+
+    base = (
+        db.query(Booking)
+        .filter(Booking.organizer_user_id == user.id)
+        .filter(Booking.event_id == ev.id)
+        .filter(Booking.is_deleted.isnot(True))
+    )
+    if status_filter:
+        # Bounded set of accepted values so a hostile input can't
+        # widen the filter.
+        if status_filter not in (
+            "pending", "paid", "attended", "refunded", "cancelled", "expired",
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown status filter: {status_filter!r}",
+            )
+        base = base.filter(Booking.status == status_filter)
+
+    total = base.count()
+    rows = (
+        base.order_by(Booking.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    # Aggregate counters for the EventDetail header banner.
+    paid_count = (
+        db.query(func.count(Booking.id))
+        .filter(Booking.organizer_user_id == user.id)
+        .filter(Booking.event_id == ev.id)
+        .filter(Booking.status.in_(("paid", "attended")))
+        .filter(Booking.is_deleted.isnot(True))
+        .scalar()
+        or 0
+    )
+    pending_count = (
+        db.query(func.count(Booking.id))
+        .filter(Booking.organizer_user_id == user.id)
+        .filter(Booking.event_id == ev.id)
+        .filter(Booking.status == "pending")
+        .filter(Booking.is_deleted.isnot(True))
+        .scalar()
+        or 0
+    )
+    paid_revenue = (
+        db.query(func.coalesce(func.sum(Booking.total_amount_dkk), 0))
+        .filter(Booking.organizer_user_id == user.id)
+        .filter(Booking.event_id == ev.id)
+        .filter(Booking.status.in_(("paid", "attended")))
+        .filter(Booking.is_deleted.isnot(True))
+        .scalar()
+        or 0
+    )
+
+    return BookingListResponse(
+        bookings=[_booking_to_response(b) for b in rows],
+        total=int(total),
+        page=page,
+        page_size=page_size,
+        paid_count=int(paid_count),
+        pending_count=int(pending_count),
+        paid_revenue_dkk=int(paid_revenue),
+    )
+
+
+# Sub-router for booking-id-scoped endpoints. Mounted with prefix
+# `/api/bookings` from main.py so the routes land at the spec-mandated
+# paths (`/api/bookings/{id}/mark-paid`, `/api/bookings/bulk-mark-paid`).
+bookings_router = APIRouter()
+
+
+@bookings_router.post("/{booking_id}/mark-paid", response_model=BookingResponse)
+def mark_booking_paid(
+    booking_id: UUID,
+    data: MarkPaidRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Path A — organizer taps a checkmark to mark a booking paid.
+
+    Bridges the Booking → Sale via the keystone service, allocating a
+    bilagsnummer + writing the audit_logs chain. Idempotent: marking
+    an already-paid booking returns the existing Sale link unchanged.
+    """
+    booking = (
+        db.query(Booking)
+        .filter(Booking.id == booking_id)
+        .filter(Booking.organizer_user_id == user.id)
+        .filter(Booking.is_deleted.isnot(True))
+        .first()
+    )
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    try:
+        sale = write_sale_from_booking(
+            db,
+            booking,
+            payment_method=data.payment_method,
+            provider_ref=data.provider_ref,
+        )
+    except BookingNotConfirmable as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "booking_not_confirmable",
+                "message": str(exc),
+                "current_status": booking.status,
+            },
+        )
+
+    audit_service.record(
+        db, user,
+        action="booking.paid",
+        entity_type="booking",
+        entity_id=booking.id,
+        after={
+            "booking_id": str(booking.id),
+            "sale_id": str(sale.id),
+            "voucher_number": sale.voucher_number,
+            "amount_dkk": int(booking.total_amount_dkk),
+            "payment_method": data.payment_method or booking.payment_provider,
+            "provider_ref": data.provider_ref,
+        },
+        ip_address=_client_ip(request),
+    )
+    db.commit()
+    db.refresh(booking)
+    return _booking_to_response(booking)
+
+
+@bookings_router.post("/bulk-mark-paid")
+def bulk_mark_booking_paid(
+    data: BulkMarkPaidRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Batch Path A — organizer ticks N rows in the guest list.
+
+    Per-row try/except so one bad booking can't take down the batch.
+    Returns a structured outcome list with per-row status.
+    """
+    outcomes: list[dict] = []
+    succeeded = 0
+    for bid in data.booking_ids:
+        booking = (
+            db.query(Booking)
+            .filter(Booking.id == bid)
+            .filter(Booking.organizer_user_id == user.id)
+            .filter(Booking.is_deleted.isnot(True))
+            .first()
+        )
+        if booking is None:
+            outcomes.append({"booking_id": str(bid), "status": "not_found"})
+            continue
+        try:
+            sale = write_sale_from_booking(
+                db, booking, payment_method=data.payment_method,
+            )
+            audit_service.record(
+                db, user,
+                action="booking.paid",
+                entity_type="booking",
+                entity_id=booking.id,
+                after={
+                    "booking_id": str(booking.id),
+                    "sale_id": str(sale.id),
+                    "voucher_number": sale.voucher_number,
+                    "amount_dkk": int(booking.total_amount_dkk),
+                    "bulk": True,
+                },
+                ip_address=_client_ip(request),
+            )
+            outcomes.append({
+                "booking_id": str(booking.id),
+                "status": "ok",
+                "sale_id": str(sale.id),
+                "voucher_number": sale.voucher_number,
+            })
+            succeeded += 1
+        except BookingNotConfirmable as exc:
+            outcomes.append({
+                "booking_id": str(booking.id),
+                "status": "skipped",
+                "reason": str(exc),
+            })
+    db.commit()
+    return {
+        "requested": len(data.booking_ids),
+        "succeeded": succeeded,
+        "outcomes": outcomes,
+    }

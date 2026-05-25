@@ -202,6 +202,21 @@ class EventResponse(BaseModel):
     deleted_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    # Event-booking v3 extensions (2026-05-25). All optional so legacy
+    # events that never went through /publish stay valid.
+    slug: Optional[str] = None
+    published: bool = False
+    published_at: Optional[datetime] = None
+    starts_at: Optional[datetime] = None
+    ends_at: Optional[datetime] = None
+    cover_image_url: Optional[str] = None
+    subtitle: Optional[str] = None
+    bookings_open_at: Optional[datetime] = None
+    bookings_close_at: Optional[datetime] = None
+    capacity_total: Optional[int] = None
+    addons: Optional[list] = None
+    refund_policy: str = "organizer"
+    booking_terms_url: Optional[str] = None
 
 
 class EventSummary(BaseModel):

@@ -95,6 +95,15 @@ from app.routers import accountant_savings as accountant_savings_router
 # `growth_intelligence` PLAN_FEATURE; full 10-layer doctrine in the
 # router module.
 from app.routers import growth_signals as growth_signals_router
+# 2026-05-25 — Event-booking product (v3 ledger-only). Public-facing
+# event surface + visitor checkout + door scanning. The organizer-side
+# publish/unpublish/mark-paid endpoints live on routers.events; this
+# trio handles the unauthenticated visitor flow + the scan-time door
+# endpoint. BonBox never touches money — payment provider integrations
+# stay deferred per Manoj's v3 lock.
+from app.routers import public_events as public_events_router
+from app.routers import public_bookings as public_bookings_router
+from app.routers import tickets as tickets_router
 from app.database import engine, Base, get_db
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -1357,6 +1366,104 @@ _migrations = [
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )""",
     "CREATE INDEX IF NOT EXISTS ix_ri_user_status ON receipt_intake (user_id, ocr_status)",
+
+    # ── Migration: extend_events_for_booking (event-booking v3) ──────
+    # Adds the columns the public-bookable surface needs while keeping
+    # the existing cash-up flow intact. All ALTER COLUMNs are nullable
+    # so pre-existing events stay valid. VARCHAR(36) on slug to match
+    # the GUID() convention everywhere else (see migration 034 comment
+    # on the cost of native UUID + SAVEPOINT-swallow combo).
+    "ALTER TABLE events ADD COLUMN IF NOT EXISTS slug VARCHAR(80)",
+    "ALTER TABLE events ADD COLUMN IF NOT EXISTS published BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE events ADD COLUMN IF NOT EXISTS published_at TIMESTAMP",
+    "ALTER TABLE events ADD COLUMN IF NOT EXISTS starts_at TIMESTAMP",
+    "ALTER TABLE events ADD COLUMN IF NOT EXISTS ends_at TIMESTAMP",
+    "ALTER TABLE events ADD COLUMN IF NOT EXISTS cover_image_url TEXT",
+    "ALTER TABLE events ADD COLUMN IF NOT EXISTS subtitle VARCHAR(255)",
+    "ALTER TABLE events ADD COLUMN IF NOT EXISTS bookings_open_at TIMESTAMP",
+    "ALTER TABLE events ADD COLUMN IF NOT EXISTS bookings_close_at TIMESTAMP",
+    "ALTER TABLE events ADD COLUMN IF NOT EXISTS capacity_total INTEGER",
+    "ALTER TABLE events ADD COLUMN IF NOT EXISTS addons JSONB",
+    "ALTER TABLE events ADD COLUMN IF NOT EXISTS refund_policy VARCHAR(20) NOT NULL DEFAULT 'organizer'",
+    "ALTER TABLE events ADD COLUMN IF NOT EXISTS booking_terms_url TEXT",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_events_slug ON events (slug) WHERE slug IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS ix_events_published_starts ON events (published, starts_at) WHERE published = TRUE",
+
+    # ── Migration: create_bookings_table (event-booking v3) ──────────
+    # Visitor-facing reservations. Status transitions: pending → paid
+    # → attended (or → refunded / → cancelled / → expired). Foreign
+    # keys use VARCHAR(36) per the GUID() convention.
+    """CREATE TABLE IF NOT EXISTS bookings (
+        id VARCHAR(36) PRIMARY KEY,
+        event_id VARCHAR(36) NOT NULL REFERENCES events(id),
+        organizer_user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        customer_email VARCHAR(255) NOT NULL,
+        customer_name VARCHAR(160) NOT NULL,
+        customer_phone VARCHAR(40),
+        customer_consent_marketing BOOLEAN NOT NULL DEFAULT FALSE,
+        ticket_lines JSONB NOT NULL,
+        addon_lines JSONB,
+        total_amount_dkk INTEGER NOT NULL CHECK (total_amount_dkk >= 0),
+        currency VARCHAR(3) NOT NULL DEFAULT 'DKK',
+        is_tax_exempt BOOLEAN NOT NULL DEFAULT FALSE,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending'
+            CHECK (status IN ('pending','paid','attended','refunded','cancelled','expired')),
+        payment_provider VARCHAR(20),
+        payment_provider_ref VARCHAR(120),
+        paid_at TIMESTAMP,
+        sale_id VARCHAR(36) REFERENCES sales(id) ON DELETE SET NULL,
+        refund_sale_id VARCHAR(36) REFERENCES sales(id) ON DELETE SET NULL,
+        attended_at TIMESTAMP,
+        attended_scanner_user_id VARCHAR(36) REFERENCES users(id),
+        idempotency_key VARCHAR(64) UNIQUE,
+        is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+        expires_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_bookings_event_status ON bookings (event_id, status)",
+    "CREATE INDEX IF NOT EXISTS ix_bookings_organizer ON bookings (organizer_user_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_bookings_pending_expiry ON bookings (expires_at) WHERE status = 'pending'",
+    "CREATE INDEX IF NOT EXISTS ix_bookings_payment_ref ON bookings (payment_provider, payment_provider_ref) WHERE payment_provider_ref IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS ix_bookings_sale_id ON bookings (sale_id) WHERE sale_id IS NOT NULL",
+
+    # ── Migration: create_tickets_table (event-booking v3) ──────────
+    # One row per individual ticket. Fan-out from a booking with N
+    # tickets = N rows. Voided rather than deleted on refund/cancel
+    # so the audit + QR-payload trail survives.
+    """CREATE TABLE IF NOT EXISTS tickets (
+        id VARCHAR(36) PRIMARY KEY,
+        booking_id VARCHAR(36) NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+        event_id VARCHAR(36) NOT NULL REFERENCES events(id),
+        tier_label VARCHAR(40) NOT NULL,
+        tier_price_dkk INTEGER NOT NULL,
+        qr_payload TEXT NOT NULL,
+        scanned_at TIMESTAMP,
+        scanner_user_id VARCHAR(36) REFERENCES users(id),
+        is_void BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_tickets_booking ON tickets (booking_id)",
+    "CREATE INDEX IF NOT EXISTS ix_tickets_event_scanned ON tickets (event_id, scanned_at)",
+
+    # ── Migration: create_event_customers_table (event-booking v3) ──
+    # De-duplicated visitor profiles per organizer. Updated atomically
+    # on booking.paid via services/booking_to_sale.py. UNIQUE
+    # (organizer_user_id, email) so consent + counts stay per-tenant.
+    """CREATE TABLE IF NOT EXISTS event_customers (
+        id VARCHAR(36) PRIMARY KEY,
+        organizer_user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        email VARCHAR(255) NOT NULL,
+        name VARCHAR(160),
+        phone VARCHAR(40),
+        first_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        bookings_count INTEGER NOT NULL DEFAULT 0,
+        total_spend_dkk INTEGER NOT NULL DEFAULT 0,
+        marketing_consent BOOLEAN NOT NULL DEFAULT FALSE,
+        CONSTRAINT uq_event_customer_organizer_email UNIQUE (organizer_user_id, email)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_event_customer_organizer_seen ON event_customers (organizer_user_id, last_seen_at)",
 ]
 
 
@@ -2416,6 +2523,36 @@ app.include_router(cashbook.router, prefix="/api/cashbook", tags=["Cash Book"])
 # working without losing the page-view stream. New clients should call
 # /api/event-log directly.
 app.include_router(events.router, prefix="/api/events", tags=["Events"])
+# Sub-router for booking-id-scoped endpoints — `/api/bookings/{id}/...`.
+# Lives on routers.events so it shares the helpers (audit, _client_ip)
+# but mounted under its own prefix because the URLs are not nested
+# under /api/events/{event_id}/.
+app.include_router(events.bookings_router, prefix="/api/bookings", tags=["Events"])
+# 2026-05-25 — Event-booking v3 (visitor-facing surface).
+# `public_events_router` carries the SSR /e/{slug} HTML route + the
+# /api/public/events/{slug} JSON. The router file mounts both URLs
+# at their full paths so we mount it with NO prefix.
+app.include_router(public_events_router.router, tags=["Public Events"])
+# Visitor checkout + booking-poll + cancel endpoints, mounted under
+# /api/public so cap-aware caller routing matches the other public
+# surfaces (founder_rate router etc.).
+app.include_router(
+    public_bookings_router.router,
+    prefix="/api/public",
+    tags=["Public Bookings"],
+)
+# Internal cron — X-Cron-Secret header gates the sweep. Lives next to
+# the public booking router but mounted under /api/internal so the
+# path matches the spec.
+app.include_router(
+    public_bookings_router.internal_router,
+    prefix="/api/internal",
+    tags=["Internal Cron"],
+)
+# Door-scan + visitor's web-ticket page (signed URL). Same no-prefix
+# pattern as public_events_router because the routes (`/api/tickets/*`
+# + `/t/{ticket_id}`) live at distinct path roots.
+app.include_router(tickets_router.router, tags=["Tickets"])
 app.include_router(event_log_router.router, prefix="/api/event-log", tags=["Event Log"])
 app.include_router(khata.router, prefix="/api/khata", tags=["Khata"])
 app.include_router(budget.router, prefix="/api/budgets", tags=["Budgets"])
