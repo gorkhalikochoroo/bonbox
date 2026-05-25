@@ -1978,7 +1978,11 @@ async def _global_exception_handler(request: Request, exc: Exception):
                 user_agent=(request.headers.get("user-agent") or "")[:500],
                 error_type=type(exc).__name__[:100],
                 message=str(exc)[:1000],
-                traceback=_tb.format_exc()[:5000],  # cap at 5KB to keep DB lean
+                # Cap at 16KB — Starlette wraps every request in ~7 BaseHTTPMiddleware
+                # frames each adding 6+ lines of boilerplate via collapse_excgroups, so
+                # the inner-most app frame (where the bug actually lives) sits >4KB deep.
+                # 16KB gives us enough headroom to always see the offending code path.
+                traceback=_tb.format_exc()[:16000],
             ))
             _db.commit()
         finally:
