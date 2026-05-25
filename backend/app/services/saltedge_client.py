@@ -58,7 +58,7 @@ revoke (DELETE /connections/{id}).
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -439,8 +439,18 @@ class SaltEdgeClient:
                     # for invoice/MOMS reconciliation so leave it off
                     # (smaller consent ask = better UX on the SCA page).
                     "scopes": ["accounts", "transactions"],
-                    # 90-day SCA window — matches DK PSD2 max.
-                    "from_date": None,  # Salt Edge defaults to provider's max history
+                    # 90-day SCA window — matches DK PSD2 max.  v6 now
+                    # REQUIRES `from_date` to be a real ISO date; passing
+                    # None or omitting it returns
+                    # "data.consent.from_date parameter must be filled"
+                    # (verified live 2026-05-25).  Compute today minus 90d
+                    # at call time so the consent always asks for the
+                    # PSD2 maximum lookback.  We deliberately don't cap
+                    # at 89d — Salt Edge enforces its own DK provider
+                    # limits and the user gets the most history possible.
+                    "from_date": (
+                        date.today() - timedelta(days=90)
+                    ).isoformat(),
                     "period_days": 90,
                 },
                 "attempt": {
