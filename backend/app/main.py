@@ -1464,6 +1464,20 @@ _migrations = [
         CONSTRAINT uq_event_customer_organizer_email UNIQUE (organizer_user_id, email)
     )""",
     "CREATE INDEX IF NOT EXISTS ix_event_customer_organizer_seen ON event_customers (organizer_user_id, last_seen_at)",
+
+    # Migration 017 (2026-05-26): team invite magic-link flow — replaces
+    # the plaintext temp_password leak on POST /api/team/invite.  The
+    # corresponding Alembic file (`017_team_invite_tokens.py`) is kept
+    # for documentation but NOT load-bearing — BonBox runs migrations
+    # via this in-process ALTER list, not via `alembic upgrade head`.
+    # All three columns nullable, no server default → existing rows are
+    # untouched and the deploy is non-locking.  Adding here means a fresh
+    # Render database (or a wiped staging DB) picks them up automatically
+    # next time `_run_migrations()` runs.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_token_hash CHAR(64)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_expires_at TIMESTAMP",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS invited_by_user_id VARCHAR(36)",
+    "CREATE INDEX IF NOT EXISTS ix_users_invite_token_hash ON users (invite_token_hash)",
 ]
 
 
