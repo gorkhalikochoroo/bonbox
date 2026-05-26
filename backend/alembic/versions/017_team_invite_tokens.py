@@ -1,5 +1,14 @@
 """team invite tokens — magic-link flow for /api/team/invite
 
+WARNING: DOCUMENTATION ONLY — DO NOT RUN `alembic upgrade head`.
+    The canonical schema delta lives in
+    `backend/app/main.py:_run_migrations()` ALTER list.
+    This file is kept as a human-readable record of the schema change.
+    BonBox runs migrations in-process at startup, not via Alembic.
+    See CLAUDE.md -> "Schema changes — DO NOT use Alembic" for the rule
+    and commit d3dc5ae for the in-process ALTER statements that this
+    file documents.
+
 Migration 017 lands the magic-link flow that replaces the plaintext
 temp_password leak on the Team page (P0 security finding):
 

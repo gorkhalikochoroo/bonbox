@@ -1523,6 +1523,170 @@ def _verify_audit_log_immutability(conn) -> None:
             "audit_logs immutability self-test could not run: %s", e
         )
 
+
+# ─── Schema-drift self-test ────────────────────────────────────────
+#
+# WHY THIS EXISTS
+# ---------------
+# Tonight (2026-05-26) production went DOWN for ~10 min when commit
+# 7c0e4c2 added 3 SQLAlchemy columns to the `users` model but only
+# wrote the DDL into `backend/alembic/versions/017_*.py`.  Render's
+# start command is `uvicorn app.main:app …`, which runs `_init_db()`
+# / `_run_migrations()` — it does NOT call `alembic upgrade head`.
+# Result: model said `users.invite_token_hash` existed, DB said it
+# didn't, every authenticated request 500'd with
+# `column users.invite_token_hash does not exist`.  Fix landed as
+# d3dc5ae (adds the missing ALTERs to the in-process ALTER list).
+#
+# This self-test makes the same regression PHYSICALLY UNABLE to take
+# the site down again:
+#
+#   • Postgres (prod): if ANY model column is missing in the live DB
+#     after `_run_migrations()` completes, the function raises
+#     SchemaDriftError.  The caller in `_init_db` catches that BEFORE
+#     `_db_ready.set()` fires.  The db_readiness_gate middleware then
+#     keeps returning 503 + Retry-After=3 for every API request, so
+#     Render's health probe stays red, the deploy is marked unhealthy,
+#     and the previous (healthy) deploy stays live.  Hard-fail closed.
+#
+#   • SQLite (dev): log a clear warning and continue.  Contributors
+#     who're mid-fixture shouldn't get stuck — they just see the
+#     SCHEMA_DRIFT line in the console.
+#
+# DESIGN NOTES
+# ------------
+# • We compare on column-NAME presence only — never on type equality.
+#   TypeDecorators (GUID(36) → String(36), JSONEncoded → TEXT, etc.)
+#   make type-comparison hostile and high-noise.  The one bug we're
+#   guarding against is "model declares a column the DB doesn't have"
+#   — that's the only signal we read.
+#
+# • We only check tables that BOTH (a) exist in `Base.metadata.tables`
+#   AND (b) exist in the live DB.  Tables in the model but not in the
+#   DB will get created by `Base.metadata.create_all`, which runs
+#   BEFORE `_run_migrations` — so any missing TABLE is a bigger bug
+#   that surfaces earlier.  This check is column-level only.
+#
+# • Skip alembic_version / system tables — alembic isn't load-bearing
+#   here but the table can exist in old branches.
+#
+# • Read `information_schema.columns` (Postgres) or `pragma_table_info`
+#   (SQLite) directly rather than `inspect(engine).get_columns()` —
+#   the inspector caches aggressively across the connection and we
+#   want the LIVE post-migration state.
+#
+class SchemaDriftError(RuntimeError):
+    """Raised when SQLAlchemy models declare columns the live DB
+    doesn't have.  In prod this blocks `_db_ready.set()` so the
+    readiness gate keeps returning 503 and Render rolls back."""
+
+
+_SCHEMA_DRIFT_SKIP_TABLES = frozenset({
+    "alembic_version",
+    "spatial_ref_sys",          # PostGIS system table (if extension installed)
+    "geography_columns",
+    "geometry_columns",
+    "raster_columns",
+    "raster_overviews",
+})
+
+
+def _live_columns_for_table(conn, table_name: str, is_sqlite: bool) -> set[str]:
+    """Return the set of column names that actually exist in the DB for
+    `table_name`. Empty set if the table doesn't exist (caller treats
+    "table missing" as "create_all will handle it / not our concern")."""
+    from sqlalchemy import text as _text
+    try:
+        if is_sqlite:
+            rows = conn.execute(
+                _text("SELECT name FROM pragma_table_info(:t)"),
+                {"t": table_name},
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                _text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = current_schema() AND table_name = :t"
+                ),
+                {"t": table_name},
+            ).fetchall()
+    except Exception:
+        return set()
+    return {r[0] for r in rows}
+
+
+def _verify_schema_no_drift(conn, *, strict: bool) -> None:
+    """Compare every column declared in `Base.metadata.tables` against
+    the live DB schema.  Logs CRITICAL `SCHEMA_DRIFT:` lines for each
+    missing column.  Raises `SchemaDriftError` if any drift was found
+    AND `strict=True` (production / Postgres path).
+
+    Sits next to `_verify_audit_log_immutability` and follows the same
+    contract: runs once at startup, idempotent, never mutates schema.
+    """
+    import logging as _lg
+    log = _lg.getLogger("bonbox.security")
+    is_sqlite = str(engine.url).startswith("sqlite")
+
+    drifts: list[tuple[str, str]] = []   # (table, column) pairs
+    skipped_tables = 0
+    checked_tables = 0
+
+    for table_name, table_obj in Base.metadata.tables.items():
+        if table_name in _SCHEMA_DRIFT_SKIP_TABLES:
+            skipped_tables += 1
+            continue
+        live_cols = _live_columns_for_table(conn, table_name, is_sqlite)
+        if not live_cols:
+            # Table doesn't exist in DB yet — create_all should have
+            # handled it.  If it didn't, that's a separate failure
+            # (Base.metadata.create_all would have logged earlier).
+            # Don't double-report; just skip.
+            skipped_tables += 1
+            continue
+        checked_tables += 1
+        for col in table_obj.columns:
+            if col.name not in live_cols:
+                drifts.append((table_name, col.name))
+                log.critical(
+                    "SCHEMA_DRIFT: model declares %s.%s but DB has no such column. "
+                    "Add the ALTER TABLE statement to backend/app/main.py:_run_migrations() "
+                    "ALTER list. See d3dc5ae for the canonical pattern.",
+                    table_name, col.name,
+                )
+
+    if drifts:
+        log.critical(
+            "SCHEMA_DRIFT summary: %d missing column(s) across %d table(s) "
+            "(checked %d, skipped %d). strict=%s",
+            len(drifts),
+            len({t for t, _ in drifts}),
+            checked_tables,
+            skipped_tables,
+            strict,
+        )
+        if strict:
+            # Hard-fail: caller in _init_db catches this and does NOT
+            # set _db_ready, so the readiness gate keeps returning 503
+            # and Render's previous healthy deploy stays live.
+            raise SchemaDriftError(
+                f"{len(drifts)} model column(s) missing in DB: "
+                + ", ".join(f"{t}.{c}" for t, c in drifts[:10])
+                + (" …" if len(drifts) > 10 else "")
+            )
+        else:
+            log.warning(
+                "SCHEMA_DRIFT: log-and-continue mode (SQLite dev) — worker "
+                "will start but the affected endpoints will 500 on first hit. "
+                "Fix the ALTER list in main.py and restart."
+            )
+    else:
+        print(
+            f"Schema-drift self-test: OK ({checked_tables} tables checked, "
+            f"{skipped_tables} skipped)"
+        )
+
+
 def _run_migrations():
     """Run schema migrations — works with both PostgreSQL and SQLite."""
     from sqlalchemy import inspect as sa_inspect
@@ -2040,6 +2204,45 @@ def _init_db():
         _run_migrations()
     except Exception as e:
         print(f"Migration warning: {e}")
+
+    # ─── Schema-drift fail-loud guard (Layer 1 of the 4-layer safety
+    # net added 2026-05-26 after the team-invite columns regression
+    # took prod down).  Compares SQLAlchemy model columns against the
+    # LIVE DB schema and either hard-fails (Postgres / prod) or
+    # log-and-continues (SQLite / dev).  See the SchemaDriftError
+    # docstring above for the contract.
+    #
+    # HARD-FAIL semantics on PG: if drift is detected we return EARLY
+    # here WITHOUT calling `_db_ready.set()`.  The db_readiness_gate
+    # middleware (defined below) will then return 503 for every API
+    # request, Render's health probe stays red, and the previous
+    # healthy deploy stays live until the operator fixes the ALTER
+    # list and re-deploys.  No silent half-broken worker.
+    is_pg = str(engine.url).startswith("postgresql")
+    try:
+        with engine.connect() as _drift_conn:
+            _verify_schema_no_drift(_drift_conn, strict=is_pg)
+    except SchemaDriftError as drift_exc:
+        import logging as _lg
+        _lg.getLogger("bonbox.security").critical(
+            "REFUSING TO SERVE — schema drift detected on Postgres startup: %s. "
+            "Worker will stay in 503 mode (db_readiness_gate). Fix the missing "
+            "ALTER TABLE statements in backend/app/main.py:_run_migrations() "
+            "ALTER list and re-deploy. See d3dc5ae for the canonical pattern, "
+            "CLAUDE.md → 'Schema changes — DO NOT use Alembic' for the rule.",
+            drift_exc,
+        )
+        # Intentionally do NOT call _db_ready.set() — leave the gate
+        # closed so Render rolls back to the previous deploy.
+        return
+    except Exception as e:
+        # Self-test itself blew up (e.g. transient DB error during
+        # information_schema query).  Don't take prod down for a
+        # diagnostic failure — log and continue.  The migration step
+        # already ran; if it succeeded and the column-check failed
+        # for unrelated reasons, the worker should still serve.
+        print(f"Schema-drift self-test warning: {e}")
+
     try:
         _run_data_migration()
     except Exception as e:
