@@ -287,9 +287,29 @@ def get_dashboard_batch(
     )
     khata_receivable = max(float(khata_recv_raw) if khata_recv_raw is not None else 0.0, 0)
 
+    # Week-to-date revenue (Monday → today inclusive) — the KpiStrip
+    # "Revenue this week" tile reads `summary.week_revenue`.  Computed
+    # here AND in /dashboard/summary so both endpoints feed the same
+    # tile shape regardless of which one the client falls back to.
+    # `today` already resolved via business_today_local() above so this
+    # respects the DK 06:00 cutoff (a 02:00 CEST sale rolls into
+    # yesterday's business day, week boundary follows that).
+    _week_monday = today - timedelta(days=today.weekday())
+    week_rev = float(
+        db.query(func.coalesce(func.sum(Sale.amount), 0))
+        .filter(
+            Sale.user_id == user.id,
+            Sale.date >= _week_monday,
+            Sale.date <= today,
+            Sale.is_deleted.isnot(True),
+        )
+        .scalar()
+    )
+
     summary = {
         "today_revenue": today_rev,
         "today_revenue_change": today_change,
+        "week_revenue": week_rev,
         "month_revenue": month_rev,
         "month_expenses": month_exp,
         "month_profit": month_profit,
@@ -1270,9 +1290,26 @@ def get_summary(
     )
     khata_receivable = float(khata_recv_raw) if khata_recv_raw is not None else 0.0
 
+    # Week-to-date revenue (Monday → today inclusive) — backs the KpiStrip
+    # "Revenue this week" tile.  Same compute as /dashboard/batch so the
+    # two endpoints agree.  Respects DK 06:00 business-day cutoff because
+    # `today` came from business_today_local() above.
+    _week_monday = today - timedelta(days=today.weekday())
+    week_rev = (
+        db.query(func.coalesce(func.sum(Sale.amount), 0))
+        .filter(
+            Sale.user_id == user.id,
+            Sale.date >= _week_monday,
+            Sale.date <= today,
+            Sale.is_deleted.isnot(True),
+        )
+        .scalar()
+    )
+
     return DashboardSummary(
         today_revenue=float(today_rev),
         today_revenue_change=today_change,
+        week_revenue=float(week_rev),
         month_revenue=float(month_rev),
         month_expenses=float(month_exp),
         month_profit=month_profit,

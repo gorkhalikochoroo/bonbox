@@ -4,6 +4,13 @@ from pydantic import BaseModel
 class DashboardSummary(BaseModel):
     today_revenue: float
     today_revenue_change: float  # % change vs yesterday
+    # Week-to-date revenue for the current ISO week (Monday → today inclusive).
+    # Backs the KpiStrip "Revenue this week" tile on Dashboard.  Default 0
+    # for back-compat with older callers/tests that don't compute it.
+    # Added 2026-05-27 after the tile showed 0 DKK on prod despite real
+    # sales — the field existed on the frontend (`summary.week_revenue`)
+    # but the backend never produced it.
+    week_revenue: float = 0
     month_revenue: float
     month_expenses: float
     month_profit: float
