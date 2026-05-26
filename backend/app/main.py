@@ -2675,6 +2675,295 @@ async def enforce_request_size(request: Request, call_next):
     return await call_next(request)
 
 
+# --- Sliding-refresh middleware (30d session, midway re-mint) ---
+#
+# Stay-signed-in UX: after this middleware lands, an actively-used session
+# never expires. Token is minted with a 30-day exp; once the request's
+# token is past its midway point (older than 15 days), the middleware
+# mints a fresh token and re-issues it via either:
+#
+#   • cookie path (web)        — Set-Cookie bonbox_session + bonbox_csrf
+#                                 with fresh 30d max_age, same Domain/
+#                                 SameSite/Secure as _set_auth_cookie.
+#   • bearer path (native iOS) — Response header `X-New-Token`; the
+#                                 Capacitor axios interceptor in
+#                                 frontend/src/services/api.js writes
+#                                 the new token to localStorage so the
+#                                 next request uses it. Exposed via
+#                                 CORS `expose_headers` below.
+#
+# Multi-barrier defense — mirrors the 10-layer doctrine for any
+# auth-bearing surface:
+#   L1 auth           — must have a Bearer header OR bonbox_session cookie
+#   L2 bounds         — past midway = older than (exp - iat) / 2; never
+#                        before
+#   L3 rate-limit     — only one refresh per response (the request itself
+#                        is the rate-limiter — a refresh per request is
+#                        normal, but we cap audit_logs to 1 row/user/day
+#                        below to avoid spamming the trail).
+#   L4 fail-soft      — any unexpected error in the middleware is swallowed
+#                        and the original response is returned untouched;
+#                        a refresh hiccup must NEVER take a request down.
+#   L5 tenant scope   — refresh only fires for the JWT's `sub`. Locked
+#                        users never get a fresh token (we re-check
+#                        users.is_locked before minting).
+#   L6 fail-closed    — if decode fails or `sub` is missing, no refresh;
+#                        the response already carries the route's 401.
+#   L7 audit          — `auth.token_refreshed` row, deduped 1/user/24h.
+#   L8 fallback       — exempt list (login, logout, magic-link, OAuth
+#                        callback, health, /auth/refresh self) — these
+#                        paths mint their own tokens; sliding refresh
+#                        would race with them.
+#   L9 graceful HTTP  — middleware never returns a non-200 of its own;
+#                        only enriches the route's response with the
+#                        refreshed cookie/header.
+#   L10 honest claims — `X-New-Token` is the literal new JWT; nothing
+#                        masked. The audit row records mode='cookie'|
+#                        'bearer' so we know which path actually fired.
+#
+# Placement — declared BELOW every other @app.middleware("http") so it
+# is the innermost custom middleware. CORS sits OUTSIDE this so the
+# `X-New-Token` header is allowed through with the existing
+# allow_credentials=True wrap. `expose_headers` is set on CORSMiddleware
+# below so JS can actually read it.
+from app.services.auth import _decode_token as _decode_jwt_refresh
+from datetime import datetime as _dt_class, timezone as _tz_class
+from typing import Optional as _Opt
+import secrets as _secrets_refresh
+import logging as _log_refresh
+
+_REFRESH_UTC = _tz_class.utc
+
+_refresh_log = _log_refresh.getLogger("bonbox.session_refresh")
+
+# Paths that mint / clear their own session — sliding refresh would race
+# with them or fire on anonymous flows. Mirrors _CSRF_EXEMPT_PATHS with
+# the additions for /logout (no refresh on the way out the door) and the
+# health surface.
+_REFRESH_EXEMPT_PATHS = frozenset({
+    "/api/auth/login",
+    "/api/auth/register",
+    "/api/auth/logout",
+    "/api/auth/google",
+    "/api/auth/forgot-password",
+    "/api/auth/reset-password",
+    "/api/auth/magic-link/request",
+    "/api/auth/magic-link/verify",
+    "/api/auth/oauth/google",
+    "/api/auth/oauth/apple",
+    "/api/auth/apple",
+    "/api/auth/refresh",
+    "/api/billing/stripe/webhook",
+    "/api/health",
+    "/api/health/db",
+    "/api/keepalive",
+    "/api/config/features",
+    "/api/email/unsubscribe",
+})
+
+# How many tokens we re-issue per response. A bearer-mode iOS request
+# may carry a token in localStorage that we ALSO mirror into the
+# bonbox_session cookie (no — only one path fires per request; see
+# logic). We track per-user the last-audit timestamp so the
+# auth.token_refreshed audit row doesn't fire on every single refresh
+# (a hot owner could hammer 100 requests/min; that'd be 100 audit rows).
+# Process-local cache — one row per user per 24h is more than enough
+# forensic granularity, the actual refresh STILL fires every time.
+_refresh_audit_dedup: dict[str, float] = {}
+_REFRESH_AUDIT_TTL_SEC = 60 * 60 * 24  # 24h
+
+
+def _refresh_audit_should_log(user_id: str) -> bool:
+    """Return True if we haven't already audited a refresh for this user
+    in the last 24h. Side-effect: stamps the dedup cache when True."""
+    import time as _t
+    now = _t.time()
+    last = _refresh_audit_dedup.get(user_id, 0)
+    if now - last < _REFRESH_AUDIT_TTL_SEC:
+        return False
+    _refresh_audit_dedup[user_id] = now
+    # Best-effort cap on cache growth (5k users max retained)
+    if len(_refresh_audit_dedup) > 5000:
+        # Drop oldest half — cheapest possible eviction
+        cutoff = now - _REFRESH_AUDIT_TTL_SEC
+        for k in [k for k, t in _refresh_audit_dedup.items() if t < cutoff]:
+            _refresh_audit_dedup.pop(k, None)
+    return True
+
+
+def _read_token_from_request(request: Request) -> tuple[_Opt[str], str]:
+    """Return (raw_token, mode) where mode is 'bearer' | 'cookie' | ''.
+    Bearer wins if both are present (matches get_current_user)."""
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        tok = auth_header.split(" ", 1)[1].strip()
+        if tok:
+            return tok, "bearer"
+    cookie_tok = request.cookies.get(AUTH_COOKIE_NAME)
+    if cookie_tok:
+        return cookie_tok, "cookie"
+    return None, ""
+
+
+@app.middleware("http")
+async def sliding_refresh_middleware(request: Request, call_next):
+    """Stay-signed-in via sliding refresh. See header comment for the
+    multi-barrier doctrine. Designed to be invisible on every request
+    that doesn't need refreshing — early-exits on the cheap path."""
+    # Default — pass through, then refresh on response if applicable.
+    response: Response = await call_next(request)
+
+    # Don't refresh failures — if the underlying request 401'd because
+    # the token is genuinely bad/expired, leave the 401 intact so the
+    # frontend redirects to /login. Same for 5xx — never paper over.
+    if response.status_code >= 400:
+        return response
+
+    try:
+        path = request.url.path or ""
+        if path in _REFRESH_EXEMPT_PATHS:
+            return response
+        # Static asset / preflight — nothing to refresh.
+        if request.method == "OPTIONS":
+            return response
+
+        raw_token, mode = _read_token_from_request(request)
+        if not raw_token or not mode:
+            return response  # anonymous request — no refresh
+
+        # Decode. Support rotated-secret grace via _decode_token().
+        try:
+            payload = _decode_jwt_refresh(raw_token)
+        except Exception:
+            return response  # invalid token — auth dep would have 401'd
+
+        user_id = payload.get("sub")
+        iat = payload.get("iat")
+        exp = payload.get("exp")
+        if not user_id or not iat or not exp:
+            return response  # legacy token without iat — let it expire naturally
+
+        # Coerce iat/exp to ints (jose decodes them as ints already, defensive cast)
+        try:
+            iat_ts = int(iat)
+            exp_ts = int(exp)
+        except Exception:
+            return response
+
+        now_ts = int(_dt_class.now(_REFRESH_UTC).timestamp())
+        midway = iat_ts + (exp_ts - iat_ts) // 2
+        if now_ts < midway:
+            return response  # still in first half — no refresh
+
+        # Locked-account safety: never re-issue a token for a user who
+        # has been locked out via /admin/users/{id}/lock. The original
+        # get_current_user already 401s, but our middleware sees the
+        # response AFTER the dep runs — and this branch only fires when
+        # the route returned <400, so the user MUST have resolved.
+        # Still, do a defensive re-check so a race between lock + refresh
+        # doesn't extend a hostile session by 30d.
+        from app.database import SessionLocal as _Session
+        from sqlalchemy import text as _text
+        is_locked = False
+        with _Session() as _db:
+            try:
+                row = _db.execute(
+                    _text("SELECT is_locked FROM users WHERE id = :uid LIMIT 1"),
+                    {"uid": user_id},
+                ).first()
+                if row and row[0]:
+                    is_locked = True
+            except Exception:  # noqa: BLE001
+                # DB hiccup — fail-soft. We won't refresh this round, but
+                # the existing token is still valid for ~15d so the user
+                # is fine.
+                return response
+        if is_locked:
+            return response
+
+        # Mint a fresh JWT under the CURRENT secret only. APP_SECRET_KEY
+        # rotation: existing in-flight sessions migrate forward on first
+        # refresh because the new token is signed with SECRET_KEY, while
+        # _decode_token() still accepts SECRET_KEY_PREVIOUS for grace.
+        from app.services.auth import create_access_token as _mint
+        new_token = _mint(str(user_id))
+
+        # ── Wire the new token into the response ──────────────────────
+        if mode == "cookie":
+            # Web session — re-issue cookies with fresh 30d max_age. CSRF
+            # cookie too, so it doesn't expire at 24h while the session
+            # lives 30d (would cause 403s on later state-changing requests).
+            from app.routers.auth import _cookie_scope as _scope
+            is_secure = settings.ENVIRONMENT == "production"
+            cookie_domain, same_site = _scope(request)
+            max_age = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+            response.set_cookie(
+                key=AUTH_COOKIE_NAME,
+                value=new_token,
+                max_age=max_age,
+                httponly=True,
+                secure=is_secure,
+                samesite=same_site,
+                path="/",
+                domain=cookie_domain,
+            )
+            # Re-issue the CSRF cookie if the request actually carried
+            # one (i.e. this is a real web session that needs the pair).
+            # Use a fresh random value — CSRF tokens are not the JWT;
+            # rotating them on session refresh is harmless and aligns
+            # the two cookies' lifetimes.
+            if request.cookies.get(CSRF_COOKIE_NAME):
+                response.set_cookie(
+                    key=CSRF_COOKIE_NAME,
+                    value=_secrets_refresh.token_urlsafe(32),
+                    max_age=max_age,
+                    httponly=False,
+                    secure=is_secure,
+                    samesite=same_site,
+                    path="/",
+                    domain=cookie_domain,
+                )
+        else:
+            # Bearer (native iOS) — expose the new token via a header.
+            # Capacitor axios interceptor reads X-New-Token and writes
+            # to localStorage. MUST be added to CORS `expose_headers`
+            # below for the browser to surface it to JS.
+            response.headers["X-New-Token"] = new_token
+
+        # ── Audit log (deduped 1/user/24h) ────────────────────────────
+        if _refresh_audit_should_log(str(user_id)):
+            try:
+                from app.services import audit_service as _audit
+                from app.database import SessionLocal as _AuditSession
+                with _AuditSession() as _adb:
+                    _audit.record(
+                        _adb,
+                        user=user_id,
+                        action="auth.token_refreshed",
+                        entity_type="user",
+                        entity_id=None,
+                        before=None,
+                        after={
+                            "old_token_iat": iat_ts,
+                            "new_token_iat": now_ts,
+                            "mode": mode,
+                        },
+                        ip_address=(request.client.host if request.client else None),
+                        actor_id=None,
+                        actor_type="system.session_refresh",
+                    )
+                    _adb.commit()
+            except Exception as e:  # noqa: BLE001
+                # Audit failure NEVER blocks the refresh — same discipline as
+                # audit_service.record itself.
+                _refresh_log.warning("token_refreshed audit failed: %s", e)
+    except Exception as e:  # noqa: BLE001
+        # Fail-soft — a bug in the refresh path must not break the response.
+        _refresh_log.warning("sliding_refresh swallowed: %s", e)
+
+    return response
+
+
 # --- CORS layer registration — keep last (outermost) ---
 # Starlette's `app.add_middleware(...)` inserts at the FRONT of the
 # user-middleware list, then the stack is built by iterating that list in
@@ -2690,12 +2979,21 @@ async def enforce_request_size(request: Request, call_next):
 # Origin list + allow_credentials + allow_headers were already defined
 # above next to the `_PROD_ORIGINS` block — we just defer the actual
 # registration to the bottom of the file.
+#
+# expose_headers — by default only "simple" headers (Cache-Control,
+# Content-*, Expires, Last-Modified, Pragma) are surfaced to JS in a
+# cross-origin response. The sliding-refresh middleware emits
+# `X-New-Token` for bearer-mode (native iOS Capacitor) sessions; without
+# it being on this list, axios sees an empty `res.headers["x-new-token"]`
+# and the token never updates in localStorage → users get logged out
+# again at 30d like before.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-BonBox-Platform", "Stripe-Signature", "X-CSRF-Token"],
+    expose_headers=["X-New-Token"],
     max_age=600,  # cache preflights for 10min — fewer OPTIONS roundtrips
 )
 

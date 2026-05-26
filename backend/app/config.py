@@ -27,7 +27,14 @@ class Settings(BaseSettings):
     # default), unset SECRET_KEY_PREVIOUS.
     SECRET_KEY_PREVIOUS: str = ""
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
+    # Session lifetime — 30 days. Paired with the sliding-refresh
+    # middleware in app/main.py (sliding_refresh_middleware): on every
+    # authenticated request whose JWT is past its midway point (15d),
+    # the middleware mints a fresh token + re-issues the cookie/bearer
+    # so an actively-used session never expires. Matches Stripe / Linear
+    # / Notion stay-signed-in UX. Was 60 * 24 (24h, no sliding refresh)
+    # which kicked owners back to the login screen on second-day open.
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 30  # 30 days
     FRONTEND_URL: str = "http://localhost:5173"
     GOOGLE_VISION_API_KEY: str = ""
     SUPABASE_URL: str = ""

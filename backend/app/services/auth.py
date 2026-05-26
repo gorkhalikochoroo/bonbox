@@ -39,8 +39,17 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def create_access_token(user_id: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    payload = {"sub": user_id, "exp": expire}
+    """Mint a fresh BonBox JWT.
+
+    Includes `iat` (issued-at) so the sliding-refresh middleware in
+    app/main.py can measure token age and re-issue once past the midway
+    point (~15 days into the 30-day lifetime). Without `iat` the middleware
+    cannot tell a brand-new token from a 29-day-old one — it'd refresh
+    every request, defeating rotation rate-limiting.
+    """
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    payload = {"sub": user_id, "iat": now, "exp": expire}
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 

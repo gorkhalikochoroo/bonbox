@@ -124,7 +124,35 @@ api.interceptors.response.use(null, async (err) => {
 // Pages that need to react to graceful failures can read `res.data._error`
 // directly. The interceptor below dispatches a custom event so a global
 // banner component can show the message without every page re-implementing it.
+//
+// Also piggybacks on every response to pick up X-New-Token from the
+// sliding-refresh backend middleware (30d session, midway re-mint).
+// When the bearer token is past its midway point (15 days old), the
+// backend mints a fresh one and ships it back via `X-New-Token`. Web
+// (cookie) sessions don't need this — the backend reissues the
+// bonbox_session cookie directly. Native Capacitor / iOS reads the
+// header and updates localStorage so the next request uses the fresh
+// token. Without this, native sessions would still expire at the
+// hard 30d boundary like the old 24h cap.
 api.interceptors.response.use((res) => {
+  try {
+    // Sliding-refresh: backend sets X-New-Token when our bearer is past
+    // midway. Save it to localStorage so subsequent requests use it.
+    // CORS expose_headers on the backend includes this so axios can
+    // actually read it cross-origin. We sanity-check the shape before
+    // writing — a malformed value should never wipe a working session.
+    const newToken = res?.headers?.["x-new-token"];
+    if (newToken && typeof newToken === "string" && newToken.length > 20) {
+      try {
+        localStorage.setItem("token", newToken);
+      } catch {
+        /* private mode / storage blocked — bearer falls back to whatever
+           the next request can grab from the existing cookie session */
+      }
+    }
+  } catch {
+    // Never let the refresh-pickup break a successful response.
+  }
   try {
     const data = res?.data;
     if (data && typeof data === "object" && data._error) {
