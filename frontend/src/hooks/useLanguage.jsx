@@ -1191,7 +1191,11 @@ const translations = {
     connBankTitle: "Bank reconciliation",
     connBankDesc: "Match incoming transfers to open fakturaer automatically. Upload your bank CSV — Aiia direct sync is on the roadmap.",
     connBankAiia: "Aiia direct sync (PSD2)",
-    connMobilePayDesc: "Coming soon: auto-match MobilePay Erhverv settlements to your open invoices. We're awaiting the Vipps partnership — for now, enter MobilePay totals on the daily close.",
+    // Task #204 P2.11 — honesty sweep.  Old copy claimed "Coming soon"
+    // + "awaiting Vipps partnership" but the Connect CTA fires
+    // /mobilepay/init and works in sandbox.  Be honest: the sandbox
+    // flow works today, the production Vipps partnership lands later.
+    connMobilePayDesc: "Direct settlement import — 30-50% of café revenue, auto-matched daily. No more typing MobilePay totals into your daily close. (Sandbox available now; live Vipps Erhverv partnership in progress.)",
     connRevisorTitle: "Revisor (read-only login)",
     connRevisorDesc: "Invite your revisor — they get their own login, see your books live, no shared passwords.",
     connAccountantEmailTitle: "Revisor email",
@@ -3055,7 +3059,11 @@ const translations = {
     mpStatusExpired: "Connection expired",
     mpStatusNotConnected: "Not connected",
     mpPanelTitle: "MobilePay Erhverv",
-    mpPanelSubtitle: "Coming soon: per-payment feed from MobilePay Erhverv. Awaiting Vipps partnership — sandbox preview only for now.",
+    // Task #204 P2.11 — re-honest copy.  The sandbox feed works; the
+    // live Vipps Erhverv partnership lands later.  Calling out
+    // "sandbox" up-front is more honest than "coming soon" next to a
+    // live Connect button.
+    mpPanelSubtitle: "Per-payment feed from MobilePay Erhverv. Sandbox available now; live Vipps Erhverv partnership in progress.",
     mpDefaultMerchant: "MobilePay Erhverv",
     mpLastSynced: "Last sync",
     mpNeverSynced: "Never synced",
@@ -4682,7 +4690,8 @@ const translations = {
     connBankTitle: "Bankafstemning",
     connBankDesc: "Match indkommende overførsler til åbne fakturaer automatisk. Upload din bank-CSV — Aiia direkte synkronisering er på køreplanen.",
     connBankAiia: "Aiia direkte sync (PSD2)",
-    connMobilePayDesc: "Kommer snart: auto-match af MobilePay Erhverv-afregninger til åbne fakturaer. Vi venter på Vipps-partnerskabet — indtast MobilePay-totaler på daglig lukning indtil videre.",
+    // Task #204 P2.11 — DK ærlighed: sandkassen virker, Vipps-live på vej.
+    connMobilePayDesc: "Direkte afregnings-import — 30-50% af café-omsætningen, auto-matchet dagligt. Slut med at taste MobilePay-totaler på daglig lukning. (Sandkasse tilgængelig nu; live Vipps Erhverv partnerskab på vej.)",
     connRevisorTitle: "Revisor (læse-adgang)",
     connRevisorDesc: "Inviter din revisor — de får deres egen login, ser dine bøger live, ingen delte adgangskoder.",
     connAccountantEmailTitle: "Revisor-email",
@@ -6459,7 +6468,9 @@ const translations = {
     mpStatusExpired: "Forbindelse udløbet",
     mpStatusNotConnected: "Ikke forbundet",
     mpPanelTitle: "MobilePay Erhverv",
-    mpPanelSubtitle: "Kommer snart: direkte feed pr. betaling fra MobilePay Erhverv. Afventer Vipps-partnerskab — kun sandkasse-preview indtil videre.",
+    // Task #204 P2.11 — DK ærlighed-sweep.  Sandkasse-feedet virker;
+    // det live Vipps Erhverv partnerskab kommer senere.
+    mpPanelSubtitle: "Direkte feed pr. betaling fra MobilePay Erhverv. Sandkasse tilgængelig nu; live Vipps Erhverv partnerskab på vej.",
     mpDefaultMerchant: "MobilePay Erhverv",
     mpLastSynced: "Sidst synkroniseret",
     mpNeverSynced: "Aldrig synkroniseret",

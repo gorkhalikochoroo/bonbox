@@ -156,6 +156,10 @@ const navGroups = [
     icon: "Brain",
     visibleFor: ["restaurant", "retail", "service", "general"],
     items: [
+      // Task #204 P2.9 — Insights inbox was an orphan route; promote
+      // it into the Intelligence group so owners can actually find the
+      // patterns surface.
+      { to: "/insights", icon: "Sparkles", labelKey: "insightsInbox" },
       { to: "/weather", icon: "CloudSun", labelKey: "weatherSmart" },
       { to: "/staffing", icon: "CalendarClock", labelKey: "staffingForecast" },
       { to: "/pricing", icon: "BadgePercent", labelKey: "priceOptimization" },

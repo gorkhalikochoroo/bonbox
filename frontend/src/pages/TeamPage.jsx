@@ -5,6 +5,9 @@ import { useLanguage } from "../hooks/useLanguage";
 import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
 import Modal from "../components/Modal";
 import { Icon } from "../components/ui";
+// Task #204 P2.8 — revisor invite moved from ProfilePage to TeamPage
+// so the people-with-access surfaces all live in one place.
+import RevisorSection from "../components/RevisorSection";
 
 const ROLE_COLORS = {
   owner: "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400",
@@ -250,6 +253,16 @@ export default function TeamPage() {
               </div>
             </div>
           </div>
+        </FadeIn>
+      )}
+
+      {/* Task #204 P2.8 — Revisor invite section.  Moved from
+          ProfilePage so all people-with-access surfaces live on /team.
+          Only the owner can invite revisors (backend enforces — service
+          re-checks regardless of UI state). */}
+      {isOwner && (
+        <FadeIn>
+          <RevisorSection />
         </FadeIn>
       )}
 

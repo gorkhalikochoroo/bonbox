@@ -532,7 +532,7 @@ export default function ConnectionsPage() {
   // card primitive.
   const derived = useMemo(() => {
     const accountantEmail = profile?.accountant_email || "";
-    const bankInfo = profile?.bank_account_number || profile?.iban || "";
+    const referenceIban = profile?.bank_account_number || profile?.iban || "";
     const mobilepay = profile?.mobilepay_number || "";
 
     // Revisor: counts pending + active grants. Active wins display-wise.
@@ -550,15 +550,25 @@ export default function ConnectionsPage() {
       revisorLabel = `Invite sent · awaiting response`;
     }
 
+    // Task #204 P2.10 — honest bank connection signal.  The previous
+    // derivation flipped to "connected" whenever the owner had typed an
+    // IBAN into Profile — which is a TRUST violation: the IBAN string
+    // doesn't grant us PSD2 access to that account, and the green dot
+    // suggested otherwise.  Truth: bank.status = "connected" ONLY when
+    // there's an active BankConnection row gated by the feature flag.
+    // The IBAN string remains a useful reference for the faktura footer
+    // (Momsbekendtgørelsen §57) but is NOT a connection signal.
+    const hasActiveBank =
+      activeBankConnections.length > 0 && !!bankConnectEnabled;
+
     return {
       bank: {
-        // We don't store "is the bank connected?" anywhere yet, so the
-        // best signal is "has the owner ever uploaded a CSV?" Until we
-        // add a real connections registry, surface bank account info
-        // existence as the proxy.
-        status: bankInfo ? "connected" : "disconnected",
-        label: bankInfo ? "Bank details saved" : "Not connected",
+        status: hasActiveBank ? "connected" : "disconnected",
+        label: hasActiveBank ? "Connected · auto-syncs nightly" : "Not connected",
       },
+      // Reference-only IBAN signal — fed into the IBAN hint copy below.
+      referenceIban,
+      hasActiveBank,
       mobilepay: {
         status: mobilepay ? "connected" : "disconnected",
         label: mobilepay ? "MobilePay number saved" : "Not connected",
@@ -573,7 +583,7 @@ export default function ConnectionsPage() {
         label: emailPrefs?.daily_brief_email_enabled ? "Arrives 8am Copenhagen" : "Not subscribed",
       },
     };
-  }, [profile, grants, emailPrefs]);
+  }, [profile, grants, emailPrefs, activeBankConnections.length, bankConnectEnabled]);
 
   if (loading) {
     return (
@@ -804,9 +814,17 @@ export default function ConnectionsPage() {
               to: "/bank-import",
             }}
             comingSoonNote={
-              activeBankConnections.length === 0
-                ? (t("connBankAiia") || "Aiia direct connection available on /bank-import.")
-                : undefined
+              // Task #204 P2.10 — show the IBAN-honesty hint when the
+              // owner has typed an IBAN into Profile but has NO active
+              // BankConnection.  That's the case the old derivation
+              // misrepresented as "Connected".  When a real connection
+              // exists OR the IBAN field is empty, no hint is needed.
+              !derived.hasActiveBank && derived.referenceIban
+                ? (t("connBankIbanHint") ||
+                    "We don't yet have direct access to this account.")
+                : activeBankConnections.length === 0
+                  ? (t("connBankAiia") || "Aiia direct connection available on /bank-import.")
+                  : undefined
             }
           />
         )}
