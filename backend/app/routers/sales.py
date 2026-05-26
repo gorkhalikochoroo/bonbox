@@ -107,6 +107,28 @@ def create_sale(
 ):
     sale_data = data.model_dump()
 
+    # ── Business-day resolution for missing date ───────────────────────
+    # SaleCreate.date is optional (frontend Quick Sale stopped sending it
+    # so the server is the single source of truth for the DK 06:00 cutoff
+    # convention).  Resolve via `business_today_local(user)` so a sale
+    # logged at 02:00 CEST (after wall-clock midnight but BEFORE the
+    # user's 06:00 business-day cutoff) lands on the correct business
+    # day, not on tomorrow.
+    if sale_data.get("date") is None:
+        from app.services.tz_utils import business_today_local
+        from app.models.business_profile import BusinessProfile
+        # Mirror /dashboard/batch's profile-cutoff hydration so
+        # business_today_local sees the real cutoff even on requests
+        # that didn't trigger _resolve_user_cutoff earlier.
+        profile = (
+            db.query(BusinessProfile)
+            .filter(BusinessProfile.user_id == user.id)
+            .first()
+        )
+        if profile is not None and profile.day_cutoff_hour is not None:
+            user.day_cutoff_hour = profile.day_cutoff_hour
+        sale_data["date"] = business_today_local(user)
+
     # ── Smart Terminals: validate / auto-route terminal_id ─────────────
     # Two paths:
     #   • Explicit terminal_id  → re-check ownership (defense vs IDOR).
@@ -190,12 +212,14 @@ def create_sale(
 
         # Deduct inventory in stock units
         item.quantity = float(item.quantity) - stock_deduct
-        # Log deduction (in stock units for consistency)
+        # Log deduction (in stock units for consistency).  Use
+        # `sale_data["date"]` (already resolved above when client omitted)
+        # rather than raw `data.date` which may still be None.
         log = InventoryLog(
             item_id=item.id,
             change_qty=-round(stock_deduct, 4),
             reason="sale",
-            date=data.date,
+            date=sale_data["date"],
         )
         db.add(log)
 

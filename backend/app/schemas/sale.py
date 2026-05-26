@@ -87,7 +87,15 @@ def _validate_ticket_breakdown(v: Any) -> Any:
 
 
 class SaleCreate(BaseModel):
-    date: datetime.date
+    # Optional — when not provided, the create_sale router resolves it via
+    # `business_today_local(user)` so a Quick Sale at 02:00 CEST (past
+    # midnight but BEFORE the user's 06:00 business-day cutoff) lands on
+    # the correct business day, not on tomorrow's wall-clock date.  This
+    # fixes the "Quick Sale didn't add" bug where post-midnight sales
+    # vanished from "today" KPIs because client-side `localIso()` used
+    # wall-clock midnight without knowing the cutoff.  Other callers
+    # (DailyClose back-dating, CSV import) still pass an explicit date.
+    date: datetime.date | None = None
     amount: float | None = None  # optional for item sales (auto-calculated)
     payment_method: str = "mixed"
     notes: str | None = None

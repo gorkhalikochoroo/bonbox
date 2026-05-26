@@ -282,9 +282,16 @@ export default function DashboardPage() {
     }
     storedAmount = Math.round(storedAmount * 100) / 100;
     try {
+      // Don't send `date` — let the backend resolve via
+      // business_today_local(user) so a Quick Sale at 02:00 CEST (after
+      // midnight wall-clock but BEFORE the user's 06:00 business-day
+      // cutoff) lands on the correct business day, not on tomorrow.
+      // Previously sent `date: localIso()` which used the wall-clock
+      // local date and silently mis-routed post-midnight sales to the
+      // next business day — they didn't show up in today's KPIs and the
+      // user reported "Quick sale doesn't add".
       await api.post("/sales", {
         amount: storedAmount,
-        date: localIso(),
         payment_method: "cash",
         notes: t("quickSaleDesc"),
         ...(isTaxExempt ? { is_tax_exempt: true } : {}),
