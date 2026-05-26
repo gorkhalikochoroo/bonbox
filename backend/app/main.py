@@ -1478,6 +1478,24 @@ _migrations = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_expires_at TIMESTAMP",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS invited_by_user_id VARCHAR(36)",
     "CREATE INDEX IF NOT EXISTS ix_users_invite_token_hash ON users (invite_token_hash)",
+
+    # Migration 018 (2026-05-26): kasserapport_extractions.terminal_id — the
+    # optional FK introduced when Mirabelle-style multi-terminal venues
+    # started tagging each Z-report scan with the terminal it came from
+    # (so the aggregator can sum across them per close).  Declared in
+    # `app/models/kasserapport.py:43-45` but never landed in prod because
+    # the change shipped without an in-process ALTER.  Schema-drift self-
+    # test caught it at boot → `_db_ready` never set → every authenticated
+    # request 503'd ("Server is starting up").  Same failure mode as the
+    # invite_token_hash drift above; same fix.
+    #
+    # Type is VARCHAR(36) (not native UUID) because `terminals.id` is
+    # CHAR(36) under the GUID() TypeDecorator (load_dialect_impl returns
+    # String(36) for every dialect) — adding as native UUID errored with
+    # "incompatible types: uuid and character varying" on the FK clause.
+    # NULL = single-terminal venue OR pre-migration data, per the model.
+    "ALTER TABLE kasserapport_extractions ADD COLUMN IF NOT EXISTS terminal_id VARCHAR(36) REFERENCES terminals(id) ON DELETE SET NULL",
+    "CREATE INDEX IF NOT EXISTS ix_kasserapport_extractions_terminal_id ON kasserapport_extractions (terminal_id)",
 ]
 
 
