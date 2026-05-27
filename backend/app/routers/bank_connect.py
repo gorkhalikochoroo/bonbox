@@ -477,6 +477,27 @@ def bank_callback(
         "status=%s state=%s",
         conn.id, conn.user_id, conn.status, log_state,
     )
+    # Security audit #221 RED #1: empty `code` from a flaky redirect or
+    # query-stripping proxy must NOT enter the try block, because the
+    # except block burns the state token (line ~521).  Burning a state
+    # because the proxy mangled the URL would force the owner to restart
+    # SCA from scratch — annoying but not a security bug; the worse path
+    # is that an attacker who knows our state and races an empty-code
+    # callback can burn the legitimate owner's consent_state mid-flight.
+    # GoCardless callbacks don't carry `code` (resolved via stored
+    # requisition_id on the conn row) — so we only require code on
+    # non-GoCardless providers.
+    if conn.provider != "gocardless" and not code:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Bank callback missing the auth code/consent param. "
+                "This usually means a proxy stripped the query string "
+                "or the bank redirected you here too early. Click "
+                "Connect bank again — your previous attempt is still "
+                "valid for the next 30 minutes."
+            ),
+        )
     try:
         client = get_aiia_client()
         # Feature-detect each provider's extra kwargs.  Aiia takes

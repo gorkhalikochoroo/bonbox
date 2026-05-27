@@ -819,17 +819,18 @@ def admin_yapily_smoke(
     try:
         client = get_yapily_client()
     except Exception as e:  # noqa: BLE001 — config-missing surfaces as 500-friendly JSON
-        _audit(db, admin, "admin.yapily.smoke.config_error", {"error": str(e)}, request=request)
+        # Signature: _audit(db, user_id, event_type, request, detail=None).
+        # Earlier revisions passed a dict as the 4th positional which
+        # collided with the `request=` kwarg → TypeError swallowed by
+        # _audit's try/except → NO security_events row was ever written
+        # for any Yapily smoke call. Fixed in commit (security audit #221).
+        _audit(db, admin.id, "admin.yapily.smoke.config_error", request,
+               detail=f"error={str(e)[:200]}")
         return {"ok": False, "error": "config_error", "detail": str(e)}
 
     result = client.health_check()
-    _audit(
-        db,
-        admin,
-        "admin.yapily.smoke",
-        {"ok": result.get("ok"), "status_code": result.get("status_code")},
-        request=request,
-    )
+    _audit(db, admin.id, "admin.yapily.smoke", request,
+           detail=f"ok={result.get('ok')} status={result.get('status_code')}")
     return result
 
 
@@ -851,13 +852,9 @@ def admin_yapily_institutions(
     from app.services.yapily_client import get_yapily_client
     client = get_yapily_client()
     institutions = client.list_institutions(country=country.upper())
-    _audit(
-        db,
-        admin,
-        "admin.yapily.institutions",
-        {"country": country.upper(), "count": len(institutions)},
-        request=request,
-    )
+    # Same _audit signature fix as the smoke endpoint above — see #221.
+    _audit(db, admin.id, "admin.yapily.institutions", request,
+           detail=f"country={country.upper()} count={len(institutions)}")
     return {
         "country": country.upper(),
         "count": len(institutions),
