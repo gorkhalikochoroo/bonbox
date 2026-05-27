@@ -43,6 +43,8 @@ def is_bank_connect_enabled() -> bool:
                                  + GOCARDLESS_SECRET_KEY (all three)
       BANK_PROVIDER=saltedge   → SALTEDGE_BASE_URL + SALTEDGE_APP_ID
                                  + SALTEDGE_SECRET (all three)
+      BANK_PROVIDER=yapily     → YAPILY_BASE_URL + YAPILY_APPLICATION_ID
+                                 + YAPILY_APPLICATION_SECRET (all three)
       AIIA_ENV=sandbox/live    → AIIA_CLIENT_ID + AIIA_CLIENT_SECRET
 
     BANK_PROVIDER takes precedence; if it's set but ANY required cred is
@@ -78,6 +80,12 @@ def is_bank_connect_enabled() -> bool:
             (os.environ.get("SALTEDGE_BASE_URL") or "").strip()
             and (os.environ.get("SALTEDGE_APP_ID") or "").strip()
             and (os.environ.get("SALTEDGE_SECRET") or "").strip()
+        )
+    if provider == "yapily":
+        return bool(
+            (os.environ.get("YAPILY_BASE_URL") or "").strip()
+            and (os.environ.get("YAPILY_APPLICATION_ID") or "").strip()
+            and (os.environ.get("YAPILY_APPLICATION_SECRET") or "").strip()
         )
 
     aiia_env = (os.environ.get("AIIA_ENV") or "").strip().lower()

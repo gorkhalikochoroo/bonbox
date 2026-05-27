@@ -78,8 +78,9 @@ class BankConnection(Base):
         GUID(), ForeignKey("users.id"), nullable=False, index=True,
     )
 
-    # Provider. Currently always 'aiia' but column exists so a future
-    # Tink / Salt Edge integration can coexist without a migration.
+    # Provider. Valid values: 'aiia', 'gocardless', 'saltedge', 'yapily'.
+    # Stamped by the router at /init time from BANK_PROVIDER env so the
+    # callback + sync handlers know which client to instantiate.
     provider: Mapped[str] = mapped_column(
         String(20), nullable=False, default="aiia",
     )

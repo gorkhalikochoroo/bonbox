@@ -89,6 +89,50 @@ connections_router = APIRouter()
 # ─── Helpers ──────────────────────────────────────────────────────────
 
 
+def _current_provider_name() -> str:
+    """Resolve the active provider key from env at request time.
+
+    Stamped onto new BankConnection rows so the callback + sync handlers
+    later know which client to construct.  Default 'aiia' preserves
+    historical rows + the legacy AIIA_ENV-only path.
+
+    Recognized: 'aiia', 'gocardless', 'saltedge', 'yapily'.  Anything
+    else is normalised to 'aiia' so a typo in BANK_PROVIDER doesn't
+    pollute the column with arbitrary strings.
+    """
+    import os as _os
+    provider = (_os.environ.get("BANK_PROVIDER") or "").strip().lower()
+    if provider in ("gocardless", "saltedge", "yapily"):
+        return provider
+    return "aiia"
+
+
+def _set_provider_consent(client, consent: str | None) -> None:
+    """Feature-detect `set_consent()` on a provider client (Yapily uses
+    this seam to receive the per-call consent token without changing
+    the AiiaClient Protocol signature).  Silent no-op when the client
+    doesn't expose it (Aiia, GoCardless, Salt Edge)."""
+    setter = getattr(client, "set_consent", None)
+    if callable(setter):
+        try:
+            setter(consent)
+        except Exception:  # noqa: BLE001
+            # Never let a bad provider client take down the request.
+            logger.exception("bank_connect: provider set_consent raised")
+
+
+def _clear_provider_consent(client) -> None:
+    """Counterpart to _set_provider_consent — invalidate the stashed
+    consent token so a subsequent caller can't accidentally reuse it.
+    Best-effort; never raises."""
+    clearer = getattr(client, "clear_consent", None)
+    if callable(clearer):
+        try:
+            clearer()
+        except Exception:  # noqa: BLE001
+            logger.exception("bank_connect: provider clear_consent raised")
+
+
 def _client_ip(request: Request | None) -> str | None:
     try:
         return request.client.host if request and request.client else None
@@ -246,7 +290,9 @@ def init_bank_connection(
     conn = BankConnection(
         id=uuid.uuid4(),
         user_id=user.id,
-        provider="aiia",
+        # Stamp the active provider so callback + sync know which
+        # client to construct.  Historical rows keep 'aiia'.
+        provider=_current_provider_name(),
         bank_slug=body.bank_slug,
         consent_state=state,
         consent_state_expires_at=state_expires,
@@ -613,7 +659,26 @@ def revoke_bank_connection(
     if conn.aiia_account_id:
         try:
             client = get_aiia_client()
-            client.revoke(conn.aiia_account_id)
+            # Yapily needs the stored consent to address DELETE /consents
+            # — feed it via set_consent() (no-op for other providers).
+            if hasattr(client, "set_consent") and conn.refresh_token_enc:
+                from app.utils.crypto import decrypt
+                try:
+                    _consent = decrypt(conn.refresh_token_enc)
+                    _set_provider_consent(client, _consent)
+                except Exception:  # noqa: BLE001
+                    # Don't block revoke on a decrypt error — Yapily's
+                    # revoke is best-effort anyway (we want the local
+                    # row to flip to 'revoked' even if upstream lookup
+                    # fails).  Log + continue with no consent set.
+                    logger.warning(
+                        "bank_connect.revoke: refresh_token decrypt failed conn=%s — "
+                        "proceeding with local revoke only", conn.id, exc_info=True,
+                    )
+            try:
+                client.revoke(conn.aiia_account_id)
+            finally:
+                _clear_provider_consent(client)
         except AiiaClientError as e:
             logger.warning(
                 "bank_connect.revoke: Aiia revoke failed for conn=%s — surfacing 502. %s",
@@ -1013,7 +1078,34 @@ def sync_bank_connection(
 
     try:
         client = get_aiia_client()
-        txns = client.list_transactions(conn.aiia_account_id, since=since)
+        # Yapily reads the consent via set_consent() before each call
+        # because the AiiaClient Protocol's list_transactions signature
+        # is locked to (account_id, since).  Decrypt the stored consent
+        # only when the provider declares the hook — keeps Aiia / Salt
+        # Edge / GoCardless paths unchanged.  See yapily_client.set_consent.
+        if hasattr(client, "set_consent") and conn.refresh_token_enc:
+            from app.utils.crypto import decrypt
+            try:
+                _consent = decrypt(conn.refresh_token_enc)
+            except Exception:  # noqa: BLE001
+                # Same posture as the OAuth client: a decrypt failure
+                # likely means APP_SECRET_KEY rotated; surface a 502 so
+                # the operator notices.  Don't leak details in the body.
+                logger.exception(
+                    "bank_connect.sync: refresh_token decrypt failed conn=%s",
+                    conn.id,
+                )
+                raise HTTPException(
+                    status_code=502,
+                    detail="Bank consent could not be loaded (key issue) — please re-connect.",
+                )
+            _set_provider_consent(client, _consent)
+        try:
+            txns = client.list_transactions(conn.aiia_account_id, since=since)
+        finally:
+            # Always clear so a leaked client instance can't surface the
+            # consent to a different caller's request.
+            _clear_provider_consent(client)
     except AiiaClientError as e:
         # 401 from Aiia → consent expired
         if e.kind in ("revoked", "unauthorized") or e.status == 401:

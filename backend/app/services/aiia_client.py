@@ -424,6 +424,11 @@ def get_aiia_client() -> AiiaClient:
       BANK_PROVIDER=saltedge   → real EU/global PSD2 via Salt Edge.
         Requires SALTEDGE_BASE_URL + SALTEDGE_APP_ID + SALTEDGE_SECRET.
         Alternate to GoCardless — pick one or the other for the deploy.
+      BANK_PROVIDER=yapily     → real EU PSD2 via Yapily Connect.
+        Self-serve sandbox; production ~€199-300/mo entry tier.
+        Requires YAPILY_APPLICATION_ID + YAPILY_APPLICATION_SECRET
+        + YAPILY_BASE_URL. Best-fit DK coverage (66 institutions
+        including all majors).  See app.services.yapily_client.
       (unset) → fall back to AIIA_ENV legacy behavior:
         AIIA_ENV='mock' (default)  → MockAiiaClient
         AIIA_ENV='sandbox'         → SandboxAiiaClient (501 placeholder)
@@ -478,6 +483,24 @@ def get_aiia_client() -> AiiaClient:
                 raise
             logger.warning(
                 "bank: BANK_PROVIDER=saltedge requested but config "
+                "invalid (%s) — falling back to mock (non-prod only)",
+                e,
+            )
+            return MockAiiaClient()
+    if provider == "yapily":
+        try:
+            from app.services.yapily_client import get_yapily_client
+            return get_yapily_client()
+        except AiiaClientError as e:
+            if is_prod:
+                logger.error(
+                    "bank: BANK_PROVIDER=yapily requested but config "
+                    "invalid (%s) — REFUSING to fall back to mock in prod",
+                    e,
+                )
+                raise
+            logger.warning(
+                "bank: BANK_PROVIDER=yapily requested but config "
                 "invalid (%s) — falling back to mock (non-prod only)",
                 e,
             )
