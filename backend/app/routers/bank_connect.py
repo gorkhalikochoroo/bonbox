@@ -379,6 +379,11 @@ def bank_callback(
     # accounts on.
     connection_id: str | None = Query(None, min_length=1, max_length=128),
     customer_id: str | None = Query(None, min_length=1, max_length=128),  # noqa: ARG001
+    # Yapily appends `consent` (the long-lived AIS grant) + `application-user-id`
+    # to our callback URL.  The `consent` token IS what we pass to
+    # YapilyClient.exchange_code — semantically equivalent to Aiia's
+    # `code`.  See https://docs.yapily.com/ais/embedded-auth-flow.
+    consent: str | None = Query(None, min_length=4, max_length=2048),
     db: Session = Depends(get_db),
 ):
     """Provider → us. PUBLIC endpoint — the owner is mid-SCA and has no
@@ -411,6 +416,12 @@ def bank_callback(
     # token by construction in init_consent, so map it back into state.
     if ref and not state:
         state = ref
+    # Yapily sends `?consent=<token>` — that token IS what exchange_code
+    # needs.  Map it onto `code` so the rest of the handler (and the
+    # YapilyClient.exchange_code call) finds it without any provider
+    # branches.  Same shape as the GoCardless ref → state mapping above.
+    if consent and not code:
+        code = consent
     if not state:
         raise HTTPException(status_code=422, detail="state or ref required")
     conn = (
