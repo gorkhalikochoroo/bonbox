@@ -783,3 +783,92 @@ def admin_training_run_pattern_sweep_now(
     """Trigger the weekly correction-pattern sweep on demand."""
     from app.jobs.kasserapport_learning_jobs import weekly_pattern_sweep
     return weekly_pattern_sweep(lookback_days=lookback_days)
+
+
+# ── PSD2 provider smoke tests ─────────────────────────────────────────
+# Each smoke-test endpoint pings the real provider API from the deployed
+# backend with the credentials it has in its env vars.  Lets us verify a
+# provider is wired correctly WITHOUT exposing any unauthenticated public
+# surface — super-admin gate + audit log on every call.
+#
+# Pattern to add a new provider:
+#   1. Add a get_<provider>_client() factory in app/services/<provider>_client.py
+#   2. Add a smoke endpoint here calling client.health_check()
+#   3. Done — the super-admin guard + audit row are inherited from the
+#      router boundary, no copy-paste of security plumbing needed.
+
+
+@router.get("/psd2/yapily/smoke")
+def admin_yapily_smoke(
+    request: Request,
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Verify Yapily credentials work from prod.
+
+    Hits Yapily's `/institutions` endpoint with HTTP Basic auth using
+    YAPILY_APPLICATION_ID + YAPILY_APPLICATION_SECRET from Render env.
+    Returns ok=true + institution count if auth works.  ok=false +
+    error_kind if auth fails or the network is unreachable.
+
+    This is read-only — does NOT create connections, does NOT touch the
+    bank_connections table, does NOT bill against any production quota.
+    It's the cheapest possible Yapily call we can make.
+    """
+    from app.services.yapily_client import get_yapily_client
+    try:
+        client = get_yapily_client()
+    except Exception as e:  # noqa: BLE001 — config-missing surfaces as 500-friendly JSON
+        _audit(db, admin, "admin.yapily.smoke.config_error", {"error": str(e)}, request=request)
+        return {"ok": False, "error": "config_error", "detail": str(e)}
+
+    result = client.health_check()
+    _audit(
+        db,
+        admin,
+        "admin.yapily.smoke",
+        {"ok": result.get("ok"), "status_code": result.get("status_code")},
+        request=request,
+    )
+    return result
+
+
+@router.get("/psd2/yapily/institutions")
+def admin_yapily_institutions(
+    country: str = Query("DK", min_length=2, max_length=2, description="ISO country code"),
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+    request: Request = None,
+):
+    """Programmatic verification of DK bank coverage on Yapily.
+
+    Returns a compact list of institutions in the given country with
+    Yapily IDs we'll need later when building the bank picker.  Mirrors
+    what the Yapily console shows in the Institutions tab — useful for
+    confirming a specific bank (e.g. 'lunar') is in the catalog before
+    promising it to a customer.
+    """
+    from app.services.yapily_client import get_yapily_client
+    client = get_yapily_client()
+    institutions = client.list_institutions(country=country.upper())
+    _audit(
+        db,
+        admin,
+        "admin.yapily.institutions",
+        {"country": country.upper(), "count": len(institutions)},
+        request=request,
+    )
+    return {
+        "country": country.upper(),
+        "count": len(institutions),
+        "institutions": [
+            {
+                "id": inst.id,
+                "name": inst.name,
+                "full_name": inst.full_name,
+                "environment_type": inst.environment_type,
+                "features_count": len(inst.features),
+            }
+            for inst in institutions
+        ],
+    }

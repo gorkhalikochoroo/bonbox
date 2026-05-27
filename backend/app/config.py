@@ -175,6 +175,18 @@ class Settings(BaseSettings):
     # sandbox subdomain.  Render must keep this on v6.
     SALTEDGE_BASE_URL: str = "https://www.saltedge.com/api/v6"
 
+    # ── Yapily (DK + EU PSD2 AISP, startup-tier) — Task #219 ────────────
+    # Self-serve signup at https://console.yapily.com.  66 institutions
+    # support AIS in DK as of 2026-05-27 (Danske, Nordea DK, Jyske, Sydbank,
+    # Spar Nord, Lunar, AL, Revolut, plus dozens of smaller DK banks).
+    # Sandbox is free; production-tier ~€199-300/month entry.
+    # Auth is HTTP Basic with application_id + application_secret.  Sandbox
+    # vs production lives on the same host — the application scope on
+    # Yapily's side decides which institution set is exposed.
+    YAPILY_APPLICATION_ID: str = ""
+    YAPILY_APPLICATION_SECRET: str = ""
+    YAPILY_BASE_URL: str = "https://api.yapily.com"
+
     # ── Web Push (VAPID) — Task #72 ─────────────────────────────────────
     # VAPID identifies BonBox to the push providers (FCM / Apple Push /
     # Mozilla autopush). Without these the /api/push endpoints 503 and
