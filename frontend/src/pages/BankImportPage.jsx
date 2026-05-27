@@ -32,14 +32,24 @@ const PAYMENT_METHOD_FOR_BANK = {
   mobilepay_erhverv: "mobilepay",
 };
 
-// Banks that support direct Aiia connection (Task #67). Matches the
-// SUPPORTED_BANKS allowlist on the backend Pydantic schema.
+// Banks the auto-Connect button supports (Task #67, #104, #105, #220).
+// Matches SUPPORTED_BANKS on the backend Pydantic schema.  The PSD2
+// provider that backs the click is decided server-side via the
+// BANK_PROVIDER env (aiia / gocardless / saltedge / yapily) — owners
+// see one bank picker regardless of which AISP is wired in.
 //
 // `sandbox` is exposed as the last option so operators can validate the
-// full PSD2 callback round-trip against Salt Edge's `fakebank_simple_xf`
-// provider while waiting for Salt Edge to approve Test access for real
-// banks (Pending mode returns ProviderDisabled on real-bank slugs even
-// though the picker UI shows them).
+// full PSD2 callback round-trip against the active provider's sandbox
+// (Salt Edge fakebank, GoCardless SANDBOXFINANCE, Yapily modelo-sandbox)
+// while waiting for Test access approval on real-bank slugs.
+//
+// `revolut` was added with the Yapily integration — Yapily exposes
+// `revolut-business` for DK biz accounts; the earlier Salt Edge /
+// GoCardless wiring didn't have it.  Picker stays one list — the
+// backend's provider router 502s with `unknown_bank` if the active
+// provider doesn't recognise the slug, so we don't need per-provider
+// frontend branches.
+//
 // Proper bank names are literal (proper nouns); only the sandbox row gets
 // a labelKey for localized "test-bank" copy. Per Manoj's DK terminology
 // lock, bank names render unchanged across locales.
@@ -51,6 +61,7 @@ const AIIA_BANKS = [
   { slug: "lunar", label: "Lunar" },
   { slug: "sydbank", label: "Sydbank" },
   { slug: "arbejdernes_landsbank", label: "Arbejdernes Landsbank" },
+  { slug: "revolut", label: "Revolut Business" },
   { slug: "sandbox", labelKey: "bankSandboxLabel" },
 ];
 

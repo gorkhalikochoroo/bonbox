@@ -35,6 +35,10 @@ SUPPORTED_BANKS = {
     "lunar",
     "sydbank",
     "arbejdernes_landsbank",
+    # Revolut Business — added with Yapily (task #220).  GoCardless &
+    # Salt Edge didn't expose Revolut for DK biz accounts cleanly; Yapily
+    # has it as `revolut-business` and confirmed AIS support.
+    "revolut",
     "sandbox",
 }
 
