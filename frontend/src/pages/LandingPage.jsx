@@ -340,7 +340,6 @@ export default function LandingPage() {
   const navLinks = [
     { href: "#features", label: tx_("landingNavFeatures", "Features") },
     { href: "#how", label: tx_("landingNavHow", "How it works") },
-    { href: "#pricing", label: tx_("landingNavPricing", "Pricing") },
   ];
 
   return (
@@ -1102,149 +1101,6 @@ export default function LandingPage() {
         </div>
       </Section>
 
-      {/* ── PRICING ────────────────────────────────────────────── */}
-      {/* Match SubscriptionPage tier-card shape: bg-white + border-gray-200
-          + rounded-xl + p-5; the recommended tier gets a gray-900 ring
-          (ring-1 ring-gray-900/10) — NOT an emerald-500 border-2.  The
-          "Most popular" badge is gray-900 bg with white text. */}
-      <Section id="pricing" className="bg-white border-y border-gray-200">
-        <div className="text-center max-w-2xl mx-auto mb-10 sm:mb-12">
-          <Eyebrow>{tx_("landingPricingTag", "Pricing")}</Eyebrow>
-          <Heading>{tx_("landingPricingTitle", "Free to start. Pro unlocks white-label.")}</Heading>
-          <p className="mt-4 text-[15.5px] text-gray-600">
-            {tx_("landingPricingSub", "Every tier includes Bogføringsloven §7 / §12 compliance and the AI brief. No per-seat pricing.")}
-          </p>
-        </div>
-
-        <div className="grid md:grid-cols-3 gap-3 sm:gap-4 items-stretch">
-          {[
-            {
-              name: "Free",
-              price: 0,
-              regularPrice: null,
-              descFallback: "Try BonBox for as long as you like.",
-              descKey: "landingPriceFreeDesc",
-              features: [
-                tx_("landingFreeF1", "200 sales · 100 expenses · 30 OCR / month"),
-                tx_("landingFreeF2", "AI Daily Brief (1× refresh / day)"),
-                tx_("landingFreeF3", "Solo owners · 1 location · 7-day export history"),
-              ],
-              cta: tx_("landingFreeCta", "Start free"),
-              ctaHref: "/register",
-              emphasis: false,
-            },
-            {
-              name: "Starter",
-              price: 129,
-              regularPrice: 199,
-              descFallback: "When you start sending fakturaer.",
-              descKey: "landingPriceStarterDesc",
-              features: [
-                tx_("landingStarterF1", "Faktura + bank-match + audit log"),
-                tx_("landingStarterF2", "Brand on faktura (logo + accent)"),
-                tx_("landingStarterF3", "Revisor-ready CSV exports"),
-              ],
-              cta: tx_("landingStarterCta", "Start 14-day trial"),
-              ctaHref: "/register",
-              emphasis: true,
-            },
-            {
-              name: "Pro",
-              price: 249,
-              regularPrice: 349,
-              descFallback: "Clean PDFs + multi-branch.",
-              descKey: "landingPriceProDesc",
-              features: [
-                tx_("landingProF1", "White-label faktura PDF (no BonBox footer)"),
-                tx_("landingProF2", "AI predictive staffing + multi-branch dashboard"),
-                tx_("landingProF3", "Priority support"),
-              ],
-              cta: tx_("landingProCta", "Start 14-day trial"),
-              ctaHref: "/register",
-              emphasis: false,
-            },
-          ].map((p) => (
-            <div
-              key={p.name}
-              className={`relative bg-white border border-gray-200 rounded-xl p-5 sm:p-6 flex flex-col ${
-                p.emphasis ? "ring-1 ring-emerald-500/40" : ""
-              }`}
-            >
-              {/* "Most popular" pill — emerald-600. The emphasis ring uses
-                  emerald-500/40 (a soft, low-saturation outline) so the
-                  card still reads as part of the calm tier-card grid; the
-                  pill itself is the saturated moment. */}
-              {p.emphasis && (
-                <span className="absolute -top-2.5 left-5 bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full whitespace-nowrap">
-                  {tx_("landingPricingMostPopular", "Most popular")}
-                </span>
-              )}
-
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                {p.name}
-              </p>
-              <p className="text-[14px] text-gray-600 mt-1.5">{tx_(p.descKey, p.descFallback)}</p>
-
-              <div className="mt-5 flex items-baseline gap-2 flex-wrap">
-                <span className="text-[36px] font-bold tracking-tight tabular-nums text-gray-900">
-                  {p.price === 0 ? "0" : p.price} kr
-                </span>
-                <span className="text-[14px] text-gray-500">
-                  {p.price === 0 ? tx_("landingForever", "forever") : "/mo"}
-                </span>
-                {p.regularPrice && (
-                  <span className="text-[12px] text-gray-400 line-through tabular-nums">
-                    {p.regularPrice} kr
-                  </span>
-                )}
-              </div>
-
-              {p.regularPrice && (
-                <p className="mt-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-gray-500 bg-gray-100 self-start px-1.5 py-0.5 rounded">
-                  {/* Live count from /api/public/founder-rate-status — same
-                      defensive pattern as before. Emerald-free since the
-                      pill itself (FounderRatePill) already carries the
-                      time-sensitive amber treatment in the hero. */}
-                  {founderStatusValid
-                    ? founderStatus.locked
-                      ? tx_("landingFoundingRateLive",
-                          `Founding rate · ${founderStatus.claimed} / ${founderStatus.max_slots} seats taken`)
-                      : tx_("landingFoundingRateSoldOut",
-                          `Founding rate sold out · ${founderStatus.max_slots} cafés joined`)
-                    : tx_("landingFoundingRate", "Founding rate · first 100 customers")}
-                </p>
-              )}
-
-              {/* Emphasized tier CTA — emerald-600 (brand-green primary).
-                  Non-emphasized tier CTAs stay neutral so the eye lands on
-                  the one recommended pick. */}
-              <Link
-                to={p.ctaHref}
-                className={`mt-5 block text-center h-11 px-5 rounded-lg text-[14px] font-semibold leading-[44px] transition-colors ${
-                  p.emphasis
-                    ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                    : "bg-white border border-gray-300 text-gray-900 hover:border-gray-400"
-                }`}
-              >
-                {p.cta}
-              </Link>
-
-              <ul className="mt-6 pt-5 border-t border-gray-200 space-y-2.5 flex-1">
-                {p.features.map((f) => (
-                  <li key={f} className="flex gap-2 text-[13.5px] text-gray-700 leading-snug">
-                    <Check size={16} strokeWidth={2.5} className="mt-0.5 text-emerald-600 shrink-0" aria-hidden="true" />
-                    <span>{f}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-
-        <p className="mt-10 text-center text-[13px] text-gray-500">
-          {tx_("landingPricingNote", "All plans include Bogføringsloven §12 retention + audit log. Cancel anytime, no questions asked.")}
-        </p>
-      </Section>
 
       {/* ── POSITIONING — IS / IS NOT ─── */}
       <Section>
@@ -1401,7 +1257,7 @@ export default function LandingPage() {
             </div>
 
             <p className="text-[12px] text-gray-500">
-              © {new Date().getFullYear()} BonBox · København
+              © {new Date().getFullYear()} BonBox · København · CVR 46417321
             </p>
           </div>
         </div>
