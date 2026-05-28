@@ -23,6 +23,12 @@ from app.services.daily_brief import get_or_create_brief
 from app.services.daily_brief_email import send_brief_to_user
 from app.services.anomaly_detector import run_daily_scan, serialize_alert, dismiss_alert
 from app.services.tz_utils import business_today_local
+from app.services.revenue_resolver import (
+    effective_revenue_by_date,
+    effective_revenue_for_date,
+    effective_revenue_total,
+    iter_dates,
+)
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from fastapi import Request, HTTPException
@@ -206,26 +212,20 @@ def get_dashboard_batch(
     month_end = date(target_year, target_month, last_day)
 
     # ── 1. SUMMARY (from /dashboard/summary) ─────────────────────
-    today_rev = float(
-        db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date == today, Sale.is_deleted.isnot(True))
-        .scalar()
-    )
-    yesterday_rev = float(
-        db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date == yesterday, Sale.is_deleted.isnot(True))
-        .scalar()
-    )
+    # Effective revenue per date: confirmed DailyClose.revenue_total wins
+    # over SUM(Sale.amount). Real DK SMB owners close via kasserapport
+    # scan or manual end-of-day form, so the close is the source of truth
+    # for "what did we ring up that day". Without this resolver, /batch
+    # ignored daily_closes.revenue_total and showed 0 DKK on the
+    # dashboard tile while History tab showed the confirmed 135k close.
+    today_rev = effective_revenue_for_date(db, user.id, today)
+    yesterday_rev = effective_revenue_for_date(db, user.id, yesterday)
     today_change = 0.0
     if yesterday_rev > 0:
         raw_change = ((today_rev - yesterday_rev) / yesterday_rev) * 100
         today_change = round(max(-500, min(500, raw_change)), 1)
 
-    month_rev = float(
-        db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date >= month_start, Sale.date <= month_end, Sale.is_deleted.isnot(True))
-        .scalar()
-    )
+    month_rev = effective_revenue_total(db, user.id, month_start, month_end)
     month_exp = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
         .filter(Expense.user_id == user.id, Expense.date >= month_start, Expense.date <= month_end,
@@ -294,17 +294,10 @@ def get_dashboard_batch(
     # `today` already resolved via business_today_local() above so this
     # respects the DK 06:00 cutoff (a 02:00 CEST sale rolls into
     # yesterday's business day, week boundary follows that).
+    # Uses effective-revenue resolver so confirmed daily-closes count
+    # toward the week tile even on days that have no Sale rows.
     _week_monday = today - timedelta(days=today.weekday())
-    week_rev = float(
-        db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(
-            Sale.user_id == user.id,
-            Sale.date >= _week_monday,
-            Sale.date <= today,
-            Sale.is_deleted.isnot(True),
-        )
-        .scalar()
-    )
+    week_rev = effective_revenue_total(db, user.id, _week_monday, today)
 
     summary = {
         "today_revenue": today_rev,
@@ -326,12 +319,9 @@ def get_dashboard_batch(
     }
 
     # ── 2. MONTHLY REPORT (from /reports/monthly) ────────────────
-    monthly_total_revenue = float(
-        db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date.between(month_start, month_end),
-                Sale.is_deleted.isnot(True))
-        .scalar()
-    )
+    # Reuse /batch's month_rev (already resolved via effective-revenue
+    # helper) so the monthly card and the summary tile can never disagree.
+    monthly_total_revenue = month_rev
     monthly_total_expenses = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
         .filter(Expense.user_id == user.id, Expense.date.between(month_start, month_end),
@@ -347,16 +337,18 @@ def get_dashboard_batch(
         .order_by(func.sum(Expense.amount).desc())
         .all()
     )
-    daily_revenue = (
-        db.query(Sale.date, func.sum(Sale.amount).label("total"))
-        .filter(Sale.user_id == user.id, Sale.date.between(month_start, month_end),
-                Sale.is_deleted.isnot(True))
-        .group_by(Sale.date)
-        .order_by(Sale.date)
-        .all()
+    # Day-series for the Revenue trend chart. Effective revenue per date
+    # so confirmed kasserapport closes show as the spike on their date
+    # instead of the chart staying flat. We sort by date so the chart's
+    # X-axis is monotonic; dates with zero revenue are omitted (matches
+    # the prior Sale-only behaviour — the chart treats gaps as no-data).
+    _revenue_map = effective_revenue_by_date(db, user.id, month_start, month_end)
+    daily_revenue = sorted(
+        ((d, total) for d, total in _revenue_map.items() if total),
+        key=lambda kv: kv[0],
     )
-    best_day = max(daily_revenue, key=lambda r: r.total, default=None)
-    worst_day = min(daily_revenue, key=lambda r: r.total, default=None)
+    best_day = max(daily_revenue, key=lambda r: r[1], default=None)
+    worst_day = min(daily_revenue, key=lambda r: r[1], default=None)
     days_with_sales = len(daily_revenue)
     avg_daily_sales = round(monthly_total_revenue / days_with_sales, 2) if days_with_sales > 0 else 0
     sale_count = (
@@ -384,8 +376,8 @@ def get_dashboard_batch(
         "daily_revenue": [
             {"date": str(d), "amount": float(t)} for d, t in daily_revenue
         ],
-        "best_day": {"date": str(best_day.date), "amount": float(best_day.total)} if best_day else None,
-        "worst_day": {"date": str(worst_day.date), "amount": float(worst_day.total)} if worst_day else None,
+        "best_day": {"date": str(best_day[0]), "amount": float(best_day[1])} if best_day else None,
+        "worst_day": {"date": str(worst_day[0]), "amount": float(worst_day[1])} if worst_day else None,
     }
 
     # ── 3. LATEST SALE (from /sales/latest) ──────────────────────
@@ -428,14 +420,14 @@ def get_dashboard_batch(
     ]
 
     # ── 5. FORECAST (from /reports/forecast) ─────────────────────
+    # Lookback respects per-date precedence: kasserapport closes win,
+    # else Sale-sum. Owners who never log individual sales (close-only
+    # workflow) now see a real forecast instead of "insufficient_data".
     lookback_start = today - timedelta(days=56)
-    history = (
-        db.query(Sale.date, func.sum(Sale.amount).label("total"))
-        .filter(Sale.user_id == user.id, Sale.date.between(lookback_start, today),
-                Sale.is_deleted.isnot(True))
-        .group_by(Sale.date)
-        .order_by(Sale.date)
-        .all()
+    _lookback_map = effective_revenue_by_date(db, user.id, lookback_start, today)
+    history = sorted(
+        ((d, total) for d, total in _lookback_map.items() if total),
+        key=lambda kv: kv[0],
     )
 
     if len(history) < 7:
@@ -748,18 +740,11 @@ def get_dashboard_batch(
     last_monday = this_monday - timedelta(days=7)
     last_sunday = this_monday - timedelta(days=1)
 
-    this_week_rev = float(
-        db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date >= this_monday, Sale.date <= today,
-                Sale.is_deleted.isnot(True))
-        .scalar()
-    )
-    last_week_rev = float(
-        db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date >= last_monday, Sale.date <= last_sunday,
-                Sale.is_deleted.isnot(True))
-        .scalar()
-    )
+    # Effective revenue resolver — kasserapport closes count toward
+    # both windows so the WoW comparison reflects what actually
+    # happened on the floor, not just what was rung up as Sale rows.
+    this_week_rev = effective_revenue_total(db, user.id, this_monday, today)
+    last_week_rev = effective_revenue_total(db, user.id, last_monday, last_sunday)
     this_week_exp = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
         .filter(Expense.user_id == user.id, Expense.date >= this_monday, Expense.date <= today,
@@ -1191,31 +1176,22 @@ def get_summary(
     yesterday = today - timedelta(days=1)
     month_start = today.replace(day=1)
 
-    # Today's revenue
-    today_rev = (
-        db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date == today, Sale.is_deleted.isnot(True))
-        .scalar()
-    )
+    # Today's revenue — effective-revenue resolver picks confirmed
+    # DailyClose.revenue_total over Sale-sum per date (see /batch).
+    today_rev = effective_revenue_for_date(db, user.id, today)
 
     # Yesterday's revenue (for % change)
-    yesterday_rev = (
-        db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date == yesterday, Sale.is_deleted.isnot(True))
-        .scalar()
-    )
+    yesterday_rev = effective_revenue_for_date(db, user.id, yesterday)
 
     today_change = 0.0
     if yesterday_rev > 0:
         raw_change = ((float(today_rev) - float(yesterday_rev)) / float(yesterday_rev)) * 100
         today_change = round(max(-500, min(500, raw_change)), 1)
 
-    # This month's revenue
-    month_rev = (
-        db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date >= month_start, Sale.is_deleted.isnot(True))
-        .scalar()
-    )
+    # This month's revenue — month_start → today (inclusive). Use
+    # today as the end so a partial-month query before the 1st of next
+    # month doesn't fan out across a 30-day window for an empty future.
+    month_rev = effective_revenue_total(db, user.id, month_start, today)
 
     # This month's expenses (exclude personal and deleted)
     month_exp = (
@@ -1293,18 +1269,10 @@ def get_summary(
     # Week-to-date revenue (Monday → today inclusive) — backs the KpiStrip
     # "Revenue this week" tile.  Same compute as /dashboard/batch so the
     # two endpoints agree.  Respects DK 06:00 business-day cutoff because
-    # `today` came from business_today_local() above.
+    # `today` came from business_today_local() above.  Effective-revenue
+    # resolver picks confirmed close.revenue_total over Sale-sum per date.
     _week_monday = today - timedelta(days=today.weekday())
-    week_rev = (
-        db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(
-            Sale.user_id == user.id,
-            Sale.date >= _week_monday,
-            Sale.date <= today,
-            Sale.is_deleted.isnot(True),
-        )
-        .scalar()
-    )
+    week_rev = effective_revenue_total(db, user.id, _week_monday, today)
 
     return DashboardSummary(
         today_revenue=float(today_rev),
@@ -1468,12 +1436,10 @@ def get_action_items(
             "detail": "Log your first sale to keep tracking accurate",
         })
 
-    # 4. High expense ratio
-    month_rev = float(
-        db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date >= month_start, Sale.is_deleted.isnot(True))
-        .scalar()
-    )
+    # 4. High expense ratio — effective revenue (close-wins-per-date)
+    # so the ratio reflects real money in vs. money out for owners who
+    # close via kasserapport rather than per-Sale rows.
+    month_rev = effective_revenue_total(db, user.id, month_start, today)
     month_exp = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
         .filter(Expense.user_id == user.id, Expense.date >= month_start, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
@@ -1517,12 +1483,11 @@ def get_benchmarks(
     # Use matching benchmarks or fall back to restaurant
     bench = BENCHMARKS.get(btype, BENCHMARKS["restaurant"])
 
-    # This month's revenue
-    month_rev = float(
-        db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date >= month_start, Sale.is_deleted.isnot(True))
-        .scalar()
-    )
+    # This month's revenue — effective-revenue resolver so the benchmark
+    # food/labor/rent percentages reflect the same denominator the
+    # Dashboard summary tile shows (otherwise a Z-report-only user
+    # would see 0/0 = 0% across every benchmark and panic).
+    month_rev = effective_revenue_total(db, user.id, month_start, today)
 
     # Get all expenses with category names this month
     expense_rows = (
@@ -1642,19 +1607,12 @@ def get_week_comparison(
     last_monday = this_monday - timedelta(days=7)
     last_sunday = this_monday - timedelta(days=1)
 
-    # This week revenue
-    this_week_rev = float(
-        db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date >= this_monday, Sale.date <= today, Sale.is_deleted.isnot(True))
-        .scalar()
-    )
+    # This week revenue — effective-revenue resolver so close-only
+    # workflows aren't reported as a flat 0 DKK week.
+    this_week_rev = effective_revenue_total(db, user.id, this_monday, today)
 
     # Last week revenue
-    last_week_rev = float(
-        db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date >= last_monday, Sale.date <= last_sunday, Sale.is_deleted.isnot(True))
-        .scalar()
-    )
+    last_week_rev = effective_revenue_total(db, user.id, last_monday, last_sunday)
 
     # This week expenses
     this_week_exp = float(

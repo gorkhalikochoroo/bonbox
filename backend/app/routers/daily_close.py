@@ -66,6 +66,40 @@ _limiter = Limiter(key_func=get_remote_address)
 # happen in one place.
 
 
+def _invalidate_daily_brief_cache(db: Session, user: User) -> None:
+    """Drop today's cached DailyBrief so the next /daily-brief call regenerates.
+
+    Without this, the AI brief insight "Latest close (2026-05-04) is 76% below
+    POS sales…" stays stale all day even after the owner confirms a new close
+    at 05:37 — the brief row was generated before the close landed and the
+    cache key (user_id, brief_date=today) keeps serving the old payload.
+
+    The cache key in services/daily_brief.py:1357 uses ``date.today()`` (UTC),
+    so we MUST match that here. Using ``business_today_local`` would create a
+    timezone mismatch where the brief was stored under one date and we try
+    to delete a different date — see CLAUDE.md TZ-cutoff doctrine.
+
+    L8 — graceful degradation: never raise into the close-confirm flow. If
+    DailyBrief invalidation fails for any reason (corrupt row, db hiccup),
+    we log a warning and let the caller keep going. The brief will refresh
+    on its own at the next 8 a.m. cron tick at worst.
+    """
+    try:
+        from app.models.daily_brief import DailyBrief
+        today_utc = date.today()
+        db.query(DailyBrief).filter(
+            DailyBrief.user_id == user.id,
+            DailyBrief.brief_date == today_utc,
+        ).delete(synchronize_session=False)
+        # No explicit commit — the caller's transaction (close confirm)
+        # encloses this; the brief drop rides along with the close write.
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "daily_close.confirm: failed to invalidate DailyBrief for user=%s: %s",
+            user.id, e,
+        )
+
+
 def _today_scan_count(db: Session, user: User) -> int:
     """How many Z-report scans this user already triggered today.
     Counted via DailyClose rows with receipt_photo set on today's
@@ -792,6 +826,7 @@ def create_daily_close(
         # tier + preference gating + scan attachment + retry — never
         # raises into this path.
         if status == "confirmed":
+            _invalidate_daily_brief_cache(db, user)
             response["close_ritual"] = _fire_close_auto_email(db, request, user, existing)
         return response
 
@@ -843,6 +878,7 @@ def create_daily_close(
     # Drafts (status="draft") do NOT trigger — the email is the "the
     # day is officially closed, here's the kasserapport" notification.
     if status == "confirmed":
+        _invalidate_daily_brief_cache(db, user)
         response["close_ritual"] = _fire_close_auto_email(db, request, user, dc)
     return response
 
