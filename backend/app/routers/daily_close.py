@@ -1685,16 +1685,37 @@ async def scan_z_report(
             # one warning is enough — the Connections page lets them
             # audit the rest.
             try:
-                locked_others = (
-                    db.query(Terminal)
+                # Multi-terminal short-circuit (audit R2 hotfix):
+                # If ANY of the user's linked terminals already matches
+                # the detected provider, the scan is consistent with
+                # their setup — don't flag the *other* terminals as
+                # conflicts. Multi-terminal cafés (Pro tier) commonly
+                # run Nets + Worldline side by side; a Nets scan is
+                # not a conflict against the Worldline terminal.
+                any_matches_detected = (
+                    db.query(Terminal.id)
                     .filter(
                         Terminal.user_id == user.id,
                         Terminal.is_deleted.isnot(True),
-                        Terminal.provider_locked_by_owner.is_(True),
-                        Terminal.provider_id.isnot(None),
-                        Terminal.provider_id != detection["provider_id"],
+                        Terminal.provider_id == detection["provider_id"],
                     )
-                    .all()
+                    .first()
+                    is not None
+                )
+                locked_others = (
+                    []
+                    if any_matches_detected
+                    else (
+                        db.query(Terminal)
+                        .filter(
+                            Terminal.user_id == user.id,
+                            Terminal.is_deleted.isnot(True),
+                            Terminal.provider_locked_by_owner.is_(True),
+                            Terminal.provider_id.isnot(None),
+                            Terminal.provider_id != detection["provider_id"],
+                        )
+                        .all()
+                    )
                 )
                 if locked_others:
                     current = locked_others[0]

@@ -19,8 +19,17 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy import func
 from sqlalchemy.orm import Session
+
+# Per-IP rate limiter for state-mutation endpoints below. Added 2026-05-28
+# after audit R3 — link/unlink endpoints were missing rate limits despite
+# being in the multi-barrier doctrine's L3 layer (every money/tier
+# surface should rate-limit). 30/min matches daily_close.lock's pattern;
+# 5/min on link/unlink because legitimate use is one click per scan.
+_limiter = Limiter(key_func=get_remote_address)
 
 from app.database import get_db
 from app.models.branch import Branch
@@ -482,6 +491,7 @@ def get_terminal(
 
 
 @router.post("/{terminal_id}/link-provider", response_model=TerminalResponse)
+@_limiter.limit("5/minute;30/hour")
 def link_provider(
     terminal_id: str,
     body: LinkProviderBody,
@@ -568,6 +578,7 @@ def link_provider(
 
 
 @router.post("/{terminal_id}/unlink-provider", response_model=TerminalResponse)
+@_limiter.limit("5/minute;30/hour")
 def unlink_provider(
     terminal_id: str,
     request: Request,

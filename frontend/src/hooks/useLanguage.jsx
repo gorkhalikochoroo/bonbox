@@ -3807,9 +3807,32 @@ const translations = {
     taxReconBadgeCombined: "Samlet",
     // POS terminal auto-detect chip — kasserapport / revisor / MOMS stay
     // Danish per the DK terminology lock; brand names render verbatim.
+    // Full key set added 2026-05-28 after audit R1 caught the gap — only
+    // the first 3 keys existed in DA, leaving 16 callsites rendering
+    // raw keys for DK users (per useLanguage.jsx t() fallback semantics
+    // documented in convention_i18n_discipline).
     detectedTerminalTitle: "Registreret terminal",
     detectedTerminalAutoLinked: "Tilknyttet din terminal automatisk",
     detectedTerminalConfirmHint: "Vi mener dette er din {provider}-terminal. Bekræft under Indstillinger → Terminaler.",
+    detectedTerminalConfirm: "Bekræft",
+    detectedTerminalConfirming: "Gemmer…",
+    detectedTerminalNotThisOne: "Ikke denne",
+    detectedTerminalPickTarget: "Vælg hvilken terminal det er:",
+    detectedTerminalPickPlaceholder: "— Vælg terminal —",
+    detectedTerminalNoTerminals: "Ingen terminaler endnu — tilføj en under Indstillinger først.",
+    detectedTerminalCatalogMissing: "Kunne ikke finde denne udbyder i kataloget. Prøv igen.",
+    detectedTerminalConfirmError: "Kunne ikke gemme tilknytningen. Prøv igen.",
+    detectedTerminalLinkedConfirmed: "Terminal bekræftet: {provider}",
+    detectedTerminalWrong: "Forkert terminal?",
+    detectedTerminalUnlinkConfirm: "Frakobl denne terminal? Du kan tilknytte den igen senere.",
+    detectedTerminalUnlink: "Frakobl",
+    detectedTerminalUnlinking: "Frakobler…",
+    detectedTerminalCancel: "Annullér",
+    detectedTerminalUnlinkError: "Kunne ikke frakoble. Prøv igen.",
+    terminalConflictTitle: "Uoverensstemmelse mellem terminaler",
+    terminalConflictBody: "Vent — denne scanning ligner en {detected}-terminal, men din terminal er tilknyttet {current}. Blev en backup-terminal brugt i dag?",
+    terminalConflictDismiss: "Det er fint",
+    terminalConflictReview: "Gennemgå under Indstillinger",
     taxVarianceTitle: "Afvigelse pr. dato fundet",
     taxVarianceSubtitle: "Kasserapport og POS-salg afviger — afstem før indberetning (Bogføringsloven §9 stk. 2)",
     taxVarianceClose: "Kasserapport",
