@@ -401,8 +401,8 @@ export default function BonBoxAgent() {
               className={`
                 px-4 py-2.5 text-[13.5px] leading-relaxed
                 ${isUser
-                  ? "bg-gray-50 dark:bg-gray-800/50 text-white rounded-xl rounded-br-md shadow-sm"
-                  : "bg-gray-800/60 dark:bg-gray-800/60 text-gray-100 dark:text-gray-100 rounded-xl rounded-bl-md border border-white/[0.04] backdrop-blur-sm"
+                  ? "bg-emerald-600 text-white rounded-xl rounded-br-md shadow-sm"
+                  : "bg-gray-800/60 text-gray-100 rounded-xl rounded-bl-md border border-white/[0.04] backdrop-blur-sm"
                 }
               `}
             >
@@ -577,7 +577,8 @@ export default function BonBoxAgent() {
           className="
             fixed md:bottom-6 right-6 z-[9999]
             w-14 h-14 rounded-full
-            bg-gray-50 dark:bg-gray-800/50
+            bg-gradient-to-br from-emerald-500 to-emerald-600
+            shadow-lg shadow-emerald-500/30
             flex items-center justify-center
             cursor-pointer select-none
             transition-transform duration-300 ease-out
@@ -669,9 +670,11 @@ export default function BonBoxAgent() {
           {/* ========= HEADER ========= */}
           <div className="flex items-center justify-between px-5 py-3.5 max-sm:pt-[max(0.875rem,env(safe-area-inset-top))] border-b border-white/[0.06] shrink-0">
             <div className="flex items-center gap-3">
-              {/* animated brain icon */}
+              {/* animated brain icon — emerald accent inside the dark
+                  panel keeps the BonBox brand color visible at the top
+                  of every conversation. */}
               <div
-                className="w-8 h-8 rounded-lg bg-gray-50 dark:bg-gray-800/50 flex items-center justify-center"
+                className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-sm shadow-emerald-500/30"
                 style={{ animation: "neuralPulse 3s ease-in-out infinite" }}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-white">
@@ -849,7 +852,9 @@ export default function BonBoxAgent() {
                 </svg>
               </button>
 
-              {/* send button */}
+              {/* send button — emerald brand color so it's always
+                  visible against the dark chat panel and against the
+                  light page when the input is reflective. */}
               <button
                 onClick={() => sendMessage()}
                 disabled={!input.trim() || isStreaming}
@@ -857,10 +862,9 @@ export default function BonBoxAgent() {
                 className="
                   shrink-0 w-9 h-9 mr-1.5 mb-1.5
                   rounded-lg flex items-center justify-center
-                  bg-gray-50 dark:bg-gray-800/50
+                  bg-emerald-500 hover:bg-emerald-600
                   text-white
-                  disabled:opacity-30 disabled:cursor-not-allowed
-                 
+                  disabled:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed
                   transition-all duration-200
                   active:scale-90
                 "
