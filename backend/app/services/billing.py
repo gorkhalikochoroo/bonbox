@@ -123,8 +123,14 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "smart_imports_per_day": 3,
         "daily_close_export_days": 7,
         "sale_parse_per_day": 15,
-        "z_report_scans_per_day": 5,
-        "kasse_extracts_per_day": 5,
+        # OCR caps tightened 2026-05-28 when OCR pipeline moved to Opus
+        # 4.7 (~5x Sonnet cost per call) to hit the 90%+ confidence
+        # target. Free still gets a meaningful taste (3 z-reports +
+        # 3 kasse extracts per day = enough for an evaluator to vet
+        # the product; consistent daily use signals real adoption →
+        # upgrade to Starter).
+        "z_report_scans_per_day": 3,
+        "kasse_extracts_per_day": 3,
         "ai_brief_refreshes_per_day": 1,
         "ai_chat_messages_per_day": 10,
         # Faktura is Starter+ entirely (via require_invoicing_plan)
@@ -201,8 +207,13 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "smart_imports_per_day": 15,
         "daily_close_export_days": 31,
         "sale_parse_per_day": 50,
-        "z_report_scans_per_day": 15,
-        "kasse_extracts_per_day": 30,
+        # OCR caps bumped 2026-05-28 to give Starter a generous OCR
+        # allowance — typical café with 1-2 terminals + ~5 expense
+        # receipts/day fits comfortably under these. Per Manoj:
+        # "starter and pro gets good amount". Marginal cost still
+        # well inside Starter's 129 DKK/mo margin even at Opus pricing.
+        "z_report_scans_per_day": 20,
+        "kasse_extracts_per_day": 40,
         "ai_brief_refreshes_per_day": 3,
         "ai_chat_messages_per_day": 50,
         # Starter = 30 fakturaer / month. A 30-cover Copenhagen café
@@ -210,12 +221,12 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # bite normal users — but B2B-heavy or busier tenants will
         # bump into it and have a clear "I need Pro" moment.
         "invoices_per_month": 30,
-        # Expense receipt OCR — 200/mo on Starter (was: unlimited).
-        # Recalibrated 2026-05-24 when Claude Vision became the primary
-        # OCR (~$0.003/receipt). 200/mo covers a busy café (≈7/day) at
-        # a marginal cost of ~4 DKK/user vs 129 DKK rev. See the Free
-        # tier comment above for the full math.
-        "expense_receipt_scans_per_month": 200,
+        # Expense receipt OCR — bumped to 300/mo on 2026-05-28 with
+        # the Opus 4.7 upgrade. Per Manoj's "starter gets good amount"
+        # direction. Covers a 10-receipt/day café with headroom; at
+        # Opus pricing (~$0.015/scan) the marginal cost is ~$4.50/mo
+        # ≈ 31 DKK vs Starter's 129 DKK rev — healthy margin.
+        "expense_receipt_scans_per_month": 300,
         # MOMS PDF exports — Starter gets a high cap that's effectively
         # unlimited for legitimate workflow but still bounded against
         # abuse. See the Free-tier comment above for the design rationale.
@@ -247,13 +258,14 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "smart_imports_per_day": 50,
         "daily_close_export_days": 366,
         "sale_parse_per_day": 100,
-        "z_report_scans_per_day": 50,
-        "kasse_extracts_per_day": 100,
+        # OCR caps mirror Pro (see Pro block below for the cost math).
+        "z_report_scans_per_day": 100,
+        "kasse_extracts_per_day": 200,
         "ai_brief_refreshes_per_day": 5,
         "ai_chat_messages_per_day": 200,
         "invoices_per_month": -1,  # unlimited
         # Trial mirrors Pro — see pro's comment for the recalibration math.
-        "expense_receipt_scans_per_month": 500,
+        "expense_receipt_scans_per_month": 1000,
         # MOMS PDF exports — Trial mirrors Pro: unlimited.
         "moms_pdf_exports_per_month": -1,
         # Kulturarrangør caps — Trial mirrors Pro: all unlimited.
@@ -272,17 +284,21 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "smart_imports_per_day": 50,
         "daily_close_export_days": 366,
         "sale_parse_per_day": 100,
-        "z_report_scans_per_day": 50,
-        "kasse_extracts_per_day": 100,
+        # OCR caps bumped 2026-05-28 with the Opus 4.7 upgrade. Per
+        # Manoj: "pro gets good amount". 100 z-reports + 200 kasse
+        # extracts/day handles 3-branch multi-terminal owners; daily
+        # cost ceiling ~$3/day per user even if they max out. Pro's
+        # 249 DKK/mo (~$36) covers it comfortably.
+        "z_report_scans_per_day": 100,
+        "kasse_extracts_per_day": 200,
         "ai_brief_refreshes_per_day": 5,
         "ai_chat_messages_per_day": 200,
         "invoices_per_month": -1,  # unlimited
-        # Expense receipt OCR — 500/mo on Pro (was: unlimited).
-        # Recalibrated 2026-05-24 with Claude Vision (~$0.003/receipt).
-        # 500/mo covers a 3-branch chain at ~5 scans/day/branch with
-        # headroom; marginal cost ~10 DKK/user vs 249 DKK rev. See the
-        # Free tier comment above for the full cost-per-tier math.
-        "expense_receipt_scans_per_month": 500,
+        # Expense receipt OCR — 1000/mo on Pro (bumped from 500). At
+        # Opus pricing ~$15/user/mo on this single feature if maxed;
+        # most Pro users will use 50-100/mo so real cost is ~$1-2/user.
+        # Per Manoj's "good amount" direction.
+        "expense_receipt_scans_per_month": 1000,
         # MOMS PDF exports — Pro gets unlimited. The Pro upsell narrative
         # is "no caps on the basics, plus SKAT-ready /tax/filing-pdf".
         "moms_pdf_exports_per_month": -1,

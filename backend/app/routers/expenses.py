@@ -5,9 +5,19 @@ import logging
 from datetime import date, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+# Per-IP rate limiter for OCR endpoints below. slowapi attaches itself
+# to the FastAPI app via main.py app.state.limiter wiring; this module-
+# local Limiter is just the decorator-target. key_func = remote_address
+# so the limits apply per IP, not per user — defends against same-IP
+# multi-account abuse (one machine creating 10 free accounts and
+# round-robining OCR calls to drain cost).
+_limiter = Limiter(key_func=get_remote_address)
 
 from app.database import get_db
 from app.models.user import User
@@ -345,7 +355,15 @@ def _count_receipt_scans_this_month(db: Session, user_id) -> int:
 
 
 @router.post("/parse-receipt", status_code=200)
+# Per-IP rate limit added 2026-05-28 with the Opus 4.7 OCR upgrade
+# (~5x Sonnet cost). Was previously unrate-limited — gap that let one
+# IP across multiple accounts drain API spend. 6/min ceiling matches
+# legitimate OCR latency (Opus ~10-15s/call); 80/day is the slow-and-
+# steady defense. Per-USER monthly cap (PLAN_CAPS) enforces the tier
+# limit independently below.
+@_limiter.limit("6/minute;80/day")
 async def parse_receipt(
+    request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -586,7 +604,12 @@ def delete_expense(
 
 # ── Receipt OCR for Expenses ────────────────────────────
 @router.post("/upload-receipt")
+# Same defensive rate limit as parse-receipt above — this is the
+# parallel "store + auto-extract" upload endpoint that also drives an
+# Opus 4.7 OCR call under the hood. Per-IP burst + daily ceiling.
+@_limiter.limit("6/minute;80/day")
 async def upload_expense_receipt(
+    request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),

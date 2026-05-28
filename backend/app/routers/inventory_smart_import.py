@@ -526,7 +526,8 @@ def _promote_smart_scan_to_draft(
 # ─── Endpoints ─────────────────────────────────────────────────────────
 
 @router.post("/text", response_model=ImportDraftResponse, status_code=201)
-@_limiter.limit("12/minute")
+# Per-IP burst + daily ceiling (2026-05-28 — Opus 4.7 cost defense).
+@_limiter.limit("6/minute;80/day")
 def import_text(
     request: Request,
     body: TextImportRequest,
@@ -560,7 +561,9 @@ def import_text(
 
 
 @router.post("/file", response_model=ImportDraftResponse, status_code=201)
-@_limiter.limit("12/minute")
+# Per-IP burst + daily ceiling (2026-05-28 — Opus 4.7 cost defense).
+# This is the heaviest endpoint — multi-page supplier-invoice OCR.
+@_limiter.limit("6/minute;80/day")
 async def import_file(
     request: Request,
     file: UploadFile = File(...),
