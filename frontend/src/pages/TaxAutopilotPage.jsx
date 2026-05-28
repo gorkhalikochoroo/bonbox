@@ -702,7 +702,15 @@ function ReconCard({ recon, taxName, currency }) {
 
   const statusStyles = {
     // DK i18n leak fix \u2014 emoji icons swapped for Lucide names + localized labels.
+    //
+    // `combined` (added 2026-05-28) is the new positive state after the
+    // DailyClose-into-MOMS integration: closes and sales are both feeding
+    // the headline so there's no "match" or "mismatch" to compute \u2014 they're
+    // additive contributions. Without this entry the page would fall back
+    // to `no_data` and render the empty-state "go close your first day" CTA
+    // even when 2 confirmed closes exist (caught in audit a26d37c \u2192 R1).
     matched:             { bg: "bg-gray-50 dark:bg-gray-800/50",  border: "border-gray-100 dark:border-gray-800", badge: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300", iconName: "CheckCircle2", label: t("taxReconBadgeMatched") },
+    combined:            { bg: "bg-gray-50 dark:bg-gray-800/50",  border: "border-gray-100 dark:border-gray-800", badge: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300", iconName: "CheckCircle2", label: t("taxReconBadgeCombined") },
     minor_discrepancy:   { bg: "bg-amber-50 dark:bg-amber-900/20",  border: "border-amber-200 dark:border-amber-800", badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300", iconName: "AlertTriangle", label: t("taxReconBadgeMinorDiff") },
     major_discrepancy:   { bg: "bg-red-50 dark:bg-red-900/20",      border: "border-red-200 dark:border-red-800",     badge: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",       iconName: "AlertTriangle", label: t("taxReconBadgeMismatch") },
     no_data:             { bg: "bg-gray-50 dark:bg-gray-800",       border: "border-gray-200 dark:border-gray-700",   badge: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400",     iconName: "Minus",  label: t("taxReconBadgeNoCloses") },

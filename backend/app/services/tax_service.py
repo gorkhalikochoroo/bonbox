@@ -297,15 +297,21 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
             # — preserve owner / OCR intent. Avoids the formula
             # over-counting when the owner has manually entered MOMS.
             close_pos_moms += float(moms)
-        elif rev_f > 0:
-            # No explicit MOMS — extract via the same formula the
-            # Sale path uses below. Keeps the headline consistent
-            # when some closes have MOMS keyed and others don't.
-            if vat_rate > 0:
-                if prices_include_moms:
-                    close_pos_moms += rev_f * vat_rate / (1 + vat_rate)
-                else:
-                    close_pos_moms += rev_f * vat_rate
+        elif rev_f > 0 and vat_rate > 0:
+            # No explicit MOMS — extract via the gross formula.
+            #
+            # NB: `DailyClose.revenue_total` is ALWAYS stored as gross
+            # (the till's Z-report total, which the customer paid). Even
+            # for B2B users with `prices_include_moms=False`, the close
+            # form / OCR captures the gross till total — net pricing is
+            # an Invoice/Faktura concept, not a kasserapport concept.
+            #
+            # So we extract MOMS using `gross * rate / (1+rate)`
+            # regardless of `prices_include_moms`. Using the net formula
+            # (`gross * rate`) here would over-extract by a factor of
+            # (1+rate) — 25% bumped to ~31% for DK MOMS, an audit-grade
+            # filing error.  Caught in audit a26d37c → R2.
+            close_pos_moms += rev_f * vat_rate / (1 + vat_rate)
 
     # ─── Stream 1 (Sale) — POS revenue NOT linked to an invoice
     #
@@ -405,11 +411,24 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
     # extraction needed — already separated at line-item level).
     output_vat = round(pos_output_vat + invoice_moms, 2)
 
-    # Total revenue: POS gross + Invoice gross (which already includes moms)
+    # Total revenue: POS gross + Invoice gross (which already includes moms).
+    # NB: `sales_total` INCLUDES `exempt_sales` — these are the gross top-line
+    # revenue across both taxable + exempt streams. Use `taxable_sales` below
+    # (sales_total - exempt_sales) when the consumer wants the "Salg med moms"
+    # number for the SKAT MOMS-angivelse "row A: taxable sales" line.
     sales_total = round(pos_total + invoice_total_gross, 2)
+
+    # SKAT MOMS-angivelse box A ("Salg med moms") = taxable sales only.
+    # Pre-existing bug caught in audit a26d37c → R3: tax_filing_pdf.py
+    # used `sales_total` for `salg_med_moms` directly, which double-counted
+    # exempt revenue (it appeared on both "Salg med moms" AND "Salg uden
+    # moms" rows, breaking the sum). Surface a dedicated `taxable_sales`
+    # field so the PDF + downstream callers can land the right number.
+    taxable_sales = round(max(sales_total - exempt_sales, 0.0), 2)
 
     return {
         "sales_total": sales_total,
+        "taxable_sales": taxable_sales,
         "pos_revenue": round(pos_total, 2),
         # Breakdown of the POS contribution so the reconciliation card
         # can show "Closes contributed X, Sales contributed Y" instead

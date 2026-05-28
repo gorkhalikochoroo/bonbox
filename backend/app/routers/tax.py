@@ -59,9 +59,19 @@ def _safe_empty():
     """
     empty_vat_block = {
         "sales_total": 0,
+        # New fields added by the DailyClose integration (commit a26d37c).
+        # Must be present even on the fail-soft path so frontend
+        # destructure {pos_revenue_from_closes, taxable_sales, ...}
+        # doesn't blow up. Layer 4 — fail-soft must ship valid shape.
+        "taxable_sales": 0,
         "pos_revenue": 0,
+        "pos_revenue_from_closes": 0,
+        "pos_revenue_from_sales": 0,
+        "pos_output_vat_from_closes": 0,
+        "pos_output_vat_from_sales": 0,
         "invoice_revenue": 0,
         "expenses_total": 0,
+        "exempt_sales": 0,
         "output_vat": 0,
         "input_vat": 0,
         "vat_payable": 0,

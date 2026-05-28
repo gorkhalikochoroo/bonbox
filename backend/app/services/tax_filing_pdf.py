@@ -207,16 +207,20 @@ def compute_filing_data(
     # ── Section A — Salg (Sales) ─────────────────────────────
     # sales_total is gross when prices_include_moms (B2C), net otherwise (B2B).
     # output_vat is the MOMS portion of sales.
-    # salg_med_moms = gross taxable revenue
+    # salg_med_moms = gross TAXABLE revenue (sales_total - exempt_sales)
     # salg_uden_moms = exempt/zero-rated revenue. Pulled from `_calc_vat`'s
     #   `exempt_sales` (added 2026-05-24): sum of Sale rows where
     #   `is_tax_exempt=true` PLUS Invoice rows where `moms_total=0`
     #   (EU reverse-charge, exports, §13 nr.17 events, gift cards, etc.).
-    #   Before this fix `salg_uden_moms` was hardcoded to 0.0, which
-    #   meant any user with exempt sales had them SILENTLY DROPPED from
-    #   their SKAT angivelse — a "claim breaker" against the
-    #   accountant-grade promise. Now correct to the øre.
-    salg_med_moms = vat["sales_total"]
+    #   Before that fix, `salg_uden_moms` was hardcoded to 0.0 — any user
+    #   with exempt sales had them SILENTLY DROPPED from the SKAT angivelse.
+    #
+    # 2026-05-28 — second fix (audit a26d37c R3): `salg_med_moms` was using
+    # `sales_total` directly, which still INCLUDES `exempt_sales`. That
+    # double-counted: e.g. 100k taxable + 20k exempt showed 120k on "Salg med
+    # moms" AND 20k on "Salg uden moms" = 140k. Sum-doesn't-equal-parts.
+    # Now uses the dedicated `taxable_sales` field (sales_total - exempt_sales).
+    salg_med_moms = vat.get("taxable_sales", vat["sales_total"] - vat.get("exempt_sales", 0.0))
     salg_uden_moms = vat.get("exempt_sales", 0.0)
     moms_af_salg = vat["output_vat"]
 
@@ -247,8 +251,15 @@ def compute_filing_data(
         # Section D
         "sales_count": sales_count,
         "expense_count": expense_count,
-        # POS vs invoice split for transparency
+        # POS vs invoice split for transparency. Section D2 ("Kilder")
+        # used to flatten the two POS sources into a single "POS-kassesalg
+        # (Sale)" line, which silently included kasserapport revenue that
+        # never touched the Sale table. Split them apart so a revisor
+        # auditing the PDF can trace back to either the Sale rows or the
+        # confirmed DailyClose rows that fed each number.
         "pos_revenue": vat["pos_revenue"],
+        "pos_revenue_from_sales": vat.get("pos_revenue_from_sales", vat["pos_revenue"]),
+        "pos_revenue_from_closes": vat.get("pos_revenue_from_closes", 0.0),
         "invoice_revenue": vat["invoice_revenue"],
     }
 
@@ -593,11 +604,20 @@ def build_moms_filing_pdf(
     # auditor expects to see the DB sources broken out: POS Sale rows,
     # Invoice rows, Expense rows. Aligns with Bogføringsloven §9
     # ("every entry traceable to its source").
+    # D2 sources — split POS into Sale-rows + Kasserapport (DailyClose).
+    # Pre-2026-05-28 this was a single line "POS-kassesalg (Sale)" using
+    # vat["pos_revenue"], which after the DailyClose integration silently
+    # included kasserapport revenue that never touched the Sale table.
+    # Revisor traceability degraded — caught in audit a26d37c → A5.
+    _pos_from_sales = data.get("pos_revenue_from_sales", data["pos_revenue"])
+    _pos_from_closes = data.get("pos_revenue_from_closes", 0.0)
     if is_danish:
         story.append(Paragraph("D2 · KILDER", section_title))
         src_rows = [
             [Paragraph("POS-kassesalg (Sale)", val),
-             Paragraph(_money_dk(data["pos_revenue"], currency), val_r)],
+             Paragraph(_money_dk(_pos_from_sales, currency), val_r)],
+            [Paragraph("Kasserapport (Dagsafslutning)", val),
+             Paragraph(_money_dk(_pos_from_closes, currency), val_r)],
             [Paragraph("Fakturasalg (Invoice)", val),
              Paragraph(_money_dk(data["invoice_revenue"], currency), val_r)],
             [Paragraph("Sum (= Salg med moms)", val_b),
@@ -611,7 +631,9 @@ def build_moms_filing_pdf(
         story.append(Paragraph("D2 · SOURCES", section_title))
         src_rows = [
             [Paragraph("POS sales (Sale)", val),
-             Paragraph(_money_dk(data["pos_revenue"], currency), val_r)],
+             Paragraph(_money_dk(_pos_from_sales, currency), val_r)],
+            [Paragraph("Kasserapport (Daily Close)", val),
+             Paragraph(_money_dk(_pos_from_closes, currency), val_r)],
             [Paragraph("Invoice sales (Invoice)", val),
              Paragraph(_money_dk(data["invoice_revenue"], currency), val_r)],
             [Paragraph("Sum (= taxable sales)", val_b),
@@ -961,11 +983,20 @@ def _rebuild_filing_story(
     story.append(td)
 
     # D2 — source traceability
+    # D2 sources — split POS into Sale-rows + Kasserapport (DailyClose).
+    # Pre-2026-05-28 this was a single line "POS-kassesalg (Sale)" using
+    # vat["pos_revenue"], which after the DailyClose integration silently
+    # included kasserapport revenue that never touched the Sale table.
+    # Revisor traceability degraded — caught in audit a26d37c → A5.
+    _pos_from_sales = data.get("pos_revenue_from_sales", data["pos_revenue"])
+    _pos_from_closes = data.get("pos_revenue_from_closes", 0.0)
     if is_danish:
         story.append(Paragraph("D2 · KILDER", section_title))
         src_rows = [
             [Paragraph("POS-kassesalg (Sale)", val),
-             Paragraph(_money_dk(data["pos_revenue"], currency), val_r)],
+             Paragraph(_money_dk(_pos_from_sales, currency), val_r)],
+            [Paragraph("Kasserapport (Dagsafslutning)", val),
+             Paragraph(_money_dk(_pos_from_closes, currency), val_r)],
             [Paragraph("Fakturasalg (Invoice)", val),
              Paragraph(_money_dk(data["invoice_revenue"], currency), val_r)],
             [Paragraph("Sum (= Salg med moms)", val_b),
@@ -979,7 +1010,9 @@ def _rebuild_filing_story(
         story.append(Paragraph("D2 · SOURCES", section_title))
         src_rows = [
             [Paragraph("POS sales (Sale)", val),
-             Paragraph(_money_dk(data["pos_revenue"], currency), val_r)],
+             Paragraph(_money_dk(_pos_from_sales, currency), val_r)],
+            [Paragraph("Kasserapport (Daily Close)", val),
+             Paragraph(_money_dk(_pos_from_closes, currency), val_r)],
             [Paragraph("Invoice sales (Invoice)", val),
              Paragraph(_money_dk(data["invoice_revenue"], currency), val_r)],
             [Paragraph("Sum (= taxable sales)", val_b),
