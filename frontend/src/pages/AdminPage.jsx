@@ -251,6 +251,7 @@ export default function AdminPage() {
                 <th className="text-left px-2 py-2">Email</th>
                 <th className="text-left px-2 py-2">Business</th>
                 <th className="text-left px-2 py-2">Type</th>
+                <th className="text-left px-2 py-2">Tier</th>
                 <th className="text-right px-2 py-2">Sales</th>
                 <th className="text-right px-2 py-2">Events</th>
                 <th className="text-right px-2 py-2">Active days</th>
@@ -294,6 +295,7 @@ export default function AdminPage() {
                     </td>
                     <td className="px-2 py-2">{u.business_name || "—"}</td>
                     <td className="px-2 py-2 text-xs text-gray-600 dark:text-gray-300">{u.business_type}</td>
+                    <td className="px-2 py-2"><TierChip user={u} /></td>
                     <td className="px-2 py-2 text-right font-mono">
                       {u.sale_count}
                       {u.is_activated && <span className="ml-1 text-emerald-600" title="Activated">✓</span>}
@@ -551,6 +553,35 @@ function LockToggle({ user, onChange }) {
         {busy ? "…" : user.is_locked ? "Unlock" : "Lock"}
       </button>
       {err && <span className="text-[10px] text-red-500" title={err}>!</span>}
+    </span>
+  );
+}
+
+function TierChip({ user }) {
+  // Tier display per user. effective_plan() resolves stored plan + active
+  // trial server-side; we only render the chip + (for trial) the days-left
+  // countdown. DK terminology lock — labels stay English here (admin-only
+  // surface, not customer-facing UI chrome).
+  const tier = (user.tier || "free").toLowerCase();
+  const styles = {
+    free:    { bg: "bg-gray-100 dark:bg-gray-800",       text: "text-gray-700 dark:text-gray-300",       label: "Free"    },
+    trial:   { bg: "bg-amber-100 dark:bg-amber-900/40",  text: "text-amber-700 dark:text-amber-300",     label: "Trial"   },
+    starter: { bg: "bg-blue-100 dark:bg-blue-900/40",    text: "text-blue-700 dark:text-blue-300",       label: "Starter" },
+    pro:     { bg: "bg-emerald-100 dark:bg-emerald-900/40", text: "text-emerald-700 dark:text-emerald-300", label: "Pro"  },
+  };
+  const s = styles[tier] || styles.free;
+  // Trial countdown — show days remaining as a small companion line so
+  // the admin can scan "trial expires soon" risk at a glance.
+  let trialSub = null;
+  if (tier === "trial" && user.trial_ends_at) {
+    const endsAt = new Date(user.trial_ends_at);
+    const days = Math.ceil((endsAt.getTime() - Date.now()) / 86400000);
+    if (Number.isFinite(days)) trialSub = `${days}d`;
+  }
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${s.bg} ${s.text}`}>{s.label}</span>
+      {trialSub && <span className="text-[10px] text-gray-500 dark:text-gray-400">{trialSub}</span>}
     </span>
   );
 }

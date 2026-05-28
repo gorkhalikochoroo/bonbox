@@ -127,6 +127,12 @@ def admin_user_list(
     users = (
         q.order_by(User.created_at.desc()).offset(offset).limit(limit).all()
     )
+    # Tier display — effective_plan() resolves stored plan + active trial
+    # into the UI-facing label (free / trial / starter / pro). Single
+    # source of truth across the app; mirroring it inline would risk
+    # drift if billing.py changes mapping rules.
+    from app.services.billing import effective_plan as _eff_plan
+
     out = []
     for u in users:
         sale_count = (
@@ -153,6 +159,13 @@ def admin_user_list(
             .scalar()
             or 0
         )
+        # Compute effective tier + raw plan + trial expiry. Three fields
+        # so the admin UI can render a colored chip ("Pro") AND show the
+        # trial countdown ("Trial · 7d left") without re-deriving.
+        try:
+            tier = _eff_plan(u)
+        except Exception:  # noqa: BLE001
+            tier = (getattr(u, "plan", None) or "free").lower()
         out.append(
             {
                 "id": str(u.id),
@@ -172,6 +185,10 @@ def admin_user_list(
                 "event_count": event_count,
                 "active_days": active_days,
                 "is_activated": sale_count > 0,
+                # Tier surface — see comment above.
+                "tier": tier,                         # free | trial | starter | pro
+                "plan_raw": (getattr(u, "plan", None) or "free").lower(),
+                "trial_ends_at": u.trial_ends_at.isoformat() if getattr(u, "trial_ends_at", None) else None,
             }
         )
     return out
