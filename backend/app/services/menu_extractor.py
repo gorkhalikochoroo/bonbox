@@ -35,7 +35,8 @@ _MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 
 # Default model + token budget — keep the same family as inventory so
 # we benefit from one model upgrade across all vision flows.
-_DEFAULT_MODEL = "claude-sonnet-4-5"
+# Opus 4.7 (2026-05-28) — 90%+ target across the OCR pipeline.
+_DEFAULT_MODEL = "claude-opus-4-7"
 _DEFAULT_MAX_TOKENS = 2000
 
 

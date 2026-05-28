@@ -34,7 +34,7 @@ Why deterministic-first matters:
 Public surface:
   TAXONOMY[vertical] -> list[str]      — canonical categories per vertical
   categorize_deterministic(items, vertical) -> tuple[list, list]
-  categorize_with_ai(items, vertical, *, model='claude-haiku-4-5') -> tuple[list, dict]
+  categorize_with_ai(items, vertical, *, model='claude-sonnet-4-5') -> tuple[list, dict]
   categorize_items(items, vertical, *, use_ai=True) -> tuple[list, dict]
 """
 from __future__ import annotations
@@ -850,7 +850,7 @@ def categorize_with_ai(
     items: list[dict],
     business_type: str | None,
     *,
-    model: str = "claude-haiku-4-5",
+    model: str = "claude-sonnet-4-5",
     max_tokens: int = 2000,
     timeout: float = 30.0,
 ) -> tuple[list[dict], dict]:

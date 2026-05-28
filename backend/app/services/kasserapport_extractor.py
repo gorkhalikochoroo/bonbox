@@ -81,13 +81,20 @@ Image.MAX_IMAGE_PIXELS = 90_000_000
 PROMPT_VERSION = "kasserapport-2026-05-06-v1"
 
 # ─── Models — falls back to project default if env var not set ─────────────
-_DEFAULT_MODEL_CLASSIFIER = "claude-haiku-4-5"
-_DEFAULT_MODEL_FORMAT     = "claude-haiku-4-5"
-# Kasserapport extractor — accountant-grade artifact (Bogføringsloven §10
-# liability, ships into the revisor-facing PDF). Sonnet 4.5 is the
-# baseline; operators can set AI_MODEL_KASSE_EXTRACTOR=claude-opus-4-7
-# in Render for the smartest available model on Pro deployments.
-_DEFAULT_MODEL_EXTRACTOR  = "claude-sonnet-4-5"
+# Sonnet floor + Opus extractor (2026-05-28 — Manoj target: 90%+ OCR
+# accuracy on DK kasserapport scans). Previously Haiku for classifier
+# + format inference; bumped to Sonnet 4.5 because:
+#   1. accuracy floor matters when these decisions route the rest of
+#      the OCR pipeline (wrong classification = wrong extractor)
+#   2. classifier latency is amortized across the full extraction call
+#      so the marginal cost is small even at 5x Haiku pricing
+# Extractor on Opus 4.7 — the most capable Anthropic model — because
+# this output ships into the accountant-grade SKAT MOMS-angivelse PDF
+# (Bogføringsloven §10 liability). Wrong revenue extraction = real
+# money lost to wrong filing.
+_DEFAULT_MODEL_CLASSIFIER = "claude-sonnet-4-5"
+_DEFAULT_MODEL_FORMAT     = "claude-sonnet-4-5"
+_DEFAULT_MODEL_EXTRACTOR  = "claude-opus-4-7"
 
 # Soft caps — cheap defense against runaway costs. Caller may override.
 MAX_INPUT_IMAGE_SIDE_PX = 2200   # resize huge phone photos before upload

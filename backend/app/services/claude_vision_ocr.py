@@ -414,10 +414,11 @@ def extract_receipt_data(image_path: str, *, currency_hint: str = "DKK") -> dict
         return None
 
     # ── Model + system prompt ────────────────────────────────────────
-    # Default to claude-sonnet-4-5 per the spec. Allow env override so
-    # Manoj can flip models without a code deploy (e.g. claude-opus-4-7
-    # if Sonnet ever produces worse extractions on a specific format).
-    model = os.environ.get("AI_MODEL_RECEIPT_OCR", "").strip() or "claude-sonnet-4-5"
+    # Default to claude-opus-4-7 — the most capable Anthropic model —
+    # for the 90%+ accuracy target on noisy receipt photos. Env override
+    # via AI_MODEL_RECEIPT_OCR lets Manoj swap without a code deploy
+    # if cost ever bites (Opus is ~5x Sonnet pricing per token).
+    model = os.environ.get("AI_MODEL_RECEIPT_OCR", "").strip() or "claude-opus-4-7"
 
     system_prompt = _build_system_prompt(currency_hint=currency_hint or "DKK")
 
@@ -964,9 +965,10 @@ def extract_z_report_data(image_path: str) -> dict | None:
         return None
 
     # ── Model + system prompt ────────────────────────────────────────
-    # Same Sonnet 4.5 default as the receipt extractor. Env override
-    # lets Manoj flip without a code deploy.
-    model = os.environ.get("AI_MODEL_ZREPORT_OCR", "").strip() or "claude-sonnet-4-5"
+    # Opus 4.7 — same logic as receipt OCR. Z-reports are noisy thermal
+    # prints; the highest-capability model is justified given this feeds
+    # the accountant-grade MOMS filing PDF.
+    model = os.environ.get("AI_MODEL_ZREPORT_OCR", "").strip() or "claude-opus-4-7"
 
     # ── Call Claude ──────────────────────────────────────────────────
     # System prompt + tool schema cached (ephemeral). Z-reports are big
@@ -1143,8 +1145,12 @@ def classify_document_type(image_path: str) -> str:
     if not b64:
         return "unknown"
 
-    # ── Call Claude (Haiku is enough — single-word output) ───────────
-    model = os.environ.get("AI_MODEL_DOCTYPE_CLASSIFIER", "").strip() or "claude-haiku-4-5"
+    # ── Call Claude (Sonnet 4.5 floor) ───────────────────────────────
+    # Was Haiku previously; bumped 2026-05-28 to enforce a Sonnet floor
+    # across the OCR pipeline. The classifier routes the rest of the
+    # extraction, so a wrong call here cascades into a wrong extractor
+    # invocation — capability floor matters more than speed.
+    model = os.environ.get("AI_MODEL_DOCTYPE_CLASSIFIER", "").strip() or "claude-sonnet-4-5"
     try:
         client = anthropic.Anthropic(api_key=api_key, timeout=20.0)
         resp = client.messages.create(
