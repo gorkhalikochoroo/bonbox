@@ -854,10 +854,49 @@ async def _claude_chat(req: ChatRequest, db, user):
         # Don't block chat if memory fails; just log and continue
         print(f"[agent] owner_memory unavailable: {_mem_err}")
 
-    messages = []
+    # Build the messages array Anthropic requires. Two invariants:
+    #   1. messages[0].role MUST be "user" (the API 400s otherwise with
+    #      "messages.0.role: Input must be 'user'").
+    #   2. Roles MUST alternate user/assistant — duplicate same-role turns
+    #      get rejected too.
+    #
+    # The frontend's welcome card ("Hey! I'm your BonBox copilot…") is
+    # stored as an assistant message in the chat history and gets POSTed
+    # back to us on the very first user turn — so naive forwarding made
+    # the first chat reply 400 every time, surfaced to owners as
+    # "Sorry, something went wrong. Please try again." (Expert audit #246,
+    # 2026-05-28). Drop any leading non-user turn and collapse same-role
+    # duplicates so the array is always API-valid by construction.
+    messages: list[dict[str, str]] = []
     for h in req.history[-10:]:
-        messages.append({"role": h["role"], "content": h["content"]})
-    messages.append({"role": "user", "content": req.message})
+        role = h.get("role") if isinstance(h, dict) else None
+        content = h.get("content") if isinstance(h, dict) else None
+        if not role or content is None:
+            continue
+        if not messages and role != "user":
+            # Skip the welcome card / any leading assistant turn.
+            continue
+        if messages and messages[-1]["role"] == role:
+            # Same-role twice in a row — Anthropic refuses. Skip the
+            # duplicate; the newer turn will take its place on the next
+            # iteration via the role flip.
+            continue
+        messages.append({"role": role, "content": content})
+    # Ensure the freshest user message anchors the array even if the
+    # filtered history ended on the user role (degenerate but safe — the
+    # alternation rule still holds because we keep only one user turn at
+    # a time and the previous loop iteration must have flipped to
+    # assistant before reaching here).
+    if messages and messages[-1]["role"] == "user":
+        # Merge the in-flight user message into the trailing user turn
+        # so we don't violate alternation.
+        prev = messages.pop()
+        messages.append({
+            "role": "user",
+            "content": f"{prev['content']}\n\n{req.message}",
+        })
+    else:
+        messages.append({"role": "user", "content": req.message})
 
     # Track total tokens used in this conversation across multiple tool-call rounds
     _total_input_tokens = 0
