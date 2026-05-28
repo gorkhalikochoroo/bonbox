@@ -173,6 +173,29 @@ export default function ConnectionsPage() {
   const [inboxTesting, setInboxTesting] = useState(false);
   const [inboxCopied, setInboxCopied] = useState(false);
 
+  // Task #238 — Terminals section (POS-acquirer override). Owner sees
+  // one row per Terminal with a Change ▾ dropdown that lets them pick
+  // any of the 18 catalog providers manually. Catalog is lazy-loaded
+  // the first time the dropdown opens (cached for the session).
+  //
+  // State shape:
+  //   terminals          — list of Terminal rows from GET /terminals
+  //                        (null until first fetch resolves)
+  //   branches           — list of Branch rows (null = not loaded;
+  //                        [] = loaded but empty / single-branch user)
+  //   providerCatalog    — list of TerminalProvider rows (null until
+  //                        first dropdown open)
+  //   catalogLoading     — true while /terminal-providers is in flight
+  //   openTerminalId     — terminal_id whose dropdown is open (null = none)
+  //   busyTerminalId     — terminal_id with a POST in flight (disables
+  //                        the row's controls + shows a spinner)
+  const [terminals, setTerminals] = useState(null);
+  const [branches, setBranches] = useState(null);
+  const [providerCatalog, setProviderCatalog] = useState(null);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [openTerminalId, setOpenTerminalId] = useState(null);
+  const [busyTerminalId, setBusyTerminalId] = useState(null);
+
   // Reload bank_connections — used after Sync / Disconnect to refresh state.
   const reloadBankConnections = useCallback(async () => {
     try {
@@ -428,6 +451,103 @@ export default function ConnectionsPage() {
       });
     } finally {
       setMpBusy(false);
+    }
+  };
+
+  // Task #238 — fetch terminals + branches on mount. Both endpoints are
+  // owner-scoped + tolerant of missing rows (single-branch users get an
+  // empty branches list, which is fine — we just skip the branch name
+  // sub-line). Catalog stays lazy (only fetched when the owner first
+  // taps Change ▾) to keep this page's first-paint as light as possible.
+  const reloadTerminals = useCallback(async () => {
+    try {
+      const r = await api.get("/terminals");
+      setTerminals(Array.isArray(r.data) ? r.data : []);
+    } catch {
+      setTerminals([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    api.get("/terminals")
+      .then((r) => { if (alive) setTerminals(Array.isArray(r.data) ? r.data : []); })
+      .catch(() => { if (alive) setTerminals([]); });
+    api.get("/branches")
+      .then((r) => { if (alive) setBranches(Array.isArray(r.data) ? r.data : []); })
+      .catch(() => { if (alive) setBranches([]); });
+    return () => { alive = false; };
+  }, []);
+
+  // Lazy-load the 18-provider catalog the first time the owner taps
+  // Change ▾ on any row. Cached for the rest of the session — repeated
+  // dropdown opens are zero-cost.
+  const ensureProviderCatalog = useCallback(async () => {
+    if (providerCatalog || catalogLoading) return providerCatalog;
+    setCatalogLoading(true);
+    try {
+      const r = await api.get("/terminals/terminal-providers");
+      const list = Array.isArray(r.data?.providers) ? r.data.providers : [];
+      setProviderCatalog(list);
+      return list;
+    } catch {
+      setToast({
+        kind: "error",
+        msg: t("connTerminalsSaveError") || "Could not save. Try again.",
+      });
+      setProviderCatalog([]);
+      return [];
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, [providerCatalog, catalogLoading, t]);
+
+  const openTerminalDropdown = async (terminalId) => {
+    setOpenTerminalId(terminalId);
+    await ensureProviderCatalog();
+  };
+
+  const linkTerminalProvider = async (terminalId, providerId) => {
+    setBusyTerminalId(terminalId);
+    try {
+      if (providerId) {
+        await api.post(`/terminals/${terminalId}/link-provider`, {
+          provider_id: providerId,
+          confidence: 1.0,
+        });
+      } else {
+        await api.post(`/terminals/${terminalId}/unlink-provider`, {});
+      }
+      await reloadTerminals();
+      setOpenTerminalId(null);
+    } catch (err) {
+      setToast({
+        kind: "error",
+        msg: err?.response?.data?.detail ||
+             t("connTerminalsSaveError") || "Could not save. Try again.",
+      });
+    } finally {
+      setBusyTerminalId(null);
+    }
+  };
+
+  const unlinkTerminalProvider = async (terminalId) => {
+    if (!window.confirm(
+      t("connTerminalsUnlinkConfirm") ||
+      "Unlink this terminal? You'll be able to relink it later.",
+    )) return;
+    setBusyTerminalId(terminalId);
+    try {
+      await api.post(`/terminals/${terminalId}/unlink-provider`, {});
+      await reloadTerminals();
+    } catch (err) {
+      setToast({
+        kind: "error",
+        msg: err?.response?.data?.detail ||
+             t("connTerminalsUnlinkError") || "Could not unlink. Try again.",
+      });
+    } finally {
+      setBusyTerminalId(null);
     }
   };
 
@@ -694,6 +814,178 @@ export default function ConnectionsPage() {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* Terminals section (Task #238) — manual override surface for
+          the POS auto-detect loop that ships via the Daily Close chip
+          (Commit 2 + 3). Owners who want to fix a wrong provider link
+          WITHOUT scanning a fresh kasserapport land here. One row per
+          Terminal; Change ▾ exposes the 18-provider catalog; Unlink
+          clears the link. Always rendered (even for single-terminal
+          Free / Starter owners) — the section is informational.
+          Brand names render verbatim per the DK terminology lock. */}
+      {terminals !== null && (
+        <div className="mb-7 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 rounded-xl p-5">
+          <div className="flex items-start justify-between mb-3 flex-wrap gap-2">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0 text-gray-700 dark:text-gray-300">
+                <Icon name="Cpu" size={18} strokeWidth={1.75} />
+              </div>
+              <div>
+                <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+                  {t("connTerminalsTitle") || "Terminals"}
+                </h2>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 max-w-xl">
+                  {t("connTerminalsSubtitle") ||
+                    "Link each physical POS station to its acquirer (Nets, Worldline, MobilePay, ...). BonBox auto-detects from your Z-report scan; tap Change to override."}
+                </p>
+              </div>
+            </div>
+            <Link
+              to="/terminals"
+              className="text-xs text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100 underline"
+            >
+              {t("connManage") || "Manage"}
+            </Link>
+          </div>
+
+          {terminals.length === 0 ? (
+            <div className="p-4 bg-white dark:bg-gray-900 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 text-center">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                {t("connTerminalsEmpty") ||
+                  "No terminals yet. Add one in Settings → Terminals to get started."}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {terminals.map((term) => {
+                const isLinked = !!term.provider_id;
+                const isOpen = openTerminalId === term.id;
+                const isBusy = busyTerminalId === term.id;
+                const branchName = (branches || []).find(
+                  (b) => b.id === term.branch_id,
+                )?.name || null;
+                const isAutoDetected = isLinked && !term.provider_locked_by_owner;
+                return (
+                  <div
+                    key={term.id}
+                    className="p-3 bg-white dark:bg-gray-900 rounded-lg border border-gray-100 dark:border-gray-800"
+                  >
+                    <div className="flex flex-wrap items-start gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+                            {term.name || "—"}
+                          </span>
+                          {/* Provider chip — gray when linked (brand
+                              name verbatim), amber when unlinked. The
+                              "Auto-detected" hint sits next to the
+                              chip so the owner sees the provenance
+                              without opening the dropdown. */}
+                          {isLinked ? (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                              {term.provider_display_name || term.provider_slug || "—"}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
+                              {t("connTerminalsNotLinked") || "Not linked"}
+                            </span>
+                          )}
+                          {isAutoDetected && (
+                            <span className="text-[10px] text-gray-500 dark:text-gray-400 italic">
+                              {t("connTerminalsAutoDetected") || "Auto-detected"}
+                            </span>
+                          )}
+                          {isLinked && term.provider_locked_by_owner && (
+                            <span className="text-[10px] text-emerald-700 dark:text-emerald-400">
+                              {t("connTerminalsLockedByOwner") || "Confirmed"}
+                            </span>
+                          )}
+                        </div>
+                        {(term.receipt_label || branchName) && (
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">
+                            {term.receipt_label && (
+                              <>{t("connTerminalsReceiptLabel") || "Receipt label"}: {term.receipt_label}</>
+                            )}
+                            {term.receipt_label && branchName && " · "}
+                            {branchName && (
+                              <>{t("connTerminalsBranchLabel") || "Branch"}: {branchName}</>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => isOpen ? setOpenTerminalId(null) : openTerminalDropdown(term.id)}
+                          disabled={isBusy}
+                          className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-200 disabled:opacity-50"
+                        >
+                          {isBusy
+                            ? (t("connTerminalsSaving") || "Saving…")
+                            : (t("connTerminalsChange") || "Change")}
+                          <Icon name="ChevronDown" size={12} strokeWidth={2} />
+                        </button>
+                        {isLinked && (
+                          <button
+                            type="button"
+                            onClick={() => unlinkTerminalProvider(term.id)}
+                            disabled={isBusy}
+                            className="text-xs text-gray-600 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 disabled:opacity-50"
+                          >
+                            {isBusy
+                              ? (t("connTerminalsUnlinking") || "Unlinking…")
+                              : (t("connTerminalsUnlink") || "Unlink")}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {/* Dropdown — rendered inline below the row so the
+                        18-provider list doesn't need a portal. Lazy-
+                        loads catalog on first open per #238 spec. */}
+                    {isOpen && (
+                      <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+                        {catalogLoading && providerCatalog === null ? (
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            {t("connTerminalsSaving") || "Saving…"}
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <select
+                              value={term.provider_id || ""}
+                              onChange={(e) =>
+                                linkTerminalProvider(term.id, e.target.value || null)
+                              }
+                              disabled={isBusy}
+                              className="flex-1 min-w-0 text-xs px-2 py-1.5 rounded-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 disabled:opacity-50"
+                              aria-label={t("connTerminalsSelectPlaceholder") || "— Select provider —"}
+                            >
+                              <option value="">
+                                {t("connTerminalsUnsetOption") || "(unset — clear link)"}
+                              </option>
+                              {(providerCatalog || []).map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.display_name}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => setOpenTerminalId(null)}
+                              className="text-xs text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
+                            >
+                              {t("connTerminalsCancel") || "Cancel"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
