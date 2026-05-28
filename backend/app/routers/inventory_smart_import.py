@@ -460,7 +460,7 @@ def _promote_smart_scan_to_draft(
         # Match the /file image path tag — the source for these line
         # items WAS the inventory_ocr primary, just run in a different
         # router (smart_scan instead of inventory_smart_import).
-        "model_used": "claude-opus-4-7",
+        "model_used": "claude-sonnet-4-5",
     }
 
     sha = _smart_scan_payload_sha(payload)
@@ -724,7 +724,7 @@ async def import_file(
                 overall = (inv_result.get("confidence") or {}).get("overall")
                 extractor_meta = {
                     "confidence": overall,
-                    "model_used": "claude-opus-4-7",  # default; inv_ocr overrides via env
+                    "model_used": "claude-sonnet-4-5",  # default; inv_ocr overrides via env
                 }
             else:
                 # ── Fallback: existing generic extract_image ─────────────

@@ -414,11 +414,13 @@ def extract_receipt_data(image_path: str, *, currency_hint: str = "DKK") -> dict
         return None
 
     # ── Model + system prompt ────────────────────────────────────────
-    # Default to claude-opus-4-7 — the most capable Anthropic model —
-    # for the 90%+ accuracy target on noisy receipt photos. Env override
-    # via AI_MODEL_RECEIPT_OCR lets Manoj swap without a code deploy
-    # if cost ever bites (Opus is ~5x Sonnet pricing per token).
-    model = os.environ.get("AI_MODEL_RECEIPT_OCR", "").strip() or "claude-opus-4-7"
+    # claude-sonnet-4-5 — the production Sonnet 4.5 vision model. Was
+    # briefly switched to claude-opus-4-7 on 2026-05-28 for a 90%+
+    # accuracy push, but that model identifier returned 404 from
+    # Anthropic (likely hallucinated by the suggesting agent). Reverted
+    # same day. Env override AI_MODEL_RECEIPT_OCR lets the operator
+    # try a different model without a redeploy when one is available.
+    model = os.environ.get("AI_MODEL_RECEIPT_OCR", "").strip() or "claude-sonnet-4-5"
 
     system_prompt = _build_system_prompt(currency_hint=currency_hint or "DKK")
 
@@ -1008,10 +1010,10 @@ def extract_z_report_data(image_path: str) -> dict | None:
         return None
 
     # ── Model + system prompt ────────────────────────────────────────
-    # Opus 4.7 — same logic as receipt OCR. Z-reports are noisy thermal
-    # prints; the highest-capability model is justified given this feeds
-    # the accountant-grade MOMS filing PDF.
-    model = os.environ.get("AI_MODEL_ZREPORT_OCR", "").strip() or "claude-opus-4-7"
+    # claude-sonnet-4-5 — reverted from claude-opus-4-7 (which was 404).
+    # Z-reports are still served by Sonnet 4.5, the production vision
+    # model. See AI_MODEL_RECEIPT_OCR comment above for the full story.
+    model = os.environ.get("AI_MODEL_ZREPORT_OCR", "").strip() or "claude-sonnet-4-5"
 
     # ── Call Claude ──────────────────────────────────────────────────
     # System prompt + tool schema cached (ephemeral). Z-reports are big

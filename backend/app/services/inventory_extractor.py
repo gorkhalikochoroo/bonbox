@@ -435,7 +435,7 @@ def _image_tool_schema() -> dict:
 def extract_image(
     data: bytes,
     *,
-    model: str = "claude-opus-4-7",
+    model: str = "claude-sonnet-4-5",
     max_tokens: int = 4000,
     timeout: float = 60.0,
     media_type: str = "image/jpeg",

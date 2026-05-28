@@ -586,8 +586,9 @@ def extract_inventory_data(
         Pillow-supported format including HEIC.
     model
         Override the Claude model (env: ``AI_MODEL_INVENTORY_OCR``).
-        Defaults to ``claude-opus-4-7`` — the most capable Anthropic
-        model — for 90%+ accuracy on noisy supplier-invoice photos.
+        Defaults to ``claude-sonnet-4-5`` (reverted from
+        ``claude-opus-4-7`` which 404'd — that identifier doesn't
+        exist in the Anthropic API).
     timeout
         SDK call timeout in seconds.
     max_tokens
@@ -652,7 +653,7 @@ def extract_inventory_data(
     effective_model = (
         (model or "").strip()
         or os.environ.get("AI_MODEL_INVENTORY_OCR", "").strip()
-        or "claude-opus-4-7"
+        or "claude-sonnet-4-5"
     )
 
     # ── Call Claude — tool-use forces structured output ──
