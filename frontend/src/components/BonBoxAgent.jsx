@@ -176,12 +176,46 @@ export default function BonBoxAgent() {
       const baseUrl =
         import.meta.env.VITE_API_URL || "http://localhost:8000/api";
 
+      // Read the CSRF cookie the same way services/api.js does. Web
+      // sessions authenticate via the HttpOnly `bonbox_session` cookie
+      // and MUST echo `bonbox_csrf` back on state-changing requests; if
+      // we don't include it, the backend rejects the cookie-auth with
+      // 401/403 even though the user is "logged in". Bearer tokens are
+      // only present for native Capacitor shells / iOS — on web,
+      // localStorage.token is usually null.
+      let csrfToken = "";
+      try {
+        const prefix = encodeURIComponent("bonbox_csrf") + "=";
+        for (const part of document.cookie.split("; ")) {
+          if (part.startsWith(prefix)) {
+            csrfToken = decodeURIComponent(part.slice(prefix.length));
+            break;
+          }
+        }
+      } catch {
+        /* document.cookie blocked — request will 401 if needed and the
+           catch block surfaces it. */
+      }
+
       try {
         const res = await fetch(`${baseUrl}/agent/chat`, {
           method: "POST",
+          // CRITICAL: web users authenticate via the bonbox_session
+          // cookie, not the Bearer token. Without credentials:"include"
+          // the cookie isn't sent cross-origin and the endpoint 401s
+          // with "Invalid or expired token". Native shells still pass
+          // the bearer via Authorization below.
+          credentials: "include",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
+            // Only attach the Bearer header when we actually have a
+            // token — otherwise we'd send "Bearer null" which the
+            // backend treats as invalid auth and rejects even when the
+            // cookie session would have authenticated.
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            // Echo the CSRF cookie back on state-changing requests so
+            // the backend's cookie-auth path doesn't reject us.
+            ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
           },
           body: JSON.stringify({
             message: userMsg,
@@ -598,19 +632,25 @@ export default function BonBoxAgent() {
         </button>
       )}
 
-      {/* ============== CHAT PANEL ============== */}
+      {/* ============== CHAT PANEL ==============
+          Compact floating panel — doesn't take the full mobile viewport
+          anymore. Sits above the bottom nav bar, leaves a peek of the
+          page above so the owner sees BOTH the chat and their data.
+          Per Manoj's ask "we can make a ai chat small" (2026-05-28). */}
       {isOpen && (
         <div
           className="
             fixed z-[9999]
-            bottom-20 md:bottom-6 right-6
-            sm:w-[420px] sm:h-[620px]
-            max-sm:inset-0 max-sm:bottom-0 max-sm:right-0
+            right-3 sm:right-6
+            bottom-20 sm:bottom-6
+            w-[calc(100vw-1.5rem)] sm:w-[400px]
+            max-w-[400px]
+            h-[min(560px,calc(100vh-7rem))] sm:h-[600px]
             flex flex-col
-            rounded-xl max-sm:rounded-none
+            rounded-2xl
             overflow-hidden
             border border-white/[0.08]
-            shadow-sm shadow-black/40
+            shadow-2xl shadow-black/40
           "
           style={{
             background:
