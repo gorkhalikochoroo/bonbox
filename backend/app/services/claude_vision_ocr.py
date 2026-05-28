@@ -725,6 +725,33 @@ _Z_REPORT_EXTRACTION_TOOL = {
                     "Keep under 300 chars."
                 ),
             },
+            # ─── POS auto-detect — Commit 2 (2026-05-28) ───────────────
+            #
+            # Raw header/footer text. The downstream deterministic matcher
+            # (services/terminal_provider_detector.py) compares these
+            # against the global terminal_providers catalog to identify
+            # which acquirer (Nets, Worldline, BS PAYCO, MobilePay, ...)
+            # printed this receipt. NOT another LLM call — the model
+            # already reads the image so these two extra fields are free.
+            "payment_terminal_header": {
+                "type": ["string", "null"],
+                "description": (
+                    "Top 1-3 lines of receipt header text including any "
+                    "payment-provider brand name visible (Nets Denmark "
+                    "A/S, Worldline, BS PAYCO, MobilePay, SumUp, etc.). "
+                    "Raw verbatim — no translation or normalization. "
+                    "Null when no header text is legible."
+                ),
+            },
+            "payment_terminal_footer": {
+                "type": ["string", "null"],
+                "description": (
+                    "Bottom 1-3 lines of receipt footer text including "
+                    "any payment-provider brand name. Often where "
+                    "'Powered by Nets' or 'Verifone DK A/S' appears. "
+                    "Raw verbatim. Null if no footer text is legible."
+                ),
+            },
         },
     },
 }
@@ -756,7 +783,12 @@ _Z_REPORT_SYSTEM_PROMPT = (
     "  • Confidence is YOUR OWN self-reported uncertainty per section, "
     "0.0 (no signal) to 1.0 (crystal clear). Low confidence on a hard "
     "kasserapport is far more useful than fake high confidence.\n"
-    "  • Anything ambiguous goes in the notes field — do not silence it."
+    "  • Anything ambiguous goes in the notes field — do not silence it.\n"
+    "  • ALSO emit payment_terminal_header and payment_terminal_footer "
+    "when visible — top/bottom 1-3 lines of receipt text VERBATIM "
+    "(including the payment-provider brand name like 'Nets Denmark A/S', "
+    "'Verifone DK', 'Powered by Nets', 'SumUp'). These feed the POS "
+    "auto-detect matcher downstream; do not translate or normalize."
 )
 
 
@@ -917,6 +949,17 @@ def _validate_z_report_extraction(data: Any) -> dict | None:
     # notes
     notes = data.get("notes")
     out["notes"] = notes.strip()[:500] if isinstance(notes, str) and notes.strip() else None
+
+    # POS auto-detect — Commit 2: pass raw header/footer text through so
+    # the downstream keyword matcher (terminal_provider_detector.py) can
+    # score against the provider catalog. Cap at 500 chars each as a
+    # cheap defense against a runaway model dump filling memory.
+    for _hf in ("payment_terminal_header", "payment_terminal_footer"):
+        raw_hf = data.get(_hf)
+        if isinstance(raw_hf, str) and raw_hf.strip():
+            out[_hf] = raw_hf.strip()[:500]
+        else:
+            out[_hf] = None
 
     out["_provider"] = "claude_z_report"
     return out

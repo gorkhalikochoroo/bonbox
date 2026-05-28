@@ -78,7 +78,7 @@ Image.MAX_IMAGE_PIXELS = 90_000_000
 # _FORMAT_SYSTEM, _EXTRACTOR_SYSTEM_GENERIC) or the tool schemas change
 # materially. Stored on every extraction record so the admin training
 # review can correlate "errors increased after this prompt revision".
-PROMPT_VERSION = "kasserapport-2026-05-06-v1"
+PROMPT_VERSION = "kasserapport-2026-05-28-v1"
 
 # ─── Models — falls back to project default if env var not set ─────────────
 # Sonnet floor + Opus extractor (2026-05-28 — Manoj target: 90%+ OCR
@@ -417,6 +417,7 @@ CRITICAL DOMAIN RULES:
 10. "Surcharge" is a separate fee line, often negative (paid out by house).
 11. Moms 25% is Danish VAT. total_incl_moms = subtotal_excl_moms + moms_amount.
 12. Danish numbers use comma decimal: "8.477,20" = 8477.20. Periods are thousand separators.
+13. ALSO emit payment_terminal_header and payment_terminal_footer when visible — top/bottom 1-3 lines of receipt text VERBATIM (including the payment-provider brand name like "Nets Denmark A/S", "Verifone DK", "Powered by Nets", "SumUp"). These feed the POS auto-detect matcher downstream; do not translate or normalize them.
 
 EXAMPLE — Oasis, snippet from a real Restaurant Abigail close:
   Subtotal: 8.477,20
@@ -560,6 +561,31 @@ _EXTRACTOR_TOOL = {
                 "type": "array",
                 "items": {"type": "string"},
                 "description": "Dot-paths of fields the extractor wasn't sure about, e.g. ['revenue.by_category.wine', 'servers[1].cash']",
+            },
+            # ─── POS auto-detect — Commit 2 (2026-05-28) ───────────────
+            #
+            # The model already reads the whole image so capturing these
+            # two raw text fields is free. They feed the deterministic
+            # provider keyword matcher in services/terminal_provider_detector.py
+            # — NOT another LLM call. Optional: omit if not visible.
+            "payment_terminal_header": {
+                "type": ["string", "null"],
+                "description": (
+                    "Top 1-3 lines of the receipt header text including "
+                    "any payment-provider brand name visible (Nets, "
+                    "Worldline, BS PAYCO, MobilePay, SumUp, etc.). "
+                    "Raw verbatim — do not translate or normalize. Null "
+                    "if no header text was legible."
+                ),
+            },
+            "payment_terminal_footer": {
+                "type": ["string", "null"],
+                "description": (
+                    "Bottom 1-3 lines of the receipt footer text "
+                    "including any payment-provider brand name. Often "
+                    "where 'Powered by Nets' / 'Verifone DK A/S' / etc. "
+                    "appears. Raw verbatim. Null if no footer text."
+                ),
             },
         },
     },

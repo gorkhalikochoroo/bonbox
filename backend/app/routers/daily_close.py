@@ -37,6 +37,8 @@ from app.models.sale import Sale
 from app.models.expense import Expense, ExpenseCategory
 from app.models.cashbook import CashTransaction
 from app.models.business_profile import BusinessProfile
+from app.models.terminal import Terminal
+from app.models.kasserapport import KasserapportExtraction
 from app.schemas.daily_close import DailyCloseCreate, DailyCloseResponse, DailyCloseUnlock
 from app.services.auth import get_current_user
 from app.services.billing import effective_plan, get_cap, has_feature, record_feature_skip
@@ -1579,6 +1581,159 @@ async def scan_z_report(
             "per_clerk_notes": clerk_notes,
             "business_date": parsed.get("business_date"),
         }
+
+    # ─── POS terminal auto-detect — Commit 2 (2026-05-28) ────────────
+    #
+    # Layered defense:
+    #   L4 fail-soft: the entire detection block is wrapped in try/except.
+    #     Detection / persistence / silent-link failure NEVER blocks the
+    #     close ritual — the owner gets the prefill response either way.
+    #   L7 audit: terminal_provider_detected + terminal_provider_auto_linked
+    #     events both written via audit_service.record.
+    #   L8 graceful: detect_provider returns None on catalog hiccup / no
+    #     match; we just skip the chip + skip the silent link.
+    #
+    # The detection block also persists the scan-level extraction row.
+    # This is the first time /scan-report writes a KasserapportExtraction
+    # row directly (the /api/kasserapport endpoint also writes one, but
+    # /scan-report previously never did). We log the detection result
+    # whether or not detection succeeded, so the admin training review
+    # has a row to compare against owner corrections in Commit 3.
+    parsed["detected_provider"] = None
+    try:
+        from app.services.terminal_provider_detector import detect_provider
+
+        header_text = parsed.get("payment_terminal_header") or ""
+        footer_text = parsed.get("payment_terminal_footer") or ""
+        detection = detect_provider(
+            db=db,
+            header_text=header_text,
+            footer_text=footer_text,
+        )
+
+        # Persist scan-level row regardless of detection outcome —
+        # gives the admin review history coverage even on misses.
+        try:
+            extraction_row = KasserapportExtraction(
+                id=uuid.uuid4(),
+                user_id=user.id,
+                image_url=image_url,
+                document_type=parsed.get("doc_type") or "unknown",
+                pos_system="unknown",
+                extracted_json={
+                    "payment_terminal_header": header_text or None,
+                    "payment_terminal_footer": footer_text or None,
+                },
+                manual_review_needed=False,
+                detected_provider_slug=detection["slug"] if detection else None,
+                detected_provider_confidence=(
+                    detection["confidence"] if detection else None
+                ),
+            )
+            db.add(extraction_row)
+            db.flush()
+        except Exception as e:  # noqa: BLE001
+            # Persistence failure must NOT block detection visibility —
+            # the owner still gets the chip in the response, we just
+            # lose the audit-history row for this scan.
+            logger.warning(
+                "scan-report: extraction-row persist failed: %s", e,
+            )
+            db.rollback()
+            extraction_row = None
+
+        unlinked_count = 0
+        if detection:
+            # L7 audit — we detected something. Log it even at low
+            # confidence; the admin review needs the full picture, not
+            # just the high-confidence wins.
+            audit_service.record(
+                db=db,
+                user=user,
+                action="terminal_provider_detected",
+                entity_type="kasserapport_extraction",
+                entity_id=extraction_row.id if extraction_row else None,
+                after={
+                    "slug": detection["slug"],
+                    "confidence": round(float(detection["confidence"]), 2),
+                },
+                ip_address=request.client.host if request.client else None,
+            )
+
+            # Silent link — only when confidence is high enough AND the
+            # ambiguity is gone (exactly one unlinked terminal). Two
+            # unlinked terminals = we can't pick automatically; Commit 3
+            # adds the owner confirm UX for that case.
+            if float(detection["confidence"]) >= 0.85:
+                unlinked = (
+                    db.query(Terminal)
+                    .filter(
+                        Terminal.user_id == user.id,
+                        Terminal.is_deleted.isnot(True),
+                        Terminal.provider_id.is_(None),
+                    )
+                    .all()
+                )
+                unlinked_count = len(unlinked)
+                if unlinked_count == 1:
+                    target = unlinked[0]
+                    from decimal import Decimal as _Decimal
+                    target.provider_id = detection["provider_id"]
+                    target.provider_confidence = _Decimal(
+                        f"{float(detection['confidence']):.2f}"
+                    )
+                    audit_service.record(
+                        db=db,
+                        user=user,
+                        action="terminal_provider_auto_linked",
+                        entity_type="terminal",
+                        entity_id=target.id,
+                        after={
+                            "provider_slug": detection["slug"],
+                            "confidence": round(
+                                float(detection["confidence"]), 2,
+                            ),
+                        },
+                        ip_address=(
+                            request.client.host if request.client else None
+                        ),
+                    )
+
+            # Commit the audit + extraction + (possibly) the linked
+            # Terminal mutation in one atomic write. Wrap commit too so
+            # a DB hiccup at the very end can't crash the close ritual.
+            try:
+                db.commit()
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "scan-report: detection commit failed: %s", e,
+                )
+                db.rollback()
+
+            # Chip data — only surfaced when confidence is high enough
+            # to be actionable. < 0.60 returns null detection so the
+            # frontend skips the chip entirely.
+            if float(detection["confidence"]) >= 0.60:
+                parsed["detected_provider"] = {
+                    "slug": detection["slug"],
+                    "display_name": detection["display_name"],
+                    "confidence": round(float(detection["confidence"]), 2),
+                    "auto_linked": (
+                        float(detection["confidence"]) >= 0.85
+                        and unlinked_count == 1
+                    ),
+                }
+    except Exception as e:  # noqa: BLE001
+        # L4 fail-soft: any failure in the detection pathway gets logged
+        # but never blocks the close. The owner still sees their OCR'd
+        # prefill — they just don't get the chip this scan.
+        logger.warning(
+            "scan-report: provider auto-detect failed (non-fatal): %s", e,
+        )
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
 
     return parsed
 

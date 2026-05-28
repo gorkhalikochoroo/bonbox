@@ -74,6 +74,9 @@ import {
   // Eye round out the role catalog (Crown=owner, ClipboardList=manager
   // already imported, Wallet=cashier already imported, Eye=viewer).
   Coffee, UtensilsCrossed, Beer, Crown, Eye,
+  // POS terminal auto-detect (Commit 2, 2026-05-28) — Cpu conveys
+  // "device identified" on the Daily Close detected-terminal chip.
+  Cpu,
   // Misc / fallback
   Circle, ChevronDown,
 } from "lucide-react";
@@ -127,6 +130,8 @@ const ICONS = {
   Copy, AlertCircle,
   // DK i18n leak fix — Onboarding branch-type tiles + Team role badges
   Coffee, UtensilsCrossed, Beer, Crown, Eye,
+  // POS terminal auto-detect chip (Commit 2)
+  Cpu,
   // Utility
   ChevronDown,
 };

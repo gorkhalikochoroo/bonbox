@@ -1537,6 +1537,20 @@ _migrations = [
     "ALTER TABLE terminals ADD COLUMN IF NOT EXISTS provider_confidence NUMERIC(3,2)",
     "ALTER TABLE terminals ADD COLUMN IF NOT EXISTS provider_locked_by_owner BOOLEAN NOT NULL DEFAULT false",
     "CREATE INDEX IF NOT EXISTS ix_terminals_provider_id ON terminals (provider_id)",
+
+    # Migration 020 (2026-05-28): POS terminal auto-detect — Commit 2.
+    # Per-scan detection columns on kasserapport_extractions. Populated
+    # by the keyword-matcher in services/terminal_provider_detector.py
+    # when /daily-close/scan-report runs the OCR pipeline. Distinct from
+    # the per-Terminal provider_id columns above — these are PER-SCAN
+    # (what we detected on THIS upload), the Terminal row stores the
+    # current linked provider (silent-linked when confidence >=0.85 AND
+    # the owner has exactly one unlinked terminal). Keeping them apart
+    # gives the admin training review honest "detected vs confirmed"
+    # signal without trusting Terminal as the ground truth.
+    "ALTER TABLE kasserapport_extractions ADD COLUMN IF NOT EXISTS detected_provider_slug VARCHAR(40)",
+    "ALTER TABLE kasserapport_extractions ADD COLUMN IF NOT EXISTS detected_provider_confidence NUMERIC(3,2)",
+    "CREATE INDEX IF NOT EXISTS ix_kasserapport_extractions_detected_provider_slug ON kasserapport_extractions (detected_provider_slug)",
 ]
 
 

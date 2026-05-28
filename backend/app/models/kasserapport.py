@@ -21,6 +21,7 @@ RLS / app-layer auth keeps user examples private.
 """
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -79,6 +80,24 @@ class KasserapportExtraction(Base):
     # rates ("did errors spike after the v2 prompt change?").
     image_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     prompt_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
+
+    # ─── POS auto-detect — Commit 2 (2026-05-28) ──────────────────────
+    #
+    # Per-scan detection result. NULL when:
+    #   • the scan predates the auto-detect feature, OR
+    #   • detection produced zero matches against the provider catalog.
+    # When non-null, the values reflect THIS scan's reading — the linked
+    # Terminal row also stores the same provider_id + provider_confidence
+    # ONLY when the silent-link threshold (>=0.85, exactly one unlinked
+    # terminal) was met during this scan. Keeping the scan-level columns
+    # separate lets the admin training review compare "what we detected"
+    # vs. "what the owner ultimately confirmed" without trusting Terminal.
+    detected_provider_slug: Mapped[str | None] = mapped_column(
+        String(40), nullable=True, index=True
+    )
+    detected_provider_confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(3, 2), nullable=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, index=True)
     committed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

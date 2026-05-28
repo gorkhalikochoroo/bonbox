@@ -206,6 +206,12 @@ const translations = {
     taxReconBadgeMismatch: "Mismatch",
     taxReconBadgeNoCloses: "No closes",
     taxReconBadgeCombined: "Combined",
+    // POS terminal auto-detect chip — Daily Close (Commit 2, 2026-05-28).
+    // Brand names render verbatim (Nets, Worldline, MobilePay) per the DK
+    // terminology lock; "revisor" stays Danish elsewhere in EN strings.
+    detectedTerminalTitle: "Detected terminal",
+    detectedTerminalAutoLinked: "Auto-linked to your terminal",
+    detectedTerminalConfirmHint: "We think this is your {provider} terminal. Confirm in Settings → Terminals.",
     taxVarianceTitle: "Per-date variance found",
     taxVarianceSubtitle: "Daily Close and POS sales disagree — reconcile before filing (Bogføringsloven §9 stk. 2)",
     taxVarianceClose: "Close",
@@ -3752,6 +3758,11 @@ const translations = {
     taxReconBadgeMismatch: "Uoverensstemmelse",
     taxReconBadgeNoCloses: "Ingen lukninger",
     taxReconBadgeCombined: "Samlet",
+    // POS terminal auto-detect chip — kasserapport / revisor / MOMS stay
+    // Danish per the DK terminology lock; brand names render verbatim.
+    detectedTerminalTitle: "Registreret terminal",
+    detectedTerminalAutoLinked: "Tilknyttet din terminal automatisk",
+    detectedTerminalConfirmHint: "Vi mener dette er din {provider}-terminal. Bekræft under Indstillinger → Terminaler.",
     taxVarianceTitle: "Afvigelse pr. dato fundet",
     taxVarianceSubtitle: "Kasserapport og POS-salg afviger — afstem før indberetning (Bogføringsloven §9 stk. 2)",
     taxVarianceClose: "Kasserapport",

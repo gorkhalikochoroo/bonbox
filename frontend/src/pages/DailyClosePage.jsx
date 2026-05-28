@@ -647,6 +647,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     if (incoming.cash_counted_total != null) merged.cash_counted_total = incoming.cash_counted_total;
     if (incoming.per_clerk) merged.per_clerk = incoming.per_clerk;
     if (incoming.doc_type) merged.doc_type = incoming.doc_type;
+    // POS terminal auto-detect (Commit 2) — last scan wins. A re-scan
+    // with a clearer header may flip the detection from null to a real
+    // provider chip, so we always overwrite (including with null).
+    if ("detected_provider" in incoming) {
+      merged.detected_provider = incoming.detected_provider;
+    }
     merged.raw_text = ((existing.raw_text || "") + "\n---\n" + (incoming.raw_text || "")).slice(0, 2000);
     merged.ocr_available = true;
     const allVals = [...Object.values(merged.revenue || {}), ...Object.values(merged.payments || {}), merged.tips, merged.moms_total, merged.revenue_total];
@@ -1121,6 +1127,40 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {/* ─── SCAN RESULT CARD ─── */}
         {scanMode === "result" && scanResult && (
           <div className="space-y-5">
+            {/* ─── POS terminal auto-detect chip — Commit 2 ───────────
+                Renders when the backend's deterministic provider matcher
+                identified the acquirer (Nets, Worldline, MobilePay, ...)
+                from the receipt header/footer. Read-only in Commit 2 —
+                Commit 3 adds the owner confirm/correct buttons.
+                  • auto_linked  → subtle gray, "linked automatically"
+                  • 0.60-0.85    → amber, "we think this is your X
+                                    terminal. Confirm in Settings."
+                  • < 0.60       → backend returns null, no chip. */}
+            {scanResult.detected_provider && (() => {
+              const dp = scanResult.detected_provider;
+              const autoLinked = !!dp.auto_linked;
+              const styleCls = autoLinked
+                ? "rounded-xl p-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/40 text-sm text-gray-900 dark:text-gray-100"
+                : "rounded-xl p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-200";
+              return (
+                <div className={styleCls}>
+                  <div className="font-medium flex items-center gap-1.5">
+                    <Icon name="Cpu" size={16} />
+                    {t("detectedTerminalTitle")}: {dp.display_name}
+                  </div>
+                  {autoLinked && (
+                    <div className="text-xs opacity-80 mt-0.5">
+                      {t("detectedTerminalAutoLinked")}
+                    </div>
+                  )}
+                  {!autoLinked && (
+                    <div className="text-xs opacity-90 mt-0.5">
+                      {t("detectedTerminalConfirmHint", { provider: dp.display_name })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             {/* Smart Scan source banner — appears when the kasserapport
                 was classified + prefilled by SmartScanModal (instead of
                 uploaded directly here). Tells the owner why the form

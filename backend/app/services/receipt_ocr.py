@@ -517,6 +517,12 @@ def _z_report_to_legacy_shape(z: dict) -> dict:
         "surcharge": z.get("surcharge"),
         "kasse_dif": z.get("kasse_dif"),
         "moms_rate": z.get("moms_rate"),
+        # POS auto-detect (Commit 2) — surface the raw header/footer text
+        # so the /scan-report endpoint can feed them to the deterministic
+        # provider keyword matcher. Always present on the returned dict
+        # (may be None when the model didn't read legible header/footer).
+        "payment_terminal_header": z.get("payment_terminal_header"),
+        "payment_terminal_footer": z.get("payment_terminal_footer"),
     }
 
 
