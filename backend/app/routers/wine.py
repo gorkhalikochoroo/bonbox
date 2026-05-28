@@ -798,7 +798,7 @@ async def scan_bottle_label(
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-sonnet-4-20250514",
+                "model": "claude-sonnet-4-5",
                 "max_tokens": 1200,  # bumped from 800 — long labels were truncating mid-JSON
                 # Lower temp for deterministic, factual extraction (no creative guesses)
                 "temperature": 0.1,
@@ -1023,7 +1023,7 @@ def ai_sommelier(
             )
 
             resp = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model="claude-sonnet-4-5",
                 max_tokens=600,
                 messages=[{
                     "role": "user",

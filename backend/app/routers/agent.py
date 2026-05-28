@@ -868,7 +868,7 @@ async def _claude_chat(req: ChatRequest, db, user):
         try:
             while True:
                 response = client.messages.create(
-                    model="claude-sonnet-4-20250514",
+                    model="claude-sonnet-4-5",
                     max_tokens=1024,
                     system=system_prompt,
                     tools=AGENT_TOOLS,
@@ -931,7 +931,7 @@ async def _claude_chat(req: ChatRequest, db, user):
                     detail=json.dumps({
                         "input": _total_input_tokens,
                         "output": _total_output_tokens,
-                        "model": "claude-sonnet-4-20250514",
+                        "model": "claude-sonnet-4-5",
                     }),
                 )
                 db.add(ev)

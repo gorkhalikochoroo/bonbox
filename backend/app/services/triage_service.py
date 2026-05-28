@@ -208,7 +208,7 @@ def _try_llm_triage(group_summary: dict) -> Optional[_TriageOutput]:
         return None
 
     client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-    model = getattr(settings, "AI_MODEL_TRIAGE", "claude-sonnet-4-20250514")
+    model = getattr(settings, "AI_MODEL_TRIAGE", "claude-sonnet-4-5")
 
     try:
         resp = client.messages.create(

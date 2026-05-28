@@ -83,7 +83,11 @@ PROMPT_VERSION = "kasserapport-2026-05-06-v1"
 # ─── Models — falls back to project default if env var not set ─────────────
 _DEFAULT_MODEL_CLASSIFIER = "claude-haiku-4-5"
 _DEFAULT_MODEL_FORMAT     = "claude-haiku-4-5"
-_DEFAULT_MODEL_EXTRACTOR  = "claude-sonnet-4-20250514"
+# Kasserapport extractor — accountant-grade artifact (Bogføringsloven §10
+# liability, ships into the revisor-facing PDF). Sonnet 4.5 is the
+# baseline; operators can set AI_MODEL_KASSE_EXTRACTOR=claude-opus-4-7
+# in Render for the smartest available model on Pro deployments.
+_DEFAULT_MODEL_EXTRACTOR  = "claude-sonnet-4-5"
 
 # Soft caps — cheap defense against runaway costs. Caller may override.
 MAX_INPUT_IMAGE_SIDE_PX = 2200   # resize huge phone photos before upload

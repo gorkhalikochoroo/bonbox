@@ -1191,7 +1191,7 @@ def _try_llm_polish(
         # Per-user addendum — NOT cached (changes per user). Sent fresh.
         system_blocks.append({"type": "text", "text": addendum})
 
-    model = getattr(settings, "AI_MODEL_DAILY_BRIEF", "claude-sonnet-4-20250514")
+    model = getattr(settings, "AI_MODEL_DAILY_BRIEF", "claude-sonnet-4-5")
 
     try:
         resp = client.messages.create(

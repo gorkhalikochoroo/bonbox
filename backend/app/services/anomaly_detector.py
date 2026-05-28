@@ -547,7 +547,7 @@ def _try_polish(candidates: list[_Candidate]) -> dict[int, _Candidate] | None:
         return None
 
     client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-    model = getattr(settings, "AI_MODEL_ANOMALY", "claude-sonnet-4-20250514")
+    model = getattr(settings, "AI_MODEL_ANOMALY", "claude-sonnet-4-5")
 
     payload = {
         "alerts": [
