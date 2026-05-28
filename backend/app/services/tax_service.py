@@ -270,34 +270,61 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
     """
     # ─── Stream 2 (DailyClose) — pull first so we can dedup Stream 1
     #
-    # Per-date precedence: a confirmed close on date D wins over
-    # Sale rows on D. Drafts are excluded — they're not yet legally
-    # recognized as a filing entry (Bogføringsloven §10 expects an
-    # immutable record, which a draft isn't).
+    # Pull ALL closes in the window (confirmed + drafts), partition in
+    # Python: confirmed rows feed the headline math (Bogføringsloven §10
+    # requires an immutable record, so only confirmed counts toward the
+    # filing). Drafts + manual-mode counts surface separately for the
+    # reconciliation card.
+    #
+    # Refactored 2026-05-28 to subsume the old _calc_daily_close_vat
+    # helper — single query, single iteration, same numbers. Audit a26d37c
+    # → A4: the standalone helper was producing the same totals by
+    # construction, with drift risk if either filter changed.
     close_rows = (
-        db.query(DailyClose.date, DailyClose.revenue_total, DailyClose.moms_total)
+        db.query(
+            DailyClose.date,
+            DailyClose.revenue_total,
+            DailyClose.moms_total,
+            DailyClose.revenue_ex_moms,
+            DailyClose.status,
+            DailyClose.moms_mode,
+        )
         .filter(
             DailyClose.user_id == user_id,
             DailyClose.date >= start_date,
             DailyClose.date < end_date,
             DailyClose.is_deleted.isnot(True),
-            DailyClose.status == "confirmed",
         )
         .all()
     )
-    close_dates = {d for d, _, _ in close_rows}
 
+    close_dates: set[date] = set()  # confirmed only — for Stream-1 dedup
     close_pos_revenue = 0.0
     close_pos_moms = 0.0
+    closes_confirmed_count = 0
+    closes_draft_count = 0
+    closes_manual_count = 0
+    close_revenue_ex_moms_total = 0.0
     # Track close revenue per date for Bogføringsloven §9 stk. 2 variance
     # detection below — when a close exists AND Sale rows exist on the
     # same date with materially different totals, a revisor needs to see
     # that the entries don't reconcile to source.
     close_revenue_by_date: dict[date, float] = {}
-    for d, rev, moms in close_rows:
+
+    for d, rev, moms, rev_ex, status, mode in close_rows:
+        status_norm = (status or "confirmed")
+        if status_norm != "confirmed":
+            closes_draft_count += 1
+            continue
+        closes_confirmed_count += 1
+        if (mode or "") == "manual":
+            closes_manual_count += 1
         rev_f = float(rev or 0)
         close_pos_revenue += rev_f
+        close_dates.add(d)
         close_revenue_by_date[d] = close_revenue_by_date.get(d, 0.0) + rev_f
+        if rev_ex is not None:
+            close_revenue_ex_moms_total += float(rev_ex)
         if moms is not None:
             # Explicit value (incl. explicit 0 for VAT-exempt closes)
             # — preserve owner / OCR intent. Avoids the formula
@@ -501,6 +528,13 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
         "pos_revenue_from_sales": round(pos_sale_total, 2),
         "pos_output_vat_from_closes": round(close_pos_moms, 2),
         "pos_output_vat_from_sales": round(pos_sale_vat, 2),
+        # Close population stats — subsumes the old _calc_daily_close_vat
+        # helper (dropped 2026-05-28). Same source-of-truth as the
+        # numbers above, single query, no drift risk.
+        "closes_confirmed_count": closes_confirmed_count,
+        "closes_draft_count": closes_draft_count,
+        "closes_manual_count": closes_manual_count,
+        "close_revenue_ex_moms": round(close_revenue_ex_moms_total, 2),
         "invoice_revenue": round(invoice_total_gross, 2),
         "expenses_total": round(expenses_total, 2),
         "exempt_sales": exempt_sales,
@@ -515,49 +549,19 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
     }
 
 
-def _calc_daily_close_vat(db: Session, user_id, start_date: date, end_date: date) -> dict:
-    """Sum MOMS/VAT from confirmed daily closes in a date range."""
-    closes = (
-        db.query(DailyClose)
-        .filter(
-            DailyClose.user_id == user_id,
-            DailyClose.date >= start_date,
-            DailyClose.date <= end_date,
-            DailyClose.is_deleted.isnot(True),
-        )
-        .all()
-    )
-
-    confirmed = 0
-    drafts = 0
-    total_moms = 0.0
-    total_revenue = 0.0
-    total_rev_ex = 0.0
-    manual_count = 0
-
-    for dc in closes:
-        status = getattr(dc, "status", None) or "confirmed"
-        if status == "confirmed":
-            confirmed += 1
-            if dc.moms_total is not None:
-                total_moms += float(dc.moms_total)
-            if dc.revenue_total:
-                total_revenue += float(dc.revenue_total)
-            if dc.revenue_ex_moms is not None:
-                total_rev_ex += float(dc.revenue_ex_moms)
-            if getattr(dc, "moms_mode", None) == "manual":
-                manual_count += 1
-        else:
-            drafts += 1
-
-    return {
-        "total_moms": round(total_moms, 2),
-        "total_revenue": round(total_revenue, 2),
-        "total_revenue_ex_moms": round(total_rev_ex, 2),
-        "confirmed_count": confirmed,
-        "draft_count": drafts,
-        "manual_count": manual_count,
-    }
+# `_calc_daily_close_vat` was removed 2026-05-28 — see commit log.
+# The numbers it produced (confirmed_count, draft_count, manual_count,
+# total_moms, total_revenue, total_revenue_ex_moms) are now emitted
+# directly by `_calc_vat` under these keys:
+#   closes_confirmed_count, closes_draft_count, closes_manual_count,
+#   pos_output_vat_from_closes (= total_moms),
+#   pos_revenue_from_closes  (= total_revenue),
+#   close_revenue_ex_moms    (= total_revenue_ex_moms)
+# Single query, single iteration, zero drift risk — both producers
+# applied the same filters by construction so consolidating into one
+# pass is a no-op for the math but removes the silent-drift surface
+# that audit a26d37c → A4 flagged. Per the multi-barrier doctrine,
+# fewer parallel computations of the same value = fewer places to lie.
 
 
 def _get_next_deadlines(currency: str, frequency: str | None = None,
@@ -750,10 +754,15 @@ def get_tax_overview(user: User, db: Session) -> dict:
     # back-compat but always reports 0 after this fix. Real per-date
     # variance detection (close.revenue_total vs SUM(Sale.amount) on the
     # same date) is a follow-up — flagged in CLAUDE.md.
-    dc_month = _calc_daily_close_vat(db, user.id, month_start, today)
-    dc_ytd = _calc_daily_close_vat(db, user.id, year_start, today)
+    #
+    # 2026-05-28 — dropped the parallel _calc_daily_close_vat pass; the
+    # counts + totals now ride along with current_period / ytd via the
+    # consolidated _calc_vat query. Same numbers, single source of truth
+    # (audit a26d37c → A4).
+    confirmed_count_m = int(current_period.get("closes_confirmed_count", 0))
+    confirmed_count_y = int(ytd.get("closes_confirmed_count", 0))
 
-    if dc_month["confirmed_count"] > 0:
+    if confirmed_count_m > 0:
         recon_status = "combined"
     else:
         recon_status = "no_data"
@@ -761,24 +770,18 @@ def get_tax_overview(user: User, db: Session) -> dict:
     daily_close_recon = {
         "current_month": {
             # Close-contribution to the headline (matches what _calc_vat
-            # used). Prefer the in-_calc_vat value over the standalone
-            # _calc_daily_close_vat aggregate when present — they agree by
-            # construction but the in-_calc_vat one already had the
-            # extraction formula applied for closes with null moms_total.
-            "moms_from_closes": current_period.get(
-                "pos_output_vat_from_closes", dc_month["total_moms"]
-            ),
+            # used). Single source of truth — same query that fed the
+            # headline output_vat above.
+            "moms_from_closes": current_period.get("pos_output_vat_from_closes", 0.0),
             # Sale-only contribution to the headline (Sale rows on dates
             # WITHOUT a confirmed close — closes win on shared dates so
             # there's no double-count). Faktura MOMS isn't included here
             # because faktura is a separate stream from POS reconciliation.
-            "moms_from_sales": current_period.get(
-                "pos_output_vat_from_sales", 0.0
-            ),
-            "closes_count": dc_month["confirmed_count"],
-            "drafts_count": dc_month["draft_count"],
-            "manual_count": dc_month["manual_count"],
-            "revenue_from_closes": dc_month["total_revenue"],
+            "moms_from_sales": current_period.get("pos_output_vat_from_sales", 0.0),
+            "closes_count": confirmed_count_m,
+            "drafts_count": int(current_period.get("closes_draft_count", 0)),
+            "manual_count": int(current_period.get("closes_manual_count", 0)),
+            "revenue_from_closes": current_period.get("pos_revenue_from_closes", 0.0),
             # Always 0 after the fix — kept for frontend back-compat.
             "discrepancy": 0.0,
             "discrepancy_pct": 0.0,
@@ -791,12 +794,10 @@ def get_tax_overview(user: User, db: Session) -> dict:
             "variance_warnings": current_period.get("variance_warnings", []),
         },
         "ytd": {
-            "moms_from_closes": ytd.get(
-                "pos_output_vat_from_closes", dc_ytd["total_moms"]
-            ),
+            "moms_from_closes": ytd.get("pos_output_vat_from_closes", 0.0),
             "moms_from_sales": ytd.get("pos_output_vat_from_sales", 0.0),
-            "closes_count": dc_ytd["confirmed_count"],
-            "revenue_from_closes": dc_ytd["total_revenue"],
+            "closes_count": confirmed_count_y,
+            "revenue_from_closes": ytd.get("pos_revenue_from_closes", 0.0),
             # YTD variance warnings — typically more entries; recon card
             # collapses these behind a "see all" link if > 3.
             "variance_warnings": ytd.get("variance_warnings", []),
