@@ -812,21 +812,46 @@ export default function StaffSchedulePage() {
             </p>
           </div>
         ) : (
-          <ScheduleGrid
-            staff={activeStaff}
-            weekDates={weekDates}
-            shifts={shifts}
-            getShiftForCell={getShiftForCell}
-            onCellClick={(staffId, date, existingShift) =>
-              setShiftModal({ staffId, date: toISO(date), shift: existingShift || null })
-            }
-          />
+          <>
+            {/* Desktop / tablet grid — tablets in portrait (≥ md = 768px)
+                still get the full week table since they have the width.
+                Phones in landscape at 640px deserve the mobile day-list
+                experience, hence `md:` not `sm:`. */}
+            <div className="hidden md:block">
+              <ScheduleGrid
+                staff={activeStaff}
+                weekDates={weekDates}
+                shifts={shifts}
+                getShiftForCell={getShiftForCell}
+                onCellClick={(staffId, date, existingShift) =>
+                  setShiftModal({ staffId, date: toISO(date), shift: existingShift || null })
+                }
+              />
+            </div>
+            {/* Mobile day-at-a-time list. Default day = today (within the
+                current week range). Swipe arrows + day-strip switch the
+                visible day. Same setShiftModal so the edit flow is
+                identical across viewports. */}
+            <div className="md:hidden">
+              <MobileSchedule
+                staff={activeStaff}
+                weekDates={weekDates}
+                shifts={shifts}
+                getShiftForCell={getShiftForCell}
+                currency={currency}
+                onCellClick={(staffId, date, existingShift) =>
+                  setShiftModal({ staffId, date: toISO(date), shift: existingShift || null })
+                }
+              />
+            </div>
+          </>
         )}
       </FadeIn>
 
-      {/* Bottom stats */}
+      {/* Bottom stats — hidden on mobile; MobileSchedule embeds per-day
+          stats inline above the staff list, so this would be redundant. */}
       <FadeIn delay={0.2}>
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+        <div className="hidden md:block bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex flex-wrap items-center justify-center gap-6 text-sm">
             <span className="text-gray-600 dark:text-gray-300">
               Total scheduled: <strong className="text-gray-900 dark:text-gray-100 tabular-nums">{stats.totalHours} hrs</strong>
@@ -1687,6 +1712,218 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
 /* ═══════════════════════════════════════════════════════════
    SCHEDULE GRID
    ═══════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════
+   MOBILE SCHEDULE — day-at-a-time vertical list (Staff v2, #251)
+   ═══════════════════════════════════════════════════════════
+
+   Mobile owners check the schedule walking to work / between rushes — the
+   JTBD is "who's on with me today?", not "plan the whole week". An 8-col
+   table never works on 390px. This component renders ONE day at a time
+   with a swipeable day-strip on top, per-day stats line, and a vertical
+   staff list with tap-to-edit shift cells.
+
+   Shares all state with the desktop ScheduleGrid via props (same `shifts`
+   array, same `getShiftForCell`, same `onCellClick`) so the edit flow
+   stays identical — owners can switch from phone to laptop mid-week
+   without rebuilding mental model.
+*/
+function MobileSchedule({ staff, weekDates, shifts, getShiftForCell, currency, onCellClick }) {
+  // Default to today within the current week range. If the user navigated
+  // to a different week (Previous/Next), today falls outside — pick the
+  // middle of the week (Thursday) as a sensible default.
+  const todayISO = toISO(new Date());
+  const defaultIdx = (() => {
+    const todayInWeek = weekDates.findIndex((d) => toISO(d) === todayISO);
+    return todayInWeek >= 0 ? todayInWeek : 3; // 3 = Thu
+  })();
+  const [dayIdx, setDayIdx] = useState(defaultIdx);
+
+  // Reset when weekDates changes (user clicked Previous/Next Week).
+  useEffect(() => {
+    setDayIdx(defaultIdx);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekDates[0]?.toISOString()]);
+
+  const selectedDate = weekDates[dayIdx];
+  const selectedISO = toISO(selectedDate);
+  const isSelectedToday = selectedISO === todayISO;
+
+  // Per-day stats — hours, cost, staff-on-shift count.
+  const dayStats = useMemo(() => {
+    let totalHours = 0;
+    let totalCost = 0;
+    let staffOn = 0;
+    staff.forEach((member) => {
+      const shift = getShiftForCell(member.id, selectedDate);
+      if (!shift) return;
+      const hrs = calcHours(shift.start_time, shift.end_time, shift.break_minutes || 0);
+      totalHours += hrs;
+      const rate = member.base_rate || 0;
+      totalCost += hrs * rate;
+      staffOn += 1;
+    });
+    return {
+      hours: Math.round(totalHours * 10) / 10,
+      cost: Math.round(totalCost),
+      staffOn,
+    };
+  }, [staff, selectedDate, getShiftForCell]);
+
+  const goPrev = () => setDayIdx((i) => Math.max(0, i - 1));
+  const goNext = () => setDayIdx((i) => Math.min(6, i + 1));
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+      {/* ── Day-strip: 7 pills, today/selected highlighted ── */}
+      <div className="px-3 pt-3 pb-2 border-b border-gray-100 dark:border-gray-700">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <button
+            type="button"
+            onClick={goPrev}
+            disabled={dayIdx === 0}
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
+            aria-label="Previous day"
+          >
+            ←
+          </button>
+          <div className="flex-1 text-center">
+            <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              {DAY_LABELS[dayIdx]} {selectedDate.getDate()}/{selectedDate.getMonth() + 1}
+            </div>
+            {isSelectedToday && (
+              <div className="text-[10px] uppercase tracking-wider text-emerald-600 dark:text-emerald-400 font-semibold">
+                Today
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={goNext}
+            disabled={dayIdx === 6}
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
+            aria-label="Next day"
+          >
+            →
+          </button>
+        </div>
+        {/* 7 day pills — tap to switch */}
+        <div className="grid grid-cols-7 gap-1">
+          {weekDates.map((date, i) => {
+            const iso = toISO(date);
+            const isToday = iso === todayISO;
+            const isSelected = i === dayIdx;
+            return (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setDayIdx(i)}
+                className={`flex flex-col items-center py-1.5 rounded-lg transition-colors ${
+                  isSelected
+                    ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900"
+                    : isToday
+                    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300"
+                    : "bg-gray-50 text-gray-600 dark:bg-gray-700/40 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                }`}
+                aria-pressed={isSelected}
+              >
+                <span className="text-[10px] font-medium uppercase">{DAY_LABELS[i].charAt(0)}</span>
+                <span className="text-xs font-semibold tabular-nums">{date.getDate()}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Per-day stats strip ── */}
+      <div className="px-4 py-2.5 border-b border-gray-100 dark:border-gray-700 bg-gray-50/40 dark:bg-gray-900/30">
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-gray-600 dark:text-gray-300">
+            <strong className="text-gray-900 dark:text-gray-100 tabular-nums">{dayStats.staffOn}</strong> on shift
+          </span>
+          <span className="text-gray-400 dark:text-gray-600">·</span>
+          <span className="text-gray-600 dark:text-gray-300">
+            <strong className="text-gray-900 dark:text-gray-100 tabular-nums">{dayStats.hours}h</strong>
+          </span>
+          <span className="text-gray-400 dark:text-gray-600">·</span>
+          <span className="text-gray-600 dark:text-gray-300">
+            <strong className="text-gray-900 dark:text-gray-100 tabular-nums">
+              {dayStats.cost.toLocaleString()} {currency}
+            </strong>
+          </span>
+        </div>
+      </div>
+
+      {/* ── Staff list — one row per active staff member ── */}
+      <div className="divide-y divide-gray-50 dark:divide-gray-700/50">
+        {staff.length === 0 ? (
+          <div className="p-6 text-center text-sm text-gray-500 dark:text-gray-400">
+            No active staff. Add staff members from the Manage Staff section above.
+          </div>
+        ) : (
+          staff.map((member) => {
+            const cat = ROLE_CATEGORY[member.role] || "floor";
+            const colors = ROLE_COLORS[cat];
+            const shift = getShiftForCell(member.id, selectedDate);
+            const shiftCat = shift ? (ROLE_CATEGORY[shift.role_on_shift || member.role] || cat) : cat;
+            const shiftColors = ROLE_COLORS[shiftCat];
+            const hrs = shift ? calcHours(shift.start_time, shift.end_time, shift.break_minutes || 0) : 0;
+            const isDraft = shift?.status === "draft";
+
+            return (
+              <button
+                key={member.id}
+                type="button"
+                onClick={() => onCellClick(member.id, selectedDate, shift || null)}
+                className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-750/50 transition-colors"
+                aria-label={shift ? `Edit ${member.name}'s shift` : `Add shift for ${member.name}`}
+              >
+                {/* Role dot + initials avatar */}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className={`w-2 h-2 rounded-full ${colors.dot}`} />
+                  <div className="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-700 dark:text-gray-300">
+                    {(member.name || "?").charAt(0).toUpperCase()}
+                  </div>
+                </div>
+                {/* Name + role */}
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                    {member.name}
+                  </div>
+                  <div className="text-[11px] text-gray-500 dark:text-gray-400">{member.role}</div>
+                </div>
+                {/* Shift chip OR "OFF / Add" */}
+                {shift ? (
+                  <div
+                    className={`px-2.5 py-1.5 rounded-lg border tabular-nums text-right ${shiftColors.bg} ${shiftColors.border} ${
+                      isDraft ? "border-dashed" : ""
+                    }`}
+                  >
+                    <div className={`text-xs font-semibold ${shiftColors.text}`}>
+                      {formatShiftTime(shift.start_time, shift.end_time)}
+                    </div>
+                    <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
+                      {hrs}h
+                      {isDraft && <span className="ml-1 text-amber-500 dark:text-amber-400 font-medium">· Draft</span>}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-gray-400 dark:text-gray-500 flex items-center gap-1">
+                    <span>OFF</span>
+                    <span className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-400 font-bold">
+                      +
+                    </span>
+                  </div>
+                )}
+              </button>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+
 function ScheduleGrid({ staff, weekDates, shifts, getShiftForCell, onCellClick }) {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
