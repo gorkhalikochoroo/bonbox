@@ -1,7 +1,7 @@
 // Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -129,6 +129,22 @@ function calcHours(startTime, endTime, breakMinutes = 0) {
   return Math.max(0, totalMinutes / 60);
 }
 
+/** True if a shift row belongs to the given staff id (tolerates either
+    field name the API has used: staff_id or staff_member_id). */
+function shiftBelongsTo(s, id) {
+  return !!s && !!id && (s.staff_id === id || s.staff_member_id === id);
+}
+
+/** Most-recent (latest date) shift for a staff id within a shift list —
+    used to pre-fill the shift modal so owners don't re-type each time. */
+function mostRecentShiftFor(shiftList, id) {
+  if (!id) return null;
+  const mine = (shiftList || [])
+    .filter((s) => shiftBelongsTo(s, id) && s.start_time && s.end_time)
+    .sort((a, b) => (String(a.date) < String(b.date) ? 1 : -1)); // latest first
+  return mine[0] || null;
+}
+
 /* ═══════════════════════════════════════════════════════════
    MAIN PAGE
    ═══════════════════════════════════════════════════════════ */
@@ -153,10 +169,23 @@ export default function StaffSchedulePage() {
 
   // Shift modal
   const [shiftModal, setShiftModal] = useState(null); // { staffId, date, shift? }
+  // Smart-default memory: the last shift the owner saved this session
+  // ({ start, end, break_minutes, role }). When they open "Add Shift"
+  // again for a staff with no prior shift this week, the modal pre-fills
+  // from this so a run of similar shifts is 1 tap, not 5. Cleared on reload.
+  const [lastShiftTemplate, setLastShiftTemplate] = useState(null);
 
   // Action states
   const [copying, setCopying] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  // Pre-publish confirm sheet (audit #248): holds a computed summary
+  // { draftCount, staffCount, hours, cost, anyRate } while open; null = closed.
+  // Publishing is the "money moment" staff see — owners get one calm glance at
+  // what's about to go live before it does.
+  const [publishConfirm, setPublishConfirm] = useState(null);
+  // Honest post-publish banner — message built from the server's real
+  // published + notify_count (never fabricated). Auto-dismisses.
+  const [publishToast, setPublishToast] = useState("");
 
   /* ─── Data fetching ─── */
   const fetchStaff = useCallback(async () => {
@@ -229,14 +258,68 @@ export default function StaffSchedulePage() {
     setCopying(false);
   };
 
-  const handlePublish = async () => {
+  // Summarize the draft shifts that "Publish" will make live — computed from
+  // already-loaded shifts + staff, so the confirm sheet is instant (no fetch).
+  // Cost uses each member's base_rate, the same formula the day-stats use.
+  const computePublishSummary = () => {
+    const drafts = (shifts || []).filter((s) => s.status === "draft");
+    const staffIds = new Set();
+    let hours = 0;
+    let cost = 0;
+    let anyRate = false;
+    drafts.forEach((s) => {
+      const sid = s.staff_id || s.staff_member_id;
+      if (sid) staffIds.add(sid);
+      const hrs = calcHours(s.start_time, s.end_time, s.break_minutes || 0);
+      hours += hrs;
+      const member = staff.find((m) => m.id === sid);
+      const rate = Number(member?.base_rate) || 0;
+      if (rate > 0) anyRate = true;
+      cost += hrs * rate;
+    });
+    return {
+      draftCount: drafts.length,
+      staffCount: staffIds.size,
+      hours: Math.round(hours * 10) / 10,
+      cost: Math.round(cost),
+      anyRate,
+    };
+  };
+
+  // Step 1 — open the confirm sheet (the deliberate gate before going live).
+  const requestPublish = () => {
+    setError("");
+    setPublishConfirm(computePublishSummary());
+  };
+
+  // Step 2 — actually publish (called from the confirm sheet's CTA), then show
+  // an HONEST success banner built from the server's real counts.
+  const confirmPublish = async () => {
     setPublishing(true);
     setError("");
     try {
       const params = { week_start: toISO(weekStart) };
       if (branchId) params.branch_id = branchId;
-      await api.post("/staff/schedules/publish", null, { params });
+      const res = await api.post("/staff/schedules/publish", null, { params });
+      setPublishConfirm(null);
       await fetchShifts();
+
+      const d = res.data || {};
+      const published = Number(d.published) || 0;
+      const notify = Number(d.notify_count) || 0;
+      let msg;
+      if (published === 0) {
+        msg = t("publishNoChanges", "Schedule is already up to date — nothing new to publish.");
+      } else if (notify > 0) {
+        msg = t("publishedWithNotify", "Published {n} shift(s) — {m} staff emailed about their changes.")
+          .replace("{n}", String(published))
+          .replace("{m}", String(notify));
+      } else {
+        msg = t("publishedNoNotify", "Published {n} shift(s). No affected staff had an email on file to notify.")
+          .replace("{n}", String(published));
+      }
+      setPublishToast(msg);
+      setTimeout(() => setPublishToast(""), 8000);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to publish schedule.");
     }
@@ -627,7 +710,7 @@ export default function StaffSchedulePage() {
               <Button
                 variant="accent"
                 size="sm"
-                onClick={handlePublish}
+                onClick={requestPublish}
                 disabled={publishing}
                 busy={publishing}
                 title="Publish week"
@@ -635,8 +718,8 @@ export default function StaffSchedulePage() {
                 {publishing
                   ? "…"
                   : (<>
-                      <span className="hidden sm:inline">Publish Week</span>
-                      <span className="sm:hidden">Publish</span>
+                      <span className="hidden sm:inline">{t("publishConfirmCta", "Publish Week")}</span>
+                      <span className="sm:hidden">{t("publishShort", "Publish")}</span>
                     </>)}
               </Button>
               {/* PDF export — owners print this and pin it on the
@@ -733,6 +816,15 @@ export default function StaffSchedulePage() {
           onDismiss={() => setAutopilotToast("")}
         />
       )}
+      {/* Publish-success banner — honest counts from the server (auto-dismiss 8s) */}
+      {publishToast && (
+        <SectionBanner
+          severity="success"
+          title={publishToast}
+          icon="CheckCircle2"
+          onDismiss={() => setPublishToast("")}
+        />
+      )}
 
       {/* Autopilot suggestion review panel \u2014 Pro killer feature (Task #50).
           Renders ONLY when a suggestion is loaded. Owner reviews per-day
@@ -821,7 +913,6 @@ export default function StaffSchedulePage() {
               <ScheduleGrid
                 staff={activeStaff}
                 weekDates={weekDates}
-                shifts={shifts}
                 getShiftForCell={getShiftForCell}
                 onCellClick={(staffId, date, existingShift) =>
                   setShiftModal({ staffId, date: toISO(date), shift: existingShift || null })
@@ -836,7 +927,6 @@ export default function StaffSchedulePage() {
               <MobileSchedule
                 staff={activeStaff}
                 weekDates={weekDates}
-                shifts={shifts}
                 getShiftForCell={getShiftForCell}
                 currency={currency}
                 onCellClick={(staffId, date, existingShift) =>
@@ -873,13 +963,30 @@ export default function StaffSchedulePage() {
         <ShiftModal
           modal={shiftModal}
           staff={activeStaff}
+          shifts={shifts}
           weekDates={weekDates}
+          lastTemplate={lastShiftTemplate}
+          onTemplateSave={setLastShiftTemplate}
           onClose={() => setShiftModal(null)}
           onSaved={() => {
             setShiftModal(null);
             fetchShifts();
           }}
           branchId={branchId}
+        />
+      )}
+
+      {/* Publish-confirm sheet — the deliberate gate before draft shifts go
+          live to staff. Shows what's about to change in one calm glance. */}
+      {publishConfirm && (
+        <PublishConfirmModal
+          summary={publishConfirm}
+          currency={currency}
+          weekStart={weekStart}
+          publishing={publishing}
+          onConfirm={confirmPublish}
+          onClose={() => setPublishConfirm(null)}
+          t={t}
         />
       )}
 
@@ -931,13 +1038,18 @@ function formatDayShort(iso) {
 }
 
 function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t }) {
+  // On phones the 7 day-cards stack into one ~1,200px column. Collapse them
+  // behind a disclosure so the week summary + Apply/Discard stay above the
+  // fold; always expanded from `sm:` up (desktop layout unchanged).
+  const [showDays, setShowDays] = useState(false);
   const totalRevenue = suggestion.days.reduce(
     (sum, d) => sum + (d.predicted_revenue || 0),
     0
   );
   const compared = suggestion.compared_to_last_week || {};
+  const dayCount = suggestion.days.length;
   return (
-    <div className="bg-gray-50 dark:bg-gray-800/50 border border-violet-200 dark:border-violet-800 rounded-xl p-5 sm:p-6 space-y-4">
+    <div className="bg-gray-50 dark:bg-gray-800/50 border border-violet-200 dark:border-violet-800 rounded-xl p-4 sm:p-6 space-y-3 sm:space-y-4">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div className="min-w-0">
@@ -949,10 +1061,10 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
               ? t("autopilotConfidenceMedium", "Medium confidence")
               : t("autopilotConfidenceLow", "Low confidence — limited data")}
           </p>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mt-0.5">
+          <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white mt-0.5">
             {t("autopilotWeekOf", "Week of")} {formatDayShort(suggestion.week_start)}
           </h3>
-          <div className="text-xs text-gray-600 dark:text-gray-400 mt-1.5 space-x-3">
+          <div className="text-xs text-gray-600 dark:text-gray-400 mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5">
             <span>
               {t("autopilotPredicted", "Predicted")}:{" "}
               <strong className="text-gray-900 dark:text-white">
@@ -981,12 +1093,12 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
             )}
           </div>
         </div>
-        <div className="flex gap-2 shrink-0">
+        <div className="flex gap-2 shrink-0 w-full sm:w-auto">
           <button
             type="button"
             onClick={onDiscard}
             disabled={applying}
-            className="px-3 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition disabled:opacity-50"
+            className="flex-1 sm:flex-none px-3 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition disabled:opacity-50"
           >
             {t("autopilotDiscard", "Discard")}
           </button>
@@ -994,7 +1106,7 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
             type="button"
             onClick={onApply}
             disabled={applying}
-            className="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50"
+            className="flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-semibold bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50"
           >
             {applying
               ? t("autopilotApplying", "Applying…")
@@ -1017,12 +1129,33 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
         </div>
       )}
 
-      {/* Per-day cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* Per-day cards — collapsed by default on phones (toggle below); the
+          grid is always shown from `sm:` up so desktop is unchanged. */}
+      <button
+        type="button"
+        onClick={() => setShowDays((v) => !v)}
+        aria-expanded={showDays}
+        className="sm:hidden w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-200"
+      >
+        <span>
+          {showDays
+            ? t("autopilotHideDays", "Hide daily plan")
+            : t("autopilotShowDays", "View daily plan")}{" "}
+          <span className="text-gray-400 font-normal tabular-nums">· {dayCount}</span>
+        </span>
+        <Icon
+          name="ChevronDown"
+          size={16}
+          className={`transition-transform ${showDays ? "rotate-180" : ""}`}
+        />
+      </button>
+      <div
+        className={`${showDays ? "grid" : "hidden"} sm:grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3`}
+      >
         {suggestion.days.map((day) => (
           <div
             key={day.date}
-            className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 space-y-2"
+            className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-2.5 sm:p-3 space-y-1.5 sm:space-y-2"
           >
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
@@ -1037,7 +1170,7 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
                 {weatherChip(day.weather)}
               </div>
             </div>
-            <div className="text-[11px] text-gray-500 dark:text-gray-400 space-y-0.5">
+            <div className="text-[11px] text-gray-500 dark:text-gray-400 flex flex-wrap gap-x-3 gap-y-0.5 sm:block sm:space-y-0.5">
               <div>
                 {t("autopilotRevenue", "Revenue")}:{" "}
                 <span className="text-gray-800 dark:text-gray-200 font-medium">
@@ -1056,7 +1189,7 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
                 {day.shifts.map((s, i) => (
                   <li
                     key={i}
-                    className="flex items-center justify-between text-xs gap-2 bg-gray-50 dark:bg-gray-900/40 px-2 py-1.5 rounded-md"
+                    className="flex items-center justify-between text-xs gap-2 bg-gray-50 dark:bg-gray-900/40 px-2 py-1 sm:py-1.5 rounded-md"
                   >
                     <span className="truncate">
                       <span className="font-medium text-gray-900 dark:text-gray-100">
@@ -1727,7 +1860,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
    stays identical — owners can switch from phone to laptop mid-week
    without rebuilding mental model.
 */
-function MobileSchedule({ staff, weekDates, shifts, getShiftForCell, currency, onCellClick }) {
+function MobileSchedule({ staff, weekDates, getShiftForCell, currency, onCellClick }) {
   // Default to today within the current week range. If the user navigated
   // to a different week (Previous/Next), today falls outside — pick the
   // middle of the week (Thursday) as a sensible default.
@@ -1924,7 +2057,7 @@ function MobileSchedule({ staff, weekDates, shifts, getShiftForCell, currency, o
 }
 
 
-function ScheduleGrid({ staff, weekDates, shifts, getShiftForCell, onCellClick }) {
+function ScheduleGrid({ staff, weekDates, getShiftForCell, onCellClick }) {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       <div className="overflow-x-auto">
@@ -2039,34 +2172,174 @@ function ScheduleGrid({ staff, weekDates, shifts, getShiftForCell, onCellClick }
 }
 
 /* ═══════════════════════════════════════════════════════════
+   PUBLISH CONFIRM MODAL  (audit #248 P0 — the deliberate "go-live" gate)
+   Owners are paying real money; publishing emails staff. So before we go
+   live we show exactly what's about to ship: N draft shifts → M staff,
+   total hours, and (when rates exist) the estimated labor cost. The
+   summary is computed client-side from already-loaded shifts+staff, so
+   the sheet is instant — no extra fetch. The post-publish success banner
+   (built in confirmPublish) reports the server's REAL notified count, so
+   we never fabricate "everyone was emailed".
+   ═══════════════════════════════════════════════════════════ */
+function StatTile({ icon, value, label }) {
+  return (
+    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-750 px-3 py-2.5">
+      <div className="text-xl font-semibold text-gray-900 dark:text-white tabular-nums leading-tight">
+        {value}
+      </div>
+      <div className="flex items-center gap-1 mt-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">
+        <Icon name={icon} size={13} className="text-gray-400 dark:text-gray-500" />
+        <span>{label}</span>
+      </div>
+    </div>
+  );
+}
+
+function PublishConfirmModal({ summary, currency, weekStart, publishing, onConfirm, onClose, t }) {
+  const nothing = !summary || summary.draftCount === 0;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+
+      {/* Modal */}
+      <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 w-full max-w-md p-6 space-y-4">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center shrink-0">
+              <Icon name="Send" size={18} className="text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white leading-tight">
+                {nothing
+                  ? t("publishNothingTitle", "Nothing to publish")
+                  : t("publishConfirmTitle", "Publish this week?")}
+              </h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                {formatWeekRange(weekStart)}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl leading-none"
+            aria-label={t("close", "Close")}
+          >
+            {"×"}
+          </button>
+        </div>
+
+        {nothing ? (
+          <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
+            {t(
+              "publishNothingBody",
+              "Every shift this week is already published. Add or edit a shift, then publish to push the changes to your staff.",
+            )}
+          </p>
+        ) : (
+          <>
+            {/* What's about to go live */}
+            <div className="grid grid-cols-2 gap-2.5">
+              <StatTile
+                icon="CalendarDays"
+                value={summary.draftCount}
+                label={t("publishStatShifts", "draft shifts")}
+              />
+              <StatTile
+                icon="Users"
+                value={summary.staffCount}
+                label={t("publishStatStaff", "staff")}
+              />
+              <StatTile
+                icon="Clock"
+                value={`${summary.hours}h`}
+                label={t("publishStatHours", "total hours")}
+              />
+              {summary.anyRate && (
+                <StatTile
+                  icon="Coins"
+                  value={`${summary.cost.toLocaleString()} ${currency}`}
+                  label={t("publishStatCost", "est. labor")}
+                />
+              )}
+            </div>
+
+            {/* Honest notify note — no count promised here; the success
+                banner reports the server's real number after publish. */}
+            <div className="flex items-start gap-2 rounded-lg bg-gray-50 dark:bg-gray-750 px-3 py-2.5">
+              <Icon name="Mail" size={15} className="text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
+                {t(
+                  "publishNotifyNote",
+                  "Staff whose shifts changed get an email (and a push if they've opened their portal).",
+                )}
+              </p>
+            </div>
+          </>
+        )}
+
+        {/* Actions */}
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="secondary" size="sm" onClick={onClose}>
+            {nothing ? t("close", "Close") : t("cancel", "Cancel")}
+          </Button>
+          {!nothing && (
+            <Button
+              variant="accent"
+              size="sm"
+              onClick={onConfirm}
+              busy={publishing}
+              iconLeft={<Icon name="Send" size={14} />}
+            >
+              {t("publishConfirmCta", "Publish Week")}
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
    SHIFT MODAL
    ═══════════════════════════════════════════════════════════ */
-function ShiftModal({ modal, staff, weekDates, onClose, onSaved, branchId }) {
+function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemplateSave, onClose, onSaved, branchId }) {
   const { t } = useLanguage();
   const existingShift = modal.shift;
   const isEdit = !!existingShift;
 
+  /* Smart defaults (audit #248 P0): owners shouldn't re-type 16:00–23:00 +
+     break + role on every cell. Seed precedence for a NEW shift:
+       1. The selected staff's most-recent shift THIS week (their pattern).
+       2. The last shift the owner saved this session (run of similar shifts).
+       3. Hard fallback 16:00–23:00, no break, member's default role.
+     Edit mode always uses the shift's own values. */
+  const seed = useMemo(() => {
+    if (existingShift) {
+      return {
+        start: existingShift.start_time,
+        end: existingShift.end_time,
+        break_minutes: existingShift.break_minutes || 0,
+        role: existingShift.role_on_shift || null,
+      };
+    }
+    const r = mostRecentShiftFor(shifts, modal.staffId);
+    if (r) return { start: r.start_time, end: r.end_time, break_minutes: r.break_minutes || 0, role: r.role_on_shift || null };
+    if (lastTemplate?.start && lastTemplate?.end) return { ...lastTemplate };
+    return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [staffId, setStaffId] = useState(modal.staffId || existingShift?.staff_member_id || existingShift?.staff_id || "");
   const [date, setDate] = useState(modal.date || (existingShift?.date) || toISO(weekDates[0]));
-  const [startHour, setStartHour] = useState(() => {
-    if (existingShift?.start_time) return existingShift.start_time.slice(0, 2);
-    return "16";
-  });
-  const [startMin, setStartMin] = useState(() => {
-    if (existingShift?.start_time) return existingShift.start_time.slice(3, 5);
-    return "00";
-  });
-  const [endHour, setEndHour] = useState(() => {
-    if (existingShift?.end_time) return existingShift.end_time.slice(0, 2);
-    return "23";
-  });
-  const [endMin, setEndMin] = useState(() => {
-    if (existingShift?.end_time) return existingShift.end_time.slice(3, 5);
-    return "00";
-  });
-  const [breakMinutes, setBreakMinutes] = useState(existingShift?.break_minutes || 0);
+  const [startHour, setStartHour] = useState(() => (seed?.start ? seed.start.slice(0, 2) : "16"));
+  const [startMin, setStartMin] = useState(() => (seed?.start ? seed.start.slice(3, 5) : "00"));
+  const [endHour, setEndHour] = useState(() => (seed?.end ? seed.end.slice(0, 2) : "23"));
+  const [endMin, setEndMin] = useState(() => (seed?.end ? seed.end.slice(3, 5) : "00"));
+  const [breakMinutes, setBreakMinutes] = useState(() => seed?.break_minutes ?? 0);
   const [roleOnShift, setRoleOnShift] = useState(() => {
-    if (existingShift?.role_on_shift) return existingShift.role_on_shift;
+    if (seed?.role) return seed.role;
     const member = staff.find((s) => s.id === (modal.staffId || existingShift?.staff_member_id || existingShift?.staff_id));
     return member?.role || ROLES[0];
   });
@@ -2074,18 +2347,80 @@ function ShiftModal({ modal, staff, weekDates, onClose, onSaved, branchId }) {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [modalError, setModalError] = useState("");
+  // True once the owner edits any time/break field — stops auto re-seeding
+  // on staff change so we never clobber a value they typed themselves.
+  const [touched, setTouched] = useState(false);
+  // Same staff + same calendar day in the PREVIOUS week, fetched lazily so
+  // the "Last week" quick-fill can mirror a recurring rota. null = none.
+  const [prevWeekShift, setPrevWeekShift] = useState(null);
 
-  // When staff selection changes, update default role
+  // When the owner picks a DIFFERENT staff in Add mode: default the role to
+  // that member's role, and (unless they've touched the form) re-seed the
+  // times from that staff's most recent shift this week.
+  const prevStaffRef = useRef(staffId);
   useEffect(() => {
-    if (!isEdit && staffId) {
-      const member = staff.find((s) => s.id === staffId);
-      if (member) setRoleOnShift(member.role);
+    if (isEdit) return;
+    const changed = prevStaffRef.current !== staffId;
+    prevStaffRef.current = staffId;
+    if (!staffId) return;
+    const member = staff.find((s) => s.id === staffId);
+    if (member?.role) setRoleOnShift(member.role);
+    if (!changed || touched) return;
+    const r = mostRecentShiftFor(shifts, staffId);
+    if (r) {
+      setStartHour(r.start_time.slice(0, 2));
+      setStartMin(r.start_time.slice(3, 5));
+      setEndHour(r.end_time.slice(0, 2));
+      setEndMin(r.end_time.slice(3, 5));
+      setBreakMinutes(r.break_minutes || 0);
+      if (r.role_on_shift) setRoleOnShift(r.role_on_shift);
     }
-  }, [staffId, staff, isEdit]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staffId]);
+
+  // Lazily fetch the same staff + same calendar day last week for "Last week".
+  useEffect(() => {
+    if (isEdit || !staffId || !date) { setPrevWeekShift(null); return; }
+    let cancelled = false;
+    const prevSameDay = new Date(date);
+    prevSameDay.setDate(prevSameDay.getDate() - 7);
+    const prevISO = toISO(prevSameDay);
+    const params = { week_start: toISO(getWeekStart(prevSameDay)) };
+    if (branchId) params.branch_id = branchId;
+    api.get("/staff/schedules", { params })
+      .then((res) => {
+        if (cancelled) return;
+        const match = (res.data || []).find(
+          (s) => String(s.date) === prevISO && shiftBelongsTo(s, staffId) && s.start_time && s.end_time
+        );
+        setPrevWeekShift(match || null);
+      })
+      .catch(() => { if (!cancelled) setPrevWeekShift(null); });
+    return () => { cancelled = true; };
+  }, [staffId, date, isEdit, branchId]);
+
+  // Apply a template shift (quick-fill chip) to the time/break/role fields.
+  // User-initiated → mark touched so staff-change re-seeding stays out.
+  const applyTemplate = (s) => {
+    if (!s?.start_time || !s?.end_time) return;
+    setStartHour(s.start_time.slice(0, 2));
+    setStartMin(s.start_time.slice(3, 5));
+    setEndHour(s.end_time.slice(0, 2));
+    setEndMin(s.end_time.slice(3, 5));
+    setBreakMinutes(s.break_minutes || 0);
+    if (s.role_on_shift) setRoleOnShift(s.role_on_shift);
+    setTouched(true);
+  };
 
   const startTime = `${startHour}:${startMin}`;
   const endTime = `${endHour}:${endMin}`;
   const previewHours = calcHours(startTime, endTime, breakMinutes);
+
+  const recentForStaff = useMemo(() => (isEdit ? null : mostRecentShiftFor(shifts, staffId)), [staffId, shifts, isEdit]);
+  // arbejdstidsloven: a break is expected for shifts over 6h. Suggest 30 min
+  // when none is set — one tap, fully overridable.
+  const BREAK_SUGGEST = 30;
+  const showBreakSuggest = previewHours >= 6 && (Number(breakMinutes) || 0) === 0;
 
   const handleSave = async () => {
     if (!staffId) {
@@ -2117,6 +2452,8 @@ function ShiftModal({ modal, staff, weekDates, onClose, onSaved, branchId }) {
       } else {
         await api.post("/staff/schedules", payload);
       }
+      // Remember this shift so the next "Add" pre-fills from it.
+      onTemplateSave?.({ start: startTime, end: endTime, break_minutes: breakMinutes || 0, role: roleOnShift });
       onSaved();
     } catch (err) {
       const d = err.response?.data?.detail;
@@ -2201,6 +2538,35 @@ function ShiftModal({ modal, staff, weekDates, onClose, onSaved, branchId }) {
           </select>
         </div>
 
+        {/* Quick-fill chips (Add mode) — one tap to reuse this staff's most
+            recent shift or their shift from the same day last week. Kills the
+            "re-type every time" friction the audit flagged. */}
+        {!isEdit && (recentForStaff || prevWeekShift) && (
+          <div className="flex items-center gap-2 flex-wrap -mt-1">
+            <span className="text-[11px] text-gray-400 dark:text-gray-500">{t("shiftQuickFill", "Quick fill")}:</span>
+            {recentForStaff && (
+              <button
+                type="button"
+                onClick={() => applyTemplate(recentForStaff)}
+                title={t("shiftCopyRecentTitle", "Use this staff member's most recent shift this week")}
+                className="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition"
+              >
+                {t("shiftCopyRecent", "Latest shift")} · {formatShiftTime(recentForStaff.start_time, recentForStaff.end_time)}
+              </button>
+            )}
+            {prevWeekShift && (
+              <button
+                type="button"
+                onClick={() => applyTemplate(prevWeekShift)}
+                title={t("shiftSameLastWeekTitle", "Use the same shift from last week")}
+                className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600 transition"
+              >
+                {t("shiftSameLastWeek", "Last week")} · {formatShiftTime(prevWeekShift.start_time, prevWeekShift.end_time)}
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Time selectors */}
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -2208,7 +2574,7 @@ function ShiftModal({ modal, staff, weekDates, onClose, onSaved, branchId }) {
             <div className="flex gap-1">
               <select
                 value={startHour}
-                onChange={(e) => setStartHour(e.target.value)}
+                onChange={(e) => { setStartHour(e.target.value); setTouched(true); }}
                 className="flex-1 px-2 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none"
               >
                 {HOUR_OPTIONS.map((h) => (
@@ -2218,7 +2584,7 @@ function ShiftModal({ modal, staff, weekDates, onClose, onSaved, branchId }) {
               <span className="text-gray-400 self-center">:</span>
               <select
                 value={startMin}
-                onChange={(e) => setStartMin(e.target.value)}
+                onChange={(e) => { setStartMin(e.target.value); setTouched(true); }}
                 className="flex-1 px-2 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none"
               >
                 {MINUTE_OPTIONS.map((m) => (
@@ -2232,7 +2598,7 @@ function ShiftModal({ modal, staff, weekDates, onClose, onSaved, branchId }) {
             <div className="flex gap-1">
               <select
                 value={endHour}
-                onChange={(e) => setEndHour(e.target.value)}
+                onChange={(e) => { setEndHour(e.target.value); setTouched(true); }}
                 className="flex-1 px-2 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none"
               >
                 {HOUR_OPTIONS.map((h) => (
@@ -2242,7 +2608,7 @@ function ShiftModal({ modal, staff, weekDates, onClose, onSaved, branchId }) {
               <span className="text-gray-400 self-center">:</span>
               <select
                 value={endMin}
-                onChange={(e) => setEndMin(e.target.value)}
+                onChange={(e) => { setEndMin(e.target.value); setTouched(true); }}
                 className="flex-1 px-2 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none"
               >
                 {MINUTE_OPTIONS.map((m) => (
@@ -2256,16 +2622,28 @@ function ShiftModal({ modal, staff, weekDates, onClose, onSaved, branchId }) {
         {/* Break + Role */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Break (minutes)</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t("shiftBreakLabel", "Break (minutes)")}</label>
             <input
               type="number"
               value={breakMinutes}
-              onChange={(e) => setBreakMinutes(e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value) || 0))}
+              onChange={(e) => { setBreakMinutes(e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value) || 0)); setTouched(true); }}
               min="0"
               max="120"
               step="5"
               className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
             />
+            {/* arbejdstidsloven nudge — a break is expected for 6h+ shifts.
+                One tap to add 30 min; fully overridable. */}
+            {showBreakSuggest && (
+              <button
+                type="button"
+                onClick={() => { setBreakMinutes(BREAK_SUGGEST); setTouched(true); }}
+                title={t("shiftBreakHint", "Recommended for shifts over 6 hours")}
+                className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline"
+              >
+                + {t("shiftBreakSuggest", "Add {n} min break").replace("{n}", BREAK_SUGGEST)}
+              </button>
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t("roleOnShift")}</label>

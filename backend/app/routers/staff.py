@@ -1108,7 +1108,35 @@ def publish_week(
 
     # Detect changes and send notifications in background
     changes = detect_shift_changes(old_snapshot, new_snapshot)
+
+    # Honest post-publish count: of the staff with changes, how many have a
+    # reachable email on file? This mirrors EXACTLY who send_shift_notifications
+    # will email (same tenant-scope + non-deleted + email-present filter), but
+    # computed synchronously so the UI can report a truthful "N staff emailed"
+    # figure instead of fabricating one. We count addressable recipients we
+    # dispatch to — never inflated beyond staff with an email. (Per-staff
+    # delivery can still fail downstream; that's logged to notification_log.)
+    notify_count = 0
     if changes:
+        changed_ids = []
+        for sid in changes.keys():
+            try:
+                changed_ids.append(uuid.UUID(str(sid)))
+            except (ValueError, TypeError):
+                continue
+        if changed_ids:
+            notify_count = (
+                db.query(StaffMember)
+                .filter(
+                    StaffMember.id.in_(changed_ids),
+                    StaffMember.user_id == user.id,
+                    StaffMember.is_deleted.isnot(True),
+                    StaffMember.email.isnot(None),
+                    StaffMember.email != "",
+                )
+                .count()
+            )
+
         user_id = user.id
         week_label = f"Week of {week_start.strftime('%d %b %Y')}"
 
@@ -1121,7 +1149,12 @@ def publish_week(
 
         background_tasks.add_task(_send_bg)
 
-    return {"published": updated, "week_start": week_start.isoformat()}
+    return {
+        "published": updated,
+        "week_start": week_start.isoformat(),
+        "changed_staff": len(changes),
+        "notify_count": notify_count,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
