@@ -261,6 +261,10 @@ def compute_filing_data(
         "pos_revenue_from_sales": vat.get("pos_revenue_from_sales", vat["pos_revenue"]),
         "pos_revenue_from_closes": vat.get("pos_revenue_from_closes", 0.0),
         "invoice_revenue": vat["invoice_revenue"],
+        # Bogføringsloven §9 stk. 2 — per-date variance between close
+        # and Sale rows on the same date. Empty list = clean; non-empty
+        # = the revisor sees a "Bemærkninger" section before signature.
+        "variance_warnings": vat.get("variance_warnings", []),
     }
 
 
@@ -654,6 +658,63 @@ def build_moms_filing_pdf(
     ]))
     story.append(td2)
 
+    # ─── Section D3 — Bemærkninger (Bogføringsloven §9 stk. 2) ───
+    # Per-date variance between close.revenue_total and Sale-sum on
+    # the same date. Only renders when non-empty — keeps the PDF
+    # clean for clean books. When present, revisor MUST review before
+    # signing. Amber styling (advisory, not error).
+    _variance = data.get("variance_warnings") or []
+    if _variance:
+        AMBER = colors.HexColor("#b45309")  # amber-700
+        AMBER_BG = colors.HexColor("#fffbeb")  # amber-50
+        story.append(Spacer(1, 4 * mm))
+        if is_danish:
+            story.append(Paragraph(
+                "D3 · BEMÆRKNINGER (Bogføringsloven §9 stk. 2)",
+                ParagraphStyle("vt", parent=section_title, textColor=AMBER),
+            ))
+            story.append(Paragraph(
+                "Kasserapport og POS-salg afviger på følgende datoer. "
+                "Afstem før indberetning til SKAT.",
+                ParagraphStyle("vd", parent=val, textColor=AMBER, leading=12),
+            ))
+            v_header = ["Dato", "Kasserapport", "POS-salg", "Forskel"]
+        else:
+            story.append(Paragraph(
+                "D3 · NOTES (Record-keeping law §9 stk. 2)",
+                ParagraphStyle("vt", parent=section_title, textColor=AMBER),
+            ))
+            story.append(Paragraph(
+                "Daily Close and POS sales disagree on the following "
+                "dates. Reconcile before filing with SKAT.",
+                ParagraphStyle("vd", parent=val, textColor=AMBER, leading=12),
+            ))
+            v_header = ["Date", "Daily Close", "POS sales", "Delta"]
+        v_rows = [[Paragraph(h, val_b) for h in v_header]]
+        for w in _variance:
+            sign = "+" if (w.get("delta") or 0) > 0 else ""
+            v_rows.append([
+                Paragraph(str(w.get("date", "")), val),
+                Paragraph(_money_dk(w.get("close_revenue", 0), currency), val_r),
+                Paragraph(_money_dk(w.get("sale_sum", 0), currency), val_r),
+                Paragraph(
+                    f"{sign}{_money_dk(w.get('delta', 0), currency)} "
+                    f"({w.get('delta_pct', 0):.1f}%)",
+                    ParagraphStyle("vr", parent=val_r, textColor=AMBER),
+                ),
+            ])
+        tv = Table(v_rows, colWidths=[28 * mm, 46 * mm, 46 * mm, 46 * mm])
+        tv.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BACKGROUND", (0, 0), (-1, 0), AMBER_BG),
+            ("LINEBELOW", (0, 0), (-1, 0), 0.4, AMBER),
+        ]))
+        story.append(tv)
+
     # ─── Section E — Signering (Signature) ───────────────────
     story.append(Spacer(1, 8 * mm))
     if is_danish:
@@ -1032,6 +1093,62 @@ def _rebuild_filing_story(
         ("LINEABOVE", (0, 2), (-1, 2), 0.4, DIVIDER),
     ]))
     story.append(td2)
+
+    # D3 — Bemærkninger (Bogføringsloven §9 stk. 2) — variance footnote
+    # Only renders when close.revenue_total and Sale-sum disagree on the
+    # same date by > max(50 DKK, 10%). Keeps the PDF clean for clean
+    # books and forces a revisor review when entries don't reconcile.
+    _variance = data.get("variance_warnings") or []
+    if _variance:
+        _AMBER = colors.HexColor("#b45309")
+        _AMBER_BG = colors.HexColor("#fffbeb")
+        story.append(Spacer(1, 4 * _mm))
+        if is_danish:
+            story.append(Paragraph(
+                "D3 · BEMÆRKNINGER (Bogføringsloven §9 stk. 2)",
+                ParagraphStyle("vt2", parent=section_title, textColor=_AMBER),
+            ))
+            story.append(Paragraph(
+                "Kasserapport og POS-salg afviger på følgende datoer. "
+                "Afstem før indberetning til SKAT.",
+                ParagraphStyle("vd2", parent=val, textColor=_AMBER, leading=12),
+            ))
+            _v_header = ["Dato", "Kasserapport", "POS-salg", "Forskel"]
+        else:
+            story.append(Paragraph(
+                "D3 · NOTES (Record-keeping law §9 stk. 2)",
+                ParagraphStyle("vt2", parent=section_title, textColor=_AMBER),
+            ))
+            story.append(Paragraph(
+                "Daily Close and POS sales disagree on the following "
+                "dates. Reconcile before filing with SKAT.",
+                ParagraphStyle("vd2", parent=val, textColor=_AMBER, leading=12),
+            ))
+            _v_header = ["Date", "Daily Close", "POS sales", "Delta"]
+        _v_rows = [[Paragraph(h, val_b) for h in _v_header]]
+        for w in _variance:
+            _sign = "+" if (w.get("delta") or 0) > 0 else ""
+            _v_rows.append([
+                Paragraph(str(w.get("date", "")), val),
+                Paragraph(_money_dk(w.get("close_revenue", 0), currency), val_r),
+                Paragraph(_money_dk(w.get("sale_sum", 0), currency), val_r),
+                Paragraph(
+                    f"{_sign}{_money_dk(w.get('delta', 0), currency)} "
+                    f"({w.get('delta_pct', 0):.1f}%)",
+                    ParagraphStyle("vr2", parent=val_r, textColor=_AMBER),
+                ),
+            ])
+        tv2 = Table(_v_rows, colWidths=[28 * _mm, 46 * _mm, 46 * _mm, 46 * _mm])
+        tv2.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BACKGROUND", (0, 0), (-1, 0), _AMBER_BG),
+            ("LINEBELOW", (0, 0), (-1, 0), 0.4, _AMBER),
+        ]))
+        story.append(tv2)
 
     # E — signature
     story.append(Spacer(1, 8 * _mm))

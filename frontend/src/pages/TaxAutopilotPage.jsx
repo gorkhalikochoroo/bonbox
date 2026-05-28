@@ -755,18 +755,37 @@ function ReconCard({ recon, taxName, currency }) {
             </div>
           </div>
 
-          {/* Discrepancy bar */}
-          {cm.discrepancy !== null && cm.discrepancy !== 0 && (
-            <div className="mt-3 pt-3 border-t border-gray-200/60 dark:border-gray-700/60 flex items-center justify-between">
-              <span className="text-sm text-gray-600 dark:text-gray-300">{t("difference")}</span>
-              <span className={`text-sm font-bold ${
-                Math.abs(cm.discrepancy) <= cm.moms_from_sales * 0.02
-                  ? "text-emerald-600" : Math.abs(cm.discrepancy) <= cm.moms_from_sales * 0.1
-                  ? "text-amber-600" : "text-red-600"
-              }`}>
-                {cm.discrepancy > 0 ? "+" : ""}{fmt(cm.discrepancy)} {currency}
-                {cm.discrepancy_pct != null && <span className="text-xs font-normal text-gray-400 ml-1">({cm.discrepancy_pct}%)</span>}
-              </span>
+          {/* Bogføringsloven §9 stk. 2 — per-date variance footnote.
+              Replaces the old "discrepancy bar" (now always 0 after the
+              DailyClose integration). Renders ONLY when close.revenue_total
+              and Sale-sum disagree on the same date by > max(50 DKK, 10%).
+              Inline footnote — not a banner — to keep the headline calm. */}
+          {(cm.variance_warnings || []).length > 0 && (
+            <div className="mt-3 pt-3 border-t border-amber-200/60 dark:border-amber-700/40">
+              <div className="flex items-start gap-2 mb-2">
+                <Icon name="AlertTriangle" size={14} className="text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-amber-700 dark:text-amber-300">{t("taxVarianceTitle")}</p>
+                  <p className="text-[11px] text-amber-600/80 dark:text-amber-400/80 mt-0.5">{t("taxVarianceSubtitle")}</p>
+                </div>
+              </div>
+              <div className="space-y-1 pl-6">
+                {(cm.variance_warnings || []).slice(0, 5).map((w, i) => (
+                  <div key={i} className="flex flex-wrap items-center gap-x-3 text-[11px]">
+                    <span className="text-gray-700 dark:text-gray-300 font-mono">{w.date}</span>
+                    <span className="text-gray-500 dark:text-gray-400">{t("taxVarianceClose")} <b className="text-gray-700 dark:text-gray-200">{fmt(w.close_revenue)}</b></span>
+                    <span className="text-gray-500 dark:text-gray-400">{t("taxVariancePOS")} <b className="text-gray-700 dark:text-gray-200">{fmt(w.sale_sum)}</b></span>
+                    <span className="text-amber-700 dark:text-amber-300 font-bold ml-auto">
+                      {w.delta > 0 ? "+" : ""}{fmt(w.delta)} {currency} ({w.delta_pct}%)
+                    </span>
+                  </div>
+                ))}
+                {(cm.variance_warnings || []).length > 5 && (
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 italic pt-1">
+                    {t("taxVarianceMore", { n: cm.variance_warnings.length - 5 })}
+                  </p>
+                )}
+              </div>
             </div>
           )}
 

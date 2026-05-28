@@ -289,9 +289,15 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
 
     close_pos_revenue = 0.0
     close_pos_moms = 0.0
-    for _, rev, moms in close_rows:
+    # Track close revenue per date for Bogføringsloven §9 stk. 2 variance
+    # detection below — when a close exists AND Sale rows exist on the
+    # same date with materially different totals, a revisor needs to see
+    # that the entries don't reconcile to source.
+    close_revenue_by_date: dict[date, float] = {}
+    for d, rev, moms in close_rows:
         rev_f = float(rev or 0)
         close_pos_revenue += rev_f
+        close_revenue_by_date[d] = close_revenue_by_date.get(d, 0.0) + rev_f
         if moms is not None:
             # Explicit value (incl. explicit 0 for VAT-exempt closes)
             # — preserve owner / OCR intent. Avoids the formula
@@ -426,6 +432,63 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
     # field so the PDF + downstream callers can land the right number.
     taxable_sales = round(max(sales_total - exempt_sales, 0.0), 2)
 
+    # ─── Bogføringsloven §9 stk. 2 — per-date variance detection
+    #
+    # When a confirmed close exists on date D AND Sale rows exist on D
+    # with materially different totals, the revisor needs to see that —
+    # not have it silently absorbed by the close-wins precedence above.
+    # §9 stk. 2: "Hver registrering skal være underbygget af et bilag og
+    # skal kunne følges til regnskabet." (Every entry must be backed by
+    # a voucher and traceable to the books.) If close says 50k and POS
+    # rang 100k for the same day, neither number is traceable on its own.
+    #
+    # Threshold = max(50 DKK, 10% of larger side). Catches material
+    # variance while tolerating normal POS rounding (a few øre per txn
+    # adds up to maybe 20-30 DKK over a busy day).
+    #
+    # Filter on Sale rows here matches the headline path: `invoice_id IS
+    # NULL` (POS only, no invoice receipts), `is_deleted IS NOT TRUE`.
+    # Tax-exempt Sale rows ARE included because the close's revenue_total
+    # mixes exempt and taxable till activity — we want a like-for-like
+    # comparison with what the till actually rang up.
+    variance_warnings: list[dict] = []
+    if close_dates:
+        sale_sum_by_date_rows = (
+            db.query(Sale.date, func.coalesce(func.sum(Sale.amount), 0).label("total"))
+            .filter(
+                Sale.user_id == user_id,
+                Sale.date.in_(close_dates),
+                Sale.is_deleted.isnot(True),
+                Sale.invoice_id.is_(None),
+            )
+            .group_by(Sale.date)
+            .all()
+        )
+        for d, total in sale_sum_by_date_rows:
+            sale_sum = float(total or 0)
+            close_rev = close_revenue_by_date.get(d, 0.0)
+            if sale_sum <= 0 or close_rev <= 0:
+                # No variance to flag — one side is empty, owner's
+                # workflow is "close-only" or "sale-only" on that day.
+                continue
+            delta = close_rev - sale_sum
+            max_side = max(close_rev, sale_sum)
+            delta_pct = (abs(delta) / max_side) * 100.0
+            if abs(delta) > 50.0 and delta_pct > 10.0:
+                variance_warnings.append({
+                    "date": d.isoformat(),
+                    "close_revenue": round(close_rev, 2),
+                    "sale_sum": round(sale_sum, 2),
+                    "delta": round(delta, 2),
+                    "delta_pct": round(delta_pct, 1),
+                    # direction: "close_high" means close > sale (close
+                    # over-reports, or sale rows are missing); "close_low"
+                    # means close < sale (close under-reports, or sale
+                    # has duplicate / phantom rows). Helps the revisor
+                    # know which side to investigate.
+                    "direction": "close_high" if delta > 0 else "close_low",
+                })
+
     return {
         "sales_total": sales_total,
         "taxable_sales": taxable_sales,
@@ -444,6 +507,11 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
         "output_vat": output_vat,
         "input_vat": input_vat,
         "vat_payable": round(output_vat - input_vat, 2),
+        # Bogføringsloven §9 stk. 2 — per-date variance warnings.
+        # Empty list = no material variance to flag (or no overlap
+        # between close + Sale on any date). Non-empty = the revisor
+        # MUST see this before the SKAT angivelse is filed.
+        "variance_warnings": variance_warnings,
     }
 
 
@@ -715,6 +783,12 @@ def get_tax_overview(user: User, db: Session) -> dict:
             "discrepancy": 0.0,
             "discrepancy_pct": 0.0,
             "status": recon_status,
+            # Bogføringsloven §9 stk. 2 — per-date variance warnings for
+            # this filing period (matches `current_period` window).
+            # Frontend renders as a yellow inline footnote in the
+            # ReconCard, NOT a banner — keeps the headline clean while
+            # ensuring revisor sees the per-date traceability issue.
+            "variance_warnings": current_period.get("variance_warnings", []),
         },
         "ytd": {
             "moms_from_closes": ytd.get(
@@ -723,6 +797,9 @@ def get_tax_overview(user: User, db: Session) -> dict:
             "moms_from_sales": ytd.get("pos_output_vat_from_sales", 0.0),
             "closes_count": dc_ytd["confirmed_count"],
             "revenue_from_closes": dc_ytd["total_revenue"],
+            # YTD variance warnings — typically more entries; recon card
+            # collapses these behind a "see all" link if > 3.
+            "variance_warnings": ytd.get("variance_warnings", []),
         },
     }
 
