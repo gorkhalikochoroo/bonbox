@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import portalApi from "../services/portalApi";
+import { useLanguage } from "../hooks/useLanguage";
 
 
 // ─── Push subscription helpers (Staff v2, 2026-05-28) ───────────────────
@@ -1190,6 +1191,7 @@ const TABS = [
  *   POST /portal/{token}/push/unsubscribe  → cleans up.
  */
 function StaffPushOptIn({ token }) {
+  const { t } = useLanguage();
   const [supported, setSupported] = useState(true);
   const [permission, setPermission] = useState(() => {
     try {
@@ -1292,8 +1294,8 @@ function StaffPushOptIn({ token }) {
       // hint, not a crash. Anything else is an unknown error.
       const msg =
         err?.name === "NotAllowedError"
-          ? "Push permission was blocked. Re-enable in Settings to receive notifications."
-          : err?.response?.data?.detail || "Couldn't enable push. Try again.";
+          ? t("staffPushDeniedError", "Push permission was blocked. Re-enable in Settings to receive notifications.")
+          : err?.response?.data?.detail || t("staffPushEnableFailed", "Couldn't enable push. Try again.");
       setError(msg);
       if (typeof Notification !== "undefined") {
         setPermission(Notification.permission);
@@ -1322,7 +1324,7 @@ function StaffPushOptIn({ token }) {
       }
       setSubscribed(false);
     } catch (err) {
-      setError(err?.response?.data?.detail || "Couldn't disable push.");
+      setError(err?.response?.data?.detail || t("staffPushDisableFailed", "Couldn't disable push."));
     } finally {
       setBusy(false);
     }
@@ -1333,10 +1335,10 @@ function StaffPushOptIn({ token }) {
   if (iosNotInstalled) {
     return (
       <div className="rounded-lg bg-white/[0.04] border border-white/[0.06] p-3 text-[11px] text-gray-400 leading-relaxed">
-        <div className="font-semibold text-gray-300 mb-1">📲 Get push notifications</div>
-        On iPhone, tap the share icon in Safari and choose
-        <span className="text-gray-200"> Add to Home Screen</span>. Open BonBox
-        from the home-screen icon to enable push.
+        <div className="font-semibold text-gray-300 mb-1">
+          📲 {t("staffPushIosInstallTitle", "Get push notifications")}
+        </div>
+        {t("staffPushIosInstallHint", "On iPhone, tap the share icon in Safari and choose Add to Home Screen. Open BonBox from the home-screen icon to enable push.")}
       </div>
     );
   }
@@ -1351,19 +1353,21 @@ function StaffPushOptIn({ token }) {
   if (subscribed) {
     return (
       <div className="rounded-lg bg-white/[0.04] border border-white/[0.06] p-3 flex items-center justify-between gap-3">
-        <div className="text-[11px] text-gray-300">
-          <div className="font-semibold text-gray-200">🔔 Push notifications on</div>
+        <div className="text-[11px] text-gray-300 min-w-0 flex-1">
+          <div className="font-semibold text-gray-200">
+            🔔 {t("staffPushOnTitle", "Push notifications on")}
+          </div>
           <div className="text-gray-500">
-            You'll get a tap on this device when your schedule changes.
+            {t("staffPushOnHint", "You'll get a tap on this device when your schedule changes.")}
           </div>
         </div>
         <button
           type="button"
           onClick={handleDisable}
           disabled={busy}
-          className="text-[11px] px-2 py-1 rounded bg-white/[0.04] border border-white/[0.06] text-gray-400 hover:text-gray-200 disabled:opacity-50"
+          className="text-[11px] px-2 py-1 rounded bg-white/[0.04] border border-white/[0.06] text-gray-400 hover:text-gray-200 disabled:opacity-50 flex-shrink-0"
         >
-          {busy ? "…" : "Turn off"}
+          {busy ? "…" : t("staffPushOnTurnOff", "Turn off")}
         </button>
       </div>
     );
@@ -1372,9 +1376,8 @@ function StaffPushOptIn({ token }) {
   if (permission === "denied") {
     return (
       <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-3 text-[11px] text-amber-200 leading-relaxed">
-        <div className="font-semibold mb-1">🔕 Push blocked</div>
-        Notifications are blocked in your browser settings. Re-enable them in
-        Settings → Notifications → BonBox to get a tap when your shifts change.
+        <div className="font-semibold mb-1">🔕 {t("staffPushBlockedTitle", "Push blocked")}</div>
+        {t("staffPushBlockedHint", "Notifications are blocked in your browser settings. Re-enable them in Settings → Notifications → BonBox to get a tap when your shifts change.")}
       </div>
     );
   }
@@ -1382,10 +1385,11 @@ function StaffPushOptIn({ token }) {
   return (
     <div className="rounded-lg bg-white/[0.04] border border-white/[0.06] p-3 space-y-2">
       <div className="text-[11px] text-gray-300">
-        <div className="font-semibold text-gray-200">🔔 Get push notifications</div>
+        <div className="font-semibold text-gray-200">
+          🔔 {t("staffPushOffTitle", "Get push notifications")}
+        </div>
         <div className="text-gray-500 mt-0.5">
-          Get a tap on this device when your shifts change or the schedule
-          updates.
+          {t("staffPushOffHint", "Get a tap on this device when your shifts change or the schedule updates.")}
         </div>
       </div>
       <button
@@ -1394,7 +1398,7 @@ function StaffPushOptIn({ token }) {
         disabled={busy}
         className="w-full px-3 py-2 rounded-lg text-[12px] font-medium bg-gray-100 text-gray-900 hover:bg-white disabled:opacity-50 transition"
       >
-        {busy ? "Enabling…" : "Enable push"}
+        {busy ? t("staffPushEnabling", "Enabling…") : t("staffPushEnable", "Enable push")}
       </button>
       {error && (
         <div className="text-[10px] text-red-400 leading-snug">{error}</div>

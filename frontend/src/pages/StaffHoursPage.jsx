@@ -224,26 +224,30 @@ export default function StaffHoursPage() {
    ═══════════════════════════════════════════════════════════ */
 function PeriodSelector({ from, to, loading, onPrev, onNext }) {
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between">
+    // Mobile: arrows only + tight period label. Tablet+: full "Previous
+    // Period" / "Next Period" labels. Keeps a 320px viewport readable.
+    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-3 sm:p-4 flex items-center justify-between gap-2">
       <Button
         variant="ghost"
         size="sm"
         onClick={onPrev}
         disabled={loading}
+        title="Previous period"
         iconLeft={
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
         }
       >
-        Previous Period
+        <span className="hidden sm:inline">Previous Period</span>
+        <span className="sm:hidden sr-only">Previous</span>
       </Button>
 
-      <div className="text-center">
+      <div className="text-center min-w-0 flex-1">
         {loading ? (
-          <div className="h-5 w-40 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+          <div className="h-5 w-40 mx-auto bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
         ) : (
-          <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+          <span className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-gray-100 truncate block">
             {fmtPeriod(from, to)}
           </span>
         )}
@@ -254,13 +258,15 @@ function PeriodSelector({ from, to, loading, onPrev, onNext }) {
         size="sm"
         onClick={onNext}
         disabled={loading}
+        title="Next period"
         iconRight={
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
           </svg>
         }
       >
-        Next Period
+        <span className="hidden sm:inline">Next Period</span>
+        <span className="sm:hidden sr-only">Next</span>
       </Button>
     </div>
   );
@@ -300,18 +306,23 @@ function HoursSummaryTable({ summary, loading, currency }) {
         <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">{t("periodSummary")}</h2>
       </div>
 
+      {/* Mobile-friendly columns: name + actual + total survive on phones;
+          scheduled / diff / rate / earned / tips hide on < sm so the table
+          fits a 375px viewport without horizontal-scroll.  Owner can tap
+          the row OR view this page on tablet+ for the accountant-grade
+          breakdown.  Pattern matches the Faktura row mobile pass (#140). */}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 dark:bg-gray-750 text-gray-500 dark:text-gray-400 text-left text-xs uppercase tracking-wider">
-              <th className="px-5 py-3 font-medium">{t("navStaff")}</th>
-              <th className="px-3 py-3 font-medium text-right">{t("scheduled")}</th>
+              <th className="px-3 sm:px-5 py-3 font-medium">{t("navStaff")}</th>
+              <th className="hidden sm:table-cell px-3 py-3 font-medium text-right">{t("scheduled")}</th>
               <th className="px-3 py-3 font-medium text-right">{t("actual")}</th>
-              <th className="px-3 py-3 font-medium text-right">{t("diff")}</th>
-              <th className="px-3 py-3 font-medium text-right">{t("rate")}</th>
-              <th className="px-3 py-3 font-medium text-right">{t("earned")}</th>
-              <th className="px-3 py-3 font-medium text-right">{t("tips")}</th>
-              <th className="px-3 py-3 font-medium text-right">{t("total")}</th>
+              <th className="hidden sm:table-cell px-3 py-3 font-medium text-right">{t("diff")}</th>
+              <th className="hidden md:table-cell px-3 py-3 font-medium text-right">{t("rate")}</th>
+              <th className="hidden sm:table-cell px-3 py-3 font-medium text-right">{t("earned")}</th>
+              <th className="hidden md:table-cell px-3 py-3 font-medium text-right">{t("tips")}</th>
+              <th className="px-3 sm:px-3 py-3 font-medium text-right">{t("total")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -326,13 +337,22 @@ function HoursSummaryTable({ summary, loading, currency }) {
                   key={row.staff_id || idx}
                   className="hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors"
                 >
-                  <td className="px-5 py-3">
+                  <td className="px-3 sm:px-5 py-3">
                     <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-700 dark:text-gray-300">
+                      <div className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-700 dark:text-gray-300 flex-shrink-0">
                         {(row.staff_name || "?").charAt(0).toUpperCase()}
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <span className="font-medium text-gray-800 dark:text-white">{row.staff_name}</span>
+                        {/* Mobile-only inline reveal of scheduled hours (column hidden < sm). */}
+                        <div className="sm:hidden text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">
+                          {row.scheduled_hours != null ? `${row.scheduled_hours.toFixed(1)}h planlagt` : ""}
+                          {diff !== 0 && row.scheduled_hours != null && (
+                            <span className={isOvertime ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}>
+                              {" \u00b7 "}{diff > 0 ? "+" : ""}{diff.toFixed(1)}h
+                            </span>
+                          )}
+                        </div>
                         {isNearLimit && (
                           <div className={`text-xs mt-0.5 font-semibold ${isOverLimit ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>
                             {row.staff_name?.split(" ")[0]}: {Math.round(row.actual_hours)}/{row.work_limit} hrs!
@@ -341,26 +361,26 @@ function HoursSummaryTable({ summary, loading, currency }) {
                       </div>
                     </div>
                   </td>
-                  <td className="px-3 py-3 text-right text-gray-600 dark:text-gray-300 tabular-nums">
+                  <td className="hidden sm:table-cell px-3 py-3 text-right text-gray-600 dark:text-gray-300 tabular-nums">
                     {row.scheduled_hours != null ? `${row.scheduled_hours.toFixed(1)}h` : "\u2014"}
                   </td>
                   <td className="px-3 py-3 text-right font-medium text-gray-800 dark:text-white tabular-nums">
                     {row.actual_hours != null ? `${row.actual_hours.toFixed(1)}h` : "\u2014"}
                   </td>
-                  <td className={`px-3 py-3 text-right font-medium tabular-nums ${
+                  <td className={`hidden sm:table-cell px-3 py-3 text-right font-medium tabular-nums ${
                     diff === 0 ? "text-gray-400 dark:text-gray-500"
                       : isOvertime ? "text-red-600 dark:text-red-400"
                       : "text-emerald-600 dark:text-gray-300"
                   }`}>
                     {diff === 0 ? "\u2014" : `${diff > 0 ? "+" : ""}${diff.toFixed(1)}h`}
                   </td>
-                  <td className="px-3 py-3 text-right text-gray-600 dark:text-gray-300 tabular-nums">
+                  <td className="hidden md:table-cell px-3 py-3 text-right text-gray-600 dark:text-gray-300 tabular-nums">
                     {row.hourly_rate != null ? `${row.hourly_rate} ${currency}/hr` : "\u2014"}
                   </td>
-                  <td className="px-3 py-3 text-right font-medium text-gray-800 dark:text-white tabular-nums">
+                  <td className="hidden sm:table-cell px-3 py-3 text-right font-medium text-gray-800 dark:text-white tabular-nums">
                     {row.earned != null ? `${row.earned.toFixed(0)} ${currency}` : "\u2014"}
                   </td>
-                  <td className="px-3 py-3 text-right text-gray-600 dark:text-gray-300 tabular-nums">
+                  <td className="hidden md:table-cell px-3 py-3 text-right text-gray-600 dark:text-gray-300 tabular-nums">
                     {row.tips != null && row.tips > 0 ? `${row.tips.toFixed(0)} ${currency}` : "\u2014"}
                   </td>
                   <td className="px-3 py-3 text-right font-bold text-gray-900 dark:text-white tabular-nums">
@@ -373,24 +393,24 @@ function HoursSummaryTable({ summary, loading, currency }) {
           {/* Totals row */}
           <tfoot>
             <tr className="bg-gray-50 dark:bg-gray-750 font-semibold text-gray-800 dark:text-white">
-              <td className="px-5 py-3 text-sm">Total ({summary.length} staff)</td>
-              <td className="px-3 py-3 text-right tabular-nums text-sm">
+              <td className="px-3 sm:px-5 py-3 text-sm">Total ({summary.length})</td>
+              <td className="hidden sm:table-cell px-3 py-3 text-right tabular-nums text-sm">
                 {summary.reduce((s, r) => s + (r.scheduled_hours || 0), 0).toFixed(1)}h
               </td>
               <td className="px-3 py-3 text-right tabular-nums text-sm">
                 {summary.reduce((s, r) => s + (r.actual_hours || 0), 0).toFixed(1)}h
               </td>
-              <td className="px-3 py-3 text-right tabular-nums text-sm">
+              <td className="hidden sm:table-cell px-3 py-3 text-right tabular-nums text-sm">
                 {(() => {
                   const d = summary.reduce((s, r) => s + (r.actual_hours || 0), 0) - summary.reduce((s, r) => s + (r.scheduled_hours || 0), 0);
                   return d === 0 ? "\u2014" : `${d > 0 ? "+" : ""}${d.toFixed(1)}h`;
                 })()}
               </td>
-              <td className="px-3 py-3" />
-              <td className="px-3 py-3 text-right tabular-nums text-sm">
+              <td className="hidden md:table-cell px-3 py-3" />
+              <td className="hidden sm:table-cell px-3 py-3 text-right tabular-nums text-sm">
                 {summary.reduce((s, r) => s + (r.earned || 0), 0).toFixed(0)} {currency}
               </td>
-              <td className="px-3 py-3 text-right tabular-nums text-sm">
+              <td className="hidden md:table-cell px-3 py-3 text-right tabular-nums text-sm">
                 {summary.reduce((s, r) => s + (r.tips || 0), 0).toFixed(0)} {currency}
               </td>
               <td className="px-3 py-3 text-right tabular-nums text-sm">

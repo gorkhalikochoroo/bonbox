@@ -1432,6 +1432,40 @@ const translations = {
     neverSold: "Never sold", removeItem: "Remove item", staffName: "Staff name",
     sickCallLogged: "Sick call logged", link: "Link",
     staffScheduleDesc: "Plan weekly shifts, manage staff, and track labor costs.",
+    // ── Staff v2 (2026-05-28) — Share-with-staff CTA + Push opt-in ──
+    // The whole staff-facing layer is locked on Free; Starter+ unlocks
+    // these copy strings. Danish-first niche: keeps DK vocabulary
+    // (Vagtplan, Aktivér push) and lets EN remain idiomatic for non-DK
+    // owners.  All keys ALSO defined in the `da` block below per
+    // CLAUDE.md i18n discipline (no fallback-prayer pattern).
+    scheduleShareButton: "Share with staff",
+    scheduleShareButtonShort: "Share",  // mobile-narrow label
+    scheduleEmailButtonShort: "Email",  // mobile-narrow label
+    scheduleShareSending: "Sharing…",
+    scheduleShareTitle: "Send every staff a personal portal link — they bookmark it once and get push when the schedule changes.",
+    scheduleShareConfirm: "Share this week's schedule with {n} staff via a personal magic link?",
+    scheduleShareNoRecipients: "No active staff have an email yet — add an email so they can receive their schedule link.",
+    scheduleShareEmailed: "links sent",
+    scheduleShareIssued: "new links minted",
+    scheduleShareSkippedNoEmail: "skipped (no email)",
+    scheduleShareFailed: "failed",
+    scheduleShareFailedAll: "Couldn't share the schedule.",
+    nudgeStaffPortalLink: "Send every staff a personal schedule link — they bookmark it, get push when shifts change",
+    // ── Staff portal push opt-in (used inside /s/{token} portal) ──
+    staffPushOnTitle: "Push notifications on",
+    staffPushOnHint: "You'll get a tap on this device when your schedule changes.",
+    staffPushOnTurnOff: "Turn off",
+    staffPushOffTitle: "Get push notifications",
+    staffPushOffHint: "Get a tap on this device when your shifts change or the schedule updates.",
+    staffPushEnable: "Enable push",
+    staffPushEnabling: "Enabling…",
+    staffPushIosInstallTitle: "Get push notifications",
+    staffPushIosInstallHint: "On iPhone, tap the share icon in Safari and choose Add to Home Screen. Open BonBox from the home-screen icon to enable push.",
+    staffPushBlockedTitle: "Push blocked",
+    staffPushBlockedHint: "Notifications are blocked in your browser settings. Re-enable them in Settings → Notifications → BonBox to get a tap when your shifts change.",
+    staffPushDeniedError: "Push permission was blocked. Re-enable in Settings to receive notifications.",
+    staffPushEnableFailed: "Couldn't enable push. Try again.",
+    staffPushDisableFailed: "Couldn't disable push.",
     payroll: "Payroll", sickCallTracker: "Sick Calls", lastMonth: "Last Month",
     weatherDays: "Weather Days", noSickCalls: "No sick calls recorded yet",
     couldNotLogSickCall: "Could not log sick call",
@@ -4981,6 +5015,37 @@ const translations = {
     neverSold: "Aldrig solgt", removeItem: "Fjern vare", staffName: "Medarbejdernavn",
     sickCallLogged: "Sygemelding registreret", link: "Tilknyt",
     staffScheduleDesc: "Planlæg ugentlige vagter, administrer personale og spor lønomkostninger.",
+    // ── Staff v2 (2026-05-28) — Del med medarbejdere + Push-tilmelding ──
+    // DK-først: bruger låste branchetermer (Vagtplan, medarbejdere,
+    // Aktivér, Notifikationer) per konventionen i CLAUDE.md.
+    scheduleShareButton: "Del med medarbejdere",
+    scheduleShareButtonShort: "Del",  // mobil-smalt label
+    scheduleEmailButtonShort: "E-mail",  // mobil-smalt label
+    scheduleShareSending: "Sender…",
+    scheduleShareTitle: "Send hver medarbejder et personligt portallink — de bogmærker det og får besked når vagtplanen ændres.",
+    scheduleShareConfirm: "Del denne uges vagtplan med {n} medarbejdere via et personligt magic link?",
+    scheduleShareNoRecipients: "Ingen aktive medarbejdere har en e-mail endnu — tilføj e-mail så de kan modtage deres link.",
+    scheduleShareEmailed: "links sendt",
+    scheduleShareIssued: "nye links oprettet",
+    scheduleShareSkippedNoEmail: "sprunget over (ingen e-mail)",
+    scheduleShareFailed: "mislykkedes",
+    scheduleShareFailedAll: "Kunne ikke dele vagtplanen.",
+    nudgeStaffPortalLink: "Send hver medarbejder et personligt vagtplanslink — de bogmærker det og får push når vagter ændres",
+    // ── Medarbejderportal push-tilmelding (på /s/{token}) ──
+    staffPushOnTitle: "Push-notifikationer aktiveret",
+    staffPushOnHint: "Du får en notifikation på denne enhed når din vagtplan ændres.",
+    staffPushOnTurnOff: "Slå fra",
+    staffPushOffTitle: "Få push-notifikationer",
+    staffPushOffHint: "Få en notifikation på denne enhed når dine vagter ændres eller vagtplanen opdateres.",
+    staffPushEnable: "Aktivér push",
+    staffPushEnabling: "Aktiverer…",
+    staffPushIosInstallTitle: "Få push-notifikationer",
+    staffPushIosInstallHint: "På iPhone: tryk på del-ikonet i Safari og vælg Føj til hjemmeskærm. Åbn BonBox fra hjemmeskærmen for at aktivere push.",
+    staffPushBlockedTitle: "Push blokeret",
+    staffPushBlockedHint: "Notifikationer er blokeret i dine browserindstillinger. Genaktivér under Indstillinger → Notifikationer → BonBox for at få besked når dine vagter ændres.",
+    staffPushDeniedError: "Push-tilladelse blev blokeret. Genaktivér under Indstillinger for at modtage notifikationer.",
+    staffPushEnableFailed: "Kunne ikke aktivere push. Prøv igen.",
+    staffPushDisableFailed: "Kunne ikke slå push fra.",
     payroll: "Løn", sickCallTracker: "Sygemeldinger", lastMonth: "Sidste måned",
     weatherDays: "Vejrdage", noSickCalls: "Ingen sygemeldinger endnu",
     couldNotLogSickCall: "Kunne ikke registrere sygemelding",

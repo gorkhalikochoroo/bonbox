@@ -572,14 +572,21 @@ export default function StaffSchedulePage() {
 
             {/* Action buttons — one accent (Publish = the money moment),
                 rest secondary / ghost. */}
-            <div className="flex items-center gap-2 flex-wrap justify-center">
+            {/* Mobile-first toolbar: 7 actions in one row.  On phones the
+                verbose labels (Copy Last Week, Share with staff, Email
+                staff) collapse to icon-only with title-tooltips, so they
+                fit a 375px viewport in 2 rows max. Tablet+ shows full
+                labels. */}
+            <div className="flex items-center gap-2 flex-wrap justify-center sm:justify-end w-full sm:w-auto">
               <Button
                 variant="primary"
                 size="sm"
                 onClick={() => setShiftModal({ staffId: null, date: null, shift: null })}
                 iconLeft={<Icon name="Plus" size={14} />}
+                title="Add shift"
               >
-                Add Shift
+                <span className="hidden sm:inline">Add Shift</span>
+                <span className="sm:hidden">Add</span>
               </Button>
               <Button
                 variant="secondary"
@@ -587,8 +594,15 @@ export default function StaffSchedulePage() {
                 onClick={handleCopyLastWeek}
                 disabled={copying}
                 busy={copying}
+                title="Copy last week's schedule"
+                iconLeft={!copying && <Icon name="Copy" size={14} />}
               >
-                {copying ? "Copying..." : "Copy Last Week"}
+                {copying
+                  ? "…"
+                  : (<>
+                      <span className="hidden sm:inline">Copy Last Week</span>
+                      <span className="sm:hidden">Copy</span>
+                    </>)}
               </Button>
               {/* Autopilot (Pro+ killer feature) — proposes next week's
                   schedule from 8 weeks of sales + the 7-day forecast +
@@ -607,7 +621,7 @@ export default function StaffSchedulePage() {
                 )}
               >
                 {autopilotLoading
-                  ? t("autopilotRunning", "Thinking…")
+                  ? t("autopilotRunning", "…")
                   : t("autopilotButton", "Autopilot")}
               </Button>
               <Button
@@ -616,8 +630,14 @@ export default function StaffSchedulePage() {
                 onClick={handlePublish}
                 disabled={publishing}
                 busy={publishing}
+                title="Publish week"
               >
-                {publishing ? "Publishing..." : "Publish Week"}
+                {publishing
+                  ? "…"
+                  : (<>
+                      <span className="hidden sm:inline">Publish Week</span>
+                      <span className="sm:hidden">Publish</span>
+                    </>)}
               </Button>
               {/* PDF export — owners print this and pin it on the
                   back-of-house staff board. */}
@@ -634,7 +654,8 @@ export default function StaffSchedulePage() {
               {/* Share with staff (Staff v2, Starter+) — mints/refreshes
                   StaffLink magic-links and emails each staff their personal
                   portal URL. The portal becomes the live coordination loop
-                  (push notifications, shift confirmations, swap requests). */}
+                  (push notifications, shift confirmations, swap requests).
+                  Icon-only on mobile keeps the toolbar from overflowing. */}
               <Button
                 variant="secondary"
                 size="sm"
@@ -648,8 +669,11 @@ export default function StaffSchedulePage() {
                 )}
               >
                 {sharing
-                  ? t("scheduleShareSending", "Sharing…")
-                  : t("scheduleShareButton", "Share with staff")}
+                  ? "…"
+                  : (<>
+                      <span className="hidden sm:inline">{t("scheduleShareButton", "Share with staff")}</span>
+                      <span className="sm:hidden">{t("scheduleShareButtonShort", "Share")}</span>
+                    </>)}
               </Button>
               {/* Email schedule to all active staff. */}
               <Button
@@ -662,8 +686,11 @@ export default function StaffSchedulePage() {
                 title={t("scheduleEmailTitle", "Email the week's schedule to every staff member with an email on file")}
               >
                 {emailing
-                  ? (t("scheduleEmailSending", "Sending…"))
-                  : (t("scheduleEmailButton", "Email staff"))}
+                  ? "…"
+                  : (<>
+                      <span className="hidden sm:inline">{t("scheduleEmailButton", "Email staff")}</span>
+                      <span className="sm:hidden">{t("scheduleEmailButtonShort", "Email")}</span>
+                    </>)}
               </Button>
             </div>
           </div>

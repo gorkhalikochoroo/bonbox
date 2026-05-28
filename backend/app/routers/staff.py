@@ -655,27 +655,42 @@ def share_with_staff(
                 continue
 
             portal_url = f"https://bonbox.dk/s/{link.token}"
-            subject = f"{restaurant_name} — your shift portal is ready"
-            # Plain, branded HTML. Inlined styles so email clients render it.
+            first_name = (member.name or "").split(" ")[0] or member.name or ""
+            # DK-first niche email — restaurant/butik/værksted markets in DK
+            # expect Danish.  Keep brand-locked vocabulary (vagtplan, push,
+            # notifikationer) per convention_dk_terminology_lock.md.
+            subject = f"{restaurant_name} — din vagtplan er klar"
+            # Plain, branded HTML. Inlined styles so email clients render it
+            # consistently (Outlook, Gmail, Apple Mail).
             html = (
-                f"<div style=\"font-family: system-ui, sans-serif; max-width: 520px;\">"
-                f"<h2 style=\"color:#111;margin:0 0 12px;\">Hej {member.name.split(' ')[0]},</h2>"
-                f"<p style=\"color:#333;line-height:1.5;\">"
-                f"{restaurant_name} har delt din vagtplan med dig. Bogmærk linket — "
-                f"hver gang ejeren udgiver eller ændrer din uge, ser du opdateringen her med det samme:"
+                f"<div style=\"font-family: -apple-system, BlinkMacSystemFont, "
+                f"'Segoe UI', system-ui, sans-serif; max-width: 520px; "
+                f"color: #111; line-height: 1.5;\">"
+                f"<h2 style=\"color:#111;margin:0 0 12px;font-size:20px;\">"
+                f"Hej {first_name},</h2>"
+                f"<p style=\"color:#333;margin:0 0 16px;\">"
+                f"{restaurant_name} har delt din vagtplan med dig. "
+                f"Bogmærk linket — hver gang vagtplanen ændres, ser du "
+                f"opdateringen her med det samme."
                 f"</p>"
                 f"<p style=\"margin:24px 0;\">"
                 f"<a href=\"{portal_url}\" "
-                f"style=\"display:inline-block;background:#111;color:#fff;padding:12px 20px;"
-                f"text-decoration:none;border-radius:8px;font-weight:600;\">"
+                f"style=\"display:inline-block;background:#111;color:#fff;"
+                f"padding:12px 22px;text-decoration:none;border-radius:8px;"
+                f"font-weight:600;font-size:15px;\">"
                 f"Åbn min vagtplan</a>"
                 f"</p>"
-                f"<p style=\"color:#666;font-size:13px;line-height:1.5;\">"
-                f"Tip: Tryk på <em>Add to Home Screen</em> i Safari for at få notifikationer "
-                f"når dit skema ændres. Linket er personligt — del det ikke."
+                f"<p style=\"color:#666;font-size:13px;margin:0 0 8px;\">"
+                f"<strong>Tip:</strong> Tryk på del-ikonet i Safari og vælg "
+                f"<em>Føj til hjemmeskærm</em> for at få push-notifikationer "
+                f"når vagter ændres."
                 f"</p>"
-                f"<p style=\"color:#999;font-size:12px;margin-top:32px;\">"
-                f"{restaurant_name} · via BonBox</p>"
+                f"<p style=\"color:#666;font-size:13px;margin:0 0 24px;\">"
+                f"Linket er personligt — del det ikke med andre."
+                f"</p>"
+                f"<p style=\"color:#999;font-size:12px;margin:32px 0 0;"
+                f"padding-top:16px;border-top:1px solid #eee;\">"
+                f"{restaurant_name} · sendt via BonBox</p>"
                 f"</div>"
             )
             success = send_email(to=member.email, subject=subject, html=html)
